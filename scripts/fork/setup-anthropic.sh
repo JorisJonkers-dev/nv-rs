@@ -3,11 +3,11 @@
 # this repository, the end-to-end check, removal of the old API key and a first sync. Idempotent: rerun it.
 #
 #   scripts/fork/setup-anthropic.sh            phase 1: login, workspace, federation, GitHub variables
-#   scripts/fork/setup-anthropic.sh --verify   phase 2 (after the baseline pull request is merged to main):
+#   scripts/fork/setup-anthropic.sh --verify   phase 2 (after the baseline pull request is merged to fork):
 #                                              run the check workflow, remove the old key, optional first sync
 #
 # Phase 2 is separate because the check and the sync run in the `fork-sync` environment, which only runs on
-# main can use, and the workflows exist on main only once the baseline pull request is merged.
+# the fork branch can use, and the workflows exist on it only once the baseline pull request is merged.
 # Needs: ant (logged in as an organisation admin during phase 1), gh (admin on the repository), python3, curl, jq.
 # Walkthrough and background: docs/fork/WIF.md.
 set -euo pipefail
@@ -24,12 +24,12 @@ die() { printf 'setup-anthropic: %s\n' "$*" >&2; exit 1; }
 for c in ant gh python3 curl jq; do command -v "$c" >/dev/null || die "missing command: $c"; done
 gh auth status >/dev/null 2>&1 || die "gh is not logged in (gh auth login)"
 
-on_main() { gh api "repos/$repo/contents/.github/workflows/$1?ref=main" --silent 2>/dev/null; }
+on_fork() { gh api "repos/$repo/contents/.github/workflows/$1?ref=fork" --silent 2>/dev/null; }
 
 if [ "$mode" = "--verify" ]; then
-  on_main fork-wif-check.yml || die "the check workflow is not on main yet: merge the baseline pull request first, then rerun with --verify"
-  say "1/3 Run 'Claude Federation Check' on main"
-  gh workflow run fork-wif-check.yml -R "$repo" --ref main
+  on_fork fork-wif-check.yml || die "the check workflow is not on the fork branch yet: merge the baseline pull request first, then rerun with --verify"
+  say "1/3 Run 'Claude Federation Check' on the fork branch"
+  gh workflow run fork-wif-check.yml -R "$repo" --ref fork
   sleep 8
   id=$(gh run list -R "$repo" --workflow fork-wif-check.yml --limit 1 --json databaseId --jq '.[0].databaseId')
   gh run watch "$id" -R "$repo" --exit-status || die "the federation check failed. Read the log: gh run view $id -R $repo --log-failed . The reason is also on the Console's Workload identity page, tab Authentication history."
@@ -47,8 +47,8 @@ if [ "$mode" = "--verify" ]; then
   say "3/3 First sync (optional)"
   read -r -p "Run 'Upstream Sync' now? [y/N] " a
   if [ "$a" = y ]; then
-    on_main fork-sync.yml || die "fork-sync.yml is not on main"
-    gh workflow run fork-sync.yml -R "$repo" --ref main && echo "started: gh run list -R $repo --workflow fork-sync.yml"
+    on_fork fork-sync.yml || die "fork-sync.yml is not on the fork branch"
+    gh workflow run fork-sync.yml -R "$repo" --ref fork && echo "started: gh run list -R $repo --workflow fork-sync.yml"
   fi
   echo; echo "Done. Federation works and no API key is stored."
   exit 0
@@ -86,13 +86,13 @@ read -r -p "Press Enter once the monthly limit (for example \$5) is set: " _
 say "4/5 Workload identity federation and the GitHub variables"
 gh api "repos/$repo/environments/$env_name" --silent 2>/dev/null || {
   gh api -X PUT "repos/$repo/environments/$env_name" --silent
-  echo "created the '$env_name' environment (scripts/fork/setup-repo.sh restricts it to main)"
+  echo "created the '$env_name' environment (scripts/fork/setup-repo.sh restricts it to the fork branch)"
 }
 python3 -I "$here/setup-anthropic-wif.py" --workspace "$ws" --repo "$repo" --env "$env_name"
 
 say "5/5 Admin login removed (on exit). Next"
-if on_main fork-wif-check.yml; then
-  echo "The workflows are on main: run  scripts/fork/setup-anthropic.sh --verify"
+if on_fork fork-wif-check.yml; then
+  echo "The workflows are on the fork branch: run  scripts/fork/setup-anthropic.sh --verify"
 else
-  echo "Merge the baseline pull request to main, then run  scripts/fork/setup-anthropic.sh --verify"
+  echo "Merge the baseline pull request to the fork branch, then run  scripts/fork/setup-anthropic.sh --verify"
 fi

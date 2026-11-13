@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fork-only. Replays every upstream commit that the fork's main does not have yet onto a branch
+# Fork-only. Replays every upstream commit that the fork branch does not have yet onto a branch
 # of the fork, one commit each, with the SAME change and a Conventional Commit message.
 #
 #   * the diff of each fork commit equals the diff of the upstream commit (git cherry-pick);
@@ -8,16 +8,19 @@
 #     the original body without coding-agent credits, #123 turned into slaterain/nv-rs#123 so it does
 #     not link to this repository, and the trailer `Upstream-Commit: <sha>`, which is how the next run
 #     knows where this one stopped;
-#   * the fork's main is never rewritten: it only grows. Merge the branch by REBASE (not squash, which
+#   * the fork branch is never rewritten: it only grows. Merge the branch by REBASE (not squash, which
 #     would put the many messages into one).
 #
 # Usage: scripts/fork/replay-upstream.sh [--push]     (branch: sync/upstream)
 # Stops on the first commit that does not apply (upstream touched a line the fork changed).
 set -euo pipefail
 
-upstream_remote=${UPSTREAM_REMOTE:-upstream}
-upstream_url=${UPSTREAM_URL:-https://github.com/slaterain/nv-rs.git}
+# `main` of the fork repository is a pure copy of upstream's main, kept current by GitHub's own sync
+# (`gh repo sync <repo> -b main`, or the Upstream Sync workflow). This script reads it and never talks to
+# upstream itself. The fork's own line is the branch `fork`.
 fork_remote=${FORK_REMOTE:-origin}
+mirror_branch=${MIRROR_BRANCH:-main}
+base_branch=${BASE_BRANCH:-fork}
 branch=${SYNC_BRANCH:-sync/upstream}
 upstream_slug=slaterain/nv-rs
 # Credits that are not people. Their trailers and "generated with" lines are dropped.
@@ -30,17 +33,15 @@ push=false
 
 git rev-parse --git-dir >/dev/null 2>&1 || die "run inside the fork's clone"
 [[ -z $(git status --porcelain --untracked-files=no) ]] || die "the work tree is not clean"
-git remote get-url "$upstream_remote" >/dev/null 2>&1 || git remote add "$upstream_remote" "$upstream_url"
-git fetch --quiet --no-tags "$upstream_remote" main
-git fetch --quiet --no-tags "$fork_remote" main
-up=$(git rev-parse "$upstream_remote/main")
-base=$(git rev-parse "$fork_remote/main")
+git fetch --quiet --no-tags "$fork_remote" "$mirror_branch" "$base_branch"
+up=$(git rev-parse "$fork_remote/$mirror_branch")
+base=$(git rev-parse "$fork_remote/$base_branch")
 
-# Where the last run stopped: the newest Upstream-Commit trailer on the fork's main. Before the first
+# Where the last run stopped: the newest Upstream-Commit trailer on the fork branch. Before the first
 # run, the point the fork was cut from upstream (its history is upstream's own).
 last=$(git log -1 --format=%B --grep='^Upstream-Commit: [0-9a-f]\{40\}$' "$base" \
   | sed -n 's/^Upstream-Commit: \([0-9a-f]\{40\}\)$/\1/p' | tail -n 1)
-[[ -n $last ]] || last=$(git merge-base "$base" "$up") || die "the fork's main shares no history with upstream"
+[[ -n $last ]] || last=$(git merge-base "$base" "$up") || die "the fork branch shares no history with the upstream copy"
 git merge-base --is-ancestor "$last" "$up" || die "upstream main no longer contains $last: upstream rewrote history, choose the fork point again by hand"
 [[ $last != "$up" ]] || { echo "already in sync at ${up:0:8}"; exit 0; }
 
@@ -52,7 +53,7 @@ msg=$(mktemp)
 trap 'rm -f "$msg"' EXIT
 for c in "${commits[@]}"; do
   # An upstream commit that adds or changes a workflow would run with this repository's secrets once it is
-  # on main, and the sync's token may not push workflow files anyway. A person reads such a commit first.
+  # on the fork branch, and the sync's token may not push workflow files anyway. A person reads such a commit first.
   if [[ ${ALLOW_WORKFLOW_CHANGES:-0} != 1 ]] && git diff-tree --no-commit-id --name-only -r "$c" | grep -q '^\.github/workflows/'; then
     die "upstream commit ${c:0:12} changes .github/workflows: read it, then apply it by hand or rerun with ALLOW_WORKFLOW_CHANGES=1"
   fi
@@ -79,10 +80,9 @@ done
 echo "replayed ${#commits[@]} upstream commits onto $branch"
 
 if $push; then
-  git push --quiet "$fork_remote" "$up:refs/heads/upstream-main"
   git push --quiet --force-with-lease "$fork_remote" "$branch"
-  echo "pushed upstream-main and $branch. Open the pull request and merge it by rebase:"
-  echo "  gh pr create --repo JorisJonkers-dev/nv-rs --base main --head $branch --label allow-repository-hygiene-exception --title \"chore(sync): replay upstream up to ${up:0:8}\" --body \"Replays ${#commits[@]} upstream commits, identical changes, Conventional Commit messages.\""
+  echo "pushed $branch. Open the pull request and merge it by rebase:"
+  echo "  gh pr create --repo JorisJonkers-dev/nv-rs --base $base_branch --head $branch --label allow-repository-hygiene-exception --title \"chore(sync): replay upstream up to ${up:0:8}\" --body \"Replays ${#commits[@]} upstream commits, identical changes, Conventional Commit messages.\""
 else
   echo "review with: git log --oneline $base..$branch ; then rerun with --push"
 fi

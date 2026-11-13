@@ -1,6 +1,6 @@
 # Fork-only. Replays new upstream commits onto sync/upstream (identical changes, Conventional Commit
 # messages) and opens or refreshes the pull request. The pull request is merged by REBASE so each
-# replayed commit stays one commit on main; Pipeline Complete must pass first. Needs the repository
+# replayed commit stays one commit on the fork branch; Pipeline Complete must pass first. Needs the repository
 # federation variables for the titles (docs/fork/WIF.md; without them the rule in rewrite_title.py is used)
 # and the fork App secrets so that CI runs on the pull request.
 name: Upstream Sync
@@ -21,7 +21,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # The environment only runs on main can use (setup-repo.sh). The job asks GitHub for an OIDC token that
+    # The environment only runs on the fork branch can use (setup-repo.sh). The job asks GitHub for an OIDC token that
     # Anthropic exchanges for a short-lived token (docs/fork/WIF.md): no API key is stored anywhere.
     environment: fork-sync
     permissions:
@@ -41,6 +41,16 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
+
+      # `main` of this repository is a pure copy of upstream's main, kept by GitHub's own sync. It never carries
+      # fork-only commits, so this is always a fast-forward. If GitHub refuses (for example because upstream changed
+      # workflow files and the token may not), the copy stays where it was and the replay works from there.
+      - name: Update the upstream copy (main)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api -X POST "repos/$GITHUB_REPOSITORY/merge-upstream" -f branch=main --jq '.merge_type + ": " + .message' \
+            || echo "::warning::could not update main from upstream (see docs/fork/KEEPING-IN-SYNC.md)"
 
       - name: Replay upstream
         id: replay
@@ -69,12 +79,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$(gh pr list --head sync/upstream --state open --json number --jq '.[0].number')" ]; then
-            gh pr create --base main --head sync/upstream --label allow-repository-hygiene-exception \
+            gh pr create --base fork --head sync/upstream --label allow-repository-hygiene-exception \
               --title "chore(sync): replay upstream" \
               --body "Replays new commits of slaterain/nv-rs: the same changes, Conventional Commit messages. Merge by rebase."
           fi
           # Upstream's ci.yml is disabled in the fork and split into fork-build.yml: a change to it needs a look.
-          if git diff --name-only origin/main...sync/upstream | grep -qx '.github/workflows/ci.yml'; then
+          if git diff --name-only origin/fork...sync/upstream | grep -qx '.github/workflows/ci.yml'; then
             gh pr edit sync/upstream --add-label ci-parity-review
             gh pr comment sync/upstream --body "Upstream changed .github/workflows/ci.yml. Compare it with .github/workflows/fork-build.yml (parity note at the top of that file) before merging."
           fi

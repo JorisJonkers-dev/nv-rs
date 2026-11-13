@@ -28,8 +28,8 @@ differs from upstream, apart from the notice at the top of the README
 
 | Branch | What it is |
 | --- | --- |
-| `main` | upstream's history, replayed commit by commit with the same changes and Conventional Commit messages, plus the fork's own commits. Protected: pull requests only (squash for people, rebase for the sync), the `Pipeline Complete` check must pass. Never rewritten. |
-| `upstream-main` | an exact mirror of `slaterain/nv-rs` `main` with upstream's own commit ids, pushed by the sync. Topic branches meant for upstream start here. |
+| `fork` | **the default branch**: upstream's history, replayed commit by commit with the same changes and Conventional Commit messages, plus the fork's own commits. Protected: pull requests only (squash for people, rebase for the sync), the `Pipeline Complete` check must pass. Never rewritten. |
+| `main` | an exact copy of `slaterain/nv-rs` `main`, with upstream's own commit ids, kept by GitHub's own sync (Sync fork is safe here). Nothing else writes it. Topic branches meant for upstream start here. |
 | `sync/upstream` | the open sync pull request. |
 | `<type>/<topic>` | work on the fork, for example `feat/linux-vulkan`. |
 

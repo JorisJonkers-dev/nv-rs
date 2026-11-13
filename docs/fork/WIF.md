@@ -3,24 +3,24 @@
 The sync workflow asks a small model for commit titles. Instead of storing an API key, the job asks GitHub for a
 short-lived identity token (OIDC) and Anthropic trades it for an access token that lives ten minutes. There is
 nothing to steal from the repository, nothing to rotate, and the rule only accepts this repository, this
-environment and `main`.
+environment and the `fork` branch.
 
 ```
-job (environment fork-sync, on main) --OIDC token--> GitHub
+job (environment fork-sync, on fork) --OIDC token--> GitHub
 job --token--> Anthropic /v1/oauth/token --checks the rule--> access token (10 min, inference only)
 job --access token--> /v1/messages
 ```
 
 What you set up in Anthropic: an **issuer** (GitHub Actions, once per organisation), a **service account**, and a
 **federation rule** that says "tokens from that issuer whose subject is `repo:JorisJonkers-dev/nv-rs:environment:fork-sync`,
-repository `JorisJonkers-dev/nv-rs`, ref `refs/heads/main` may act as that service account in this workspace".
+repository `JorisJonkers-dev/nv-rs`, ref `refs/heads/fork` may act as that service account in this workspace".
 `scripts/fork/setup-anthropic-wif.py` does all of it through the Admin API.
 
 ## The short way: one script
 
 ```sh
 scripts/fork/setup-anthropic.sh            # login, workspace, federation, GitHub variables
-# merge the baseline pull request to main, then:
+# merge the baseline pull request to fork, then:
 scripts/fork/setup-anthropic.sh --verify   # runs the check, removes the old key, optional first sync
 ```
 
@@ -64,7 +64,7 @@ them gets nobody a token. If the Admin API refuses something, the Console does t
 
 **4. Unset the admin token** (`unset ANTHROPIC_AUTH_TOKEN`; `ant --profile admin auth logout` if you want it gone).
 
-**5. Check it end to end.** Actions, **Claude Federation Check**, Run workflow (it runs in the `fork-sync` environment on `main`).
+**5. Check it end to end.** Actions, **Claude Federation Check**, Run workflow (it runs in the `fork-sync` environment on `fork`).
 It prints `token exchange: ok` and `messages call: HTTP 200`. A failure prints the HTTP status; the reason is on the
 Console's Workload identity page, tab **Authentication history**.
 
@@ -79,10 +79,10 @@ key is gone.
 
 | Match | Value | Why |
 | --- | --- | --- |
-| `subject_prefix` (exact) | `repo:JorisJonkers-dev/nv-rs:environment:fork-sync` | a job that declares the environment gets this subject; only runs on `main` can use the environment |
+| `subject_prefix` (exact) | `repo:JorisJonkers-dev/nv-rs:environment:fork-sync` | a job that declares the environment gets this subject; only runs on `fork` can use the environment |
 | `claims.repository` | `JorisJonkers-dev/nv-rs` | defence in depth against subject parsing |
 | `claims.repository_owner` | `JorisJonkers-dev` | the same |
-| `claims.ref` | `refs/heads/main` | a run from another branch never matches |
+| `claims.ref` | `refs/heads/fork` | a run from another branch never matches |
 | `audience` | `https://api.anthropic.com` | what the workflow asks GitHub for |
 | scope | `workspace:inference` | the token can call the model and nothing else; the script falls back to `workspace:developer` only if inference is refused |
 | lifetime | 600 seconds | the least that covers one replay |

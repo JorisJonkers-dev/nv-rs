@@ -8,16 +8,16 @@ on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
   push:
-    branches: [main]
+    branches: [fork]
   workflow_dispatch:
 
 # A new commit on a branch cancels the run still going for the older one: runners are limited and the older
 # result is of no use. Not cancelled: a title edit (its own group, so it neither cancels nor is cancelled by a
-# push; no label events trigger this workflow, so a bot labelling a new pull request starts nothing) and main
-# (every commit there runs to the end, so main always has a finished run and its caches are saved).
+# push; no label events trigger this workflow, so a bot labelling a new pull request starts nothing) and the fork
+# branch (every commit there runs to the end, so it always has a finished run and its caches are saved).
 concurrency:
-  group: pipeline-${{ github.ref == 'refs/heads/main' && github.sha || format('{0}-{1}', github.event.pull_request.number || github.ref, github.event.action == 'edited' && github.run_id || 'commits') }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: pipeline-${{ github.ref == 'refs/heads/fork' && github.sha || format('{0}-{1}', github.event.pull_request.number || github.ref, github.event.action == 'edited' && github.run_id || 'commits') }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/fork' }}
 
 permissions:
   contents: read

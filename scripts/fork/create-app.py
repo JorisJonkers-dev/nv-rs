@@ -148,12 +148,12 @@ def main() -> None:
         print("selftest ok: manifest page served, wrong state refused")
         return
 
-    # Make sure the environment that will hold the secrets exists (restricted to main by setup-repo.sh).
+    # Make sure the environment that will hold the secrets exists (restricted to the fork branch by setup-repo.sh).
     # Only create it when absent: a PUT on an existing environment can reset its deployment branch policy.
     exists = subprocess.run(["gh", "api", f"repos/{a.repo}/environments/{a.env}", "--silent"], capture_output=True).returncode == 0
     if not exists:
         subprocess.run(["gh", "api", "-X", "PUT", f"repos/{a.repo}/environments/{a.env}", "--silent"], check=True)
-        print(f"created the '{a.env}' environment; run scripts/fork/setup-repo.sh to restrict it to main")
+        print(f"created the '{a.env}' environment; run scripts/fork/setup-repo.sh to restrict it to the fork branch")
 
     print(f"Opening http://127.0.0.1:{port}/ ; if no browser opens, open it yourself.")
     print("In the browser: Continue to GitHub, confirm the name, press 'Create GitHub App'.")

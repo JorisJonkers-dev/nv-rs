@@ -3,7 +3,7 @@
 
 Creates (or reuses) in your Anthropic organisation: a federation issuer for GitHub Actions, a service account,
 its membership of one workspace, and a federation rule that only the `fork-sync` environment of this repository
-on `main` can satisfy. Then stores the (non-secret) identifiers as environment variables of the repository with `gh`.
+on the `fork` branch can satisfy. Then stores the (non-secret) identifiers as environment variables of the repository with `gh`.
 
 Usage:  export ANTHROPIC_AUTH_TOKEN=$(ant auth print-credentials --profile admin --access-token)   # see docs/fork/WIF.md
         scripts/fork/setup-anthropic-wif.py --workspace wrkspc_... [--org-id <uuid>] [--dry-run]
@@ -96,7 +96,7 @@ def run(a: argparse.Namespace, api: Api) -> dict:
             "match": {
                 "subject_prefix": f"repo:{a.repo}:environment:{a.env}",
                 "audience": AUDIENCE,
-                "claims": {"repository_owner": owner, "repository": a.repo, "ref": "refs/heads/main"},
+                "claims": {"repository_owner": owner, "repository": a.repo, "ref": "refs/heads/fork"},
             },
             "target": {"type": "service_account", "service_account_id": sa["id"]},
             "workspace_id": a.workspace,
@@ -173,11 +173,11 @@ def selftest() -> None:
     assert ids == again, "second run must reuse everything"
     rule = state["rules"][0]
     assert rule["match"]["subject_prefix"] == "repo:JorisJonkers-dev/nv-rs:environment:fork-sync"
-    assert rule["match"]["claims"]["ref"] == "refs/heads/main" and rule["oauth_scope"] == "workspace:inference"
+    assert rule["match"]["claims"]["ref"] == "refs/heads/fork" and rule["oauth_scope"] == "workspace:inference"
     assert len(state["rules"]) == 1 and len(state["sas"]) == 1 and len(state["issuers"]) == 1
     assert ("POST", "service_accounts/svac_1/workspaces", {"workspace_id": "wrkspc_test", "workspace_role": "workspace_developer"}) in state["calls"]
     srv.shutdown()
-    print("selftest ok: created once, reused on the second run, rule pinned to the environment, main and the repository")
+    print("selftest ok: created once, reused on the second run, rule pinned to the environment, the fork branch and the repository")
 
 
 def main() -> None:

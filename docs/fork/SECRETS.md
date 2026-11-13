@@ -7,8 +7,8 @@ code with it.
 | Rule | How it is kept |
 | --- | --- |
 | People who open pull requests cannot reach secrets | Workflows from forked pull requests get no secrets; nothing uses `pull_request_target`. Outside contributors need approval before any workflow runs (Settings, Actions, General) |
-| There is no API key to read | The sync job trades its GitHub OIDC token for a 10-minute, inference-only Anthropic token (workload identity federation, [WIF.md](WIF.md)); the rule accepts only this repository, the `fork-sync` environment and `main` |
-| Only `main` can use the environment | `fork-sync` is restricted to runs on `main` (`scripts/fork/setup-repo.sh`), so a branch with a changed workflow can neither read its secrets nor satisfy the Anthropic rule |
+| There is no API key to read | The sync job trades its GitHub OIDC token for a 10-minute, inference-only Anthropic token (workload identity federation, [WIF.md](WIF.md)); the rule accepts only this repository, the `fork-sync` environment and `fork` |
+| Only `fork` can use the environment | `fork-sync` is restricted to runs on the `fork` branch (`scripts/fork/setup-repo.sh`), so a branch with a changed workflow can neither read its secrets nor satisfy the Anthropic rule |
 | Few people can push | Write access is the real boundary: keep collaborators to people you trust, and review every change to `.github/` |
 | Third-party actions cannot read it | Every action is pinned by commit SHA (Renovate moves the pins); `zizmor` lints the workflows |
 | Upstream cannot run code with it | The replay stops at any upstream commit that changes `.github/workflows`, runs from a copy of the scripts, and the sync's token cannot push workflow files |

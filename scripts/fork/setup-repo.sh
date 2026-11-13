@@ -5,6 +5,8 @@
 #   scripts/fork/setup-repo.sh --audit [owner/repo]     report what is present and what is missing; changes nothing
 #   scripts/fork/setup-repo.sh [owner/repo]             apply what is missing (DRY_RUN=1 prints the calls instead)
 #
+# Branch layout: `main` is a pure copy of upstream's main (kept by GitHub's sync), `fork` is the default branch
+# and holds our commits (docs/fork/KEEPING-IN-SYNC.md). The move there is scripts/fork/switch-to-fork.sh.
 # Covers: merge methods and auto-merge, secret scanning and push protection, Dependabot alerts, private
 # vulnerability reporting, CodeQL, the workflow token, which actions may run (GitHub's, the organisation's and a
 # short list, pinned by SHA), approval for outside contributors' workflow runs, the fork-sync environment, labels,
@@ -68,10 +70,10 @@ ensure "outside contributors' workflow runs need approval" \
   "get repos/$repo/actions/permissions/fork-pr-contributor-approval | jq -e '.approval_policy==\"all_external_contributors\"'" a_approval
 a_env() {
   call PUT "repos/$repo/environments/fork-sync" '{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'
-  call POST "repos/$repo/environments/fork-sync/deployment-branch-policies" '{"name":"main","type":"branch"}'
+  call POST "repos/$repo/environments/fork-sync/deployment-branch-policies" '{"name":"fork","type":"branch"}'
 }
-ensure "environment fork-sync (secrets readable only by runs on main)" \
-  "get repos/$repo/environments/fork-sync | jq -e '.deployment_branch_policy.custom_branch_policies==true'" a_env
+ensure "environment fork-sync (secrets readable only by runs on the fork branch)" \
+  "get repos/\$repo/environments/fork-sync | jq -e '.deployment_branch_policy.custom_branch_policies==true' && get repos/\$repo/environments/fork-sync/deployment-branch-policies | jq -e '[.branch_policies[].name]==[\"fork\"]'" a_env
 a_ci() { if [ "$dry" = 1 ]; then echo "     + gh workflow disable ci.yml -R $repo"; else gh workflow disable ci.yml -R "$repo" >/dev/null 2>&1 || echo "     (ci.yml not found)"; fi; }
 ensure "upstream's ci.yml disabled (fork-build-*.yml replaces it)" \
   "get repos/$repo/actions/workflows/ci.yml | jq -e '.state!=\"active\"'" a_ci
@@ -88,9 +90,12 @@ a_labels() {
 }
 ensure "labels (hygiene exception, ci-parity-review, Renovate's)" \
   "get repos/$repo/labels --paginate --jq '.[].name' | grep -qx allow-repository-hygiene-exception && get repos/$repo/labels --paginate --jq '.[].name' | grep -qx ci-parity-review" a_labels
+a_switch_hint() { echo "     run scripts/fork/switch-to-fork.sh (the default branch and the old ruleset need your admin rights and a pause)"; }
 a_rulesets() { if [ "$dry" = 1 ]; then echo "     + $here/apply-ruleset.sh $repo"; else bash "$here/apply-ruleset.sh" "$repo"; fi; }
-ensure "ruleset Main: Pipeline Complete, pull requests only, linear history, no force push" \
-  "get repos/$repo/rulesets | jq -e 'map(select(.name==\"Main\" and .enforcement==\"active\"))|length==1'" a_rulesets
+ensure "ruleset Fork line: Pipeline Complete, pull requests only, linear history, no force push" \
+  "get repos/$repo/rulesets | jq -e 'map(select(.name==\"Fork line\" and .enforcement==\"active\"))|length==1'" a_rulesets
+ensure "branch main is the upstream copy: default branch is fork and no ruleset guards main" \
+  "rj '.default_branch==\"fork\"' && get repos/$repo/rulesets | jq -e 'map(select(.name==\"Main\"))|length==0'" a_switch_hint
 ensure "ruleset Release tags: v* cannot be moved or deleted" \
   "get repos/$repo/rulesets | jq -e 'map(select(.name==\"Release tags\" and .enforcement==\"active\"))|length==1'" a_rulesets
 

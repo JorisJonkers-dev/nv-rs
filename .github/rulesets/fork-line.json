@@ -1,12 +1,12 @@
 {
-  "name": "Main",
+  "name": "Fork line",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
     "ref_name": {
       "exclude": [],
       "include": [
-        "refs/heads/main"
+        "~DEFAULT_BRANCH"
       ]
     }
   },

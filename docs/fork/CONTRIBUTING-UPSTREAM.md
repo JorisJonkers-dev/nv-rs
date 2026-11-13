@@ -15,27 +15,27 @@ fork's owner has decided to, for that one change.
 
 ## The flow
 
-1. **Sync first.** Let [the sync](KEEPING-IN-SYNC.md) run so `upstream-main` (an exact mirror of upstream's `main`, with upstream's own commit ids) is current.
-2. **Branch from the mirror, not from `main`:**
-   `git switch -c fix/<topic> upstream-main`. The fork's overlay (workflows, `deny.toml`, ...) must not
+1. **Sync first.** Let [the sync](KEEPING-IN-SYNC.md) run so `main` (an exact copy of upstream's `main`, with upstream's own commit ids) is current.
+2. **Branch from `main`, not from `fork`:**
+   `git switch -c fix/<topic> origin/main`. The fork's overlay (workflows, `deny.toml`, ...) must not
    be in a branch that goes upstream.
 3. **Make the change with upstream's rules.** Run upstream's checks (`cargo fmt`, `cargo clippy`,
    `cargo test` as its CI does). The fork's own checks do not apply here.
 4. **Commit messages** inside the topic branch may follow the fork's Conventional Commits hook; upstream
    squash-merges, so only the pull request title matters there, and upstream's titles are plain English
    sentences. Retitle accordingly.
-5. **Try it on the fork first (optional).** Open a pull request from the topic branch into the fork's
-   `main` to get a second look and CI. Merging it there is fine, but then the same change is on the
-   fork's `main` before upstream has it: when upstream merges its own version, the replay of that
+5. **Try it on the fork first (optional).** Open a pull request from the topic branch into
+   `fork` to get a second look and CI. Merging it there is fine, but then the same change is on
+   `fork` before upstream has it: when upstream merges its own version, the replay of that
    commit either applies as an empty change or stops on a conflict, and you resolve it by taking
    upstream's. To avoid that, keep changes meant for upstream on their topic branch until upstream
    accepts them.
 6. **Offer it upstream, when the owner has decided to.** The issue first, then, after the go-ahead, the
    pull request from the fork's topic branch to `slaterain/nv-rs` `main`:
    `gh pr create --repo slaterain/nv-rs --base main --head JorisJonkers-dev:<branch>`.
-7. **After upstream merges it,** the next sync replays upstream's commit onto the fork's `main`. Delete
+7. **After upstream merges it,** the next sync replays upstream's commit onto `fork`. Delete
    the topic branch.
-8. **If upstream declines it,** the change is dropped, or kept on the fork's `main` as a fork-only
+8. **If upstream declines it,** the change is dropped, or kept on `fork` as a fork-only
    commit (a deliberate, reviewed choice: if it changes a file upstream owns, add that file to
    `.fork/allowed-divergence`, and expect to resolve a replay conflict whenever upstream touches the same
    lines).

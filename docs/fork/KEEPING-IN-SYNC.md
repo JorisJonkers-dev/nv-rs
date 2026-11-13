@@ -1,9 +1,20 @@
 # Keeping the fork up to date with upstream
 
 `slaterain/nv-rs` moves fast (dozens of merges a day). The fork follows it by **replaying**: every new
-upstream commit is applied to the fork's `main` as one commit with **the same change**, and a
+upstream commit is applied to the fork's own branch, `fork`, as one commit with **the same change**, and a
 Conventional Commit message so that release-please can read it. Nothing is merged, nothing is
-force-pushed, and the fork's `main` only ever grows.
+force-pushed, and `fork` only ever grows.
+
+## The two branches
+
+| Branch | Role | Who writes it |
+| --- | --- | --- |
+| `main` | an exact copy of `slaterain/nv-rs` `main`, with upstream's own commit ids. No ruleset, no fork-only commits | GitHub's own sync only (the Sync fork button, `gh repo sync JorisJonkers-dev/nv-rs -b main`, or the `Upstream Sync` workflow's first step). It is always a fast-forward |
+| `fork` | **the default branch**: upstream's history replayed with Conventional Commit titles, plus our own commits. Protected | the replay's pull requests and ours |
+
+`main` is where you click **Sync fork** (it is safe there, and the "behind" banner on `main` is true). The replay
+reads `main` and writes `fork`. The banner on `fork` will always say "ahead/behind" because the replayed commits
+have new ids: ignore it, `scripts/fork/verify-sync.sh` is the real check.
 
 ## What stays identical, and what does not
 
@@ -17,21 +28,21 @@ force-pushed, and the fork's `main` only ever grows.
 
 ## How it runs
 
-`.github/workflows/fork-sync.yml` runs daily and by hand. It runs `scripts/fork/replay-upstream.sh --push`,
-opens (or refreshes) the pull request `sync/upstream`, and turns on auto-merge by **rebase** once
+`.github/workflows/fork-sync.yml` runs daily and by hand. It first fast-forwards `main` from upstream with GitHub's own sync, then runs `scripts/fork/replay-upstream.sh --push`,
+which reads `main`, and opens (or refreshes) the pull request `sync/upstream` into `fork`, and turns on auto-merge by **rebase** once
 `Pipeline Complete` passes. Rebase, not squash: squash would put 30 commits into one message and
 release-please would see one `chore`. The repository ruleset allows both squash (people) and rebase (the
 sync).
 
 The script:
 
-1. fetches `upstream` and `origin`;
-2. finds where the last run stopped: the newest `Upstream-Commit:` trailer on the fork's `main` (before the
+1. fetches `main` (the upstream copy) and `fork` from `origin`; it never talks to upstream itself;
+2. finds where the last run stopped: the newest `Upstream-Commit:` trailer on `fork` (before the
    first run, the point where the fork was cut);
 3. for each upstream commit since then, oldest first: cherry-picks it, asks for a title
    (`scripts/fork/rewrite_title.py`), commits it with upstream's author and date;
 4. stops if a commit does not apply (see below);
-5. with `--push`, pushes `upstream-main` (an exact mirror of upstream) and the branch `sync/upstream`.
+5. with `--push`, pushes the branch `sync/upstream`.
 
 By hand, from a clean clone: `scripts/fork/replay-upstream.sh`, read the log it prints, then `--push`.
 
@@ -50,7 +61,7 @@ title` check then validates every commit in the pull request.
 | Message | Meaning | What to do |
 | --- | --- | --- |
 | `upstream commit <sha> does not apply on top of the fork` | Upstream changed lines that a fork-only change also changed (most often the top of the README) | `git switch -c fix/replay origin/main`, `git cherry-pick <sha>`, resolve it, commit with a Conventional message that ends with `Upstream-Commit: <full sha>`, merge it by rebase, rerun. The sync continues after it |
-| `upstream main no longer contains <sha>` | Upstream rewrote its history | Stop. Read upstream's repository, then choose the fork point again by hand |
+| `upstream main no longer contains <sha>` | Upstream rewrote its history (the copy on `main` then cannot fast-forward either) | Stop. Read upstream's repository, then choose the fork point again by hand |
 | `the commit ... was refused` | A `commit-msg` hook refused a rewritten message | Read the reason; nothing was pushed |
 | `already in sync` | Nothing new upstream | Nothing to do |
 
@@ -85,3 +96,10 @@ task check
 Repository settings that the workflow needs: the secret `ANTHROPIC_API_KEY` (optional), the release App
 secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`, the label `allow-repository-hygiene-exception`,
 auto-merge enabled, and the ruleset applied with `scripts/fork/apply-ruleset.sh`.
+
+## If GitHub's sync of `main` is refused
+
+The sync API is asked to fast-forward `main`. It can refuse if someone committed to `main` (nobody should: it has no
+fork-only commits) or, possibly, when upstream changed workflow files and the token that asks may not push them (not
+verified: the first scheduled run shows it). Then the workflow warns and the replay works from where `main` is. Fix it
+from your own login: `gh repo sync JorisJonkers-dev/nv-rs -b main` (or the Sync fork button on `main`).

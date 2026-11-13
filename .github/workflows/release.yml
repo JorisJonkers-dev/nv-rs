@@ -5,7 +5,7 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [fork]
 
 permissions:
   contents: write
@@ -14,7 +14,7 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    # The fork's own App credentials live in this environment, readable only by runs on main.
+    # The fork's own App credentials live in this environment, readable only by runs on the fork branch.
     environment: fork-sync
     steps:
       # The release PR is authored with the fork's own App token so CI runs on it; falls back to GITHUB_TOKEN

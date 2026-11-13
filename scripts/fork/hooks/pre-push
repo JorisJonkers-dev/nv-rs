@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-protected_regex="${PROTECTED_BRANCH_REGEX:-^refs/heads/main$}"
+protected_regex="${PROTECTED_BRANCH_REGEX:-^refs/heads/(main|fork)$}"
 allow="${ALLOW_PROTECTED_BRANCH_PUSH:-false}"
 hygiene_allowlist_regex="${HYGIENE_ALLOWLIST_REGEX:-}"
 status=0

@@ -50,7 +50,7 @@ Then run the sync once (Actions, Upstream Sync, Run workflow) and check that it 
 ## Afterwards
 
 - The workflows read `FORK_APP_ID` and `FORK_APP_PRIVATE_KEY` from the `fork-sync` environment, which only runs on
-  `main` can use. The organisation's `RELEASE_APP_*` secrets are no longer used by the fork; to be safe, restrict
+  `fork` can use. The organisation's `RELEASE_APP_*` secrets are no longer used by the fork; to be safe, restrict
   them to the repositories that need them (organisation settings, Secrets) so the public fork cannot read them.
 - Rotating the key: Settings of the App, generate a new private key, rerun step 5 of the manual way, delete the old
   key in the App's settings.
