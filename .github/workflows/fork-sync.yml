@@ -21,6 +21,8 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # The key lives in this environment's secrets, which only runs on main can read (setup-repo.sh).
+    environment: fork-sync
     steps:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
@@ -47,7 +49,10 @@ jobs:
           set -euo pipefail
           git config user.name "jorisjonkers-dev-agents[bot]"
           git config user.email "jorisjonkers-dev-agents[bot]@users.noreply.github.com"
-          out="$(scripts/fork/replay-upstream.sh --push | tee /dev/stderr)"
+          # Run a copy: the replay rewrites the working tree, and upstream's files must never replace the
+          # scripts that hold the API key in their environment.
+          cp -r scripts/fork "$RUNNER_TEMP/fork-scripts"
+          out="$("$RUNNER_TEMP/fork-scripts/replay-upstream.sh" --push | tee /dev/stderr)"
           if grep -q '^already in sync' <<<"$out"; then echo "changed=false" >>"$GITHUB_OUTPUT"; else echo "changed=true" >>"$GITHUB_OUTPUT"; fi
 
       - name: Open or refresh the pull request, and rebase-merge it once the checks pass

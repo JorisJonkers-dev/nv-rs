@@ -42,6 +42,10 @@ api PATCH "repos/$repo/code-scanning/default-setup" '{"state":"configured","quer
 step "Workflow token: read-only by default (each workflow asks for what it needs)"
 api PUT "repos/$repo/actions/permissions/workflow" '{"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}'
 
+step "Environment fork-sync: secrets readable only by runs on main (the API key goes here)"
+api PUT "repos/$repo/environments/fork-sync" '{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'
+api POST "repos/$repo/environments/fork-sync/deployment-branch-policies" '{"name":"main","type":"branch"}'
+
 step "Labels"
 for l in "allow-repository-hygiene-exception|BFD4F2|Bypasses the repository hygiene guard (sync pull requests)" \
          "ci-parity-review|FBCA04|Upstream changed ci.yml: compare it with fork-build.yml" \
@@ -64,8 +68,10 @@ fi
 cat <<NOTE
 
 Still by hand:
-  * repository secret ANTHROPIC_API_KEY (the sync workflow's title rewriting; without it a fixed rule is used);
-    RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY are already organisation secrets.
+  * the API key, as an ENVIRONMENT secret (not a repository secret), typed at the prompt so it stays out of your
+    shell history:  gh secret set ANTHROPIC_API_KEY --env fork-sync -R $repo
+    Use a key from a dedicated Anthropic workspace with a low monthly spend limit. Without it a fixed rule writes
+    the titles. RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY are organisation secrets (see docs/fork/SECRETS.md).
   * Renovate (the org's app, installed on all repositories) onboards itself once renovate.json is on the
     default branch, so merge the baseline pull request first.
 NOTE

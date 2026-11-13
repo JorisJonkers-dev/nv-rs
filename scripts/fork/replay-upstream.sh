@@ -51,6 +51,11 @@ git switch --quiet -C "$branch" "$base"
 msg=$(mktemp)
 trap 'rm -f "$msg"' EXIT
 for c in "${commits[@]}"; do
+  # An upstream commit that adds or changes a workflow would run with this repository's secrets once it is
+  # on main, and the sync's token may not push workflow files anyway. A person reads such a commit first.
+  if [[ ${ALLOW_WORKFLOW_CHANGES:-0} != 1 ]] && git diff-tree --no-commit-id --name-only -r "$c" | grep -q '^\.github/workflows/'; then
+    die "upstream commit ${c:0:12} changes .github/workflows: read it, then apply it by hand or rerun with ALLOW_WORKFLOW_CHANGES=1"
+  fi
   if ! git cherry-pick --no-commit "$c" >/dev/null 2>&1; then
     git cherry-pick --abort >/dev/null 2>&1 || git reset --quiet --hard HEAD
     die "upstream commit ${c:0:12} does not apply on top of the fork: fix by hand (git cherry-pick $c), keep its message format, then rerun"
