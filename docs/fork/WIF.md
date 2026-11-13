@@ -75,6 +75,15 @@ key is gone.
 
 **7. Run Upstream Sync once** (Actions, Upstream Sync, Run workflow) and read the titles it wrote.
 
+## The fallback: an API key in a limited workspace
+
+Federation needs a Console organisation. A personal ("Individual Org") login answers 403 on workspaces and 404 on the service
+account and federation endpoints (seen with `setup-anthropic.sh --diagnose`). The scripts then offer the fallback: create a key in
+the workspace that has the monthly limit, and store it as the **environment** secret `ANTHROPIC_API_KEY` of `fork-sync`
+(`scripts/fork/setup-anthropic.sh` asks for it at a hidden prompt, or `gh secret set ANTHROPIC_API_KEY --env fork-sync -R JorisJonkers-dev/nv-rs`).
+Only runs on the `fork` branch can read it, the key can only spend what the workspace limit allows, and the sync works without it
+(the fixed rule writes the titles). If you later get an organisation, rerun the setup: federation takes precedence and the key can go.
+
 ## If the API says 403 or 404 (and about retries)
 
 The scripts retry what can be transient: network errors, 408, 425, 429 and every 5xx including 529 ("overloaded"), up to 20

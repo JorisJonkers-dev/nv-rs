@@ -21,12 +21,28 @@ jobs:
     steps:
       - name: Exchange the OIDC token and call the API
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
           ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
         run: |
           set -euo pipefail
+          if [ -z "${ANTHROPIC_FEDERATION_RULE_ID:-}" ]; then
+            # No federation configured: check the API key (an environment secret) instead.
+            [ -n "${ANTHROPIC_API_KEY:-}" ] || { echo "neither the federation variables nor the ANTHROPIC_API_KEY secret are set"; exit 1; }
+            status=000
+            for attempt in $(seq 1 20); do
+              status="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' https://api.anthropic.com/v1/messages -H "x-api-key: $ANTHROPIC_API_KEY" \
+                -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' \
+                -d '{"model":"claude-haiku-5-5","max_tokens":8,"messages":[{"role":"user","content":"Say ok"}]}' || echo 000)"
+              case "$status" in 200|40[0-7]|409|41?|42[0-4]|426|4[3-9]?) break ;; esac
+              echo "messages call: HTTP $status, retry $attempt/19"; sleep $(( attempt < 6 ? 2 * attempt : 12 ))
+            done
+            echo "messages call with the API key: HTTP $status"
+            [ "$status" = 200 ]
+            exit 0
+          fi
           # Anthropic has unstable periods: retry network errors, 408, 425, 429 and 5xx (incl. 529) up to 20 times.
           # Every exchange needs a fresh GitHub token (a token is accepted once), so the loop fetches one each time.
           code=000

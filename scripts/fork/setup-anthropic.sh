@@ -41,6 +41,10 @@ if [ "$mode" = "--verify" ]; then
   sleep 8
   id=$(gh run list -R "$repo" --workflow fork-wif-check.yml --limit 1 --json databaseId --jq '.[0].databaseId')
   gh run watch "$id" -R "$repo" --exit-status || die "the federation check failed. Read the log: gh run view $id -R $repo --log-failed . The reason is also on the Console's Workload identity page, tab Authentication history."
+  if ! gh variable list --env "$env_name" -R "$repo" 2>/dev/null | grep -q '^ANTHROPIC_FEDERATION_RULE_ID'; then
+    say "2/3 No federation is configured: the API key in the '$env_name' environment is the credential, so it stays"
+    echo "(Check that it is still limited: the workspace's monthly limit in the Console.)"
+  else
   say "2/3 Remove the old API key (it would override federation)"
   for scope in "--env $env_name" ""; do
     # shellcheck disable=SC2086
@@ -52,13 +56,14 @@ if [ "$mode" = "--verify" ]; then
   done
   echo "Now delete the key itself in the Console: https://platform.claude.com/settings/keys"
   read -r -p "Press Enter when done: " _
+  fi
   say "3/3 First sync (optional)"
   read -r -p "Run 'Upstream Sync' now? [y/N] " a
   if [ "$a" = y ]; then
     on_fork fork-sync.yml || die "fork-sync.yml is not on the fork branch"
     gh workflow run fork-sync.yml -R "$repo" --ref fork && echo "started: gh run list -R $repo --workflow fork-sync.yml"
   fi
-  echo; echo "Done. Federation works and no API key is stored."
+  echo; echo "Done."
   exit 0
 fi
 
@@ -105,9 +110,11 @@ echo "  If this is not the organisation you meant, stop (Ctrl-C), switch organis
 echo "  https://platform.claude.com) BEFORE logging in again, and choose it on the browser's authorize page."
 echo
 echo "  Read-only probes of the Admin API with this login:"
+fed_code=000
 for ep in workspaces service_accounts federation_issuers; do
   call "$api/v1/organizations/$ep?limit=1" >/dev/null 2>&1 && r=ok || r="refused"
   printf '    %-20s HTTP %s (%s)\n' "$ep" "$last_code" "$r"
+  [ "$ep" = federation_issuers ] && fed_code=$last_code
 done
 if [ "$mode" = "--diagnose" ]; then
   echo
@@ -115,6 +122,26 @@ if [ "$mode" = "--diagnose" ]; then
   echo "  403 on all three: this login cannot use the Admin API. Either it is the wrong organisation, or you are not an admin/owner"
   echo "  of it, or the organisation is an individual Console account (not supported by the Admin API). Check Settings, Members for"
   echo "  your role, and Settings, Organization for the type. Send me this output."
+  exit 0
+fi
+if [ "$fed_code" != 200 ]; then
+  echo
+  echo "Workload identity federation is not available to this login (federation_issuers answered HTTP $fed_code)."
+  echo "That is the fault of the account, not an outage: Anthropic's Admin API and federation are for Console ORGANISATIONS."
+  echo "The fallback needs no federation: an API key from a workspace with a monthly spend limit, kept as an ENVIRONMENT secret"
+  echo "of '$env_name' (readable only by runs on the fork branch). The sync workflow already uses it."
+  echo
+  echo "  1. Console, Settings, Limits: set the monthly limit on the workspace (for example \$5)."
+  echo "  2. Console, Settings, API keys: Create key, workspace $login_ws, name nv-rs-fork-sync. Copy the key."
+  echo
+  read -r -p "Store the key now (you paste it at a hidden prompt)? [y/N] " a
+  if [ "$a" = y ]; then
+    gh api "repos/$repo/environments/$env_name" --silent 2>/dev/null || gh api -X PUT "repos/$repo/environments/$env_name" --silent
+    gh secret set ANTHROPIC_API_KEY --env "$env_name" -R "$repo" && echo "stored as the '$env_name' environment secret ANTHROPIC_API_KEY."
+    echo "Next: merge the baseline pull request, then  scripts/fork/setup-anthropic.sh --verify"
+  else
+    echo "Later:  gh secret set ANTHROPIC_API_KEY --env $env_name -R $repo"
+  fi
   exit 0
 fi
 read -r -p "Continue with this organisation? [y/N] " a
