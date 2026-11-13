@@ -36,3 +36,58 @@ reads times measured on NTFS; inventing them is the stand-in the project forbids
 `nvse`'s `tan`, `tanh` (and the degree variants) use the host's libm. Their last bit differs from
 the game's on Linux (`dTan90`: port -2.2877334e7, game -2.2877332e7). A game run on Linux would
 not match Windows there; a Linux port needs its own `tan` that matches the game's (x87 `fptan`).
+
+## Results on Linux (CI, `x86_64-unknown-linux-gnu`, Rust 1.99.1)
+
+- `cargo check --locked --workspace --all-targets`: green (all 36 crates, including `engine`,
+  `engine-platform`, `host`, `nv-viewer` and `play-patch`).
+- `cargo clippy --locked --workspace --all-targets -- -D warnings` and `cargo fmt --all -- --check`: green.
+- `cargo test --locked -p <crate> --no-fail-fast`, per crate (passed / failed / ignored):
+
+| crate | passed | failed | ignored |
+| --- | ---: | ---: | ---: |
+| bink | 9 | 0 | 0 |
+| bsa | 15 | 0 | 0 |
+| d3d9-stream | 40 | 0 | 2 |
+| d3d9-wgpu | 111 | 0 | 0 |
+| d3dx-tex | 41 | 0 | 0 |
+| engine | 918 | 0 | 1 |
+| engine-bs | 4357 | 0 | 0 |
+| engine-core | 1037 | 0 | 21 |
+| engine-fallout-ai | 6207 | 0 | 0 |
+| engine-fallout-cell | 5288 | 0 | 0 |
+| engine-fallout-env | 1200 | 0 | 0 |
+| engine-fallout-facegen | 735 | 0 | 0 |
+| engine-fallout-forms | 5177 | 0 | 0 |
+| engine-fallout-interface | 2965 | 0 | 0 |
+| engine-fallout-magic | 1143 | 0 | 0 |
+| engine-fallout-misc | 1431 | 0 | 0 |
+| engine-fallout-pathfinding | 1868 | 0 | 0 |
+| engine-fallout-script | 1841 | 0 | 0 |
+| engine-fallout-unplaced-a | 1048 | 0 | 0 |
+| engine-fallout-unplaced-b | 1402 | 0 | 0 |
+| engine-gamebryo | 5398 | 0 | 0 |
+| engine-havok | 12530 | 0 | 0 |
+| engine-platform | 304 | 0 | 20 |
+| engine-speedtree | 867 | 0 | 0 |
+| engine-typed | 26 | 0 | 0 |
+| esm | 68 | 0 | 1 |
+| fos | 38 | 0 | 0 |
+| frame-model | 97 | 0 | 0 |
+| host | 165 | 0 | 6 |
+| jip | 328 | 0 | 0 |
+| mp3 | 35 | 0 | 0 |
+| nv-viewer | 2 | 0 | 0 |
+| nvinspect | 84 | 0 | 0 |
+| nvse | 444 | 0 | 2 |
+| play-patch | 0 | 0 | 0 |
+| vorbis | 3 | 0 | 0 |
+
+The first Linux run (before change 5 and 6) had eight failures: four `files` tests (Windows file
+times), three `host` `cell_offsets` tests (Windows paths) and one `nvse` math test (libm). The
+engine's 17 `typed_*` binaries take about 1.5 hours together on a CI runner (`typed_shader` alone
+is the longest).
+
+What remains: everything that needs a window, a Vulkan device, sound output or the machine tables
+is not run on Linux (M3 and later in the plan). The ignored tests are the ones that need the player's
+game files (`NV_EXE`, `NV_DATA`) or Windows.
