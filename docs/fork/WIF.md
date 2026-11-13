@@ -25,10 +25,12 @@ URL and settings). A leaked or abused token can never spend more than that.
 **2. An admin token for the setup (once, in a shell you use only for this).** Install the `ant` CLI, then:
 
 ```sh
-ant auth login --profile admin --scope "org:admin"      # opens a browser; you log in as an organisation admin
-export ANTHROPIC_AUTH_TOKEN=$(ant auth print-credentials --profile admin --access-token)
-unset ANTHROPIC_API_KEY                                  # a key in the environment overrides federation
+ant --profile admin auth login --admin          # opens a browser; log in as an organisation admin. --admin adds the org:admin scope
+export ANTHROPIC_AUTH_TOKEN=$(ant --profile admin auth print-credentials --access-token)
+unset ANTHROPIC_API_KEY                          # a key in the environment overrides federation
 ```
+
+(`--profile` is a global flag, so it goes before `auth`. Checked against `ant` 2.7.1.)
 
 The token is short-lived; rerun the `export` line if requests start returning 401. The organisation id is on
 Console, Settings, Organization (the script finds it itself and asks for `--org-id` if it cannot).
@@ -49,7 +51,7 @@ It reuses an existing GitHub Actions issuer if you have one, creates the service
 them gets nobody a token. If the Admin API refuses something, the Console does the same: Workload identity,
 **Connect workload**, the GitHub Actions tile, with the values above.
 
-**4. Unset the admin token** (`unset ANTHROPIC_AUTH_TOKEN`; `ant auth logout --profile admin` if you want it gone).
+**4. Unset the admin token** (`unset ANTHROPIC_AUTH_TOKEN`; `ant --profile admin auth logout` if you want it gone).
 
 **5. Check it end to end.** Actions, **Claude Federation Check**, Run workflow (it runs in the `fork-sync` environment on `main`).
 It prints `token exchange: ok` and `messages call: HTTP 200`. A failure prints the HTTP status; the reason is on the
