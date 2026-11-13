@@ -1,7 +1,7 @@
 # Fork-only. Checks that GitHub Actions can authenticate to the Claude API through workload identity federation:
 # fetches the job's OIDC token, exchanges it for an Anthropic token, makes one tiny call, and prints only the
 # result. Run it by hand after scripts/fork/setup-anthropic-wif.py (docs/fork/WIF.md, step 5).
-name: Fork WIF check
+name: Claude Federation Check
 
 on:
   workflow_dispatch:

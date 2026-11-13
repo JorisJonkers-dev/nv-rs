@@ -5,7 +5,7 @@
 #    crate list is uploaded as an artifact (promote it to .fork/linux-ok.txt).
 #  * Clippy and tests of the crates listed in .fork/linux-ok.txt are REQUIRED (they must not regress).
 # Actions minutes are free on a public repository, so more jobs cost nothing; they would not on a private one.
-name: Fork Build (Linux)
+name: Build (Linux)
 
 on:
   workflow_call: {}

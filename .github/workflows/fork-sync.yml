@@ -3,7 +3,7 @@
 # replayed commit stays one commit on main; Pipeline Complete must pass first. Needs the repository
 # federation variables for the titles (docs/fork/WIF.md; without them the rule in rewrite_title.py is used)
 # and the fork App secrets so that CI runs on the pull request.
-name: Fork Sync
+name: Upstream Sync
 
 on:
   schedule:

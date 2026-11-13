@@ -10,7 +10,7 @@
 # Parity: every command of upstream's ci.yml is in one of the two fork-build workflows. When a sync changes
 # ci.yml, the sync pull request gets the label ci-parity-review: compare it with these files.
 # Actions minutes are free on a public repository, so more jobs cost nothing; they would not on a private one.
-name: Fork Build (Windows)
+name: Build (Windows)
 
 on:
   workflow_call: {}

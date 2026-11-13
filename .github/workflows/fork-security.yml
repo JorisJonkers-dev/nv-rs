@@ -4,7 +4,7 @@
 #    unchanged lockfile is the common case. A failed run is the alert.
 # GitHub's own scanning (Dependabot alerts, secret scanning with push protection, CodeQL default setup,
 # private vulnerability reporting) is switched on by scripts/fork/setup-repo.sh.
-name: Fork Security
+name: Security
 
 on:
   pull_request:

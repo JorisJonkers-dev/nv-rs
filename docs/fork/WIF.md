@@ -51,7 +51,7 @@ them gets nobody a token. If the Admin API refuses something, the Console does t
 
 **4. Unset the admin token** (`unset ANTHROPIC_AUTH_TOKEN`; `ant auth logout --profile admin` if you want it gone).
 
-**5. Check it end to end.** Actions, **Fork WIF check**, Run workflow (it runs in the `fork-sync` environment on `main`).
+**5. Check it end to end.** Actions, **Claude Federation Check**, Run workflow (it runs in the `fork-sync` environment on `main`).
 It prints `token exchange: ok` and `messages call: HTTP 200`. A failure prints the HTTP status; the reason is on the
 Console's Workload identity page, tab **Authentication history**.
 
@@ -60,7 +60,7 @@ and any repository-level copy), then delete the key on the Console's API keys pa
 override federation (the SDK order is: key, then federation), so the check above only proves federation once the
 key is gone.
 
-**7. Run Fork Sync once** (Actions, Fork Sync, Run workflow) and read the titles it wrote.
+**7. Run Upstream Sync once** (Actions, Upstream Sync, Run workflow) and read the titles it wrote.
 
 ## How the rule is pinned
 

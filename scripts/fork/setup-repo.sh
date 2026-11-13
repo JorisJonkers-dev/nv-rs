@@ -108,7 +108,7 @@ fi
 cat <<NOTE
 
 Still by hand:
-  * Keyless Claude access (no API key is stored): scripts/fork/setup-anthropic-wif.py, then the 'Fork WIF check'
+  * Keyless Claude access (no API key is stored): scripts/fork/setup-anthropic-wif.py, then the 'Claude Federation Check'
     workflow (docs/fork/WIF.md). Without it a fixed rule writes the commit titles.
   * The fork's own GitHub App, with only the permissions it needs: scripts/fork/create-app.py (docs/fork/APP.md).
   * Renovate (the organisation's app) onboards itself once renovate.json is on the default branch.

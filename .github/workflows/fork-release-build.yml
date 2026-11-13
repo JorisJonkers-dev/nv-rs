@@ -1,4 +1,4 @@
-name: Fork Release build
+name: Release Build
 
 # Builds release artefacts for Windows and Linux and uploads them as workflow
 # artefacts. This workflow NEVER publishes a release: only the maintainer

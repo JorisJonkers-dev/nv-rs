@@ -2,23 +2,54 @@
 # check (estate convention). The checks are steps of that one job; the two reusable workflows
 # (hygiene, PR title) cannot be steps, so they are jobs that the last step gates on.
 # Upstream's own gate, .github/workflows/ci.yml (Windows, ~140 minutes), is not required here.
-name: Fork CI
+name: Pipeline
 
 on:
   pull_request:
-    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+    types: [opened, edited, reopened, synchronize]
   push:
     branches: [main]
   workflow_dispatch:
 
+# A new commit on a branch cancels the run still going for the older one: runners are limited and the older
+# result is of no use. Not cancelled: a title edit (its own group, so it neither cancels nor is cancelled by a
+# push; no label events trigger this workflow, so a bot labelling a new pull request starts nothing) and main
+# (every commit there runs to the end, so main always has a finished run and its caches are saved).
 concurrency:
-  group: fork-ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && github.run_id || 'main' }}
-  cancel-in-progress: false
+  group: pipeline-${{ github.ref == 'refs/heads/main' && github.sha || format('{0}-{1}', github.event.pull_request.number || github.ref, github.event.action == 'edited' && github.run_id || 'commits') }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
+  # Documentation-only changes skip the builds. The gate below still runs and still requires everything else.
+  changes:
+    name: Changed files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "code=true" >>"$GITHUB_OUTPUT"; echo "no base to compare with: building"; exit 0
+          fi
+          if git diff --name-only "$BASE...$HEAD" | grep -qvE '^(docs/|LICENSE$|.*\.md$|\.fork/(overlay-paths|allowed-divergence|readme-banner\.md)$)'; then
+            echo "code=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "code=false" >>"$GITHUB_OUTPUT"; echo "only documentation changed: the builds are skipped"
+          fi
+
   hygiene:
     name: Hygiene
     if: ${{ github.event_name == 'pull_request' }}
@@ -35,14 +66,18 @@ jobs:
   # Upstream's ci.yml, split into parallel jobs. Linux first; Windows only for what needs it.
   build-linux:
     name: Linux
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     uses: ./.github/workflows/fork-build-linux.yml
   build-windows:
     name: Windows
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     uses: ./.github/workflows/fork-build-windows.yml
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [hygiene, pr-title, build-linux, build-windows]
+    needs: [changes, hygiene, pr-title, build-linux, build-windows]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -70,12 +105,12 @@ jobs:
         run: mise exec -- task secrets
 
       # A skipped job fails, except the two that only run on pull requests (hygiene also skips when
-      # its override label is set).
+      # its override label is set) and the two builds when only documentation changed.
       - name: Reusable-workflow jobs passed
         if: ${{ !cancelled() }}
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r 'to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or (.key | IN("hygiene", "pr-title") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title")) or ((.key | IN("build-linux", "build-windows")) and $n.changes.outputs.code == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "$failed"; exit 1; fi

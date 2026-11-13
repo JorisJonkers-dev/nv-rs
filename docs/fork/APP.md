@@ -35,7 +35,7 @@ scripts/fork/create-app.py
    It prints `OK` when the scope is one repository and the permissions are exactly the table above, and what is
    wrong otherwise.
 
-Then run the sync once (Actions, Fork Sync, Run workflow) and check that it opens `sync/upstream`.
+Then run the sync once (Actions, Upstream Sync, Run workflow) and check that it opens `sync/upstream`.
 
 ## By hand (if the script cannot run)
 
