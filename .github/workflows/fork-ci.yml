@@ -1,0 +1,63 @@
+# Fork-only (JorisJonkers-dev/nv-rs). One pipeline ending in "Pipeline Complete", the only required
+# check (estate convention). The checks are steps of that one job; the two reusable workflows
+# (hygiene, PR title) cannot be steps, so they are jobs that the last step gates on.
+# Upstream's own gate, .github/workflows/ci.yml (Windows, ~140 minutes), is not required here.
+name: Fork CI
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && github.run_id || 'main' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    name: Hygiene
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@072969666fe9c4339c1d42045629bb27d188f5fb # v0.50.2
+
+  pr-title:
+    name: PR title
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/pr-title-check.yml@072969666fe9c4339c1d42045629bb27d188f5fb # v0.50.2
+
+  pipeline-complete:
+    name: Pipeline Complete
+    needs: [hygiene, pr-title]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5
+        with:
+          cache: true
+
+      - name: Check
+        run: mise exec -- task check
+
+      # A skipped job fails, except the two that only run on pull requests (hygiene also skips when
+      # its override label is set).
+      - name: Reusable-workflow jobs passed
+        if: ${{ !cancelled() }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          failed="$(jq -r 'to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or (.key | IN("hygiene", "pr-title") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          if [ -n "$failed" ]; then echo "$failed"; exit 1; fi

@@ -1,0 +1,8 @@
+# Fork-only. Cargo ignores registry versions published less than 7 days ago when it resolves
+# (cargo update, a new dependency); versions already in Cargo.lock are kept. A malicious release is
+# usually found and pulled within days. Stable from Cargo 1.100; upstream pins 1.99.1
+# (rust-toolchain.toml), which warns that it ignores the key and builds as before, so this is
+# inert until upstream moves its toolchain. Do not bump rust-toolchain.toml here: it is an upstream
+# file and would be replaced at the next sync.
+[registry]
+global-min-publish-age = "7 days"

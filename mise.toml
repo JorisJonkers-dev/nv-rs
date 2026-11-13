@@ -1,0 +1,8 @@
+# Fork-only tooling for the checks in Taskfile.yml. `mise install` is the only setup step.
+# The Rust toolchain is not listed: upstream's rust-toolchain.toml pins it.
+[tools]
+task = "3.53.1"
+actionlint = "1.7.12"
+gitleaks = "8.30.1"
+"aqua:EmbarkStudios/cargo-deny" = "0.20.2"
+"aqua:zizmorcore/zizmor" = "1.32.0"
