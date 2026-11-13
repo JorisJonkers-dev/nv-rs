@@ -5,6 +5,11 @@ on:
     # Weekly, Monday 04:00 UTC.
     - cron: "0 4 * * 1"
   workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds to fuzz each target (600 in the weekly run)
+        default: "600"
+        type: string
 
 permissions:
   contents: read
@@ -25,6 +30,16 @@ jobs:
           - esm_plugin
           - bsa_archive
           - fos_save
+          - fos_decode
+          - esm_inflate
+          - esm_text_and_subrecords
+          - bink_movie
+          - mp3_decode
+          - vorbis_decode
+          - d3dx_texture
+          - d3d9_stream_wire
+          - d3d9_shader
+          - nvse_cosave
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -42,7 +57,10 @@ jobs:
           shared-key: fuzz-${{ matrix.target }}
 
       - name: Fuzz ${{ matrix.target }}
-        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=600 -rss_limit_mb=4096
+        env:
+          TARGET: ${{ matrix.target }}
+          SECONDS_TO_FUZZ: ${{ inputs.seconds || '600' }}
+        run: cargo +nightly fuzz run "$TARGET" -- -max_total_time="$SECONDS_TO_FUZZ" -rss_limit_mb=4096
 
       - name: Upload crash artifacts
         if: failure()
