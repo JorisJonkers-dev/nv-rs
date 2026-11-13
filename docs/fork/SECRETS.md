@@ -7,15 +7,16 @@ code with it.
 | Rule | How it is kept |
 | --- | --- |
 | People who open pull requests cannot reach secrets | Workflows from forked pull requests get no secrets; nothing uses `pull_request_target`. Outside contributors need approval before any workflow runs (Settings, Actions, General) |
-| Only `main` can read the API key | It is an environment secret of `fork-sync`, restricted to runs on `main` (`scripts/fork/setup-repo.sh`), so a branch with a changed workflow cannot read it |
+| There is no API key to read | The sync job trades its GitHub OIDC token for a 10-minute, inference-only Anthropic token (workload identity federation, [WIF.md](WIF.md)); the rule accepts only this repository, the `fork-sync` environment and `main` |
+| Only `main` can use the environment | `fork-sync` is restricted to runs on `main` (`scripts/fork/setup-repo.sh`), so a branch with a changed workflow can neither read its secrets nor satisfy the Anthropic rule |
 | Few people can push | Write access is the real boundary: keep collaborators to people you trust, and review every change to `.github/` |
 | Third-party actions cannot read it | Every action is pinned by commit SHA (Renovate moves the pins); `zizmor` lints the workflows |
 | Upstream cannot run code with it | The replay stops at any upstream commit that changes `.github/workflows`, runs from a copy of the scripts, and the sync's token cannot push workflow files |
-| A leaked key costs little | A dedicated Anthropic workspace with a low monthly spend limit; rotate the key if in doubt |
+| Abuse costs little | The token is inference-only, lives ten minutes, and the workspace has a hard monthly spend limit |
 | Nobody commits one by accident | Secret scanning with push protection, and gitleaks in Pipeline Complete |
 
-Set the key without leaving it in shell history: `gh secret set ANTHROPIC_API_KEY --env fork-sync -R JorisJonkers-dev/nv-rs`
-(the command asks for it). Never paste it into an issue, a pull request, a chat or a workflow file.
+If you ever do hold a key (for a local experiment), keep it out of the repository and out of shell history, and never
+paste it into an issue, a pull request, a chat or a workflow file.
 
 ## The GitHub App keys
 

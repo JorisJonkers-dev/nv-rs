@@ -11,6 +11,7 @@
 .github/workflows/fork-release-build.yml
 .github/workflows/fork-security.yml
 .github/workflows/fork-sync.yml
+.github/workflows/fork-wif-check.yml
 .github/workflows/release.yml
 .gitleaks.toml
 .release-please-manifest.json

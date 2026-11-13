@@ -1,0 +1,44 @@
+# Fork-only. Checks that GitHub Actions can authenticate to the Claude API through workload identity federation:
+# fetches the job's OIDC token, exchanges it for an Anthropic token, makes one tiny call, and prints only the
+# result. Run it by hand after scripts/fork/setup-anthropic-wif.py (docs/fork/WIF.md, step 5).
+name: Fork WIF check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Federation check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: fork-sync
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Exchange the OIDC token and call the API
+        env:
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+        run: |
+          set -euo pipefail
+          jwt="$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" | jq -r .value)"
+          body="$(jq -n --arg jwt "$jwt" --arg rule "$ANTHROPIC_FEDERATION_RULE_ID" --arg org "$ANTHROPIC_ORGANIZATION_ID" \
+            --arg sa "$ANTHROPIC_SERVICE_ACCOUNT_ID" --arg ws "$ANTHROPIC_WORKSPACE_ID" \
+            '{grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer", assertion:$jwt, federation_rule_id:$rule, organization_id:$org, service_account_id:$sa, workspace_id:$ws}')"
+          resp="$(curl -sS -w '\n%{http_code}' https://api.anthropic.com/v1/oauth/token -H 'content-type: application/json' -d "$body")"
+          code="${resp##*$'\n'}"
+          if [ "$code" != 200 ]; then echo "token exchange failed: HTTP $code (see the Authentication history page in the Console for the reason)"; exit 1; fi
+          echo "token exchange: ok (token lifetime $(jq -r .expires_in <<<"${resp%$'\n'*}") seconds)"
+          token="$(jq -r .access_token <<<"${resp%$'\n'*}")"
+          echo "::add-mask::$token"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' https://api.anthropic.com/v1/messages -H "authorization: Bearer $token" \
+            -H 'anthropic-version: 2026-10-21' -H 'content-type: application/json' \
+            -d '{"model":"claude-haiku-5-5","max_tokens":8,"messages":[{"role":"user","content":"Say ok"}]}')"
+          echo "messages call: HTTP $status"
+          [ "$status" = 200 ]

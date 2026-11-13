@@ -17,6 +17,13 @@ tasks:
     desc: Licences, bans, sources and advisories (deny.toml)
     cmd: cargo deny check
 
+  scripts:
+    desc: Self-tests of the fork's scripts (no network, no GitHub, nothing created)
+    cmds:
+      - python3 -I scripts/fork/test_wif.py
+      - python3 -I scripts/fork/setup-anthropic-wif.py --selftest
+      - python3 -I scripts/fork/create-app.py --selftest
+
   secrets:
     desc: Scan every commit for secrets
     cmd: gitleaks git --redact --no-banner --config .gitleaks.toml .
@@ -26,4 +33,5 @@ tasks:
     cmds:
       - task: lint:actions
       - task: deny
+      - task: scripts
       - task: secrets

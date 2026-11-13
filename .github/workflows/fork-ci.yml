@@ -62,6 +62,9 @@ jobs:
       - name: Dependencies
         if: ${{ !cancelled() }}
         run: mise exec -- task deny
+      - name: Script self-tests
+        if: ${{ !cancelled() }}
+        run: mise exec -- task scripts
       - name: Secrets
         if: ${{ !cancelled() }}
         run: mise exec -- task secrets

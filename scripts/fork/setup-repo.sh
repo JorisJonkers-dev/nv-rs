@@ -108,9 +108,8 @@ fi
 cat <<NOTE
 
 Still by hand:
-  * The API key as an ENVIRONMENT secret, typed at the prompt so it stays out of your shell history:
-      gh secret set ANTHROPIC_API_KEY --env fork-sync -R $repo
-    from a dedicated Anthropic workspace with a low monthly spend limit. Without it a fixed rule writes the titles.
+  * Keyless Claude access (no API key is stored): scripts/fork/setup-anthropic-wif.py, then the 'Fork WIF check'
+    workflow (docs/fork/WIF.md). Without it a fixed rule writes the commit titles.
   * The fork's own GitHub App, with only the permissions it needs: scripts/fork/create-app.py (docs/fork/APP.md).
   * Renovate (the organisation's app) onboards itself once renovate.json is on the default branch.
 NOTE

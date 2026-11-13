@@ -1,8 +1,8 @@
 # Fork-only. Replays new upstream commits onto sync/upstream (identical changes, Conventional Commit
 # messages) and opens or refreshes the pull request. The pull request is merged by REBASE so each
 # replayed commit stays one commit on main; Pipeline Complete must pass first. Needs the repository
-# secret ANTHROPIC_API_KEY for the titles (without it the rule in rewrite_title.py is used) and the
-# release App secrets so that CI runs on the pull request.
+# federation variables for the titles (docs/fork/WIF.md; without them the rule in rewrite_title.py is used)
+# and the fork App secrets so that CI runs on the pull request.
 name: Fork Sync
 
 on:
@@ -21,8 +21,12 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # The key lives in this environment's secrets, which only runs on main can read (setup-repo.sh).
+    # The environment only runs on main can use (setup-repo.sh). The job asks GitHub for an OIDC token that
+    # Anthropic exchanges for a short-lived token (docs/fork/WIF.md): no API key is stored anywhere.
     environment: fork-sync
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
@@ -41,7 +45,10 @@ jobs:
       - name: Replay upstream
         id: replay
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
           # Cheap on purpose: one short call per replayed commit, a few cents a month.
           FORK_TITLE_MODEL: claude-haiku-5-5
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
