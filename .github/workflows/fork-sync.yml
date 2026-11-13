@@ -1,0 +1,63 @@
+# Fork-only. Replays new upstream commits onto sync/upstream (identical changes, Conventional Commit
+# messages) and opens or refreshes the pull request. The pull request is merged by REBASE so each
+# replayed commit stays one commit on main; Pipeline Complete must pass first. Needs the repository
+# secret ANTHROPIC_API_KEY for the titles (without it the rule in rewrite_title.py is used) and the
+# release App secrets so that CI runs on the pull request.
+name: Fork Sync
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Replay upstream
+        id: replay
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "jorisjonkers-dev-agents[bot]"
+          git config user.email "jorisjonkers-dev-agents[bot]@users.noreply.github.com"
+          out="$(scripts/fork/replay-upstream.sh --push | tee /dev/stderr)"
+          if grep -q '^already in sync' <<<"$out"; then echo "changed=false" >>"$GITHUB_OUTPUT"; else echo "changed=true" >>"$GITHUB_OUTPUT"; fi
+
+      - name: Open or refresh the pull request, and rebase-merge it once the checks pass
+        if: ${{ steps.replay.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(gh pr list --head sync/upstream --state open --json number --jq '.[0].number')" ]; then
+            gh pr create --base main --head sync/upstream --label allow-repository-hygiene-exception \
+              --title "chore(sync): replay upstream" \
+              --body "Replays new commits of slaterain/nv-rs: the same changes, Conventional Commit messages. Merge by rebase."
+          fi
+          gh pr merge sync/upstream --auto --rebase
+
+      - name: Divergence check
+        run: scripts/fork/verify-sync.sh

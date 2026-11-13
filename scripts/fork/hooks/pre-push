@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+protected_regex="${PROTECTED_BRANCH_REGEX:-^refs/heads/main$}"
+allow="${ALLOW_PROTECTED_BRANCH_PUSH:-false}"
+hygiene_allowlist_regex="${HYGIENE_ALLOWLIST_REGEX:-}"
+status=0
+zero_sha="0000000000000000000000000000000000000000"
+
+while IFS= read -r _local_ref local_sha remote_ref _remote_sha; do
+  if [[ "$remote_ref" =~ $protected_regex && "$allow" != "true" ]]; then
+    echo "Direct push to ${remote_ref} is blocked. Open a PR or set ALLOW_PROTECTED_BRANCH_PUSH=true for break-glass." >&2
+    status=1
+  fi
+
+  if [[ "$local_sha" != "$zero_sha" ]]; then
+    tmp_file="$(mktemp "${TMPDIR:-/tmp}/legacy-refs.XXXXXX")"
+    if git grep -n -E 'ExtraToast|@extratoast|dev\.extratoast|ghcr\.io/extratoast' "$local_sha" -- . \
+      ':(exclude)CHANGELOG.md' ':(exclude)specs/**' \
+      ':(exclude)templates/push-protection/hooks/pre-push' >"$tmp_file" 2>/dev/null; then
+      cat "$tmp_file" >&2
+      echo "Legacy ExtraToast coordinate found in pushed content." >&2
+      status=1
+    fi
+    rm -f "$tmp_file"
+
+    tmp_paths="$(mktemp "${TMPDIR:-/tmp}/hygiene-tree.XXXXXX")"
+    tmp_file="$(mktemp "${TMPDIR:-/tmp}/hygiene-paths.XXXXXX")"
+    git ls-tree -r --name-only "$local_sha" >"$tmp_paths"
+    python3 - "$hygiene_allowlist_regex" "$tmp_paths" >"$tmp_file" <<'PY'
+import fnmatch
+import re
+import sys
+
+allowlist_raw = sys.argv[1].strip()
+path_file = sys.argv[2]
+allowlist = re.compile(allowlist_raw) if allowlist_raw else None
+deny_globs = [
+    '.specify/**',
+    'specs/[0-9][0-9][0-9]-*/**',
+    'plans/**',
+    'planning/**',
+    'scratchpad/**',
+    'scratchpads/**',
+    '.agent-council/**',
+    '**/*scratchpad*.md',
+    '**/*.scratch.md',
+    '**/*agent-council*.md',
+    '.claude/commands/speckit*.md',
+    '.claude/skills/speckit*/**',
+    '.agents/skills/speckit*/**',
+    'templates/**/.specify/**',
+    'templates/**/.claude/commands/speckit*.md',
+]
+
+with open(path_file, 'r', encoding='utf-8') as paths:
+    candidates = paths.read().splitlines()
+
+for path in candidates:
+    if allowlist and allowlist.search(path):
+        continue
+    if any(fnmatch.fnmatchcase(path, pattern) for pattern in deny_globs):
+        print(path)
+PY
+    if [[ -s "$tmp_file" ]]; then
+      cat "$tmp_file" >&2
+      echo "Planning or agent scratch artifact found in pushed content." >&2
+      status=1
+    fi
+    rm -f "$tmp_paths" "$tmp_file"
+  fi
+done
+
+exit "$status"
