@@ -107,3 +107,45 @@ jobs:
         with:
           name: test-engine-logs
           path: logs
+
+  clippy:
+    name: cargo clippy (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-linux-probe-clippy
+          save-if: 'true'
+      - name: Clippy, as the Pipeline's Linux job runs it (warnings are errors)
+        run: |
+          set +e
+          cargo clippy --locked --workspace --all-targets --keep-going --message-format short -- -D warnings >clippy.log 2>&1
+          status=$?
+          {
+            echo "## cargo clippy --workspace --all-targets -D warnings (exit $status)"
+            echo '```'
+            grep -E '^[^ ].*(error|warning)' clippy.log | head -200
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: clippy-log
+          path: clippy.log
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo fmt --all -- --check
