@@ -1,0 +1,48 @@
+[package]
+name = "nv-rs-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.esm]
+path = "../crates/esm"
+
+[dependencies.bsa]
+path = "../crates/bsa"
+
+[dependencies.fos]
+path = "../crates/fos"
+
+# Own workspace root: keeps the root workspace (and its 36 members) from
+# picking this crate up, and keeps libfuzzer-sys out of the core crates.
+[workspace]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "esm_plugin"
+path = "fuzz_targets/esm_plugin.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bsa_archive"
+path = "fuzz_targets/bsa_archive.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fos_save"
+path = "fuzz_targets/fos_save.rs"
+test = false
+doc = false
+bench = false
