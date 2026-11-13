@@ -66,7 +66,7 @@ a_allowed() {
   call PUT "repos/$repo/actions/permissions/selected-actions" '{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["JorisJonkers-dev/*","jdx/mise-action@*","Swatinem/rust-cache@*","googleapis/release-please-action@*"]}'
 }
 ensure "only GitHub's, the organisation's and four named actions, all pinned by SHA" \
-  "get repos/$repo/actions/permissions | jq -e --argjson want \"${SHA_PINNING_REQUIRED:-true}\" '.allowed_actions==\"selected\" and .sha_pinning_required==$want'" a_allowed
+  "get repos/$repo/actions/permissions | jq -e --argjson want \"${SHA_PINNING_REQUIRED:-true}\" '.allowed_actions==\"selected\" and .sha_pinning_required==\$want'" a_allowed
 a_approval() { call PUT "repos/$repo/actions/permissions/fork-pr-contributor-approval" '{"approval_policy":"all_external_contributors"}'; }
 ensure "outside contributors' workflow runs need approval" \
   "get repos/$repo/actions/permissions/fork-pr-contributor-approval | jq -e '.approval_policy==\"all_external_contributors\"'" a_approval
