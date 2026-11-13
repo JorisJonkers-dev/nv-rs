@@ -1,0 +1,1607 @@
+{
+ "_note": "cargo metadata --no-deps of the workspace, reduced to what scripts/fork/components.py reads (name, manifest, features, dependencies: workspace ones with kind and the features they switch on, external ones by name and kind only). Refresh: see docs/fork/CI.md.",
+ "packages": [
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "host"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/viewer/Cargo.toml",
+   "name": "nv-viewer"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-platform"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "esm"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "jip"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "play-patch"
+    },
+    {
+     "kind": null,
+     "name": "zlib-rs"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "bsa"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/host/Cargo.toml",
+   "name": "host"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-unplaced-b"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-platform"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-typed"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "esm"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine/Cargo.toml",
+   "name": "engine"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-bs/Cargo.toml",
+   "name": "engine-bs"
+  },
+  {
+   "dependencies": [
+    {
+     "kind": null,
+     "name": "windows"
+    }
+   ],
+   "features": [
+    "test-support"
+   ],
+   "manifest_path": "/ws/crates/engine-core/Cargo.toml",
+   "name": "engine-core"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-gamebryo/Cargo.toml",
+   "name": "engine-gamebryo"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "frame-model"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-ai/Cargo.toml",
+   "name": "engine-fallout-ai"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "frame-model"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-cell/Cargo.toml",
+   "name": "engine-fallout-cell"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-facegen/Cargo.toml",
+   "name": "engine-fallout-facegen"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-havok/Cargo.toml",
+   "name": "engine-havok"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-speedtree/Cargo.toml",
+   "name": "engine-speedtree"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-env/Cargo.toml",
+   "name": "engine-fallout-env"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-forms/Cargo.toml",
+   "name": "engine-fallout-forms"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "frame-model"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-interface/Cargo.toml",
+   "name": "engine-fallout-interface"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-magic/Cargo.toml",
+   "name": "engine-fallout-magic"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "frame-model"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-misc/Cargo.toml",
+   "name": "engine-fallout-misc"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-pathfinding/Cargo.toml",
+   "name": "engine-fallout-pathfinding"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-script/Cargo.toml",
+   "name": "engine-fallout-script"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-b"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-unplaced-a/Cargo.toml",
+   "name": "engine-fallout-unplaced-a"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-bs"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-fallout-facegen"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-havok"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-speedtree"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-ai"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-cell"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-env"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-forms"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-interface"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-magic"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-misc"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-pathfinding"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-script"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "engine-fallout-unplaced-a"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-fallout-unplaced-b/Cargo.toml",
+   "name": "engine-fallout-unplaced-b"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/frame-model/Cargo.toml",
+   "name": "frame-model"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "bink"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "d3d9-stream"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "d3dx-tex"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "mp3"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "vorbis"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "d3d9-wgpu"
+    },
+    {
+     "kind": null,
+     "name": "windows"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-platform/Cargo.toml",
+   "name": "engine-platform"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/bink/Cargo.toml",
+   "name": "bink"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/d3d9-stream/Cargo.toml",
+   "name": "d3d9-stream"
+  },
+  {
+   "dependencies": [],
+   "features": [
+    "software-truncation"
+   ],
+   "manifest_path": "/ws/crates/d3dx-tex/Cargo.toml",
+   "name": "d3dx-tex"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/mp3/Cargo.toml",
+   "name": "mp3"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/vorbis/Cargo.toml",
+   "name": "vorbis"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "d3d9-stream"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "esm"
+    },
+    {
+     "kind": null,
+     "name": "naga"
+    },
+    {
+     "kind": null,
+     "name": "raw-window-handle"
+    },
+    {
+     "kind": null,
+     "name": "wgpu"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/d3d9-wgpu/Cargo.toml",
+   "name": "d3d9-wgpu"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/esm/Cargo.toml",
+   "name": "esm"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-typed/Cargo.toml",
+   "name": "engine-typed"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/jip/Cargo.toml",
+   "name": "jip"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "esm"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/nvse/Cargo.toml",
+   "name": "nvse"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/play-patch/Cargo.toml",
+   "name": "play-patch"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "esm"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/bsa/Cargo.toml",
+   "name": "bsa"
+  },
+  {
+   "dependencies": [],
+   "features": [
+    "write"
+   ],
+   "manifest_path": "/ws/crates/fos/Cargo.toml",
+   "name": "fos"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/nvinspect/Cargo.toml",
+   "name": "nvinspect"
+  }
+ ],
+ "workspace_root": "/ws"
+}

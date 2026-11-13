@@ -8,9 +8,10 @@ tasks:
     silent: true
 
   lint:actions:
-    desc: actionlint on every workflow, zizmor on the fork's own (upstream's are not ours to change)
+    desc: actionlint on every workflow, shellcheck on the fork's shell scripts, zizmor on the fork's own workflows (upstream's are not ours to change)
     cmds:
       - actionlint
+      - shellcheck scripts/fork/*.sh
       - zizmor --offline --no-progress .github/workflows/fork-*.yml .github/workflows/release.yml
 
   deny:
@@ -23,6 +24,13 @@ tasks:
       - python3 -I scripts/fork/test_wif.py
       - python3 -I scripts/fork/setup-anthropic-wif.py --selftest
       - python3 -I scripts/fork/create-app.py --selftest
+      - python3 -I -m unittest discover -s scripts/fork/tests -v
+
+  components:
+    desc: Check the component map against the workspace (every crate in one component, every test file in a job) and print the job matrix of a full run
+    cmds:
+      - python3 -I scripts/fork/components.py check
+      - python3 -I scripts/fork/components.py matrix --event push | jq -r '.include[].name'
 
   secrets:
     desc: Scan every commit for secrets

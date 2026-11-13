@@ -1,0 +1,155 @@
+# Fork-only. The component map of the engine: what CI verifies, in which order of layers, and where.
+# Read by scripts/fork/components.py, which checks that every workspace crate belongs to exactly one component
+# and that each component's `requires` cover its crates' real dependencies, and which builds the CI matrix of
+# .github/workflows/fork-build.yml. The crate layout and every Cargo.toml are upstream's: this map is the only
+# place the fork says what belongs together. docs/fork/CI.md explains how to read and change it.
+#
+# runs_on: "windows" (upstream's gate is Windows) or "both": the same tests also run on Linux. A "both"
+#   component gets a Linux twin that is informational (it may fail without failing the run) until every crate
+#   of the component is listed in .fork/linux-ok.txt; then the component runs on Linux only and the Windows job
+#   goes away, unless `windows = "required"` (the component holds cfg(windows) code that Linux cannot test).
+# pr: "affected" (default): on a pull request the component runs only if a crate of its test closure changed;
+#   "always" runs it on every pull request that builds. Pushes to the integration branch, the schedule and a
+#   manual run test every component.
+# jobs: an optional split INSIDE a component, along module boundaries of the tests (see integration).
+# paths: files outside the workspace that belong to a component (a change there runs the component).
+# commands: for a component that is not made of workspace crates; replaces `cargo test -p`.
+# extra: commands run after the component's tests, in the same job.
+
+[defaults]
+# A workspace crate that no component and no rule claims fails the check: a new upstream crate is never
+# silently untested. A crate claimed only by a rule is reported as "assigned by rule" (a warning).
+unassigned = "fail"
+
+[[component]]
+name = "core"
+purpose = "The engine's foundation: the game's memory model, the Engine, the exe mapping, the CRT, the typed re-implementations above the core, and the frame model"
+crates = ["engine-core", "engine-typed", "frame-model"]
+requires = []
+runs_on = "both"
+windows = "required"
+
+[[component]]
+name = "formats"
+purpose = "File formats and codecs of the game's data: plugins (esm), archives (bsa), saves (fos), Bink, MP3, Ogg Vorbis and the D3DX texture loader"
+crates = ["esm", "bsa", "fos", "bink", "mp3", "vorbis", "d3dx-tex"]
+requires = []
+runs_on = "both"
+# The texture crate's other arithmetic path (upstream ci.yml): truncation done in software.
+extra = [
+  "cargo test --locked -p d3dx-tex --features software-truncation",
+  "cargo clippy --locked -p d3dx-tex --all-targets --features software-truncation -- -D warnings",
+]
+
+[[component]]
+name = "engine-base"
+purpose = "The middleware the game is built on, translated: Gamebryo (scene graph, animation, collision, particles), Havok (physics), SpeedTree and the Bethesda units (audio, menu, movie, shader)"
+crates = ["engine-gamebryo", "engine-speedtree", "engine-havok", "engine-bs"]
+requires = ["core"]
+runs_on = "both"
+
+[[component]]
+name = "fallout-world"
+purpose = "Fallout's world data: forms and the data handler, references and cells, land and water, sky and regions, FaceGen, saves"
+crates = ["engine-fallout-facegen", "engine-fallout-cell", "engine-fallout-forms", "engine-fallout-env"]
+requires = ["core", "engine-base"]
+runs_on = "both"
+
+[[component]]
+name = "fallout-gameplay"
+purpose = "Fallout's rule systems: scripts, conditions and quests, magic and effects, pathfinding, AI"
+crates = ["engine-fallout-script", "engine-fallout-magic", "engine-fallout-pathfinding", "engine-fallout-ai"]
+requires = ["core", "engine-base", "fallout-world"]
+runs_on = "both"
+
+[[component]]
+name = "fallout-front"
+purpose = "Fallout's front end and the rest: menus and dialogue, the main loop, audio, and the not-yet-placed runs of the exe"
+crates = ["engine-fallout-interface", "engine-fallout-misc", "engine-fallout-unplaced-a", "engine-fallout-unplaced-b"]
+requires = ["core", "engine-base", "fallout-world", "fallout-gameplay"]
+runs_on = "both"
+
+[[component]]
+name = "scripting"
+purpose = "The script extenders built in: xNVSE's commands and JIP LN NVSE's commands"
+crates = ["nvse", "jip"]
+requires = ["core"]
+runs_on = "both"
+
+[[component]]
+name = "rendering"
+purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal)"
+crates = ["d3d9-stream", "d3d9-wgpu"]
+requires = ["formats"]
+runs_on = "both"
+windows = "required"
+
+[[component]]
+name = "platform"
+purpose = "The Windows platform layer: window, Direct3D 9 and D3DX entry points, DirectInput, DirectSound, DirectShow, files, loader and process"
+crates = ["engine-platform"]
+requires = ["core", "formats", "rendering"]
+runs_on = "windows"
+
+[[component]]
+name = "integration"
+purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
+crates = ["engine", "host", "play-patch", "nv-viewer"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform"]
+runs_on = "windows"
+# These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
+# the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not
+# by size. Every file of crates/engine/tests must be named in a job (checked), so a new test file cannot be lost.
+[[component.job]]
+name = "typed shader family"
+args = ["-p engine --test typed_shader"]
+[[component.job]]
+name = "typed draw, render, lights, particles"
+args = ["-p engine --test typed_draw --test typed_render --test typed_lights --test typed_particles --test typed_multibound"]
+[[component.job]]
+name = "typed scene: culling, dispatch, geometry, collision, pathing"
+args = ["-p engine --test typed_culling --test typed_dispatch --test typed_geometry --test typed_collision --test typed_pathing"]
+[[component.job]]
+name = "typed animation"
+args = ["-p engine --test typed_animation --test typed_anim_keys"]
+[[component.job]]
+name = "typed runtime: crt, process, lock-free, leaves"
+args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree --test typed_leaves"]
+[[component.job]]
+name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
+args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda", "-p engine --doc"]
+
+[[component]]
+name = "repo-checks"
+purpose = "What must never be committed (the repository's hygiene tests)"
+crates = ["nvinspect"]
+requires = []
+runs_on = "both"
+# It reads the whole repository, so any change can break it.
+pr = "always"
+
+# Separate workspaces (their own Cargo.toml and target): not workspace members, so no crate list.
+[[component]]
+name = "launcher-and-ledger"
+purpose = "Play.exe with Settings.cmd, and the ledger of typed markers: two small workspaces that upstream's CI builds on Windows"
+crates = []
+requires = []
+runs_on = "windows"
+paths = ["scripts/launcher/", "scripts/ledger/", "distribution/"]
+commands = [
+  "cargo test --locked --manifest-path scripts/ledger/Cargo.toml",
+  "cargo fmt --manifest-path scripts/launcher/Cargo.toml -- --check",
+  "cargo test --locked --manifest-path scripts/launcher/Cargo.toml",
+  "cargo clippy --locked --manifest-path scripts/launcher/Cargo.toml --all-targets -- -D warnings",
+]
+
+# Fallbacks for crates upstream adds later (reported as warnings; never silently untested).
+[[rule]]
+match = "engine-fallout-*"
+component = "fallout-front"
+[[rule]]
+match = "d3d9-*"
+component = "rendering"
+[[rule]]
+match = "engine-*"
+component = "engine-base"
