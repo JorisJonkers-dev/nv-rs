@@ -48,8 +48,15 @@ jobs:
         with:
           cache: true
 
-      - name: Check
-        run: mise exec -- task check
+      # Separate steps so one failing check does not hide the others.
+      - name: Workflows
+        run: mise exec -- task lint:actions
+      - name: Dependencies
+        if: ${{ !cancelled() }}
+        run: mise exec -- task deny
+      - name: Secrets
+        if: ${{ !cancelled() }}
+        run: mise exec -- task secrets
 
       # A skipped job fails, except the two that only run on pull requests (hygiene also skips when
       # its override label is set).
