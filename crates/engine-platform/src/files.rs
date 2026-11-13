@@ -360,7 +360,10 @@ fn unix_path(text: &str) -> std::path::PathBuf {
             entries
                 .filter_map(Result::ok)
                 .map(|entry| entry.file_name())
-                .find(|n| n.to_string_lossy().eq_ignore_ascii_case(&name.to_string_lossy()))
+                .find(|n| {
+                    n.to_string_lossy()
+                        .eq_ignore_ascii_case(&name.to_string_lossy())
+                })
         });
         found.push(same.as_deref().unwrap_or(name));
     }
@@ -2801,7 +2804,10 @@ mod tests_player_files {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows")]
+    #[cfg_attr(
+        not(windows),
+        ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows"
+    )]
     fn a_wildcard_search_lists_then_runs_out() {
         let mut e = Engine::new();
         let name = e.mem.alloc(0x200);
@@ -2831,7 +2837,10 @@ mod tests_player_files {
     /// TRUE, the last error left as it was (measured, 32-bit,
     /// `build43-scratch/measure/small-fixes/findclose-2026-11-02.tsv`).
     #[test]
-    #[cfg_attr(not(windows), ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows")]
+    #[cfg_attr(
+        not(windows),
+        ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows"
+    )]
     fn find_close_after_a_search_that_found_nothing_answers_false() {
         let mut e = Engine::new();
         let name = e.mem.alloc(0x200);
@@ -2877,7 +2886,10 @@ mod tests_player_files {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "its FindFirstFileA part needs the file times, which are only provided on Windows")]
+    #[cfg_attr(
+        not(windows),
+        ignore = "its FindFirstFileA part needs the file times, which are only provided on Windows"
+    )]
     fn a_read_only_open_reads_the_players_file_in_place() {
         let mut e = Engine::new();
         let real = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
@@ -2982,10 +2994,15 @@ mod tests_kept_files {
             .collect()
     }
 
+    /// The host's path for a full path of the game's kind (the scratch folder's `dir\name`).
+    fn host(path: &str) -> std::path::PathBuf {
+        real_path(path.as_bytes())
+    }
+
     /// The scratch file `name` in `dir` with `bytes`; its full path.
     fn file(dir: &str, name: &str, bytes: &[u8]) -> String {
         let path = format!("{dir}\\{name}");
-        std::fs::write(&path, bytes).unwrap();
+        std::fs::write(host(&path), bytes).unwrap();
         path
     }
 
@@ -3128,8 +3145,9 @@ mod tests_kept_files {
         let incoming = file(&dir, "Incoming.bsa", &new);
         let h = open(&mut e, &path, GENERIC_READ);
         assert_eq!(read(&mut e, h, 100), old[..100].to_vec());
-        std::fs::rename(&incoming, &path).expect("a rename over a file the game has open");
-        assert_eq!(std::fs::read(&path).unwrap(), new);
+        std::fs::rename(host(&incoming), host(&path))
+            .expect("a rename over a file the game has open");
+        assert_eq!(std::fs::read(host(&path)).unwrap(), new);
         assert_eq!(read(&mut e, h, 100), old[100..200].to_vec());
         assert_eq!(size(&mut e, h), 6000);
         set_file_pointer(&mut e, h, (-50i32) as u32, Ptr::new(0), 2);
@@ -3146,7 +3164,7 @@ mod tests_kept_files {
         let path = file(&dir, "Deleted.bsa", &old);
         let h = open(&mut e, &path, GENERIC_READ);
         assert_eq!(read(&mut e, h, 100), old[..100].to_vec());
-        std::fs::remove_file(&path).expect("deleting a file the game has open");
+        std::fs::remove_file(host(&path)).expect("deleting a file the game has open");
         assert_eq!(read(&mut e, h, 100), old[100..200].to_vec());
         assert_eq!(size(&mut e, h), 6000);
         assert_eq!(open(&mut e, &path, GENERIC_READ), INVALID_HANDLE_VALUE);
@@ -3164,7 +3182,7 @@ mod tests_kept_files {
         assert_eq!(delete_file_a(&mut e, Ptr::new(name)), 1);
         assert!(read(&mut e, h, 100).is_empty());
         assert_eq!(size(&mut e, h), 0);
-        assert_eq!(std::fs::read(&path).unwrap(), old);
+        assert_eq!(std::fs::read(host(&path)).unwrap(), old);
         close(&mut e, h);
 
         // The game's own write open takes the file into the run: the earlier read handle then
@@ -3185,7 +3203,7 @@ mod tests_kept_files {
             [&b"THE RUN!"[..], &old[108..110]].concat()
         );
         assert_eq!(size(&mut e, r), 6008);
-        assert_eq!(std::fs::read(&path).unwrap(), old);
+        assert_eq!(std::fs::read(host(&path)).unwrap(), old);
         close(&mut e, r);
         close(&mut e, w);
         let _ = std::fs::remove_dir_all(&dir);
@@ -3596,7 +3614,10 @@ mod tests_changed_directories {
     /// got (measured, `review-findfile/run1.txt`); not modelled, the run stops.
     #[test]
     #[should_panic(expected = "since FindFirstFileA; not provided")]
-    #[cfg_attr(not(windows), ignore = "the stop it expects comes from the Windows file times: off Windows the search stops earlier, on the file times")]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the stop it expects comes from the Windows file times: off Windows the search stops earlier, on the file times"
+    )]
     fn a_search_whose_folder_changed_since_it_began_stops() {
         let dir = scratch("midsearch", &[("a.fos", 5), ("b.fos", 5)]);
         let mut e = Engine::new();
@@ -3647,10 +3668,7 @@ mod tests_unix_paths {
             real_path(b"Z:\\usr\\share\\none"),
             std::path::PathBuf::from("/usr/share/none")
         );
-        assert_eq!(
-            real_path(b"z:\\tmp"),
-            std::path::PathBuf::from("/tmp")
-        );
+        assert_eq!(real_path(b"z:\\tmp"), std::path::PathBuf::from("/tmp"));
     }
 
     #[test]
@@ -3674,7 +3692,10 @@ mod tests_unix_paths {
     fn a_name_with_no_match_stays_as_written() {
         let dir = scratch("nomatch");
         let asked = format!("Z:{}\\Data\\New.fos", dir.display());
-        assert_eq!(real_path(asked.as_bytes()), dir.join("Data").join("New.fos"));
+        assert_eq!(
+            real_path(asked.as_bytes()),
+            dir.join("Data").join("New.fos")
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
