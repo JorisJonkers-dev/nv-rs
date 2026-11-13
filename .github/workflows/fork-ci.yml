@@ -56,12 +56,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@072969666fe9c4339c1d42045629bb27d188f5fb # v0.50.2
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
 
   pr-title:
     name: PR title
     if: ${{ github.event_name == 'pull_request' }}
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/pr-title-check.yml@072969666fe9c4339c1d42045629bb27d188f5fb # v0.50.2
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/pr-title-check.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
 
   # Upstream's ci.yml, split into parallel jobs. Linux first; Windows only for what needs it.
   build-linux:
