@@ -126,21 +126,18 @@ if [ "$mode" = "--diagnose" ]; then
 fi
 if [ "$fed_code" != 200 ]; then
   echo
-  echo "Workload identity federation is not available to this login (federation_issuers answered HTTP $fed_code)."
-  echo "That is the fault of the account, not an outage: Anthropic's Admin API and federation are for Console ORGANISATIONS."
-  echo "The fallback needs no federation: an API key from a workspace with a monthly spend limit, kept as an ENVIRONMENT secret"
-  echo "of '$env_name' (readable only by runs on the fork branch). The sync workflow already uses it."
+  echo "The Admin API refused federation_issuers (HTTP $fed_code) for this login, so this script cannot create the rule for you."
+  echo "That does NOT mean federation is unavailable: the Console can still create it. Do it there (about five minutes):"
+  echo "  https://platform.claude.com/settings/workload-identity-federation  ->  Connect workload  ->  GitHub Actions"
+  echo "  The values to enter are in docs/fork/WIF.md, section 'Via the Console'."
   echo
-  echo "  1. Console, Settings, Limits: set the monthly limit on the workspace (for example \$5)."
-  echo "  2. Console, Settings, API keys: Create key, workspace $login_ws, name nv-rs-fork-sync. Copy the key."
-  echo
-  read -r -p "Store the key now (you paste it at a hidden prompt)? [y/N] " a
+  read -r -p "Created the rule in the Console? Store its identifiers now [y/N] " a
   if [ "$a" = y ]; then
-    gh api "repos/$repo/environments/$env_name" --silent 2>/dev/null || gh api -X PUT "repos/$repo/environments/$env_name" --silent
-    gh secret set ANTHROPIC_API_KEY --env "$env_name" -R "$repo" && echo "stored as the '$env_name' environment secret ANTHROPIC_API_KEY."
-    echo "Next: merge the baseline pull request, then  scripts/fork/setup-anthropic.sh --verify"
+    "$here/store-wif-ids.sh" --repo "$repo" --env "$env_name" ${org_id:+--org "$org_id"} ${login_ws:+--workspace "$login_ws"}
   else
-    echo "Later:  gh secret set ANTHROPIC_API_KEY --env $env_name -R $repo"
+    echo "Later: scripts/fork/store-wif-ids.sh"
+    echo "Fallback if federation does not work for you after all: an API key in the limited workspace, stored with"
+    echo "  gh secret set ANTHROPIC_API_KEY --env $env_name -R $repo"
   fi
   exit 0
 fi
