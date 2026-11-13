@@ -40,6 +40,8 @@ jobs:
         id: replay
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Cheap on purpose: one short call per replayed commit, a few cents a month.
+          FORK_TITLE_MODEL: claude-haiku-5-5
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail

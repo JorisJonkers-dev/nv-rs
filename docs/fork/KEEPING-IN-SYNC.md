@@ -38,7 +38,7 @@ By hand, from a clean clone: `scripts/fork/replay-upstream.sh`, read the log it 
 ### The titles
 
 The title is a type and a subject: `fix(engine-fallout-ai): correct the pathing flag`. With the repository
-secret `ANTHROPIC_API_KEY` a small model (`FORK_TITLE_MODEL`, default `claude-haiku-5-5`) proposes it from the
+secret `ANTHROPIC_API_KEY` a small model (Haiku, set as `FORK_TITLE_MODEL` in the workflow; a few cents a month) proposes it from the
 commit's message and file list. Commit text is untrusted input, so the model has no tools, and its answer
 is used only if it is one line that matches the same pattern as the `commit-msg` hook; otherwise a fixed
 rule is used (`fix`, `add`, `refactor`, ... on the first word, `chore` otherwise). A title is written once,
