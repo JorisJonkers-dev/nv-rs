@@ -711,6 +711,8 @@ pub fn find_first_file_a(e: &mut Engine, name: Ptr, data: Ptr) -> u32 {
 /// last-write times, the size (high word, then low), the two reserved words 0, `cFileName` (the
 /// name as stored, then one zero byte) and an empty `cAlternateFileName` (one zero byte at
 /// +0x130); the rest of the buffer is left as it was.
+// Off Windows the file times stop the run (below), so what follows the stop is never reached.
+#[cfg_attr(not(windows), allow(unreachable_code, unused_variables))]
 fn write_find_data(e: &mut Engine, data: Ptr, meta: &std::fs::Metadata, stored: &str, shown: &str) {
     #[cfg(windows)]
     let _ = shown;
