@@ -16,6 +16,17 @@ What you set up in Anthropic: an **issuer** (GitHub Actions, once per organisati
 repository `JorisJonkers-dev/nv-rs`, ref `refs/heads/main` may act as that service account in this workspace".
 `scripts/fork/setup-anthropic-wif.py` does all of it through the Admin API.
 
+## The short way: one script
+
+```sh
+scripts/fork/setup-anthropic.sh            # login, workspace, federation, GitHub variables
+# merge the baseline pull request to main, then:
+scripts/fork/setup-anthropic.sh --verify   # runs the check, removes the old key, optional first sync
+```
+
+The script asks you for the two things only you can do in the Console (the spend limit, and deleting the old key) and
+does everything else. The steps below are what it does, for when you want to run them by hand.
+
 ## Steps
 
 **1. A dedicated workspace with a spend limit** (Console, Settings, Workspaces, Create workspace). Name it for this
