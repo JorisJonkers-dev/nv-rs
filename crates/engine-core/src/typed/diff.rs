@@ -397,6 +397,26 @@ type Setup = Box<dyn Fn(&mut Engine, &Case) -> Vec<u32>>;
 /// The inputs a test says stop ([`Diff::expect_stops`]).
 type StopCases = Box<dyn Fn(&Case) -> bool>;
 
+
+/// PROBE (measurement only, not merged): where a differential run spends its time.
+#[derive(Default, Clone, Copy)]
+struct Probe {
+    new: u128,
+    setup: u128,
+    call: u128,
+    post: u128,
+    total_side: u128,
+    sides: u64,
+    runs: u64,
+    untouched_second: u64,
+    second: u64,
+}
+thread_local! { static PROBE: std::cell::Cell<Probe> = std::cell::Cell::new(Probe::default()); }
+fn probe_add(f: impl FnOnce(&mut Probe)) {
+    PROBE.with(|p| { let mut v = p.get(); f(&mut v); p.set(v); });
+}
+static PROBE_ONCE: std::sync::Once = std::sync::Once::new();
+
 /// One function's comparison ([`Diff::run`]).
 pub struct Diff {
     addr: u32,
@@ -693,17 +713,38 @@ impl Diff {
             control_words: self.words_to_run(),
             ..Report::default()
         };
+        PROBE_ONCE.call_once(Engine::probe_table_costs);
+        PROBE.with(|p| p.set(Probe::default()));
+        let t0 = std::time::Instant::now();
         let swept = swept_cases(&self.inputs, self.float_sweep, u64::from(self.addr));
         for case in cases(&self.inputs, self.max_cases).into_iter().chain(swept) {
-            for word in report.control_words.clone() {
+            let mut first_touched = true;
+            for (i, word) in report.control_words.clone().into_iter().enumerate() {
                 report.runs += 1;
-                self.run_case(&case, word, &mut report);
+                let touched = self.run_case(&case, word, &mut report);
+                if i == 0 {
+                    first_touched = touched;
+                } else {
+                    probe_add(|p| {
+                        p.second += 1;
+                        if !first_touched && !self.sets_control_word {
+                            p.untouched_second += 1;
+                        }
+                    });
+                }
             }
         }
+        let p = PROBE.with(|p| p.get());
+        let ms = |n: u128| n / 1_000_000;
+        eprintln!(
+            "PROBE addr={:08x} runs={} words={} total_ms={} sides={} side_ms={} new_ms={} setup_ms={} call_ms={} post_ms={} second_runs={} second_skippable={}",
+            self.addr, report.runs, report.control_words.len(), t0.elapsed().as_millis(), p.sides,
+            ms(p.total_side), ms(p.new), ms(p.setup), ms(p.call), ms(p.post), p.second, p.untouched_second
+        );
         report
     }
 
-    fn run_case(&self, case: &Case, word: u16, report: &mut Report) {
+    fn run_case(&self, case: &Case, word: u16, report: &mut Report) -> bool {
         let translation = self.side(case, word, Branch::Translation);
         let typed = self.side(case, word, Branch::ByAddress);
         assert_eq!(
@@ -777,7 +818,9 @@ impl Diff {
                 Branch::Direct,
                 report,
             );
+            return translation.touched || typed.touched || direct.touched;
         }
+        translation.touched || typed.touched
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -852,7 +895,9 @@ impl Diff {
 
     /// One engine's run of the case.
     fn side(&self, case: &Case, word: u16, branch: Branch) -> Side {
+        let t_start = std::time::Instant::now();
         let mut e = Engine::new_untyped();
+        let t_new = t_start.elapsed().as_nanos();
         // Made first on every side, so an engine's first local or TLS read doesn't move the heap
         // blocks after it: a typed version with native locals may never make them.
         e.with_stack(8, |_, _| ());
@@ -861,6 +906,7 @@ impl Diff {
         // and restores the word (the C runtime's `fabs`, `floor`, `sqrt`) restores; before the setup, so
         // a setup can still place another word there on purpose.
         crate::units::crt::set_x87_control_word(&mut e, word);
+        x87::watch::reset_reads();
         // What a setup can't replace: see `translation_calls_plainly` and `family`.
         let mut watched = self.plain_callees.clone();
         for family in &self.families {
@@ -924,7 +970,11 @@ impl Diff {
             })
         });
         x87::set_control_word(word);
+        x87::watch::reset_writes();
+        let t_call = std::time::Instant::now();
         let result = catch_unwind(AssertUnwindSafe(|| e.call(self.addr, &words)));
+        let call_ns = t_call.elapsed().as_nanos();
+        let touched = x87::watch::touched();
         let control_word = x87::control_word();
         x87::set_control_word(x87::DEFAULT_CONTROL_WORD);
         e.set_call_hook(None);
@@ -941,7 +991,16 @@ impl Diff {
             ),
         };
         let clock = (e.clock_ms, e.clock_us);
+        let total = t_start.elapsed().as_nanos();
+        probe_add(|p| {
+            p.sides += 1;
+            p.new += t_new;
+            p.call += call_ns;
+            p.total_side += total;
+            p.setup += total.saturating_sub(t_new).saturating_sub(call_ns);
+        });
         Side {
+            touched,
             engine: e,
             words,
             registered,
@@ -1607,6 +1666,8 @@ struct Side {
     stack: Option<(u32, u32)>,
     control_word: u16,
     clock: (u32, u32),
+    /// Whether the code under test read or loaded the control word ([`x87::watch`]).
+    touched: bool,
 }
 
 impl Side {

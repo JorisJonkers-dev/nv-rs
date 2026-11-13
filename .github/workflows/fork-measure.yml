@@ -1,0 +1,68 @@
+# Fork-only, throwaway (branch probe/**, never merged): per-test times, where a differential case spends its
+# time, and what opt-level 1 does to the typed tests. Output: the log of each job as an artifact.
+name: Measure
+on:
+  push:
+    branches: ['probe/**']
+permissions:
+  contents: read
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: never
+  # libtest's --report-time needs the unstable flag; the environment variable allows it on the stable toolchain.
+  RUSTC_BOOTSTRAP: 1
+defaults:
+  run:
+    shell: bash
+jobs:
+  measure:
+    name: ${{ matrix.name }}
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: shader, tests: '--test typed_shader', cfg: '' }
+          - { name: geometry-pathing, tests: '--test typed_geometry --test typed_pathing', cfg: '' }
+          - { name: scene, tests: '--test typed_culling --test typed_dispatch --test typed_collision', cfg: '' }
+          - { name: draw, tests: '--test typed_draw --test typed_render --test typed_lights --test typed_particles --test typed_multibound', cfg: '' }
+          - { name: animation-runtime, tests: '--test typed_animation --test typed_anim_keys --test typed_crt --test typed_process --test typed_lockfree --test typed_leaves', cfg: '' }
+          - { name: culling-opt1-three, tests: '--test typed_culling', cfg: '--config profile.dev.package.engine-core.opt-level=1 --config profile.dev.package.engine-typed.opt-level=1 --config profile.dev.package.engine.opt-level=1' }
+          - { name: culling-opt1-all, tests: '--test typed_culling', cfg: '--config profile.dev.opt-level=1' }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: integration-Windows
+          save-if: false
+      - name: Compile
+        env:
+          TESTS: ${{ matrix.tests }}
+          CFG: ${{ matrix.cfg }}
+        run: |
+          start=$SECONDS
+          cargo test --locked -p engine $TESTS $CFG --no-run 2>&1 | tail -5
+          echo "compile_seconds=$((SECONDS - start))" | tee "$RUNNER_TEMP/measure.txt"
+      - name: Test
+        env:
+          TESTS: ${{ matrix.tests }}
+          CFG: ${{ matrix.cfg }}
+        run: |
+          start=$SECONDS
+          cargo test --locked -p engine $TESTS $CFG -- --nocapture -Zunstable-options --report-time >"$RUNNER_TEMP/test.log" 2>&1 || echo "tests failed"
+          echo "test_seconds=$((SECONDS - start))" | tee -a "$RUNNER_TEMP/measure.txt"
+          grep -E '^(test result|PROBE-TABLE)' "$RUNNER_TEMP/test.log" | tee -a "$GITHUB_STEP_SUMMARY" || true
+          grep -E 'Running ' "$RUNNER_TEMP/test.log" || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ !cancelled() }}
+        with:
+          name: measure-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/test.log
+            ${{ runner.temp }}/measure.txt

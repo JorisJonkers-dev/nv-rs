@@ -390,6 +390,52 @@ impl Engine {
         Self::new_untyped()
     }
 
+    /// PROBE (measurement only): what building the function table costs, and what cloning a built one would.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn probe_table_costs() {
+        use std::time::Instant;
+        const N: u32 = 20;
+        let t = Instant::now();
+        for _ in 0..N {
+            let _ = Engine::new_untyped();
+        }
+        let new_us = t.elapsed().as_micros() / u128::from(N);
+        let t = Instant::now();
+        let mut list = Vec::new();
+        for _ in 0..N {
+            list.clear();
+            crate::units::funcs(&mut list);
+            unsafe { nv_engine_assembled_funcs(&mut list) };
+        }
+        let list_us = t.elapsed().as_micros() / u128::from(N);
+        let mut funcs = AddrMap::with_capacity_and_hasher(list.len(), Default::default());
+        for (addr, f) in list.iter().copied() {
+            funcs.insert(addr, Callable::Abi(f));
+        }
+        let t = Instant::now();
+        for _ in 0..N {
+            let m = funcs.clone();
+            std::hint::black_box(&m);
+        }
+        let clone_us = t.elapsed().as_micros() / u128::from(N);
+        let t = Instant::now();
+        for _ in 0..N {
+            let m = Mem::new();
+            std::hint::black_box(&m);
+        }
+        let mem_us = t.elapsed().as_micros() / u128::from(N);
+        let t = Instant::now();
+        for _ in 0..N {
+            let m = empty_call_cache();
+            std::hint::black_box(&m);
+        }
+        let cache_us = t.elapsed().as_micros() / u128::from(N);
+        eprintln!(
+            "PROBE-TABLE funcs={} new_untyped_us={new_us} list_us={list_us} clone_us={clone_us} mem_new_us={mem_us} call_cache_us={cache_us}",
+            list.len()
+        );
+    }
+
     /// [`Engine::new`] with only the translations: the differential test's two engines
     /// ([`crate::typed`]), whatever the switch says.
     pub(crate) fn new_untyped() -> Self {
