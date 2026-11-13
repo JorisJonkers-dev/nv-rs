@@ -10,7 +10,7 @@ import sys
 
 RESULT = re.compile(r"test result: (\w+)\. (\d+) passed; (\d+) failed; (\d+) ignored")
 RUNNING = re.compile(r"^\s*Running (.+?) \(")
-FAILED = re.compile(r"^test (\S+) \.\.\. FAILED")
+FAILED = re.compile(r"^test (\S+) - should panic \.\.\. FAILED|^test (\S+) \.\.\. FAILED")
 
 
 def main() -> None:
@@ -21,6 +21,7 @@ def main() -> None:
         name = log.stem
         text = log.read_text(errors="replace")
         passed = failed = ignored = 0
+        seen = False
         binary = ""
         per_binary = {}
         for line in text.splitlines():
@@ -29,6 +30,7 @@ def main() -> None:
                 binary = m.group(1)
             m = RESULT.search(line)
             if m:
+                seen = True
                 p, f, i = int(m.group(2)), int(m.group(3)), int(m.group(4))
                 passed, failed, ignored = passed + p, failed + f, ignored + i
                 row = per_binary.setdefault(binary or "doc-tests", [0, 0, 0])
@@ -37,11 +39,11 @@ def main() -> None:
                 row[2] += i
             m = FAILED.match(line)
             if m:
-                failures.append(f"{name}: {m.group(1)}")
+                failures.append(f"{name}: {m.group(1) or m.group(2)}")
         note = ""
         if "could not compile" in text:
             note = "build failed"
-        elif passed + failed + ignored == 0:
+        elif not seen:
             note = "no result (timed out or killed)"
         print(f"| {name} | {passed} | {failed} | {ignored} | {note} |")
         if name == "engine":
