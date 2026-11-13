@@ -31,7 +31,8 @@ ask() { # ask VAR "prompt" "pattern"
   done
 }
 ask rule "Federation rule id for SCHEDULED runs (fdrl_...; the rule's page in the Console)" '^fdrl_[A-Za-z0-9]+$'
-if [ -z "$manual" ]; then read -r -p "Second rule id for MANUAL (workflow_dispatch) runs, or Enter if one rule allows both events: " manual; fi
+if [ -z "$manual" ]; then read -r -p "Second rule id for MANUAL (workflow_dispatch) runs, or Enter if one rule allows both events: " manual || manual=""; fi
+[ "$manual" != none ] || manual=""
 ask sa "Service account id (svac_...; Console, Service accounts)" '^svac_[A-Za-z0-9]+$'
 ask ws "Workspace id (wrkspc_...; Console, Settings, Workspaces)" '^wrkspc_[A-Za-z0-9]+$'
 ask org "Organization id (a UUID; Console, Settings, Organization)" '^[0-9a-fA-F-]{36}$'

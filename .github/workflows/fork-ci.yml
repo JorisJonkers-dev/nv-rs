@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  # Documentation-only changes skip the builds. The gate below still runs and still requires everything else.
+  # Pull requests that only change documentation or the fork's own files skip the builds (see the diff step). The gate below still runs and still requires everything else.
   changes:
     name: Changed files
     runs-on: ubuntu-latest
@@ -39,16 +39,33 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
-            echo "code=true" >>"$GITHUB_OUTPUT"; echo "no base to compare with: building"; exit 0
+          # A push to the fork branch always runs the builds: it verifies the result and fills the caches.
+          if [ "$EVENT" = push ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "code=true" >>"$GITHUB_OUTPUT"; echo "building (push, or no base to compare with)"; exit 0
           fi
-          if git diff --name-only "$BASE...$HEAD" | grep -qvE '^(docs/|LICENSE$|.*\.md$|\.fork/(overlay-paths|allowed-divergence|readme-banner\.md)$)'; then
-            echo "code=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "code=false" >>"$GITHUB_OUTPUT"; echo "only documentation changed: the builds are skipped"
-          fi
+          # On a pull request the Rust builds verify UPSTREAM's code. A change that only touches documentation or the fork's own
+          # files (.fork/overlay-paths) cannot change that, so the builds are skipped. Files that steer the builds still count.
+          BASE="$BASE" HEAD="$HEAD" python3 -I -c '
+          import os, re, subprocess
+          def diff(flt):
+              out = subprocess.run(["git", "diff", "--name-only", "--diff-filter=" + flt, os.environ["BASE"] + "..." + os.environ["HEAD"]],
+                                   capture_output=True, text=True, check=True).stdout
+              return [f for f in out.splitlines() if f]
+          overlay = [l.split("#")[0].strip() for l in open(".fork/overlay-paths", encoding="utf-8")]
+          overlay = [o for o in overlay if o]
+          # Files that steer the builds count when they are MODIFIED (an existing, verified behaviour changes); a newly added
+          # file cannot change what an earlier run verified, and the push to the fork branch runs the full builds anyway.
+          steering = re.compile(r"^(\.fork/(test-groups\.json|linux-ok\.txt|components\.toml)|\.github/workflows/fork-build-.*\.yml|scripts/fork/(linux_probe|components)\.py)$")
+          docs = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
+          fork_owned = lambda f: any(f == o or (o.endswith("/") and f.startswith(o)) for o in overlay)
+          code = [f for f in diff("ACDMRT") if not (docs.match(f) or fork_owned(f))]
+          code += [f for f in diff("MDR") if steering.match(f)]
+          print("code files:", ", ".join(code[:10]) or "none", file=__import__("sys").stderr)
+          print("code=" + ("true" if code else "false"))
+          ' >>"$GITHUB_OUTPUT"
 
   hygiene:
     name: Hygiene
