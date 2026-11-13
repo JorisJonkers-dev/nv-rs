@@ -17,6 +17,11 @@ set -euo pipefail
 repo=${REPO:-JorisJonkers-dev/nv-rs}
 env_name=${ENV_NAME:-fork-sync}
 ws_name=${WORKSPACE_NAME:-nv-rs-fork}
+# A throwaway ant profile for this run. `ant auth login` remembers the organisation chosen the first time in a profile and
+# reuses it silently, so a fresh profile is what lets the browser ask which organisation you mean. To skip the question
+# give the organisation id (Console, Settings, Organization): ORG_ID=<uuid> scripts/fork/setup-anthropic.sh
+prof=${ANT_PROFILE:-nv-rs-fork-setup}
+org_pin=${ORG_ID:-}
 api=${ANTHROPIC_API_BASE:-https://api.anthropic.com}
 here=$(dirname "$(readlink -f "$0")")
 mode=${1:-setup}
@@ -58,12 +63,13 @@ if [ "$mode" = "--verify" ]; then
 fi
 
 say "1/5 Log in to Anthropic as an organisation admin (a browser opens)"
-ant --profile admin auth login --admin
-token=$(ant --profile admin auth print-credentials --access-token)
+[ -z "$org_pin" ] || ant --profile "$prof" profile set organization_id "$org_pin" >/dev/null 2>&1 || true
+ant --profile "$prof" auth login --admin
+token=$(ant --profile "$prof" auth print-credentials --access-token)
 [ -n "$token" ] || die "no access token from ant"
 export ANTHROPIC_AUTH_TOKEN=$token
 unset ANTHROPIC_API_KEY
-trap 'ant --profile admin auth logout >/dev/null 2>&1 || true; unset ANTHROPIC_AUTH_TOKEN' EXIT
+trap 'ant --profile "$prof" auth logout >/dev/null 2>&1 || true; rm -f "$HOME/.config/anthropic/configs/$prof.json" "$HOME/.config/anthropic/credentials/$prof.json"; unset ANTHROPIC_AUTH_TOKEN' EXIT
 
 # Anthropic has stability problems at times: retry what can be transient (network errors, 408, 425, 429, 5xx incl. 529
 # "overloaded") up to RETRIES times with a growing pause. Anything else (401, 403, 404, ...) is not transient and is
@@ -87,13 +93,13 @@ call() { # call curl-args...
     esac
   done
 }
-profile_json=~/.config/anthropic/configs/admin.json
+profile_json=$HOME/.config/anthropic/configs/$prof.json
 org_id=$(jq -r '.organization_id // empty' "$profile_json" 2>/dev/null || true)
 login_ws=$(jq -r '.workspace_id // empty' "$profile_json" 2>/dev/null || true)
 
 org_name=$(jq -r '.organization_name // empty' "$profile_json" 2>/dev/null || true)
 say "Which organisation is this login for?"
-ant --profile admin auth status 2>&1 | sed -n '/^Organization/,$p' | head -12 || true
+ant --profile "$prof" auth status 2>&1 | sed -n '/^Organization/,$p' | head -12 || true
 echo "  organisation id from the login: ${org_id:-unknown}${org_name:+ ($org_name)}"
 echo "  If this is not the organisation you meant, stop (Ctrl-C), switch organisation in the Console (the switcher at the top left,"
 echo "  https://platform.claude.com) BEFORE logging in again, and choose it on the browser's authorize page."
@@ -146,7 +152,7 @@ gh api "repos/$repo/environments/$env_name" --silent 2>/dev/null || {
   gh api -X PUT "repos/$repo/environments/$env_name" --silent
   echo "created the '$env_name' environment (scripts/fork/setup-repo.sh restricts it to the fork branch)"
 }
-python3 -I "$here/setup-anthropic-wif.py" --workspace "$ws" --repo "$repo" --env "$env_name" ${org_id:+--org-id "$org_id"}
+python3 -I "$here/setup-anthropic-wif.py" --workspace "$ws" --repo "$repo" --env "$env_name" ${org_id:+--org-id "$org_id"} --profile "$prof"
 
 say "5/5 Admin login removed (on exit). Next"
 if on_fork fork-wif-check.yml; then

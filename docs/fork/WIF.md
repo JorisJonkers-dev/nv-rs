@@ -75,13 +75,20 @@ key is gone.
 
 **7. Run Upstream Sync once** (Actions, Upstream Sync, Run workflow) and read the titles it wrote.
 
-## If the API says 403 (and about retries)
+## If the API says 403 or 404 (and about retries)
 
 The scripts retry what can be transient: network errors, 408, 425, 429 and every 5xx including 529 ("overloaded"), up to 20
 times with a growing pause (`ANTHROPIC_RETRIES` changes it). The title step during a sync tries 5 times and then falls back to
 the fixed rule, so an Anthropic incident never blocks a sync.
 
-A **403 `Missing permissions`** is different: it is an answer, not an outage, so it is not retried. With a login that says
+**Which organisation?** `ant auth login` remembers the organisation the first time a profile is used and reuses it silently
+(`Using organization <id> from profile ...`). If you have several organisations, the profile can be stuck on the wrong one,
+often the personal "Individual Org". `scripts/fork/setup-anthropic.sh` therefore uses a throwaway profile, so the browser
+asks; to skip the question run `ORG_ID=<id from Console, Settings, Organization> scripts/fork/setup-anthropic.sh`, or retarget
+a profile by hand: `ant --profile NAME profile set organization_id <id>`.
+
+A **404 `Not found`** on the federation endpoints means the feature is not available to that organisation (or you are in a different
+organisation than you think). A **403 `Missing permissions`** is different: it is an answer, not an outage, so it is not retried. With a login that says
 "Individual Org" the cause is most likely the account type: Anthropic's Admin API documentation says it is not available to
 individual Console accounts, which must first set up an organisation (Console, Settings, Organization), and the service
 account and federation endpoints are part of it. What to do:

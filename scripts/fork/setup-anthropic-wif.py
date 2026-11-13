@@ -53,6 +53,10 @@ class Api:
                 detail = err.read().decode(errors="replace")[:600]
                 if err.code not in TRANSIENT:
                     hint = ""
+                    if err.code == 404 and "federation" in path:
+                        hint = ("\n  404 on the federation endpoints: workload identity federation is not available to this organisation "
+                                "(or this login is for a different organisation than you think). Run scripts/fork/setup-anthropic.sh --diagnose "
+                                "and read docs/fork/WIF.md, section 'If the API says 403 or 404'.")
                     if err.code in (401, 403):
                         hint = ("\n  This is not a transient fault, so it is not retried. A 403 'Missing permissions' usually means the login "
                                 "is not an organisation admin of a Console ORGANISATION: the Admin API is not available to an individual "
