@@ -312,8 +312,59 @@ pub fn full_path(e: &Engine, name: &[u8]) -> Vec<u8> {
     path
 }
 
-fn real_path(path: &[u8]) -> std::path::PathBuf {
-    std::path::PathBuf::from(String::from_utf8_lossy(path).into_owned())
+/// The host's path for the game's full path `path` (Windows: as it is; elsewhere: `unix_path`).
+pub fn real_path(path: &[u8]) -> std::path::PathBuf {
+    let text = String::from_utf8_lossy(path).into_owned();
+    #[cfg(unix)]
+    {
+        unix_path(&text)
+    }
+    #[cfg(not(unix))]
+    {
+        std::path::PathBuf::from(text)
+    }
+}
+
+/// A game path (`Z:\home\me\Data\Fallout.esm`; names are not case-sensitive, the separator is a
+/// backslash) as a path of a Unix host: `Z:` is the host's root, as Wine's is, so a name under it
+/// is the same name with `/` for `\`; a name without a drive letter keeps its place (the
+/// current directory's or an absolute one). Any other drive letter has no mapping: its name stays
+/// as it is and is not found, never made up. Each part that does not exist as written is looked up
+/// without regard to case in its directory (the first entry that matches), so `data\FALLOUT.ESM`
+/// finds `Data/Fallout.esm`; a part with no match stays as written (a file to be made).
+#[cfg(unix)]
+fn unix_path(text: &str) -> std::path::PathBuf {
+    use std::path::{Component, Path, PathBuf};
+    let slashed = text.replace('\\', "/");
+    let rest = match slashed.as_bytes() {
+        [d, b':', ..] if d.eq_ignore_ascii_case(&b'z') => &slashed[2..],
+        _ => &slashed[..],
+    };
+    let mut found = PathBuf::new();
+    for part in Path::new(rest).components() {
+        let Component::Normal(name) = part else {
+            found.push(part.as_os_str());
+            continue;
+        };
+        let next = found.join(name);
+        if next.symlink_metadata().is_ok() {
+            found = next;
+            continue;
+        }
+        let from = if found.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            found.as_path()
+        };
+        let same = std::fs::read_dir(from).ok().and_then(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.file_name())
+                .find(|n| n.to_string_lossy().eq_ignore_ascii_case(&name.to_string_lossy()))
+        });
+        found.push(same.as_deref().unwrap_or(name));
+    }
+    found
 }
 
 /// The bytes of the file at the full path `path`: as the game made it in this run, else the
@@ -2750,6 +2801,7 @@ mod tests_player_files {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows")]
     fn a_wildcard_search_lists_then_runs_out() {
         let mut e = Engine::new();
         let name = e.mem.alloc(0x200);
@@ -2779,6 +2831,7 @@ mod tests_player_files {
     /// TRUE, the last error left as it was (measured, 32-bit,
     /// `build43-scratch/measure/small-fixes/findclose-2026-11-02.tsv`).
     #[test]
+    #[cfg_attr(not(windows), ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows")]
     fn find_close_after_a_search_that_found_nothing_answers_false() {
         let mut e = Engine::new();
         let name = e.mem.alloc(0x200);
@@ -2824,6 +2877,7 @@ mod tests_player_files {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "its FindFirstFileA part needs the file times, which are only provided on Windows")]
     fn a_read_only_open_reads_the_players_file_in_place() {
         let mut e = Engine::new();
         let real = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
@@ -3542,6 +3596,7 @@ mod tests_changed_directories {
     /// got (measured, `review-findfile/run1.txt`); not modelled, the run stops.
     #[test]
     #[should_panic(expected = "since FindFirstFileA; not provided")]
+    #[cfg_attr(not(windows), ignore = "the stop it expects comes from the Windows file times: off Windows the search stops earlier, on the file times")]
     fn a_search_whose_folder_changed_since_it_began_stops() {
         let dir = scratch("midsearch", &[("a.fos", 5), ("b.fos", 5)]);
         let mut e = Engine::new();
@@ -3570,5 +3625,56 @@ mod tests_changed_directories {
         let mut e = Engine::new();
         save(&mut e, &dir, "nvfix", &[0x10]);
         listed(&mut e, &format!("{dir}\\*"));
+    }
+}
+
+/// The game's paths on a Unix host ([`real_path`]).
+#[cfg(all(test, unix))]
+mod tests_unix_paths {
+    use super::*;
+
+    fn scratch(test: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("nv-rs-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Data")).unwrap();
+        std::fs::write(dir.join("Data").join("Fallout.esm"), b"x").unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_z_drive_is_the_hosts_root_and_backslashes_are_separators() {
+        assert_eq!(
+            real_path(b"Z:\\usr\\share\\none"),
+            std::path::PathBuf::from("/usr/share/none")
+        );
+        assert_eq!(
+            real_path(b"z:\\tmp"),
+            std::path::PathBuf::from("/tmp")
+        );
+    }
+
+    #[test]
+    fn another_drive_has_no_mapping_and_stays_as_it_is() {
+        let path = real_path(b"C:\\Games\\Data");
+        assert_eq!(path, std::path::PathBuf::from("C:/Games/Data"));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_name_is_found_without_regard_to_case() {
+        let dir = scratch("case");
+        let asked = format!("Z:{}\\DATA\\fallout.ESM", dir.display());
+        let found = real_path(asked.as_bytes());
+        assert_eq!(found, dir.join("Data").join("Fallout.esm"));
+        assert!(found.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_name_with_no_match_stays_as_written() {
+        let dir = scratch("nomatch");
+        let asked = format!("Z:{}\\Data\\New.fos", dir.display());
+        assert_eq!(real_path(asked.as_bytes()), dir.join("Data").join("New.fos"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
