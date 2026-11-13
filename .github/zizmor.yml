@@ -1,0 +1,8 @@
+# zizmor configuration (fork-owned). The pipeline calls its own two build workflows with a local path
+# (`uses: ./.github/workflows/...`): that is the documented way to call a reusable workflow of the same repository and is
+# checked out together with the caller, so it cannot drift from it. zizmor's `self-repository` audit prefers the not yet
+# general-availability `$/...` form, which is not worth adopting.
+rules:
+  self-repository:
+    ignore:
+      - fork-ci.yml
