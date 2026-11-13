@@ -58,7 +58,8 @@ jobs:
           # Fallback if federation is not available for the account: an API key kept as an ENVIRONMENT secret of fork-sync.
           # Federation is tried first; the key is used only when it fails or is not configured.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          # One rule per event if the rule form only allows one event: the scheduled run uses the main rule, a manual run the _MANUAL one.
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ github.event_name == 'workflow_dispatch' && (vars.ANTHROPIC_FEDERATION_RULE_ID_MANUAL || vars.ANTHROPIC_FEDERATION_RULE_ID) || vars.ANTHROPIC_FEDERATION_RULE_ID }}
           ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}

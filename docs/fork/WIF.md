@@ -77,30 +77,38 @@ key is gone.
 
 ## Via the Console (works even where the Admin API refuses the scripts)
 
-The Console's own page can create everything, and does not depend on the Admin API calls that the script makes. Open
-https://platform.claude.com/settings/workload-identity-federation, **Connect workload**, the **GitHub Actions** tile, and enter:
+Console, Workload identity, **Connect workload**, the **GitHub Actions** tile. The form (as it is today) and what to enter:
 
 | Field | Value |
 | --- | --- |
-| Issuer URL | `https://token.actions.githubusercontent.com` (JWKS: discovery) |
-| Issuer name | `github-actions` |
-| Subject prefix (exact, no `*`) | `repo:JorisJonkers-dev/nv-rs:environment:fork-sync` |
-| Audience | `https://api.anthropic.com` |
-| Claims (under Advanced, if offered) | `repository_owner` = `JorisJonkers-dev`, `repository` = `JorisJonkers-dev/nv-rs`, `ref` = `refs/heads/fork` |
-| Service account | new, name `nv-rs-fork-sync`, role developer |
-| Workspace | the workspace with the monthly limit |
-| OAuth scope | `workspace:inference` if the wizard offers it, otherwise `workspace:developer` (Advanced rule options) |
-| Token lifetime | `600` seconds |
+| Rule name | `nv-rs-fork-sync` (a second rule: `nv-rs-fork-manual`, see Events) |
+| GitHub organization | `JorisJonkers-dev` |
+| Repository | `nv-rs` |
+| Branch / ref | leave **blank** (see below) |
+| Allowed events | see Events below |
+| Organization numeric ID | `293123311` (`gh api orgs/JorisJonkers-dev --jq .id`); the form asks for it so a renamed org cannot be impersonated |
+| Enable in workspaces | **Workspaces**, only the one with the monthly limit (not "All workspaces") |
 
-If the wizard has no field for claims, the subject prefix alone is acceptable because the `fork-sync` environment is restricted
-to the `fork` branch; add the claims later on the rule's page if it allows.
+**Events.** The form's default, "Only push", would reject the sync: the sync workflow runs on `schedule`, and by hand on
+`workflow_dispatch`. Use **Advanced match options** to choose another event. If the form allows only one other event per rule,
+make two rules: `nv-rs-fork-sync` for `schedule` and `nv-rs-fork-manual` for `workflow_dispatch` (the workflows pick the rule
+by event, and `store-wif-ids.sh` asks for both ids). If Advanced offers a condition expression, one rule can allow both:
+`claims.event_name in ['schedule', 'workflow_dispatch']`.
+
+**Branch / ref blank, and why.** The sync job runs inside the `fork-sync` environment, and GitHub then puts
+`environment:fork-sync` (not the branch) in the token's subject. A rule that insists on a branch in the subject would not
+match. The environment is restricted to the `fork` branch in GitHub, so the branch is still enforced. If Advanced match options
+offers extra claims, add `environment` = `fork-sync` and `ref` = `refs/heads/fork`; both are in the token.
+
+**Service account / scope.** If the wizard asks: a new service account `nv-rs-fork-sync` (developer role), scope
+`workspace:inference` if offered (otherwise `workspace:developer`), token lifetime 600 seconds.
 
 The wizard then waits 15 minutes for a test exchange. You cannot trigger one before the baseline pull request is merged (the
-workflow lives on the `fork` branch); the resources stay, and you rerun the test from the rule's page afterwards. Note the rule id
-(`fdrl_...`) and the service account id (`svac_...`), then store the identifiers:
+workflow lives on the `fork` branch); the resources stay, and you rerun the test from the rule's page afterwards. Note the rule
+id(s) (`fdrl_...`) and the service account id (`svac_...`), then store the identifiers:
 
 ```sh
-scripts/fork/store-wif-ids.sh        # asks for rule id, service account id, workspace id and organisation id
+scripts/fork/store-wif-ids.sh        # asks for rule id(s), service account id, workspace id and organisation id
 ```
 
 After merging: run the **Claude Federation Check** workflow; it should print `token exchange: ok`.

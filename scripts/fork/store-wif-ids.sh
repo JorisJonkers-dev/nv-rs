@@ -10,10 +10,11 @@ set -euo pipefail
 
 repo=${REPO:-JorisJonkers-dev/nv-rs}
 env_name=${ENV_NAME:-fork-sync}
-rule=""; sa=""; org=""; ws=""
+rule=""; manual=""; sa=""; org=""; ws=""
 while [ $# -gt 0 ]; do
   case $1 in
     --rule) rule=$2; shift 2 ;;
+    --manual-rule) manual=$2; shift 2 ;;
     --service-account) sa=$2; shift 2 ;;
     --org) org=$2; shift 2 ;;
     --workspace) ws=$2; shift 2 ;;
@@ -29,7 +30,8 @@ ask() { # ask VAR "prompt" "pattern"
     read -r -p "$2: " ref
   done
 }
-ask rule "Federation rule id (starts with fdrl_; the rule's page in the Console)" '^fdrl_[A-Za-z0-9]+$'
+ask rule "Federation rule id for SCHEDULED runs (fdrl_...; the rule's page in the Console)" '^fdrl_[A-Za-z0-9]+$'
+if [ -z "$manual" ]; then read -r -p "Second rule id for MANUAL (workflow_dispatch) runs, or Enter if one rule allows both events: " manual; fi
 ask sa "Service account id (svac_...; Console, Service accounts)" '^svac_[A-Za-z0-9]+$'
 ask ws "Workspace id (wrkspc_...; Console, Settings, Workspaces)" '^wrkspc_[A-Za-z0-9]+$'
 ask org "Organization id (a UUID; Console, Settings, Organization)" '^[0-9a-fA-F-]{36}$'
@@ -39,7 +41,9 @@ gh api "repos/$repo/environments/$env_name" --silent 2>/dev/null || {
   gh api -X PUT "repos/$repo/environments/$env_name" --silent
   echo "created the '$env_name' environment (scripts/fork/setup-repo.sh restricts it to the fork branch)"
 }
-for kv in "ANTHROPIC_FEDERATION_RULE_ID=$rule" "ANTHROPIC_SERVICE_ACCOUNT_ID=$sa" "ANTHROPIC_WORKSPACE_ID=$ws" "ANTHROPIC_ORGANIZATION_ID=$org"; do
+kvs=("ANTHROPIC_FEDERATION_RULE_ID=$rule" "ANTHROPIC_SERVICE_ACCOUNT_ID=$sa" "ANTHROPIC_WORKSPACE_ID=$ws" "ANTHROPIC_ORGANIZATION_ID=$org")
+[ -z "$manual" ] || kvs+=("ANTHROPIC_FEDERATION_RULE_ID_MANUAL=$manual")
+for kv in "${kvs[@]}"; do
   gh variable set "${kv%%=*}" --env "$env_name" -R "$repo" --body "${kv#*=}" >/dev/null
   echo "set ${kv%%=*}"
 done
