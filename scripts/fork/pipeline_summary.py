@@ -50,7 +50,7 @@ def rows_of(jobs, exclude=()):
         if result == "success" and failed_steps:
             result = "informational failure"
         rows.append({"name": j["name"], "result": result, "created": created, "done": done,
-                     "queue": (started - created).total_seconds() if started and created else None,
+                     "queue": max(0, (started - created).total_seconds()) if started and created and started >= created else None,
                      "run": (done - started).total_seconds() if done and started else None,
                      "failed_steps": failed_steps})
     return rows
