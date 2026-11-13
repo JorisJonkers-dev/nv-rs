@@ -75,6 +75,25 @@ key is gone.
 
 **7. Run Upstream Sync once** (Actions, Upstream Sync, Run workflow) and read the titles it wrote.
 
+## If the API says 403 (and about retries)
+
+The scripts retry what can be transient: network errors, 408, 425, 429 and every 5xx including 529 ("overloaded"), up to 20
+times with a growing pause (`ANTHROPIC_RETRIES` changes it). The title step during a sync tries 5 times and then falls back to
+the fixed rule, so an Anthropic incident never blocks a sync.
+
+A **403 `Missing permissions`** is different: it is an answer, not an outage, so it is not retried. With a login that says
+"Individual Org" the cause is most likely the account type: Anthropic's Admin API documentation says it is not available to
+individual Console accounts, which must first set up an organisation (Console, Settings, Organization), and the service
+account and federation endpoints are part of it. What to do:
+
+| Option | How |
+| --- | --- |
+| Set up the organisation, then rerun `scripts/fork/setup-anthropic.sh` | Console, Settings, Organization. Check there what it costs and what it changes before you do it |
+| Try the Console wizard | Console, Workload identity, Connect workload, GitHub Actions tile, with the values in the table below. It uses the same service, so it may be refused the same way |
+| Keep an API key instead (a smaller guarantee) | In the `nv-rs-fork` workspace (monthly limit set) create a key and store it as an **environment** secret: `gh secret set ANTHROPIC_API_KEY --env fork-sync -R JorisJonkers-dev/nv-rs` (it prompts; nothing in shell history). The sync workflow already passes it to the title step; it is readable only by runs on `fork`, and the spend limit caps the damage. Federation, if you later get it, takes precedence |
+
+If a key is the answer, the rest of the setup (the repository protections, the App, the sync) is unaffected.
+
 ## How the rule is pinned
 
 | Match | Value | Why |

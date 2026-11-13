@@ -62,20 +62,52 @@ export ANTHROPIC_AUTH_TOKEN=$token
 unset ANTHROPIC_API_KEY
 trap 'ant --profile admin auth logout >/dev/null 2>&1 || true; unset ANTHROPIC_AUTH_TOKEN' EXIT
 
-call() { curl -sS --fail-with-body -H "authorization: Bearer $token" -H "anthropic-version: 2026-10-21" -H "content-type: application/json" "$@"; }
+# Anthropic has stability problems at times: retry what can be transient (network errors, 408, 425, 429, 5xx incl. 529
+# "overloaded") up to RETRIES times with a growing pause. Anything else (401, 403, 404, ...) is not transient and is
+# returned at once. Output: the response body; exit status 0 for 2xx, 1 otherwise.
+RETRIES=${ANTHROPIC_RETRIES:-20}
+last_code=000
+call() { # call curl-args...
+  local attempt=1 out code body wait
+  while :; do
+    out=$(curl -sS --max-time 60 -w '\n%{http_code}' -H "authorization: Bearer $token" -H "anthropic-version: 2026-10-21" \
+      -H "content-type: application/json" "$@" 2>/dev/null) || out=$'\n000'
+    code=${out##*$'\n'}; body=${out%$'\n'*}; last_code=$code
+    case $code in
+      2??) printf '%s' "$body"; return 0 ;;
+      000|408|425|429|5??)
+        [ "$attempt" -ge "$RETRIES" ] && { printf '%s' "$body"; echo "   gave up after $RETRIES attempts (HTTP $code): Anthropic may be having an incident; rerun later" >&2; return 1; }
+        wait=$(( 2 ** (attempt < 5 ? attempt : 5) )); [ "$wait" -gt 30 ] && wait=30
+        echo "   HTTP $code, retry $attempt/$((RETRIES - 1)) in ${wait}s" >&2
+        sleep "$wait"; attempt=$((attempt + 1)) ;;
+      *) printf '%s' "$body"; return 1 ;;
+    esac
+  done
+}
+profile_json=~/.config/anthropic/configs/admin.json
+org_id=$(jq -r '.organization_id // empty' "$profile_json" 2>/dev/null || true)
+login_ws=$(jq -r '.workspace_id // empty' "$profile_json" 2>/dev/null || true)
 
-say "2/5 The dedicated workspace '$ws_name'"
-ws=$(call "$api/v1/organizations/workspaces?limit=100" 2>/dev/null | jq -r --arg n "$ws_name" '.data[]? | select(.name==$n and (.archived_at==null)) | .id' | head -n 1 || true)
+say "2/5 The dedicated workspace"
+ws=${WORKSPACE_ID:-}
 if [ -z "$ws" ]; then
-  ws=$(call -X POST "$api/v1/organizations/workspaces" -d "$(jq -n --arg n "$ws_name" '{name:$n}')" 2>/dev/null | jq -r '.id // empty' || true)
+  ws=$(call "$api/v1/organizations/workspaces?limit=100" | jq -r --arg n "$ws_name" '.data[]? | select(.name==$n and (.archived_at==null)) | .id' 2>/dev/null | head -n 1 || true)
+  [ -n "$ws" ] && echo "found $ws by name '$ws_name'"
+fi
+if [ -z "$ws" ] && [ "$last_code" != 403 ]; then
+  ws=$(call -X POST "$api/v1/organizations/workspaces" -d "$(jq -n --arg n "$ws_name" '{name:$n}')" | jq -r '.id // empty' 2>/dev/null || true)
   [ -n "$ws" ] && echo "created $ws"
-else
-  echo "found $ws"
 fi
 if [ -z "$ws" ]; then
-  echo "The API would not list or create workspaces with this login. Create it in the Console instead:"
-  echo "  https://platform.claude.com/settings/workspaces  (name: $ws_name)"
-  read -r -p "Paste its id (wrkspc_...): " ws
+  [ "$last_code" = 403 ] && echo "The API answered 403 (not a transient fault, so no retries): this login cannot use the Admin API. See docs/fork/WIF.md, 'If the API says 403'."
+  if [ -n "$login_ws" ]; then
+    read -r -p "Use the workspace your login is bound to ($login_ws)? [Y/n] " a
+    case ${a:-y} in [Yy]*) ws=$login_ws ;; esac
+  fi
+  if [ -z "$ws" ]; then
+    echo "Create or find it in the Console: https://platform.claude.com/settings/workspaces"
+    read -r -p "Paste its id (wrkspc_...): " ws
+  fi
 fi
 case $ws in wrkspc_*) ;; *) die "'$ws' is not a workspace id" ;; esac
 
@@ -88,7 +120,7 @@ gh api "repos/$repo/environments/$env_name" --silent 2>/dev/null || {
   gh api -X PUT "repos/$repo/environments/$env_name" --silent
   echo "created the '$env_name' environment (scripts/fork/setup-repo.sh restricts it to the fork branch)"
 }
-python3 -I "$here/setup-anthropic-wif.py" --workspace "$ws" --repo "$repo" --env "$env_name"
+python3 -I "$here/setup-anthropic-wif.py" --workspace "$ws" --repo "$repo" --env "$env_name" ${org_id:+--org-id "$org_id"}
 
 say "5/5 Admin login removed (on exit). Next"
 if on_fork fork-wif-check.yml; then

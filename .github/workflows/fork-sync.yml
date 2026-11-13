@@ -55,6 +55,9 @@ jobs:
       - name: Replay upstream
         id: replay
         env:
+          # Fallback if federation is not available for the account: an API key kept as an ENVIRONMENT secret of fork-sync.
+          # Federation is tried first; the key is used only when it fails or is not configured.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
           ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}

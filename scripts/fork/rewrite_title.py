@@ -15,6 +15,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 
 TYPES = "feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
@@ -59,10 +61,25 @@ API = os.environ.get("ANTHROPIC_API_BASE", "https://api.anthropic.com")
 AUDIENCE = "https://api.anthropic.com"
 
 
+TRANSIENT = {408, 425, 429, 500, 502, 503, 504, 529}
+TRIES = int(os.environ.get("TITLE_API_TRIES", "5"))  # few: a sync replays dozens of commits and the rule is a fine fallback
+
+
 def post_json(url: str, body: dict, headers: dict[str, str]) -> dict:
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"content-type": "application/json", **headers})
-    with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
-        return json.load(resp)
+    """POST JSON; retry network errors and overloaded/5xx answers (Anthropic has unstable periods) with a short backoff."""
+    for attempt in range(1, TRIES + 1):
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"content-type": "application/json", **headers})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+                return json.load(resp)
+        except urllib.error.HTTPError as err:
+            if err.code not in TRANSIENT or attempt == TRIES:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt == TRIES:
+                raise
+        time.sleep(min(2 ** attempt, 20))
+    raise AssertionError("unreachable")
 
 
 def federated_headers() -> dict[str, str] | None:
@@ -76,8 +93,15 @@ def federated_headers() -> dict[str, str] | None:
     sep = "&" if "?" in env["ACTIONS_ID_TOKEN_REQUEST_URL"] else "?"
     req = urllib.request.Request(f"{env['ACTIONS_ID_TOKEN_REQUEST_URL']}{sep}audience={AUDIENCE}",
                                  headers={"Authorization": f"Bearer {env['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}"})
-    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
-        jwt = json.load(resp)["value"]
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+                jwt = json.load(resp)["value"]
+            break
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt == 3:
+                raise
+            time.sleep(2 * attempt)
     body = {"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt,
             "federation_rule_id": env["ANTHROPIC_FEDERATION_RULE_ID"], "organization_id": env["ANTHROPIC_ORGANIZATION_ID"],
             "service_account_id": env["ANTHROPIC_SERVICE_ACCOUNT_ID"]}

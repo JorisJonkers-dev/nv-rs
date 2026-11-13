@@ -15,8 +15,10 @@ what exists. Stdlib only.
 import argparse
 import json
 import os
+import random
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,6 +26,11 @@ import urllib.request
 VERSION = "2026-10-21"
 GITHUB_ISSUER = "https://token.actions.githubusercontent.com"
 AUDIENCE = "https://api.anthropic.com"
+
+
+TRANSIENT = {408, 425, 429, 500, 502, 503, 504, 529}  # 529 is Anthropic's "overloaded"
+RETRIES = int(os.environ.get("ANTHROPIC_RETRIES", "20"))
+BACKOFF = float(os.environ.get("ANTHROPIC_RETRY_BASE", "2"))  # seconds; 0 in the selftest
 
 
 class Api:
@@ -34,16 +41,32 @@ class Api:
         if self.dry and method != "GET":
             print(f"  [dry-run] {method} {path} {json.dumps(body) if body else ''}")
             return {"id": "dry-run"}
-        req = urllib.request.Request(
-            f"{self.base}/v1/organizations/{path}", method=method,
-            data=json.dumps(body).encode() if body is not None else None,
-            headers={"authorization": f"Bearer {self.token}", "anthropic-version": VERSION, "content-type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
-                return json.load(resp)
-        except urllib.error.HTTPError as err:
-            detail = err.read().decode(errors="replace")[:600]
-            raise SystemExit(f"{method} {path} failed: HTTP {err.code} {detail}") from err
+        data = json.dumps(body).encode() if body is not None else None
+        for attempt in range(1, RETRIES + 1):
+            req = urllib.request.Request(
+                f"{self.base}/v1/organizations/{path}", method=method, data=data,
+                headers={"authorization": f"Bearer {self.token}", "anthropic-version": VERSION, "content-type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+                    return json.load(resp)
+            except urllib.error.HTTPError as err:
+                detail = err.read().decode(errors="replace")[:600]
+                if err.code not in TRANSIENT:
+                    hint = ""
+                    if err.code in (401, 403):
+                        hint = ("\n  This is not a transient fault, so it is not retried. A 403 'Missing permissions' usually means the login "
+                                "is not an organisation admin of a Console ORGANISATION: the Admin API is not available to an individual "
+                                "Console account (Console, Settings, Organization, set up an organisation), docs/fork/WIF.md, section 'If the API says 403'.")
+                    raise SystemExit(f"{method} {path} failed: HTTP {err.code} {detail}{hint}") from err
+                why = f"HTTP {err.code}"
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as err:
+                why = f"network error ({err})"
+            if attempt == RETRIES:
+                raise SystemExit(f"{method} {path}: still failing after {RETRIES} attempts ({why}); Anthropic may be having an incident, rerun later (the script is safe to rerun)")
+            wait = min(BACKOFF * 2 ** (attempt - 1), 30) + random.uniform(0, BACKOFF)  # noqa: S311
+            print(f"  {method} {path}: {why}, retry {attempt}/{RETRIES - 1} in {wait:.0f}s", file=sys.stderr)
+            time.sleep(wait)
+        raise AssertionError("unreachable")
 
     def find(self, path: str, field: str, value: str) -> dict | None:
         page = None
@@ -58,17 +81,25 @@ class Api:
                 return None
 
 
+def org_from_profile(profile: str) -> str:
+    """The organisation id that `ant auth login` stored in the profile's config (no API call needed)."""
+    path = os.path.expanduser(f"~/.config/anthropic/configs/{profile}.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh).get("organization_id", "")
+    except (OSError, ValueError):
+        return ""
+
+
 def gh_var(repo: str, env: str, name: str, value: str) -> None:
     subprocess.run(["gh", "variable", "set", name, "--env", env, "-R", repo, "--body", value], check=True, stdout=subprocess.DEVNULL)
 
 
 def run(a: argparse.Namespace, api: Api) -> dict:
     owner, _, repo_name = a.repo.partition("/")
-    org_id = a.org_id
+    org_id = a.org_id or org_from_profile(a.profile)
     if not org_id:
-        org_id = api.call("GET", "me").get("id", "")
-    if not org_id:
-        sys.exit("cannot read the organisation id: pass --org-id (Console, Settings, Organization)")
+        sys.exit("cannot find the organisation id: pass --org-id (Console, Settings, Organization), or log in with `ant --profile admin auth login --admin` first")
 
     issuer = api.find("federation_issuers", "issuer_url", GITHUB_ISSUER)
     if issuer:
@@ -128,8 +159,11 @@ def run(a: argparse.Namespace, api: Api) -> dict:
 
 
 def selftest() -> None:
+    global BACKOFF
     import http.server
     import threading
+
+    BACKOFF = 0
 
     state: dict[str, list] = {"issuers": [], "sas": [], "rules": [], "calls": []}
 
@@ -150,8 +184,22 @@ def selftest() -> None:
             assert self.headers["authorization"] == "Bearer test-token"
             path = urllib.parse.urlparse(self.path).path.removeprefix("/v1/organizations/")
             state["calls"].append((self.command, path, body))
-            if path == "me":
-                return self.reply({"id": "11111111-2222-3333-4444-555555555555"})
+            if path == "flaky":
+                state["flaky"] = state.get("flaky", 0) + 1
+                code = 503 if state["flaky"] < 3 else 529 if state["flaky"] < 4 else 200
+                if code != 200:
+                    self.send_response(code)
+                    self.send_header("content-length", "0")
+                    self.end_headers()
+                    return
+                return self.reply({"ok": True})
+            if path == "forbidden":
+                state["forbidden"] = state.get("forbidden", 0) + 1
+                self.send_response(403)
+                self.send_header("content-length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+                return
             kind = {"federation_issuers": "issuers", "service_accounts": "sas", "federation_rules": "rules"}.get(path)
             if kind and self.command == "GET":
                 return self.reply({"data": state[kind], "next_page": None})
@@ -166,8 +214,14 @@ def selftest() -> None:
     srv = http.server.HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     a = argparse.Namespace(repo="JorisJonkers-dev/nv-rs", env="fork-sync", name="nv-rs-fork-sync", workspace="wrkspc_test",
-                           org_id="", no_github=True, dry_run=False)
+                           org_id="11111111-2222-3333-4444-555555555555", profile="admin", no_github=True, dry_run=False)
     api = Api(f"http://127.0.0.1:{srv.server_address[1]}", "test-token", False)
+    assert api.call("GET", "flaky") == {"ok": True} and state["flaky"] == 4, "503, 503, 529 are retried, then it succeeds"
+    try:
+        api.call("GET", "forbidden")
+        sys.exit("selftest: 403 should fail")
+    except SystemExit as err:
+        assert state["forbidden"] == 1 and "not a transient fault" in str(err), "403 is not retried and explains itself"
     ids = run(a, api)
     again = run(a, api)
     assert ids == again, "second run must reuse everything"
@@ -177,13 +231,14 @@ def selftest() -> None:
     assert len(state["rules"]) == 1 and len(state["sas"]) == 1 and len(state["issuers"]) == 1
     assert ("POST", "service_accounts/svac_1/workspaces", {"workspace_id": "wrkspc_test", "workspace_role": "workspace_developer"}) in state["calls"]
     srv.shutdown()
-    print("selftest ok: created once, reused on the second run, rule pinned to the environment, the fork branch and the repository")
+    print("selftest ok: transient errors retried, 403 not retried, created once, reused on rerun, rule pinned to environment, fork branch and repository")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", help="wrkspc_... of the dedicated workspace")
     ap.add_argument("--org-id", default="")
+    ap.add_argument("--profile", default="admin", help="ant profile whose stored organisation id is used when --org-id is not given")
     ap.add_argument("--repo", default="JorisJonkers-dev/nv-rs")
     ap.add_argument("--env", default="fork-sync")
     ap.add_argument("--name", default="nv-rs-fork-sync", help="name of the service account and the rule")
