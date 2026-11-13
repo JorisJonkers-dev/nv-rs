@@ -85,8 +85,9 @@ not match Windows there; a Linux port needs its own `tan` that matches the game'
 
 The first Linux run (before change 5 and 6) had eight failures: four `files` tests (Windows file
 times), three `host` `cell_offsets` tests (Windows paths) and one `nvse` math test (libm). The
-engine's 17 `typed_*` binaries take about 1.5 hours together on a CI runner (`typed_shader` alone
-is the longest).
+engine's 17 `typed_*` binaries take about 2 hours together with the build on a CI runner, so
+`engine` passes but is not in `.fork/linux-ok.txt` (the Pipeline's Linux test job has 60 minutes);
+give it a job of its own before listing it.
 
 What remains: everything that needs a window, a Vulkan device, sound output or the machine tables
 is not run on Linux (M3 and later in the plan). The ignored tests are the ones that need the player's
