@@ -44,6 +44,10 @@ path = "../crates/nvse"
 # picking this crate up, and keeps libfuzzer-sys out of the core crates.
 [workspace]
 
+# As the root workspace: wgpu 30.0.1 with the vendored hal (vendor/README.md); d3d9-wgpu does not build without it.
+[patch.crates-io]
+wgpu-hal = { path = "../vendor/wgpu-hal" }
+
 [profile.release]
 debug = 1
 
