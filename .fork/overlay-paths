@@ -5,8 +5,7 @@
 .cargo/config.toml
 .github/rulesets/
 .github/zizmor.yml
-.github/workflows/fork-build-linux.yml
-.github/workflows/fork-build-windows.yml
+.github/workflows/fork-build.yml
 .github/workflows/fork-ci.yml
 .github/workflows/fork-fuzz.yml
 .github/workflows/fork-release-build.yml

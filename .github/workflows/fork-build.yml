@@ -1,0 +1,185 @@
+# Fork-only. The build, as one job per ENGINE COMPONENT (.fork/components.toml, explained in docs/fork/CI.md).
+# Replaces fork-build-linux.yml and fork-build-windows.yml. Called by fork-ci.yml as `build`.
+#
+# A component job runs `cargo test --locked -p <the component's crates>`, so cargo compiles only that
+# component's closure, and nothing else. On a pull request only the components a change reaches run
+# (scripts/fork/components.py matrix); on a push to the integration branch, on the schedule and on a manual run
+# every component runs. The engine crate's own integration tests are split along the typed families (jobs of the
+# component `integration`). Linux jobs marked informational do not fail the run: they find out which components
+# also pass on Linux (promote them with .fork/linux-ok.txt).
+#
+# Parity: every command of upstream's ci.yml is in this file: `cargo fmt --all -- --check` (Format),
+# `cargo test --locked --workspace` (every workspace crate is in exactly one component), `cargo clippy --locked
+# --workspace --all-targets -- -D warnings` (Clippy), the d3dx-tex software-truncation test and clippy
+# (component formats), the ledger and the launcher (component launcher-and-ledger). When a sync changes ci.yml, the
+# sync pull request gets the label ci-parity-review: compare it with this file.
+# Actions minutes are free on a public repository, so more jobs cost nothing; they would not on a private one.
+name: Build
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+env:
+  # Builds once from a cache; incremental state and debug info only cost time. Same as upstream's ci.yml.
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: always
+  CARGO_TERM_PROGRESS_WHEN: never
+  RUST_BACKTRACE: short
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: Plan components
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_jobs: ${{ steps.plan.outputs.has_jobs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: rustup toolchain install
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Fails when a workspace crate belongs to no component, a requires list is wrong or a test file is in no job.
+          python3 -I scripts/fork/components.py check
+          if [ "$EVENT" = pull_request ]; then
+            python3 -I scripts/fork/components.py matrix --event pull_request --base "$BASE" --head "$HEAD" >matrix.json
+          else
+            python3 -I scripts/fork/components.py matrix --event "$EVENT" >matrix.json
+          fi
+          echo "matrix=$(jq -c '{include: .include}' matrix.json)" >>"$GITHUB_OUTPUT"
+          echo "has_jobs=$(jq '.include | length > 0' matrix.json)" >>"$GITHUB_OUTPUT"
+          {
+            echo "### Components in this run"
+            echo
+            echo "Reason: $(jq -r .reason matrix.json)"
+            echo
+            echo "| Component | This run | Jobs |"
+            echo "| --- | --- | ---: |"
+            jq -r '.components[] | "| \(.component) | \(if .tested then "tested" else "not affected: \(.why)" end) | \(.jobs) |"' matrix.json
+            echo
+            echo "<details><summary>The component graph (what each job compiles; compile times are estimates)</summary>"
+            echo
+            python3 -I scripts/fork/components.py graph --timings .fork/test-timings.json
+            echo
+            echo "</details>"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo fmt --all -- --check
+
+  component:
+    name: ${{ matrix.name }}
+    needs: plan
+    if: ${{ needs.plan.outputs.has_jobs == 'true' }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.informational }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      PY: ${{ matrix.os == 'windows-latest' && 'python' || 'python3' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      # Only the crates.io dependencies are restored (workspace crates are not cached): worth about 45 s.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ matrix.workspaces }}
+          shared-key: ${{ matrix.cache }}-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - name: Test ${{ matrix.component }}
+        env:
+          SCRIPT: ${{ matrix.script }}
+        run: bash scripts/fork/run-component.sh
+      - name: Summary
+        if: ${{ !cancelled() }}
+        env:
+          TITLE: ${{ matrix.name }}
+        run: |
+          "$PY" -I scripts/fork/libtest_summary.py --title "$TITLE" --timings "$RUNNER_TEMP/timings.txt" "$RUNNER_TEMP/test.log" >>"$GITHUB_STEP_SUMMARY"
+
+  clippy:
+    name: Clippy (whole workspace)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      PY: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: clippy-windows
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - run: |
+          rc=0
+          # Outside the checkout (nvinspect's hygiene test reads every file git does not ignore).
+          cargo clippy --locked --workspace --all-targets --message-format json -- -D warnings >"$RUNNER_TEMP/clippy.json" || rc=$?
+          "$PY" -I scripts/fork/clippy_annotations.py "$RUNNER_TEMP/clippy.json"
+          exit "$rc"
+
+  # Which crates build on Linux (informational); its candidate list is what .fork/linux-ok.txt is promoted from.
+  probe:
+    name: Linux probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: linux-probe
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - run: python3 scripts/fork/linux_probe.py --out "$RUNNER_TEMP/linux-ok.candidate" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-ok-candidate
+          path: ${{ runner.temp }}/linux-ok.candidate
+
+  # One result for fork-ci.yml: failed when any required job failed (informational Linux jobs cannot fail it).
+  done:
+    name: Build result
+    needs: [plan, fmt, component, clippy]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          bad="$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          if [ -n "$bad" ]; then echo "::error title=Build::$bad"; exit 1; fi

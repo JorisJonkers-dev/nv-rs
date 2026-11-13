@@ -19,13 +19,13 @@ TIMINGS="${TIMINGS:-$OUT/timings.txt}"
 # Wraps each test binary's output in a group; a failed test is an annotation (GitHub shows ten per step).
 group_binaries() {
   awk '
-    function close_group() { if (open) { print "::endgroup::"; open = 0 } }
-    /^ +(Running|Doc-tests) / { close_group(); print "::group::" $0; open = 1; next }
-    /^failures:$/ { close_group(); print; next }
-    /^test result: / { close_group(); print; next }
-    /^test .* \.\.\. FAILED$/ { if (failed++ < 10) print "::error title=test failed::" $2; print; next }
-    { print }
-    { fflush() }
+    function out(s) { print s; fflush() }
+    function close_group() { if (open) { out("::endgroup::"); open = 0 } }
+    /^ +(Running|Doc-tests) / { close_group(); out("::group::" $0); open = 1; next }
+    /^failures:$/ { close_group(); out($0); next }
+    /^test result: / { close_group(); out($0); next }
+    /^test .* \.\.\. FAILED$/ { if (failed++ < 10) out("::error title=test failed::" $2); out($0); next }
+    { out($0) }
     END { close_group() }
   '
 }
