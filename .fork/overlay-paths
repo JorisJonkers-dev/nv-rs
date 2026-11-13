@@ -1,0 +1,31 @@
+# Paths that exist only in the fork (scripts/fork/verify-sync.sh leaves them out of the comparison with upstream).
+# Only paths upstream does not have: if upstream adds one, the replay stops on a conflict.
+# Never list a file upstream owns (README.md, CONTRIBUTING.md, LICENSE, ci.yml, Cargo.toml, ...).
+.fork/
+.cargo/config.toml
+.github/rulesets/
+.github/zizmor.yml
+.github/workflows/fork-build-linux.yml
+.github/workflows/fork-build-windows.yml
+.github/workflows/fork-ci.yml
+.github/workflows/fork-fuzz.yml
+.github/workflows/fork-release-build.yml
+.github/workflows/fork-security.yml
+.github/workflows/fork-sync.yml
+.github/workflows/fork-wif-check.yml
+.github/workflows/release.yml
+.gitleaks.toml
+.release-please-manifest.json
+CHANGELOG.md
+FORK.md
+SECURITY.md
+Taskfile.yml
+deny.toml
+docs/fork/
+fuzz/
+.fork/linux-ok.txt
+mise.toml
+release-please-config.json
+renovate.json
+scripts/fork/
+version.txt

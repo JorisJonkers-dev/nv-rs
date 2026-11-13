@@ -1,0 +1,34 @@
+# Fork-only. release-please keeps a release PR open and, when it is merged, tags vX.Y.Z and creates the
+# GitHub Release (org standard). It never touches Cargo.toml or Cargo.lock (release-type simple), so
+# distribution/DEPENDENCY-LOCK.sha256 stays valid. The Windows programs come from fork-release-build.yml.
+name: Release
+
+on:
+  push:
+    branches: [fork]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    # The fork's own App credentials live in this environment, readable only by runs on the fork branch.
+    environment: fork-sync
+    steps:
+      # The release PR is authored with the fork's own App token so CI runs on it; falls back to GITHUB_TOKEN
+      # (then CI does not run on the release PR and it needs a manual run).
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.FORK_APP_ID }}
+          private-key: ${{ secrets.FORK_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

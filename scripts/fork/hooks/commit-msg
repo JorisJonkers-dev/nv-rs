@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+msg_file=$1
+first_line="$(sed -n '1p' "$msg_file")"
+
+case "$first_line" in
+  Merge\ *|Revert\ *|chore\(main\):\ release\ *|Release\ *)
+    exit 0
+    ;;
+esac
+
+if ! printf '%s\n' "$first_line" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'; then
+  echo "Commit message must use Conventional Commits, e.g. feat(ci): add workflow." >&2
+  exit 1
+fi

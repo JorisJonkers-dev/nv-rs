@@ -1,0 +1,21 @@
+# gitleaks config for JorisJonkers-dev repos. Extends the upstream default ruleset;
+# add repo-specific allowlist entries below for known-safe test fixtures.
+title = "JorisJonkers-dev gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  # upstream's keystroke-replay code: field names such as keys2_delay_ms trip generic-api-key (false positive).
+  '''^research/nv-trace/nv-trace-rec/src/lib\.rs$''',
+  '''(.*?)(example|sample|fixture|test)(.*?)\.(env|json|ya?ml)$''',
+  # identity's conformance vectors, vendored by scripts/pin-contract.sh: tokens signed by a test key.
+  '''^contract/vectors/''',
+  # The key the reader's own tests sign with.
+  '''^tests/testdata/''',
+]
+regexes = [
+  '''EXAMPLE_[A-Z0-9_]+''',
+]

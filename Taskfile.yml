@@ -1,0 +1,37 @@
+# Fork-only. `task check` is what the fork's Pipeline Complete job runs, so local and CI cannot drift.
+# Upstream's own build and test gate is .github/workflows/ci.yml (Windows) and is not repeated here.
+version: "3"
+
+tasks:
+  default:
+    cmd: task --list
+    silent: true
+
+  lint:actions:
+    desc: actionlint on every workflow, zizmor on the fork's own (upstream's are not ours to change)
+    cmds:
+      - actionlint
+      - zizmor --offline --no-progress .github/workflows/fork-*.yml .github/workflows/release.yml
+
+  deny:
+    desc: Licences, bans, sources and advisories (deny.toml)
+    cmd: cargo deny check
+
+  scripts:
+    desc: Self-tests of the fork's scripts (no network, no GitHub, nothing created)
+    cmds:
+      - python3 -I scripts/fork/test_wif.py
+      - python3 -I scripts/fork/setup-anthropic-wif.py --selftest
+      - python3 -I scripts/fork/create-app.py --selftest
+
+  secrets:
+    desc: Scan every commit for secrets
+    cmd: gitleaks git --redact --no-banner --config .gitleaks.toml .
+
+  check:
+    desc: Everything the fork's CI runs on a pull request
+    cmds:
+      - task: lint:actions
+      - task: deny
+      - task: scripts
+      - task: secrets

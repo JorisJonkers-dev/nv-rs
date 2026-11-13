@@ -1,0 +1,11 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>JorisJonkers-dev/renovate-config"],
+  "description": "Only fork-owned files. A change to a file upstream owns would be replaced at the next sync (docs/fork/KEEPING-IN-SYNC.md); upstream's own dependencies are updated by upstream.",
+  "includePaths": [
+    "mise.toml",
+    "fuzz/**",
+    ".github/workflows/fork-*.yml",
+    ".github/workflows/release.yml"
+  ]
+}
