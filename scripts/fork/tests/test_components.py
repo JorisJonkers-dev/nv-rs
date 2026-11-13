@@ -252,7 +252,7 @@ class Affected(unittest.TestCase):
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
         self.assertIn("integration", got)
-        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 6)
+        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 7)
 
     def test_a_fallout_change_reaches_every_component_whose_tests_link_it(self):
         _, got = self.reached(["crates/engine-fallout-cell/src/lib.rs"])
@@ -329,7 +329,7 @@ class RealMap(unittest.TestCase):
         out = subprocess.run([sys.executable, "-I", str(FORK / "components.py"), "matrix", "--event", "push", "--metadata", str(FIXTURE)],
                              capture_output=True, text=True, cwd=REPO, check=True).stdout
         data = json.loads(out)
-        self.assertEqual(len(data["include"]), 26)
+        self.assertEqual(len(data["include"]), 27)
         self.assertEqual({"name", "component", "cache", "os", "informational", "workspaces", "timeout", "script"}, set(data["include"][0]))
 
 

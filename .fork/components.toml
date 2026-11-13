@@ -107,8 +107,11 @@ args = ["-p engine --test typed_shader"]
 name = "typed draw, render, lights, particles"
 args = ["-p engine --test typed_draw --test typed_render --test typed_lights --test typed_particles --test typed_multibound"]
 [[component.job]]
-name = "typed scene: culling, dispatch, geometry, collision, pathing"
-args = ["-p engine --test typed_culling --test typed_dispatch --test typed_geometry --test typed_collision --test typed_pathing"]
+name = "typed scene queries: culling, dispatch, collision"
+args = ["-p engine --test typed_culling --test typed_dispatch --test typed_collision"]
+[[component.job]]
+name = "typed geometry and pathing"
+args = ["-p engine --test typed_geometry --test typed_pathing"]
 [[component.job]]
 name = "typed animation"
 args = ["-p engine --test typed_animation --test typed_anim_keys"]

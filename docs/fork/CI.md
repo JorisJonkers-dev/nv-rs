@@ -25,15 +25,14 @@ checks it against `cargo metadata` and turns it into the job matrix of [`fork-bu
 | 2 | `platform` | 1 | window, Direct3D 9 / D3DX entry points, input, sound, loader | Windows |
 | 3 | `fallout-gameplay` | 4 | scripts, quests, magic, pathfinding, AI | both |
 | 4 | `fallout-front` | 4 | menus, dialogue, main loop, audio, unplaced runs | both |
-| 5 | `integration` | 4 | the assembled engine: six jobs, see below | Windows |
+| 5 | `integration` | 4 | the assembled engine: seven jobs, see below | Windows |
 
 `python3 -I scripts/fork/components.py graph` prints the same table with each component's closure (what
 `cargo test -p` compiles) and an estimate of its compile cost; the `Plan components` job puts it in the run summary.
 
 **`integration`** holds the engine crate, which links all 19 engine crates, and is split inside the component along
 the typed families (the test files of `crates/engine/tests` already mirror `engine-typed`'s modules; the jobs group
-families by subject, not by size): typed shader; draw, render, lights, particles; scene (culling, dispatch, geometry,
-collision, pathing); animation; runtime (crt, process, lock-free, leaves); and one aggregator job (the engine's lib
+families by subject, not by size): typed shader; draw, render, lights, particles; scene queries (culling, dispatch, collision); geometry and pathing; animation; runtime (crt, process, lock-free, leaves); and one aggregator job (the engine's lib
 tests, doctests and `par_render`, plus `host`, `play-patch` and `nv-viewer`). `components.py check` fails when a file
 in `crates/engine/tests` is in no job, so a new upstream test file cannot be lost.
 
@@ -91,7 +90,7 @@ minutes); the engine closure compiles in 495 s cold; per test binary seconds in 
 
 Estimated, labelled as such wherever it appears: the compile seconds of `graph` (a model: about 4.6 s per 100 k lines of
 library, 18 s per 100 k lines under test, fitted to the cold runs), the critical path before a run has measured it, and
-every number for Linux. The shader job (2,446 s of tests) and the scene job (2,396 s) bound the new layout at about 41 minutes
+every number for Linux. The shader job (2,446 s of tests) bounds the new layout at about 41 minutes
 of tests plus the engine compile (about 8 minutes) plus setup (under 1 minute), times 1.0 to 1.3 for the runner. After a run, the
 pipeline summary replaces the estimate with the measured number.
 
