@@ -156,7 +156,7 @@ fn plugin_path(e: &Engine, file: Ptr) -> PathBuf {
     }
     name.extend(e.mem.cstr(file.addr() + FILE_NAME));
     let full = engine_platform::files::full_path(e, &name);
-    PathBuf::from(String::from_utf8_lossy(&full).into_owned())
+    engine_platform::files::real_path(&full)
 }
 
 /// Starts building every plugin of the load order on a host thread, once per run (the first
