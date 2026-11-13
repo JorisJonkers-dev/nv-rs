@@ -6,3 +6,10 @@ crates/engine-core/src/engine.rs  # Engine::new_untyped copies a per-thread temp
 crates/engine-core/src/typed/diff.rs  # a case runs under its second control word only when the first run read or loaded the word
 crates/engine-core/src/x87.rs  # test builds note that the control word was read or loaded (nothing in a production build)
 crates/engine-core/src/units/crt.rs  # FSTCW's read through the thread block is noted too (test builds)
+# Native Linux build (docs/fork/LINUX.md): each change is cfg-gated or additive; Windows code is unchanged.
+crates/engine-platform/Cargo.toml  # d3d9-wgpu as a dependency on every target (was Windows only)
+crates/engine-platform/src/d3d9device.rs  # the argument-word trait is built on Windows only (reserved area: no call site touched)
+crates/engine-platform/src/d3d9resource.rs  # its import of that trait is Windows only (reserved area: no call site touched)
+crates/engine-platform/src/d3dx.rs  # an unused binding off Windows
+crates/engine-platform/src/files.rs  # a warning-only attribute and a test constant off Windows
+crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
