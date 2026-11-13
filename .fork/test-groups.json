@@ -1,0 +1,6 @@
+{
+  "engine": ["engine", "engine-core", "engine-typed", "engine-gamebryo", "engine-bs", "engine-havok", "engine-speedtree"],
+  "fallout-a": ["engine-fallout-facegen", "engine-fallout-script", "engine-fallout-pathfinding", "engine-fallout-env", "engine-fallout-cell", "engine-fallout-forms", "engine-fallout-magic"],
+  "fallout-b": ["engine-fallout-interface", "engine-fallout-ai", "engine-fallout-unplaced-a", "engine-fallout-unplaced-b", "engine-fallout-misc", "frame-model"],
+  "platform": ["engine-platform", "d3d9-stream", "d3d9-wgpu", "d3dx-tex", "host", "play-patch", "nv-viewer"]
+}

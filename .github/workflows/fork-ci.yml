@@ -32,9 +32,17 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     uses: JorisJonkers-dev/github-workflows/.github/workflows/pr-title-check.yml@072969666fe9c4339c1d42045629bb27d188f5fb # v0.50.2
 
+  # Upstream's ci.yml, split into parallel jobs. Linux first; Windows only for what needs it.
+  build-linux:
+    name: Linux
+    uses: ./.github/workflows/fork-build-linux.yml
+  build-windows:
+    name: Windows
+    uses: ./.github/workflows/fork-build-windows.yml
+
   pipeline-complete:
     name: Pipeline Complete
-    needs: [hygiene, pr-title]
+    needs: [hygiene, pr-title, build-linux, build-windows]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -4,10 +4,13 @@
 .fork/
 .cargo/config.toml
 .github/rulesets/
+.github/workflows/fork-build-linux.yml
+.github/workflows/fork-build-windows.yml
 .github/workflows/fork-ci.yml
 .github/workflows/fork-fuzz.yml
-.github/workflows/fork-linux.yml
 .github/workflows/fork-release-build.yml
+.github/workflows/fork-security.yml
+.github/workflows/fork-sync.yml
 .github/workflows/release.yml
 .gitleaks.toml
 .release-please-manifest.json
@@ -18,6 +21,7 @@ Taskfile.yml
 deny.toml
 docs/fork/
 fuzz/
+.fork/linux-ok.txt
 mise.toml
 release-please-config.json
 renovate.json

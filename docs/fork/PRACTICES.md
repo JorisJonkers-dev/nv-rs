@@ -13,7 +13,7 @@
 | Dependency cooldown | `.cargo/config.toml`, `renovate.json` | Cargo: 7 days, stable from 1.100 (inert while upstream pins 1.99.1). Renovate: the estate preset's `minimumReleaseAge` |
 | Dependency updates | `renovate.json` | Only fork-owned files |
 | Fuzzing | `fuzz/`, `.github/workflows/fork-fuzz.yml` | Weekly, three parsers; needs `cargo +nightly` |
-| Linux build and tests | `.github/workflows/fork-linux.yml` | Not required: the game is Windows-only today |
+| Linux-first build | `.github/workflows/fork-build-linux.yml`, `fork-build-windows.yml`, `.fork/linux-ok.txt`, `scripts/fork/linux_probe.py` | Everything that can run on Linux does; Windows only for what needs it. A probe reports which crates build on Linux; crates listed in `linux-ok.txt` are required there |
 | Windows and Linux release builds | `.github/workflows/fork-release-build.yml` | Artefacts only; never publishes. Packaging stays local (needs the player's `FalloutNV.exe`) |
 | Local setup | `mise.toml`, `Taskfile.yml`, `scripts/fork/install-hooks.sh` | `mise install`, then `task check` |
 

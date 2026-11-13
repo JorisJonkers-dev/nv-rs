@@ -1,0 +1,161 @@
+# Fork-only. The part of the build that needs Windows (the game only runs there today): the whole
+# workspace's clippy and tests, the texture crate's second path, the ledger and the launcher. Linux first:
+# everything that can run on Linux is in fork-build-linux.yml, and crates move from there to Linux as the
+# Linux port progresses (.fork/linux-ok.txt). Called by fork-ci.yml next to the Linux workflow.
+#
+# Upstream's ci.yml runs all of this one step after another in one Windows job (about 140 minutes cold);
+# here it is parallel jobs, so the run takes as long as its slowest job. Upstream's ci.yml stays in the tree
+# untouched (the sync replays it) and is disabled in the fork's Actions settings (scripts/fork/setup-repo.sh).
+#
+# Parity: every command of upstream's ci.yml is in one of the two fork-build workflows. When a sync changes
+# ci.yml, the sync pull request gets the label ci-parity-review: compare it with these files.
+# Actions minutes are free on a public repository, so more jobs cost nothing; they would not on a private one.
+name: Fork Build (Windows)
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+env:
+  # Builds once from a cache; incremental state and debug info only cost time.
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  # The test shards come from .fork/test-groups.json. The last shard ("rest") is the whole workspace minus
+  # every listed crate, so a crate upstream adds later is tested without anyone editing the file.
+  plan:
+    name: Plan shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: plan
+        run: |
+          python3 - <<'PY' >>"$GITHUB_OUTPUT"
+          import json
+          groups = json.load(open(".fork/test-groups.json"))
+          include = [{"group": g, "args": " ".join(f"-p {c}" for c in crates)} for g, crates in groups.items()]
+          listed = [c for crates in groups.values() for c in crates]
+          include.append({"group": "rest", "args": "--workspace " + " ".join(f"--exclude {c}" for c in listed)})
+          print("matrix=" + json.dumps({"include": include}))
+          PY
+
+  clippy:
+    name: Clippy
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-clippy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  test:
+    name: Test (${{ matrix.group }})
+    needs: plan
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-test-${{ matrix.group }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Test
+        env:
+          ARGS: ${{ matrix.args }}
+        run: |
+          $cargoArgs = $env:ARGS -split ' '
+          cargo test --locked @cargoArgs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+  # The texture crate's other arithmetic path: truncation done in software, same bytes.
+  d3dx-tex-software:
+    name: d3dx-tex software truncation
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-d3dx-tex
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: |
+          cargo test --locked -p d3dx-tex --features software-truncation
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --locked -p d3dx-tex --all-targets --features software-truncation -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+  # Its own workspace: what counts as a typed marker is defined there. `--check` stays out: the ledger holds
+  # line numbers, which every merge moves.
+  ledger:
+    name: Ledger
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: 'scripts/ledger -> target'
+          shared-key: fork-ledger
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --locked --manifest-path scripts/ledger/Cargo.toml
+
+  # Play.exe is its own workspace; its tests run distribution/Settings.ps1 in Windows PowerShell on made-up
+  # files in scratch folders (its own tests end a PowerShell that hangs after 2 minutes).
+  launcher:
+    name: Launcher
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: 'scripts/launcher -> target'
+          shared-key: fork-launcher
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: |
+          cargo fmt --manifest-path scripts/launcher/Cargo.toml -- --check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo test --locked --manifest-path scripts/launcher/Cargo.toml
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --locked --manifest-path scripts/launcher/Cargo.toml --all-targets -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
