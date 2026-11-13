@@ -1,0 +1,52 @@
+# Fork-only probe for the native Linux port (docs/fork/LINUX.md). Runs only on pushes to probe/** branches,
+# so it never starts the Windows jobs of the Pipeline. Read-only: no secrets, no write token.
+name: Linux probe
+
+on:
+  push:
+    branches: ['probe/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: never
+
+jobs:
+  check:
+    name: cargo check (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-linux-probe-check
+          save-if: 'true'
+      - name: Check
+        run: |
+          set +e
+          cargo check --locked --workspace --all-targets --keep-going --message-format short >check.log 2>&1
+          status=$?
+          {
+            echo "## cargo check --workspace --all-targets (exit $status)"
+            echo '```'
+            grep -E '(error|warning: unused)' check.log | head -200
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: check-log
+          path: check.log
