@@ -83,6 +83,8 @@ jobs:
 
   test-engine:
     name: cargo test (Linux, engine)
+    # The engine's test binaries take hours: a push whose last commit message says skip-engine leaves them out.
+    if: ${{ !contains(github.event.head_commit.message, 'skip-engine') }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
