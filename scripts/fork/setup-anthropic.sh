@@ -3,6 +3,8 @@
 # this repository, the end-to-end check, removal of the old API key and a first sync. Idempotent: rerun it.
 #
 #   scripts/fork/setup-anthropic.sh            phase 1: login, workspace, federation, GitHub variables
+#   scripts/fork/setup-anthropic.sh --diagnose log in and show WHICH organisation the login is for and what the Admin API
+#                                              answers (read-only probes); changes nothing
 #   scripts/fork/setup-anthropic.sh --verify   phase 2 (after the baseline pull request is merged to fork):
 #                                              run the check workflow, remove the old key, optional first sync
 #
@@ -18,6 +20,7 @@ ws_name=${WORKSPACE_NAME:-nv-rs-fork}
 api=${ANTHROPIC_API_BASE:-https://api.anthropic.com}
 here=$(dirname "$(readlink -f "$0")")
 mode=${1:-setup}
+[ "$mode" = "--diagnose" ] || [ "$mode" = "--verify" ] || [ "$mode" = setup ] || die "unknown option $mode"
 
 say() { printf '\n== %s\n' "$*"; }
 die() { printf 'setup-anthropic: %s\n' "$*" >&2; exit 1; }
@@ -87,6 +90,29 @@ call() { # call curl-args...
 profile_json=~/.config/anthropic/configs/admin.json
 org_id=$(jq -r '.organization_id // empty' "$profile_json" 2>/dev/null || true)
 login_ws=$(jq -r '.workspace_id // empty' "$profile_json" 2>/dev/null || true)
+
+org_name=$(jq -r '.organization_name // empty' "$profile_json" 2>/dev/null || true)
+say "Which organisation is this login for?"
+ant --profile admin auth status 2>&1 | sed -n '/^Organization/,$p' | head -12 || true
+echo "  organisation id from the login: ${org_id:-unknown}${org_name:+ ($org_name)}"
+echo "  If this is not the organisation you meant, stop (Ctrl-C), switch organisation in the Console (the switcher at the top left,"
+echo "  https://platform.claude.com) BEFORE logging in again, and choose it on the browser's authorize page."
+echo
+echo "  Read-only probes of the Admin API with this login:"
+for ep in workspaces service_accounts federation_issuers; do
+  call "$api/v1/organizations/$ep?limit=1" >/dev/null 2>&1 && r=ok || r="refused"
+  printf '    %-20s HTTP %s (%s)\n' "$ep" "$last_code" "$r"
+done
+if [ "$mode" = "--diagnose" ]; then
+  echo
+  echo "  200 on all three: the login is an admin of a Console organisation and setup can go on."
+  echo "  403 on all three: this login cannot use the Admin API. Either it is the wrong organisation, or you are not an admin/owner"
+  echo "  of it, or the organisation is an individual Console account (not supported by the Admin API). Check Settings, Members for"
+  echo "  your role, and Settings, Organization for the type. Send me this output."
+  exit 0
+fi
+read -r -p "Continue with this organisation? [y/N] " a
+[ "$a" = y ] || die "stopped: log in to the right organisation and rerun"
 
 say "2/5 The dedicated workspace"
 ws=${WORKSPACE_ID:-}
