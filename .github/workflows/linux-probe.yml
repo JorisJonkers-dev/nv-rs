@@ -50,3 +50,58 @@ jobs:
         with:
           name: check-log
           path: check.log
+
+  test:
+    name: cargo test (Linux, every crate but engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-linux-probe-test
+          save-if: 'true'
+      - name: Test each crate
+        run: |
+          mkdir -p logs
+          crates="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(" ".join(sorted(p["name"] for p in json.load(sys.stdin)["packages"])))')"
+          for c in $crates; do
+            [ "$c" = engine ] && continue
+            timeout 40m cargo test --locked -p "$c" --no-fail-fast >"logs/$c.log" 2>&1 || true
+            df -h / | tail -1
+          done
+          python3 scripts/fork/linux_test_summary.py logs | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: test-logs
+          path: logs
+
+  test-engine:
+    name: cargo test (Linux, engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-linux-probe-test-engine
+          save-if: 'true'
+      - name: Test engine
+        run: |
+          mkdir -p logs
+          timeout 135m cargo test --locked -p engine --no-fail-fast >logs/engine.log 2>&1 || true
+          python3 scripts/fork/linux_test_summary.py logs | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: test-engine-logs
+          path: logs
