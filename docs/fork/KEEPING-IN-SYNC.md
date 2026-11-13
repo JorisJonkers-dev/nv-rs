@@ -80,7 +80,8 @@ file to `.fork/allowed-divergence`, or do not make the change.
 - **Releases.** Upstream tags `preview-YYYY-MM-DD.N`. The fork's release-please makes `vX.Y.Z` tags from the
   replayed messages. They are separate version lines.
 - **Upstream's CI.** `.github/workflows/ci.yml` arrives with the replay and is not required here. The fork's
-  required check is `Pipeline Complete` from `fork-ci.yml`.
+  required check is `Pipeline Complete` from `fork-ci.yml`; its build is split by engine component ([`CI.md`](CI.md)), and
+  a new upstream crate must be added to `.fork/components.toml` (or it fails the `Plan components` job).
 
 ## Setting up from nothing
 

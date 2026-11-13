@@ -77,14 +77,14 @@ a_env() {
 ensure "environment fork-sync (secrets readable only by runs on the fork branch)" \
   "get repos/\$repo/environments/fork-sync | jq -e '.deployment_branch_policy.custom_branch_policies==true' && get repos/\$repo/environments/fork-sync/deployment-branch-policies | jq -e '[.branch_policies[].name]==[\"fork\"]'" a_env
 a_ci() { if [ "$dry" = 1 ]; then echo "     + gh workflow disable ci.yml -R $repo"; else gh workflow disable ci.yml -R "$repo" >/dev/null 2>&1 || echo "     (ci.yml not found)"; fi; }
-ensure "upstream's ci.yml disabled (fork-build-*.yml replaces it)" \
+ensure "upstream's ci.yml disabled (fork-build.yml replaces it)" \
   "get repos/$repo/actions/workflows/ci.yml | jq -e '.state!=\"active\"'" a_ci
 
 echo "Labels and rulesets"
 a_labels() {
   local l name color desc
   for l in "allow-repository-hygiene-exception|BFD4F2|Bypasses the repository hygiene guard (sync pull requests)" \
-           "ci-parity-review|FBCA04|Upstream changed ci.yml: compare it with fork-build-*.yml" \
+           "ci-parity-review|FBCA04|Upstream changed ci.yml: compare it with fork-build.yml" \
            "dependencies|0366D6|Dependency updates" "type: chore|EDEDED|Chore" "component: dependencies|EDEDED|Dependencies"; do
     IFS='|' read -r name color desc <<<"$l"
     if [ "$dry" = 1 ]; then echo "     + gh label create '$name'"; else gh label create "$name" -R "$repo" --color "$color" --description "$desc" --force >/dev/null; fi

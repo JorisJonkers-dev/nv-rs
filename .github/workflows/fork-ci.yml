@@ -1,6 +1,7 @@
 # Fork-only (JorisJonkers-dev/nv-rs). One pipeline ending in "Pipeline Complete", the only required
-# check (estate convention). The checks are steps of that one job; the two reusable workflows
-# (hygiene, PR title) cannot be steps, so they are jobs that the last step gates on.
+# check (estate convention). The build is one job per engine component (fork-build.yml, .fork/components.toml,
+# docs/fork/CI.md); the repository's own checks run in parallel with it; Pipeline Complete gathers every result
+# and prints each component's result and duration. The two reusable workflows (hygiene, PR title) are jobs.
 # Upstream's own gate, .github/workflows/ci.yml (Windows, ~140 minutes), is not required here.
 name: Pipeline
 
@@ -10,6 +11,9 @@ on:
   push:
     branches: [fork]
   workflow_dispatch:
+  # Every component, also the slow integration tests: a pull request runs only what its change reaches.
+  schedule:
+    - cron: '17 3 * * *'
 
 # A new commit on a branch cancels the run still going for the older one: runners are limited and the older
 # result is of no use. Not cancelled: a title edit (its own group, so it neither cancels nor is cancelled by a
@@ -58,7 +62,7 @@ jobs:
           overlay = [o for o in overlay if o]
           # Files that steer the builds count when they are MODIFIED (an existing, verified behaviour changes); a newly added
           # file cannot change what an earlier run verified, and the push to the fork branch runs the full builds anyway.
-          steering = re.compile(r"^(\.fork/(test-groups\.json|linux-ok\.txt|components\.toml)|\.github/workflows/fork-build-.*\.yml|scripts/fork/(linux_probe|components)\.py)$")
+          steering = re.compile(r"^(\.fork/(linux-ok\.txt|components\.toml)|\.github/workflows/fork-build\.yml|scripts/fork/(linux_probe|components|libtest_summary|clippy_annotations)\.py|scripts/fork/run-component\.sh)$")
           docs = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
           fork_owned = lambda f: any(f == o or (o.endswith("/") and f.startswith(o)) for o in overlay)
           code = [f for f in diff("ACDMRT") if not (docs.match(f) or fork_owned(f))]
@@ -80,22 +84,17 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     uses: JorisJonkers-dev/github-workflows/.github/workflows/pr-title-check.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
 
-  # Upstream's ci.yml, split into parallel jobs. Linux first; Windows only for what needs it.
-  build-linux:
-    name: Linux
+  # Upstream's ci.yml, as one job per engine component (.fork/components.toml); see fork-build.yml.
+  build:
+    name: Build
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' }}
-    uses: ./.github/workflows/fork-build-linux.yml
-  build-windows:
-    name: Windows
-    needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
-    uses: ./.github/workflows/fork-build-windows.yml
+    uses: ./.github/workflows/fork-build.yml
 
-  pipeline-complete:
-    name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, build-linux, build-windows]
-    if: ${{ !cancelled() }}
+  # The repository's own checks, in parallel with the builds. Separate steps so one failing check does not hide
+  # the others.
+  lint:
+    name: Repository checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -107,8 +106,9 @@ jobs:
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5
         with:
           cache: true
+          # A pull request's merge ref would write its own 97 MB copy of the same cache.
+          cache_save: ${{ github.ref == 'refs/heads/fork' }}
 
-      # Separate steps so one failing check does not hide the others.
       - name: Workflows
         run: mise exec -- task lint:actions
       - name: Dependencies
@@ -121,13 +121,34 @@ jobs:
         if: ${{ !cancelled() }}
         run: mise exec -- task secrets
 
+  pipeline-complete:
+    name: Pipeline Complete
+    needs: [changes, hygiene, pr-title, lint, build]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/fork
+
       # A skipped job fails, except the two that only run on pull requests (hygiene also skips when
-      # its override label is set) and the two builds when only documentation changed.
-      - name: Reusable-workflow jobs passed
-        if: ${{ !cancelled() }}
+      # its override label is set) and the build when only documentation changed.
+      - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title")) or ((.key | IN("build-linux", "build-windows")) and $n.changes.outputs.code == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
-          if [ -n "$failed" ]; then echo "$failed"; exit 1; fi
+          failed="$(jq -r '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title")) or ((.key == "build") and $n.changes.outputs.code == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
+
+      # Read-only; shown whether the pipeline passed or not: every component's result and duration.
+      - name: Summary of the run
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/fork/pipeline_summary.py --run "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --exclude "Pipeline Complete" >>"$GITHUB_STEP_SUMMARY"

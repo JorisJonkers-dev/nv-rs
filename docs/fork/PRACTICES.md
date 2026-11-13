@@ -2,7 +2,7 @@
 
 | Practice | Where | Notes |
 | --- | --- | --- |
-| One required check, `Pipeline Complete` | `.github/workflows/fork-ci.yml`, `.github/rulesets/fork-line.json` | One job; the checks are steps (`task check`). The two reusable workflows (hygiene, PR title) are jobs it waits for |
+| One required check, `Pipeline Complete` | `.github/workflows/fork-ci.yml`, `.github/rulesets/fork-line.json` | It gathers the result of every job: the build, the repository checks (`task check`, a parallel job) and the two reusable workflows (hygiene, PR title) |
 | Branch protection | `.github/rulesets/fork-line.json`, `scripts/fork/apply-ruleset.sh`, `scripts/fork/switch-to-fork.sh` | The estate's ruleset: no deletion, no force push, linear history, pull requests only, squash for people and rebase for the sync, `Pipeline Complete` required. No bypass actors |
 | Conventional Commits | `pr-title` job, `scripts/fork/hooks/commit-msg` | The pull request title is the squash commit, so it is what release-please reads |
 | Following upstream | `scripts/fork/replay-upstream.sh`, `.github/workflows/fork-sync.yml`, `scripts/fork/verify-sync.sh` | Replays each upstream commit with the same change and a Conventional Commit message; see KEEPING-IN-SYNC.md |
@@ -13,7 +13,8 @@
 | Dependency cooldown | `.cargo/config.toml`, `renovate.json` | Cargo: 7 days, stable from 1.100 (inert while upstream pins 1.99.1). Renovate: the estate preset's `minimumReleaseAge` |
 | Dependency updates | `renovate.json` | Only fork-owned files |
 | Fuzzing | `fuzz/`, `.github/workflows/fork-fuzz.yml` | Weekly, three parsers; needs `cargo +nightly` |
-| Linux-first build | `.github/workflows/fork-build-linux.yml`, `fork-build-windows.yml`, `.fork/linux-ok.txt`, `scripts/fork/linux_probe.py` | Everything that can run on Linux does; Windows only for what needs it. A probe reports which crates build on Linux; crates listed in `linux-ok.txt` are required there |
+| Component-based build | `.fork/components.toml`, `scripts/fork/components.py`, `.github/workflows/fork-build.yml`, [`CI.md`](CI.md) | One job per engine component, each running only its own crates' tests; the slow engine tests are split along the typed families; on pull requests only the components a change reaches run; every workspace crate must belong to a component. Linux twins are informational until the crates are in `.fork/linux-ok.txt` |
+| Readable CI output | `scripts/fork/run-component.sh`, `libtest_summary.py`, `clippy_annotations.py`, `pipeline_summary.py` | Grouped logs, annotations for failed tests and clippy, a summary per job, and in `Pipeline Complete` each component's result and duration |
 | Windows and Linux release builds | `.github/workflows/fork-release-build.yml` | Artefacts only; never publishes. Packaging stays local (needs the player's `FalloutNV.exe`) |
 | Local setup | `mise.toml`, `Taskfile.yml`, `scripts/fork/install-hooks.sh` | `mise install`, then `task check` |
 
