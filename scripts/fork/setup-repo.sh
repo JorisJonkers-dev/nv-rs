@@ -7,6 +7,8 @@
 #
 # Branch layout: `main` is a pure copy of upstream's main (kept by GitHub's sync), `fork` is the default branch
 # and holds our commits (docs/fork/KEEPING-IN-SYNC.md). The move there is scripts/fork/switch-to-fork.sh.
+# SHA_PINNING_REQUIRED=false turns the "pin every action by commit SHA" requirement off (default true). The organisation's
+# reusable hygiene workflow was not pinned until github-workflows PR #256; with the requirement on, the pipeline cannot start.
 # Covers: merge methods and auto-merge, secret scanning and push protection, Dependabot alerts, private
 # vulnerability reporting, CodeQL, the workflow token, which actions may run (GitHub's, the organisation's and a
 # short list, pinned by SHA), approval for outside contributors' workflow runs, the fork-sync environment, labels,
@@ -60,11 +62,11 @@ echo "Actions"
 a_token() { call PUT "repos/$repo/actions/permissions/workflow" '{"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}'; }
 ensure "workflow token read-only by default" "get repos/$repo/actions/permissions/workflow | jq -e '.default_workflow_permissions==\"read\"'" a_token
 a_allowed() {
-  call PUT "repos/$repo/actions/permissions" '{"enabled":true,"allowed_actions":"selected","sha_pinning_required":true}'
+  call PUT "repos/$repo/actions/permissions" '{"enabled":true,"allowed_actions":"selected","sha_pinning_required":'"${SHA_PINNING_REQUIRED:-true}"'}'
   call PUT "repos/$repo/actions/permissions/selected-actions" '{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["JorisJonkers-dev/*","jdx/mise-action@*","Swatinem/rust-cache@*","googleapis/release-please-action@*"]}'
 }
 ensure "only GitHub's, the organisation's and four named actions, all pinned by SHA" \
-  "get repos/$repo/actions/permissions | jq -e '.allowed_actions==\"selected\" and .sha_pinning_required==true'" a_allowed
+  "get repos/$repo/actions/permissions | jq -e --argjson want \"${SHA_PINNING_REQUIRED:-true}\" '.allowed_actions==\"selected\" and .sha_pinning_required==$want'" a_allowed
 a_approval() { call PUT "repos/$repo/actions/permissions/fork-pr-contributor-approval" '{"approval_policy":"all_external_contributors"}'; }
 ensure "outside contributors' workflow runs need approval" \
   "get repos/$repo/actions/permissions/fork-pr-contributor-approval | jq -e '.approval_policy==\"all_external_contributors\"'" a_approval
