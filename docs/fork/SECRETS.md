@@ -19,8 +19,7 @@ Set the key without leaving it in shell history: `gh secret set ANTHROPIC_API_KE
 
 ## The GitHub App keys
 
-`RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` are organisation secrets shared with every repository, and the
-App is installed on the whole organisation. A person with write access to this public fork could mint tokens for
-your private repositories. Give the fork its own App instead: contents and pull requests read and write, no
-workflow permission, installed on this repository only, with its ID and key as `fork-sync` environment secrets
-(for `release.yml` too, in an environment of its own). Until then, keep write access to the fork to yourself.
+The fork has its own App, installed on this repository only, with contents, pull requests and issues access and
+no workflow permission; its id and key are `fork-sync` environment secrets. How it is made, checked and rotated:
+[APP.md](APP.md). The organisation's shared `RELEASE_APP_*` secrets are not used here; restrict them to the
+repositories that need them so this public fork cannot read them.
