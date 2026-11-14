@@ -109,8 +109,10 @@ fn the_manifest_hashes_are_the_ones_the_engine_checks() {
 
 #[test]
 fn the_checked_in_capabilities_match_the_tables() {
+    // A Windows checkout may have turned the line ends into CR LF.
     let have = std::fs::read_to_string(repo(".fork/capabilities.json"))
-        .expect(".fork/capabilities.json is checked in");
+        .expect(".fork/capabilities.json is checked in")
+        .replace("\r\n", "\n");
     assert!(
         have == to_text(&capabilities()),
         ".fork/capabilities.json disagrees with the command tables: regenerate it with \

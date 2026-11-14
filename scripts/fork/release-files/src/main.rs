@@ -60,7 +60,9 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
         }
     };
     if let Some(file) = flag(args, "--check") {
-        let have = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+        let have = std::fs::read_to_string(file)
+            .map_err(|e| format!("{file}: {e}"))?
+            .replace("\r\n", "\n");
         if have != text {
             eprintln!("{file} is out of date with the command tables; regenerate it with --out");
             return Ok(ExitCode::from(1));
