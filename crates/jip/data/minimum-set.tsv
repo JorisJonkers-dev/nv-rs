@@ -1,61 +1,50 @@
 # The minimum set of JIP LN NVSE commands that must have a handler before nv-rs answers "JIP LN NVSE is installed"
-# (`jip::ANSWERS_INSTALLED`, ADR-0016). Names only, as JIP registers them (alias or long name, case
-# does not matter). Checked by `minimum::tests`: a name with no handler fails the gate while the flag
-# is on.
+# (`jip::ANSWERS_INSTALLED`, ADR-0016). Names only, as JIP registers them (long name or alias, case does
+# not matter). Checked by `minimum::tests`: a name with no handler fails the gate while the flag is on.
 #
-# Columns: name, source, group. Source `analysis` is the "probable first fifty" of section 5.2 of the
-# nv-rs gap analysis (nv-workshop, docs/research/nv-rs-gap-analysis.md): a Likely-level estimate from how
-# mods of the owner's list are written. When the opcode usage scan (G-01) has run, replace the entries
-# with its measured list and give each source `scan`; raise the version.
-# version 1
-GetFormFromMod	analysis	data lookups
-GetModName	analysis	data lookups
-GetSelfModIndex	analysis	data lookups
-fsqrt	analysis	maths
-fSin	analysis	maths
-fCos	analysis	maths
-fAtan2	analysis	maths
-GetDistance2D	analysis	maths
-GetDistance3D	analysis	maths
-GetMinOf	analysis	maths
-GetMaxOf	analysis	maths
-GetRandomInRange	analysis	maths
-GetINIFloat	analysis	config
-GetINIString	analysis	config
-FileExists	analysis	config
-ListToArray	analysis	config
-AddItemAlt	analysis	inventory
-EquipItemAlt	analysis	inventory
-GetAllItems	analysis	inventory
-GetEquippedItemRef	analysis	inventory
-GetItemRefCurrentHealth	analysis	inventory
-IsAttacking	analysis	combat
-IsFleeing	analysis	combat
-IsInCombatWith	analysis	combat
-GetCurrentAmmoRounds	analysis	combat
-SetCurrentAmmoRounds	analysis	combat
-GetHitWeapon	analysis	combat
-GetHitAttacker	analysis	combat
-GetKiller	analysis	combat
-GetIsRagdolled	analysis	combat
-HolsterWeapon	analysis	combat
-SetWeaponOut	analysis	combat
-SetSpeedMult	analysis	combat
-GetActorVelocity	analysis	combat
-GetPCUsingIronSights	analysis	player state and events
-GetPCUsingScope	analysis	player state and events
-GetPCMovedCell	analysis	player state and events
-GetGameDaysPassed	analysis	player state and events
-SetOnFastTravelEventHandler	analysis	player state and events
-SetOnPCTargetChangeEventHandler	analysis	player state and events
-SetOnDialogTopicEventHandler	analysis	player state and events
-SetOnNoteAddedEventHandler	analysis	player state and events
-InjectUIXML	analysis	ui
-AttachUIXML	analysis	ui
-GetActiveMenuMode	analysis	ui
-GetCursorPos	analysis	ui
-ShowQuantityMenu	analysis	ui
-MessageExAlt	analysis	ui
-HasKeyword	analysis	keywords
-AssignKeyword	analysis	keywords
-GetKeywordForms	analysis	keywords
+# Columns: name, source, group (the JIP source file the command is in).
+# Source `scan` is a measured entry: the missing JIP LN commands called most (by call sites) in a scan of the
+# compiled scripts of the owner's installed list (`nvmod nvse-usage`; numbers only, no plugin names). This
+# Version 2 holds the 40 most called of the 134 missing there. Source `analysis` would be an estimate from
+# the gap analysis (nv-workshop, docs/research/nv-rs-gap-analysis.md, section 5.2).
+# version 2
+PlaceAtCell	scan	jip_fn_misc_ref
+SetINIFloat	scan	ln_fn_utility
+RunBatchScript	scan	jip_fn_script
+SetValueAlt	scan	jip_fn_inventory
+AttachLight	scan	jip_fn_misc_ref
+SetSoundTraitNumeric	scan	jip_fn_sound
+BaseAddItem	scan	ln_fn_inventory
+CCCSetFloat	scan	jip_fn_ccc
+SetFormDescription	scan	jip_fn_miscellaneous
+LNSetName	scan	ln_fn_miscellaneous
+MessageExAlt	scan	jip_fn_ui
+BaseRemoveItem	scan	ln_fn_inventory
+CloseActiveMenu	scan	jip_fn_ui
+ShowQuantityMenu	scan	jip_fn_ui
+RemoveLight	scan	jip_fn_misc_ref
+SetSystemColor	scan	jip_fn_ui
+ToggleCreatureModel	scan	jip_fn_actor
+MessageBoxExAlt	scan	jip_fn_ui
+ToggleHardcoreTracking	scan	jip_fn_miscellaneous
+CastImmediate	scan	jip_fn_effect
+SetUIFloatGradual	scan	jip_fn_ui
+AddItemAlt	scan	jip_fn_inventory
+SetGameHour	scan	jip_fn_miscellaneous
+MoveToEditorPosition	scan	jip_fn_misc_ref
+RemoveItemTarget	scan	jip_fn_inventory
+DismemberLimb	scan	jip_fn_actor
+CCCSetString	scan	jip_fn_ccc
+SetCellFlag	scan	ln_fn_cell
+SetSpeedMult	scan	jip_fn_actor
+EnableButton	scan	ln_fn_gamepad
+UnloadUIComponent	scan	jip_fn_ui
+EquipItemAlt	scan	jip_fn_inventory
+InjectUIXML	scan	jip_fn_ui
+SetSoundSourceFile	scan	jip_fn_sound
+DisableButton	scan	ln_fn_gamepad
+SetNifBlockFlag	scan	jip_fn_misc_ref
+SetMessageFlags	scan	jip_fn_ui
+SetMessageDisplayTime	scan	jip_fn_ui
+AddTileFromTemplate	scan	jip_fn_ui
+SetWeaponOut	scan	jip_fn_actor
