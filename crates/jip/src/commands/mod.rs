@@ -43,6 +43,7 @@ pub mod ln_fn_casino;
 pub mod ln_fn_challenge;
 pub mod ln_fn_leveled_list;
 pub mod ln_fn_map_marker;
+pub mod ln_fn_math;
 pub mod ln_fn_perk;
 pub mod ln_fn_race;
 pub mod ln_fn_recipe;
@@ -64,7 +65,7 @@ pub type Handlers = &'static [(u32, AbiFn)];
 pub type Conditions = &'static [(u32, AbiFn, AbiFn)];
 
 /// Every module's conditions, one line per JIP source file that has any.
-pub const ALL_CONDITIONS: &[Conditions] = &[jip_fn_effect::CONDITIONS];
+pub const ALL_CONDITIONS: &[Conditions] = &[jip_fn_effect::CONDITIONS, ln_fn_math::CONDITIONS];
 
 /// A module's condition-only commands (`DEFINE_CMD_COND_ONLY` (JIP LN NVSE)): each opcode with its
 /// eval; no execute.
@@ -108,6 +109,7 @@ pub const ALL: &[Handlers] = &[
     ln_fn_challenge::COMMANDS,
     ln_fn_leveled_list::COMMANDS,
     ln_fn_map_marker::COMMANDS,
+    ln_fn_math::COMMANDS,
     ln_fn_perk::COMMANDS,
     ln_fn_race::COMMANDS,
     ln_fn_recipe::COMMANDS,
