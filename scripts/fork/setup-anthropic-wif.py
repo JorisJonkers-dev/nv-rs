@@ -99,6 +99,24 @@ def gh_var(repo: str, env: str, name: str, value: str) -> None:
     subprocess.run(["gh", "variable", "set", name, "--env", env, "-R", repo, "--body", value], check=True, stdout=subprocess.DEVNULL)
 
 
+def subject_prefix(a: argparse.Namespace) -> str:
+    """The `sub` claim GitHub puts in this repository's tokens, up to the environment. A repository that uses the immutable
+    subject (the numeric ids of the owner and repository in it) never gets the name-based one, so a rule written from the
+    names matches nothing and every exchange fails with 401. --sub-prefix overrides; otherwise ask GitHub (no_github: names)."""
+    if a.sub_prefix:
+        return f"{a.sub_prefix}:environment:{a.env}"
+    if not a.no_github:
+        got = subprocess.run(["gh", "api", f"repos/{a.repo}/actions/oidc/customization/sub"], capture_output=True, text=True)
+        if got.returncode == 0:
+            try:
+                tpl = json.loads(got.stdout)
+            except ValueError:
+                tpl = {}
+            if tpl.get("use_immutable_subject") and tpl.get("sub_claim_prefix"):
+                return f"{tpl['sub_claim_prefix']}:environment:{a.env}"
+    return f"repo:{a.repo}:environment:{a.env}"
+
+
 def run(a: argparse.Namespace, api: Api) -> dict:
     owner, _, repo_name = a.repo.partition("/")
     org_id = a.org_id or org_from_profile(a.profile)
@@ -123,13 +141,13 @@ def run(a: argparse.Namespace, api: Api) -> dict:
 
     rule = api.find("federation_rules", "name", a.name)
     if rule:
-        print(f"rule: reusing {rule['id']} (check its match in the Console if you changed --repo or --env)")
+        print(f"rule: reusing {rule['id']} (its subject_prefix must be {subject_prefix(a)!r}; compare it in the Console, an existing rule is not changed here)")
     else:
         body = {
             "name": a.name,
             "issuer_id": issuer["id"],
             "match": {
-                "subject_prefix": f"repo:{a.repo}:environment:{a.env}",
+                "subject_prefix": subject_prefix(a),
                 "audience": AUDIENCE,
                 "claims": {"repository_owner": owner, "repository": a.repo, "ref": "refs/heads/fork"},
             },
@@ -218,7 +236,7 @@ def selftest() -> None:
     srv = http.server.HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     a = argparse.Namespace(repo="JorisJonkers-dev/nv-rs", env="fork-sync", name="nv-rs-fork-sync", workspace="wrkspc_test",
-                           org_id="11111111-2222-3333-4444-555555555555", profile="admin", no_github=True, dry_run=False)
+                           org_id="11111111-2222-3333-4444-555555555555", profile="admin", no_github=True, dry_run=False, sub_prefix="")
     api = Api(f"http://127.0.0.1:{srv.server_address[1]}", "test-token", False)
     assert api.call("GET", "flaky") == {"ok": True} and state["flaky"] == 4, "503, 503, 529 are retried, then it succeeds"
     try:
@@ -235,6 +253,8 @@ def selftest() -> None:
     assert len(state["rules"]) == 1 and len(state["sas"]) == 1 and len(state["issuers"]) == 1
     assert ("POST", "service_accounts/svac_1/workspaces", {"workspace_id": "wrkspc_test", "workspace_role": "workspace_developer"}) in state["calls"]
     srv.shutdown()
+    a.sub_prefix = "repo:JorisJonkers-dev@1/nv-rs@2"
+    assert subject_prefix(a) == "repo:JorisJonkers-dev@1/nv-rs@2:environment:fork-sync", "an explicit prefix is used as given"
     print("selftest ok: transient errors retried, 403 not retried, created once, reused on rerun, rule pinned to environment, fork branch and repository")
 
 
@@ -248,6 +268,7 @@ def main() -> None:
     ap.add_argument("--name", default="nv-rs-fork-sync", help="name of the service account and the rule")
     ap.add_argument("--dry-run", action="store_true", help="read, but do not create or store anything")
     ap.add_argument("--no-github", action="store_true", help="do not store the variables with gh")
+    ap.add_argument("--sub-prefix", default="", help="the token's subject up to ':environment:', e.g. repo:OWNER@ID/NAME@ID (default: read from GitHub, immutable form if the repository uses it)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
