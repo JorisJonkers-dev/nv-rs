@@ -1156,7 +1156,9 @@ fn write_find_data(
             meta.last_write_time(),
         )
     };
-    #[cfg(not(windows))]
+    #[cfg(unix)]
+    let (attributes, created, accessed, written) = crate::fork_platform::find_fields(meta, shown);
+    #[cfg(not(any(windows, unix)))]
     let (attributes, created, accessed, written): (u32, u64, u64, u64) = {
         let _ = &meta;
         panic!("FindFirstFileA(\"{shown}\"): file times are only provided on Windows");
