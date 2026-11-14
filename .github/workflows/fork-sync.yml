@@ -2,7 +2,10 @@
 # messages) and opens or refreshes the pull request. The pull request is merged by REBASE so each
 # replayed commit stays one commit on the fork branch; Pipeline Complete must pass first. Needs the repository
 # federation variables for the titles (docs/fork/WIF.md; without them the rule in rewrite_title.py is used)
-# and the fork App secrets so that CI runs on the pull request.
+# and the fork App secrets so that CI runs on the pull request. A run that stops or fails opens or updates ONE issue
+# labelled sync-blocked; a later successful run closes it (docs/fork/KEEPING-IN-SYNC.md, "The tracking issue").
+# Upstream is an imported source: changes to paths the fork owns (.fork/overlay-paths, .github/workflows) are left out of
+# the replay and listed in the run summary and the pull request.
 name: Upstream Sync
 
 on:
@@ -27,6 +30,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      issues: write
     steps:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
@@ -52,6 +56,11 @@ jobs:
           gh api -X POST "repos/$GITHUB_REPOSITORY/merge-upstream" -f branch=main --jq '.merge_type + ": " + .message' \
             || echo "::warning::could not update main from upstream (see docs/fork/KEEPING-IN-SYNC.md)"
 
+      # The scripts run from a copy outside the working tree: the replay rewrites the tree, and upstream's files must
+      # never replace the scripts that hold the API key and the token in their environment.
+      - name: Copy the fork scripts
+        run: cp -r scripts/fork "$RUNNER_TEMP/fork-scripts"
+
       - name: Replay upstream
         id: replay
         env:
@@ -66,15 +75,43 @@ jobs:
           # Cheap on purpose: one short call per replayed commit, a few cents a month.
           FORK_TITLE_MODEL: claude-haiku-5-5
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SYNC_STOP_FILE: ${{ runner.temp }}/sync-stop
+          SYNC_DROPPED_FILE: ${{ runner.temp }}/sync-dropped
         run: |
           set -euo pipefail
           git config user.name "jorisjonkers-dev-agents[bot]"
           git config user.email "jorisjonkers-dev-agents[bot]@users.noreply.github.com"
-          # Run a copy: the replay rewrites the working tree, and upstream's files must never replace the
-          # scripts that hold the API key in their environment.
-          cp -r scripts/fork "$RUNNER_TEMP/fork-scripts"
           out="$("$RUNNER_TEMP/fork-scripts/replay-upstream.sh" --push | tee /dev/stderr)"
           if grep -q '^already in sync' <<<"$out"; then echo "changed=false" >>"$GITHUB_OUTPUT"; else echo "changed=true" >>"$GITHUB_OUTPUT"; fi
+
+      # A sync that changes a command table makes the release-files check fail until .fork/capabilities.json is rewritten
+      # (docs/fork/RELEASE-FILES.md). The generator is built from a plain export of the sync branch (no .git, no token in
+      # the environment: upstream's build scripts run there) with the fork's own copy of the tool, then the file is
+      # validated against its schema; the commit is made here, on the finished sync branch.
+      - name: Regenerate the capabilities file
+        id: caps
+        if: ${{ steps.replay.outputs.changed == 'true' }}
+        run: |
+          set -euo pipefail
+          tree="$RUNNER_TEMP/caps-tree"; mkdir -p "$tree"
+          git archive sync/upstream | tar -x -C "$tree"
+          rm -rf "$tree/scripts/fork/release-files"
+          cp -r "$RUNNER_TEMP/fork-scripts/release-files" "$tree/scripts/fork/release-files"
+          cd "$tree"
+          env -u GH_TOKEN -u GITHUB_TOKEN CARGO_TARGET_DIR="$RUNNER_TEMP/caps-target" \
+            cargo run --locked --quiet --manifest-path scripts/fork/release-files/Cargo.toml -- capabilities --out "$RUNNER_TEMP/capabilities.json"
+          env -u GH_TOKEN -u GITHUB_TOKEN CARGO_TARGET_DIR="$RUNNER_TEMP/caps-target" \
+            cargo run --locked --quiet --manifest-path scripts/fork/release-files/Cargo.toml -- validate --schema .fork/schemas/nv-rs-capabilities.v1.json "$RUNNER_TEMP/capabilities.json"
+          cd "$GITHUB_WORKSPACE"
+          if cmp -s "$RUNNER_TEMP/capabilities.json" .fork/capabilities.json; then
+            echo "capabilities file unchanged: no commit"
+          else
+            python3 -I "$RUNNER_TEMP/fork-scripts/capabilities_diff.py" .fork/capabilities.json "$RUNNER_TEMP/capabilities.json" >"$RUNNER_TEMP/capabilities-diff.md"
+            cp "$RUNNER_TEMP/capabilities.json" .fork/capabilities.json
+            git add .fork/capabilities.json
+            git commit --quiet -m "chore(fork): regenerate the capabilities file for the replayed upstream commits"
+            git push --quiet origin sync/upstream
+          fi
 
       - name: Open or refresh the pull request, and rebase-merge it once the checks pass
         if: ${{ steps.replay.outputs.changed == 'true' }}
@@ -82,17 +119,57 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
+          body="$RUNNER_TEMP/pr-body.md"
+          echo "Replays new commits of slaterain/nv-rs: the same changes, Conventional Commit messages. Merge by rebase." >"$body"
+          if [ -s "$RUNNER_TEMP/capabilities-diff.md" ]; then
+            printf '\nCapabilities (commands the replayed commits add or remove, .fork/capabilities.json regenerated):\n\n' >>"$body"
+            cat "$RUNNER_TEMP/capabilities-diff.md" >>"$body"
+          fi
+          if [ -s "$RUNNER_TEMP/sync-dropped" ]; then
+            printf '\nLeft out of the replay (paths the fork owns, so the fork version stays):\n\n' >>"$body"
+            python3 -I "$RUNNER_TEMP/fork-scripts/sync_report.py" summary --dropped-file "$RUNNER_TEMP/sync-dropped" >>"$body"
+          fi
           if [ -z "$(gh pr list --head sync/upstream --state open --json number --jq '.[0].number')" ]; then
             gh pr create --base fork --head sync/upstream --label allow-repository-hygiene-exception \
-              --title "chore(sync): replay upstream" \
-              --body "Replays new commits of slaterain/nv-rs: the same changes, Conventional Commit messages. Merge by rebase."
+              --title "chore(sync): replay upstream" --body-file "$body"
+          else
+            gh pr edit sync/upstream --body-file "$body"
           fi
-          # Upstream's ci.yml is disabled in the fork and split into fork-build.yml: a change to it needs a look.
-          if git diff --name-only origin/fork...sync/upstream | grep -qx '.github/workflows/ci.yml'; then
+          # Upstream's ci.yml is not used here (the replay leaves it out); a change to it may still be worth a look.
+          if grep -q ' \.github/workflows/ci\.yml$' "$RUNNER_TEMP/sync-dropped" 2>/dev/null; then
             gh pr edit sync/upstream --add-label ci-parity-review
-            gh pr comment sync/upstream --body "Upstream changed .github/workflows/ci.yml. Compare it with .github/workflows/fork-build.yml (parity note at the top of that file) before merging."
+            gh pr comment sync/upstream --body "Upstream changed .github/workflows/ci.yml; the replay left it out. Compare it with .github/workflows/fork-build.yml (parity note at the top of that file), and keep Windows and Linux jobs, when something in it should be mirrored."
           fi
           gh pr merge sync/upstream --auto --rebase
 
       - name: Divergence check
-        run: scripts/fork/verify-sync.sh
+        run: |
+          set -o pipefail
+          "$RUNNER_TEMP/fork-scripts/verify-sync.sh" 2>&1 | tee "$RUNNER_TEMP/verify-sync.out"
+
+      - name: Summary of left-out changes
+        if: ${{ always() }}
+        run: |
+          if [ -s "$RUNNER_TEMP/sync-dropped" ]; then
+            { echo "### Left out of the replay (the fork owns these paths)"; echo; python3 -I "$RUNNER_TEMP/fork-scripts/sync_report.py" summary --dropped-file "$RUNNER_TEMP/sync-dropped"; } >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+      # One issue, labelled sync-blocked, for a stopped or failed run: opened, or updated when it is already open.
+      # The issue uses the job's own token (issues: write); the copy of the scripts exists once the checkout worked.
+      - name: Report a blocked sync
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          s="$RUNNER_TEMP/fork-scripts"
+          [ -d "$s" ] || { mkdir -p "$s"; git archive origin/fork scripts/fork | tar -x -C "$s" --strip-components=2; }
+          extra=(); [ -s "$RUNNER_TEMP/verify-sync.out" ] && extra=(--detail-file "$RUNNER_TEMP/verify-sync.out")
+          python3 -I "$s/sync_report.py" open --stop-file "$RUNNER_TEMP/sync-stop" --dropped-file "$RUNNER_TEMP/sync-dropped" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" "${extra[@]}"
+
+      - name: Close the tracking issue
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I "$RUNNER_TEMP/fork-scripts/sync_report.py" close --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

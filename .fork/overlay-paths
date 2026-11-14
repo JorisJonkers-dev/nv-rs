@@ -22,6 +22,9 @@ SECURITY.md
 Taskfile.yml
 deny.toml
 docs/fork/
+flake.lock
+flake.nix
+packaging/
 fuzz/
 .fork/linux-ok.txt
 mise.toml

@@ -10,7 +10,7 @@ pushes to `probe/**` branches: `cargo check --locked --workspace --all-targets`,
 table of results in the job summary. The Pipeline's Linux jobs run the crates in `.fork/linux-ok.txt`.
 
 Every change below is `cfg`-gated or additive, so Windows code is unchanged. Upstream-owned files
-changed are listed in `.fork/allowed-divergence`. Upstream's issue #268 and CONTRIBUTING reserve
+changed are listed in `.fork/allowed-divergence`; the Pipeline's `Verify sync` job fails a pull request that changes an upstream-owned file that is not listed there. The "Offer upstream" column below is history: upstream is an imported source and nothing is offered back. Upstream's issue #268 and CONTRIBUTING reserve
 the platform layer (`d3d9real.rs`, the call sites in `d3d9device.rs`, `d3d9resource.rs`,
 `d3d9query.rs`, `d3d9.rs`, `window.rs`): none of those call sites and none of `d3d9real.rs` is
 touched.
@@ -105,3 +105,56 @@ game files (`NV_EXE`, `NV_DATA`) or Windows.
 | `crates/host/src/cell_offsets.rs` | calls `files::host_path` | no: one call in the function that builds the path |
 | `crates/nvse/src/commands/math.rs` | `ignore` off Windows | yes, by a skip filter as for `files.rs` (`.fork/linux-skip.txt`); not done yet |
 | `crates/d3d9-wgpu/src/loading.rs` | pipe list built on Windows only | no: attributes on upstream's items |
+
+## Package, install and launch (the Linux release)
+
+Fork-owned files: `packaging/linux/` (launcher, desktop entry, icon, install script, packaging and smoke-test scripts)
+and `flake.nix` with `flake.lock`. Nothing upstream owns changed. The build still cannot play: it checks an
+installation and runs what the port runs off Windows. No game data is in the package, in CI or in an artefact, and
+nothing copies the player's `FalloutNV.exe`.
+
+**The release asset.** `fork-release-build.yml` (job `linux`) builds `nv-viewer` for `x86_64-unknown-linux-gnu`, and
+`packaging/linux/package.sh` writes `nv-rs-linux-x86_64-dev.tar.gz` with the folder `nv-rs-<version>-linux-x86_64/`
+inside: `bin/nv-viewer`, `bin/nv-rs-launch`, `install.sh`, `share/applications/nv-rs.desktop`,
+`share/icons/hicolor/256x256/apps/nv-rs.png`, `share/doc/nv-rs/README.txt` and `share/nv-rs/` (the capabilities and
+release manifest files and their schemas). Beside it, as before: `capabilities.json`, `release-manifest.json`, the
+schemas and `SHA256SUMS`, all attested.
+
+**The contract with nvmod.** `nvmod install-nv-rs` fetches `<release url>/SHA256SUMS` and the asset named
+`nv-rs-linux-x86_64-dev.tar.gz` (`DEFAULT_ASSET`), checks the hash and the attestation, accepts only plain files and
+folders that stay inside the folder (no link, no absolute path, no `..`), finds `nv-viewer` and `release-manifest.json`
+by name anywhere in the tree and runs the manifest's `installation_check`. So the asset name is fixed (it was
+versioned before; the version is now the inner folder's name and `release-manifest.json`'s), the tarball holds no
+link, and the manifest's schema is unchanged. `scripts/fork/tests/test_packaging.py` checks the name, the member rules
+and that exactly one `nv-viewer` and one manifest are in the tree.
+
+**Install and launch.**
+
+| Way | Command |
+| --- | --- |
+| Tarball | unpack, then `./install.sh` (to `~/.local`, or `--prefix DIR`): `bin/`, the desktop entry with the launcher's full path, the icon |
+| nvmod | `nvmod install-nv-rs` |
+| Nix | `nix profile install github:JorisJonkers-dev/nv-rs` (or `nix run github:JorisJonkers-dev/nv-rs -- --check` after `nv-rs-launch --set-data`) |
+| Launch | `nv-rs-launch --set-data "<game folder>"` once; then `nv-rs-launch --check` or `nv-rs-launch`; or directly `nv-viewer "<game folder>" [--check]` |
+
+`nv-rs-launch` takes the data folder from its first argument, `$NV_RS_DATA` or the folder saved by `--set-data`
+(`${XDG_CONFIG_HOME:-~/.config}/nv-rs/data-folder`) and passes the rest to `nv-viewer`. The desktop entry ("nv-rs",
+category Game) runs it in a terminal, since the viewer reports on the terminal.
+
+**Nix.** `flake.nix` has `packages.x86_64-linux.{default,nv-viewer}` (the viewer plus the launcher, desktop entry
+and icon, built with the toolchain of `rust-toolchain.toml` through rust-overlay and `Cargo.lock`), `apps.default`
+(the launcher), `checks.x86_64-linux.smoke` and a dev shell. Tests are not run in the Nix build (`doCheck = false`);
+the Pipeline runs them. After a Cargo.lock or toolchain change nothing in the flake needs editing; `nix flake update`
+moves nixpkgs and rust-overlay, in a pull request of its own.
+
+**Smoke test.** `packaging/linux/smoke-test.sh <tree>` runs the built artefact: the libraries resolve, `--help`,
+`--check` on a missing folder, on a Data folder with no `FalloutNV.exe` and on a wrong `FalloutNV.exe` (each is exit
+status 1 with the problem named; the stand-ins are an empty file and a short line of text, not game data), and the
+launcher's data-folder rules. The success path (exit 0) needs the player's own executable and is not run in CI. The
+release build runs it on the unpacked tarball and on an `install.sh` prefix; the `nix` job runs it on the package
+(`nix build .#checks.x86_64-linux.smoke`). Pull requests run the same script against a stand-in viewer
+(`task scripts`), so the packaging cannot rot between releases.
+
+Not done: publishing. The workflow never creates a release (the maintainer decides); nvmod's default URL
+(`releases/latest/download`) needs the four files above attached to a GitHub Release by hand until that is decided.
+macOS can follow the same layout (`packaging/macos/`, a `macos` job) when a native build exists.

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=nv-rs
+GenericName=Fallout: New Vegas engine port
+Comment=Check and start Fallout: New Vegas through the nv-rs engine port
+Exec=nv-rs-launch
+Icon=nv-rs
+Terminal=true
+Categories=Game;
+Keywords=Fallout;New Vegas;nv-rs;
