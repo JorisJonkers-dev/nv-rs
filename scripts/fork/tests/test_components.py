@@ -142,6 +142,16 @@ class Jobs(unittest.TestCase):
         m = self.split(["-p big --test one --test two --test dir --test gone", "-p small"])
         self.assertTrue(any("--test gone" in e for e in m.errors), m.errors)
 
+    def test_an_optional_test_is_run_when_it_exists_and_ignored_when_it_does_not(self):
+        jobs = [{"name": "j", "args": ["-p big --test one --test two --test dir", "-p small"], "optional_tests": ["big/later"]}]
+        m = model([comp("c", ["big", "small"], job=jobs)], self.meta, root=str(self.tmp))
+        self.assertEqual(m.errors, [])
+        self.assertNotIn("later", m.entries("c")[0]["script"])
+        (self.tmp / "crates" / "big" / "tests" / "later.rs").write_text("")
+        m = model([comp("c", ["big", "small"], job=jobs)], self.meta, root=str(self.tmp))
+        self.assertEqual(m.errors, [])
+        self.assertIn("-p big --test one --test two --test dir --test later", m.entries("c")[0]["script"])
+
     def test_a_crate_in_no_job_fails(self):
         m = self.split(["-p big --test one --test two --test dir"])
         self.assertTrue(any("crate small is in no job" in e for e in m.errors), m.errors)
@@ -292,7 +302,8 @@ class RealMap(unittest.TestCase):
     def test_every_engine_test_file_is_in_a_job(self):
         m = real_model()
         named = {t for c in m.comps["integration"]["job"] for run in c["args"] for t in m.flags(run, "--test")}
-        self.assertEqual(named, m.tests_of("engine"))
+        optional = {o.split("/")[1] for c in m.comps["integration"]["job"] for o in c.get("optional_tests", []) if o.startswith("engine/")}
+        self.assertEqual(named, m.tests_of("engine") - optional)
 
     def test_a_new_upstream_crate_fails_the_check(self):
         meta = json.loads(FIXTURE.read_text())
