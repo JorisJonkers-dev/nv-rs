@@ -1,2 +1,4 @@
 # Upstream-owned files the fork changes on purpose (scripts/fork/verify-sync.sh).
 README.md
+# Test speed: the function table of a test engine is collected once per thread and copied (docs/fork/CI.md, "Upstream offers").
+crates/engine-core/src/engine.rs  # Engine::new_untyped copies a per-thread template in test builds

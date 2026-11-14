@@ -134,3 +134,4 @@ The pipeline's own check uses the live metadata, so a stale fixture cannot hide 
 Finish "Phase B" (drop the fallout crates' dev-dependencies on each other: smaller closures); one `#[cfg(windows)]` at
 `engine-platform/src/lib.rs:214` (the engine then builds on Linux); split `crates/engine/tests/typed_shader.rs` along
 `engine-typed/src/shader/*` (removes the 41-minute floor); move each `typed_*` test next to its family.
+| A test build collects and hashes the 47,733-entry function table once per thread; `Engine::new_untyped` copies it | `engine-core/src/engine.rs` | the differential tests build three engines per case; building the table was 41 % of a case | see `TEST-REDESIGN.md` |
