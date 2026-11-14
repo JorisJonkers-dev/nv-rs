@@ -152,7 +152,7 @@ If a key is the answer, the rest of the setup (the repository protections, the A
 
 | Match | Value | Why |
 | --- | --- | --- |
-| `subject_prefix` (exact) | `repo:JorisJonkers-dev/nv-rs:environment:fork-sync` | a job that declares the environment gets this subject; only runs on `fork` can use the environment |
+| `subject_prefix` (exact) | `repo:JorisJonkers-dev/nv-rs:environment:fork-sync`, or with the repository's immutable subject (see the 401 row) `repo:JorisJonkers-dev@<owner id>/nv-rs@<repo id>:environment:fork-sync` | a job that declares the environment gets this subject; only runs on `fork` can use the environment |
 | `claims.repository` | `JorisJonkers-dev/nv-rs` | defence in depth against subject parsing |
 | `claims.repository_owner` | `JorisJonkers-dev` | the same |
 | `claims.ref` | `refs/heads/fork` | a run from another branch never matches |
@@ -167,7 +167,7 @@ requests from forks, and anyone could mint a token.
 
 | Symptom | Cause |
 | --- | --- |
-| `401 Authentication failed`, history says `match_subject_prefix` | the job has no `environment:` (the subject then ends in `ref:...`), or the environment name differs |
+| `401 Authentication failed`, history says `match_subject_prefix` | the repository uses the immutable subject: `gh api repos/JorisJonkers-dev/nv-rs/actions/oidc/customization/sub` shows `use_immutable_subject: true` and `sub_claim_prefix`; the token's subject is that prefix plus `:environment:fork-sync`, so a rule written with the names never matches (`setup-anthropic-wif.py` reads the prefix itself, or take `--sub-prefix`; change an existing rule's `subject_prefix` in the Console). Otherwise: the job has no `environment:` (the subject then ends in `ref:...`), or the environment name differs |
 | history says `jti_reused` | a retry presented the same GitHub token twice; `rewrite_title.py` fetches a fresh one for every exchange |
 | the titles come from the fixed rule, not the model | the variables are missing, the job lacks `id-token: write`, or the exchange failed (the job log says which); the sync still works |
 | the model call works but is billed to the wrong place | the rule's workspace; check the workspace id variable |
