@@ -18,9 +18,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
 $here = $PSScriptRoot
+$Programs = (Resolve-Path -LiteralPath $Programs).Path
 $x64 = Join-Path $Programs 'release'
 $x86 = Join-Path $Programs 'i686-pc-windows-msvc/release'
 $name = "nv-rs-preview-$Version-windows-x64"
+New-Item -ItemType Directory -Force -Path $Out | Out-Null
+$Out = (Resolve-Path -LiteralPath $Out).Path
 $stage = Join-Path $Out $name
 $zip = "$stage.zip"
 if ((Test-Path -LiteralPath $stage) -or (Test-Path -LiteralPath $zip)) { throw "This package already exists: $stage" }
@@ -28,16 +31,21 @@ New-Item -ItemType Directory -Path (Join-Path $stage 'app/tools') -Force | Out-N
 
 # Our own programs. app\FalloutNV.exe is nv-viewer under that name (NVIDIA's driver fixes and Windows' per-program sound
 # go by the name); the program the release manifest calls `nv-viewer` is that file.
-$programs = [ordered]@{
-    (Join-Path $x64 'Play.exe')                  = 'Play.exe'
-    (Join-Path $x64 'nv-viewer.exe')             = 'app/FalloutNV.exe'
-    (Join-Path $x64 'd3d9-capture.exe')          = 'app/tools/d3d9-capture.exe'
-    (Join-Path $x86 'nvapi-capture.exe')         = 'app/tools/nvapi-capture.exe'
-    (Join-Path $x86 'dsound-capture.exe')        = 'app/tools/dsound-capture.exe'
-}
-foreach ($src in $programs.Keys) {
+$programs = @(
+    @((Join-Path $x64 'Play.exe'), 'Play.exe'),
+    @((Join-Path $x64 'nv-viewer.exe'), 'app/FalloutNV.exe'),
+    @((Join-Path $x64 'd3d9-capture.exe'), 'app/tools/d3d9-capture.exe'),
+    @((Join-Path $x86 'nvapi-capture.exe'), 'app/tools/nvapi-capture.exe'),
+    @((Join-Path $x86 'dsound-capture.exe'), 'app/tools/dsound-capture.exe')
+)
+foreach ($pair in $programs) {
+    $src, $dest = $pair[0], (Join-Path $stage $pair[1])
     if (-not (Test-Path -LiteralPath $src)) { throw "missing build output: $src" }
-    Copy-Item -LiteralPath $src -Destination (Join-Path $stage $programs[$src])
+    Copy-Item -LiteralPath $src -Destination $dest
+    if (-not (Test-Path -LiteralPath $dest -PathType Leaf)) {
+        Get-ChildItem -Recurse -LiteralPath $stage | ForEach-Object { Write-Host $_.FullName }
+        throw "copy of $src to $dest did not make a file"
+    }
 }
 # The launchers, the settings tool, the game-folder chooser and the READ MEs.
 foreach ($file in @('Play with mods.cmd', 'Import my saves.cmd', 'Settings.cmd', 'Settings.ps1', 'READ ME.txt', 'THIRD-PARTY-NOTICES.txt')) {
