@@ -329,7 +329,8 @@ class RealMap(unittest.TestCase):
         out = subprocess.run([sys.executable, "-I", str(FORK / "components.py"), "matrix", "--event", "push", "--metadata", str(FIXTURE)],
                              capture_output=True, text=True, cwd=REPO, check=True).stdout
         data = json.loads(out)
-        self.assertEqual(len(data["include"]), 27)
+        # the count follows .fork/linux-ok.txt (one Linux twin per fully covered component), so compare with the model instead of a constant
+        self.assertEqual(len(data["include"]), len(real_model().plan()["include"]))
         self.assertEqual({"name", "component", "cache", "os", "informational", "workspaces", "timeout", "script"}, set(data["include"][0]))
 
 
