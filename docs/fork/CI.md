@@ -34,7 +34,7 @@ checks it against `cargo metadata` and turns it into the job matrix of [`fork-bu
 the typed families (the test files of `crates/engine/tests` already mirror `engine-typed`'s modules; the jobs group
 families by subject, not by size): typed shader; draw, render, lights, particles; scene queries (culling, dispatch, collision); geometry and pathing; animation; runtime (crt, process, lock-free, leaves); and one aggregator job (the engine's lib
 tests, doctests and `par_render`, plus `host`, `play-patch` and `nv-viewer`). `components.py check` fails when a file
-in `crates/engine/tests` is in no job, so a new upstream test file cannot be lost.
+in `crates/engine/tests` is in no job, so a new upstream test file cannot be lost. A file that upstream is about to add can be listed first under the job's `optional_tests` (`"engine/name"`): it is run once the file exists and ignored until then, which lets the map be fixed on `fork` before the replay that brings the file.
 
 The three `fallout-*` components have the same large test closure (18 crates) because every fallout crate
 dev-depends on every other (upstream's "Phase A"). That is a property of upstream's crates, not of the map; when upstream
