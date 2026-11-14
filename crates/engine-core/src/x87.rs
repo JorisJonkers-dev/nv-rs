@@ -134,6 +134,46 @@ thread_local! {
     static CONTROL_WORD: std::cell::Cell<u16> = const { std::cell::Cell::new(DEFAULT_CONTROL_WORD) };
 }
 
+/// Whether the code run on this host thread read or loaded the control word since a test last asked
+/// (the differential test, [`crate::typed::diff`], runs a case under a second control word only
+/// when the first run did). Only in test builds: the arithmetic helpers read the word on every float
+/// operation, and a production build pays nothing for this.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub mod watch {
+    use std::cell::Cell;
+
+    thread_local! {
+        static READ: Cell<bool> = const { Cell::new(false) };
+        static WRITTEN: Cell<bool> = const { Cell::new(false) };
+    }
+
+    #[inline]
+    pub(crate) fn read() {
+        READ.with(|c| c.set(true));
+    }
+
+    #[inline]
+    pub(crate) fn written() {
+        WRITTEN.with(|c| c.set(true));
+    }
+
+    /// Forgets what was read so far on this thread.
+    pub fn reset_reads() {
+        READ.with(|c| c.set(false));
+    }
+
+    /// Forgets what was loaded so far on this thread.
+    pub fn reset_writes() {
+        WRITTEN.with(|c| c.set(false));
+    }
+
+    /// Whether the word was read since [`reset_reads`], or loaded since [`reset_writes`].
+    pub fn touched() -> bool {
+        READ.with(Cell::get) || WRITTEN.with(Cell::get)
+    }
+}
+
 /// The x87 control word the arithmetic helpers round with: the running game
 /// thread's (`FSTCW`).
 ///
@@ -147,6 +187,8 @@ thread_local! {
 #[cfg(all(windows, target_arch = "x86_64"))]
 #[inline(always)]
 pub fn control_word() -> u16 {
+    #[cfg(any(test, feature = "test-support"))]
+    watch::read();
     let at = tls::SLOT_AT.load(std::sync::atomic::Ordering::Relaxed);
     if at != 0 {
         // SAFETY: `at` is the offset of this thread's slot of the TLS index [`tls::slot`]
@@ -161,6 +203,8 @@ pub fn control_word() -> u16 {
 #[cfg(not(all(windows, target_arch = "x86_64")))]
 #[inline]
 pub fn control_word() -> u16 {
+    #[cfg(any(test, feature = "test-support"))]
+    watch::read();
     CONTROL_WORD.with(|c| c.get())
 }
 
@@ -181,6 +225,8 @@ fn control_word_slow() -> u16 {
 /// the thread's own copy, `Engine::new` (a new main thread) and the thread
 /// switch in `units::platform`.
 pub fn set_control_word(word: u16) {
+    #[cfg(any(test, feature = "test-support"))]
+    watch::written();
     #[cfg(all(windows, target_arch = "x86_64"))]
     if let Some(at) = tls::slot() {
         // SAFETY: `at` is this thread's slot of the TLS index `tls::slot` allocated.

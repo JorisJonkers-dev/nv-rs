@@ -144,3 +144,4 @@ and the change is redone on top.
 | Change | Files | What it does | Measured effect |
 | --- | --- | --- | --- |
 | A test build collects and hashes the 47,733-entry function table once per thread; `Engine::new_untyped` copies it | `engine-core/src/engine.rs` | the differential tests build three engines per case; building the table was 41 % of a case | see `TEST-REDESIGN.md` |
+| A differential case runs under its second control word only when the first run read or loaded the word (`Diff::all_words` and `NV_DIFF_ALL_WORDS` run them all; the nightly run does) | `engine-core/src/typed/diff.rs`, `x87.rs`, `units/crt.rs` | code that never reads the word gives the same result under every word | see `TEST-REDESIGN.md` |
