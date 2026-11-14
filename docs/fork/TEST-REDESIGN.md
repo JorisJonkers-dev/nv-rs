@@ -307,8 +307,8 @@ Measured effects behind it:
   word in geometry and pathing, 1,637 of 3,172 (52 %) in culling, so 36 % and 26 % of all runs. The skip is
   correct (the nightly run, which sets `NV_DIFF_ALL_WORDS`, still runs both words), but after #6 and #7 a case
   is short, the shader job did not get faster (835 s before, 992 s after), and geometry went 597 s to 686 s.
-  The saving is real in test CPU but lost in the noise of the wall-clock; it stays because it also lowers
-  the cost of the nightly differential run's non-exhaustive part and costs nothing.
+  It stays because it removes redundant runs (less runner CPU per pull request) and the nightly run keeps full
+  coverage; its wall-clock benefit is not measurable at this size.
 
 Local measurement: the probes (section 9.3) ran only in CI. The Linux workflow of the M0 pull request later made
 a Linux build of every crate possible, so the Linux columns of the next measurement can be read from the Linux
@@ -319,7 +319,7 @@ twins (the Linux jobs of that run took 0.7 to 4.9 minutes per component).
 | Idea (section 6 number) | Decision | Reason |
 | --- | --- | --- |
 | 1. Shard the heavy typed binaries by measured test time | Not built; the branch `ci/shard-typed-tests` never got a commit of its own | #6 and #7 took the shader job from 46.7 to 13.9 minutes without sharding; sharding would have added about 11 job-min of compile per shard for at most 4 to 5 more minutes of wall-clock |
-| 5. Select typed jobs by the crates the tests execute | Built (`ci/select-impacted-tests`) and held | The rule needs a replay over history to be trusted; the owner decided to hold it until the pipeline is stable |
+| 5. Select typed jobs by the crates the tests execute | Built (`ci/select-impacted-tests`) and held | The rule needs a replay over history to be trusted; held for now |
 | 6. Build once, test many (artifact of test binaries) | Rejected for now | Artifact size of opt-0 binaries linking 4 M lines is unknown and likely large; with the compile now 3 minutes of a 14-minute job the gain is small |
 | 7. Merge the three fallout components' compile | Rejected | Wall-clock about equal, 14 job-min saved against a longer single job; not worth the loss of per-component results |
 | 8. Boundary classes on pull requests, exhaustive table nightly | Not done | A coverage decision that is upstream's; offered only if the shader floor matters again |
