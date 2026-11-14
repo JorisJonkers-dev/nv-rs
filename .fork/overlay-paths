@@ -34,6 +34,7 @@ release-please-config.json
 renovate.json
 scripts/fork/
 version.txt
+crates/engine-platform/src/files/files_host.rs
 # Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.
 crates/engine-core/src/lib.rs
 crates/engine-core/src/exe.rs

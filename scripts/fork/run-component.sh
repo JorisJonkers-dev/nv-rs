@@ -30,6 +30,17 @@ group_binaries() {
   '
 }
 
+# Tests that can only pass on Windows are skipped on Linux by name (.fork/linux-skip.txt: one libtest name filter
+# per line, the reason in the comment), so that upstream's test files carry no Linux-only ignore attributes.
+skips=""
+if [ "$(uname -s)" = Linux ] && [ -f .fork/linux-skip.txt ]; then
+  while IFS= read -r name; do
+    name=${name%%#*}
+    name=${name//[[:space:]]/}
+    [ -n "$name" ] && skips="$skips --skip $name"
+  done <.fork/linux-skip.txt
+fi
+
 rc=0
 while IFS= read -r cmd; do
   [ -n "$cmd" ] || continue
@@ -50,7 +61,9 @@ while IFS= read -r cmd; do
       fi
       echo "tests: $cmd"
       start=$SECONDS
-      bash -c "$cmd" 2>&1 | tee -a "$LOG" | group_binaries
+      run="$cmd"
+      [[ "$cmd" == *" --doc"* || -z "$skips" ]] || run="$cmd --$skips"
+      bash -c "$run" 2>&1 | tee -a "$LOG" | group_binaries
       status=${PIPESTATUS[0]}
       echo "test $((SECONDS - start))" >>"$TIMINGS"
       if [ "$status" -ne 0 ]; then

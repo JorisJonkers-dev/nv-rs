@@ -2369,10 +2369,13 @@ mod tests {
     /// the others counted as run.
     #[test]
     fn code_that_never_reads_the_word_runs_under_one() {
+        // The test is about the default, so it does not follow NV_DIFF_ALL_WORDS (the nightly run sets it).
         let diff = || {
-            Diff::new(crate::entry!(0x0040_2000, adds_one_again(u32) -> u32))
+            let mut d = Diff::new(crate::entry!(0x0040_2000, adds_one_again(u32) -> u32))
                 .translation(crate::entry!(0x0040_2000, adds_one(u32) -> u32).1)
-                .inputs(&[Input::Word])
+                .inputs(&[Input::Word]);
+            d.all_words = false;
+            d
         };
         let report = diff().run();
         report.assert_same();
