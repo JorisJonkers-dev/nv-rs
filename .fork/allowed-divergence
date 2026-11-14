@@ -17,3 +17,9 @@ crates/engine-platform/src/files.rs  # a warning-only attribute and a test const
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
 crates/host/src/cell_offsets.rs  # the plugin path goes through files::real_path (a Linux path is not the game's backslash path)
+# Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
+Cargo.toml  # two workspace members
+Cargo.lock  # the two crates and the host's dependencies on them
+crates/host/Cargo.toml  # dependencies on the two crates
+crates/host/src/lib.rs  # their install calls after JIP's
+crates/nvse/src/plugins.rs  # read_chunks and write_chunks: a section's records carried unchanged

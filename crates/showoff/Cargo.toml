@@ -1,0 +1,11 @@
+[package]
+name = "showoff"
+version = "0.1.0"
+description = "ShowOff xNVSE built in: its identity (name, DLL, version, opcode base) for IsPluginInstalled and GetPluginVersion and its co-save section kept; its commands follow, written from public documentation"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+nvse = { path = "../nvse" }
