@@ -1,0 +1,65 @@
+#!/bin/sh
+# Starts nv-viewer on the player's game. The data folder comes from, in this order: the first argument (when it
+# does not start with a dash), $NV_RS_DATA, or the folder saved with --set-data. Every other argument goes to
+# nv-viewer (for example --check).
+set -eu
+
+usage() {
+    cat <<'EOF'
+usage: nv-rs-launch [DATA FOLDER] [nv-viewer options]
+       nv-rs-launch --set-data DATA FOLDER    remember the folder for later runs
+
+DATA FOLDER is the game's Data folder, or the installation folder that holds it. Without one, $NV_RS_DATA is used,
+then the folder saved with --set-data (in ${XDG_CONFIG_HOME:-~/.config}/nv-rs/data-folder).
+nv-viewer's own options (--check, --help) follow. Try: nv-rs-launch --check
+EOF
+}
+
+config="${XDG_CONFIG_HOME:-${HOME:-/}/.config}/nv-rs/data-folder"
+
+case "${1:-}" in
+-h | --help)
+    usage
+    exit 0
+    ;;
+--set-data)
+    [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    [ -d "$2" ] || { echo "nv-rs-launch: $2 is not a folder" >&2; exit 2; }
+    mkdir -p "$(dirname "$config")"
+    (cd "$2" && pwd) >"$config"
+    echo "Saved: $(cat "$config")"
+    exit 0
+    ;;
+esac
+
+here="$(dirname "$(readlink -f "$0")")"
+if [ -x "$here/nv-viewer" ]; then
+    viewer="$here/nv-viewer"
+elif command -v nv-viewer >/dev/null 2>&1; then
+    viewer="$(command -v nv-viewer)"
+else
+    echo "nv-rs-launch: nv-viewer not found next to this script or on PATH" >&2
+    exit 127
+fi
+
+data=""
+case "${1:-}" in
+-*) ;;
+"") ;;
+*)
+    data="$1"
+    shift
+    ;;
+esac
+if [ -z "$data" ]; then
+    data="${NV_RS_DATA:-}"
+fi
+if [ -z "$data" ] && [ -r "$config" ]; then
+    data="$(head -n 1 "$config")"
+fi
+if [ -z "$data" ]; then
+    echo "nv-rs-launch: no data folder. Give one, set NV_RS_DATA, or run: nv-rs-launch --set-data <folder>" >&2
+    exit 2
+fi
+
+exec "$viewer" "$data" "$@"

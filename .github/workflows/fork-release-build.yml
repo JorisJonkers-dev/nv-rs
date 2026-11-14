@@ -13,9 +13,11 @@ name: Release Build
 #   scripts/package-playtest.ps1 -Version <version> -Game <FalloutNV.exe> \
 #       -UseBuilt -Target <the downloaded folder>
 #
-# Linux: nv-rs-<version>-linux-x86_64-dev.tar.gz, a developer build. It
-# compiles and runs the test suite but cannot play: off Windows there is no
-# window, sound or graphics back end yet.
+# Linux: nv-rs-linux-x86_64-dev.tar.gz (the name nvmod's install-nv-rs fetches; the version is in the
+# folder inside and in release-manifest.json), a developer build with install.sh, a launcher and a desktop
+# entry (packaging/linux/, docs/fork/LINUX.md). It checks an installation (nv-viewer --check) but cannot
+# play: off Windows there is no window, sound or graphics back end yet. The build smoke-tests the
+# tarball it wrote; the `nix` job builds the flake's package and smoke-tests that.
 #
 # Both builds also carry capabilities.json and release-manifest.json (written by
 # scripts/fork/release-files from the command tables and the engine's section
@@ -234,8 +236,7 @@ jobs:
       attestations: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
-      STAGE_DIR: nv-rs-${{ needs.version.outputs.version }}-linux-x86_64-dev
-      TARBALL: nv-rs-${{ needs.version.outputs.version }}-linux-x86_64-dev.tar.gz
+      TARBALL: nv-rs-linux-x86_64-dev.tar.gz
     steps:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -248,41 +249,37 @@ jobs:
       - name: Build nv-viewer (x86_64-unknown-linux-gnu)
         run: cargo build --release --locked -p nv-viewer
 
-      - name: Stage the developer build
-        run: |
-          set -euo pipefail
-          mkdir -p "${STAGE_DIR}"
-          install -m 0755 target/release/nv-viewer "${STAGE_DIR}/nv-viewer"
-          cat > "${STAGE_DIR}/README-DEVELOPER-BUILD.txt" <<'EOF'
-          nv-rs developer build (Linux x86_64)
-          ====================================
-
-          This is NOT a playable build. The game binary only plays on Windows
-          today. Off Windows the workspace has cfg(unix) code paths (mmap for
-          guest memory) but no window, sound or graphics back end, so this
-          binary compiles and runs the test suite but cannot start the game.
-
-          It exists so that the Linux build and the test suite can be exercised
-          against a release-profile binary. Do not report gameplay bugs against
-          it.
-
-          Contents:
-            nv-viewer   release build of the nv-viewer package
-          EOF
-          tar --sort=name --owner=0 --group=0 --numeric-owner -czf "${TARBALL}" "${STAGE_DIR}"
-
-      - name: Add capabilities.json, release-manifest.json and the schemas beside the tarball
+      - name: Add capabilities.json, release-manifest.json and the schemas
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: nv-rs-${{ needs.version.outputs.version }}-release-files
           path: release-files
 
+      # packaging/linux/package.sh lays the tree out (bin/, share/applications, share/icons, share/nv-rs/*.json, install.sh)
+      # and writes nv-rs-linux-x86_64-dev.tar.gz: the name nvmod's install-nv-rs fetches, with SHA256SUMS beside it.
+      - name: Stage the tarball
+        run: |
+          set -euo pipefail
+          packaging/linux/package.sh target/release/nv-viewer "${VERSION}" dist release-files
+          cp dist/"${TARBALL}" release-files/*.json .
+
       - name: Write SHA256SUMS
         run: |
           set -euo pipefail
-          cp release-files/*.json .
           sha256sum "${TARBALL}" capabilities.json release-manifest.json nv-rs-*.v*.json > SHA256SUMS
           cat SHA256SUMS
+
+      # The smoke test runs the artifact as a person gets it: checksum verified, tarball unpacked into an empty folder,
+      # then nv-viewer --check on folders that are not a game. No game data is needed or read.
+      - name: Smoke test the built tarball
+        run: |
+          set -euo pipefail
+          sha256sum --check SHA256SUMS
+          mkdir "${RUNNER_TEMP}/unpacked"
+          tar -xzf "${TARBALL}" -C "${RUNNER_TEMP}/unpacked"
+          packaging/linux/smoke-test.sh "${RUNNER_TEMP}/unpacked/nv-rs-${VERSION}-linux-x86_64"
+          "${RUNNER_TEMP}/unpacked/nv-rs-${VERSION}-linux-x86_64/install.sh" --prefix "${RUNNER_TEMP}/prefix"
+          packaging/linux/smoke-test.sh "${RUNNER_TEMP}/prefix"
 
       - name: Attest build provenance (optional)
         id: attest
@@ -308,3 +305,24 @@ jobs:
             SHA256SUMS
           if-no-files-found: error
           retention-days: 30
+
+  # The same program as a Nix package (flake.nix), built and run through `nix flake check`'s smoke check.
+  nix:
+    name: Nix package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@1ca7d21a94afc7c957383a2d217460d980de4934 # v31.10.1
+
+      - name: Build the package
+        run: nix build --print-build-logs --no-link --print-out-paths .#nv-viewer
+
+      - name: Smoke test the package (nv-viewer --check on folders that are not a game)
+        run: nix build --print-build-logs --no-link .#checks.x86_64-linux.smoke
