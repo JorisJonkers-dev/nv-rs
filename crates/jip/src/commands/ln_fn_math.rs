@@ -40,23 +40,25 @@ const FLT_PI_X_2: f32 = 6.283_185_482;
 /// `FLT_EPSILON`, `PS_Epsilon`.
 const EPSILON: f32 = f32::EPSILON;
 /// `kFlt2dPI` (`0x3F22F983`).
-const FLT_2_D_PI: f32 = f32::from_bits(0x3f22_f983);
+fn flt_2_d_pi() -> f32 {
+    f32::from_bits(0x3f22_f983)
+}
 /// `kCosConsts`, the polynomial of `Cos`.
-const COS: [f32; 5] = [
-    f32::from_bits(0x37c2_3ab1),
-    f32::from_bits(0x3ab5_9551),
-    f32::from_bits(0x3d2a_a76f),
-    f32::from_bits(0x3eff_ffe0),
-    f32::from_bits(0x3f7f_ffff),
+const COS_BITS: [u32; 5] = [
+    0x37c2_3ab1,
+    0x3ab5_9551,
+    0x3d2a_a76f,
+    0x3eff_ffe0,
+    0x3f7f_ffff,
 ];
 /// `kATanConsts`, the polynomial of `ATan2`.
-const ATAN: [f32; 6] = [
-    f32::from_bits(0xbc5c_dd30),
-    f32::from_bits(0x3d6b_6d55),
-    f32::from_bits(0x3df8_4c31),
-    f32::from_bits(0x3e48_54c9),
-    f32::from_bits(0x3eaa_7e45),
-    f32::from_bits(0x3f7f_ffb7),
+const ATAN_BITS: [u32; 6] = [
+    0xbc5c_dd30,
+    0x3d6b_6d55,
+    0x3df8_4c31,
+    0x3e48_54c9,
+    0x3eaa_7e45,
+    0x3f7f_ffb7,
 ];
 /// The first eight words of `kASinConsts`: three polynomial terms and pi/2, then `2^-23`
 /// (`0x34000000`, unused), 1.0, pi and the exponent step `0x03800000` (a multiplication by 128
@@ -123,7 +125,7 @@ fn minss(dest: f32, src: f32) -> f32 {
 fn cos_v3(angles: [f32; 2]) -> [f32; 2] {
     let a = angles.map(f32::abs);
     // `cvttps2dq`: the integer indefinite for NaN and past the range.
-    let mut q = a.map(|v| super::cvttss2si(FLT_2_D_PI * v));
+    let mut q = a.map(|v| super::cvttss2si(flt_2_d_pi() * v));
     let mut a = a;
     if q.iter().any(|&v| v > 3) {
         let turns = q.map(|v| ((v as u32) >> 2) as i32 as f32);
@@ -145,13 +147,13 @@ fn cos_v3(angles: [f32; 2]) -> [f32; 2] {
         };
         let x = a[i] - sub;
         let x2 = x * x;
-        let mut t = COS[0] * x2;
-        t -= COS[1];
+        let mut t = f32::from_bits(COS_BITS[0]) * x2;
+        t -= f32::from_bits(COS_BITS[1]);
         t *= x2;
-        t += COS[2];
+        t += f32::from_bits(COS_BITS[2]);
         t *= x2;
-        t -= COS[3];
-        let r = x2 * t + COS[4];
+        t -= f32::from_bits(COS_BITS[3]);
+        let r = x2 * t + f32::from_bits(COS_BITS[4]);
         out[i] = if flip { -r } else { r };
     }
     out
@@ -161,7 +163,7 @@ fn cos_v3(angles: [f32; 2]) -> [f32; 2] {
 /// `Cos` (radians): 1 for an angle whose magnitude reduces to 0 or less, or is NaN.
 pub fn cos(angle: f32) -> f32 {
     let mut a = angle.abs();
-    let mut q = super::cvttss2si(FLT_2_D_PI * a);
+    let mut q = super::cvttss2si(flt_2_d_pi() * a);
     let mut flip = false;
     let mut sub = FLT_PI_X_2;
     if q > 3 {
@@ -170,7 +172,9 @@ pub fn cos(angle: f32) -> f32 {
         a -= turns * FLT_PI_X_2;
     }
     // `comiss a, 0; jbe`: 0 or less, and unordered.
-    if !(a > 0.0) {
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    let not_positive = !(a > 0.0);
+    if not_positive {
         return 1.0;
     }
     if q != 0 {
@@ -182,13 +186,13 @@ pub fn cos(angle: f32) -> f32 {
         a -= sub;
     }
     let x2 = a * a;
-    let mut t = x2 * COS[0];
-    t -= COS[1];
+    let mut t = x2 * f32::from_bits(COS_BITS[0]);
+    t -= f32::from_bits(COS_BITS[1]);
     t *= x2;
-    t += COS[2];
+    t += f32::from_bits(COS_BITS[2]);
     t *= x2;
-    t -= COS[3];
-    let r = x2 * t + COS[4];
+    t -= f32::from_bits(COS_BITS[3]);
+    let r = x2 * t + f32::from_bits(COS_BITS[4]);
     if flip {
         -r
     } else {
@@ -206,7 +210,9 @@ pub fn sin(angle: f32) -> f32 {
 /// `FLT_EPSILON` (or NaN).
 pub fn tan(angle: f32) -> f32 {
     let [s, c] = cos_v3([FLT_PI_D_2 - angle, angle]);
-    if !(c.abs() >= EPSILON) {
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    let small = !(c.abs() >= EPSILON);
+    if small {
         return 0.0;
     }
     s / c
@@ -297,16 +303,16 @@ pub fn atan2(y: f32, x: f32) -> f32 {
     let mn = minss(ax, ay);
     let r = mn / mx;
     let r2 = r * r;
-    let mut t = r2 * ATAN[0];
-    t += ATAN[1];
+    let mut t = r2 * f32::from_bits(ATAN_BITS[0]);
+    t += f32::from_bits(ATAN_BITS[1]);
     t *= r2;
-    t -= ATAN[2];
+    t -= f32::from_bits(ATAN_BITS[2]);
     t *= r2;
-    t += ATAN[3];
+    t += f32::from_bits(ATAN_BITS[3]);
     t *= r2;
-    t -= ATAN[4];
+    t -= f32::from_bits(ATAN_BITS[4]);
     t *= r2;
-    t += ATAN[5];
+    t += f32::from_bits(ATAN_BITS[5]);
     let mut a = r * t;
     if ay > ax {
         a = f32::from_bits(bits(a) ^ sign_bit) + FLT_PI_D_2;

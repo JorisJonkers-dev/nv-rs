@@ -74,7 +74,7 @@ fn cosine_of_zero_is_one_but_the_vector_version_is_not() {
     assert_eq!(degrees(0x22fe, 0.0), 1.0);
     assert_eq!(cos(0.0), 1.0);
     // `Cos_V3` has no zero test: its polynomial's last word.
-    assert_eq!(cos_v3([0.0, 0.0])[1], COS[4]);
+    assert_eq!(cos_v3([0.0, 0.0])[1], f32::from_bits(COS_BITS[4]));
     assert_eq!(cos(f32::NAN), 1.0, "unordered compares as 0 or less");
 }
 
@@ -94,7 +94,7 @@ fn tangent() {
 
 #[test]
 fn arcsine_and_arccosine_in_degrees() {
-    for x in [-0.99, -0.75, -0.5, -0.1, 0.1, 0.25, 0.5, 0.7071, 0.9, 0.999] {
+    for x in [-0.99, -0.75, -0.5, -0.1, 0.1, 0.25, 0.5, 0.7, 0.9, 0.999] {
         near(
             degrees(0x230f, x),
             f64::from(x as f32).asin().to_degrees(),

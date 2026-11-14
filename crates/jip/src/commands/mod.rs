@@ -33,7 +33,9 @@ pub mod jip_fn_perk;
 pub mod jip_fn_projectile;
 pub mod jip_fn_quest;
 pub mod jip_fn_ref_map;
+pub mod jip_fn_string;
 pub mod jip_fn_texture_set;
+pub mod jip_fn_utility;
 pub mod jip_fn_water;
 pub mod jip_fn_weapon;
 pub mod jip_fn_weather;
@@ -47,6 +49,7 @@ pub mod ln_fn_math;
 pub mod ln_fn_perk;
 pub mod ln_fn_race;
 pub mod ln_fn_recipe;
+pub mod ln_fn_utility;
 pub mod ln_fn_weapon;
 
 use engine_core::prelude::*;
@@ -99,7 +102,9 @@ pub const ALL: &[Handlers] = &[
     jip_fn_projectile::COMMANDS,
     jip_fn_quest::COMMANDS,
     jip_fn_ref_map::COMMANDS,
+    jip_fn_string::COMMANDS,
     jip_fn_texture_set::COMMANDS,
+    jip_fn_utility::COMMANDS,
     jip_fn_water::COMMANDS,
     jip_fn_weapon::COMMANDS,
     jip_fn_weather::COMMANDS,
@@ -113,6 +118,7 @@ pub const ALL: &[Handlers] = &[
     ln_fn_perk::COMMANDS,
     ln_fn_race::COMMANDS,
     ln_fn_recipe::COMMANDS,
+    ln_fn_utility::COMMANDS,
     ln_fn_weapon::COMMANDS,
 ];
 
@@ -628,7 +634,9 @@ mod tests {
             "jip_fn_projectile",
             "jip_fn_quest",
             "jip_fn_ref_map",
+            "jip_fn_string",
             "jip_fn_texture_set",
+            "jip_fn_utility",
             "jip_fn_water",
             "jip_fn_weapon",
             "jip_fn_weather",
@@ -638,9 +646,11 @@ mod tests {
             "ln_fn_challenge",
             "ln_fn_leveled_list",
             "ln_fn_map_marker",
+            "ln_fn_math",
             "ln_fn_perk",
             "ln_fn_race",
             "ln_fn_recipe",
+            "ln_fn_utility",
             "ln_fn_weapon",
         ];
         let mut seen = std::collections::HashSet::new();
@@ -652,7 +662,7 @@ mod tests {
             }
         }
         assert_eq!(ALL.len(), files.len());
-        for (list, file) in ALL_CONDITIONS.iter().zip(["jip_fn_effect"]) {
+        for (list, file) in ALL_CONDITIONS.iter().zip(["jip_fn_effect", "ln_fn_math"]) {
             for &(opcode, _, _) in list.iter() {
                 let slot = crate::table::slot(opcode).expect("a JIP slot");
                 assert!(slot.file.ends_with(file), "{opcode:04x} {}", slot.name);
@@ -660,7 +670,7 @@ mod tests {
                 assert!(seen.insert(opcode), "{opcode:04x} listed twice");
             }
         }
-        assert_eq!(ALL_CONDITIONS.len(), 1);
+        assert_eq!(ALL_CONDITIONS.len(), 2);
         for (list, file) in ALL_CONDITIONS_ONLY.iter().zip(["jip_fn_aux_variable"]) {
             for &(opcode, _) in list.iter() {
                 let slot = crate::table::slot(opcode).expect("a JIP slot");
