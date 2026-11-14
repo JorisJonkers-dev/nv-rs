@@ -21,6 +21,9 @@ name: Release Build
 # scripts/fork/release-files from the command tables and the engine's section
 # hashes, validated against .fork/schemas/, docs/fork/RELEASE-FILES.md), listed in
 # their SHA256SUMS and covered by their build attestation.
+#
+# The `package` job (fork-package-windows.yml, docs/fork/WINDOWS.md) turns the Windows programs into a portable ZIP and an
+# unsigned installer, smoke tests both on a Windows runner and uploads them with the release files.
 
 on:
   workflow_dispatch:
@@ -223,6 +226,19 @@ jobs:
           path: ${{ env.PROGRAMS_DIR }}
           if-no-files-found: error
           retention-days: 30
+
+  package:
+    name: Windows package
+    needs: [version, release-files, windows]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/fork-package-windows.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      programs-artifact: nv-rs-programs-${{ needs.version.outputs.version }}-windows-x64
+      release-files-artifact: nv-rs-${{ needs.version.outputs.version }}-release-files
 
   linux:
     name: Linux x86_64 developer build

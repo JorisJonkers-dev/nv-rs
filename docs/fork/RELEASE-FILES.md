@@ -48,5 +48,7 @@ nv-rs today.
 - The release build (`fork-release-build.yml`, job `release-files`) generates both files, validates them against the
   schemas, refuses a tree whose checked-in capabilities file is out of date, and adds them and the schemas to the
   Linux and Windows artefacts. Those artefacts' `SHA256SUMS` list them, and the build attestation covers them.
+- The Windows package (`fork-package-windows.yml`, docs/fork/WINDOWS.md) publishes these same files next to its ZIP and installer
+  and inside the ZIP; the manifest itself does not change for it.
 - Adding an optional field is not a version change; removing, renaming or retyping one is: add `v2` schemas and keep
   writing `v1` for a release.
