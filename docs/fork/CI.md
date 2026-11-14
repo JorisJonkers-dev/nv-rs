@@ -134,4 +134,13 @@ The pipeline's own check uses the live metadata, so a stale fixture cannot hide 
 Finish "Phase B" (drop the fallout crates' dev-dependencies on each other: smaller closures); one `#[cfg(windows)]` at
 `engine-platform/src/lib.rs:214` (the engine then builds on Linux); split `crates/engine/tests/typed_shader.rs` along
 `engine-typed/src/shader/*` (removes the 41-minute floor); move each `typed_*` test next to its family.
+
+## Upstream offers (the fork's changes to upstream's files)
+
+Each is small, separable and worth offering as a pull request of its own; none is made by contacting upstream from
+here. The files are listed in `.fork/allowed-divergence`. A sync that conflicts on one of them keeps upstream's version
+and the change is redone on top.
+
+| Change | Files | What it does | Measured effect |
+| --- | --- | --- | --- |
 | A test build collects and hashes the 47,733-entry function table once per thread; `Engine::new_untyped` copies it | `engine-core/src/engine.rs` | the differential tests build three engines per case; building the table was 41 % of a case | see `TEST-REDESIGN.md` |
