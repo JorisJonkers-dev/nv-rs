@@ -26,10 +26,22 @@ pub static COMMANDS: Handlers = &[
 ];
 
 /// `FltPId180`, `FltPId2`, `FltPI`, `FltPIx2` (`internal/utility.h`), as `float`.
-const PI_D180: f32 = 0.017_453_292_38;
-const PI_D2: f32 = 1.570_796_371;
-const PI: f32 = 3.141_592_741;
-const PI_X2: f32 = 6.283_185_482;
+#[inline]
+fn pi_d180() -> f32 {
+    f32::from_bits(0x3c8e_fa35)
+}
+#[inline]
+fn pi_d2() -> f32 {
+    f32::from_bits(0x3fc9_0fdb)
+}
+#[inline]
+fn pi() -> f32 {
+    f32::from_bits(0x4049_0fdb)
+}
+#[inline]
+fn pi_x2() -> f32 {
+    f32::from_bits(0x40c9_0fdb)
+}
 /// `Dbl180dPI`, the one constant JIP multiplies in `double`.
 const D180_DPI: f64 = 57.295_779_513_082_32;
 const SIGN: u32 = 0x8000_0000;
@@ -52,15 +64,15 @@ fn flip(v: f32) -> f32 {
 /// `Cos(angle)`: the angle's quadrant by `angle * 2/pi` truncated, its remainder's polynomial.
 /// An angle of 0 (or one that reduces to at or below 0, or NaN) answers exactly 1.
 fn cos(angle: f32) -> f32 {
-    const TWO_D_PI: f32 = f32::from_bits(0x3f22_f983);
+    let two_d_pi = f32::from_bits(0x3f22_f983);
     let mut x = angle.abs();
-    let mut quadrant = cvtt(TWO_D_PI * x);
+    let mut quadrant = cvtt(two_d_pi * x);
     if quadrant > 3 {
         let periods = (quadrant as u32) >> 2;
         quadrant &= 3;
-        x -= (periods as i32 as f32) * PI_X2;
+        x -= (periods as i32 as f32) * pi_x2();
     }
-    if !(x > 0.0) {
+    if x.is_nan() || x <= 0.0 {
         return 1.0;
     }
     let mut sign = 0;
@@ -68,9 +80,9 @@ fn cos(angle: f32) -> f32 {
     // `test al,al; jz doCalc; jp fourthQ`: a quadrant of 1 or 2 turns the half-period and the
     // sign; 3 takes the whole period.
     if low != 0 {
-        let mut sub = PI_X2;
+        let mut sub = pi_x2();
         if low.count_ones() % 2 != 0 {
-            sub = PI;
+            sub = pi();
             sign = SIGN;
         }
         x -= sub;
@@ -80,21 +92,22 @@ fn cos(angle: f32) -> f32 {
 
 /// The polynomial of both `Cos` routines, on the reduced `x`.
 fn cos_poly(x: f32, sign: u32) -> f32 {
-    const C: [f32; 5] = [
-        f32::from_bits(0x37c2_3ab1),
-        f32::from_bits(0x3ab5_9551),
-        f32::from_bits(0x3d2a_a76f),
-        f32::from_bits(0x3eff_ffe0),
-        f32::from_bits(0x3f7f_ffff),
+    const BITS: [u32; 5] = [
+        0x37c2_3ab1,
+        0x3ab5_9551,
+        0x3d2a_a76f,
+        0x3eff_ffe0,
+        0x3f7f_ffff,
     ];
+    let c = BITS.map(f32::from_bits);
     let x2 = x * x;
-    let mut p = x2 * C[0];
-    p -= C[1];
+    let mut p = x2 * c[0];
+    p -= c[1];
     p *= x2;
-    p += C[2];
+    p += c[2];
     p *= x2;
-    p -= C[3];
-    let r = x2 * p + C[4];
+    p -= c[3];
+    let r = x2 * p + c[4];
     // The product and the sum are separate instructions (`mulss`, `addss`).
     f32::from_bits(r.to_bits() ^ sign)
 }
@@ -104,9 +117,9 @@ fn cos_poly(x: f32, sign: u32) -> f32 {
 /// `Cos_V3` on two lanes: it has no shortcut for a remainder at or below 0, and one reduction
 /// step for all lanes when any lane's quadrant is above 3.
 fn cos_lanes(angles: [f32; 2]) -> [f32; 2] {
-    const TWO_D_PI: f32 = f32::from_bits(0x3f22_f983);
+    let two_d_pi = f32::from_bits(0x3f22_f983);
     let x = angles.map(f32::abs);
-    let q = x.map(|v| cvtt(TWO_D_PI * v));
+    let q = x.map(|v| cvtt(two_d_pi * v));
     let any = q.iter().any(|&q| q > 3);
     let mut out = [0.0; 2];
     for i in 0..2 {
@@ -115,15 +128,15 @@ fn cos_lanes(angles: [f32; 2]) -> [f32; 2] {
         if any {
             let periods = (qi as u32) >> 2;
             qi &= 3;
-            xi -= (periods as i32 as f32) * PI_X2;
+            xi -= (periods as i32 as f32) * pi_x2();
         }
-        let whole = if qi > 2 { PI_X2 } else { 0.0 };
+        let whole = if qi > 2 { pi_x2() } else { 0.0 };
         let (half, sign) = if qi > 0 && qi <= 2 {
-            (PI, SIGN)
+            (pi(), SIGN)
         } else {
             (0.0, 0)
         };
-        // `orps` of the two: PI for a quadrant of 1 or 2, the whole period for 3.
+        // `orps` of the two: pi() for a quadrant of 1 or 2, the whole period for 3.
         let sub = f32::from_bits(half.to_bits() | whole.to_bits());
         out[i] = cos_poly(xi - sub, sign);
     }
@@ -133,13 +146,13 @@ fn cos_lanes(angles: [f32; 2]) -> [f32; 2] {
 // Translated from JIP LN NVSE 57.30 (5a30ac4), internal/utility.h: Sin.
 /// `Sin(angle) = Cos(pi/2 - angle)`.
 fn sin(angle: f32) -> f32 {
-    cos(PI_D2 - angle)
+    cos(pi_d2() - angle)
 }
 
 // Translated from JIP LN NVSE 57.30 (5a30ac4), internal/utility.cpp: GetSinCos, Tan.
 /// `Tan(angle)`: the sine over the cosine, 0 when the cosine is below `FLT_EPSILON`.
 fn tan(angle: f32) -> f32 {
-    let [sin, cos] = cos_lanes([PI_D2 - angle, angle]);
+    let [sin, cos] = cos_lanes([pi_d2() - angle, angle]);
     if cos.abs() < f32::EPSILON || cos.is_nan() {
         return 0.0;
     }
@@ -233,19 +246,20 @@ fn acos(x: f32) -> f32 {
 /// answers pi/2 with `y`'s sign; otherwise the polynomial of the smaller over the larger
 /// magnitude, turned into the right octant.
 fn atan2(y: f32, x: f32) -> f32 {
-    const C: [f32; 6] = [
-        f32::from_bits(0xbc5c_dd30),
-        f32::from_bits(0x3d6b_6d55),
-        f32::from_bits(0x3df8_4c31),
-        f32::from_bits(0x3e48_54c9),
-        f32::from_bits(0x3eaa_7e45),
-        f32::from_bits(0x3f7f_ffb7),
+    const BITS: [u32; 6] = [
+        0xbc5c_dd30,
+        0x3d6b_6d55,
+        0x3df8_4c31,
+        0x3e48_54c9,
+        0x3eaa_7e45,
+        0x3f7f_ffb7,
     ];
+    let c = BITS.map(f32::from_bits);
     if y == 0.0 || y.is_nan() {
-        return if x >= 0.0 { y } else { PI };
+        return if x >= 0.0 { y } else { pi() };
     }
     if x == 0.0 || x.is_nan() {
-        return f32::from_bits((y.to_bits() & SIGN) | PI_D2.to_bits());
+        return f32::from_bits((y.to_bits() & SIGN) | pi_d2().to_bits());
     }
     let (ay, ax) = (y.abs(), x.abs());
     // `maxss`/`minss` answer their second operand when the two are equal or unordered.
@@ -253,22 +267,22 @@ fn atan2(y: f32, x: f32) -> f32 {
     let min = if ax < ay { ax } else { ay };
     let r = min / max;
     let s = r * r;
-    let mut p = s * C[0];
-    p += C[1];
+    let mut p = s * c[0];
+    p += c[1];
     p *= s;
-    p -= C[2];
+    p -= c[2];
     p *= s;
-    p += C[3];
+    p += c[3];
     p *= s;
-    p -= C[4];
+    p -= c[4];
     p *= s;
-    p += C[5];
+    p += c[5];
     let mut t = r * p;
     if ay > ax {
-        t = flip(t) + PI_D2;
+        t = flip(t) + pi_d2();
     }
     if x < 0.0 {
-        t = flip(t) + PI;
+        t = flip(t) + pi();
     }
     f32::from_bits((y.to_bits() & SIGN) ^ t.to_bits())
 }
@@ -298,17 +312,17 @@ fn fsqrt(e: &mut Engine, w: &[u32]) -> Ret {
 
 // Translated from JIP LN NVSE 57.30 (5a30ac4), functions_ln/ln_fn_math.h: Cmd_fSin_Execute.
 fn f_sin(e: &mut Engine, w: &[u32]) -> Ret {
-    one_float(e, w, |v| f64::from(sin(v * PI_D180)))
+    one_float(e, w, |v| f64::from(sin(v * pi_d180())))
 }
 
 // Translated from JIP LN NVSE 57.30 (5a30ac4), functions_ln/ln_fn_math.h: Cmd_fCos_Execute.
 fn f_cos(e: &mut Engine, w: &[u32]) -> Ret {
-    one_float(e, w, |v| f64::from(cos(v * PI_D180)))
+    one_float(e, w, |v| f64::from(cos(v * pi_d180())))
 }
 
 // Translated from JIP LN NVSE 57.30 (5a30ac4), functions_ln/ln_fn_math.h: Cmd_fTan_Execute.
 fn f_tan(e: &mut Engine, w: &[u32]) -> Ret {
-    one_float(e, w, |v| f64::from(tan(v * PI_D180)))
+    one_float(e, w, |v| f64::from(tan(v * pi_d180())))
 }
 
 // Translated from JIP LN NVSE 57.30 (5a30ac4), functions_ln/ln_fn_math.h: Cmd_fAsin_Execute.

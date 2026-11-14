@@ -45,17 +45,17 @@ fn the_special_cases() {
     assert_eq!(cos(f32::NAN), 1.0, "a NaN fails `x > 0`: the shortcut");
     assert_eq!(asin(0.0).to_bits(), 0.0f32.to_bits());
     assert_eq!(asin(-0.0).to_bits(), (-0.0f32).to_bits());
-    assert_eq!(asin(1.0), PI_D2);
-    assert_eq!(asin(-7.0), -PI_D2);
-    assert_eq!(acos(0.0), PI_D2);
+    assert_eq!(asin(1.0), pi_d2());
+    assert_eq!(asin(-7.0), -pi_d2());
+    assert_eq!(acos(0.0), pi_d2());
     assert_eq!(acos(1.0), 0.0);
     assert_eq!(acos(2.0), 0.0);
-    assert_eq!(acos(-1.0), PI);
+    assert_eq!(acos(-1.0), pi());
     assert_eq!(atan2(0.0, 5.0), 0.0);
-    assert_eq!(atan2(0.0, -5.0), PI);
-    assert_eq!(atan2(2.0, 0.0), PI_D2);
-    assert_eq!(atan2(-2.0, 0.0), -PI_D2);
-    assert_eq!(tan(PI_D2), 0.0, "a cosine under FLT_EPSILON: 0");
+    assert_eq!(atan2(0.0, -5.0), pi());
+    assert_eq!(atan2(2.0, 0.0), pi_d2());
+    assert_eq!(atan2(-2.0, 0.0), -pi_d2());
+    assert_eq!(tan(pi_d2()), 0.0, "a cosine under FLT_EPSILON: 0");
 }
 
 #[test]
@@ -77,6 +77,6 @@ fn the_commands() {
     assert!((value(&mut e, 0x2894, &[z(1.0), z(-1.0)]) - 135.0).abs() < 0.1);
     assert_eq!(
         value(&mut e, 0x2894, &[z(0.0), z(-1.0)]),
-        f64::from(PI) * D180_DPI
+        f64::from(pi()) * D180_DPI
     );
 }

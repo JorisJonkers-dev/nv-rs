@@ -66,7 +66,7 @@ pub fn has_handler(opcode: u32) -> bool {
 pub fn missing() -> Vec<&'static str> {
     entries()
         .into_iter()
-        .filter(|entry| opcode_of(entry.name).is_none_or(|o| !has_handler(o)))
+        .filter(|entry| opcode_of(entry.name).map_or(true, |o| !has_handler(o)))
         .map(|entry| entry.name)
         .collect()
 }
