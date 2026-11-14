@@ -100,6 +100,13 @@ the run, and for a conflict the files from `git merge-tree`, each classified by 
 `.fork/allowed-divergence` (merge by hand, the fork's change stays), (b) listed in `.fork/overlay-paths` (the fork owns it:
 nothing to do), (c) anything else (stop and read). The issue uses the job's own token (`issues: write`).
 
+**When the repository has Issues disabled** (the nv-rs fork does; enabling them is the owner's choice and nothing here
+needs it), `sync_report.py` asks `gh api repos/{owner}/{repo} --jq .has_issues` first and degrades instead of crashing:
+`open` writes the same report to the job's step summary and prints a `::warning::`, `close` prints the warning and
+exits 0, so a successful sync stays green. A blocked sync still fails the run: the step that stopped (the replay, the
+divergence check) is what turns it red and sends the notification, and the report is read in the run's summary. The
+same fallback applies when the issue API errors for another reason. With Issues enabled nothing changes.
+
 ## Checking that the fork has not diverged
 
 `scripts/fork/verify-sync.sh` compares the fork with upstream at the commit last replayed. Every file upstream has must be
