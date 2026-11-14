@@ -123,7 +123,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan1 vulkan-tools
-          icd="$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -n1)"
+          icds=(/usr/share/vulkan/icd.d/lvp_icd*.json)
+          icd="${icds[0]}"
           {
             echo "VK_ICD_FILENAMES=$icd"
             echo "NV_WGPU_BACKEND=software"
