@@ -1,0 +1,151 @@
+# Fork-only probe for the native Linux port (docs/fork/LINUX.md). Runs only on pushes to probe/** branches,
+# so it never starts the Windows jobs of the Pipeline. Read-only: no secrets, no write token.
+name: Linux probe
+
+on:
+  push:
+    branches: ['probe/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: never
+
+jobs:
+  check:
+    name: cargo check (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-linux-probe-check
+          save-if: 'true'
+      - name: Check
+        run: |
+          set +e
+          cargo check --locked --workspace --all-targets --keep-going --message-format short >check.log 2>&1
+          status=$?
+          {
+            echo "## cargo check --workspace --all-targets (exit $status)"
+            echo '```'
+            grep -E '(error|warning: unused)' check.log | head -200
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: check-log
+          path: check.log
+
+  test:
+    name: cargo test (Linux, every crate but engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-linux-probe-test
+          save-if: 'true'
+      - name: Test each crate
+        run: |
+          mkdir -p logs
+          crates="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(" ".join(sorted(p["name"] for p in json.load(sys.stdin)["packages"])))')"
+          for c in $crates; do
+            [ "$c" = engine ] && continue
+            timeout 40m cargo test --locked -p "$c" --no-fail-fast >"logs/$c.log" 2>&1 || true
+            df -h / | tail -1
+          done
+          python3 scripts/fork/linux_test_summary.py logs | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: test-logs
+          path: logs
+
+  test-engine:
+    name: cargo test (Linux, engine)
+    # The engine's test binaries take hours: a push whose last commit message says skip-engine leaves them out.
+    if: ${{ !contains(github.event.head_commit.message, 'skip-engine') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-linux-probe-test-engine
+          save-if: 'true'
+      - name: Test engine
+        run: |
+          mkdir -p logs
+          timeout 135m cargo test --locked -p engine --no-fail-fast >logs/engine.log 2>&1 || true
+          python3 scripts/fork/linux_test_summary.py logs | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: test-engine-logs
+          path: logs
+
+  clippy:
+    name: cargo clippy (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: fork-linux-probe-clippy
+          save-if: 'true'
+      - name: Clippy, as the Pipeline's Linux job runs it (warnings are errors)
+        run: |
+          set +e
+          cargo clippy --locked --workspace --all-targets --keep-going --message-format short -- -D warnings >clippy.log 2>&1
+          status=$?
+          {
+            echo "## cargo clippy --workspace --all-targets -D warnings (exit $status)"
+            echo '```'
+            grep -E '^[^ ].*(error|warning)' clippy.log | head -200
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: clippy-log
+          path: clippy.log
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo fmt --all -- --check
