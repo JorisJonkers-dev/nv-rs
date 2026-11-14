@@ -5,6 +5,10 @@ upstream commit is applied to the fork's own branch, `fork`, as one commit with 
 Conventional Commit message so that release-please can read it. Nothing is merged, nothing is
 force-pushed, and `fork` only ever grows.
 
+Upstream is an imported source, not a partner: its commits are replayed with their author, date and
+`Upstream-Commit` trailer (licence and attribution intact), and nothing is offered back. The fork may diverge
+wherever it is better; the rules below say who wins when both sides touch the same thing.
+
 ## The two branches
 
 | Branch | Role | Who writes it |
@@ -41,7 +45,7 @@ The script:
    first run, the point where the fork was cut);
 3. for each upstream commit since then, oldest first: cherry-picks it, asks for a title
    (`scripts/fork/rewrite_title.py`), commits it with upstream's author and date;
-4. stops if a commit does not apply (see below);
+4. leaves out the changes to paths the fork owns (see "Who wins") and stops if a commit does not apply (see below);
 5. with `--push`, pushes the branch `sync/upstream`.
 
 By hand, from a clean clone: `scripts/fork/replay-upstream.sh`, read the log it prints, then `--push`.
@@ -56,6 +60,28 @@ rule is used (`fix`, `add`, `refactor`, ... on the first word, `chore` otherwise
 when the commit is replayed, and never regenerated, so it cannot drift between runs. The reusable `PR
 title` check then validates every commit in the pull request.
 
+## Who wins
+
+| Path | What the replay does |
+| --- | --- |
+| a path in `.fork/overlay-paths` (also one upstream happens to have) | the **fork wins**: the commit is replayed without its change to that path, and the path is listed in the sync summary and in the pull request |
+| `.github/workflows/` (any file, new or changed) | the **fork wins**, see "Workflow files" |
+| a file in `.fork/allowed-divergence` | upstream's change is replayed; if it touches the lines the fork changed, the replay **stops** (a person merges the two) |
+| any other file | replayed; a conflict stops the replay |
+
+The divergence list is meant to grow. A file the fork wants to change for good goes into `.fork/allowed-divergence` with a
+reason; nothing needs to be accepted anywhere else.
+
+## Workflow files
+
+The fork does not use upstream's CI (too slow; its own `Pipeline` is split by component and keeps both Windows and Linux
+jobs, with room for macOS). `.github/workflows/` is therefore fork-owned: an upstream commit that changes it is
+replayed **without** those changes (the rest of the commit applies, and the commit message says what was left out), and the
+left-out paths appear in the run summary and the pull request. A change to upstream's `ci.yml` also gets the
+`ci-parity-review` label, so that a person can mirror something worth having into `fork-build.yml`. This needs no
+`workflows` permission for the sync App, and `verify-sync.sh` leaves `.github/workflows/` out of its comparison.
+`WORKFLOW_POLICY=apply` (or `ALLOW_WORKFLOW_CHANGES=1`) on a manual run replays them too.
+
 ## When the replay stops
 
 | Message | Meaning | What to do |
@@ -65,20 +91,33 @@ title` check then validates every commit in the pull request.
 | `the commit ... was refused` | A `commit-msg` hook refused a rewritten message | Read the reason; nothing was pushed |
 | `already in sync` | Nothing new upstream | Nothing to do |
 
+### The tracking issue
+
+A run of `Upstream Sync` that stops or fails opens (or updates) **one** issue labelled `sync-blocked`, and the next
+successful run closes it; a green run, or "already in sync", opens nothing. The issue names the upstream commit where the
+replay stopped and its subject, the reason (one of the rows above, or `diverged` when `verify-sync.sh` failed, or `other`),
+the run, and for a conflict the files from `git merge-tree`, each classified by `scripts/fork/sync_report.py`: (a) listed in
+`.fork/allowed-divergence` (merge by hand, the fork's change stays), (b) listed in `.fork/overlay-paths` (the fork owns it:
+nothing to do), (c) anything else (stop and read). The issue uses the job's own token (`issues: write`).
+
 ## Checking that the fork has not diverged
 
-`scripts/fork/verify-sync.sh` (also run by the sync workflow) compares the fork with upstream at the
-commit last replayed. Every file upstream has must be identical in the fork, apart from the fork's own
-files and the README notice. It prints how many commits the fork is behind and fails with the list of
-files that differ. A fork-only change to an upstream file is therefore always a deliberate act: add the
-file to `.fork/allowed-divergence`, or do not make the change.
+`scripts/fork/verify-sync.sh` compares the fork with upstream at the commit last replayed. Every file upstream has must be
+identical in the fork, apart from the fork's own files, `.github/workflows/` and the files in
+`.fork/allowed-divergence`. It prints how many commits the fork is behind and fails with the list of files that differ.
+It runs in the **Pipeline** (job `Verify sync`, a need of `Pipeline Complete`, on every pull request and push, also when
+the builds are skipped), so a change to an upstream-owned file is caught in the pull request that makes it, and at the end
+of the sync workflow. A fork-only change to an upstream file is therefore always deliberate: add the file to
+`.fork/allowed-divergence` with a reason, or do not make the change.
 
 ## After a sync: the capabilities file
 
 `.fork/capabilities.json` lists what the built-in script extenders implement, read from the command tables
-([`RELEASE-FILES.md`](RELEASE-FILES.md)). A sync that adds or changes commands makes the `release-files` check fail
-until `task capabilities` has rewritten the file; commit it on the sync branch (a fork-only file, so it cannot
-conflict with the replay).
+([`RELEASE-FILES.md`](RELEASE-FILES.md)). After the replay, the sync workflow regenerates it (`release-files capabilities`,
+built from a plain export of the sync branch with the fork's own copy of the tool, so upstream's files never replace it),
+validates it against `.fork/schemas/nv-rs-capabilities.v1.json` (a failure fails the run), and when the file changed commits
+`chore(fork): regenerate the capabilities file for the replayed upstream commits` to `sync/upstream`; the pull request body
+lists the commands added and removed. A sync that changes no table adds no commit. By hand it is still `task capabilities`.
 
 ## What does not follow upstream
 
@@ -86,7 +125,7 @@ conflict with the replay).
   Upstream's `Cargo.toml` and `Cargo.lock` arrive through the replay.
 - **Releases.** Upstream tags `preview-YYYY-MM-DD.N`. The fork's release-please makes `vX.Y.Z` tags from the
   replayed messages. They are separate version lines.
-- **Upstream's CI.** `.github/workflows/ci.yml` arrives with the replay and is not required here. The fork's
+- **Upstream's CI.** `.github/workflows/ci.yml` is left out of the replay ("Workflow files") and is not used here. The fork's
   required check is `Pipeline Complete` from `fork-ci.yml`; its build is split by engine component ([`CI.md`](CI.md)), and
   a new upstream crate must be added to `.fork/components.toml` (or it fails the `Plan components` job).
 

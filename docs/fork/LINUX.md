@@ -10,7 +10,7 @@ pushes to `probe/**` branches: `cargo check --locked --workspace --all-targets`,
 table of results in the job summary. The Pipeline's Linux jobs run the crates in `.fork/linux-ok.txt`.
 
 Every change below is `cfg`-gated or additive, so Windows code is unchanged. Upstream-owned files
-changed are listed in `.fork/allowed-divergence`. Upstream's issue #268 and CONTRIBUTING reserve
+changed are listed in `.fork/allowed-divergence`; the Pipeline's `Verify sync` job fails a pull request that changes an upstream-owned file that is not listed there. The "Offer upstream" column below is history: upstream is an imported source and nothing is offered back. Upstream's issue #268 and CONTRIBUTING reserve
 the platform layer (`d3d9real.rs`, the call sites in `d3d9device.rs`, `d3d9resource.rs`,
 `d3d9query.rs`, `d3d9.rs`, `window.rs`): none of those call sites and none of `d3d9real.rs` is
 touched.

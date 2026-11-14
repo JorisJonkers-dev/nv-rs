@@ -1,4 +1,6 @@
-# Upstream-owned files the fork changes on purpose (scripts/fork/verify-sync.sh).
+# Upstream-owned files the fork changes on purpose (scripts/fork/verify-sync.sh). The list grows with the fork: the fork may differ
+# from upstream wherever it is better. Upstream is an imported source, nothing here is offered back. A replayed upstream change to
+# one of these files that touches the same lines stops the replay (docs/fork/KEEPING-IN-SYNC.md, "Who wins").
 README.md
 # Test speed: the function table of a test engine is collected once per thread and copied (docs/fork/CI.md, "Upstream offers").
 crates/engine-core/src/engine.rs  # Engine::new_untyped copies a per-thread template in test builds
@@ -13,3 +15,6 @@ crates/engine-platform/src/d3d9resource.rs  # its import of that trait is Window
 crates/engine-platform/src/d3dx.rs  # an unused binding off Windows
 crates/engine-platform/src/files.rs  # a warning-only attribute and a test constant off Windows
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
+# Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
+crates/host/src/cell_offsets.rs  # the plugin path goes through files::real_path (a Linux path is not the game's backslash path)
+crates/nvse/src/commands/math.rs  # the tan/tanh bit-for-bit test is ignored off Windows (the host libm differs in the last bit)

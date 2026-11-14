@@ -121,9 +121,25 @@ jobs:
         if: ${{ !cancelled() }}
         run: mise exec -- task secrets
 
+  # Upstream-owned files may differ from upstream only where .fork/allowed-divergence says so. Cheap, so it runs on every
+  # pull request and push, also when the builds are skipped; it needs the history and upstream's copy (main).
+  verify-sync:
+    name: Verify sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch main (the upstream copy)
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: No divergence outside the overlay
+        run: scripts/fork/verify-sync.sh
+
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, build]
+    needs: [changes, hygiene, pr-title, lint, verify-sync, build]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
