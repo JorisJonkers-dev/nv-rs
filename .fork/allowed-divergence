@@ -11,5 +11,7 @@ crates/engine-platform/Cargo.toml  # d3d9-wgpu as a dependency on every target (
 crates/engine-platform/src/d3d9device.rs  # the argument-word trait is built on Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3d9resource.rs  # its import of that trait is Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3dx.rs  # an unused binding off Windows
-crates/engine-platform/src/files.rs  # a warning-only attribute and a test constant off Windows
+crates/engine-platform/src/files.rs  # four lines: `mod files_host;` and its re-export (the Linux path code is in the overlay file files_host.rs), a warning-only attribute and a test constant off Windows
+crates/host/src/cell_offsets.rs  # asks files::host_path for the plugin's path (the Unix mapping of a game path)
+crates/nvse/src/commands/math.rs  # the bit-for-bit comparison is ignored off Windows (the host's libm for tan and tanh)
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only

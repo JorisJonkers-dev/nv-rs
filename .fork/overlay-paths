@@ -29,3 +29,4 @@ release-please-config.json
 renovate.json
 scripts/fork/
 version.txt
+crates/engine-platform/src/files_host.rs

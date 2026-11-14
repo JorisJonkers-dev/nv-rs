@@ -22,9 +22,9 @@ touched.
 | 1 | `d3d9-wgpu` is a dependency of `engine-platform` on every target (it was `cfg(windows)` only) | `crates/engine-platform/Cargo.toml` | `end_process` calls `d3d9_wgpu::loading::finish_output()` unconditionally: this one line stopped `engine-platform`, so `engine`, `host`, `play-patch` and `nv-viewer` | no | yes, one-line move | none: the dependency was already there on Windows; `Cargo.lock` unchanged |
 | 2 | The start screen's output capture (`Pipe`, `CAPTURED`) is built on Windows only | `crates/d3d9-wgpu/src/loading.rs` | dead code warnings off Windows (the capture is `cfg(windows)`) | no | yes | none |
 | 3 | The argument-word trait `Word` and its import are built on Windows only | `d3d9device.rs`, `d3d9resource.rs` | used only inside `#[cfg(windows)]` code of the `forwarded!` macro; an unused warning off Windows | touches the files, not a call site | yes, but wait for the seam: the files are being retuned | none |
-| 4 | An unused binding and a warning-only attribute off Windows; a test constant used only by Windows tests | `d3dx.rs`, `files.rs` | warnings (the Linux clippy job is `-D warnings`) | no | yes | none |
-| 5 | `files::real_path` is public and, on Unix, maps a game path: `Z:` is the host root (as Wine's), `\` separates, names match without regard to case in their directory; other drive letters have no mapping and are not found | `files.rs`, `host/src/cell_offsets.rs` (uses it) | the game's paths are Windows paths; three `host` tests failed on Linux for this reason. Written against the current code, not taken from the earlier Linux file-layer branch | no (file layer, approved in principle as a small PR on #268) | yes, after an issue | none: the Windows arm is the old body |
-| 6 | Tests that can only pass on Windows are `#[cfg_attr(not(windows), ignore = "reason")]`: four `files` tests (they need the file times that are only provided on Windows) and `nvse`'s bit-for-bit math comparison (tan and tanh use the host's libm; the game's differ in the last bit: `dTan90`, `dTanh30`) | `files.rs`, `nvse/src/commands/math.rs` | honest failures off Windows | no | yes | none |
+| 4 | An unused binding off Windows, a warning-only attribute and a test constant used only by Windows tests | `d3dx.rs`, `files.rs` (two attributes) | warnings (the Linux clippy job is `-D warnings`) | no | yes | none |
+| 5 | `files::host_path` maps a game path: on Windows the path as it is, on Unix `Z:` is the host root (as Wine's), `\` separates, names match without regard to case in their directory; other drive letters have no mapping and are not found | `files_host.rs` (new, overlay), two lines in `files.rs` (`mod files_host;` and `pub use files_host::host_path;`), `host/src/cell_offsets.rs` (uses it) | the game's paths are Windows paths; three `host` tests failed on Linux for this reason. The code was in `files.rs` (+149 lines in a file upstream changes often, which stopped the replay of upstream `f97accc25bb4`); it is now in a file upstream does not have, and `files.rs` keeps four lines | no | no (the fork does not offer changes upstream) | none: `host_path` returns upstream's `real_path` unchanged on Windows, and a test of it runs there |
+| 6 | Tests that can only pass on Windows: `nvse`'s bit-for-bit math comparison is `#[cfg_attr(not(windows), ignore = "reason")]` (tan and tanh use the host's libm; the game's differ in the last bit: `dTan90`, `dTanh30`); the five `files` tests that need Windows file times or Windows paths are skipped on Linux by name in `.fork/linux-skip.txt`, applied by `scripts/fork/run-component.sh` | `nvse/src/commands/math.rs`, `.fork/linux-skip.txt` | honest failures off Windows, with no attribute in `files.rs` | no | no | none |
 | 7 | The probe workflow and its summary script | `.github/workflows/linux-probe.yml`, `scripts/fork/linux_test_summary.py` | CI loop without starting the Windows jobs | fork only | no | none |
 
 Not changed, on purpose: file times off Windows still stop the run with a message (the game
@@ -92,3 +92,16 @@ give it a job of its own before listing it.
 What remains: everything that needs a window, a Vulkan device, sound output or the machine tables
 is not run on Linux (M3 and later in the plan). The ignored tests are the ones that need the player's
 game files (`NV_EXE`, `NV_DATA`) or Windows.
+
+## Hooks for the other files in `.fork/allowed-divergence`
+
+| File | The change | Could an overlay hook leave upstream's file as it is? |
+| --- | --- | --- |
+| `crates/engine-core/src/engine.rs` | per-thread template of a test engine | no: it changes the body of `Engine::new_untyped` |
+| `crates/engine-core/src/typed/diff.rs` | second control word only when the first read it | no: it is the harness's run loop |
+| `crates/engine-core/src/x87.rs`, `units/crt.rs` | test builds note a read of the control word | no: a line inside each read function |
+| `crates/engine-platform/Cargo.toml` | `d3d9-wgpu` on every target | no, a manifest line has no hook |
+| `d3d9device.rs`, `d3d9resource.rs`, `d3dx.rs` | a `cfg` on a trait, its import and a binding | no: attributes on upstream's items |
+| `crates/host/src/cell_offsets.rs` | calls `files::host_path` | no: one call in the function that builds the path |
+| `crates/nvse/src/commands/math.rs` | `ignore` off Windows | yes, by a skip filter as for `files.rs` (`.fork/linux-skip.txt`); not done yet |
+| `crates/d3d9-wgpu/src/loading.rs` | pipe list built on Windows only | no: attributes on upstream's items |
