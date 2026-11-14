@@ -2139,7 +2139,7 @@ mod tests {
     /// reads and the index arithmetic on the real constants against the FPU's instructions).
     #[test]
     fn with_the_installed_exe_the_sse2_and_x87_paths_agree() {
-        let Ok(path) = std::env::var("NV_EXE") else {
+        let Some(path) = crate::test_gate::require_data("NV_EXE") else {
             return;
         };
         let mut e = Engine::with_exe(std::path::Path::new(&path)).unwrap();

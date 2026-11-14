@@ -241,7 +241,7 @@ mod tests {
     /// garbage collector calls (`call [0x00fdf0e4]`) is InterlockedExchange.
     #[test]
     fn imports_of_installed_exe_when_given() {
-        let Ok(path) = std::env::var("NV_EXE") else {
+        let Some(path) = crate::test_gate::require_data("NV_EXE") else {
             return;
         };
         let file = std::fs::read(&path).unwrap();
@@ -263,7 +263,7 @@ mod tests {
     /// sections map and a known RTTI type name reads back.
     #[test]
     fn maps_installed_exe_when_given() {
-        let Ok(path) = std::env::var("NV_EXE") else {
+        let Some(path) = crate::test_gate::require_data("NV_EXE") else {
             return;
         };
         let mut m = Mem::new();

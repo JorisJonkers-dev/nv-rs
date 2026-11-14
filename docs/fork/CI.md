@@ -20,7 +20,7 @@ checks it against `cargo metadata` and turns it into the job matrix of [`fork-bu
 | 0 | `launcher-and-ledger` | 0 (own workspaces) | Play.exe with Settings.cmd, the typed-marker ledger | Windows |
 | 1 | `engine-base` | 4 | Gamebryo, Havok, SpeedTree, the Bethesda units | both |
 | 1 | `rendering` | 2 | the Direct3D 9 call stream and the wgpu backend | Windows (and a Linux twin) |
-| 1 | `scripting` | 2 | xNVSE and JIP LN NVSE commands | both |
+| 1 | `scripting` | 2 | xNVSE and JIP LN NVSE commands | both, Windows required (the `tan` and `tanh` cases of the recorded math results) |
 | 2 | `fallout-world` | 4 | forms, cells, land, sky, FaceGen | both |
 | 2 | `platform` | 1 | window, Direct3D 9 / D3DX entry points, input, sound, loader | Windows |
 | 3 | `fallout-gameplay` | 4 | scripts, quests, magic, pathfinding, AI | both |

@@ -483,10 +483,9 @@ mod tests {
     #[test]
     fn the_host_decoder_matches_the_exes_zlib_over_the_bsas() {
         use std::io::{Read, Seek, SeekFrom};
-        let Some(path) = std::env::var("NV_EXE").ok().filter(|p| !p.is_empty()) else {
+        let Some(exe) = crate::test_gate::require_data("NV_EXE") else {
             return;
         };
-        let exe = std::path::PathBuf::from(path);
         let data = exe.parent().unwrap().join("Data");
         let every: usize = std::env::var("NV_INFLATE_EVERY")
             .ok()
