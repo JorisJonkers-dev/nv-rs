@@ -667,7 +667,7 @@
     },
     {
       "commands": {
-        "implemented": 435,
+        "implemented": 443,
         "implemented_names": [
           "GetLNVersion",
           "GetNVSEVersionFull",
@@ -780,7 +780,13 @@
           "RemoveRecipeOutputForm",
           "AddRecipeCondition",
           "LeveledListReplaceForm",
+          "fsqrt",
+          "fSin",
+          "fCos",
+          "fAtan",
           "GetPerkLevel",
+          "fAsin",
+          "fAcos",
           "SetNthLevItem",
           "SetNthLevItemLevel",
           "SetNthLevItemCount",
@@ -1080,6 +1086,8 @@
           "SetImpactDataSetForm",
           "SetQuestFlag",
           "GetQuestFlag",
+          "fTan",
+          "fAtan2",
           "SetArmorClass",
           "GetWeaponOnHitSetting",
           "SetWeaponOnHitSetting",
