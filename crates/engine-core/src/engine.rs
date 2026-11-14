@@ -364,6 +364,40 @@ pub const TRACE_KEEP: usize = 4000;
 /// call, oldest first.
 pub type Trace = std::collections::VecDeque<(u32, Vec<u32>, u32)>;
 
+/// The table of every translated function, as [`Engine::new_untyped`] starts it.
+fn build_translations() -> AddrMap<u32, Callable> {
+    let mut list = Vec::new();
+    crate::units::funcs(&mut list);
+    // SAFETY: `nv_engine_assembled_funcs` is the plain Rust function that
+    // `assemble!` defines in the crate assembling the engine; it only
+    // appends to `list`.
+    unsafe { nv_engine_assembled_funcs(&mut list) };
+    let mut funcs = AddrMap::with_capacity_and_hasher(list.len(), Default::default());
+    for (addr, f) in list {
+        if funcs.insert(addr, Callable::Abi(f)).is_some() {
+            panic!("{addr:08x} is registered twice");
+        }
+    }
+    funcs
+}
+
+/// A new engine's function table. In a test build the 47,000 entries are collected and hashed once per
+/// thread and each engine copies that: the differential tests build three engines per case, thousands of
+/// cases per test, and collecting the table was most of what an engine cost. The copy is the engine's own (a
+/// test that registers a double changes its table only); the template is never handed out.
+#[cfg(any(test, feature = "test-support"))]
+fn translations() -> AddrMap<u32, Callable> {
+    thread_local! {
+        static TEMPLATE: std::cell::OnceCell<AddrMap<u32, Callable>> = const { std::cell::OnceCell::new() };
+    }
+    TEMPLATE.with(|t| t.get_or_init(build_translations).clone())
+}
+
+#[cfg(not(any(test, feature = "test-support")))]
+fn translations() -> AddrMap<u32, Callable> {
+    build_translations()
+}
+
 impl Default for Engine {
     fn default() -> Self {
         Self::new()
@@ -393,18 +427,7 @@ impl Engine {
     /// [`Engine::new`] with only the translations: the differential test's two engines
     /// ([`crate::typed`]), whatever the switch says.
     pub(crate) fn new_untyped() -> Self {
-        let mut list = Vec::new();
-        crate::units::funcs(&mut list);
-        // SAFETY: `nv_engine_assembled_funcs` is the plain Rust function that
-        // `assemble!` defines in the crate assembling the engine; it only
-        // appends to `list`.
-        unsafe { nv_engine_assembled_funcs(&mut list) };
-        let mut funcs = AddrMap::with_capacity_and_hasher(list.len(), Default::default());
-        for (addr, f) in list {
-            if funcs.insert(addr, Callable::Abi(f)).is_some() {
-                panic!("{addr:08x} is registered twice");
-            }
-        }
+        let funcs = translations();
         // A new main thread: its block's control word reads as the default
         // until set, and the FPU register the x87 helpers read starts there
         // too (a test that ran earlier on this host thread may have left
@@ -1520,6 +1543,26 @@ fn block_check_from_env() -> Option<(bool, bool, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Engines copy one template table: what one registers, replaces or drops is its own, and the next
+    /// engine starts from the translations again.
+    #[test]
+    fn engines_do_not_share_their_function_table() {
+        const FRESH: u32 = 0x0fff_0000;
+        let mut first = Engine::new_untyped();
+        let count = first.translated_count();
+        assert!(count > 0, "the template holds the translations");
+        let some = first.registered_addrs()[0];
+        first.register(FRESH, |_, _| Ret::default());
+        first.register(some, |_, _| Ret::default());
+        let second = Engine::new_untyped();
+        assert_eq!(second.translated_count(), count);
+        assert!(!second.is_registered(FRESH));
+        assert!(second
+            .registered_fn(some)
+            .is_some_and(|f| f as usize != first.registered_fn(some).map_or(0, |g| g as usize)));
+        assert_eq!(first.translated_count(), count + 1);
+    }
     use crate::args;
 
     /// The block check names the translated function that writes past a `with_stack` local
