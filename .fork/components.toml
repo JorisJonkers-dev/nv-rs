@@ -158,6 +158,22 @@ commands = [
   "cargo clippy --locked --manifest-path scripts/launcher/Cargo.toml --all-targets -- -D warnings",
 ]
 
+# The release files (docs/fork/RELEASE-FILES.md): a separate workspace that reads the command tables of nvse and jip, so
+# it runs on every pull request that builds (a table change without the regenerated .fork/capabilities.json fails it).
+[[component]]
+name = "release-files"
+purpose = "capabilities.json and release-manifest.json: written from the built-in extenders' command tables, validated against the schemas in .fork/schemas, and the checked-in capabilities file compared with the tables"
+crates = []
+requires = ["core", "scripting"]
+runs_on = "both"
+pr = "always"
+paths = ["scripts/fork/release-files/", ".fork/schemas/", ".fork/capabilities.json"]
+commands = [
+  "cargo fmt --manifest-path scripts/fork/release-files/Cargo.toml -- --check",
+  "cargo test --locked --manifest-path scripts/fork/release-files/Cargo.toml",
+  "cargo clippy --locked --manifest-path scripts/fork/release-files/Cargo.toml --all-targets -- -D warnings",
+]
+
 # Fallbacks for crates upstream adds later (reported as warnings; never silently untested).
 [[rule]]
 match = "engine-fallout-*"

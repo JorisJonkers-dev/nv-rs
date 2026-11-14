@@ -244,10 +244,10 @@ class Affected(unittest.TestCase):
 
     def test_documentation_and_fork_owned_files_run_nothing_but_the_always_components(self):
         for f in ("docs/fork/CI.md", "README.md", ".fork/overlay-paths", "scripts/fork/setup-repo.sh", ".github/workflows/fork-sync.yml"):
-            self.assertEqual(self.reached([f])[1], {"repo-checks"}, f)
+            self.assertEqual(self.reached([f])[1], {"repo-checks", "release-files"}, f)
 
     def test_a_leaf_crate_reaches_few_components(self):
-        self.assertEqual(self.reached(["crates/jip/src/lib.rs"])[1], {"scripting", "integration", "repo-checks"})
+        self.assertEqual(self.reached(["crates/jip/src/lib.rs"])[1], {"scripting", "integration", "repo-checks", "release-files"})
 
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
@@ -261,7 +261,7 @@ class Affected(unittest.TestCase):
 
     def test_the_vendored_wgpu_hal_reaches_the_crates_that_use_wgpu(self):
         _, got = self.reached(["vendor/wgpu-hal/src/lib.rs"])
-        self.assertEqual(got, {"rendering", "platform", "integration", "repo-checks"})
+        self.assertEqual(got, {"rendering", "platform", "integration", "repo-checks", "release-files"})
 
     def test_the_launcher_and_the_distribution_scripts_run_their_component(self):
         for f in ("scripts/launcher/src/main.rs", "scripts/ledger/src/main.rs", "distribution/Settings.ps1"):

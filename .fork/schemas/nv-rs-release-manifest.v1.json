@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/JorisJonkers-dev/nv-rs/schemas/nv-rs-release-manifest.v1.json",
+  "title": "nv-rs release manifest, version 1",
+  "description": "What a nv-rs release is built from and what it expects of the player's game executable. Hashes and names only: no game data.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "version",
+    "upstream_base_commit",
+    "executable",
+    "play_patch",
+    "plugins_txt_ordering_switch"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "upstream_base_commit": { "$ref": "#/$defs/gitId" },
+    "source_commit": { "$ref": "#/$defs/gitId" },
+    "source_tree_hash": { "$ref": "#/$defs/gitId" },
+    "executable": {
+      "type": "object",
+      "required": ["file_name", "game_version", "hash_algorithm", "sections"],
+      "properties": {
+        "file_name": { "type": "string" },
+        "game_version": { "type": "string" },
+        "hash_algorithm": { "const": "fnv1a-64" },
+        "hashed_bytes": { "type": "string" },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "virtual_address", "virtual_size", "hash"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "virtual_address": { "$ref": "#/$defs/hex32" },
+              "virtual_size": { "$ref": "#/$defs/hex32" },
+              "hash": { "type": "string", "pattern": "^[0-9a-f]{16}$" }
+            }
+          }
+        }
+      }
+    },
+    "play_patch": {
+      "type": "object",
+      "required": ["standalone_step", "command", "arguments"],
+      "properties": {
+        "standalone_step": { "type": "boolean" },
+        "command": { "type": ["string", "null"] },
+        "arguments": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" }
+      }
+    },
+    "installation_check": {
+      "type": "object",
+      "required": ["command", "arguments"],
+      "properties": {
+        "command": { "type": "string" },
+        "arguments": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" }
+      }
+    },
+    "plugins_txt_ordering_switch": { "type": "boolean" },
+    "files": {
+      "type": "object",
+      "properties": {
+        "capabilities": { "type": "string" },
+        "checksums": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "gitId": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "hex32": { "type": "string", "pattern": "^0x[0-9a-f]{8}$" }
+  }
+}

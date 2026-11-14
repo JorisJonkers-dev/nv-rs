@@ -73,6 +73,13 @@ files and the README notice. It prints how many commits the fork is behind and f
 files that differ. A fork-only change to an upstream file is therefore always a deliberate act: add the
 file to `.fork/allowed-divergence`, or do not make the change.
 
+## After a sync: the capabilities file
+
+`.fork/capabilities.json` lists what the built-in script extenders implement, read from the command tables
+([`RELEASE-FILES.md`](RELEASE-FILES.md)). A sync that adds or changes commands makes the `release-files` check fail
+until `task capabilities` has rewritten the file; commit it on the sync branch (a fork-only file, so it cannot
+conflict with the replay).
+
 ## What does not follow upstream
 
 - **Dependencies.** Renovate only updates fork-owned files ([`renovate.json`](../../renovate.json)).
