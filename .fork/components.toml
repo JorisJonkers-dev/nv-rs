@@ -100,24 +100,36 @@ runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not
 # by size. Every file of crates/engine/tests must be named in a job (checked), so a new test file cannot be lost.
+#
+# `config` of a job: cargo `--config` settings for its commands. The typed jobs run the three crates that hold the
+# differential harness and the typed families at opt-level 1: debug assertions and overflow checks stay on (the
+# direct run of every case needs them), and the tests ran 2.6 times faster for no more compile time (measured on
+# typed_culling, docs/fork/TEST-REDESIGN.md). The translations in the other crates stay at opt-level 0: opt-level 1
+# for them too is 5 times faster but compiles 5.5 minutes longer.
 [[component.job]]
 name = "typed shader family"
 args = ["-p engine --test typed_shader"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed draw, render, lights, particles"
 args = ["-p engine --test typed_draw --test typed_render --test typed_lights --test typed_particles --test typed_multibound"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed scene queries: culling, dispatch, collision"
 args = ["-p engine --test typed_culling --test typed_dispatch --test typed_collision"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed geometry and pathing"
 args = ["-p engine --test typed_geometry --test typed_pathing"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed animation"
 args = ["-p engine --test typed_animation --test typed_anim_keys"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed runtime: crt, process, lock-free, leaves"
 args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree --test typed_leaves"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
 args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda", "-p engine --doc"]

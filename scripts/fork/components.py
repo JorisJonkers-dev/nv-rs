@@ -307,7 +307,8 @@ class Model:
             elif job is None:
                 cmds = [self.test_command(" ".join(f"-p {x}" for x in c["crates"]))] + list(c.get("extra", []))
             else:
-                cmds = [self.test_command(r) for r in job["args"]]
+                flags = "".join(f" --config {c}" for c in job.get("config", []))
+                cmds = [self.test_command(r) + flags for r in job["args"]]
             label = comp if job is None else f"{comp} / {job['name']}"
             for os_name, os_label, info in targets:
                 result.append({

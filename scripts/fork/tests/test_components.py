@@ -319,6 +319,16 @@ class RealMap(unittest.TestCase):
         script = real_model().entries("core")[0]["script"]
         self.assertIn("--features engine-core/test-support", script)  # tests/typed_seam.rs is cfg(feature = "test-support")
 
+    def test_the_typed_jobs_build_the_harness_crates_at_opt_level_1_and_the_aggregator_does_not(self):
+        got = {e["name"]: e["script"] for e in real_model().entries("integration")}
+        typed = [v for k, v in got.items() if "typed" in k]
+        self.assertEqual(len(typed), 6)
+        for script in typed:
+            for crate in ("engine-core", "engine-typed", "engine"):
+                self.assertIn(f"--config profile.dev.package.{crate}.opt-level=1", script)
+            self.assertNotIn("debug-assertions", script)  # the direct run of each case needs them: the dev default stays
+        self.assertFalse([v for k, v in got.items() if "aggregator" in k and "--config" in v])
+
     def test_the_old_shards_are_gone(self):
         self.assertFalse((REPO / ".fork" / "test-groups.json").exists())
         names = [e["name"] for e in real_model().plan()["include"]]
