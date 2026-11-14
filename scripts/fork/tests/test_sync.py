@@ -3,12 +3,15 @@ issue text), capabilities_diff.py and verify-sync.sh, on small fixture repositor
 
 Run: python3 -I -m unittest discover -s scripts/fork/tests -v        (no network, no GitHub, no cargo)
 """
+import contextlib
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -168,6 +171,82 @@ class Replay(unittest.TestCase):
         self.fx.on("main", {"crates/b/lib.rs": "b5\n"}, "ok")
         self.assertEqual(self.fx.replay().returncode, 0)
         self.assertFalse((Path(self.tmp.name) / "stop").exists())
+
+
+class NoIssues(unittest.TestCase):
+    """A repository with Issues disabled (the nv-rs fork): open and close degrade to the step summary and a warning."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.summary = Path(self.tmp.name) / "summary.md"
+        self.calls = []
+        patches = [unittest.mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(self.summary)}),
+                   unittest.mock.patch.object(sync_report, "gh", self.fake_gh)]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.addCleanup(self.tmp.cleanup)
+        self.has_issues = "false"
+
+    def fake_gh(self, *args, check=True):
+        self.calls.append(args)
+        if args[0] == "api":
+            return subprocess.CompletedProcess(args, 0, self.has_issues + "\n", "")
+        if self.has_issues == "false":
+            raise subprocess.CalledProcessError(1, args, "", "the JorisJonkers-dev/nv-rs repository has disabled issues")
+        out = {"list": "[]"}.get(args[1], "")
+        return subprocess.CompletedProcess(args, 0, out, "")
+
+    def issue_calls(self):
+        return [c for c in self.calls if c[0] == "issue"]
+
+    def test_close_exits_zero_and_never_touches_issues(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = sync_report.main(["close", "--run-url", "https://run"])
+        self.assertEqual(rc, 0)
+        self.assertIn("::warning", buf.getvalue())
+        self.assertEqual(self.issue_calls(), [])
+
+    def test_open_writes_the_report_to_the_step_summary(self):
+        body = sync_report.build_body({"reason": "history"}, run_url="https://run")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertFalse(sync_report.open_issue(body))
+        self.assertIn("::warning", buf.getvalue())
+        text = self.summary.read_text()
+        self.assertIn("upstream rewrote its history", text)
+        self.assertIn("https://run", text)
+        self.assertNotIn("<!-- sync-blocked -->", text)
+        self.assertEqual(self.issue_calls(), [])
+
+    def test_open_falls_back_when_the_issue_api_fails_although_issues_look_enabled(self):
+        self.has_issues = "true"
+        orig = self.fake_gh
+
+        def failing(*args, check=True):
+            if args[:2] == ("issue", "list"):
+                raise subprocess.CalledProcessError(1, args, "", "HTTP 410")
+            return orig(*args, check=check)
+
+        with unittest.mock.patch.object(sync_report, "gh", failing), contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(sync_report.open_issue("body\n"))
+        self.assertIn("body", self.summary.read_text())
+
+    def test_unreachable_api_counts_as_disabled(self):
+        def broken(*args, check=True):
+            raise subprocess.CalledProcessError(1, args, "", "boom")
+
+        with unittest.mock.patch.object(sync_report, "gh", broken), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(sync_report.main(["close"]), 0)
+
+    def test_enabled_issues_keep_open_and_close_behaviour(self):
+        self.has_issues = "true"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(sync_report.open_issue("body\n"))
+            sync_report.close_issue("")
+        self.assertIn(("issue", "create", "--label", "sync-blocked", "--title", sync_report.TITLE, "--body", "body\n"), self.calls)
+        self.assertFalse(self.summary.exists())
 
 
 class VerifySync(unittest.TestCase):

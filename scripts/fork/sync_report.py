@@ -4,6 +4,8 @@
   sync_report.py body  --stop-file F [--dropped-file F] [--detail-file F] [--run-url URL]   print the issue text
   sync_report.py open  (same options)      open or update the one open issue labelled sync-blocked (needs gh, GH_TOKEN)
   sync_report.py close [--run-url URL]     close that issue, if there is one
+                                           (a repository with Issues disabled: the report goes to the job's step summary
+                                           with a ::warning::, and the command exits 0 so a green sync stays green)
   sync_report.py summary --dropped-file F  markdown list of the changes the replay left out (the fork owns those paths)
 
 The stop file is written by replay-upstream.sh (reason=, commit=, subject=); without one the failure is "other" (or
@@ -12,6 +14,7 @@ The stop file is written by replay-upstream.sh (reason=, commit=, subject=); wit
 import argparse
 import fnmatch
 import json
+import os
 import subprocess
 import sys
 
@@ -145,21 +148,65 @@ def gh(*args, check=True):
     return subprocess.run(["gh", *args], check=check, capture_output=True, text=True)
 
 
-def open_issue(body):
-    gh("label", "create", LABEL, "--color", "B60205", "--description", "Upstream Sync stopped and needs a person", "--force", check=False)
-    found = json.loads(gh("issue", "list", "--label", LABEL, "--state", "open", "--json", "number").stdout or "[]")
-    if found:
-        gh("issue", "edit", str(found[0]["number"]), "--body", body)
-        print(f"updated issue #{found[0]['number']}")
+def issues_enabled():
+    """True when the repository has Issues on. False when it is off, or when the answer cannot be had (then the issue
+    calls are not tried: the report still reaches the step summary)."""
+    try:
+        out = gh("api", "repos/{owner}/{repo}", "--jq", ".has_issues").stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return False
+    return out == "true"
+
+
+def warn(message):
+    print(f"::warning title=Upstream Sync::{message}")
+
+
+def to_step_summary(heading, text):
+    """Append to $GITHUB_STEP_SUMMARY (stdout outside a job); the report has nowhere else to go without Issues."""
+    block = f"### {heading}\n\n{text}\n"
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(block)
     else:
-        print(gh("issue", "create", "--label", LABEL, "--title", TITLE, "--body", body).stdout.strip())
+        sys.stdout.write(block)
+
+
+def open_issue(body):
+    """Open or update the tracking issue. Returns False after reporting to the step summary when Issues are disabled
+    (or the issue API failed); the failed step that got us here is what makes the run red, not this report."""
+    if not issues_enabled():
+        warn("Issues are disabled on this repository (or unreachable), so the tracking issue was not opened; the report is in the job summary.")
+        to_step_summary("Upstream Sync is blocked", body.replace(MARKER + "\n", "", 1))
+        return False
+    try:
+        gh("label", "create", LABEL, "--color", "B60205", "--description", "Upstream Sync stopped and needs a person", "--force", check=False)
+        found = json.loads(gh("issue", "list", "--label", LABEL, "--state", "open", "--json", "number").stdout or "[]")
+        if found:
+            gh("issue", "edit", str(found[0]["number"]), "--body", body)
+            print(f"updated issue #{found[0]['number']}")
+        else:
+            print(gh("issue", "create", "--label", LABEL, "--title", TITLE, "--body", body).stdout.strip())
+    except subprocess.CalledProcessError as e:
+        warn(f"the tracking issue could not be written ({(e.stderr or '').strip()[:200]}); the report is in the job summary.")
+        to_step_summary("Upstream Sync is blocked", body.replace(MARKER + "\n", "", 1))
+        return False
+    return True
 
 
 def close_issue(run_url):
-    found = json.loads(gh("issue", "list", "--label", LABEL, "--state", "open", "--json", "number").stdout or "[]")
-    for i in found:
-        gh("issue", "close", str(i["number"]), "--comment", "Upstream Sync succeeded" + (f": {run_url}" if run_url else "."))
-        print(f"closed issue #{i['number']}")
+    """Close the tracking issue if there is one. Never fails the run: with Issues disabled there is nothing to close."""
+    if not issues_enabled():
+        warn("Issues are disabled on this repository (or unreachable): no tracking issue to close.")
+        return
+    try:
+        found = json.loads(gh("issue", "list", "--label", LABEL, "--state", "open", "--json", "number").stdout or "[]")
+        for i in found:
+            gh("issue", "close", str(i["number"]), "--comment", "Upstream Sync succeeded" + (f": {run_url}" if run_url else "."))
+            print(f"closed issue #{i['number']}")
+    except subprocess.CalledProcessError as e:
+        warn(f"the tracking issue could not be closed ({(e.stderr or '').strip()[:200]}).")
 
 
 def main(argv=None):
