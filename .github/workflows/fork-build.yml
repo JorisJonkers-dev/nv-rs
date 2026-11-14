@@ -28,6 +28,9 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_TERM_COLOR: always
   CARGO_TERM_PROGRESS_WHEN: never
+  # The differential tests run a case under its second control word only when the first run read or loaded the word
+  # (engine-core, typed/diff.rs). The nightly run does not skip: it is the check that the skip loses nothing.
+  NV_DIFF_ALL_WORDS: ${{ github.event_name == 'schedule' && '1' || '' }}
 
 defaults:
   run:

@@ -2,3 +2,7 @@
 README.md
 # Test speed: the function table of a test engine is collected once per thread and copied (docs/fork/CI.md, "Upstream offers").
 crates/engine-core/src/engine.rs  # Engine::new_untyped copies a per-thread template in test builds
+# Test speed (docs/fork/CI.md, "Upstream offers"): each is a small, separable change in the differential harness.
+crates/engine-core/src/typed/diff.rs  # a case runs under its second control word only when the first run read or loaded the word
+crates/engine-core/src/x87.rs  # test builds note that the control word was read or loaded (nothing in a production build)
+crates/engine-core/src/units/crt.rs  # FSTCW's read through the thread block is noted too (test builds)

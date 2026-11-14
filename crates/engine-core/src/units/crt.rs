@@ -2162,6 +2162,8 @@ const X87_CONTROL_WORD: u32 = 0x0e04;
 
 /// The x87 control word as `FSTCW` reads it.
 pub fn x87_control_word(e: &mut Engine) -> u16 {
+    #[cfg(any(test, feature = "test-support"))]
+    crate::x87::watch::read();
     let at = e.tls() + X87_CONTROL_WORD;
     let slot = e.mem.u32(at);
     if slot & 0x1_0000 == 0 {

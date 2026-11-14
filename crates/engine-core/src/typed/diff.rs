@@ -397,6 +397,12 @@ type Setup = Box<dyn Fn(&mut Engine, &Case) -> Vec<u32>>;
 /// The inputs a test says stop ([`Diff::expect_stops`]).
 type StopCases = Box<dyn Fn(&Case) -> bool>;
 
+/// Whether `NV_DIFF_ALL_WORDS` is set ([`Diff::all_words`]), read once.
+fn all_words_from_env() -> bool {
+    static ALL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALL.get_or_init(|| std::env::var_os("NV_DIFF_ALL_WORDS").is_some_and(|v| !v.is_empty()))
+}
+
 /// One function's comparison ([`Diff::run`]).
 pub struct Diff {
     addr: u32,
@@ -412,6 +418,8 @@ pub struct Diff {
     control_words: Option<Vec<u16>>,
     /// [`Diff::sets_control_word`]: the function under test changes the control word on purpose.
     sets_control_word: bool,
+    /// [`Diff::all_words`]: run every case under every control word, read or not.
+    all_words: bool,
     max_cases: usize,
     stop_cases: Option<StopCases>,
     stack_bytes: u32,
@@ -438,6 +446,7 @@ impl Diff {
             local_words: Vec::new(),
             control_words: None,
             sets_control_word: false,
+            all_words: all_words_from_env(),
             max_cases: 512,
             stop_cases: None,
             stack_bytes: 64,
@@ -568,6 +577,20 @@ impl Diff {
         self
     }
 
+    /// Runs every case under every control word, whether or not the first run read it.
+    ///
+    /// By default a case runs under its other control words only when the code it ran (both sides, all
+    /// three runs, and the setup) read the word (every x87 helper does, as `FSTCW` does) or loaded one
+    /// (`FLDCW`): code that never looks at the word gives the same result under any, so the second
+    /// run would compare the same bytes again ([`Report::skipped_runs`] counts those, and
+    /// [`Report::runs`] counts them as run). A test that names its words ([`Diff::control_words`]) and
+    /// one that [`Diff::sets_control_word`] always run them all. The environment variable
+    /// `NV_DIFF_ALL_WORDS` (any value) does it for every test: the nightly run sets it.
+    pub fn all_words(mut self) -> Diff {
+        self.all_words = true;
+        self
+    }
+
     /// The most cases to generate (512 by default); each runs under each control word.
     pub fn max_cases(mut self, n: usize) -> Diff {
         self.max_cases = n;
@@ -694,16 +717,28 @@ impl Diff {
             ..Report::default()
         };
         let swept = swept_cases(&self.inputs, self.float_sweep, u64::from(self.addr));
+        let may_skip = !self.all_words && !self.sets_control_word && self.control_words.is_none();
         for case in cases(&self.inputs, self.max_cases).into_iter().chain(swept) {
-            for word in report.control_words.clone() {
+            let words = report.control_words.clone();
+            for (i, word) in words.iter().enumerate() {
+                let (before, found) = (report.tally(), report.found);
                 report.runs += 1;
-                self.run_case(&case, word, &mut report);
+                let touched = self.run_case(&case, *word, &mut report);
+                // Neither side read or loaded the word and nothing differed: the other words would run
+                // the same code on the same bytes. They count as run, with what this run counted.
+                if i == 0 && may_skip && !touched && report.found == found {
+                    let others = words.len() - 1;
+                    report.repeat(before, others);
+                    report.skipped_runs += others;
+                    break;
+                }
             }
         }
         report
     }
 
-    fn run_case(&self, case: &Case, word: u16, report: &mut Report) {
+    /// Whether the code it ran read or loaded the control word.
+    fn run_case(&self, case: &Case, word: u16, report: &mut Report) -> bool {
         let translation = self.side(case, word, Branch::Translation);
         let typed = self.side(case, word, Branch::ByAddress);
         assert_eq!(
@@ -777,7 +812,9 @@ impl Diff {
                 Branch::Direct,
                 report,
             );
+            return translation.touched || typed.touched || direct.touched;
         }
+        translation.touched || typed.touched
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -861,6 +898,8 @@ impl Diff {
         // and restores the word (the C runtime's `fabs`, `floor`, `sqrt`) restores; before the setup, so
         // a setup can still place another word there on purpose.
         crate::units::crt::set_x87_control_word(&mut e, word);
+        // What the setup and the call read of the word from here on ([`Diff::all_words`]).
+        x87::watch::reset_reads();
         // What a setup can't replace: see `translation_calls_plainly` and `family`.
         let mut watched = self.plain_callees.clone();
         for family in &self.families {
@@ -924,7 +963,10 @@ impl Diff {
             })
         });
         x87::set_control_word(word);
+        // Loads from here on are the code under test's own.
+        x87::watch::reset_writes();
         let result = catch_unwind(AssertUnwindSafe(|| e.call(self.addr, &words)));
+        let touched = x87::watch::touched();
         let control_word = x87::control_word();
         x87::set_control_word(x87::DEFAULT_CONTROL_WORD);
         e.set_call_hook(None);
@@ -942,6 +984,7 @@ impl Diff {
         };
         let clock = (e.clock_ms, e.clock_us);
         Side {
+            touched,
             engine: e,
             words,
             registered,
@@ -1607,6 +1650,8 @@ struct Side {
     stack: Option<(u32, u32)>,
     control_word: u16,
     clock: (u32, u32),
+    /// Whether the setup or the call read or loaded the control word ([`x87::watch`]).
+    touched: bool,
 }
 
 impl Side {
@@ -1985,8 +2030,11 @@ impl fmt::Display for Difference {
 pub struct Report {
     /// The control words each case ran under: a family's row can narrow them, and this says so.
     pub control_words: Vec<u16>,
-    /// Cases run, each control word counted.
+    /// Cases run, each control word counted (those of [`Report::skipped_runs`] too).
     pub runs: usize,
+    /// Of those, the runs not made: the first run neither read nor loaded the control word, so the
+    /// others would have repeated it ([`Diff::all_words`] makes them).
+    pub skipped_runs: usize,
     /// Of those, the runs where both sides stopped alike.
     pub stopped: usize,
     /// Of those, the runs whose direct branch ran too (none without debug assertions).
@@ -2016,6 +2064,30 @@ pub struct Report {
 }
 
 impl Report {
+    /// The counters a run adds to.
+    fn tally(&self) -> [usize; 6] {
+        [
+            self.runs,
+            self.stopped,
+            self.direct_runs,
+            self.direct_calls,
+            self.tolerated,
+            self.abs_tolerated,
+        ]
+    }
+
+    /// Adds what the run since `before` counted, `times` more times.
+    fn repeat(&mut self, before: [usize; 6], times: usize) {
+        let now = self.tally();
+        let add = |i: usize| (now[i] - before[i]) * times;
+        self.runs += add(0);
+        self.stopped += add(1);
+        self.direct_runs += add(2);
+        self.direct_calls += add(3);
+        self.tolerated += add(4);
+        self.abs_tolerated += add(5);
+    }
+
     fn note(&mut self, case: &Case, word: u16, branch: Branch, what: Found) {
         self.found += 1;
         if self.first.len() < KEEP_FOUND {
@@ -2245,6 +2317,88 @@ mod tests {
         assert!(report.is_same());
         // Every value, under both control words.
         assert_eq!(report.runs, 2 * F32_VALUES.len());
+    }
+
+    fn adds_one(_: &mut Engine, a: u32) -> u32 {
+        a.wrapping_add(1)
+    }
+
+    fn adds_one_again(_: &mut Engine, a: u32) -> u32 {
+        a.wrapping_add(1)
+    }
+
+    /// Code that never looks at the control word gives the same result under any: one run per case,
+    /// the others counted as run.
+    #[test]
+    fn code_that_never_reads_the_word_runs_under_one() {
+        let diff = || {
+            Diff::new(crate::entry!(0x0040_2000, adds_one_again(u32) -> u32))
+                .translation(crate::entry!(0x0040_2000, adds_one(u32) -> u32).1)
+                .inputs(&[Input::Word])
+        };
+        let report = diff().run();
+        report.assert_same();
+        assert_eq!(report.runs, 2 * WORD_VALUES.len());
+        assert_eq!(report.skipped_runs, WORD_VALUES.len());
+        // `all_words` makes every one of them.
+        let all = diff().all_words().run();
+        all.assert_same();
+        assert_eq!((all.runs, all.skipped_runs), (report.runs, 0));
+        // So does naming the words.
+        let named = diff().control_words(&[MAIN_THREAD, OTHER_THREADS]).run();
+        assert_eq!((named.runs, named.skipped_runs), (report.runs, 0));
+    }
+
+    /// A float helper reads the word: every case runs under both.
+    #[test]
+    fn code_that_reads_the_word_runs_under_both() {
+        fn reads(_: &mut Engine, a: u32) -> u32 {
+            a ^ u32::from(crate::x87::control_word())
+        }
+        fn reads_too(_: &mut Engine, a: u32) -> u32 {
+            a ^ u32::from(crate::x87::control_word())
+        }
+        let report = Diff::new(crate::entry!(0x0040_2000, reads_too(u32) -> u32))
+            .translation(crate::entry!(0x0040_2000, reads(u32) -> u32).1)
+            .inputs(&[Input::Word])
+            .run();
+        report.assert_same();
+        assert_eq!(report.runs, 2 * WORD_VALUES.len());
+        assert_eq!(report.skipped_runs, 0);
+    }
+
+    /// `FSTCW` through the thread block's copy is a read, too.
+    #[test]
+    fn code_that_reads_the_blocks_copy_runs_under_both() {
+        fn reads(e: &mut Engine, _: u32) -> u32 {
+            u32::from(crate::units::crt::x87_control_word(e))
+        }
+        fn reads_too(e: &mut Engine, _: u32) -> u32 {
+            u32::from(crate::units::crt::x87_control_word(e))
+        }
+        let report = Diff::new(crate::entry!(0x0040_2000, reads_too(u32) -> u32))
+            .translation(crate::entry!(0x0040_2000, reads(u32) -> u32).1)
+            .inputs(&[Input::Word])
+            .run();
+        report.assert_same();
+        assert_eq!(report.skipped_runs, 0);
+    }
+
+    /// Code that loads a word without reading one is not skipped: under one case word the load can be
+    /// the word that was there, under the other it is a change the comparison reports.
+    #[test]
+    fn code_that_loads_a_word_runs_under_both() {
+        fn loads(_: &mut Engine) {
+            crate::x87::set_control_word(OTHER_THREADS);
+        }
+        fn loads_too(_: &mut Engine) {
+            crate::x87::set_control_word(OTHER_THREADS);
+        }
+        let report = Diff::new(crate::entry!(0x0040_2000, loads_too()))
+            .translation(crate::entry!(0x0040_2000, loads()).1)
+            .run();
+        assert_eq!(report.skipped_runs, 0, "{report}");
+        assert!(report.found > 0, "{report}");
     }
 
     /// A translation's `with_stack` local may become a native one: the stack for locals isn't
