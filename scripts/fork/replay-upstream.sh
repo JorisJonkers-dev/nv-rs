@@ -28,6 +28,46 @@ not_people_re=${NOT_PEOPLE_RE:-'(claude|anthropic|openai|codex|copilot|gemini|\[
 here=$(dirname "$(readlink -f "$0")")
 
 die() { printf 'replay-upstream: %s\n' "$*" >&2; exit 1; }
+# stop <reason> <commit-or-empty> <message>: records why the replay stopped for scripts/fork/sync_report.py (SYNC_STOP_FILE),
+# then dies. reason is one of: conflict, history, hook, other.
+stop() {
+  local reason=$1 commit=$2; shift 2
+  if [[ -n ${SYNC_STOP_FILE:-} ]]; then
+    {
+      printf 'reason=%s\n' "$reason"
+      printf 'commit=%s\n' "$commit"
+      [[ -z $commit ]] || printf 'subject=%s\n' "$(git log -1 --format=%s "$commit" | tr -d '\r\n')"
+    } >"$SYNC_STOP_FILE"
+  fi
+  die "$*"
+}
+# Conflict policy (docs/fork/KEEPING-IN-SYNC.md, "Who wins"): upstream is a source of imported commits, not a partner, and
+# the fork may diverge on purpose. Where a path is the fork's own, the fork wins and the commit is replayed without its
+# change to that path, noted in SYNC_DROPPED_FILE (one "<sha12> <path>" per line, shown in the sync summary):
+#   * every path in .fork/overlay-paths (a path upstream also has is a collision; the fork's version stays);
+#   * .github/workflows (the fork does not use upstream's CI), unless WORKFLOW_POLICY=apply or ALLOW_WORKFLOW_CHANGES=1.
+# A conflict in any other file, including one listed in .fork/allowed-divergence, stops the replay: upstream's change and
+# the fork's both matter there, so a person merges them.
+workflow_policy=${WORKFLOW_POLICY:-drop}
+[[ ${ALLOW_WORKFLOW_CHANGES:-0} != 1 ]] || workflow_policy=apply
+overlay=()
+[[ ! -f .fork/overlay-paths ]] || mapfile -t overlay < <(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*$/d' .fork/overlay-paths)
+fork_owns() { # <path>
+  local f=$1 o
+  for o in "${overlay[@]}"; do
+    [[ $f == "$o" || ( $o == */ && $f == "$o"* ) ]] && return 0
+  done
+  [[ $workflow_policy != apply && $f == .github/workflows/* ]]
+}
+drop_owned() { # <commit>: put every fork-owned path the commit touches back to the fork's version
+  local c=$1 f
+  while IFS= read -r -d '' f; do
+    fork_owns "$f" || continue
+    if git cat-file -e "HEAD:$f" 2>/dev/null; then git checkout --quiet HEAD -- "$f"; else git rm -q -f --cached --ignore-unmatch -- "$f"; rm -f -- "$f"; fi
+    [[ -z ${SYNC_DROPPED_FILE:-} ]] || printf '%s %s\n' "${c:0:12}" "$f" >>"$SYNC_DROPPED_FILE"
+    dropped+=("$f")
+  done < <(git diff-tree --no-commit-id --name-only -r -z "$c")
+}
 push=false
 [[ ${1:-} == --push ]] && push=true
 
@@ -42,7 +82,7 @@ base=$(git rev-parse "$fork_remote/$base_branch")
 last=$(git log -1 --format=%B --grep='^Upstream-Commit: [0-9a-f]\{40\}$' "$base" \
   | sed -n 's/^Upstream-Commit: \([0-9a-f]\{40\}\)$/\1/p' | tail -n 1)
 [[ -n $last ]] || last=$(git merge-base "$base" "$up") || die "the fork branch shares no history with the upstream copy"
-git merge-base --is-ancestor "$last" "$up" || die "upstream main no longer contains $last: upstream rewrote history, choose the fork point again by hand"
+git merge-base --is-ancestor "$last" "$up" || stop history "" "upstream main no longer contains $last: upstream rewrote history, choose the fork point again by hand"
 [[ $last != "$up" ]] || { echo "already in sync at ${up:0:8}"; exit 0; }
 
 mapfile -t commits < <(git rev-list --reverse --topo-order --no-merges "$last..$up")
@@ -52,14 +92,14 @@ git switch --quiet -C "$branch" "$base"
 msg=$(mktemp)
 trap 'rm -f "$msg"' EXIT
 for c in "${commits[@]}"; do
-  # An upstream commit that adds or changes a workflow would run with this repository's secrets once it is
-  # on the fork branch, and the sync's token may not push workflow files anyway. A person reads such a commit first.
-  if [[ ${ALLOW_WORKFLOW_CHANGES:-0} != 1 ]] && git diff-tree --no-commit-id --name-only -r "$c" | grep -q '^\.github/workflows/'; then
-    die "upstream commit ${c:0:12} changes .github/workflows: read it, then apply it by hand or rerun with ALLOW_WORKFLOW_CHANGES=1"
-  fi
-  if ! git cherry-pick --no-commit "$c" >/dev/null 2>&1; then
+  dropped=()
+  picked=true
+  git cherry-pick --no-commit "$c" >/dev/null 2>&1 || picked=false
+  drop_owned "$c"
+  if ! $picked && [[ -z $(git diff --name-only --diff-filter=U) ]]; then picked=true; fi
+  if ! $picked; then
     git cherry-pick --abort >/dev/null 2>&1 || git reset --quiet --hard HEAD
-    die "upstream commit ${c:0:12} does not apply on top of the fork: fix by hand (git cherry-pick $c), keep its message format, then rerun"
+    stop conflict "$c" "upstream commit ${c:0:12} does not apply on top of the fork: fix by hand (git cherry-pick $c), keep its message format, then rerun"
   fi
   title=$(python3 -I "$here/rewrite_title.py" "$c")
   link() { sed -E "s#(^|[^A-Za-z0-9/])\\#([0-9]+)#\\1$upstream_slug\\#\\2#g"; }
@@ -70,11 +110,12 @@ for c in "${commits[@]}"; do
       | awk -v n="$(git log -1 --format=%an "$c")" -v e="$(git log -1 --format=%ae "$c")" \
         'tolower($0) ~ /^co-authored-by:/ && (index(tolower($0), tolower(n)) || index(tolower($0), tolower(e))) { next } { print }' | link \
       | grep -Ev '^-{5,}$' | cat -s | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
+    if ((${#dropped[@]})); then printf '\nNot replayed (paths the fork owns, so the fork version stays): %s\n' "${dropped[*]}"; fi
     printf '\nUpstream-Commit: %s\n' "$c"
   } >"$msg"
   GIT_AUTHOR_NAME=$(git log -1 --format=%an "$c") GIT_AUTHOR_EMAIL=$(git log -1 --format=%ae "$c") \
     GIT_AUTHOR_DATE=$(git log -1 --format=%aI "$c") git commit --quiet --allow-empty --file "$msg" \
-    || die "the commit for ${c:0:12} was refused (a commit-msg hook?); nothing was pushed"
+    || stop hook "$c" "the commit for ${c:0:12} was refused (a commit-msg hook?); nothing was pushed"
   echo "${c:0:8}  $title"
 done
 echo "replayed ${#commits[@]} upstream commits onto $branch"
