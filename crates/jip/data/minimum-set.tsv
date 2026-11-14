@@ -1,0 +1,61 @@
+# The minimum set of JIP LN NVSE commands that must have a handler before nv-rs answers "JIP LN NVSE is installed"
+# (`jip::ANSWERS_INSTALLED`, ADR-0016). Names only, as JIP registers them (alias or long name, case
+# does not matter). Checked by `minimum::tests`: a name with no handler fails the gate while the flag
+# is on.
+#
+# Columns: name, source, group. Source `analysis` is the "probable first fifty" of section 5.2 of the
+# nv-rs gap analysis (nv-workshop, docs/research/nv-rs-gap-analysis.md): a Likely-level estimate from how
+# mods of the owner's list are written. When the opcode usage scan (G-01) has run, replace the entries
+# with its measured list and give each source `scan`; raise the version.
+# version 1
+GetFormFromMod	analysis	data lookups
+GetModName	analysis	data lookups
+GetSelfModIndex	analysis	data lookups
+fsqrt	analysis	maths
+fSin	analysis	maths
+fCos	analysis	maths
+fAtan2	analysis	maths
+GetDistance2D	analysis	maths
+GetDistance3D	analysis	maths
+GetMinOf	analysis	maths
+GetMaxOf	analysis	maths
+GetRandomInRange	analysis	maths
+GetINIFloat	analysis	config
+GetINIString	analysis	config
+FileExists	analysis	config
+ListToArray	analysis	config
+AddItemAlt	analysis	inventory
+EquipItemAlt	analysis	inventory
+GetAllItems	analysis	inventory
+GetEquippedItemRef	analysis	inventory
+GetItemRefCurrentHealth	analysis	inventory
+IsAttacking	analysis	combat
+IsFleeing	analysis	combat
+IsInCombatWith	analysis	combat
+GetCurrentAmmoRounds	analysis	combat
+SetCurrentAmmoRounds	analysis	combat
+GetHitWeapon	analysis	combat
+GetHitAttacker	analysis	combat
+GetKiller	analysis	combat
+GetIsRagdolled	analysis	combat
+HolsterWeapon	analysis	combat
+SetWeaponOut	analysis	combat
+SetSpeedMult	analysis	combat
+GetActorVelocity	analysis	combat
+GetPCUsingIronSights	analysis	player state and events
+GetPCUsingScope	analysis	player state and events
+GetPCMovedCell	analysis	player state and events
+GetGameDaysPassed	analysis	player state and events
+SetOnFastTravelEventHandler	analysis	player state and events
+SetOnPCTargetChangeEventHandler	analysis	player state and events
+SetOnDialogTopicEventHandler	analysis	player state and events
+SetOnNoteAddedEventHandler	analysis	player state and events
+InjectUIXML	analysis	ui
+AttachUIXML	analysis	ui
+GetActiveMenuMode	analysis	ui
+GetCursorPos	analysis	ui
+ShowQuantityMenu	analysis	ui
+MessageExAlt	analysis	ui
+HasKeyword	analysis	keywords
+AssignKeyword	analysis	keywords
+GetKeywordForms	analysis	keywords

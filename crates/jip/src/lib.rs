@@ -47,6 +47,7 @@ pub mod identity;
 pub mod input;
 pub mod ln_events;
 pub mod main_loop;
+pub mod minimum;
 pub mod overrides;
 pub mod script_call;
 #[rustfmt::skip]
@@ -63,16 +64,13 @@ use engine_core::prelude::*;
 
 /// Whether JIP LN NVSE answers "installed": its identity commands work, `IsPluginInstalled`
 /// and `GetPluginVersion` answer for its names, its commands' names are in the command table,
-/// and its empty slots run as JIP's do. Off until the commands mods call are built (the plan's
-/// step 3.10): a mod that checks for JIP then stops with its own "requires JIP" message, as
+/// and its empty slots run as JIP's do. Off until every command of the minimum set (`data/minimum-set.tsv`, [`minimum`]) has a
+/// handler (the plan's step 3.10): a mod that checks for JIP then stops with its own "requires JIP" message, as
 /// without the DLL, instead of halfway through a script. The one place to turn it on.
 pub const ANSWERS_INSTALLED: bool = false;
 
-// Held off in every build until step 3.10, which turns the flag on and removes this line.
-const _: () = assert!(
-    !ANSWERS_INSTALLED,
-    "JIP answers \"installed\" only from the plan's step 3.10"
-);
+// What holds the flag off is `minimum::tests::jip_answers_installed_only_with_the_whole_set`:
+// with it on, a command of the minimum set (`data/minimum-set.tsv`) without a handler fails it.
 
 /// JIP built in on this engine: its state, one slot per engine ([`Engine::ext`]), shared by the
 /// game's threads once installed.

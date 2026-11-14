@@ -43,6 +43,7 @@ pub mod ln_fn_casino;
 pub mod ln_fn_challenge;
 pub mod ln_fn_leveled_list;
 pub mod ln_fn_map_marker;
+pub mod ln_fn_math;
 pub mod ln_fn_perk;
 pub mod ln_fn_race;
 pub mod ln_fn_recipe;
@@ -108,6 +109,7 @@ pub const ALL: &[Handlers] = &[
     ln_fn_challenge::COMMANDS,
     ln_fn_leveled_list::COMMANDS,
     ln_fn_map_marker::COMMANDS,
+    ln_fn_math::COMMANDS,
     ln_fn_perk::COMMANDS,
     ln_fn_race::COMMANDS,
     ln_fn_recipe::COMMANDS,
@@ -636,6 +638,7 @@ mod tests {
             "ln_fn_challenge",
             "ln_fn_leveled_list",
             "ln_fn_map_marker",
+            "ln_fn_math",
             "ln_fn_perk",
             "ln_fn_race",
             "ln_fn_recipe",
