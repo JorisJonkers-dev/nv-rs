@@ -10,6 +10,8 @@ Usage: gpu_gate.py LOG
 import re
 import sys
 
+ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
 GPU_BINARIES = ("frame", "ops")
 RUNNING = re.compile(r"^\s*Running (?:unittests )?(?:tests/(\w+)\.rs|(\S+)) ")
 RESULT = re.compile(r"^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored")
@@ -20,6 +22,7 @@ def main(path):
     binary, passed, skipped, per_skip = None, {}, 0, {}
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
+            line = ANSI.sub("", line)
             m = RUNNING.match(line)
             if m:
                 binary = m.group(1)
