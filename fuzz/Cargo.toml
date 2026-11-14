@@ -19,9 +19,34 @@ path = "../crates/bsa"
 [dependencies.fos]
 path = "../crates/fos"
 
+[dependencies.bink]
+path = "../crates/bink"
+
+[dependencies.mp3]
+path = "../crates/mp3"
+
+[dependencies.vorbis]
+path = "../crates/vorbis"
+
+[dependencies.d3dx-tex]
+path = "../crates/d3dx-tex"
+
+[dependencies.d3d9-stream]
+path = "../crates/d3d9-stream"
+
+[dependencies.d3d9-wgpu]
+path = "../crates/d3d9-wgpu"
+
+[dependencies.nvse]
+path = "../crates/nvse"
+
 # Own workspace root: keeps the root workspace (and its 36 members) from
 # picking this crate up, and keeps libfuzzer-sys out of the core crates.
 [workspace]
+
+# As the root workspace: wgpu 30.0.1 with the vendored hal (vendor/README.md); d3d9-wgpu does not build without it.
+[patch.crates-io]
+wgpu-hal = { path = "../vendor/wgpu-hal" }
 
 [profile.release]
 debug = 1
@@ -43,6 +68,76 @@ bench = false
 [[bin]]
 name = "fos_save"
 path = "fuzz_targets/fos_save.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "esm_inflate"
+path = "fuzz_targets/esm_inflate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "esm_text_and_subrecords"
+path = "fuzz_targets/esm_text_and_subrecords.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bink_movie"
+path = "fuzz_targets/bink_movie.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mp3_decode"
+path = "fuzz_targets/mp3_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vorbis_decode"
+path = "fuzz_targets/vorbis_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "d3dx_texture"
+path = "fuzz_targets/d3dx_texture.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "d3d9_stream_wire"
+path = "fuzz_targets/d3d9_stream_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "d3d9_shader"
+path = "fuzz_targets/d3d9_shader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nvse_cosave"
+path = "fuzz_targets/nvse_cosave.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fos_decode"
+path = "fuzz_targets/fos_decode.rs"
 test = false
 doc = false
 bench = false
