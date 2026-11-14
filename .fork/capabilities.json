@@ -2,7 +2,7 @@
   "extenders": [
     {
       "commands": {
-        "implemented": 650,
+        "implemented": 654,
         "implemented_names": [
           "GetNVSEVersion",
           "GetNVSERevision",
@@ -620,7 +620,11 @@
           "EnablePlayerControlsAltEx",
           "GetPlayerControlsDisabledAltEx",
           "CopyIRAlt",
+          "CompileScript",
           "GetSelfAlt",
+          "DumpDocs",
+          "DumpCommandWikiDoc",
+          "DumpCommandWikiDocs",
           "SetModelPath",
           "Ternary",
           "MatchesAnyOf",
