@@ -1043,7 +1043,7 @@ mod recorded {
     /// give the same rotation.
     #[test]
     fn doc_s_first_look_turns_the_head_as_in_the_real_game() {
-        let Ok(path) = std::env::var("NV_EXE") else {
+        let Some(path) = crate::test_gate::require_data("NV_EXE") else {
             return;
         };
         let mut e = engine_core::Engine::with_exe(std::path::Path::new(&path)).unwrap();

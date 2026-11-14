@@ -22,6 +22,7 @@ tasks:
     desc: Self-tests of the fork's scripts (no network, no GitHub, nothing created)
     cmds:
       - python3 -I scripts/fork/test_wif.py
+      - python3 -I scripts/fork/check_data_gates.py
       - python3 -I scripts/fork/setup-anthropic-wif.py --selftest
       - python3 -I scripts/fork/create-app.py --selftest
       - python3 -I -m unittest discover -s scripts/fork/tests -v

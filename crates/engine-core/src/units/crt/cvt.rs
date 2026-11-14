@@ -1792,7 +1792,7 @@ mod tests {
     /// bytes the exe has at their addresses.
     #[test]
     fn computed_tables_are_the_exes() {
-        let Ok(path) = std::env::var("NV_EXE") else {
+        let Some(path) = crate::test_gate::require_data("NV_EXE") else {
             return;
         };
         let e = Engine::with_exe(std::path::Path::new(&path)).unwrap();
