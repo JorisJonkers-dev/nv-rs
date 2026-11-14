@@ -44,6 +44,8 @@ crates/engine-core/src/units/crt/printf.rs
 crates/engine-core/src/units/crt/trig.rs
 crates/engine-havok/src/lib.rs
 crates/engine-havok/src/units/havok_sdk/hkalookatiksolver.rs
+crates/engine-core/src/engine_unix.rs
+crates/engine-platform/src/fork_platform.rs
 crates/host/src/lib.rs
 crates/host/src/native_inflate.rs
 crates/nvse/src/commands/math.rs

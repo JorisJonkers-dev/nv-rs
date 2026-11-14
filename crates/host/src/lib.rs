@@ -425,10 +425,7 @@ const WIN_MAIN: u32 = 0x0086_a850;
 pub fn adapter_table_path() -> Option<PathBuf> {
     std::env::var_os("NV_D3D9_ADAPTER")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("LOCALAPPDATA")
-                .map(|d| PathBuf::from(d).join("nv-rs").join("d3d9_adapter.tsv"))
-        })
+        .or_else(|| engine_platform::fork_platform::data_dir().map(|d| d.join("d3d9_adapter.tsv")))
 }
 
 /// Where the player's D3DX texture cache is: `NV_D3DX_CACHE`, else
@@ -437,10 +434,7 @@ pub fn adapter_table_path() -> Option<PathBuf> {
 pub fn texture_cache_path() -> Option<PathBuf> {
     std::env::var_os("NV_D3DX_CACHE")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("LOCALAPPDATA")
-                .map(|d| PathBuf::from(d).join("nv-rs").join("d3dx-cache"))
-        })
+        .or_else(|| engine_platform::fork_platform::data_dir().map(|d| d.join("d3dx-cache")))
 }
 
 /// Runs what the platform layer runs before it ends the process itself (`engine_platform::on_exit`:

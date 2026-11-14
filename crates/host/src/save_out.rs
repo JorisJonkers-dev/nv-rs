@@ -102,7 +102,8 @@ fn warn_visibly(line: &str, plain: &str) {
 }
 
 /// The player's Documents, AppData and Local AppData as Windows answers for them (wherever they
-/// were moved to: OneDrive, another drive); empty off Windows.
+/// were moved to: OneDrive, another drive); off Windows the folders under the XDG data folder
+/// (`engine_platform::fork_platform::known_folders`).
 pub fn known_folders() -> Vec<PathBuf> {
     #[cfg(windows)]
     {
@@ -129,7 +130,7 @@ pub fn known_folders() -> Vec<PathBuf> {
         out
     }
     #[cfg(not(windows))]
-    Vec::new()
+    engine_platform::fork_platform::known_folders()
 }
 
 /// The path the system really means: links, junctions, `subst` and short names resolved, a part

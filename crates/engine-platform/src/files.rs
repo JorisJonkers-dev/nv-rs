@@ -1188,7 +1188,7 @@ fn host_name_text(name: &std::ffi::OsStr) -> String {
 /// last-write times, the size (high word, then low), the two reserved words 0, `cFileName` (the
 /// name as stored, then one zero byte) and an empty `cAlternateFileName` (one zero byte at
 /// +0x130); the rest of the buffer is left as it was.
-// Off Windows the file times stop the run (below), so what follows the stop is never reached.
+// Off Unix and Windows the file times stop the run (below), so what follows the stop is never reached.
 #[cfg_attr(not(windows), allow(unreachable_code, unused_variables))]
 fn write_find_data(
     e: &mut Engine,
@@ -1209,7 +1209,9 @@ fn write_find_data(
             meta.last_write_time(),
         )
     };
-    #[cfg(not(windows))]
+    #[cfg(unix)]
+    let (attributes, created, accessed, written) = crate::fork_platform::find_fields(meta, shown);
+    #[cfg(not(any(windows, unix)))]
     let (attributes, created, accessed, written): (u32, u64, u64, u64) = {
         let _ = &meta;
         panic!("FindFirstFileA(\"{shown}\"): file times are only provided on Windows");
@@ -3442,10 +3444,6 @@ mod tests_player_files {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows"
-    )]
     fn a_wildcard_search_lists_then_runs_out() {
         let mut e = Engine::new();
         let name = e.mem.alloc(0x200);
@@ -3475,10 +3473,6 @@ mod tests_player_files {
     /// TRUE, the last error left as it was (measured, 32-bit,
     /// `build43-scratch/measure/small-fixes/findclose-2026-11-02.tsv`).
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows"
-    )]
     fn find_close_after_a_search_that_found_nothing_answers_false() {
         let mut e = Engine::new();
         let name = e.mem.alloc(0x200);
@@ -3524,10 +3518,6 @@ mod tests_player_files {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "its FindFirstFileA part needs the file times, which are only provided on Windows"
-    )]
     fn a_read_only_open_reads_the_players_file_in_place() {
         let mut e = Engine::new();
         let real = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
@@ -4260,10 +4250,6 @@ mod tests_changed_directories {
     /// got (measured, `review-findfile/run1.txt`); not modelled, the run stops.
     #[test]
     #[should_panic(expected = "since FindFirstFileA; not provided")]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the stop it expects comes from the Windows file times: off Windows the search stops earlier, on the file times"
-    )]
     fn a_search_whose_folder_changed_since_it_began_stops() {
         let dir = scratch("midsearch", &[("a.fos", 5), ("b.fos", 5)]);
         let mut e = Engine::new();
