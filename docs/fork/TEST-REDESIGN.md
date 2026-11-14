@@ -272,3 +272,67 @@ Whatever lands, the test count must stay what `CI.md` says: the component summar
 `cargo test --workspace` (57,444 passed, 53 ignored). A shard list that drops a test name must fail the plan
 step the way an unlisted test file fails `components.py check`. Nothing here stores game data: per-test
 timing files hold test names and seconds only.
+
+## 9. Results: measured before and after (2026-11-14)
+
+Sections 1 to 8 are the study as written before any change. This section records what was done and what the
+runs measured. Every number is read from the Actions API (`started_at` and `completed_at` of the run and of
+each job) of a `fork` push, which always runs every component. Runner type and cache state differ a little from
+run to run, so differences under about 15 % are noise (the shader job moved from 835 s to 992 s between two runs
+with a change that cannot slow it).
+
+### 9.1 The pipeline's wall-clock on `fork`
+
+| Stage | Run | Wall-clock | Slowest job | What changed |
+| --- | --- | ---: | --- | --- |
+| Upstream's own gate (reference) | 43417602878 | 147 min | one job, 117 min of it the engine's tests | |
+| Fork baseline: five test shards plus `rest` (#1) | 43452255633 | 132.5 min | `Test (engine)` 131 min (7,876 s) | |
+| Components, one job per component (#2) | 43472725695 | 47.6 min | typed shader 46.7 min (2,802 s) | the split of section 6, item 1's neighbour; the shader binary is the floor |
+| opt-level 1 for the three harness crates (#6) | 43580157269 | 21.8 min | typed shader 20.9 min (1,252 s) | section 6, item 4 |
+| Function table copied per engine (#7) | 43582072687 | 14.7 min | typed shader 13.9 min (835 s) | section 6, item 2 |
+| Second control word only when read (#8) | 43583476511 | 17.5 min | typed shader 16.5 min (992 s) | section 6, item 3; no gain beyond noise (see below) |
+| After the next upstream sync (more tests) | 43591917531 | 17.1 min | typed shader 16.1 min (963 s) | upstream's new draw-thread tests included |
+
+Overall: 132 to 47.6 to about 15 to 17 minutes for the same tests on the same runner type, and the critical path
+is still the one test binary, now with a floor of about 14 to 16 minutes instead of 41.
+
+Measured effects behind it:
+
+- opt-level 1 (#6), `typed_culling` (32 tests): 424 s of tests at opt-level 0, 165 s with the three crates at 1
+  (compile 3 m 03 s to 3 m 08 s), 86 s with the whole workspace at 1 but an 8 m 42 s compile. The three crates are
+  the variant that is faster overall.
+- Function table (#7), typed geometry and pathing (204 tests, opt-level 0): building the engine was 41 % of the
+  time in a case (10.5 ms per engine against 1.65 ms to copy). At opt-level 1: 32 % (2.6 to 3.8 ms against 0.6 ms).
+- Control word (#8): 9,712 of 13,378 second-word runs (73 %) follow a first run that never read or loaded the
+  word in geometry and pathing, 1,637 of 3,172 (52 %) in culling, so 36 % and 26 % of all runs. The skip is
+  correct (the nightly run, which sets `NV_DIFF_ALL_WORDS`, still runs both words), but after #6 and #7 a case
+  is short, the shader job did not get faster (835 s before, 992 s after), and geometry went 597 s to 686 s.
+  The saving is real in test CPU but lost in the noise of the wall-clock; it stays because it also lowers
+  the cost of the nightly differential run's non-exhaustive part and costs nothing.
+
+Local measurement: the probes (section 9.3) ran only in CI. The Linux workflow of the M0 pull request later made
+a Linux build of every crate possible, so the Linux columns of the next measurement can be read from the Linux
+twins (the Linux jobs of that run took 0.7 to 4.9 minutes per component).
+
+### 9.2 What was not done, and why
+
+| Idea (section 6 number) | Decision | Reason |
+| --- | --- | --- |
+| 1. Shard the heavy typed binaries by measured test time | Not built; the branch `ci/shard-typed-tests` never got a commit of its own | #6 and #7 took the shader job from 46.7 to 13.9 minutes without sharding; sharding would have added about 11 job-min of compile per shard for at most 4 to 5 more minutes of wall-clock |
+| 5. Select typed jobs by the crates the tests execute | Built (`ci/select-impacted-tests`) and held | The rule needs a replay over history to be trusted; the owner decided to hold it until the pipeline is stable |
+| 6. Build once, test many (artifact of test binaries) | Rejected for now | Artifact size of opt-0 binaries linking 4 M lines is unknown and likely large; with the compile now 3 minutes of a 14-minute job the gain is small |
+| 7. Merge the three fallout components' compile | Rejected | Wall-clock about equal, 14 job-min saved against a longer single job; not worth the loss of per-component results |
+| 8. Boundary classes on pull requests, exhaustive table nightly | Not done | A coverage decision that is upstream's; offered only if the shader floor matters again |
+| 9, 10. Golden oracle, reduced assembly per typed family | Not done | Large, new failure modes, small remaining gain |
+| opt-level 1 for the whole workspace | Rejected | 86 s of tests but an 8 m 42 s compile; slower overall than three crates |
+| opt-level 2 or 3 for the harness crates | Rejected unmeasured | Debug assertions and overflow checks must stay, and compile time grows for no test the translations depend on |
+| Skip the direct run (third run) | Rejected | It is the check against the original program's own code and the reason the tests exist |
+| Fewer cases per differential test on pull requests | Rejected | Changes what a green run means; the study's rule is that a test is only skipped when its result cannot change |
+
+### 9.3 Probe branches
+
+The measurements above used throwaway branches that were never merged: `probe/test-redesign-1` (per-test times,
+timers around the parts of a differential case, whose measurement became #7 and #8) and `probe/linux-m0-1` to
+`probe/linux-m0-6` (the Linux build and test series of the M0 pull request: check, clippy, fmt, test per crate,
+and the engine's tests). Their results are in `LINUX.md` and above. The branches were deleted once the results
+were recorded here.
