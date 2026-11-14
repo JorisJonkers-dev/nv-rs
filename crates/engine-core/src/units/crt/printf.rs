@@ -1779,7 +1779,7 @@ mod exe_tests {
     /// identity (as `EncodePointer` is here) and the invalid-parameter handler doubled; `None`
     /// without the variable.
     fn exe_engine() -> Option<Engine> {
-        let path = std::env::var("NV_EXE").ok().filter(|p| !p.is_empty())?;
+        let path = crate::test_gate::require_data("NV_EXE")?;
         let mut e = Engine::with_exe(std::path::Path::new(&path)).expect("NV_EXE");
         let block = e.mem.alloc(0x400);
         let locale = e.mem.u32(GLOBAL_LOCALE_INFO);

@@ -603,14 +603,8 @@ mod tests {
 
     /// Each case as the real game with xNVSE 6.4.9 answered it (`a_math` in
     /// `real-results/batch1.txt`, the second number: the result times 2^40).
-    #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "tan and tanh come from the host's libm, whose last bit differs from the game's (dTan90, dTanh30)"
-    )]
-    fn the_results_match_the_real_game_bit_for_bit() {
-        let mut e = engine_with_table();
-        let cases: &[(&str, u32, Vec<Vec<u8>>, f64)] = &[
+    fn recorded_cases() -> Vec<(&'static str, u32, Vec<Vec<u8>>, f64)> {
+        vec![
             ("Exp1.5", 0x14c9, vec![z(1.5)], 4927669141504.0),
             ("Exp-3", 0x14c9, vec![z(-3.0)], 54741458944.0),
             ("Log10_7", 0x14ca, vec![z(7.0)], 929195098112.0),
@@ -707,15 +701,46 @@ mod tests {
             ("GetBit5_2", 0x1607, vec![n(5), n(2)], 1099511627776.0),
             ("GetBit5_1", 0x1607, vec![n(5), n(1)], 0.0),
             ("GetBit-1_31", 0x1607, vec![n(-1), n(31)], 1099511627776.0),
-        ];
+        ]
+    }
+
+    /// The cases that use the host's `tan` or `tanh`: their last bit differs between the game's C runtime
+    /// and a Linux libm (dTan90, dTanh30), so they are checked on Windows only.
+    const TAN_CASES: [&str; 4] = ["dTan45", "dTan90", "Tanh0.5", "dTanh30"];
+
+    /// Runs the recorded cases for which `chosen` is true, each as the real game answered it.
+    fn check_recorded(chosen: impl Fn(&str) -> bool) {
+        let mut e = engine_with_table();
         let mut wrong = Vec::new();
-        for (label, opcode, args, real) in cases {
-            let got = f(&mut e, *opcode, args);
-            if got.to_bits() != scaled(*real).to_bits() {
-                wrong.push(format!("{label}: port {got:e}, real {:e}", scaled(*real)));
+        let mut ran = 0;
+        for (label, opcode, args, real) in recorded_cases() {
+            if !chosen(label) {
+                continue;
+            }
+            ran += 1;
+            let got = f(&mut e, opcode, &args);
+            if got.to_bits() != scaled(real).to_bits() {
+                wrong.push(format!("{label}: port {got:e}, real {:e}", scaled(real)));
             }
         }
+        assert!(ran > 0, "no recorded case was chosen");
         assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// Every recorded case that does not use `tan` or `tanh`, on every OS.
+    #[test]
+    fn the_results_without_tan_match_the_real_game_bit_for_bit() {
+        check_recorded(|label| !TAN_CASES.contains(&label));
+    }
+
+    /// The `tan` and `tanh` cases, which only the game's own platform reproduces bit for bit.
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "tan and tanh come from the host's libm, whose last bit differs from the game's (dTan90, dTanh30)"
+    )]
+    fn the_tan_results_match_the_real_game_bit_for_bit() {
+        check_recorded(|label| TAN_CASES.contains(&label));
     }
 
     /// The real game's NaN and infinity cases: `-inf` for log10 0, NaN for log10 -1, a negative

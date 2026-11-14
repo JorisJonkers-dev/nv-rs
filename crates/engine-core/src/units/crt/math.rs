@@ -9029,7 +9029,7 @@ mod tests_bodies {
 
     /// The exe's data sections, mapped from the installed executable `NV_EXE` points at.
     fn with_exe() -> Option<Engine> {
-        let path = std::env::var("NV_EXE").ok().filter(|p| !p.is_empty())?;
+        let path = crate::test_gate::require_data("NV_EXE")?;
         Some(Engine::with_exe(std::path::Path::new(&path)).expect("NV_EXE"))
     }
 

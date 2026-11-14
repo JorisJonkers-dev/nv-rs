@@ -1926,7 +1926,7 @@ mod tests {
     #[test]
     #[ignore = "needs NV_EXE: the tables and scales are the exe's"]
     fn the_routine_matches_the_recorded_results_on_the_exes_tables() {
-        let Some(path) = std::env::var("NV_EXE").ok().filter(|p| !p.is_empty()) else {
+        let Some(path) = crate::test_gate::require_data("NV_EXE") else {
             return;
         };
         let mut e = Engine::with_exe(std::path::Path::new(&path)).expect("NV_EXE");

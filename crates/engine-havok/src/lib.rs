@@ -49,3 +49,10 @@ pub mod units;
 pub use engine_core::{abi, exe, mem, prelude, ptr, sse, static_exit, static_init, types, x87};
 pub use engine_core::{args, entry, layout};
 pub use engine_core::{AbiFn, Engine, Field, Inline, Layout, Mem, Ptr, Ret, Scalar};
+
+/// The gate for tests that need the player's game files (`scripts/fork/test_gate.rs`).
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) mod test_gate {
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fork/test_gate.rs"));
+}

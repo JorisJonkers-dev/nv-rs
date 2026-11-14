@@ -1,6 +1,8 @@
 # Paths that exist only in the fork (scripts/fork/verify-sync.sh leaves them out of the comparison with upstream).
 # Only paths upstream does not have: if upstream adds one, the replay stops on a conflict.
-# Never list a file upstream owns (README.md, CONTRIBUTING.md, LICENSE, ci.yml, Cargo.toml, ...).
+# Never list a file upstream owns (README.md, CONTRIBUTING.md, LICENSE, ci.yml, Cargo.toml, ...), except the test
+# files the fork edits on purpose (below): the fork is the product and upstream is an input, so it may change
+# upstream-owned tests; the replay keeps the fork's version of each and lists it in the sync summary.
 .fork/
 .cargo/config.toml
 .github/rulesets/
@@ -29,3 +31,16 @@ release-please-config.json
 renovate.json
 scripts/fork/
 version.txt
+# Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.
+crates/engine-core/src/lib.rs
+crates/engine-core/src/exe.rs
+crates/engine-core/src/units/crt/cvt.rs
+crates/engine-core/src/units/crt/fdiv.rs
+crates/engine-core/src/units/crt/math.rs
+crates/engine-core/src/units/crt/printf.rs
+crates/engine-core/src/units/crt/trig.rs
+crates/engine-havok/src/lib.rs
+crates/engine-havok/src/units/havok_sdk/hkalookatiksolver.rs
+crates/host/src/lib.rs
+crates/host/src/native_inflate.rs
+crates/nvse/src/commands/math.rs

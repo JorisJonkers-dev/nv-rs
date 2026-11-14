@@ -117,3 +117,10 @@ pub(crate) fn test_panic_hook_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
+
+/// The gate for tests that need the player's game files (`scripts/fork/test_gate.rs`).
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) mod test_gate {
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fork/test_gate.rs"));
+}

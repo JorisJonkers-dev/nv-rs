@@ -17,4 +17,3 @@ crates/engine-platform/src/files.rs  # a warning-only attribute and a test const
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
 crates/host/src/cell_offsets.rs  # the plugin path goes through files::real_path (a Linux path is not the game's backslash path)
-crates/nvse/src/commands/math.rs  # the tan/tanh bit-for-bit test is ignored off Windows (the host libm differs in the last bit)

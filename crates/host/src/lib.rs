@@ -764,10 +764,9 @@ mod tests {
     /// `operator new` hands out memory.
     #[test]
     fn starts_on_the_installed_executable_when_given() {
-        let Some(path) = std::env::var("NV_EXE").ok().filter(|p| !p.is_empty()) else {
+        let Some(exe) = crate::test_gate::require_data("NV_EXE") else {
             return;
         };
-        let exe = PathBuf::from(path);
         let data = exe.parent().unwrap().join("Data");
         let mut host = Host::start(&data).unwrap();
         assert_eq!(host.exe, exe);
@@ -776,4 +775,11 @@ mod tests {
         assert_ne!(block, 0);
         assert!(host.describe().contains("1.4.0.525"));
     }
+}
+
+/// The gate for tests that need the player's game files (`scripts/fork/test_gate.rs`).
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) mod test_gate {
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fork/test_gate.rs"));
 }

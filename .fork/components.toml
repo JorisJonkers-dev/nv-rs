@@ -75,6 +75,9 @@ purpose = "The script extenders built in: xNVSE's commands and JIP LN NVSE's com
 crates = ["nvse", "jip"]
 requires = ["core"]
 runs_on = "both"
+# The recorded real-game math results include tan and tanh cases that only Windows' libm reproduces bit for bit
+# (nvse commands/math.rs); they are ignored elsewhere, so the component also runs on Windows.
+windows = "required"
 
 [[component]]
 name = "rendering"
