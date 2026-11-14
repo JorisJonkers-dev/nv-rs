@@ -122,5 +122,8 @@ pub(crate) fn test_panic_hook_lock() -> std::sync::MutexGuard<'static, ()> {
 #[cfg(test)]
 #[allow(dead_code)]
 pub(crate) mod test_gate {
-    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fork/test_gate.rs"));
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../scripts/fork/test_gate.rs"
+    ));
 }

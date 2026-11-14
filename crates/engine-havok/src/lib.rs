@@ -54,5 +54,8 @@ pub use engine_core::{AbiFn, Engine, Field, Inline, Layout, Mem, Ptr, Ret, Scala
 #[cfg(test)]
 #[allow(dead_code)]
 pub(crate) mod test_gate {
-    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fork/test_gate.rs"));
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../scripts/fork/test_gate.rs"
+    ));
 }
