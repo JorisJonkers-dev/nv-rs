@@ -22,7 +22,7 @@ Everything the fork adds is listed in [`.fork/overlay-paths`](.fork/overlay-path
 differs from upstream, apart from the notice at the top of the README
 ([`.fork/allowed-divergence`](.fork/allowed-divergence)); `scripts/fork/verify-sync.sh` checks it. Mainly: `Taskfile.yml` and `mise.toml` (the local checks), `deny.toml`,
 `.gitleaks.toml`, `fuzz/`, `renovate.json`, `release-please-config.json`, the `fork-*.yml` and
-`release.yml` workflows, `.github/rulesets/`, and `scripts/fork/`.
+`release.yml` workflows, `.github/rulesets/`, and `scripts/fork/` (among them `scripts/fork/release-files`, which writes the release's capabilities and manifest files: [docs/fork/RELEASE-FILES.md](docs/fork/RELEASE-FILES.md)).
 
 ## Branches
 
@@ -37,4 +37,5 @@ differs from upstream, apart from the notice at the top of the README
 
 - [docs/fork/KEEPING-IN-SYNC.md](docs/fork/KEEPING-IN-SYNC.md): how the fork follows upstream, and what to do when a sync stops.
 - [docs/fork/CONTRIBUTING-UPSTREAM.md](docs/fork/CONTRIBUTING-UPSTREAM.md): how an improvement gets back to upstream.
+- [docs/fork/RELEASE-FILES.md](docs/fork/RELEASE-FILES.md): the capabilities and release manifest files a release carries, and what play-patch is.
 - [docs/fork/PRACTICES.md](docs/fork/PRACTICES.md): the checks, the release flow and the hooks the fork adds.

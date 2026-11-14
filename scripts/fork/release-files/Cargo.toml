@@ -1,0 +1,21 @@
+[package]
+name = "release-files"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "Fork-only: writes capabilities.json (from the built-in xNVSE and JIP LN command tables) and release-manifest.json (docs/fork/RELEASE-FILES.md)."
+
+[[bin]]
+name = "release-files"
+path = "src/main.rs"
+
+[dependencies]
+engine-core = { path = "../../../crates/engine-core" }
+nvse = { path = "../../../crates/nvse" }
+jip = { path = "../../../crates/jip" }
+serde_json = "1"
+jsonschema = { version = "0.30", default-features = false }
+
+# Standalone tool, not part of the root workspace (the root Cargo.toml is upstream's).
+[workspace]

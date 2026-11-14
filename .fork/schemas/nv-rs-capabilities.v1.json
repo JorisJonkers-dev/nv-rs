@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/JorisJonkers-dev/nv-rs/schemas/nv-rs-capabilities.v1.json",
+  "title": "nv-rs capabilities, version 1",
+  "description": "Per built-in script extender, how many commands are implemented, how many exist, and the implemented names. Generated from the command tables; names and counts only.",
+  "type": "object",
+  "required": ["schema_version", "extenders"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "extenders": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/extender" }
+    }
+  },
+  "$defs": {
+    "extender": {
+      "type": "object",
+      "required": ["id", "name", "commands"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "name": { "type": "string", "minLength": 1 },
+        "provided_by_source": { "type": "string" },
+        "commands": {
+          "type": "object",
+          "required": ["implemented", "total", "implemented_names"],
+          "properties": {
+            "implemented": { "type": "integer", "minimum": 0 },
+            "total": { "type": "integer", "minimum": 0 },
+            "implemented_names": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

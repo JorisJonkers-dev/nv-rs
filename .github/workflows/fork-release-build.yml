@@ -16,6 +16,11 @@ name: Release Build
 # Linux: nv-rs-<version>-linux-x86_64-dev.tar.gz, a developer build. It
 # compiles and runs the test suite but cannot play: off Windows there is no
 # window, sound or graphics back end yet.
+#
+# Both builds also carry capabilities.json and release-manifest.json (written by
+# scripts/fork/release-files from the command tables and the engine's section
+# hashes, validated against .fork/schemas/, docs/fork/RELEASE-FILES.md), listed in
+# their SHA256SUMS and covered by their build attestation.
 
 on:
   workflow_dispatch:
@@ -65,9 +70,57 @@ jobs:
           echo "Building version ${version}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
+  release-files:
+    name: Capabilities and release manifest
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The upstream base commit is a trailer of an earlier commit.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+
+      - name: Write the two files and validate them against the schemas
+        run: |
+          set -euo pipefail
+          # The last upstream commit the fork line was replayed to (as scripts/fork/verify-sync.sh finds it); before the
+          # first replay the merge base with the upstream copy is not available here, so a missing trailer is an error.
+          base="$(git log -1 --format=%B --grep='^Upstream-Commit: [0-9a-f]\{40\}$' HEAD | sed -n 's/^Upstream-Commit: \([0-9a-f]\{40\}\)$/\1/p' | tail -n 1)"
+          [ -n "${base}" ] || { echo "::error::no Upstream-Commit trailer in the history"; exit 1; }
+          tool=(cargo run --locked --quiet --manifest-path scripts/fork/release-files/Cargo.toml --)
+          mkdir -p release-files
+          "${tool[@]}" capabilities --out release-files/capabilities.json
+          "${tool[@]}" manifest --version "${VERSION}" --upstream-base "${base}" \
+            --source-commit "$(git rev-parse HEAD)" --source-tree "$(git rev-parse 'HEAD^{tree}')" \
+            --out release-files/release-manifest.json
+          "${tool[@]}" validate --schema .fork/schemas/nv-rs-capabilities.v1.json release-files/capabilities.json
+          "${tool[@]}" validate --schema .fork/schemas/nv-rs-release-manifest.v1.json release-files/release-manifest.json
+          # The checked-in copy is the tables' too: a release from a tree where they disagree is refused.
+          "${tool[@]}" capabilities --check .fork/capabilities.json
+          # The schemas are published next to the binaries so nvmod can vendor them.
+          cp .fork/schemas/*.json release-files/
+          cat release-files/release-manifest.json
+
+      - name: Upload the files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nv-rs-${{ env.VERSION }}-release-files
+          path: release-files
+          if-no-files-found: error
+          retention-days: 30
+
   windows:
     name: Windows x64 programs
-    needs: version
+    needs: [version, release-files]
     runs-on: windows-latest
     permissions:
       contents: read
@@ -136,6 +189,12 @@ jobs:
           Get-ChildItem -Recurse -File -LiteralPath $dir |
             ForEach-Object { $_.FullName.Substring($dir.Length + 1) }
 
+      - name: Add capabilities.json, release-manifest.json and the schemas
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nv-rs-${{ needs.version.outputs.version }}-release-files
+          path: ${{ env.PROGRAMS_DIR }}
+
       - name: Write SHA256SUMS
         run: |
           $dir = Join-Path $env:GITHUB_WORKSPACE $env:PROGRAMS_DIR
@@ -167,7 +226,7 @@ jobs:
 
   linux:
     name: Linux x86_64 developer build
-    needs: version
+    needs: [version, release-files]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -211,7 +270,18 @@ jobs:
             nv-viewer   release build of the nv-viewer package
           EOF
           tar --sort=name --owner=0 --group=0 --numeric-owner -czf "${TARBALL}" "${STAGE_DIR}"
-          sha256sum "${TARBALL}" > SHA256SUMS
+
+      - name: Add capabilities.json, release-manifest.json and the schemas beside the tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nv-rs-${{ needs.version.outputs.version }}-release-files
+          path: release-files
+
+      - name: Write SHA256SUMS
+        run: |
+          set -euo pipefail
+          cp release-files/*.json .
+          sha256sum "${TARBALL}" capabilities.json release-manifest.json nv-rs-*.v*.json > SHA256SUMS
           cat SHA256SUMS
 
       - name: Attest build provenance (optional)
@@ -221,6 +291,9 @@ jobs:
         with:
           subject-path: |
             ${{ env.TARBALL }}
+            capabilities.json
+            release-manifest.json
+            nv-rs-*.v*.json
             SHA256SUMS
 
       - name: Upload the Linux developer build
@@ -229,6 +302,9 @@ jobs:
           name: nv-rs-${{ env.VERSION }}-linux-x86_64-dev
           path: |
             ${{ env.TARBALL }}
+            capabilities.json
+            release-manifest.json
+            nv-rs-*.v*.json
             SHA256SUMS
           if-no-files-found: error
           retention-days: 30

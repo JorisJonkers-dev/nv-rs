@@ -16,6 +16,7 @@
 | Component-based build | `.fork/components.toml`, `scripts/fork/components.py`, `.github/workflows/fork-build.yml`, [`CI.md`](CI.md) | One job per engine component, each running only its own crates' tests; the slow engine tests are split along the typed families; on pull requests only the components a change reaches run; every workspace crate must belong to a component. Linux twins are informational until the crates are in `.fork/linux-ok.txt` |
 | Readable CI output | `scripts/fork/run-component.sh`, `libtest_summary.py`, `clippy_annotations.py`, `pipeline_summary.py` | Grouped logs, annotations for failed tests and clippy, a summary per job, and in `Pipeline Complete` each component's result and duration |
 | Windows and Linux release builds | `.github/workflows/fork-release-build.yml` | Artefacts only; never publishes. Packaging stays local (needs the player's `FalloutNV.exe`) |
+| Release files | `scripts/fork/release-files/`, `.fork/schemas/`, `.fork/capabilities.json`, `.github/workflows/fork-release-build.yml`, [`RELEASE-FILES.md`](RELEASE-FILES.md) | `capabilities.json` (built-in extender coverage, from the command tables) and `release-manifest.json` (version, upstream base, executable section hashes, play-patch entry), validated against checked-in schemas and attached to the release artefacts with `SHA256SUMS` and a build attestation |
 | Local setup | `mise.toml`, `Taskfile.yml`, `scripts/fork/install-hooks.sh` | `mise install`, then `task check` |
 
 Not adopted on purpose: Dependabot (the estate uses Renovate), and a changed Rust toolchain
