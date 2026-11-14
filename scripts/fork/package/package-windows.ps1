@@ -31,14 +31,14 @@ New-Item -ItemType Directory -Path (Join-Path $stage 'app/tools') -Force | Out-N
 
 # Our own programs. app\FalloutNV.exe is nv-viewer under that name (NVIDIA's driver fixes and Windows' per-program sound
 # go by the name); the program the release manifest calls `nv-viewer` is that file.
-$programs = @(
+$copies = @(
     @((Join-Path $x64 'Play.exe'), 'Play.exe'),
     @((Join-Path $x64 'nv-viewer.exe'), 'app/FalloutNV.exe'),
     @((Join-Path $x64 'd3d9-capture.exe'), 'app/tools/d3d9-capture.exe'),
     @((Join-Path $x86 'nvapi-capture.exe'), 'app/tools/nvapi-capture.exe'),
     @((Join-Path $x86 'dsound-capture.exe'), 'app/tools/dsound-capture.exe')
 )
-foreach ($pair in $programs) {
+foreach ($pair in $copies) {
     $src, $dest = $pair[0], (Join-Path $stage $pair[1])
     if (-not (Test-Path -LiteralPath $src)) { throw "missing build output: $src" }
     Copy-Item -LiteralPath $src -Destination $dest
