@@ -95,6 +95,28 @@ impl Records {
     }
 }
 
+/// A section's records read whole, as they are (every record's type, version and bytes), for a
+/// built-in that carries a section it does not interpret yet from one save to the next.
+pub fn read_chunks(r: &mut Reader) -> Result<Vec<Chunk>, OutOfRange> {
+    let mut out = Vec::new();
+    while let Some((kind, version, length)) = r.next_record()? {
+        let data = r.read_data(length)?;
+        out.push(Chunk {
+            kind,
+            version,
+            data,
+        });
+    }
+    Ok(out)
+}
+
+/// Writes records read by [`read_chunks`] back, unchanged and in their order.
+pub fn write_chunks(chunks: &[Chunk], out: &mut Records) {
+    for c in chunks {
+        out.record(c.kind, c.version, &c.data);
+    }
+}
+
 /// A listener for xNVSE's messages (`RegisterListener(handle, "NVSE", ...)`).
 pub type Listener = fn(&mut Engine, &Message);
 /// A save callback: the built-in's records for the co-save being written.

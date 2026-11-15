@@ -19,8 +19,13 @@ crates/nvse/src/commands/math.rs  # the bit-for-bit comparison is ignored off Wi
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
 crates/host/src/cell_offsets.rs  # the plugin path goes through files::real_path (a Linux path is not the game's backslash path)
+# Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
+Cargo.toml  # two workspace members
+Cargo.lock  # the two crates and the host's dependencies on them
+crates/host/Cargo.toml  # dependencies on the two crates
+crates/host/src/lib.rs  # their install calls after JIP's; and an appended test_gate module (the real-data gate)
+crates/nvse/src/plugins.rs  # read_chunks and write_chunks: a section's records carried unchanged
 crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off Windows (lavapipe offers 4x at most; nv-linux#189)
 # The real-data gate (docs/fork/TESTING.md): an appended `#[cfg(test)] mod test_gate`. Not overlay paths: upstream adds `mod` lines to these files, and an overlay file would drop them (a replayed commit would then build without its module).
 crates/engine-core/src/lib.rs  # appended test_gate module
 crates/engine-havok/src/lib.rs  # appended test_gate module
-crates/host/src/lib.rs  # appended test_gate module
