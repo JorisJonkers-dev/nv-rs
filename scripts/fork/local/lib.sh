@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared by nv-rs-dev. Sourced, not run.
 DEV_TARGET="${NV_DEV_TARGET:-$HOME/.cache/nv-rs/target}"
 DEV_MEM="${NV_DEV_MEM:-12G}"

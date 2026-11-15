@@ -9,7 +9,7 @@
 #      NV_DEV_REPO (default: the git worktree you are in), NV_GAME.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-# shellcheck source=lib.sh
+# shellcheck source=lib.sh disable=SC1091
 . "$HERE/lib.sh"
 cmd="${1:-help}"; [ $# -gt 0 ] && shift
 case "$cmd" in
