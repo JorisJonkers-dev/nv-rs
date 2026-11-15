@@ -502,8 +502,9 @@ fn load_adapter_table(e: &mut Engine) {
     // Off Windows no capture tool exists: without a file, the table is made from this machine
     // (wgpu's adapter and the reference profile) and kept where the file belongs (`fork_tables`).
     #[cfg(not(windows))]
-    if text.is_none() {
-        text = write_linux_adapter_table();
+    if text.is_none() || std::env::var_os("NV_D3D9_ADAPTER").is_none() {
+        // The table is generated here, not captured: made afresh each run unless a file is named.
+        text = write_linux_adapter_table().or(text);
     }
     if let Some(text) = text {
         engine_platform::d3d9::load_adapter_table(e, &text);

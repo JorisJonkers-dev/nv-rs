@@ -698,7 +698,9 @@ pub fn adapter_table(p: &Profile) -> String {
     windows_lines(&mut o);
     // Folders: the Windows directory and CSIDL personal, appdata, local appdata, common appdata,
     // common documents, under the user data folder.
-    let u = p.userdata.trim_end_matches('/');
+    // The game's paths are Windows paths: `Z:` is the host's root (`files::host_path`, as Wine's),
+    // so the folders are `Z:\home\...`; a path with `/` is no full path to the game's file layer.
+    let u = format!("Z:{}", p.userdata.trim_end_matches('/').replace('/', "\\"));
     writeln!(
         o,
         "GetWindowsDirectoryA\t\t{:x}\t{}",
@@ -707,11 +709,11 @@ pub fn adapter_table(p: &Profile) -> String {
     )
     .unwrap();
     for (csidl, path) in [
-        (0x05u32, format!("{u}/Documents")),
-        (0x1a, format!("{u}/AppData/Roaming")),
-        (0x1c, format!("{u}/AppData/Local")),
-        (0x23, format!("{u}/AppData/Common")),
-        (0x2e, format!("{u}/Documents/Common")),
+        (0x05u32, format!("{u}\\Documents")),
+        (0x1a, format!("{u}\\AppData\\Roaming")),
+        (0x1c, format!("{u}\\AppData\\Local")),
+        (0x23, format!("{u}\\AppData\\Common")),
+        (0x2e, format!("{u}\\Documents\\Common")),
     ] {
         writeln!(o, "SHGetFolderPathA\t{csidl:x} 0\t0\t{}", path_hex(&path)).unwrap();
     }
