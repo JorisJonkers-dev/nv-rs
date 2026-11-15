@@ -234,6 +234,13 @@ fn identifier(p: &Profile) -> Vec<u8> {
     b
 }
 
+/// `D3DCAPS9::TextureCaps` of a Shader Model 3 card: PERSPECTIVE, ALPHA, TEXREPEATNOTSCALEDBYSIZE,
+/// NONPOW2CONDITIONAL, PROJECTED, CUBEMAP, VOLUMEMAP, MIPMAP, MIPVOLUMEMAP, MIPCUBEMAP; not POW2
+/// (0x2) and not SQUAREONLY (0x20), which would make the game round every target up to a power of
+/// two square.
+const TEXTURE_CAPS: u32 =
+    0x1 | 0x4 | 0x40 | 0x100 | 0x400 | 0x800 | 0x2000 | 0x4000 | 0x8000 | 0x1_0000;
+
 /// `D3DCAPS9` (304 bytes) of the reference Shader Model 3 hardware device.
 fn caps(devtype: u32) -> Vec<u8> {
     let mut b = vec![0u8; 304];
@@ -280,7 +287,9 @@ fn caps(devtype: u32) -> Vec<u8> {
         56,
         0x0008_0000 | 0x0000_0200 | 0x0000_2000 | 0x0000_4000,
     ); // ShadeCaps
-    w(&mut b, 60, 0x0000_ffff & !0x0000_0100); // TextureCaps
+       // TextureCaps: no POW2 and no SQUAREONLY (a Shader Model 3 card takes any size; with them set
+       // the game made its world target 1024 by 1024 and drew the world into a corner of it).
+    w(&mut b, 60, TEXTURE_CAPS);
     w(
         &mut b,
         64,
@@ -1195,6 +1204,24 @@ mod tests {
             crate::d3d9::captured_format_check(&mut e, &[0, 1, 22, 1, 3, 22]),
             Some(0)
         );
+    }
+
+    /// The caps the table gives say a card takes any texture size: with POW2 or SQUAREONLY the
+    /// game made its world target a 1024 by 1024 square and drew the world into a corner of it.
+    #[test]
+    fn the_device_caps_take_textures_of_any_size() {
+        let table = adapter_table(&reference());
+        let line = table
+            .lines()
+            .find(|l| l.starts_with("GetDeviceCaps\t0 1\t"))
+            .expect("the HAL device's caps");
+        let hex = line.split('\t').nth(3).expect("the caps' bytes").trim();
+        let word =
+            |at: usize| u32::from_str_radix(&hex[2 * at..2 * at + 8], 16).map(u32::swap_bytes);
+        let texture_caps = word(60).expect("a hex word");
+        assert_eq!(texture_caps, TEXTURE_CAPS);
+        assert_eq!(texture_caps & (0x2 | 0x20), 0, "no POW2, no SQUAREONLY");
+        assert_ne!(texture_caps & 0x100, 0, "NONPOW2CONDITIONAL");
     }
 
     #[test]
