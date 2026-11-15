@@ -4,6 +4,8 @@
 #   nv-rs-dev run [args]         run that build against the Steam game folder, log under ~/.local/state/nv-rs/logs
 #   nv-rs-dev smoke [--seconds N] [--shot]   run N seconds (default 60), stop it, print a PASS/FAIL checklist
 #   nv-rs-dev test <crate> [args]  cargo test -p <crate>
+#   nv-rs-dev affected [base]    the crates and components a diff reaches (default base origin/fork), as the pull request's CI selects them
+#   nv-rs-dev ci-lite [base]     fmt, clippy of the changed crates and the Linux test jobs of the affected components, as CI would run them
 #   nv-rs-dev check [crate...]   fmt + clippy for the given crates (default: those changed against origin/fork)
 # Env: NV_DEV_TARGET (default ~/.cache/nv-rs/target), NV_DEV_MEM (default 12G), NV_DEV_PROFILE (default play),
 #      NV_DEV_REPO (default: the git worktree you are in), NV_GAME.
@@ -20,5 +22,7 @@ case "$cmd" in
     [ $# -ge 1 ] || { echo "usage: nv-rs-dev test <crate> [cargo test args]" >&2; exit 2; }
     c="$1"; shift; dev_cargo test -p "$c" "$@" ;;
   check) dev_check "$@" ;;
-  *) sed -n '2,9p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  affected) dev_affected "$@" ;;
+  ci-lite) dev_ci_lite "$@" ;;
+  *) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

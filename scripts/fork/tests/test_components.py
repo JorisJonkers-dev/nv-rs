@@ -354,6 +354,18 @@ class RealMap(unittest.TestCase):
         self.assertEqual(len(data["include"]), len(real_model().plan()["include"]))
         self.assertEqual({"name", "component", "cache", "os", "informational", "workspaces", "timeout", "script"}, set(data["include"][0]))
 
+    def test_the_cli_prints_what_a_file_list_reaches(self):
+        files = Path(tempfile.mkdtemp()) / "files.txt"
+        self.addCleanup(shutil.rmtree, files.parent, True)
+        files.write_text("crates/d3dx-tex/src/lib.rs\n")
+        run = lambda *x: subprocess.run([sys.executable, "-I", str(FORK / "components.py"), "affected", "--files-from", str(files), "--metadata", str(FIXTURE), *x],
+                                        capture_output=True, text=True, cwd=REPO, check=True).stdout
+        self.assertIn("changed crates: d3dx-tex", run())
+        self.assertEqual(run("--crates").split(), ["d3dx-tex"])
+        self.assertTrue(all(c.startswith("cargo ") for c in run("--commands").splitlines()))
+        files.write_text("Cargo.lock\n")
+        self.assertIn("EVERYTHING", run())
+
 
 class Summaries(unittest.TestCase):
     LOG = """   Compiling x
