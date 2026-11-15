@@ -18,7 +18,9 @@ mod surface;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod platform;
 
-pub use display::{display, hz_of, parse_wanted, pick, Display, Monitor};
+pub use display::{
+    display, hz_of, last_monitor, parse_wanted, pick, remember_monitor, Display, Monitor, Wanted,
+};
 pub use registry::{
     client_size, close_requested, held_keys, raw_handles, scale_motion, set_game_area, take_input,
     to_game_position, Input,

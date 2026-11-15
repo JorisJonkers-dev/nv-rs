@@ -331,9 +331,12 @@ tested only through the recorder's calls here, and the real-device fallbacks sta
 ### Display match
 
 The game's window and rendering follow the display the process started on (`fork-window/src/display.rs`). The monitor is
-`NV_MONITOR=<index>` (the window system's order), else the primary monitor, else the first output; Wayland has no primary
-and no query for the monitor holding the focus or the cursor, so the first output stands in there and `NV_MONITOR` is the
-way to choose another. The size and refresh (millihertz, rounded to hertz) are the monitor's own.
+`NV_MONITOR=<index or output name>` (the window system's order; `DP-1`), else the output the window last landed on (kept in
+`$XDG_STATE_HOME/nv-rs/last-monitor`), else the primary, else the first. Wayland has no query for the monitor holding the
+focus or the cursor and a client cannot place its window: there the full-screen request names no output, the compositor
+places the window (GNOME: on the current output), and the monitor it landed on is logged
+(`fork-window: the window is on monitor <name> ...`) and kept for the next run. The size the settings are seeded with is
+chosen before the window exists, so the first run may seed another output's size: `NV_RESOLUTION=WxH` or `NV_MONITOR` fixes it. The size and refresh (millihertz, rounded to hertz) are the monitor's own.
 
 - Settings: a new `FalloutPrefs.ini`, and an existing one that lacks the keys, gets `iSize W`, `iSize H` and
   `bFull Screen=1` under `[Display]` (`seed_settings`, `prefs_with_display`). A key already in the file is the player's choice

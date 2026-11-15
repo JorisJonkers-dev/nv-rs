@@ -124,11 +124,12 @@ fn log_display(mode: wgpu::PresentMode) {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| match fork_window::display() {
         Some(d) => eprintln!(
-            "NV_D3D9 display: monitor {} {}x{} {} Hz, present {mode:?}",
+            "NV_D3D9 display: monitor {} {}x{} {} Hz ({}), present {mode:?}",
             d.index,
             d.monitor.width,
             d.monitor.height,
-            d.refresh_hz()
+            d.refresh_hz(),
+            d.why
         ),
         None => eprintln!("NV_D3D9 display: no monitor known, present {mode:?}"),
     });
