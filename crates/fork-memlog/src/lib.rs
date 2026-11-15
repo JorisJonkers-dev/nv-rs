@@ -29,6 +29,16 @@ pub struct Host {
     pub rss_peak: u64,
 }
 
+/// The card's own memory in bytes (amdgpu sysfs, Linux): what every process on the GPU holds, not
+/// only this one. Absent when the driver gives no such files.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Card {
+    pub vram_used: u64,
+    pub vram_total: u64,
+    pub gtt_used: u64,
+    pub gtt_total: u64,
+}
+
 /// The GPU layer's counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Gpu {
@@ -91,6 +101,7 @@ impl MemLog {
         heap: &Heap,
         host: &Host,
         gpu: &Gpu,
+        card: Option<&Card>,
     ) -> String {
         self.last = Some(now);
         self.lines += 1;
@@ -103,12 +114,14 @@ impl MemLog {
             self.peak_used,
             host,
             gpu,
+            card,
         )
     }
 }
 
 /// One line: `NV_MEMLOG t=… n=… frame=… heap_used=… …`, every value an unsigned integer except `t`
 /// (seconds, three decimals). `heap_peak` is the highest `heap_used` the sampler has seen.
+#[allow(clippy::too_many_arguments)]
 pub fn format_line(
     t: f64,
     n: u64,
@@ -117,8 +130,9 @@ pub fn format_line(
     heap_peak: u64,
     host: &Host,
     gpu: &Gpu,
+    card: Option<&Card>,
 ) -> String {
-    format!(
+    let mut line = format!(
         "{TAG} t={t:.3} n={n} frame={frame} heap_used={} heap_peak={} heap_cap={} heap_free={} \
          heap_largest_free={} heap_top={} heap_peak_addr={} rss={} rss_peak={} gpu_kept_bytes={} \
          gpu_kept_levels={} gpu_bind_groups={} gpu_pipelines={} gpu_presents={}",
@@ -136,7 +150,63 @@ pub fn format_line(
         gpu.bind_groups,
         gpu.pipelines,
         gpu.presents
-    )
+    );
+    // Appended only when the driver gives them, after the stable keys.
+    if let Some(c) = card {
+        line.push_str(&format!(
+            " vram_used={} vram_total={} gtt_used={} gtt_total={}",
+            c.vram_used, c.vram_total, c.gtt_used, c.gtt_total
+        ));
+    }
+    line
+}
+
+/// A sysfs counter: one decimal number and a newline.
+pub fn parse_sysfs_u64(text: &str) -> Option<u64> {
+    text.trim().parse().ok()
+}
+
+/// The card's memory now: of `/sys/class/drm/card*/device`, the one with the most VRAM (the
+/// discrete card), read-only; `None` when no card has the amdgpu files.
+#[cfg(target_os = "linux")]
+pub fn card_now() -> Option<Card> {
+    let read =
+        |d: &std::path::Path, f: &str| parse_sysfs_u64(&std::fs::read_to_string(d.join(f)).ok()?);
+    let mut best: Option<Card> = None;
+    for e in std::fs::read_dir("/sys/class/drm").ok()?.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        // card0, card1 ... not card0-DP-1 and the like.
+        if !name
+            .strip_prefix("card")
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        {
+            continue;
+        }
+        let d = e.path().join("device");
+        let (Some(vu), Some(vt)) = (
+            read(&d, "mem_info_vram_used"),
+            read(&d, "mem_info_vram_total"),
+        ) else {
+            continue;
+        };
+        let c = Card {
+            vram_used: vu,
+            vram_total: vt,
+            gtt_used: read(&d, "mem_info_gtt_used").unwrap_or(0),
+            gtt_total: read(&d, "mem_info_gtt_total").unwrap_or(0),
+        };
+        if best.map_or(true, |b| c.vram_total > b.vram_total) {
+            best = Some(c);
+        }
+    }
+    best
+}
+
+/// Other platforms: no card numbers.
+#[cfg(not(target_os = "linux"))]
+pub fn card_now() -> Option<Card> {
+    None
 }
 
 /// Resident set and its peak from the text of `/proc/self/status` (`VmRSS` and `VmHWM`, in kB).
@@ -227,6 +297,25 @@ mod tests {
     }
 
     #[test]
+    fn card_keys_append_and_sysfs_parses() {
+        let (h, o, g) = sample();
+        let c = Card {
+            vram_used: 1,
+            vram_total: 2,
+            gtt_used: 3,
+            gtt_total: 4,
+        };
+        let base = format_line(0.0, 1, 1, &h, 1, &o, &g, None);
+        let with = format_line(0.0, 1, 1, &h, 1, &o, &g, Some(&c));
+        assert_eq!(
+            with,
+            format!("{base} vram_used=1 vram_total=2 gtt_used=3 gtt_total=4")
+        );
+        assert_eq!(parse_sysfs_u64("17163091968\n"), Some(17_163_091_968));
+        assert_eq!(parse_sysfs_u64("n/a"), None);
+    }
+
+    #[test]
     fn interval_parsing() {
         assert_eq!(parse_interval(None), None);
         for off in ["", "0", "off", "yes", "-3", "nan", "inf", "100000"] {
@@ -267,7 +356,7 @@ mod tests {
     #[test]
     fn line_is_key_value_and_numbers_only() {
         let (h, o, g) = sample();
-        let l = format_line(1.5, 2, 99, &h, 120, &o, &g);
+        let l = format_line(1.5, 2, 99, &h, 120, &o, &g, None);
         assert!(l.starts_with("NV_MEMLOG t=1.500 n=2 frame=99 heap_used=100 heap_peak=120 "));
         assert!(!l.contains('\n'));
         for kv in l.split(' ').skip(1) {
@@ -293,7 +382,7 @@ mod tests {
         for used in [50u64, 300, 10] {
             h.used = used;
             assert!(m.due(now));
-            let l = m.line(now, 1, &h, &o, &g);
+            let l = m.line(now, 1, &h, &o, &g, None);
             assert!(!m.due(now + Duration::from_secs(1)));
             let peak: u64 = l
                 .split(' ')

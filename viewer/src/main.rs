@@ -305,6 +305,7 @@ fn memlog_line(
             pipelines: g.pipelines,
             presents: g.presents,
         },
+        fork_memlog::card_now().as_ref(),
     )
 }
 
