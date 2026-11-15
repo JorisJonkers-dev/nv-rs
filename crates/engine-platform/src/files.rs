@@ -98,6 +98,7 @@ impl Disk {
     }
 }
 
+#[cfg(not(windows))]
 mod short_names;
 
 /// A file's directory entry as `FindFirstFileA` describes it, for a file the game made or
