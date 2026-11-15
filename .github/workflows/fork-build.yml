@@ -119,8 +119,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: '. -> target'
-          shared-key: integration-${{ runner.os }}
-          save-if: ${{ github.ref == 'refs/heads/fork' }}
+          shared-key: integration-archive-${{ runner.os }}
+          # The compile of the engine crates is the cost, so the workspace crates are kept, too (measured: docs/fork/CI-SPEED.md).
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == 'refs/heads/fork' || github.head_ref == 'ci/archive' }}
       - name: Compile the test binaries once
         run: |
           set -o pipefail
@@ -142,7 +144,15 @@ jobs:
             fi
           done || true
       - name: Slowest compile units
-        run: python -I scripts/fork/archive.py timings --dir target/cargo-timings --top 20 | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          mkdir -p "$RUNNER_TEMP/timings"
+          python -I scripts/fork/archive.py timings --dir target/cargo-timings --top 40 | tee "$RUNNER_TEMP/timings/top-units.md" >>"$GITHUB_STEP_SUMMARY"
+          cp target/cargo-timings/cargo-timing*.html "$RUNNER_TEMP/timings/"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: compile-timings
+          path: ${{ runner.temp }}/timings
+          retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-archive
