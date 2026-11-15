@@ -49,7 +49,7 @@ that needs one still stops no run. Tests: `fork_platform::tests` and `unix_tests
 through `FindFirstFileA`, the `/proc/meminfo` parser on fixtures, the paths under a fake `XDG_DATA_HOME`) and
 `engine_unix::tests` (the uptime parser and the clock start).
 
-## Shader compiler off Windows (nv-linux#178, #197)
+## Shader compiler off Windows (nv-linux#178, #197, #200)
 
 The six D3DX shader imports (`D3DXCompileShader`, `D3DXGetShaderConstantTable`, `D3DXGetVertexShaderProfile`,
 `D3DXGetPixelShaderProfile`, `D3DXCreateBuffer`, `D3DXAssembleShader`) are registered on every target. On Windows they
@@ -63,16 +63,29 @@ over the new crate `crates/d3dx-shader` (fork-owned, additive; the only upstream
    the include files' names and contents and the identity. Identities are separate key spaces, tried in this order:
    `ms-*` (Microsoft's `d3dx9_38.dll`), `wine-*` (Wine's built-in d3dx9), then the rest (`vkd3d-shader ...`). Nothing
    is committed or shipped: no cache file, no shader, no compiler binary.
-2. **A backend** (libvkd3d-shader, loaded with `dlopen`) is the next change.
-3. **A miss stops the run** with a named error (request key, target, entry; no source text, no path). A backend that
-   refuses a source answers `D3DXERR_INVALIDDATA` and its text in the error buffer, as D3DX does.
+2. **libvkd3d-shader behind it, loaded with `dlopen`** at the first miss (`libvkd3d-shader.so.1`, or the file
+   `NV_VKD3D_SHADER` names). HLSL (Shader Model 1 to 3 profiles) is compiled to d3dbc, with its constant-table
+   comment, and stored under the library's identity. The library is a run-time prerequisite of a Linux build that has
+   shaders to compile: Arch `vkd3d`, Debian and Ubuntu `libvkd3d-shader1`, Fedora `vkd3d`; the Nix package carries it
+   (`NV_VKD3D_SHADER` set by the wrapper). It must be new enough to produce d3dbc from HLSL (checked on load; the
+   development library is vkd3d-shader 1.19). `NV_D3DX_SHADER_BACKEND=off` uses the cache only.
+3. **No library, no entry:** the run stops with a named error (request key, target, entry; no source text, no path) or,
+   for a missing or too old library, with what to install. A source the compiler refuses answers `D3DXERR_INVALIDDATA`
+   and the compiler's text in the error buffer, as D3DX does.
 
-Not provided yet: any compile that is not in the cache, and `ID3DXConstantTable`'s reading slots (`GetDesc`, `GetConstantDesc`, `GetConstant*`: only
+Not provided yet: `D3DXAssembleShader` on a cache miss (libvkd3d-shader has no assembler for d3d assembly text; a
+recorded entry is served), and `ID3DXConstantTable`'s reading slots (`GetDesc`, `GetConstantDesc`, `GetConstant*`: only
 `GetBufferPointer` and `GetBufferSize`, the `CTAB`, answer); both stop the run with a message that says so. The profile
 calls answer `vs_3_0` and `ps_3_0`, the model's caps.
 
-Tests: `d3dx-shader` unit tests (key stability and sensitivity per field, cache round trip, named miss, include
-contents) and `d3dxshader::tests` (the six imports in the table, `D3DXCreateBuffer`).
+Licence check (nv-linux#200): upstream `COPYING` of vkd3d (the source of the checked build, vkd3d-shader 1.19) is the GNU
+Lesser General Public License, "either version 2.1 of the License, or (at your option) any later version", and the source
+headers of `libs/vkd3d-shader` say the same. LGPL-2.1-or-later may be used with a GPL-3.0-or-later program; the fork only
+`dlopen`s the library, links nothing and carries none of its code or binaries. `libloading` (ISC) was already in the
+dependency tree. Tests: `d3dx-shader` unit tests (key stability and sensitivity per field, cache round trip, named miss,
+include contents), `d3dx-shader/tests/converter.rs` (synthetic vs_2_0, vs_3_0, ps_2_0, ps_3_0 through the d3d9-wgpu reader,
+converter and naga validation) and `d3dxshader::tests`; the ones that need the library print `skipped:` without it
+(`NV_REQUIRE_VKD3D=1` makes that a failure).
 
 ## Finding for the owner
 
