@@ -13,6 +13,18 @@ fn main() {
         eprintln!("clear: {why}");
         std::process::exit(1)
     };
+    // The monitor query comes first, as the game's settings do: the window must still be made
+    // (winit makes one event loop per process; both use it).
+    match fork_window::display() {
+        Some(d) => println!(
+            "display: monitor {} {}x{} {} Hz",
+            d.index,
+            d.monitor.width,
+            d.monitor.height,
+            d.refresh_hz()
+        ),
+        None => println!("display: none known"),
+    }
     let window = Window::open(
         WindowRequest {
             title: "nv-rs window layer".into(),

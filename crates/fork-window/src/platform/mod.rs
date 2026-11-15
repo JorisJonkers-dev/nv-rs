@@ -5,7 +5,7 @@ use crate::{dik, ChangeHook, WindowRequest};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::sync::OnceLock;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{
@@ -48,40 +48,66 @@ pub(crate) fn button_of(button: MouseButton) -> Option<usize> {
     }
 }
 
-/// What the window thread answers [`Window::open`] with: the id and the proxy, or why not.
-type Ready = Result<(isize, EventLoopProxy<Command>), String>;
+/// What the event loop thread answers [`Window::open`] with: the window's id, or why not.
+type Ready = Result<isize, String>;
 
 enum Command {
-    Shutdown,
+    /// Make the window (the loop's one at a time).
+    Open {
+        request: WindowRequest,
+        on_change: Option<ChangeHook>,
+        ready: mpsc::Sender<Ready>,
+    },
+    /// Answer the display the loop's monitors give ([`crate::display`]).
+    Probe(mpsc::Sender<Option<crate::Display>>),
+    /// End the window; answered when it is gone.
+    Close(mpsc::Sender<()>),
 }
 
-/// A window on its own thread. Drop (or [`Window::shutdown`]) ends the thread and the window:
-/// drop every wgpu surface made from it first.
+/// The one event loop of the process. winit allows one per process (a second is refused with
+/// "EventLoop can't be recreated"), so the monitor query and every window go through it: it is
+/// made on the first use, on a thread of its own that lives to the end of the process.
+fn hub() -> Result<&'static EventLoopProxy<Command>, String> {
+    static HUB: OnceLock<Result<EventLoopProxy<Command>, String>> = OnceLock::new();
+    HUB.get_or_init(|| {
+        let (tx, rx) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("nv-window".into())
+            .spawn(move || run(tx))
+            .map_err(|e| format!("window thread: {e}"))?;
+        rx.recv()
+            .map_err(|_| "the window thread ended at start".to_string())?
+    })
+    .as_ref()
+    .map_err(Clone::clone)
+}
+
+/// A window of the process's event loop. Drop (or [`Window::shutdown`]) ends the window: drop
+/// every wgpu surface made from it first.
 pub struct Window {
     id: isize,
-    proxy: EventLoopProxy<Command>,
-    thread: Option<JoinHandle<()>>,
+    proxy: Option<EventLoopProxy<Command>>,
 }
 
 impl Window {
     /// Makes the window and returns when it exists (or why it could not be made: no display, no
     /// compositor). Wayland is used when the session is one, X11 otherwise (winit's choice).
     pub fn open(request: WindowRequest, on_change: Option<ChangeHook>) -> Result<Window, String> {
+        let proxy = hub()?;
         let (tx, rx) = mpsc::channel::<Ready>();
-        let thread = std::thread::Builder::new()
-            .name("nv-window".into())
-            .spawn(move || run(request, on_change, tx))
-            .map_err(|e| format!("window thread: {e}"))?;
+        proxy
+            .send_event(Command::Open {
+                request,
+                on_change,
+                ready: tx,
+            })
+            .map_err(|_| "the event loop has ended".to_string())?;
         match rx.recv() {
-            Ok(Ok((id, proxy))) => Ok(Window {
+            Ok(Ok(id)) => Ok(Window {
                 id,
-                proxy,
-                thread: Some(thread),
+                proxy: Some(proxy.clone()),
             }),
-            Ok(Err(e)) => {
-                let _ = thread.join();
-                Err(e)
-            }
+            Ok(Err(e)) => Err(e),
             Err(_) => Err("the window thread ended without a window".into()),
         }
     }
@@ -91,11 +117,13 @@ impl Window {
         self.id
     }
 
-    /// Ends the window and its thread (what drop does).
+    /// Ends the window (what drop does); the event loop stays, as winit makes only one.
     pub fn shutdown(&mut self) {
-        let _ = self.proxy.send_event(Command::Shutdown);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
+        if let Some(proxy) = self.proxy.take() {
+            let (tx, rx) = mpsc::channel();
+            if proxy.send_event(Command::Close(tx)).is_ok() {
+                let _ = rx.recv();
+            }
         }
     }
 }
@@ -106,30 +134,14 @@ impl Drop for Window {
     }
 }
 
-/// The monitors of this session, asked on an event loop made here and dropped before the
-/// function returns; the pick is [`crate::pick`] with `NV_MONITOR` and the primary monitor.
+/// The monitors of this session, asked of the process's event loop; the pick is [`crate::pick`]
+/// with `NV_MONITOR` and the primary monitor.
 pub(crate) fn probe_monitors() -> Option<crate::Display> {
-    use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
-    struct Probe(Option<crate::Display>);
-    impl ApplicationHandler<Command> for Probe {
-        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-            self.0 = pick_on(event_loop);
-        }
-        fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
-    }
-    let mut builder = EventLoop::<Command>::with_user_event();
-    EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-    let mut event_loop = builder.build().ok()?;
-    let mut probe = Probe(None);
-    for _ in 0..50 {
-        let status =
-            event_loop.pump_app_events(Some(std::time::Duration::from_millis(20)), &mut probe);
-        if probe.0.is_some() || matches!(status, PumpStatus::Exit(_)) {
-            break;
-        }
-    }
-    probe.0
+    let (tx, rx) = mpsc::channel();
+    hub().ok()?.send_event(Command::Probe(tx)).ok()?;
+    rx.recv_timeout(std::time::Duration::from_secs(10))
+        .ok()
+        .flatten()
 }
 
 fn monitor_of(m: &winit::monitor::MonitorHandle) -> crate::Monitor {
@@ -151,7 +163,7 @@ fn pick_on(event_loop: &ActiveEventLoop) -> Option<crate::Display> {
     crate::pick(&monitors, wanted, primary)
 }
 
-fn run(request: WindowRequest, on_change: Option<ChangeHook>, ready: mpsc::Sender<Ready>) {
+fn run(ready: mpsc::Sender<Result<EventLoopProxy<Command>, String>>) {
     // winit takes Wayland when the session is one, else X11 (`WINIT_UNIX_BACKEND=x11` forces X11;
     // a second event loop cannot be made after a failed one, so there is no retry here).
     let mut builder = EventLoop::<Command>::with_user_event();
@@ -166,11 +178,10 @@ fn run(request: WindowRequest, on_change: Option<ChangeHook>, ready: mpsc::Sende
         }
     };
     event_loop.set_control_flow(ControlFlow::Wait);
+    let _ = ready.send(Ok(event_loop.create_proxy()));
     let mut app = App {
-        request,
-        on_change,
-        ready: Some(ready),
-        proxy: event_loop.create_proxy(),
+        request: WindowRequest::default(),
+        on_change: None,
         shared: Shared::new(),
         id: 0,
         window: None,
@@ -178,9 +189,8 @@ fn run(request: WindowRequest, on_change: Option<ChangeHook>, ready: mpsc::Sende
         cursor: None,
         rest: [0.0; 2],
     };
-    let result = event_loop.run_app(&mut app);
-    if let (Err(e), Some(ready)) = (result, app.ready.take()) {
-        let _ = ready.send(Err(format!("event loop: {e}")));
+    if let Err(e) = event_loop.run_app(&mut app) {
+        eprintln!("fork-window: the event loop ended: {e}");
     }
     if app.id != 0 {
         registry::unregister(app.id);
@@ -190,8 +200,6 @@ fn run(request: WindowRequest, on_change: Option<ChangeHook>, ready: mpsc::Sende
 struct App {
     request: WindowRequest,
     on_change: Option<ChangeHook>,
-    ready: Option<mpsc::Sender<Ready>>,
-    proxy: EventLoopProxy<Command>,
     shared: Arc<Shared>,
     id: isize,
     /// Kept so the window outlives the surfaces made on it until the loop ends.
@@ -205,11 +213,47 @@ struct App {
 }
 
 impl App {
-    fn fail(&mut self, event_loop: &ActiveEventLoop, why: String) {
-        if let Some(r) = self.ready.take() {
-            let _ = r.send(Err(why));
+    /// Makes the window for `request` (the loop's one) and answers `ready`.
+    fn open(&mut self, event_loop: &ActiveEventLoop, ready: mpsc::Sender<Ready>) {
+        let _ = ready.send(self.create(event_loop));
+    }
+
+    fn create(&mut self, event_loop: &ActiveEventLoop) -> Ready {
+        if self.window.is_some() {
+            return Err("a window is already open (one at a time)".into());
         }
-        event_loop.exit();
+        self.shared = Shared::new();
+        self.device_motion = false;
+        self.cursor = None;
+        self.rest = [0.0; 2];
+        let attrs = WindowAttributes::default()
+            .with_title(self.request.title.clone())
+            .with_inner_size(PhysicalSize::new(self.request.width, self.request.height))
+            .with_decorations(self.request.decorations)
+            .with_resizable(false)
+            .with_visible(self.request.visible)
+            .with_fullscreen(self.request.fullscreen.then(|| {
+                // Over the monitor the pick names (`NV_MONITOR`, the primary, the first).
+                let chosen =
+                    pick_on(event_loop).and_then(|d| event_loop.available_monitors().nth(d.index));
+                winit::window::Fullscreen::Borderless(chosen)
+            }));
+        let window = event_loop
+            .create_window(attrs)
+            .map_err(|e| format!("create window: {e}"))?;
+        let (display, handle) = match (window.display_handle(), window.window_handle()) {
+            (Ok(d), Ok(w)) => (d.as_raw(), w.as_raw()),
+            _ => return Err("the window has no raw handles".into()),
+        };
+        let size = window.inner_size();
+        self.shared.set_size(size.width, size.height);
+        if let Ok(mut h) = self.shared.handles.lock() {
+            *h = Some(Handles(display, handle));
+        }
+        self.id = registry::register(self.shared.clone());
+        self.window = Some(window);
+        self.hold_pointer();
+        Ok(self.id)
     }
 
     /// Motion of the pointer in window pixels as the game's: scaled to its back buffer.
@@ -269,52 +313,29 @@ impl App {
 }
 
 impl ApplicationHandler<Command> for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
-            return;
-        }
-        let attrs = WindowAttributes::default()
-            .with_title(self.request.title.clone())
-            .with_inner_size(PhysicalSize::new(self.request.width, self.request.height))
-            .with_decorations(self.request.decorations)
-            .with_resizable(false)
-            .with_visible(self.request.visible)
-            .with_fullscreen(self.request.fullscreen.then(|| {
-                // Over the monitor the pick names (`NV_MONITOR`, the primary, the first).
-                let chosen =
-                    pick_on(event_loop).and_then(|d| event_loop.available_monitors().nth(d.index));
-                winit::window::Fullscreen::Borderless(chosen)
-            }));
-        let window = match event_loop.create_window(attrs) {
-            Ok(w) => w,
-            Err(e) => return self.fail(event_loop, format!("create window: {e}")),
-        };
-        let (display, handle) = match (window.display_handle(), window.window_handle()) {
-            (Ok(d), Ok(w)) => (d.as_raw(), w.as_raw()),
-            _ => return self.fail(event_loop, "the window has no raw handles".into()),
-        };
-        let size = window.inner_size();
-        self.shared.set_size(size.width, size.height);
-        if let Ok(mut h) = self.shared.handles.lock() {
-            *h = Some(Handles(display, handle));
-        }
-        self.id = registry::register(self.shared.clone());
-        self.window = Some(window);
-        self.hold_pointer();
-        if let Some(r) = self.ready.take() {
-            let _ = r.send(Ok((self.id, self.proxy.clone())));
-        }
-    }
+    fn resumed(&mut self, _: &ActiveEventLoop) {}
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Command) {
         match event {
-            Command::Shutdown => {
+            Command::Open {
+                request,
+                on_change,
+                ready,
+            } => {
+                self.request = request;
+                self.on_change = on_change;
+                self.open(event_loop, ready);
+            }
+            Command::Probe(answer) => {
+                let _ = answer.send(pick_on(event_loop));
+            }
+            Command::Close(done) => {
                 if self.id != 0 {
                     registry::unregister(self.id);
                     self.id = 0;
                 }
                 self.window = None;
-                event_loop.exit();
+                let _ = done.send(());
             }
         }
     }

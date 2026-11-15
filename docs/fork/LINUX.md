@@ -357,3 +357,16 @@ occluded or outdated frame has the swap chain configured again before the next a
 (`radv/amdgpu: Not enough memory for command submission`, a reset) is logged with wgpu's reason and ends the run through the
 exit hooks (`d3d9_wgpu::device_lost`) instead of leaving a frozen window and a stream of validation errors.
 
+### One event loop, and the game's size
+
+winit makes one event loop per process: a second is refused ("EventLoop can't be recreated"), which is how a separate
+monitor query left the game with no window. `fork-window` now has one loop on one thread, started on first use and kept to the
+end of the process; the monitor query (`display()`) and every `Window::open` go through it (a window ends with `shutdown`
+or drop, the loop stays). `crates/fork-window/tests/one_loop.rs` (run by the Xvfb job with `NV_WINDOW_SMOKE=1`) queries the
+monitors, opens a window, closes it and opens another; the `clear --smoke` step also fails unless it prints a `display:` line.
+
+`NV_RESOLUTION=auto|WxH` sets the game's size in `FalloutPrefs.ini`: `auto` (the default) keeps any size the player has
+set but replaces exactly the stock 640x480 with the display's size (a file made before the display was known); `WxH` sets
+that size. A line, `settings: the game's size set from the display (<why>)`, says it happened. The game's back buffer and the
+adapter's display mode both come from the display, so a run with no window opens at the monitor's size too.
+
