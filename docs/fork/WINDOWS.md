@@ -41,7 +41,7 @@ no administrator rights, and must not own `userdata`.
 | Per-user, no admin, default `C:\Games\nv-rs`, folder chooser | built in (`PrivilegesRequired=lowest`, directory page) | possible (`Scope=perUser`, a custom UI set), but a per-user MSI into a free folder is not what Windows Installer is for and needs custom actions |
 | Refuse Program Files, Documents and AppData, also on a silent install | a few lines of Pascal (`nv-rs.iss`, `BadFolder`), tested in CI | a custom action |
 | Uninstall leaves `userdata` (the saves) | it only removes what it installed | a component rule per file; repair and major upgrades can fight a folder the app writes in |
-| Build | one `ISCC` call, free for any use, one pinned package from Chocolatey | the WiX toolset (v3 or the .NET tool) plus a `.wxs` file list that has to follow every file |
+| Build | one `ISCC` call, free for any use, preinstalled on the hosted Windows image (no download) | the WiX toolset (v3 or the .NET tool) plus a `.wxs` file list that has to follow every file |
 | Silent install for CI and managers | `/VERYSILENT /DIR=...` | `msiexec /qn` |
 | What an MSI would add | group policy and Intune deployment | |
 

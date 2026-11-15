@@ -133,7 +133,6 @@ jobs:
       PROGRAMS_ARTIFACT: ${{ inputs.programs-artifact || format('package-windows-programs-{0}', github.run_id) }}
       RELEASE_FILES_ARTIFACT: ${{ inputs.release-files-artifact }}
       PACKAGE_ARTIFACT: nv-rs-${{ inputs.version || '2000-01-01.1' }}-windows-x64-package
-      INNO_SETUP_VERSION: '6.4.3'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -161,11 +160,7 @@ jobs:
           ./scripts/fork/package/package-windows.ps1 -Version $env:VERSION -Programs programs -Out dist @files
           if ($LASTEXITCODE) { throw 'packaging failed' }
 
-      - name: Install Inno Setup
-        run: |
-          choco install innosetup --version $env:INNO_SETUP_VERSION --no-progress -y
-          if ($LASTEXITCODE) { throw 'Inno Setup did not install.' }
-
+      # Inno Setup is on the hosted Windows image (6.7.1 when this was written); build-installer.ps1 fails if it is not.
       - name: Build the installer
         run: ./scripts/fork/package/build-installer.ps1 -Version $env:VERSION -Stage "dist/nv-rs-preview-$env:VERSION-windows-x64" -Out dist
 
