@@ -987,49 +987,113 @@ pub fn with_current_mode(
     out
 }
 
-/// `prefs` with the display keys the game has no value for yet: `iSize W`, `iSize H` and
-/// `bFull Screen` (borderless full screen over the display) put under `[Display]`. A key already
-/// there is a choice and is kept; `None` when nothing was missing.
-pub fn prefs_with_display(prefs: &str, width: u32, height: u32) -> Option<String> {
-    let has = |key: &str| {
-        prefs.lines().any(|l| {
+/// What `NV_RESOLUTION` asks of the game's size: `auto` (the default) or `WxH`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resolution {
+    Auto,
+    Fixed(u32, u32),
+}
+
+impl Resolution {
+    /// `NV_RESOLUTION`'s value; anything unreadable is `Auto`.
+    pub fn parse(value: Option<&str>) -> Resolution {
+        let fixed = value.and_then(|v| {
+            let (w, h) = v.trim().split_once(['x', 'X'])?;
+            let (w, h) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+            (w > 0 && h > 0).then_some((w, h))
+        });
+        fixed.map_or(Resolution::Auto, |(w, h)| Resolution::Fixed(w, h))
+    }
+}
+
+/// The game's stock size, which `auto` treats as never chosen by the player.
+const STOCK_SIZE: (u32, u32) = (640, 480);
+
+/// `prefs` with the display keys settled: `iSize W`, `iSize H` and `bFull Screen` (borderless full
+/// screen over the display) are added under `[Display]` where missing. A value already there is
+/// the player's and is kept, with two exceptions: `auto` replaces exactly the stock 640x480 with
+/// the display's size (a file made by an earlier run, or by the launcher, that never had a
+/// choice), and `NV_RESOLUTION=WxH` replaces the size with what was asked. `None` when nothing
+/// changed. The second answer says what was decided, for the log.
+pub fn prefs_with_display(
+    prefs: &str,
+    display: (u32, u32),
+    resolution: Resolution,
+) -> Option<(String, &'static str)> {
+    let value_of = |key: &str| {
+        prefs.lines().find_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            k.trim()
+                .eq_ignore_ascii_case(key)
+                .then(|| v.trim().to_string())
+        })
+    };
+    let current = |key| value_of(key).and_then(|v| v.parse::<u32>().ok());
+    let existing = (current("iSize W"), current("iSize H"));
+    let (target, replace, why) = match resolution {
+        Resolution::Fixed(w, h) => ((w, h), existing != (Some(w), Some(h)), "NV_RESOLUTION"),
+        Resolution::Auto => (
+            display,
+            existing == (Some(STOCK_SIZE.0), Some(STOCK_SIZE.1)),
+            "stock 640x480 replaced",
+        ),
+    };
+    let mut out = prefs.to_string();
+    if replace {
+        out = out
+            .split_inclusive('\n')
+            .map(|line| {
+                let key = line
+                    .split_once('=')
+                    .map(|(k, _)| k.trim().to_ascii_lowercase());
+                let end = &line[line.trim_end_matches(['\r', '\n']).len()..];
+                match key.as_deref() {
+                    Some("isize w") => format!("iSize W={}{end}", target.0),
+                    Some("isize h") => format!("iSize H={}{end}", target.1),
+                    _ => line.to_string(),
+                }
+            })
+            .collect();
+    }
+    let has = |text: &str, key: &str| {
+        text.lines().any(|l| {
             l.split_once('=')
                 .is_some_and(|(k, _)| k.trim().eq_ignore_ascii_case(key))
         })
     };
     let mut add = String::new();
     for (key, value) in [
-        ("iSize W", width.to_string()),
-        ("iSize H", height.to_string()),
+        ("iSize W", target.0.to_string()),
+        ("iSize H", target.1.to_string()),
         ("bFull Screen", "1".to_string()),
     ] {
-        if !has(key) {
+        if !has(&out, key) {
             add.push_str(&format!("{key}={value}\r\n"));
         }
     }
     if add.is_empty() {
-        return None;
+        return (out != prefs).then_some((out, why));
     }
-    let mut out = String::new();
+    let mut with = String::new();
     let mut done = false;
-    for line in prefs.split_inclusive('\n') {
-        out.push_str(line);
+    for line in out.split_inclusive('\n') {
+        with.push_str(line);
         if !done && line.trim().eq_ignore_ascii_case("[Display]") {
             if !line.ends_with('\n') {
-                out.push_str("\r\n");
+                with.push_str("\r\n");
             }
-            out.push_str(&add);
+            with.push_str(&add);
             done = true;
         }
     }
     if !done {
-        if !out.is_empty() && !out.ends_with('\n') {
-            out.push_str("\r\n");
+        if !with.is_empty() && !with.ends_with('\n') {
+            with.push_str("\r\n");
         }
-        out.push_str("[Display]\r\n");
-        out.push_str(&add);
+        with.push_str("[Display]\r\n");
+        with.push_str(&add);
     }
-    Some(out)
+    Some((with, if replace { why } else { "added" }))
 }
 
 /// The settings folder the game reads on Windows, `Documents\My Games\FalloutNV`, under the
@@ -1061,10 +1125,12 @@ pub fn seed_settings(
     let mut made = Vec::new();
     let ini = folder.join("Fallout.ini");
     let prefs = folder.join("FalloutPrefs.ini");
-    if let (Some((w, h)), true) = (display, prefs.exists()) {
+    let resolution = Resolution::parse(std::env::var("NV_RESOLUTION").ok().as_deref());
+    if let (Some(size), true) = (display, prefs.exists()) {
         let text = std::fs::read_to_string(&prefs).unwrap_or_default();
-        if let Some(text) = prefs_with_display(&text, w, h) {
+        if let Some((text, why)) = prefs_with_display(&text, size, resolution) {
             std::fs::write(&prefs, text)?;
+            eprintln!("settings: the game's size set from the display ({why})");
         }
     }
     if ini.exists() && prefs.exists() {
@@ -1079,8 +1145,8 @@ pub fn seed_settings(
     if !prefs.exists() {
         let base = format!("[Display]\r\nsD3DDevice={adapter_name}\r\n");
         let text = display
-            .and_then(|(w, h)| prefs_with_display(&base, w, h))
-            .unwrap_or(base);
+            .and_then(|size| prefs_with_display(&base, size, resolution))
+            .map_or(base, |(text, _)| text);
         std::fs::write(&prefs, text)?;
         made.push(prefs);
     }
@@ -1204,26 +1270,61 @@ mod tests {
 
     #[test]
     fn the_display_keys_are_added_where_missing_and_kept_where_set() {
-        let new = prefs_with_display("[Display]\r\nsD3DDevice=X\r\n", 2560, 1440).unwrap();
+        let auto = Resolution::Auto;
+        let (new, _) =
+            prefs_with_display("[Display]\r\nsD3DDevice=X\r\n", (2560, 1440), auto).unwrap();
         assert_eq!(
             new,
             "[Display]\r\niSize W=2560\r\niSize H=1440\r\nbFull Screen=1\r\nsD3DDevice=X\r\n"
         );
         // The player's own values stay; only the missing key is added.
-        let kept =
-            prefs_with_display("[Display]\r\niSize W=800\r\niSize H=600\r\n", 2560, 1440).unwrap();
+        let (kept, _) = prefs_with_display(
+            "[Display]\r\niSize W=800\r\niSize H=600\r\n",
+            (2560, 1440),
+            auto,
+        )
+        .unwrap();
         assert!(kept.contains("iSize W=800") && kept.contains("bFull Screen=1"));
         assert!(!kept.contains("2560"));
+        let all = "[Display]\r\niSize W=1\r\niSize H=1\r\nbFull Screen=0\r\n";
+        assert_eq!(prefs_with_display(all, (5, 5), auto), None);
+        let (bare, _) = prefs_with_display("", (1920, 1080), auto).unwrap();
+        assert!(bare.starts_with("[Display]\r\niSize W=1920"));
+    }
+
+    #[test]
+    fn auto_replaces_exactly_the_stock_size_and_a_fixed_size_replaces_any() {
+        let stock = "[Display]\r\niSize W=640\r\niSize H=480\r\nbFull Screen=0\r\n";
+        let (n, _) = prefs_with_display(stock, (2560, 1440), Resolution::Auto).unwrap();
         assert_eq!(
-            prefs_with_display(
-                "[Display]\r\niSize W=1\r\niSize H=1\r\nbFull Screen=0\r\n",
-                5,
-                5
-            ),
+            n,
+            "[Display]\r\niSize W=2560\r\niSize H=1440\r\nbFull Screen=0\r\n"
+        );
+        // 640x481 is somebody's choice; one stock axis alone is not the stock size.
+        let own = "[Display]\r\niSize W=640\r\niSize H=481\r\nbFull Screen=0\r\n";
+        assert_eq!(
+            prefs_with_display(own, (2560, 1440), Resolution::Auto),
             None
         );
-        let bare = prefs_with_display("", 1920, 1080).unwrap();
-        assert!(bare.starts_with("[Display]\r\niSize W=1920"));
+        let (f, why) =
+            prefs_with_display(own, (2560, 1440), Resolution::Fixed(1920, 1080)).unwrap();
+        assert!(f.contains("iSize W=1920\r\niSize H=1080"));
+        assert_eq!(why, "NV_RESOLUTION");
+        assert_eq!(
+            prefs_with_display(&f, (2560, 1440), Resolution::Fixed(1920, 1080)),
+            None
+        );
+    }
+
+    #[test]
+    fn the_resolution_is_parsed() {
+        assert_eq!(Resolution::parse(None), Resolution::Auto);
+        assert_eq!(Resolution::parse(Some("auto")), Resolution::Auto);
+        assert_eq!(
+            Resolution::parse(Some("1920x1080")),
+            Resolution::Fixed(1920, 1080)
+        );
+        assert_eq!(Resolution::parse(Some("0x5")), Resolution::Auto);
     }
 
     #[test]

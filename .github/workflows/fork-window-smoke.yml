@@ -44,7 +44,15 @@ jobs:
         run: |
           xvfb-run -a -s '-screen 0 1280x720x24' target/debug/examples/clear --smoke | tee smoke.txt
           grep -q 'smoke: 30 frames shown' smoke.txt
+          grep -q '^display: monitor ' smoke.txt
           { echo '### Window smoke'; echo '```'; cat smoke.txt; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+      - name: Monitor query, then windows, on one event loop (X11)
+        env:
+          WINIT_UNIX_BACKEND: x11
+          NV_WINDOW_SMOKE: '1'
+        run: |
+          xvfb-run -a -s '-screen 0 1280x720x24' cargo test --locked -p fork-window --test one_loop -- --nocapture 2>&1 | tee loop.txt
+          grep -q 'test result: ok. 1 passed' loop.txt
       - name: Guest program to the window (X11)
         env:
           WINIT_UNIX_BACKEND: x11
