@@ -89,6 +89,10 @@ jobs:
     name: Build
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' }}
+    # actions: read lets the archive job fetch the test times of an earlier run.
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/fork-build.yml
 
   # The repository's own checks, in parallel with the builds. Separate steps so one failing check does not hide
