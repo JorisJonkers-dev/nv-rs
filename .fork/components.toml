@@ -133,6 +133,8 @@ runs_on = "windows"
 # for them too is 5 times faster but compiles 5.5 minutes longer.
 [[component.job]]
 name = "typed shader family"
+# 307 tests, 973 s of the slowest job (compile 297 s): three shards of the one binary (run-component.sh, SHARD) bring the tests to about a third.
+shards = 3
 args = ["-p engine --test typed_shader"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]

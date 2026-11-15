@@ -184,6 +184,11 @@ class Model:
                 optional.setdefault(crate, set()).add(t)
             if not job.get("name") or not job.get("args"):
                 self.errors.append(f"{name}: every job needs a name and args")
+            if int(job.get("shards", 1)) > 1:
+                # run-component.sh splits ONE test binary's test list; with several binaries the shards would overlap or miss tests.
+                one = len(job.get("args", [])) == 1 and len(self.flags(job["args"][0], "--test")) == 1 and "--lib" not in job["args"][0] and "--doc" not in job["args"][0]
+                if not one:
+                    self.errors.append(f"{name}: job {job.get('name')!r} has shards, so it must run exactly one `--test` binary")
             for run in job.get("args", []):
                 crates.update(self.flags(run, "-p"))
                 for crate in self.flags(run, "-p"):
@@ -324,14 +329,22 @@ class Model:
             else:
                 flags = "".join(f" --config {c}" for c in job.get("config", []))
                 cmds = [self.test_command(r + self.optional_tests(job, r)) + flags for r in job["args"]]
-            label = comp if job is None else f"{comp} / {job['name']}"
-            for os_name, os_label, info in targets:
-                result.append({
-                    "name": f"Component: {label} ({os_label})",
-                    "component": comp, "cache": comp, "os": os_name, "informational": info,
-                    "workspaces": self.workspaces(cmds),
-                    "timeout": WINDOWS_TIMEOUT if os_name == "windows-latest" else LINUX_TIMEOUT,
-                    "script": "\n".join(cmds)})
+            shards = int((job or {}).get("shards", 1))
+            for shard in range(1, shards + 1):
+                label = comp if job is None else f"{comp} / {job['name']}" + (f" {shard}/{shards}" if shards > 1 else "")
+                result += self.shard_entries(comp, label, cmds, targets, f"{shard}/{shards}" if shards > 1 else "")
+        return result
+
+    def shard_entries(self, comp, label, cmds, targets, shard):
+        result = []
+        for os_name, os_label, info in targets:
+            result.append({
+                "name": f"Component: {label} ({os_label})",
+                "shard": shard,
+                "component": comp, "cache": comp, "os": os_name, "informational": info,
+                "workspaces": self.workspaces(cmds),
+                "timeout": WINDOWS_TIMEOUT if os_name == "windows-latest" else LINUX_TIMEOUT,
+                "script": "\n".join(cmds)})
         return result
 
     @staticmethod
