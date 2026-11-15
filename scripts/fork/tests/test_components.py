@@ -276,7 +276,7 @@ class Affected(unittest.TestCase):
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
         self.assertIn("integration", got)
-        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 12)
+        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 13)
 
     def test_a_fallout_change_reaches_every_component_whose_tests_link_it(self):
         _, got = self.reached(["crates/engine-fallout-cell/src/lib.rs"])

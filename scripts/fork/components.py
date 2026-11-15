@@ -381,7 +381,21 @@ class Model:
             include += got
             status.append({"component": name, "tested": bool(got), "jobs": len(got),
                            "why": "" if got else "no crate of its test closure changed"})
+        include = self.pool_archived(include)
         return {"include": include, "components": status, "reason": reason, "archive": self.archive_command(include), "include_archive": [e for e in include if e.get("archive")], "include_rest": [e for e in include if not e.get("archive")]}
+
+    def pool_archived(self, include):
+        """The archived jobs' tests are one pool again, split into equal shards: with the binaries built once, the families (jobs
+        named after a subject) only unbalance the shards, since every shard now runs a slice of every binary."""
+        arch = [e for e in include if e.get("archive")]
+        if not arch:
+            return include
+        comp = arch[0]["component"]
+        n = int(self.comps[comp].get("archive_shards", 8))
+        tests = sorted({t for e in arch for t in e["tests"].split(",")})
+        pooled = [dict(arch[0], name=f"Component: {comp} / typed tests {i}/{n} (Windows)", shard=f"{i}/{n}", tests=",".join(tests))
+                  for i in range(1, n + 1)]
+        return [e for e in include if not e.get("archive")] + pooled
 
     def archive_command(self, include):
         """The one build of the archived jobs' test binaries: the union of their `--test` lists, the config and features of the first."""
