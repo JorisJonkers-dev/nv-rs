@@ -66,10 +66,12 @@ jobs:
           else
             python3 -I scripts/fork/components.py matrix --event "$EVENT" >matrix.json
           fi
-          echo "matrix=$(jq -c '{include: .include_rest}' matrix.json)" >>"$GITHUB_OUTPUT"
-          echo "matrix_archive=$(jq -c '{include: .include_archive}' matrix.json)" >>"$GITHUB_OUTPUT"
-          echo "has_jobs=$(jq '.include_rest | length > 0' matrix.json)" >>"$GITHUB_OUTPUT"
-          echo "archive=$(jq -r '.archive // empty' matrix.json)" >>"$GITHUB_OUTPUT"
+          {
+            echo "matrix=$(jq -c '{include: .include_rest}' matrix.json)"
+            echo "matrix_archive=$(jq -c '{include: .include_archive}' matrix.json)"
+            echo "has_jobs=$(jq '.include_rest | length > 0' matrix.json)"
+            echo "archive=$(jq -r '.archive // empty' matrix.json)"
+          } >>"$GITHUB_OUTPUT"
           {
             echo "### Components in this run"
             echo
