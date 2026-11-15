@@ -27,7 +27,7 @@ touched.
 | 6 | Tests that can only pass on Windows: `nvse`'s bit-for-bit math comparison is `#[cfg_attr(not(windows), ignore = "reason")]` (tan and tanh use the host's libm; the game's differ in the last bit: `dTan90`, `dTanh30`); the five `files` tests that need Windows file times or Windows paths are skipped on Linux by name in `.fork/linux-skip.txt`, applied by `scripts/fork/run-component.sh` | `nvse/src/commands/math.rs`, `.fork/linux-skip.txt` | honest failures off Windows, with no attribute in `files.rs` | no | no | none |
 | 7 | The probe workflow and its summary script | `.github/workflows/linux-probe.yml`, `scripts/fork/linux_test_summary.py` | CI loop without starting the Windows jobs | fork only | no | none |
 
-Not changed, on purpose: `D3DXCompile*` and the sound output are as the native Linux plan describes them.
+Not changed, on purpose: the sound output is as the native Linux plan describes it (the shader compiler: see "Shader compiler off Windows" below).
 
 ## Platform answers off Windows (stage 2 of `docs/research/nv-rs-linux-playable.md` in nv-linux)
 
@@ -48,6 +48,31 @@ Code pages beyond ASCII and 1252 are not provided: a name's other characters bec
 that needs one still stops no run. Tests: `fork_platform::tests` and `unix_tests` (synthetic files with chosen times
 through `FindFirstFileA`, the `/proc/meminfo` parser on fixtures, the paths under a fake `XDG_DATA_HOME`) and
 `engine_unix::tests` (the uptime parser and the clock start).
+
+## Shader compiler off Windows (nv-linux#178, #197)
+
+The six D3DX shader imports (`D3DXCompileShader`, `D3DXGetShaderConstantTable`, `D3DXGetVertexShaderProfile`,
+`D3DXGetPixelShaderProfile`, `D3DXCreateBuffer`, `D3DXAssembleShader`) are registered on every target. On Windows they
+are `d3dxreal.rs`, unchanged (the player's own `d3dx9_38.dll`). Elsewhere they are `engine-platform/src/d3dxshader.rs`
+over the new crate `crates/d3dx-shader` (fork-owned, additive; the only upstream-owned edits are the lines listed in
+`.fork/allowed-divergence`):
+
+1. **Cache first.** One folder per compiler identity under `$NV_D3DX_CACHE/shaders`, else
+   `$XDG_CACHE_HOME/nv-rs/d3dx-cache/shaders`, else `~/.cache/nv-rs/d3dx-cache/shaders`. An entry is `<key>.bin`, the
+   bytecode byte for byte; the key is SHA-256 over the kind, source, entry, target, flags, macros (name, value, order),
+   the include files' names and contents and the identity. Identities are separate key spaces, tried in this order:
+   `ms-*` (Microsoft's `d3dx9_38.dll`), `wine-*` (Wine's built-in d3dx9), then the rest (`vkd3d-shader ...`). Nothing
+   is committed or shipped: no cache file, no shader, no compiler binary.
+2. **A backend** (libvkd3d-shader, loaded with `dlopen`) is the next change.
+3. **A miss stops the run** with a named error (request key, target, entry; no source text, no path). A backend that
+   refuses a source answers `D3DXERR_INVALIDDATA` and its text in the error buffer, as D3DX does.
+
+Not provided yet: any compile that is not in the cache, and `ID3DXConstantTable`'s reading slots (`GetDesc`, `GetConstantDesc`, `GetConstant*`: only
+`GetBufferPointer` and `GetBufferSize`, the `CTAB`, answer); both stop the run with a message that says so. The profile
+calls answer `vs_3_0` and `ps_3_0`, the model's caps.
+
+Tests: `d3dx-shader` unit tests (key stability and sensitivity per field, cache round trip, named miss, include
+contents) and `d3dxshader::tests` (the six imports in the table, `D3DXCreateBuffer`).
 
 ## Finding for the owner
 

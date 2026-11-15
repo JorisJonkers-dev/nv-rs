@@ -1,0 +1,9 @@
+[package]
+name = "d3dx-shader"
+version = "0.1.0"
+description = "The shader compiler seam of D3DX off Windows: the request, the key and the compile cache (one key space per compiler identity)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
