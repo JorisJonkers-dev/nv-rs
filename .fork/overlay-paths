@@ -36,17 +36,14 @@ scripts/fork/
 version.txt
 crates/engine-platform/src/files/files_host.rs
 # Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.
-crates/engine-core/src/lib.rs
 crates/engine-core/src/exe.rs
 crates/engine-core/src/units/crt/cvt.rs
 crates/engine-core/src/units/crt/fdiv.rs
 crates/engine-core/src/units/crt/math.rs
 crates/engine-core/src/units/crt/printf.rs
 crates/engine-core/src/units/crt/trig.rs
-crates/engine-havok/src/lib.rs
 crates/engine-havok/src/units/havok_sdk/hkalookatiksolver.rs
 crates/engine-core/src/engine_unix.rs
 crates/engine-platform/src/fork_platform.rs
-crates/host/src/lib.rs
 crates/host/src/native_inflate.rs
 crates/nvse/src/commands/math.rs

@@ -24,3 +24,8 @@ crates/engine-platform/src/process.rs  # GlobalMemoryStatus(Ex) reads /proc/memi
 crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir
 crates/host/src/save_out.rs  # known_folders off Windows answers from the XDG data folder
 crates/host/src/cell_offsets.rs  # the plugin path goes through files::real_path (a Linux path is not the game's backslash path)
+crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off Windows (lavapipe offers 4x at most; nv-linux#189)
+# The real-data gate (docs/fork/TESTING.md): an appended `#[cfg(test)] mod test_gate`. Not overlay paths: upstream adds `mod` lines to these files, and an overlay file would drop them (a replayed commit would then build without its module).
+crates/engine-core/src/lib.rs  # appended test_gate module
+crates/engine-havok/src/lib.rs  # appended test_gate module
+crates/host/src/lib.rs  # appended test_gate module; the adapter and texture-cache folders come from fork_platform::data_dir off Windows

@@ -61,6 +61,52 @@ pub mod controls_alt {
     pub const ALL: u32 = 0xffff;
 }
 
+/// The bits of [`Engine::jip_patches`]: which of JIP LN NVSE's game patches (its changes to the
+/// game's own code: `InitGamePatches`, `SetOptionalPatch`, `InitJIPHooks`' plain patches,
+/// `internal/patches_game.h` and `internal/hooks.h` (JIP LN NVSE); step 3.9) are on. A seam of a
+/// patch inside a translation tests its bit first, with one load, and builds its words only after
+/// that; with the bit clear the translation runs as the exe's code. `crates/jip` sets the word,
+/// before the game's threads start; it stays 0 while JIP answers "not installed".
+pub mod jip_patches {
+    /// The patches that change the game for every player (JIP's always-on patches and its
+    /// `[GamePatches]` switches, fix rows by ADR-0016 §5): JIP answers "installed" and the host's
+    /// row `NV_JIP_GAME_PATCHES` is on (the fixes preset).
+    pub const FIXES: u32 = 1 << 0;
+    /// The patches that only answer JIP's own commands and settings (inert until a command sets
+    /// something): JIP answers "installed", in every preset.
+    pub const INSTALLED: u32 = 1 << 31;
+
+    /// `[GamePatches]` switch `index` (JIP's `SetOptionalPatch` number, 1 to 19; JIP has no 10),
+    /// on only with [`FIXES`].
+    pub const fn optional(index: u32) -> u32 {
+        assert!(
+            index >= 1 && index <= 19 && index != 10,
+            "JIP's switches are 1-9 and 11-19"
+        );
+        1 << index
+    }
+
+    /// The switches by their `jip_nvse.ini` keys.
+    pub const IGNORE_DTDR_FIX: u32 = optional(1);
+    pub const ENABLE_FO3_REPAIR: u32 = optional(2);
+    pub const ENABLE_BIG_GUNS_SKILL: u32 = optional(3);
+    pub const PROJ_IMPACT_DMG_FIX: u32 = optional(4);
+    pub const GAME_DAYS_PASSED_FIX: u32 = optional(5);
+    pub const HARDCORE_NEEDS_FIX: u32 = optional(6);
+    pub const NO_FAILED_SCRIPT_LOCKS: u32 = optional(7);
+    pub const DOUBLE_PRECISION: u32 = optional(8);
+    pub const QTT_SELECT_SHORT_KEYS: u32 = optional(9);
+    pub const FO3_WPN_DEGRADATION: u32 = optional(11);
+    pub const LOCALIZED_DTDR: u32 = optional(12);
+    pub const VOICE_MODULATION_FIX: u32 = optional(13);
+    pub const SNEAK_BOUNDING_BOX_FIX: u32 = optional(14);
+    pub const ENABLE_NVAC_ALERTS: u32 = optional(15);
+    pub const LOAD_SCREEN_FIX: u32 = optional(16);
+    pub const NPC_WEAPON_MODS: u32 = optional(17);
+    pub const NPC_PERKS: u32 = optional(18);
+    pub const CREATURE_SPREAD_FIX: u32 = optional(19);
+}
+
 /// Who may own a wrap or a seam handler, in the order they run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Owner {
@@ -70,6 +116,9 @@ pub enum Owner {
     Nvse,
     /// JIP LN NVSE built in (`crates/jip`); it runs after xNVSE, as JIP is xNVSE's plugin.
     Jip,
+    /// UI Organizer built in (`crates/uio`): xNVSE loads its plugins by DLL name, so
+    /// `ui_organizer.dll` after `jip_nvse.dll`.
+    Uio,
 }
 
 impl Owner {
@@ -79,13 +128,16 @@ impl Owner {
             Owner::Row(_) => 0,
             Owner::Nvse => 1,
             Owner::Jip => 2,
+            Owner::Uio => 3,
         }
     }
 
     const fn same(self, other: Owner) -> bool {
         match (self, other) {
             (Owner::Row(a), Owner::Row(b)) => same_str(a, b),
-            (Owner::Nvse, Owner::Nvse) | (Owner::Jip, Owner::Jip) => true,
+            (Owner::Nvse, Owner::Nvse) | (Owner::Jip, Owner::Jip) | (Owner::Uio, Owner::Uio) => {
+                true
+            }
             _ => false,
         }
     }
@@ -117,12 +169,21 @@ pub struct Entry {
 
 const NVSE: &[Owner] = &[Owner::Nvse];
 const JIP: &[Owner] = &[Owner::Jip];
+const NVSE_JIP: &[Owner] = &[Owner::Nvse, Owner::Jip];
+const UIO: &[Owner] = &[Owner::Uio];
 
 /// Every exe address a built-in may wrap (ADR-0016 §3, "Wrappers"), by address. Each is a
 /// function entry registered by a translation (or a fix row's copy of it) and reached by
 /// address; xNVSE detours its entry (`Hooks_Other.cpp`, `Hooks_Script.cpp` (xNVSE)). An import
 /// slot is registered by the platform layer, as Windows' loader fills it; xNVSE writes the slot.
 pub const WRAPS: &[Entry] = &[
+    // ExtraDataList::GetCanNotWear: false while JIP LN NVSE's CCCSetEquipped equips (its
+    // GetCannotWearHook replaces the function as JIP starts; reached only by address).
+    Entry {
+        addr: 0x0041_8b10,
+        owners: JIP,
+        step: "3.5d",
+    },
     // ScriptEventList destructor: the string and array variables an event list holds are freed.
     Entry {
         addr: 0x0041_af70,
@@ -208,6 +269,19 @@ pub const WRAPS: &[Entry] = &[
 /// calls [`Engine::site`] there once the step named on the row has made it. xNVSE's own patch
 /// sites (xNVSE) and JIP LN NVSE's (JIP LN NVSE) are added by the step that needs them.
 pub const SITES: &[Entry] = &[
+    // The item test 0047bb50, its second form-type call: JIP LN NVSE's CheckUniqueItem.
+    Entry {
+        addr: 0x0047_bbec,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // TESDescription::LoadDescription 00482f40, the shared text's owner stored: JIP LN NVSE's
+    // GetDescription.
+    Entry {
+        addr: 0x0048_2f7f,
+        owners: JIP,
+        step: "3.5c",
+    },
     // TESForm::~TESForm 00483630: the form extra data detour (FormExtraData; for now the cells
     // whose references all loaded).
     Entry {
@@ -227,6 +301,12 @@ pub const SITES: &[Entry] = &[
         addr: 0x004c_0032,
         owners: NVSE,
         step: "I-9",
+    },
+    // The reference's model 0050fe50, its model path call: JIP LN NVSE's GetModelPath.
+    Entry {
+        addr: 0x0050_fe8b,
+        owners: JIP,
+        step: "3.5c",
     },
     // ImageSpaceModifierInstanceForm::Trigger 005299a0 and ::Stop 00529c90: OnApplyIMOD,
     // OnRemoveIMOD.
@@ -252,6 +332,12 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-9",
     },
+    // The reference's name 0055d520, its entry: JIP LN NVSE's GetRefName (replaces it).
+    Entry {
+        addr: 0x0055_d520,
+        owners: JIP,
+        step: "3.5c",
+    },
     // TESObjectREFR::Set3DVerySimple 00571080: OnRefSet3D, OnRefUnset3D.
     Entry {
         addr: 0x0057_1090,
@@ -268,6 +354,18 @@ pub const SITES: &[Entry] = &[
         addr: 0x0057_318e,
         owners: NVSE,
         step: "I-9",
+    },
+    // TESObjectREFR::Activate 00573170, the activated test before the scripts run (DoActivate) and
+    // a door's teleport read (ActivateDoor): JIP LN NVSE's.
+    Entry {
+        addr: 0x0057_3512,
+        owners: JIP,
+        step: "3.5c",
+    },
+    Entry {
+        addr: 0x0057_3673,
+        owners: JIP,
+        step: "3.5c",
     },
     // The dropped reference made in 005750a0: OnDrop, OnDropItem (xNVSE's DroppedItemHook).
     Entry {
@@ -298,11 +396,13 @@ pub const SITES: &[Entry] = &[
         owners: JIP,
         step: "3.5b",
     },
-    // The result zeroed before the handler call in the operand reader 005ac7a0.
+    // The result zeroed before the handler call in the operand reader 005ac7a0: xNVSE for its
+    // opcodes, JIP LN NVSE's game patch (step 3.9a, "Cmd_Execute >> *result = 0 by default") for
+    // every opcode.
     Entry {
         addr: 0x005a_cb9d,
-        owners: NVSE,
-        step: "I-4",
+        owners: NVSE_JIP,
+        step: "I-4, 3.9a",
     },
     // ScriptCompiler::Compile 005aeb90: the start of a compile (in place of the call clearing
     // the compiled flag), the check of the referenced objects (passed while a lambda compiles),
@@ -402,16 +502,31 @@ pub const SITES: &[Entry] = &[
         owners: JIP,
         step: "3.5b",
     },
-    // ScriptRunner::EvaluateLine: the result zeroed before its first and second handler calls.
+    // ScriptRunner::Run 005e0d20, the script header's read: JIP LN NVSE's ScriptWait (which wait
+    // this run is).
+    Entry {
+        addr: 0x005e_0ec9,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // ScriptRunner::EvaluateLine: the result zeroed before its first and second handler calls
+    // (xNVSE, and JIP LN NVSE's game patch of step 3.9a, as at 005ACB9D).
     Entry {
         addr: 0x005e_16c3,
-        owners: NVSE,
-        step: "I-4",
+        owners: NVSE_JIP,
+        step: "I-4, 3.9a",
+    },
+    // ScriptRunner::EvaluateLine 005e1550, a block's test after its handler: JIP LN NVSE's
+    // ScriptWait (a waiting script resumes).
+    Entry {
+        addr: 0x005e_1716,
+        owners: JIP,
+        step: "3.5c",
     },
     Entry {
         addr: 0x005e_2329,
-        owners: NVSE,
-        step: "I-4",
+        owners: NVSE_JIP,
+        step: "I-4, 3.9a",
     },
     // TESNPC 006047c0 (the default worn items equipped), its entry: JIP LN NVSE's LockEquipment
     // (ReEquipAllHook replaces it for a locked actor).
@@ -432,12 +547,43 @@ pub const SITES: &[Entry] = &[
         owners: JIP,
         step: "3.5b",
     },
+    // A quest stage set done 0060f4a0, its entry: JIP LN NVSE's SetQuestStage.
+    Entry {
+        addr: 0x0060_f4a9,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // TESTopicInfo::RunResult 0061f170, after its reference test: JIP LN NVSE's RunResultScript.
+    Entry {
+        addr: 0x0061_f184,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // Sky's weather update 0063d1d0, the transition's share: JIP LN NVSE's UpdateWeather.
+    Entry {
+        addr: 0x0063_d4f5,
+        owners: JIP,
+        step: "3.5c",
+    },
     // The actor value callback runner 0066ee50, before the call: JIP LN NVSE's DamageActorValue
     // (the health damage and crippled limb events).
     Entry {
         addr: 0x0066_ee72,
         owners: JIP,
         step: "3.5b",
+    },
+    // The LOD block load task 006f6d10, its file name: JIP LN NVSE's MakeObjLODPath.
+    Entry {
+        addr: 0x006f_6df1,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // InterfaceManager::Initialize 00709fd0, the new manager stored: UI Organizer's UIOLoad (its
+    // lists read and the menus they name patched, once, before the first menu loads).
+    Entry {
+        addr: 0x0070_a049,
+        owners: UIO,
+        step: "UIO-1",
     },
     // InterfaceManager::Idle 0070c4a0, the pointer's tile changed: JIP LN NVSE's MenuHandleMouseover.
     Entry {
@@ -480,9 +626,8 @@ pub const SITES: &[Entry] = &[
         step: "I-9",
     },
     // HUDMainMenu::SetInfoForRef 00775a00: JIP LN NVSE's InteractionDisabled (SetRolloverTextHook).
-    // This hook has TWO sites in JIP: the activation half (PCActivateRefHook, 0x943279 in
-    // PlayerCharacter::Update 0093e860) is still missing (step 3.5c); jip's test
-    // `interaction_disabled_waits_for_its_activation_seam` stops a command adding a user before it.
+    // This hook has TWO sites in JIP: the activation half is 0x943279 (PlayerCharacter::Update
+    // 0093e860, step 3.5c).
     Entry {
         addr: 0x0077_5b9b,
         owners: JIP,
@@ -724,11 +869,48 @@ pub const SITES: &[Entry] = &[
         owners: JIP,
         step: "3.5b",
     },
+    // The player's actor value change 0093b7a0, the health ratio: JIP LN NVSE's PlayerMinHealth.
+    Entry {
+        addr: 0x0093_b80a,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // The player's fast travel 0093bea0, its move call: JIP LN NVSE's PCFastTravel.
+    Entry {
+        addr: 0x0093_bf22,
+        owners: JIP,
+        step: "3.5c",
+    },
     // New game through CenterOnCell 0093db60: the co-save cleared.
     Entry {
         addr: 0x0093_db69,
         owners: NVSE,
         step: "I-10",
+    },
+    // PlayerCharacter::Update 0093e860, the activation of the reference under the crosshair: JIP LN
+    // NVSE's InteractionDisabled (its activation half; 0x775B9B is the other).
+    Entry {
+        addr: 0x0094_3279,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // The player's cell change 0094cae0, its test call: JIP LN NVSE's PCCellChange.
+    Entry {
+        addr: 0x0094_cb35,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // The player's target pick 00964260, after the loop: JIP LN NVSE's SetPCTarget.
+    Entry {
+        addr: 0x0096_4675,
+        owners: JIP,
+        step: "3.5c",
+    },
+    // The player's note added 00966a70, after the list add: JIP LN NVSE's AddNote.
+    Entry {
+        addr: 0x0096_6af9,
+        owners: JIP,
+        step: "3.5c",
     },
     // The combat group's target choice 00986c60, after the empty test: JIP LN NVSE's
     // SetCombatTarget.
@@ -756,6 +938,13 @@ pub const SITES: &[Entry] = &[
         addr: 0x009d_a8e3,
         owners: JIP,
         step: "3.5b",
+    },
+    // Tile::ReadFile 00a01b00, its call of Tile::ParseFile: UI Organizer's ResolveXMLFileHook (the
+    // file read through UIO's reader, its patched menus and its include expansion).
+    Entry {
+        addr: 0x00a0_1b87,
+        owners: UIO,
+        step: "UIO-1",
     },
     // Menu::~Menu 00a1c520 and TileMenu::PostParse 00a1f160, a menu's shown byte: JIP LN NVSE's MenuState.
     Entry {
@@ -837,6 +1026,70 @@ const fn no_row_wraps(table: &[Entry]) {
 
 const _: () = no_row_wraps(WRAPS);
 
+mod patch_rows;
+
+/// The seams of JIP LN NVSE's game patches (step 3.9), one table per area of the game
+/// (`extend/patch_rows/`), beside [`SITES`]: each checked as [`SITES`] is, JIP's alone, and no
+/// address listed twice in all of them and [`SITES`].
+pub const PATCH_SITES: &[&[Entry]] = patch_rows::SITES;
+/// The wraps of JIP LN NVSE's game patches, one table per area, beside [`WRAPS`] (checked the same
+/// way).
+pub const PATCH_WRAPS: &[&[Entry]] = patch_rows::WRAPS;
+
+/// Checks the area tables against the main one: each area as [`check_table`] does, its rows JIP's
+/// alone, and no address in two places.
+const fn check_areas(main: &[Entry], areas: &[&[Entry]]) {
+    let mut a = 0;
+    while a < areas.len() {
+        let area = areas[a];
+        check_table(area);
+        let mut i = 0;
+        while i < area.len() {
+            let row = area[i];
+            assert!(
+                row.owners.len() == 1 && row.owners[0].same(Owner::Jip),
+                "an area row is JIP's alone; a seam shared with another owner is a main row"
+            );
+            let mut j = 0;
+            while j < main.len() {
+                assert!(
+                    main[j].addr != row.addr,
+                    "an area row's address has a main row: add JIP to that row"
+                );
+                j += 1;
+            }
+            let mut b = a + 1;
+            while b < areas.len() {
+                let mut k = 0;
+                while k < areas[b].len() {
+                    assert!(areas[b][k].addr != row.addr, "an address in two areas");
+                    k += 1;
+                }
+                b += 1;
+            }
+            i += 1;
+        }
+        a += 1;
+    }
+}
+
+const _: () = check_areas(SITES, PATCH_SITES);
+const _: () = check_areas(WRAPS, PATCH_WRAPS);
+
+/// Every seam's row: [`SITES`] and the game patches' areas ([`PATCH_SITES`]).
+pub fn all_sites() -> impl Iterator<Item = &'static Entry> {
+    SITES
+        .iter()
+        .chain(PATCH_SITES.iter().flat_map(|t| t.iter()))
+}
+
+/// Every wrap's row: [`WRAPS`] and the game patches' areas ([`PATCH_WRAPS`]).
+pub fn all_wraps() -> impl Iterator<Item = &'static Entry> {
+    WRAPS
+        .iter()
+        .chain(PATCH_WRAPS.iter().flat_map(|t| t.iter()))
+}
+
 /// The index of `addr`'s row in `table` and of `owner` in it.
 const fn find(table: &'static [Entry], owner: Owner, addr: u32) -> Option<(usize, u8)> {
     let mut i = 0;
@@ -865,11 +1118,40 @@ struct Slot {
 }
 
 impl Slot {
+    #[cfg(test)]
     const fn new(table: &'static [Entry], owner: Owner, addr: u32) -> Slot {
         match find(table, owner, addr) {
             Some((row, index)) => Slot { table, row, index },
             None => panic!("this owner and address are not listed in the table"),
         }
+    }
+
+    /// The slot in `main` or, when `main` does not list the address, in the area that does.
+    const fn in_tables(
+        main: &'static [Entry],
+        areas: &'static [&'static [Entry]],
+        owner: Owner,
+        addr: u32,
+    ) -> Slot {
+        if let Some((row, index)) = find(main, owner, addr) {
+            return Slot {
+                table: main,
+                row,
+                index,
+            };
+        }
+        let mut a = 0;
+        while a < areas.len() {
+            if let Some((row, index)) = find(areas[a], owner, addr) {
+                return Slot {
+                    table: areas[a],
+                    row,
+                    index,
+                };
+            }
+            a += 1;
+        }
+        panic!("this owner and address are not listed in the table")
     }
     const fn addr(self) -> u32 {
         self.table[self.row].addr
@@ -879,8 +1161,8 @@ impl Slot {
     }
 }
 
-/// An owner's wrap at an address of [`WRAPS`]. Made in a `const`, an address or owner the table
-/// does not list is a build error:
+/// An owner's wrap at an address of [`WRAPS`] or of a game patch area ([`PATCH_WRAPS`]). Made in a
+/// `const`, an address or owner the tables do not list is a build error:
 ///
 /// ```compile_fail
 /// use engine_core::extend::{Owner, WrapSlot};
@@ -905,7 +1187,7 @@ pub struct WrapSlot(Slot);
 
 impl WrapSlot {
     pub const fn new(owner: Owner, addr: u32) -> WrapSlot {
-        WrapSlot(Slot::new(WRAPS, owner, addr))
+        WrapSlot(Slot::in_tables(WRAPS, PATCH_WRAPS, owner, addr))
     }
     /// A slot of another table (the unit tests' own).
     #[cfg(test)]
@@ -920,8 +1202,8 @@ impl WrapSlot {
     }
 }
 
-/// An owner's handler at a seam of [`SITES`]. Made in a `const`, a seam or owner the table does
-/// not list is a build error:
+/// An owner's handler at a seam of [`SITES`] or of a game patch area ([`PATCH_SITES`]). Made in a
+/// `const`, a seam or owner the tables do not list is a build error:
 ///
 /// ```compile_fail
 /// use engine_core::extend::{Owner, SiteSlot};
@@ -946,7 +1228,7 @@ pub struct SiteSlot(Slot);
 
 impl SiteSlot {
     pub const fn new(owner: Owner, addr: u32) -> SiteSlot {
-        SiteSlot(Slot::new(SITES, owner, addr))
+        SiteSlot(Slot::in_tables(SITES, PATCH_SITES, owner, addr))
     }
     #[cfg(test)]
     const fn of(table: &'static [Entry], owner: Owner, addr: u32) -> SiteSlot {
@@ -1051,16 +1333,24 @@ pub(crate) struct ExtendState {
     /// thread's engine shares it). The translated functions xNVSE patches read it with one load
     /// ([`Engine::controls_alt`]) and with 0 run the exe's path; `nvse` writes it.
     pub(crate) controls_alt: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    /// Which of JIP LN NVSE's game patches are on ([`jip_patches`], [`Engine::jip_patches`]), one word
+    /// for the whole game, shared like [`ExtendState::controls_alt`].
+    pub(crate) jip_patches: std::sync::Arc<std::sync::atomic::AtomicU32>,
     /// JIP LN NVSE's hooks' user counts ([`Hook`]), one table every engine of a game shares.
     pub(crate) hooks: std::sync::Arc<HookUsers>,
     /// The caller marks set around the calls whose hooks read their return address
     /// ([`Engine::mark_caller`]), shared like the counts.
     pub(crate) marks: std::sync::Arc<CallerMarks>,
+    /// The caller words ([`Engine::mark_caller_word`]), shared like the marks.
+    pub(crate) words: std::sync::Arc<CallerWords>,
     /// xNVSE's fixes of the game's own `set`/`if` expression code (`Hook_Script_Init`): the guest
     /// address of its token buffer (`s_ExpressionParserAltBuffer`, 0x500 bytes) once installed,
     /// 0 without it ([`Engine::expression_alt_buffer`]). Set before the threads start, copied to
     /// each thread's engine.
     pub(crate) expression_alt_buffer: u32,
+    /// UI Organizer built in and switched on ([`Engine::uio`]). Set before the threads start,
+    /// copied to each thread's engine.
+    pub(crate) uio: bool,
 }
 
 /// JIP LN NVSE's on-demand hooks (`kHook_*`, `internal/hooks.h` (JIP LN NVSE)), in JIP's order.
@@ -1095,9 +1385,7 @@ pub enum Hook {
     GetDetectionValue,
     SetPCTarget,
     /// Two sites in JIP: the HUD's rollover (`0x775B9B`, a seam here) and the player's activation
-    /// (`PCActivateRefHook`, `0x943279` in `PlayerCharacter::Update`, `0093e860`), which has NO
-    /// seam yet (step 3.5c). No command may add a user before it has one (jip's test
-    /// `interaction_disabled_waits_for_its_activation_seam`).
+    /// (`PCActivateRefHook`, `0x943279` in `PlayerCharacter::Update`, `0093e860`, step 3.5c).
     InteractionDisabled,
     MergeEventMask,
     MarkScriptEvent,
@@ -1231,6 +1519,75 @@ impl Engine {
         let key = (crate::thread_host::current_id(self), site);
         self.extend.marks.lock().contains(&key)
     }
+
+    /// Hands a callee's hook a word of its caller's frame (JIP's `MarkScriptEventHook` reads its
+    /// caller's first stack argument through the saved frame pointer, `[[ebp]+8]`, which the
+    /// port's frames do not have): `word` is this game thread's innermost caller word while the
+    /// guard lives and `hook` has users. With no user: one load, nothing kept. The guard pops it
+    /// also when a guest exception unwinds.
+    #[must_use]
+    #[inline]
+    pub fn mark_caller_word(&self, hook: Hook, word: u32) -> CallerWord {
+        if self.hook_users(hook) == 0 {
+            return CallerWord(None);
+        }
+        self.mark_caller_word_now(word)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn mark_caller_word_now(&self, word: u32) -> CallerWord {
+        let thread = crate::thread_host::current_id(self);
+        let mut words = self.extend.words.lock();
+        let stack = words.entry(thread).or_default();
+        stack.push(word);
+        let depth = stack.len();
+        drop(words);
+        CallerWord(Some((self.extend.words.clone(), thread, depth)))
+    }
+
+    /// This game thread's innermost caller word ([`Engine::mark_caller_word`]), if any.
+    pub fn caller_word(&self) -> Option<u32> {
+        let thread = crate::thread_host::current_id(self);
+        self.extend
+            .words
+            .lock()
+            .get(&thread)
+            .and_then(|s| s.last().copied())
+    }
+}
+
+/// The caller words, a stack per game thread.
+#[derive(Debug, Default)]
+pub(crate) struct CallerWords(std::sync::Mutex<std::collections::HashMap<u32, Vec<u32>>>);
+
+impl CallerWords {
+    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<u32, Vec<u32>>> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// A caller word's guard ([`Engine::mark_caller_word`]): pops the word (and any pushed after it).
+#[derive(Debug)]
+pub struct CallerWord(Option<(std::sync::Arc<CallerWords>, u32, usize)>);
+
+impl Drop for CallerWord {
+    #[inline]
+    fn drop(&mut self) {
+        if let Some((words, thread, depth)) = self.0.take() {
+            drop_word(words, thread, depth);
+        }
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn drop_word(words: std::sync::Arc<CallerWords>, thread: u32, depth: usize) {
+    if let Some(stack) = words.lock().get_mut(&thread) {
+        stack.truncate(depth - 1);
+    }
 }
 
 /// The caller marks: (game thread, call site) pairs.
@@ -1282,9 +1639,12 @@ impl ExtendState {
             sites: Default::default(),
             tables: ScriptTables::default(),
             controls_alt: Default::default(),
+            jip_patches: Default::default(),
             hooks: Default::default(),
             marks: Default::default(),
+            words: Default::default(),
             expression_alt_buffer: 0,
+            uio: false,
         }
     }
 
@@ -1309,9 +1669,12 @@ impl ExtendState {
             sites: self.sites.clone(),
             tables: self.tables,
             controls_alt: self.controls_alt.clone(),
+            jip_patches: self.jip_patches.clone(),
             hooks: self.hooks.clone(),
             marks: self.marks.clone(),
+            words: self.words.clone(),
             expression_alt_buffer: self.expression_alt_buffer,
+            uio: self.uio,
         }
     }
 }
@@ -1377,6 +1740,13 @@ pub(crate) fn release_held() {
             s.release();
         }
     });
+}
+
+/// [`release_held`] for a test outside the core: a real thread's release point, so a second
+/// engine on the test's thread ([`Engine::share_slots_for_test`]) can take a shared slot.
+#[cfg(any(test, feature = "test-support"))]
+pub fn release_held_for_test() {
+    release_held();
 }
 
 /// Whether this OS thread holds a shared slot (a cheap test before [`release_held`]).
@@ -1523,6 +1893,32 @@ impl Engine {
                 .unwrap_or_else(|| unreachable!("a slot holds the type it is keyed by")),
             _ => panic!("a slot of `ext` or `share_ext` is not lock-free"),
         }
+    }
+
+    /// For a test outside the core: `other` takes this engine's shared and lock-free slots, as a
+    /// real thread's engine made from this one does ([`ExtendState::for_thread`]), so a test can
+    /// hold a shared slot from a second engine and check that a path does not ask for it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn share_slots_for_test(&self, other: &mut Engine) {
+        other.extend = self.extend.for_thread();
+    }
+
+    /// For a translation crate's test of a seam whose row is not in the tables (yet): `f` answers
+    /// the seam at `addr`, with no owner (step 3.9's split rows: the group that owns the translation
+    /// adds the inert seam, the row's home group adds the row and the handler). Refused (a stop):
+    /// the address has a handler already.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn on_site_for_test(&mut self, addr: u32, f: SiteFn) {
+        let (_, handlers) = self
+            .extend
+            .sites
+            .entry(addr)
+            .or_insert_with(|| (&[][..], vec![None].into_boxed_slice()));
+        assert!(
+            handlers.len() == 1 && handlers[0].is_none(),
+            "{addr:08x}: a handler is registered at this seam already"
+        );
+        handlers[0] = Some(f);
     }
 
     /// The extension slot of type `T` when it was made.
@@ -1685,13 +2081,13 @@ impl Engine {
     }
 
     /// The dispatch check (ADR-0016 §16): every registration at an address besides its one base
-    /// must be a wrap listed for that address in [`WRAPS`], in the table's order. Answers the
+    /// must be a wrap listed for that address in [`WRAPS`] (or a game patch area's), in the table's order. Answers the
     /// chains that break it (empty when all is well): their address and their wraps' owners.
     pub fn unlisted_wraps(&self) -> Vec<(u32, Vec<Owner>)> {
         self.wrapped()
             .into_iter()
             .filter(|(addr, owners)| {
-                let Some(row) = WRAPS.iter().find(|e| e.addr == *addr) else {
+                let Some(row) = all_wraps().find(|e| e.addr == *addr) else {
                     return true;
                 };
                 let places: Vec<Option<usize>> = owners
@@ -1772,6 +2168,40 @@ impl Engine {
             .store(flags, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// Which of JIP LN NVSE's game patches are on ([`jip_patches`]'s bits), 0 while JIP answers
+    /// "not installed". One load: a patch's seam in a translation tests its bit before anything
+    /// else, and with the bit clear the translation runs as the exe's code.
+    #[inline]
+    pub fn jip_patches(&self) -> u32 {
+        self.extend
+            .jip_patches
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Sets [`Engine::jip_patches`] (`crates/jip`: at its install and the host's row, before the
+    /// threads start; JIP's `SetOptionalPatch` command later).
+    pub fn set_jip_patches(&self, bits: u32) {
+        self.extend
+            .jip_patches
+            .store(bits, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Turns `bits` of [`Engine::jip_patches`] on, in one atomic step (JIP's install, the host's row,
+    /// `SetOptionalPatch`); answers the word before.
+    pub fn jip_patches_or(&self, bits: u32) -> u32 {
+        self.extend
+            .jip_patches
+            .fetch_or(bits, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Turns `bits` of [`Engine::jip_patches`] off, in one atomic step (`SetOptionalPatch`); answers
+    /// the word before.
+    pub fn jip_patches_and_not(&self, bits: u32) -> u32 {
+        self.extend
+            .jip_patches
+            .fetch_and(!bits, std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// xNVSE's two fixes of the game's own expression code, when the built-in xNVSE installed
     /// them (`Hook_Script_Init`), else 0: the address of the 0x500-byte token buffer
     /// (`s_ExpressionParserAltBuffer`) that `CExpression`'s infix-to-postfix conversion
@@ -1789,6 +2219,19 @@ impl Engine {
     /// start).
     pub fn set_expression_alt_buffer(&mut self, buffer: u32) {
         self.extend.expression_alt_buffer = buffer;
+    }
+
+    /// Whether UI Organizer is built in and switched on (`crates/uio`, its row): its seams in
+    /// `InterfaceManager::Initialize` and `Tile::ReadFile` read this first, one load, and with
+    /// false run the exe's path untouched.
+    #[inline]
+    pub fn uio(&self) -> bool {
+        self.extend.uio
+    }
+
+    /// Sets [`Engine::uio`] (UI Organizer's install, before the threads start).
+    pub fn set_uio(&mut self, on: bool) {
+        self.extend.uio = on;
     }
 
     /// The owners with a handler at the seam `addr`, in the order they run.
@@ -2352,6 +2795,31 @@ mod tests {
         assert!(!e.caller_marked(0x0100), "gone with the unwinding");
     }
 
+    /// A caller word: none without a user; with one, the innermost guard's word, back to the
+    /// outer one when it drops (also on an unwinding panic); per game thread.
+    #[test]
+    fn caller_words_follow_their_guards() {
+        let e = engine();
+        let guard = e.mark_caller_word(Hook::MarkScriptEvent, 7);
+        assert_eq!(e.caller_word(), None, "no user");
+        drop(guard);
+        e.add_hook_user(Hook::MarkScriptEvent, true);
+        let outer = e.mark_caller_word(Hook::MarkScriptEvent, 7);
+        assert_eq!(e.caller_word(), Some(7));
+        let inner = e.mark_caller_word(Hook::MarkScriptEvent, 9);
+        assert_eq!(e.caller_word(), Some(9));
+        drop(inner);
+        assert_eq!(e.caller_word(), Some(7), "the outer one again");
+        let thrown = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = e.mark_caller_word(Hook::MarkScriptEvent, 11);
+            panic!("a guest exception");
+        }));
+        assert!(thrown.is_err());
+        assert_eq!(e.caller_word(), Some(7), "gone with the unwinding");
+        drop(outer);
+        assert_eq!(e.caller_word(), None);
+    }
+
     /// `HOOK_SET`: on makes an off hook's count 1 and leaves an on one's; off makes any count 0.
     /// `SetCount` stores the count.
     #[test]
@@ -2385,7 +2853,12 @@ mod tests {
         ] {
             assert!(find(SITES, Owner::Nvse, a).is_some(), "{a:08x}");
         }
-        assert_eq!(SITES.len(), 94);
+        assert_eq!(SITES.len(), 114);
+        // UI Organizer's two (UIOLoad's place and ResolveXMLFileHook's), its alone.
+        for a in [0x0070_a049, 0x00a0_1b87] {
+            assert!(find(SITES, Owner::Uio, a).is_some(), "{a:08x}");
+            assert!(find(SITES, Owner::Jip, a).is_none(), "{a:08x}");
+        }
         // The run-time compiler's (I-14), xNVSE's.
         for a in [
             0x005a_ebb1,
@@ -2400,7 +2873,7 @@ mod tests {
         ] {
             assert!(find(SITES, Owner::Nvse, a).is_some(), "{a:08x}");
         }
-        // JIP LN NVSE's UI hooks (step 3.5a) and actor hooks (step 3.5b), JIP's alone.
+        // JIP LN NVSE's UI (step 3.5a), actor (3.5b) and world (3.5c) hooks, JIP's alone.
         for a in [
             0x005b_46aa,
             0x0070_d642,
@@ -2442,6 +2915,25 @@ mod tests {
             0x009d_a8e3,
             0x00c6_d4e4,
             0x00c7_c151,
+            // The world hooks (step 3.5c).
+            0x0047_bbec,
+            0x0048_2f7f,
+            0x0050_fe8b,
+            0x0055_d520,
+            0x0057_3512,
+            0x0057_3673,
+            0x005e_0ec9,
+            0x005e_1716,
+            0x0060_f4a9,
+            0x0061_f184,
+            0x0063_d4f5,
+            0x006f_6df1,
+            0x0093_b80a,
+            0x0093_bf22,
+            0x0094_3279,
+            0x0094_cb35,
+            0x0096_4675,
+            0x0096_6af9,
         ] {
             assert!(find(SITES, Owner::Jip, a).is_some(), "{a:08x}");
             assert!(find(SITES, Owner::Nvse, a).is_none(), "{a:08x}");
@@ -2478,6 +2970,106 @@ mod tests {
             },
         ];
         assert!(std::panic::catch_unwind(|| check_table(&UNSORTED)).is_err());
+    }
+
+    /// The game patches' area tables (step 3.9): a slot is found in an area, and the checks refuse
+    /// an area row with another owner, an address a main row has, and an address in two areas.
+    #[test]
+    fn the_area_checks_find_slots_and_refuse_overlaps() {
+        const LOAD: SiteSlot = SiteSlot::new(Owner::Jip, 0x0061_e086);
+        assert_eq!((LOAD.addr(), LOAD.owner()), (0x0061_e086, Owner::Jip));
+        const OWNER_TOPIC: WrapSlot = WrapSlot::new(Owner::Jip, 0x0061_a310);
+        assert_eq!(OWNER_TOPIC.addr(), 0x0061_a310);
+        assert!(all_sites().any(|s| s.addr == 0x0061_e086));
+        assert!(all_wraps().any(|s| s.addr == 0x0061_a310));
+        assert!(
+            all_sites().any(|s| s.addr == 0x0086_b386),
+            "the main rows too"
+        );
+        // Result zeroing (3.9a): JIP is the second owner of xNVSE's three seams, not an area row.
+        for a in [0x005a_cb9d, 0x005e_16c3, 0x005e_2329] {
+            let row = find(SITES, Owner::Nvse, a).unwrap().0;
+            assert_eq!(find(SITES, Owner::Jip, a), Some((row, 1)), "{a:08x}");
+        }
+        static MAIN: [Entry; 1] = [Entry {
+            addr: 5,
+            owners: NVSE,
+            step: "test",
+        }];
+        static NVSE_AREA: [Entry; 1] = [Entry {
+            addr: 6,
+            owners: NVSE,
+            step: "test",
+        }];
+        static AT_MAIN: [Entry; 1] = [Entry {
+            addr: 5,
+            owners: JIP,
+            step: "test",
+        }];
+        static AT_SIX: [Entry; 1] = [Entry {
+            addr: 6,
+            owners: JIP,
+            step: "test",
+        }];
+        static FINE: [&[Entry]; 1] = [&AT_SIX];
+        static OTHER_OWNER: [&[Entry]; 1] = [&NVSE_AREA];
+        static OVER_MAIN: [&[Entry]; 1] = [&AT_MAIN];
+        static TWO_AREAS: [&[Entry]; 2] = [&AT_SIX, &AT_SIX];
+        check_areas(&MAIN, &FINE);
+        assert!(std::panic::catch_unwind(|| check_areas(&MAIN, &OTHER_OWNER)).is_err());
+        assert!(std::panic::catch_unwind(|| check_areas(&MAIN, &OVER_MAIN)).is_err());
+        assert!(std::panic::catch_unwind(|| check_areas(&MAIN, &TWO_AREAS)).is_err());
+    }
+
+    fn answer_seven(_: &mut Engine, _: &[u32]) -> Option<u32> {
+        Some(7)
+    }
+
+    /// A seam with no row on main yet builds and does nothing; a translation crate's test answers it
+    /// with `on_site_for_test` (no owner), once.
+    #[test]
+    fn a_seam_without_a_row_is_tested_with_a_raw_handler() {
+        let mut e = engine();
+        assert_eq!(e.site(0x0040_1234, &[1]), None);
+        e.on_site_for_test(0x0040_1234, answer_seven);
+        assert_eq!(e.site(0x0040_1234, &[1]), Some(7));
+        assert!(e.site_owners(0x0040_1234).is_empty());
+        let again = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            e.on_site_for_test(0x0040_1234, answer_seven)
+        }));
+        assert!(again.is_err());
+    }
+
+    /// The word of JIP's game patches: 0 on a new engine, shared with a real thread's engine, and
+    /// the switches' bits are JIP's `SetOptionalPatch` numbers.
+    #[test]
+    fn the_game_patch_word_is_shared_and_numbered_as_jip() {
+        let e = engine();
+        assert_eq!(e.jip_patches(), 0);
+        let thread = e.extend.for_thread();
+        e.set_jip_patches(jip_patches::FIXES | jip_patches::IGNORE_DTDR_FIX);
+        assert_eq!(
+            thread
+                .jip_patches
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0b11
+        );
+        assert_eq!(e.jip_patches_or(jip_patches::INSTALLED), 0b11);
+        assert_eq!(
+            e.jip_patches_and_not(jip_patches::IGNORE_DTDR_FIX),
+            0b11 | jip_patches::INSTALLED
+        );
+        assert_eq!(e.jip_patches(), jip_patches::FIXES | jip_patches::INSTALLED);
+        assert_eq!(jip_patches::CREATURE_SPREAD_FIX, 1 << 19);
+        assert_eq!(jip_patches::FO3_WPN_DEGRADATION, 1 << 11);
+        assert!(std::panic::catch_unwind(|| jip_patches::optional(10)).is_err());
+        assert!(std::panic::catch_unwind(|| jip_patches::optional(20)).is_err());
+        assert!(std::panic::catch_unwind(|| jip_patches::optional(0)).is_err());
+        assert_eq!(
+            jip_patches::INSTALLED & 0xf_fffe,
+            0,
+            "apart from the switches"
+        );
     }
 
     /// With nothing installed, every read of the descriptor gives the exe's immediates: the table
@@ -2525,5 +3117,15 @@ mod tests {
         assert_eq!(b.ext_get::<Counter>().map(|c| c.0), Some(5));
         assert_eq!(a.ext_get::<Other>().map(|o| o.0), Some(9));
         assert!(b.ext_get::<Other>().is_none());
+    }
+
+    #[test]
+    fn the_uio_word_is_off_until_set_and_reaches_threads() {
+        let mut e = Engine::new();
+        assert!(!e.uio());
+        assert!(!e.extend.for_thread().uio);
+        e.set_uio(true);
+        assert!(e.uio());
+        assert!(e.extend.for_thread().uio);
     }
 }

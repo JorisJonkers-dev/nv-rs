@@ -176,3 +176,12 @@ release build runs it on the unpacked tarball and on an `install.sh` prefix; the
 Not done: publishing. The workflow never creates a release (the maintainer decides); nvmod's default URL
 (`releases/latest/download`) needs the four files above attached to a GitHub Release by hand until that is decided.
 macOS can follow the same layout (`packaging/macos/`, a `macos` job) when a native build exists.
+
+## GPU tests on Linux (lavapipe)
+
+The `rendering` component's Linux job installs Mesa's software Vulkan driver (`mesa-vulkan-drivers`, lavapipe), sets
+`VK_ICD_FILENAMES` and `NV_WGPU_BACKEND=software`, and runs the tests with `RUST_TEST_NOCAPTURE=1`. The GPU tests in
+`crates/d3d9-wgpu/tests/frame.rs` and `ops.rs` print "no GPU adapter ... skipped" and pass when no adapter opens, so
+`scripts/fork/gpu_gate.py` reads the log, writes the executed and skipped counts to the job summary and fails the job when
+any of them skipped. The driver version is printed in the summary. `window.rs` is Windows only. Replaying a synthetic
+recording with `d3d9-replay` against a stored frame hash is not done yet (tracked in nv-linux).

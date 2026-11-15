@@ -238,7 +238,9 @@ fn installed_records(installed: bool) {
                 || o == crate::main_loop::SET_GAME_MAIN_LOOP_CALLBACK
                 || crate::ui_hooks::COMMANDS.contains(&o)
                 || crate::actor_hooks::COMMANDS.contains(&o)
-                || crate::ai_hooks::COMMANDS.contains(&o))
+                || crate::ai_hooks::COMMANDS.contains(&o)
+                || crate::world_hooks::COMMANDS.contains(&o)
+                || crate::equip_hooks::COMMANDS.contains(&o))
         {
             // The built commands, the identity, SetGameMainLoopCallback and the UI and actor
             // hooks' event commands, once installed.
@@ -351,8 +353,8 @@ fn an_unbuilt_command_fails() {
     let file_exists = Record::read(&e, record_of(&e, 0x2201));
     assert_eq!(guest_text(&e, file_exists.long_name), b"FileExists");
     assert_eq!((file_exists.execute, file_exists.eval), (0, 0));
-    let button = Record::read(&e, record_of(&e, 0x2204));
-    assert_eq!(guest_text(&e, button.long_name), b"IsButtonPressed");
+    let button = Record::read(&e, record_of(&e, 0x27b5));
+    assert_eq!(guest_text(&e, button.long_name), b"IsInAir");
     assert_eq!((button.execute, button.eval, button.flags), (0, 0, 1));
     let words = line(&mut e, 0x2201, &[]);
     let a = nvse::CommandArgs::new(&words);

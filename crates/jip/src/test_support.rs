@@ -19,20 +19,46 @@ const CONSOLE_OPEN: u32 = 0x011d_ea2e;
 /// tables, and room for a call's data; JIP not yet installed.
 pub fn engine() -> Engine {
     let mut e = Engine::new();
+    prepare(&mut e);
+    e
+}
+
+/// xNVSE's table and JIP answering "installed" put into an engine a test already made (an
+/// engine crate's, with its own stand-ins and mappings): what [`engine`] does (a page mapped
+/// twice keeps its bytes), then [`crate::install_as`]. A command is then called through its
+/// record with [`call`]; the call's data is at [`DATA`] (64 KB).
+pub fn install_into(e: &mut Engine) {
+    prepare(e);
+    crate::install_as(e, true);
+}
+
+/// What [`engine`] does to a new engine.
+fn prepare(e: &mut Engine) {
     e.map(0x0118_e000, 0x9000);
     e.map(CONSOLE_OPEN & !0xfff, 0x1000);
     e.map(DATA, 0x1_0000);
     // The processes' vtables (HighProcess 0x01087864, MiddleHighProcess 0x0108904C), where JIP
     // writes its hit-data routines once installed.
     e.map(0x0108_7000, 0x3000);
-    nvse::table::install(&mut e);
+    // The queued references' vtables (0x01016BA4 to 0x01016D7C), where JIP writes its attaches
+    // (game_patches::gp).
+    e.map(0x0101_6000, 0x1000);
+    nvse::table::install(e);
     // The platform's XInputGetState at its import slot, as the host registers it (no controller:
     // ERROR_DEVICE_NOT_CONNECTED), for JIP's wrap there.
     e.register(0x00fd_f394, |_, _| Ret {
         eax: 0x48f,
         ..Ret::default()
     });
-    e
+    // `ExtraDataList::GetCanNotWear` (`00418b10`, JIP's wrap there), when the test engine has no
+    // translation of it: the exe's test, `BaseExtraList::HasExtra(0x3E)` (`0040fe80`), the bit of
+    // type 0x3E in the presence bits at `+8` (byte `+0xF`, bit `0x40`).
+    if !e.is_registered(0x0041_8b10) {
+        e.register(0x0041_8b10, |e, a| Ret {
+            eax: u32::from(e.mem.u8(a[0] + 0xf) & 0x40 != 0),
+            ..Ret::default()
+        });
+    }
 }
 
 /// Opens or closes the console as the echo sees it.

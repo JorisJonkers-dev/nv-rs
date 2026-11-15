@@ -9,12 +9,18 @@
 //! tests (on an engine installed with the flag on) reach the commands built here.
 
 pub mod arrays;
+pub mod extra;
 pub mod forms;
+pub(crate) mod havok_refs;
+pub mod jip_fn_actor;
+pub mod jip_fn_actor_p2;
 pub mod jip_fn_ammo;
 pub mod jip_fn_ammo_effect;
 pub mod jip_fn_armor;
 pub mod jip_fn_aux_variable;
 pub mod jip_fn_body_part_data;
+pub mod jip_fn_ccc;
+pub mod jip_fn_cell;
 pub mod jip_fn_class;
 pub mod jip_fn_climate;
 pub mod jip_fn_combat_style;
@@ -26,27 +32,55 @@ pub mod jip_fn_global_var;
 pub mod jip_fn_grass;
 pub mod jip_fn_imagespace;
 pub mod jip_fn_impact_data;
+pub mod jip_fn_input;
+pub mod jip_fn_inventory;
 pub mod jip_fn_land_texture;
 pub mod jip_fn_light;
+pub mod jip_fn_marker_cmds;
+pub mod jip_fn_misc_ref;
+pub mod jip_fn_misc_ref_havok;
+pub mod jip_fn_misc_ref_nodes;
+pub mod jip_fn_miscellaneous;
+pub mod jip_fn_move_cmds;
 pub mod jip_fn_package;
 pub mod jip_fn_perk;
 pub mod jip_fn_projectile;
 pub mod jip_fn_quest;
 pub mod jip_fn_ref_map;
+pub mod jip_fn_script;
+pub mod jip_fn_script_vars;
+pub mod jip_fn_sound;
 pub mod jip_fn_texture_set;
+pub mod jip_fn_ui;
+pub mod jip_fn_utility;
 pub mod jip_fn_water;
 pub mod jip_fn_weapon;
 pub mod jip_fn_weather;
 pub mod jip_fn_worldspace;
 pub mod ln_fn_activator;
+pub mod ln_fn_actor;
 pub mod ln_fn_casino;
+pub mod ln_fn_cell;
 pub mod ln_fn_challenge;
+pub mod ln_fn_game_data;
+pub mod ln_fn_gamepad;
+pub mod ln_fn_inventory;
 pub mod ln_fn_leveled_list;
+pub mod ln_fn_load_screen;
 pub mod ln_fn_map_marker;
+pub mod ln_fn_math;
+pub mod ln_fn_misc_ref;
+pub mod ln_fn_miscellaneous;
 pub mod ln_fn_perk;
 pub mod ln_fn_race;
+pub mod ln_fn_radio_ref;
 pub mod ln_fn_recipe;
+pub mod ln_fn_terminal;
+pub mod ln_fn_utility;
 pub mod ln_fn_weapon;
+pub mod nif_nodes;
+pub mod pos_marker;
+pub mod ref_move;
 
 use engine_core::prelude::*;
 use engine_core::ptr::Layout;
@@ -54,6 +88,9 @@ use forms::{BSStringT, ListNode, TESForm, BASE_COMPONENT_OFFSETS};
 use nvse::args::Arg;
 use nvse::commands::array::{fix_on, LIST_GUARD};
 use nvse::commands::Read;
+/// One more node of a walk of a game list: the built-in xNVSE's bound (`NV_NVSE_LIST_GUARD`),
+/// shared by every list walk of these commands.
+pub use nvse::invref::list_step;
 use nvse::CommandArgs;
 
 /// A module's plain commands: each opcode with its execute.
@@ -64,22 +101,41 @@ pub type Handlers = &'static [(u32, AbiFn)];
 pub type Conditions = &'static [(u32, AbiFn, AbiFn)];
 
 /// Every module's conditions, one line per JIP source file that has any.
-pub const ALL_CONDITIONS: &[Conditions] = &[jip_fn_effect::CONDITIONS];
+pub const ALL_CONDITIONS: &[Conditions] = &[
+    jip_fn_actor_p2::CONDITIONS,
+    jip_fn_effect::CONDITIONS,
+    ln_fn_math::CONDITIONS,
+    ln_fn_misc_ref::CONDITIONS,
+    ln_fn_actor::CONDITIONS,
+    ln_fn_gamepad::CONDITIONS,
+    jip_fn_ccc::CONDITIONS,
+    jip_fn_weapon::CONDITIONS,
+    jip_fn_ui::CONDITIONS,
+    jip_fn_actor::CONDITIONS,
+    jip_fn_miscellaneous::CONDITIONS,
+    ln_fn_miscellaneous::CONDITIONS,
+    jip_fn_misc_ref_havok::CONDITIONS,
+];
 
 /// A module's condition-only commands (`DEFINE_CMD_COND_ONLY` (JIP LN NVSE)): each opcode with its
 /// eval; no execute.
 pub type ConditionsOnly = &'static [(u32, AbiFn)];
 
 /// Every module's condition-only commands.
-pub const ALL_CONDITIONS_ONLY: &[ConditionsOnly] = &[jip_fn_aux_variable::CONDITIONS_ONLY];
+pub const ALL_CONDITIONS_ONLY: &[ConditionsOnly] = &[
+    jip_fn_aux_variable::CONDITIONS_ONLY,
+    jip_fn_miscellaneous::CONDITIONS_ONLY,
+];
 
 /// Every module's list, one line per JIP source file.
 pub const ALL: &[Handlers] = &[
+    jip_fn_actor_p2::COMMANDS,
     jip_fn_ammo::COMMANDS,
     jip_fn_aux_variable::COMMANDS,
     jip_fn_ammo_effect::COMMANDS,
     jip_fn_armor::COMMANDS,
     jip_fn_body_part_data::COMMANDS,
+    jip_fn_cell::COMMANDS,
     jip_fn_class::COMMANDS,
     jip_fn_climate::COMMANDS,
     jip_fn_combat_style::COMMANDS,
@@ -93,25 +149,53 @@ pub const ALL: &[Handlers] = &[
     jip_fn_impact_data::COMMANDS,
     jip_fn_land_texture::COMMANDS,
     jip_fn_light::COMMANDS,
+    jip_fn_miscellaneous::COMMANDS,
     jip_fn_package::COMMANDS,
     jip_fn_perk::COMMANDS,
     jip_fn_projectile::COMMANDS,
     jip_fn_quest::COMMANDS,
     jip_fn_ref_map::COMMANDS,
+    jip_fn_sound::COMMANDS,
     jip_fn_texture_set::COMMANDS,
+    jip_fn_ui::COMMANDS,
+    jip_fn_utility::COMMANDS,
     jip_fn_water::COMMANDS,
     jip_fn_weapon::COMMANDS,
     jip_fn_weather::COMMANDS,
     jip_fn_worldspace::COMMANDS,
     ln_fn_activator::COMMANDS,
+    ln_fn_actor::COMMANDS,
     ln_fn_casino::COMMANDS,
+    ln_fn_cell::COMMANDS,
     ln_fn_challenge::COMMANDS,
+    ln_fn_game_data::COMMANDS,
+    ln_fn_inventory::COMMANDS,
     ln_fn_leveled_list::COMMANDS,
+    ln_fn_load_screen::COMMANDS,
     ln_fn_map_marker::COMMANDS,
+    ln_fn_math::COMMANDS,
+    ln_fn_misc_ref::COMMANDS,
     ln_fn_perk::COMMANDS,
     ln_fn_race::COMMANDS,
+    ln_fn_radio_ref::COMMANDS,
     ln_fn_recipe::COMMANDS,
+    ln_fn_terminal::COMMANDS,
+    ln_fn_utility::COMMANDS,
     ln_fn_weapon::COMMANDS,
+    jip_fn_misc_ref::COMMANDS,
+    jip_fn_script::COMMANDS,
+    ln_fn_gamepad::COMMANDS,
+    jip_fn_input::COMMANDS,
+    jip_fn_ccc::COMMANDS,
+    jip_fn_actor::COMMANDS,
+    jip_fn_marker_cmds::COMMANDS,
+    jip_fn_script_vars::COMMANDS,
+    jip_fn_misc_ref_nodes::COMMANDS,
+    jip_fn_inventory::COMMANDS,
+    ln_fn_miscellaneous::COMMANDS,
+    jip_fn_misc_ref_havok::COMMANDS,
+    jip_fn_move_cmds::COMMANDS,
+    jip_fn_move_cmds::CCC_COMMANDS,
 ];
 
 /// How many of JIP's commands have a handler.
@@ -138,6 +222,8 @@ pub fn is_built(opcode: u32) -> bool {
 
 /// Gives every built command its handler (a condition its eval too).
 pub fn install(e: &mut Engine) {
+    // Lock-free slots conditions read: made before the threads start.
+    jip_fn_miscellaneous::install(e);
     for list in ALL {
         for &(opcode, execute) in list.iter() {
             crate::table::set_handlers(e, opcode, Some(execute), None);
@@ -268,10 +354,15 @@ pub fn nth_item(e: &Engine, head: Ptr<ListNode>, index: i32) -> u32 {
     e.get(node, ListNode::data)
 }
 
-/// `tList::IsInList`: some node holds `item` (an empty first node holds 0).
+/// `tList::IsInList`: some node holds `item` (an empty first node holds 0). A list that runs
+/// back into itself ends as [`list_items`] does ([`list_step`]): not found.
 pub fn list_contains(e: &Engine, head: Ptr<ListNode>, item: u32) -> bool {
     let mut node = head;
+    let mut walked = 0usize;
     loop {
+        if !list_step(e, &mut walked) {
+            return false;
+        }
         if e.get(node, ListNode::data) == item {
             return true;
         }
@@ -342,10 +433,15 @@ pub fn list_remove_all(e: &mut Engine, head: Ptr<ListNode>) {
 }
 
 /// `tList::Remove`: the first node holding `item` taken out ([`list_unlink`]); whether there was
-/// one.
+/// one. A list that runs back into itself ends as [`list_items`] does ([`list_step`]): nothing
+/// removed.
 pub fn list_remove(e: &mut Engine, head: Ptr<ListNode>, item: u32) -> bool {
     let (mut node, mut prev) = (head, Ptr::<ListNode>::NULL);
+    let mut walked = 0usize;
     loop {
+        if !list_step(e, &mut walked) {
+            return false;
+        }
         if e.get(node, ListNode::data) == item {
             list_unlink(e, node, prev);
             return true;
@@ -385,10 +481,19 @@ pub fn list_append(e: &mut Engine, head: Ptr<ListNode>, item: u32) {
 
 /// The items of a list from its first node, in order, empty items included (`tList::Head`
 /// walked with `do ... while (iter = iter->next)`).
+///
+/// A list that runs back into itself (a bad save or mod) would keep JIP walking for ever: the
+/// walk takes the built-in xNVSE's bound ([`list_step`]), so with the list guard row
+/// (`NV_NVSE_LIST_GUARD`, on in the fixes preset) it ends after
+/// [`nvse::invref::MAX_LIST_NODES`] nodes, and without it the port stops there.
 pub fn list_items(e: &Engine, head: Ptr<ListNode>) -> Vec<u32> {
     let mut items = Vec::new();
     let mut node = head;
+    let mut walked = 0usize;
     loop {
+        if !list_step(e, &mut walked) {
+            return items;
+        }
         items.push(e.get(node, ListNode::data));
         node = Ptr::new(e.get(node, ListNode::next));
         if node.is_null() {
@@ -459,6 +564,19 @@ pub fn string_text(e: &Engine, string: u32) -> Option<Vec<u8>> {
 pub fn assign_string(e: &mut Engine, a: &CommandArgs, text: Option<Vec<u8>>) {
     let text = text.unwrap_or_default();
     nvse::commands::string::assign_to_string_var(e, a, &text);
+}
+
+/// `text` with its 0 in a frame of the stack while `f` runs, which gets its address. For a text a
+/// script decides (a form's name in a console line): xNVSE's built-ins data
+/// (`nvse::table::guest_str`) is never freed and stops the port when full, so such texts never go
+/// there.
+pub fn with_guest_text<R>(e: &mut Engine, text: &[u8], f: impl FnOnce(&mut Engine, u32) -> R) -> R {
+    let size = (text.len() as u32 + 1).next_multiple_of(4);
+    e.with_stack(size, |e, at| {
+        e.mem.write(at.addr(), text);
+        e.mem.set_u8(at.addr() + text.len() as u32, 0);
+        f(e, at.addr())
+    })
 }
 
 /// String argument `i` as JIP's `size`-byte buffer on its stack holds it: its text up to the
@@ -603,11 +721,13 @@ mod tests {
     #[test]
     fn each_module_holds_its_own_file() {
         let files = [
+            "jip_fn_actor",
             "jip_fn_ammo",
             "jip_fn_aux_variable",
             "jip_fn_ammo_effect",
             "jip_fn_armor",
             "jip_fn_body_part_data",
+            "jip_fn_cell",
             "jip_fn_class",
             "jip_fn_climate",
             "jip_fn_combat_style",
@@ -621,25 +741,53 @@ mod tests {
             "jip_fn_impact_data",
             "jip_fn_land_texture",
             "jip_fn_light",
+            "jip_fn_miscellaneous",
             "jip_fn_package",
             "jip_fn_perk",
             "jip_fn_projectile",
             "jip_fn_quest",
             "jip_fn_ref_map",
+            "jip_fn_sound",
             "jip_fn_texture_set",
+            "jip_fn_ui",
+            "jip_fn_utility",
             "jip_fn_water",
             "jip_fn_weapon",
             "jip_fn_weather",
             "jip_fn_worldspace",
             "ln_fn_activator",
+            "ln_fn_actor",
             "ln_fn_casino",
+            "ln_fn_cell",
             "ln_fn_challenge",
+            "ln_fn_game_data",
+            "ln_fn_inventory",
             "ln_fn_leveled_list",
+            "ln_fn_load_screen",
             "ln_fn_map_marker",
+            "ln_fn_math",
+            "ln_fn_misc_ref",
             "ln_fn_perk",
             "ln_fn_race",
+            "ln_fn_radio_ref",
             "ln_fn_recipe",
+            "ln_fn_terminal",
+            "ln_fn_utility",
             "ln_fn_weapon",
+            "jip_fn_misc_ref",
+            "jip_fn_script",
+            "ln_fn_gamepad",
+            "jip_fn_input",
+            "jip_fn_ccc",
+            "jip_fn_actor",
+            "jip_fn_misc_ref",
+            "jip_fn_script",
+            "jip_fn_misc_ref",
+            "jip_fn_inventory",
+            "ln_fn_miscellaneous",
+            "jip_fn_misc_ref",
+            "jip_fn_misc_ref",
+            "jip_fn_ccc",
         ];
         let mut seen = std::collections::HashSet::new();
         for (list, file) in ALL.iter().zip(files) {
@@ -650,7 +798,21 @@ mod tests {
             }
         }
         assert_eq!(ALL.len(), files.len());
-        for (list, file) in ALL_CONDITIONS.iter().zip(["jip_fn_effect"]) {
+        for (list, file) in ALL_CONDITIONS.iter().zip([
+            "jip_fn_actor",
+            "jip_fn_effect",
+            "ln_fn_math",
+            "ln_fn_misc_ref",
+            "ln_fn_actor",
+            "ln_fn_gamepad",
+            "jip_fn_ccc",
+            "jip_fn_weapon",
+            "jip_fn_ui",
+            "jip_fn_actor",
+            "jip_fn_miscellaneous",
+            "ln_fn_miscellaneous",
+            "jip_fn_misc_ref",
+        ]) {
             for &(opcode, _, _) in list.iter() {
                 let slot = crate::table::slot(opcode).expect("a JIP slot");
                 assert!(slot.file.ends_with(file), "{opcode:04x} {}", slot.name);
@@ -658,8 +820,11 @@ mod tests {
                 assert!(seen.insert(opcode), "{opcode:04x} listed twice");
             }
         }
-        assert_eq!(ALL_CONDITIONS.len(), 1);
-        for (list, file) in ALL_CONDITIONS_ONLY.iter().zip(["jip_fn_aux_variable"]) {
+        assert_eq!(ALL_CONDITIONS.len(), 13);
+        for (list, file) in ALL_CONDITIONS_ONLY
+            .iter()
+            .zip(["jip_fn_aux_variable", "jip_fn_miscellaneous"])
+        {
             for &(opcode, _) in list.iter() {
                 let slot = crate::table::slot(opcode).expect("a JIP slot");
                 assert!(slot.file.ends_with(file), "{opcode:04x} {}", slot.name);
@@ -670,7 +835,7 @@ mod tests {
                 assert!(seen.insert(opcode), "{opcode:04x} listed twice");
             }
         }
-        assert_eq!(ALL_CONDITIONS_ONLY.len(), 1);
+        assert_eq!(ALL_CONDITIONS_ONLY.len(), 2);
         // README's JIP LN count is checked in one place, against the table's every handled JIP
         // opcode: `ui_hooks::tests::the_readme_counts_the_built_commands`.
     }
@@ -740,5 +905,36 @@ mod tests {
         // A negative byte (type 0x22, `0x0CFE00FB`: byte 2 is 0xFE) goes back two words.
         e.mem.set_u8(form + 4, 0x22);
         assert_eq!(destructible_form(&e, form), form - 8);
+    }
+
+    /// A list that runs back into itself (two nodes pointing at each other): with the list guard
+    /// row the walk ends after `MAX_LIST_NODES` nodes (the items alternate as walked); a plain
+    /// list is walked whole as before.
+    #[test]
+    fn a_list_that_loops_back_ends_with_the_list_guard() {
+        let mut e = test_support::engine();
+        nvse::commands::array::set_fix(&mut e, LIST_GUARD, true);
+        let (a, b) = (0x0200_0100u32, 0x0200_0108u32);
+        e.mem.set_u32(a, 7);
+        e.mem.set_u32(a + 4, b);
+        e.mem.set_u32(b, 9);
+        e.mem.set_u32(b + 4, 0);
+        assert_eq!(list_items(&e, Ptr::new(a)), vec![7, 9], "a plain list");
+        e.mem.set_u32(b + 4, a);
+        let items = list_items(&e, Ptr::new(a));
+        assert_eq!(items.len(), nvse::invref::MAX_LIST_NODES);
+        assert_eq!(&items[..4], &[7, 9, 7, 9]);
+    }
+
+    /// Without the list guard row (vanilla, where JIP would walk for ever) the port stops.
+    #[test]
+    #[should_panic(expected = "runs back into itself")]
+    fn a_list_that_loops_back_stops_without_the_list_guard() {
+        let mut e = test_support::engine();
+        nvse::commands::array::set_fix(&mut e, LIST_GUARD, false);
+        let a = 0x0200_0100u32;
+        e.mem.set_u32(a, 7);
+        e.mem.set_u32(a + 4, a);
+        list_items(&e, Ptr::new(a));
     }
 }
