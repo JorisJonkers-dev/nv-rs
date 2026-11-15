@@ -729,6 +729,7 @@ dependencies = [
  "d3dx-tex",
  "engine-core",
  "fork-window",
+ "libloading",
  "mp3",
  "nvse",
  "vorbis",

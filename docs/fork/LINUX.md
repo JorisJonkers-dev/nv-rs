@@ -65,10 +65,37 @@ Another machine: `linux_profile.txt` in the data folder (or `NV_LINUX_PROFILE`),
 `vendor_id`, `device_id` (hex), `driver`, `bias_minutes`, `userdata`, and `mode = WxH@Hz` (first is current). Display
 modes are the reference list unless the file gives them; the current monitor is not read (no window exists at this stage).
 
-Sound: without `dsound.tsv` off Windows the table is `fork_tables::no_device_sound_table()`: `DirectSoundCreate8` fails
-with `DSERR_NODRIVER`, so the game runs silent until real output lands (nv-linux#149).
+Sound: see "Sound output" below. Without `NV_SOUND=out` (or `device`) and without `dsound.tsv`, the table is
+`fork_tables::no_device_sound_table()`: `DirectSoundCreate8` fails with `DSERR_NODRIVER`, so the game runs silent.
 
 Not yet known: what the game does on the AMD path with this table (stop lines and counts); that needs the owner's run.
+
+## Sound output (nv-linux#149)
+
+The mixer (DirectSound's mixing, the resamplers, 3D placement) is platform-independent; only the device was
+WASAPI. `engine-platform/src/fork_sound.rs` is the device off Windows, behind the same `sound_out::start` and
+`device_mix` seam; the Windows code is unchanged.
+
+- **Pulse** (the default): `libpulse-simple` loaded with `dlopen` (`libpulse-simple.so.0`, or the file
+  `NV_PULSE_SIMPLE` names; the Nix package sets it). Nothing is linked, so no build prerequisite. Under PipeWire the
+  library talks to `pipewire-pulse`; under PulseAudio to the server. Prerequisite at run time: Arch `libpulse`,
+  Debian and Ubuntu `libpulse0`, Fedora `pulseaudio-libs`. The stream is 32-bit float at 48000 Hz, stereo (or the
+  layout the game's device asks for: mono, stereo, quad, surround, 5.1, 7.1), 80 ms of latency; the server resamples
+  and remixes to the sink. The mix format is fixed because the simple API cannot read the sink's.
+- **Null**: a thread that pulls the mixer on the wall clock and drops the frames. It is the fallback when no sound
+  server answers (a headless machine, CI), said once on stderr.
+- `NV_SOUND_BACKEND=auto|pulse|null`: `auto` (default) is Pulse, else Null; `pulse` refuses when there is no server
+  (the game is then silent); `null` is always Null.
+- Output stays opt-in as on Windows: `NV_SOUND=out` (the game's pace) or `NV_SOUND=device` (the device's pace), and
+  `NV_SOUND_RECORD` and the hidden-window mute work as before. With output asked for and no `dsound.tsv`, the sound
+  table is `fork_tables::reference_sound_table()`: one default device with a software-only `DSCAPS`, written from
+  the DirectSound headers (not captured), so `DirectSoundCreate8` succeeds. A `dsound.tsv` in the data folder wins.
+- Tests: `fork_sound` unit tests run on the null sink (no device, no game data). `cargo test -p engine-platform
+  fork_sound -- --ignored` plays 0.4 s of a quiet tone on the session's default sink.
+
+Open: the speaker layout is always stereo (a 5.1 sink is upmixed by the server, not mapped as DirectSound would),
+underruns are not reported to the mixer, the 3D path has not been listened to in a play run, and the launcher does not
+set `NV_SOUND=out` yet.
 
 ## Shader compiler off Windows (nv-linux#178, #197, #200)
 

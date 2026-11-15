@@ -9,7 +9,7 @@ crates/engine-core/src/typed/diff.rs  # a case runs under its second control wor
 crates/engine-core/src/x87.rs  # test builds note that the control word was read or loaded (nothing in a production build)
 crates/engine-core/src/units/crt.rs  # FSTCW's read through the thread block is noted too (test builds)
 # Native Linux build (docs/fork/LINUX.md): each change is cfg-gated or additive; Windows code is unchanged.
-crates/engine-platform/Cargo.toml  # d3d9-wgpu as a dependency on every target (was Windows only)
+crates/engine-platform/Cargo.toml  # d3d9-wgpu as a dependency on every target (was Windows only); libloading off Windows (the sound output, fork_sound.rs)
 crates/engine-platform/src/d3d9device.rs  # the argument-word trait is built on Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3d9resource.rs  # its import of that trait is Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3dx.rs  # an unused binding off Windows
@@ -18,9 +18,9 @@ crates/host/src/cell_offsets.rs  # asks files::host_path for the plugin's path (
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
 # Platform answers off Windows (docs/fork/LINUX.md): one hook each, the Windows arms untouched.
-crates/engine-platform/src/lib.rs  # the modules of the fork-owned platform answers and machine tables; `pub mod d3dxshader;` and the six shader imports registered from it, both cfg(not(windows)) (docs/fork/LINUX.md, shader compiler)
+crates/engine-platform/src/lib.rs  # the modules of the fork-owned platform answers and machine tables; `pub mod d3dxshader;` and the six shader imports registered from it, both cfg(not(windows)) (docs/fork/LINUX.md, shader compiler); `pub mod fork_sound;`, cfg(not(windows)) (sound output)
 crates/engine-platform/src/process.rs  # GlobalMemoryStatus(Ex) reads /proc/meminfo on Unix
-crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir; off Windows a missing file is the no-device table (fork_tables)
+crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir; off Windows a missing file is the reference device's table with the output asked for, else the no-device table (fork_tables)
 crates/host/src/game_ini.rs  # off Unix hosts the table's Documents folder `Z:\...` is read as the host path
 crates/host/src/save_out.rs  # known_folders off Windows answers from the XDG data folder
 # Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
@@ -48,3 +48,5 @@ crates/engine-platform/src/d3d9draw.rs  # the cut, close and settle of the recor
 crates/engine-platform/src/window.rs  # the calls into d3d9real for a window's creation, title and position lose their cfg(windows) (fork_d3d9rec.rs answers them off Windows)
 crates/host/src/player_move.rs  # the real window's keys and mouse (d3d9real::held_keys, take_input) are read on every target
 crates/d3d9-wgpu/src/window.rs  # client_size off Windows asks fork-window
+# Sound output off Windows (docs/fork/LINUX.md, nv-linux#149): the code is the new file engine-platform/src/fork_sound.rs; its upstream-owned edits are the hooks in engine-platform/src/sound_out.rs, listed here, and the lines noted above for lib.rs, Cargo.toml, dsound.rs and Cargo.lock.
+crates/engine-platform/src/sound_out.rs  # the non-Windows arms of `start` and `device_mix` call fork_sound.rs (they answered "no device"); `Output::running` and `is_muted` for it, cfg(not(windows)); the Windows WASAPI code is unchanged

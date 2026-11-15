@@ -104,6 +104,8 @@ pub mod dsound;
 pub mod files;
 // Fork-owned: the platform's answers off Windows (docs/fork/LINUX.md).
 pub mod fork_platform;
+#[cfg(not(windows))]
+pub mod fork_sound;
 pub mod fork_tables;
 pub mod ini;
 pub mod library;

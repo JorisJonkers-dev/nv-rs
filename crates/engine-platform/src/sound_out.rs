@@ -8,7 +8,8 @@
 //! `Initialize` with that format (measured as `FalloutNV.exe`, 2026-11-03: `S_OK`). A mix format
 //! that is not 32-bit float, or a layout DirectSound does not place 3D buffers on
 //! (`super::speakers::Layout::provided`), is not provided: [`start`] then refuses, named, and
-//! nothing is heard. Windows only; elsewhere [`start`] answers that there is no device.
+//! nothing is heard. Windows only; elsewhere `fork_sound.rs` is the device (libpulse-simple, which
+//! PipeWire serves, or a null sink).
 //!
 //! The thread asks the [`Source`] for as many frames as the device can take each time the device
 //! signals it (event driven, the device's period), so what plays is at most one device buffer
@@ -63,6 +64,24 @@ impl Output {
     }
 }
 
+impl Output {
+    /// A stream whose thread is running (the off-Windows backends, `fork_sound.rs`).
+    #[cfg(not(windows))]
+    pub(crate) fn running(
+        stop: Arc<AtomicBool>,
+        thread: std::thread::JoinHandle<()>,
+        rate: u32,
+        layout: Layout,
+    ) -> Output {
+        Output {
+            stop,
+            thread: Some(thread),
+            rate,
+            layout,
+        }
+    }
+}
+
 impl Drop for Output {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
@@ -93,7 +112,7 @@ pub fn device_mix() -> Option<(u32, Layout)> {
     }
     #[cfg(not(windows))]
     {
-        None
+        super::fork_sound::mix(super::fork_sound::Backend::from_env())
     }
 }
 
@@ -145,6 +164,12 @@ pub fn mute_device() {
     MUTED.store(true, Ordering::Relaxed);
 }
 
+/// Whether [`mute_device`] was called.
+#[cfg(not(windows))]
+pub(crate) fn is_muted() -> bool {
+    MUTED.load(Ordering::Relaxed)
+}
+
 /// Starts playing `source` on the default output device, in its mix format as it is (`want`
 /// `None`, or the mix format's own layout) or in the layout `want` at the mix rate, 32-bit float
 /// (when the endpoint takes it).
@@ -155,8 +180,7 @@ pub fn start(source: Arc<Mutex<dyn Source>>, want: Option<Layout>) -> Result<Out
     }
     #[cfg(not(windows))]
     {
-        let _ = (source, want);
-        Err(Refused::NoDevice)
+        super::fork_sound::start(super::fork_sound::Backend::from_env(), source, want)
     }
 }
 

@@ -31,6 +31,49 @@ pub fn no_device_sound_table() -> String {
     format!("DsCreate\t\t{DSERR_NODRIVER:x}\nDsEnd\n")
 }
 
+/// The sound table of a machine with a sound server (`fork_sound.rs`): one default device that
+/// takes `DSSCL_PRIORITY`, written from the DirectSound headers, not captured from any machine. A
+/// `dsound.tsv` in the data folder still overrides it. `DSCAPS` is a software-only device (no
+/// hardware voices or memory, the continuous rate between 100 and 200000 Hz, mono and stereo, 8
+/// and 16 bit); the primary buffer is 16-bit stereo at the mix rate; the listener is
+/// `DS3DLISTENER`'s documented default (origin, front +z, top +y, every factor 1).
+pub fn reference_sound_table() -> String {
+    fn hex(words: &[u32]) -> String {
+        words.iter().fold(String::new(), |mut s, w| {
+            for b in w.to_le_bytes() {
+                let _ = write!(s, "{b:02x}");
+            }
+            s
+        })
+    }
+    let one = 1.0f32.to_bits();
+    let mut caps = [0u32; 24];
+    caps[0] = 0x60;
+    // MONO | STEREO | 8BIT | 16BIT (primary), CONTINUOUSRATE, then the same for secondary.
+    caps[1] = 0x1 | 0x2 | 0x4 | 0x8 | 0x10 | 0x100 | 0x200 | 0x400 | 0x800;
+    caps[2] = 100;
+    caps[3] = 200_000;
+    caps[4] = 1;
+    let rate = crate::fork_sound::MIX_RATE;
+    let primary = [1u32 | 2 << 16, rate, rate * 4, 4 | 16 << 16, 0];
+    let primary_bytes = &hex(&primary)[..36];
+    // DS3DLISTENER: size, position, velocity, front, top (3 words each), then three factors.
+    let mut l = [0u32; 16];
+    l[0] = 0x40;
+    l[9] = one; // front z
+    l[11] = one; // top y
+    l[13] = one; // distance factor
+    l[14] = one; // rolloff
+    l[15] = one; // doppler
+    format!(
+        "DsCreate\t\t0\t\nDsCooperativeLevel\t1\t0\t\nDsCooperativeLevel\t2\t0\t\n\
+         DsCaps\t\t0\t{}\nDsPrimary\t91\t0\t{} 12\nDsListener\t\t0 0\t{}\nDsEnd\n",
+        hex(&caps),
+        primary_bytes,
+        hex(&l)
+    )
+}
+
 /// What the table says about the machine.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Profile {
@@ -1057,6 +1100,14 @@ mod tests {
             "GetAdapterDisplayMode\t0\t0\t{}",
             hex(&mode_bytes((2560, 1440, 144), 22))
         )));
+    }
+
+    #[test]
+    fn the_reference_sound_table_loads_and_makes_a_device() {
+        let t = reference_sound_table();
+        let mut e = Engine::new();
+        crate::dsound::load_table(&mut e, &t);
+        assert!(t.starts_with("DsCreate\t\t0\t\n") && t.ends_with("DsEnd\n"));
     }
 
     #[test]
