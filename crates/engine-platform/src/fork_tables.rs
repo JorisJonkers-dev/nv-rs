@@ -698,7 +698,9 @@ pub fn adapter_table(p: &Profile) -> String {
     windows_lines(&mut o);
     // Folders: the Windows directory and CSIDL personal, appdata, local appdata, common appdata,
     // common documents, under the user data folder.
-    let u = p.userdata.trim_end_matches('/');
+    // The game's paths are Windows paths: `Z:` is the host's root (`files::host_path`, as Wine's),
+    // so the folders are `Z:\home\...`; a path with `/` is no full path to the game's file layer.
+    let u = format!("Z:{}", p.userdata.trim_end_matches('/').replace('/', "\\"));
     writeln!(
         o,
         "GetWindowsDirectoryA\t\t{:x}\t{}",
@@ -707,11 +709,11 @@ pub fn adapter_table(p: &Profile) -> String {
     )
     .unwrap();
     for (csidl, path) in [
-        (0x05u32, format!("{u}/Documents")),
-        (0x1a, format!("{u}/AppData/Roaming")),
-        (0x1c, format!("{u}/AppData/Local")),
-        (0x23, format!("{u}/AppData/Common")),
-        (0x2e, format!("{u}/Documents/Common")),
+        (0x05u32, format!("{u}\\Documents")),
+        (0x1a, format!("{u}\\AppData\\Roaming")),
+        (0x1c, format!("{u}\\AppData\\Local")),
+        (0x23, format!("{u}\\AppData\\Common")),
+        (0x2e, format!("{u}\\Documents\\Common")),
     ] {
         writeln!(o, "SHGetFolderPathA\t{csidl:x} 0\t0\t{}", path_hex(&path)).unwrap();
     }
@@ -916,6 +918,67 @@ pub fn machine_profile() -> Result<Profile, String> {
     }
 }
 
+/// The settings folder the game reads on Windows, `Documents\My Games\FalloutNV`, under the
+/// profile's user data folder.
+fn settings_folder(userdata: &str) -> std::path::PathBuf {
+    std::path::Path::new(userdata)
+        .join("Documents")
+        .join("My Games")
+        .join("FalloutNV")
+}
+
+/// Makes the settings a first run needs, where the launcher makes them on Windows
+/// (`<userdata>/Documents/My Games/FalloutNV`): a `Fallout.ini` taken from the installation's own
+/// `Fallout_default.ini` (it names the archives, so without it no menu or texture file is found)
+/// and a `FalloutPrefs.ini` whose `[Display] sD3DDevice` is the adapter's name (`004da570` hands
+/// over to the launcher when it differs or is missing). A file that exists is never touched, and
+/// nothing is written to the installation. Answers the files it made.
+pub fn seed_settings(
+    userdata: &str,
+    install: &std::path::Path,
+    adapter_name: &str,
+) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let folder = settings_folder(userdata);
+    let mut made = Vec::new();
+    let ini = folder.join("Fallout.ini");
+    let prefs = folder.join("FalloutPrefs.ini");
+    if ini.exists() && prefs.exists() {
+        return Ok(made);
+    }
+    std::fs::create_dir_all(&folder)?;
+    if !ini.exists() {
+        let defaults = std::fs::read(install.join("Fallout_default.ini"))?;
+        std::fs::write(&ini, defaults)?;
+        made.push(ini);
+    }
+    if !prefs.exists() {
+        std::fs::write(
+            &prefs,
+            format!("[Display]\r\nsD3DDevice={adapter_name}\r\n"),
+        )?;
+        made.push(prefs);
+    }
+    Ok(made)
+}
+
+/// [`seed_settings`] for this machine's profile ([`machine_profile`]); a failure is named on
+/// stderr and the run goes on (the game then asks for its launcher).
+#[cfg(not(windows))]
+pub fn seed_machine_settings(install: &std::path::Path) {
+    let profile = match machine_profile() {
+        Ok(p) => p,
+        Err(why) => return eprintln!("the settings are not made: {why}"),
+    };
+    match seed_settings(&profile.userdata, install, &profile.name) {
+        Ok(made) => {
+            for f in made {
+                eprintln!("settings made: {}", f.display());
+            }
+        }
+        Err(why) => eprintln!("the settings are not made: {why}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1002,5 +1065,29 @@ mod tests {
         let mut e = Engine::new();
         crate::dsound::load_table(&mut e, &t);
         assert_eq!(t, "DsCreate\t\t88780078\nDsEnd\n");
+    }
+
+    #[test]
+    fn first_run_settings_are_made_once_and_never_overwritten() {
+        let dir = std::env::temp_dir().join(format!("nv-seed-{}", std::process::id()));
+        let install = dir.join("game");
+        std::fs::create_dir_all(&install).unwrap();
+        std::fs::write(install.join("Fallout_default.ini"), "[Archive]\r\n").unwrap();
+        let userdata = dir.join("ud");
+        let ud = userdata.to_str().unwrap();
+        let made = seed_settings(ud, &install, "Card X").unwrap();
+        assert_eq!(made.len(), 2);
+        let folder = settings_folder(ud);
+        assert_eq!(
+            std::fs::read_to_string(folder.join("FalloutPrefs.ini")).unwrap(),
+            "[Display]\r\nsD3DDevice=Card X\r\n"
+        );
+        std::fs::write(folder.join("Fallout.ini"), "mine").unwrap();
+        assert!(seed_settings(ud, &install, "Card Y").unwrap().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(folder.join("Fallout.ini")).unwrap(),
+            "mine"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -42,6 +42,7 @@ Windows jobs run the same tests as before (the four `files` tests that were `ign
 | `GlobalMemoryStatus(Ex)` (`process.rs`) | `GlobalMemoryStatusEx` | `/proc/meminfo`: `MemTotal`, `MemAvailable` (`MemFree` without it), swap added for the page file; no `/proc` means no answer, as before |
 | Real clock's start (`Engine::start_real_clock`) | `GetTickCount` | the machine's uptime in ms from `/proc/uptime`, wrapped to 32 bits as `GetTickCount` wraps (0 if `/proc/uptime` is missing) |
 | Table paths (`dsound.tsv`, `d3d9_adapter.tsv`, `d3dx-cache`) | `%LOCALAPPDATA%\nv-rs` | `$XDG_DATA_HOME/nv-rs` (an absolute path), else `~/.local/share/nv-rs`; the `NV_*` overrides are unchanged |
+| First-run settings (`fork_tables::seed_settings`) | the launcher makes `Fallout.ini` and `FalloutPrefs.ini` | `<userdata>/Documents/My Games/FalloutNV`: `Fallout.ini` from the installation's `Fallout_default.ini`, `FalloutPrefs.ini` with `[Display] sD3DDevice` = the adapter's name; files that exist are never touched; the table's folders are `Z:\...` game paths and every file call goes through `files::host_path` |
 | `host::save_out::known_folders()` | `SHGetFolderPathW` | `<data folder>/nv-rs/userdata/{Documents,AppData/Roaming,AppData/Local}` (not created) |
 
 Code pages beyond ASCII and 1252 are not provided: a name's other characters become `?` (see `code_page`); a name

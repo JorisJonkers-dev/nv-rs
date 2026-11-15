@@ -225,6 +225,12 @@ pub fn path_from_table(table: &str) -> Result<Option<PathBuf>, String> {
             String::from_utf8_lossy(e.as_bytes())
         )
     })?;
+    // Off Windows the table's folders are `Z:\...` game paths (the host's root as the drive).
+    #[cfg(unix)]
+    let documents = match documents.strip_prefix("Z:") {
+        Some(rest) => rest.replace('\\', "/"),
+        None => documents,
+    };
     Ok(Some(
         Path::new(&documents)
             .join("My Games")

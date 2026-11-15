@@ -13,7 +13,7 @@ crates/engine-platform/Cargo.toml  # d3d9-wgpu as a dependency on every target (
 crates/engine-platform/src/d3d9device.rs  # the argument-word trait is built on Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3d9resource.rs  # its import of that trait is Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3dx.rs  # an unused binding off Windows
-crates/engine-platform/src/files.rs  # five changed lines: `mod files_host;` and its re-export (the Linux path code is in the overlay file files_host.rs), a warning-only attribute and a test constant off Windows; `find_fields` for the file times of FindFirstFileA on Unix, the Windows-only ignores removed
+crates/engine-platform/src/files.rs  # five changed lines: `mod files_host;` and its re-export (the Linux path code is in the overlay file files_host.rs), a warning-only attribute and a test constant off Windows; `real_path` answers `files_host::host_path` (the Windows code is `windows_real_path`, unchanged); a search pattern's first two letters rule out a short name; `find_fields` for the file times of FindFirstFileA on Unix, the Windows-only ignores removed
 crates/host/src/cell_offsets.rs  # asks files::host_path for the plugin's path (the Unix mapping of a game path)
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
@@ -21,6 +21,7 @@ crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Wi
 crates/engine-platform/src/lib.rs  # the modules of the fork-owned platform answers and machine tables; `pub mod d3dxshader;` and the six shader imports registered from it, both cfg(not(windows)) (docs/fork/LINUX.md, shader compiler)
 crates/engine-platform/src/process.rs  # GlobalMemoryStatus(Ex) reads /proc/meminfo on Unix
 crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir; off Windows a missing file is the no-device table (fork_tables)
+crates/host/src/game_ini.rs  # off Unix hosts the table's Documents folder `Z:\...` is read as the host path
 crates/host/src/save_out.rs  # known_folders off Windows answers from the XDG data folder
 # Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
 Cargo.toml  # two workspace members
@@ -33,7 +34,7 @@ crates/engine-core/src/lib.rs  # appended test_gate module
 crates/engine-havok/src/lib.rs  # appended test_gate module
 crates/d3d9-wgpu/src/device.rs  # surface_for off Windows asks fork-window (X11, Wayland); the stub stays for other targets
 crates/d3d9-wgpu/Cargo.toml  # fork-window as a dependency on Linux
-crates/host/src/lib.rs  # install calls of jg and showoff after JIP; appended test_gate module (the real-data gate); the adapter and texture-cache folders come from fork_platform::data_dir off Windows; off Windows a missing adapter table is generated (fork_tables)
+crates/host/src/lib.rs  # install calls of jg and showoff after JIP; appended test_gate module (the real-data gate); the adapter and texture-cache folders come from fork_platform::data_dir off Windows; off Windows the adapter table is generated afresh each run (fork_tables) and the first-run settings are made (fork_tables::seed_machine_settings)
 # Shader compiler seam off Windows (docs/fork/LINUX.md, nv-linux#197, #200): the code is the new crate d3dx-shader and the new file engine-platform/src/d3dxshader.rs; its upstream-owned edits are one line each: the workspace member (Cargo.toml, Cargo.lock), engine-platform's dependency and the hook in engine-platform/src/lib.rs (listed above).
 crates/d3d9-wgpu/src/lib.rs  # `pub mod identity;` (the card wgpu reports, for the Linux machine table)
 # Direct3D 9 recorder off Windows (docs/fork/LINUX.md, "Direct3D 9 off Windows", nv-linux#181): `d3d9real` is built on every target, its Windows-only items carry a cfg(windows) line and the fork-owned fork_d3d9rec.rs gives Linux the wgpu backend off screen; the call sites below lose their cfg(windows) line (the Windows arm is the same text).

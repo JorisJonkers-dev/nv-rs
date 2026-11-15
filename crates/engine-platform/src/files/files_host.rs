@@ -6,7 +6,7 @@
 
 /// The host's path for the game's full path `path` (Windows: as it is; elsewhere: `unix_path`).
 pub fn host_path(path: &[u8]) -> std::path::PathBuf {
-    let ansi = super::real_path(path);
+    let ansi = super::windows_real_path(path);
     #[cfg(unix)]
     {
         unix_path(&ansi.to_string_lossy())
