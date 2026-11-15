@@ -29,7 +29,7 @@ here=$(dirname "$(readlink -f "$0")")
 
 die() { printf 'replay-upstream: %s\n' "$*" >&2; exit 1; }
 # stop <reason> <commit-or-empty> <message>: records why the replay stopped for scripts/fork/sync_report.py (SYNC_STOP_FILE),
-# then dies. reason is one of: conflict, history, hook, other.
+# then dies. reason is one of: conflict, partial, history, hook, other.
 stop() {
   local reason=$1 commit=$2; shift 2
   if [[ -n ${SYNC_STOP_FILE:-} ]]; then
@@ -94,6 +94,16 @@ trap 'rm -f "$msg"' EXIT
 for c in "${commits[@]}"; do
   dropped=()
   picked=true
+  # A commit that adds `mod x;` to a fork-owned file upstream also has would arrive without that line and without the
+  # fork's own version knowing the module: the rest of the commit then does not build. Stop before producing that branch.
+  while IFS= read -r -d '' f; do
+    fork_owns "$f" || continue
+    git cat-file -e "$c^:$f" 2>/dev/null || continue
+    git cat-file -e "HEAD:$f" 2>/dev/null || continue
+    if git diff "$c^" "$c" -- "$f" | grep -Eq '^\+[[:space:]]*(pub(\([a-z]+\))?[[:space:]]+)?mod[[:space:]]+[A-Za-z0-9_]+[[:space:]]*;'; then
+      stop partial "$c" "upstream commit ${c:0:12} adds a module line to $f, which .fork/overlay-paths holds out of the replay, so the commit would be applied in part and not build: remove $f from .fork/overlay-paths (list it in .fork/allowed-divergence), or apply the commit by hand"
+    fi
+  done < <(git diff-tree --no-commit-id --name-only -r -z "$c")
   git cherry-pick --no-commit "$c" >/dev/null 2>&1 || picked=false
   drop_owned "$c"
   if ! $picked && [[ -z $(git diff --name-only --diff-filter=U) ]]; then picked=true; fi

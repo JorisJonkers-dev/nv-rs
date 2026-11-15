@@ -12,9 +12,15 @@
 //! in place); deleted, they are only gone for the game. An open of a file that exists nowhere
 //! with a disposition that needs one fails as Windows answers it (measured).
 
+// Off Windows the file times stop the run (write_find_data), so what follows the stop is never reached.
+#![cfg_attr(not(windows), allow(unreachable_code, unused_variables))]
+
 use super::{KernelObject, Opaque};
 use crate::{Engine, Ptr};
 use std::collections::BTreeMap;
+
+mod files_host;
+pub use files_host::host_path;
 
 /// `GENERIC_READ` and `GENERIC_WRITE` (the access mask's top bits).
 pub const GENERIC_READ: u32 = 0x8000_0000;
@@ -319,64 +325,7 @@ pub fn full_path(e: &Engine, name: &[u8]) -> Vec<u8> {
     path
 }
 
-/// The host's path for the game's full path `path` (Windows: as it is; elsewhere: `unix_path`).
-pub fn real_path(path: &[u8]) -> std::path::PathBuf {
-    #[cfg(unix)]
-    {
-        unix_path(&ansi_host_path(path).to_string_lossy())
-    }
-    #[cfg(not(unix))]
-    {
-        ansi_host_path(path)
-    }
-}
-
-/// A game path (`Z:\home\me\Data\Fallout.esm`; names are not case-sensitive, the separator is a
-/// backslash) as a path of a Unix host: `Z:` is the host's root, as Wine's is, so a name under it
-/// is the same name with `/` for `\`; a name without a drive letter keeps its place (the
-/// current directory's or an absolute one). Any other drive letter has no mapping: its name stays
-/// as it is and is not found, never made up. Each part that does not exist as written is looked up
-/// without regard to case in its directory (the first entry that matches), so `data\FALLOUT.ESM`
-/// finds `Data/Fallout.esm`; a part with no match stays as written (a file to be made).
-#[cfg(unix)]
-fn unix_path(text: &str) -> std::path::PathBuf {
-    use std::path::{Component, Path, PathBuf};
-    let slashed = text.replace('\\', "/");
-    let rest = match slashed.as_bytes() {
-        [d, b':', ..] if d.eq_ignore_ascii_case(&b'z') => &slashed[2..],
-        _ => &slashed[..],
-    };
-    let mut found = PathBuf::new();
-    for part in Path::new(rest).components() {
-        let Component::Normal(name) = part else {
-            found.push(part.as_os_str());
-            continue;
-        };
-        let next = found.join(name);
-        if next.symlink_metadata().is_ok() {
-            found = next;
-            continue;
-        }
-        let from = if found.as_os_str().is_empty() {
-            Path::new(".")
-        } else {
-            found.as_path()
-        };
-        let same = std::fs::read_dir(from).ok().and_then(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .map(|entry| entry.file_name())
-                .find(|n| {
-                    n.to_string_lossy()
-                        .eq_ignore_ascii_case(&name.to_string_lossy())
-                })
-        });
-        found.push(same.as_deref().unwrap_or(name));
-    }
-    found
-}
-
-/// The host path of a path as the game's ANSI calls carry it (before the Unix mapping of [`real_path`]). Each part between separators that
+/// The host path of a path as the game's ANSI calls carry it. Each part between separators that
 /// reads as UTF-8 is taken as it is (the install folder's name, which the host gives as UTF-8,
 /// and every ASCII name), and any other part as bytes of the ANSI code page, turned to Unicode
 /// as Windows' `...A` calls turn it ([`code_page::to_wide`], `MultiByteToWideChar(CP_ACP)`: a
@@ -385,7 +334,7 @@ fn unix_path(text: &str) -> std::path::PathBuf {
 /// is both valid UTF-8 and meant as code page bytes is read as UTF-8. The separators are found
 /// character by character ([`separators`]), so a double-byte character whose second byte is
 /// `0x5C` stays one character.
-fn ansi_host_path(path: &[u8]) -> std::path::PathBuf {
+fn real_path(path: &[u8]) -> std::path::PathBuf {
     if path.is_ascii() {
         return std::path::PathBuf::from(String::from_utf8_lossy(path).into_owned());
     }
@@ -1188,8 +1137,6 @@ fn host_name_text(name: &std::ffi::OsStr) -> String {
 /// last-write times, the size (high word, then low), the two reserved words 0, `cFileName` (the
 /// name as stored, then one zero byte) and an empty `cAlternateFileName` (one zero byte at
 /// +0x130); the rest of the buffer is left as it was.
-// Off Windows the file times stop the run (below), so what follows the stop is never reached.
-#[cfg_attr(not(windows), allow(unreachable_code, unused_variables))]
 fn write_find_data(
     e: &mut Engine,
     data: Ptr,
@@ -3442,10 +3389,6 @@ mod tests_player_files {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows"
-    )]
     fn a_wildcard_search_lists_then_runs_out() {
         let mut e = Engine::new();
         let name = e.mem.alloc(0x200);
@@ -3475,10 +3418,6 @@ mod tests_player_files {
     /// TRUE, the last error left as it was (measured, 32-bit,
     /// `build43-scratch/measure/small-fixes/findclose-2026-11-02.tsv`).
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "FindFirstFileA describes a file with its times, which are only provided on Windows"
-    )]
     fn find_close_after_a_search_that_found_nothing_answers_false() {
         let mut e = Engine::new();
         let name = e.mem.alloc(0x200);
@@ -3524,10 +3463,6 @@ mod tests_player_files {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "its FindFirstFileA part needs the file times, which are only provided on Windows"
-    )]
     fn a_read_only_open_reads_the_players_file_in_place() {
         let mut e = Engine::new();
         let real = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
@@ -3632,15 +3567,10 @@ mod tests_kept_files {
             .collect()
     }
 
-    /// The host's path for a full path of the game's kind (the scratch folder's `dir\name`).
-    fn host(path: &str) -> std::path::PathBuf {
-        real_path(path.as_bytes())
-    }
-
     /// The scratch file `name` in `dir` with `bytes`; its full path.
     fn file(dir: &str, name: &str, bytes: &[u8]) -> String {
         let path = format!("{dir}\\{name}");
-        std::fs::write(host(&path), bytes).unwrap();
+        std::fs::write(&path, bytes).unwrap();
         path
     }
 
@@ -3791,9 +3721,8 @@ mod tests_kept_files {
         let incoming = file(&dir, "Incoming.bsa", &new);
         let h = open(&mut e, &path, GENERIC_READ);
         assert_eq!(read(&mut e, h, 100), old[..100].to_vec());
-        std::fs::rename(host(&incoming), host(&path))
-            .expect("a rename over a file the game has open");
-        assert_eq!(std::fs::read(host(&path)).unwrap(), new);
+        std::fs::rename(&incoming, &path).expect("a rename over a file the game has open");
+        assert_eq!(std::fs::read(&path).unwrap(), new);
         assert_eq!(read(&mut e, h, 100), old[100..200].to_vec());
         assert_eq!(size(&mut e, h), 6000);
         set_file_pointer(&mut e, h, (-50i32) as u32, Ptr::new(0), 2);
@@ -3810,7 +3739,7 @@ mod tests_kept_files {
         let path = file(&dir, "Deleted.bsa", &old);
         let h = open(&mut e, &path, GENERIC_READ);
         assert_eq!(read(&mut e, h, 100), old[..100].to_vec());
-        std::fs::remove_file(host(&path)).expect("deleting a file the game has open");
+        std::fs::remove_file(&path).expect("deleting a file the game has open");
         assert_eq!(read(&mut e, h, 100), old[100..200].to_vec());
         assert_eq!(size(&mut e, h), 6000);
         assert_eq!(open(&mut e, &path, GENERIC_READ), INVALID_HANDLE_VALUE);
@@ -3828,7 +3757,7 @@ mod tests_kept_files {
         assert_eq!(delete_file_a(&mut e, Ptr::new(name)), 1);
         assert!(read(&mut e, h, 100).is_empty());
         assert_eq!(size(&mut e, h), 0);
-        assert_eq!(std::fs::read(host(&path)).unwrap(), old);
+        assert_eq!(std::fs::read(&path).unwrap(), old);
         close(&mut e, h);
 
         // The game's own write open takes the file into the run: the earlier read handle then
@@ -3849,7 +3778,7 @@ mod tests_kept_files {
             [&b"THE RUN!"[..], &old[108..110]].concat()
         );
         assert_eq!(size(&mut e, r), 6008);
-        assert_eq!(std::fs::read(host(&path)).unwrap(), old);
+        assert_eq!(std::fs::read(&path).unwrap(), old);
         close(&mut e, r);
         close(&mut e, w);
         let _ = std::fs::remove_dir_all(&dir);
@@ -3864,7 +3793,7 @@ mod tests_changed_directories {
     use super::*;
 
     const SECOND: u64 = 10_000_000;
-    #[cfg(windows)]
+    #[cfg_attr(not(windows), allow(dead_code))]
     const SAVE_138: &str = "Save 138   Alexxander  Doc Mitchell s House  02 02 23.fos";
 
     /// A scratch folder of the test's own (under the system's temporary folder) holding `files`
@@ -4260,10 +4189,6 @@ mod tests_changed_directories {
     /// got (measured, `review-findfile/run1.txt`); not modelled, the run stops.
     #[test]
     #[should_panic(expected = "since FindFirstFileA; not provided")]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the stop it expects comes from the Windows file times: off Windows the search stops earlier, on the file times"
-    )]
     fn a_search_whose_folder_changed_since_it_began_stops() {
         let dir = scratch("midsearch", &[("a.fos", 5), ("b.fos", 5)]);
         let mut e = Engine::new();
@@ -4292,57 +4217,6 @@ mod tests_changed_directories {
         let mut e = Engine::new();
         save(&mut e, &dir, "nvfix", &[0x10]);
         listed(&mut e, &format!("{dir}\\*"));
-    }
-}
-
-/// The game's paths on a Unix host ([`real_path`]).
-#[cfg(all(test, unix))]
-mod tests_unix_paths {
-    use super::*;
-
-    fn scratch(test: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("nv-rs-{test}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("Data")).unwrap();
-        std::fs::write(dir.join("Data").join("Fallout.esm"), b"x").unwrap();
-        dir
-    }
-
-    #[test]
-    fn the_z_drive_is_the_hosts_root_and_backslashes_are_separators() {
-        assert_eq!(
-            real_path(b"Z:\\usr\\share\\none"),
-            std::path::PathBuf::from("/usr/share/none")
-        );
-        assert_eq!(real_path(b"z:\\tmp"), std::path::PathBuf::from("/tmp"));
-    }
-
-    #[test]
-    fn another_drive_has_no_mapping_and_stays_as_it_is() {
-        let path = real_path(b"C:\\Games\\Data");
-        assert_eq!(path, std::path::PathBuf::from("C:/Games/Data"));
-        assert!(!path.exists());
-    }
-
-    #[test]
-    fn a_name_is_found_without_regard_to_case() {
-        let dir = scratch("case");
-        let asked = format!("Z:{}\\DATA\\fallout.ESM", dir.display());
-        let found = real_path(asked.as_bytes());
-        assert_eq!(found, dir.join("Data").join("Fallout.esm"));
-        assert!(found.exists());
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_name_with_no_match_stays_as_written() {
-        let dir = scratch("nomatch");
-        let asked = format!("Z:{}\\Data\\New.fos", dir.display());
-        assert_eq!(
-            real_path(asked.as_bytes()),
-            dir.join("Data").join("New.fos")
-        );
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
 

@@ -5903,9 +5903,19 @@ pub fn actor_equip_object(
     if e.call(FORM_TYPE, &args![item]).u32() == FORM_TYPE_AMMO
         && e.vcall(item.addr(), FORM_VSLOT_0X94, &args![]).bool()
     {
-        e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_USED]);
+        {
+            // JIP LN NVSE's MarkScriptEvent reads this call's caller's first stack word.
+            let _caller =
+                e.mark_caller_word(engine_core::extend::Hook::MarkScriptEvent, item.addr());
+            e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_USED]);
+        }
         let list = e.call(GET_EXTRA_DATA_LIST_ADDRESS, &args![this]).u32();
-        e.call(SET_ACTION_FLAG, &args![item, list, ACTION_FLAG_USED]);
+        {
+            // JIP LN NVSE's MarkScriptEvent reads this call's caller's first stack word.
+            let _caller =
+                e.mark_caller_word(engine_core::extend::Hook::MarkScriptEvent, item.addr());
+            e.call(SET_ACTION_FLAG, &args![item, list, ACTION_FLAG_USED]);
+        }
         return;
     }
     if is_player
@@ -6039,7 +6049,12 @@ pub fn actor_equip_object(
             );
         }
         FORM_TYPE_FOOD => {
-            e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_USED]);
+            {
+                // JIP LN NVSE's MarkScriptEvent reads this call's caller's first stack word.
+                let _caller =
+                    e.mark_caller_word(engine_core::extend::Hook::MarkScriptEvent, item.addr());
+                e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_USED]);
+            }
             if !e.vcall(item.addr(), FORM_VSLOT_0X94, &args![]).bool() {
                 e.call(ACTOR_EAT, &args![this, item, extra, !is_player]);
                 notify_flag = 1;
@@ -6089,7 +6104,14 @@ pub fn actor_equip_object(
                             &args![notification, 1u32, item, 0u32, 0u32, 0u32, 0u32],
                         );
                     }
-                    e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_USED]);
+                    {
+                        // JIP LN NVSE's MarkScriptEvent reads this call's caller's first stack word.
+                        let _caller = e.mark_caller_word(
+                            engine_core::extend::Hook::MarkScriptEvent,
+                            item.addr(),
+                        );
+                        e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_USED]);
+                    }
                     if e.call(ACTOR_DRINK_POTION, &args![this, item, extra, !is_player])
                         .bool()
                     {
@@ -6142,9 +6164,19 @@ pub fn actor_equip_object(
     }
     let combat_object = e.mem.u32(COMBAT_OBJECT_POINTER);
     if !e.call(COMBAT_CONTROLLER_TEST, &args![combat_object]).bool() && action_flag_pending {
-        e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_USED]);
+        {
+            // JIP LN NVSE's MarkScriptEvent reads this call's caller's first stack word.
+            let _caller =
+                e.mark_caller_word(engine_core::extend::Hook::MarkScriptEvent, item.addr());
+            e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_USED]);
+        }
         let list = e.call(GET_EXTRA_DATA_LIST_ADDRESS, &args![this]).u32();
-        e.call(SET_ACTION_FLAG, &args![item, list, ACTION_FLAG_USED]);
+        {
+            // JIP LN NVSE's MarkScriptEvent reads this call's caller's first stack word.
+            let _caller =
+                e.mark_caller_word(engine_core::extend::Hook::MarkScriptEvent, item.addr());
+            e.call(SET_ACTION_FLAG, &args![item, list, ACTION_FLAG_USED]);
+        }
     }
 }
 
@@ -6813,9 +6845,19 @@ pub fn fn_0088e110(
     if changes != 0 {
         let combat_object = e.mem.u32(COMBAT_OBJECT_POINTER);
         if !e.call(COMBAT_CONTROLLER_TEST, &args![combat_object]).bool() {
-            e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_REMOVED]);
+            {
+                // JIP LN NVSE's MarkScriptEvent reads this call's caller's first stack word.
+                let _caller =
+                    e.mark_caller_word(engine_core::extend::Hook::MarkScriptEvent, item.addr());
+                e.call(SET_ACTION_FLAG, &args![this, extra, ACTION_FLAG_REMOVED]);
+            }
             let list = e.call(GET_EXTRA_DATA_LIST_ADDRESS, &args![this]).u32();
-            e.call(SET_ACTION_FLAG, &args![item, list, ACTION_FLAG_REMOVED]);
+            {
+                // JIP LN NVSE's MarkScriptEvent reads this call's caller's first stack word.
+                let _caller =
+                    e.mark_caller_word(engine_core::extend::Hook::MarkScriptEvent, item.addr());
+                e.call(SET_ACTION_FLAG, &args![item, list, ACTION_FLAG_REMOVED]);
+            }
         }
         result = e.with_stack(4, |e, local| {
             e.mem.set_u8(local.addr(), 1);
@@ -12911,6 +12953,95 @@ mod tests {
         );
     }
 
+    /// JIP LN NVSE's MarkScriptEvent reads `SetActionFlag`'s caller's first stack word: with a
+    /// user of the hook, both calls see the item as the caller word, and it is gone afterwards.
+    #[test]
+    fn equip_hands_mark_script_event_the_item() {
+        use engine_core::extend::Hook;
+        let mut e = engine3();
+        let (actor, item) = equip_world(&mut e, 0x29);
+        slot_at(&mut e, FORM_TABLE, FORM_VSLOT_0X94, eax(1));
+        let words: CallRecord = Default::default();
+        let sink = words.clone();
+        e.register_double(SET_ACTION_FLAG, move |e, _| {
+            sink.borrow_mut().push(vec![e.caller_word().unwrap_or(0)]);
+            Ret::default()
+        });
+        e.add_hook_user(Hook::MarkScriptEvent, true);
+        equip(&mut e, actor, item, 1, 0x1234, [0, 0, 0]);
+        assert_eq!(*words.borrow(), vec![vec![item.addr()], vec![item.addr()]]);
+        assert_eq!(e.caller_word(), None);
+    }
+
+    /// With a user of MarkScriptEvent: the caller word each `SetActionFlag` call sees, one
+    /// record per call (empty when no word is set).
+    fn caller_words(e: &mut Engine) -> CallRecord {
+        let words: CallRecord = Default::default();
+        let sink = words.clone();
+        e.register_double(SET_ACTION_FLAG, move |e, _| {
+            sink.borrow_mut()
+                .push(e.caller_word().into_iter().collect());
+            Ret::default()
+        });
+        e.set_hook_users(engine_core::extend::Hook::MarkScriptEvent, 1);
+        words
+    }
+
+    /// EquipObject's food branch hands MarkScriptEvent the item at its `SetActionFlag` call.
+    #[test]
+    fn equip_food_hands_mark_script_event_the_item() {
+        let mut e = engine3();
+        let (actor, item) = equip_world(&mut e, 0x1d);
+        let eaten = record(&mut e, ACTOR_EAT, Ret::default());
+        let words = caller_words(&mut e);
+        equip(&mut e, actor, item, 1, 0x1234, [0, 0, 0]);
+        assert_eq!(eaten.borrow().len(), 1);
+        assert_eq!(*words.borrow(), vec![vec![item.addr()]]);
+        assert_eq!(e.caller_word(), None);
+    }
+
+    /// EquipObject's potion branch hands MarkScriptEvent the item at its `SetActionFlag` call.
+    #[test]
+    fn equip_potion_hands_mark_script_event_the_item() {
+        let mut e = engine3();
+        let (actor, item) = equip_world(&mut e, 0x2f);
+        let drunk = record(&mut e, ACTOR_DRINK_POTION, eax(1));
+        let words = caller_words(&mut e);
+        equip(&mut e, actor, item, 1, 0x1234, [0, 0, 0]);
+        assert_eq!(drunk.borrow().len(), 1);
+        assert_eq!(*words.borrow(), vec![vec![item.addr()]]);
+        assert_eq!(e.caller_word(), None);
+    }
+
+    /// EquipObject's closing calls (after the combat controller test) hand MarkScriptEvent the
+    /// item at both `SetActionFlag` calls: a book that cannot be read falls through to them.
+    #[test]
+    fn equip_closing_flags_hand_mark_script_event_the_item() {
+        let mut e = engine3();
+        let (actor, item) = equip_world(&mut e, 0x19);
+        double(&mut e, BOOK_SKILL_NUMBER, eax(0xffff_ffff));
+        let words = caller_words(&mut e);
+        equip(&mut e, actor, item, 1, 0x1234, [0, 0, 0]);
+        assert_eq!(*words.borrow(), vec![vec![item.addr()], vec![item.addr()]]);
+        assert_eq!(e.caller_word(), None);
+    }
+
+    /// `0088e110` hands MarkScriptEvent the item at both `SetActionFlag` calls.
+    #[test]
+    fn removal_hands_mark_script_event_the_item() {
+        let mut e = engine3();
+        let (actor, item) = equip_world(&mut e, 0x28);
+        double(&mut e, EXTRA_LIST_GET_CONTAINER_CHANGES, eax(0x5050));
+        double(&mut e, INVENTORY_REMOVE, eax(1));
+        let words = caller_words(&mut e);
+        assert_eq!(
+            fn_0088e110(&mut e, actor, item, 4, Ptr::new(0x1234), 1, 0),
+            1
+        );
+        assert_eq!(*words.borrow(), vec![vec![item.addr()], vec![item.addr()]]);
+        assert_eq!(e.caller_word(), None);
+    }
+
     #[test]
     fn power_armor_is_refused_for_the_player_unless_the_flag_byte_is_set() {
         let mut e = engine3();
@@ -12970,6 +13101,74 @@ mod tests {
         equip(&mut e, actor, item, 1, 0x1234, [0, 0, 0]);
         assert_eq!(created.borrow().len(), 1);
         assert_eq!(applied.borrow().len(), 1);
+    }
+
+    /// JIP LN NVSE's `CCCSetEquipped` and its `GetCannotWear` patch end to end (step 3.5d): with
+    /// JIP installed answering "installed" (its wrap over the real `GetCanNotWear` translation of
+    /// `00418b10`), the game's own equip of an armour whose extra list holds the "cannot wear"
+    /// extra is still refused; the same armour selected in the container menu's list of a
+    /// companion (a `Character`) is equipped through this function by the command, then refused
+    /// again by a plain equip.
+    #[test]
+    fn ccc_set_equipped_equips_what_cannot_be_worn_with_jip() {
+        let mut e = engine3();
+        let (actor, item) = equip_world(&mut e, 0x18);
+        e.register(EXTRA_LIST_CAN_NOT_WEAR, |e, a| {
+            eax(u32::from(
+                engine_fallout_cell::units::fallout_shared::extradatalist::extra_data_list_get_can_not_wear(
+                    e,
+                    Ptr::new(a[0]),
+                ),
+            ))
+        });
+        jip::test_support::install_into(&mut e);
+        // A `Character`: its vtable's slots are the test table's.
+        const CHARACTER_VTABLE: u32 = 0x0108_6a6c;
+        map_pages(
+            &mut e,
+            &[0x0108_6000, 0x0108_7000, 0x011d_8000, 0x011d_9000],
+        );
+        let slots = e.mem.bytes(ACTOR_TABLE, 0x600);
+        e.mem.write(CHARACTER_VTABLE, &slots);
+        e.mem.set_u32(actor.addr(), CHARACTER_VTABLE);
+        let list = e.mem.alloc(0x20);
+        e.mem.set_u8(list + 0xf, 0x40);
+        let applied = record(&mut e, INVENTORY_APPLY_EQUIP, Ret::default());
+        equip(&mut e, actor, item, 1, list, [1, 0, 0]);
+        assert!(applied.borrow().is_empty(), "the game refuses it");
+        // The container menu on the companion, the armour selected in its list, the cursor on the
+        // list (tile id 20).
+        let node = e.mem.alloc(8);
+        e.mem.set_u32(node, list);
+        let entry = e.mem.alloc(0xc);
+        e.mem.set_u32(entry, node);
+        e.mem.set_u32(entry + 4, 1);
+        e.mem.set_u32(entry + 8, item.addr());
+        let menu = e.mem.alloc(0x10c);
+        e.mem.set_u32(menu + 0x74, actor.addr());
+        e.mem.set_u32(menu + 0xd8, 0x5150);
+        e.mem.set_u32(0x011d_93f8, menu);
+        e.mem.set_u32(0x011d_93fc, entry);
+        let manager = e.mem.alloc(0x580);
+        let tile = e.mem.alloc(0x38);
+        let values = e.mem.alloc(4);
+        let value = e.mem.alloc(0x14);
+        e.mem.set_u32(0x011d_8a80, manager);
+        e.mem.set_u32(manager + 0xcc, tile);
+        e.mem.set_u32(tile + 0x14, values);
+        e.mem.set_u32(tile + 0x18, 1);
+        e.mem.set_u32(values, value);
+        e.mem.set_u32(value, 0xfaa);
+        e.mem.set_f32(value + 8, 20.0);
+        let sound = record(&mut e, 0x008a_ded0, Ret::default());
+        let refresh = record(&mut e, 0x0075_c280, Ret::default());
+        let (ok, result) = jip::test_support::call(&mut e, 0x2703, &[]);
+        assert_eq!((ok, result), (1, 0.0));
+        assert_eq!(applied.borrow().len(), 1, "CCCSetEquipped equips it");
+        assert_eq!(*sound.borrow(), vec![vec![0, item.addr(), 1, 1]]);
+        assert_eq!(*refresh.borrow(), vec![vec![menu, item.addr()]]);
+        equip(&mut e, actor, item, 1, list, [1, 0, 0]);
+        assert_eq!(applied.borrow().len(), 1, "refused again after the command");
     }
 
     #[test]

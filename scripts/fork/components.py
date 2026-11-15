@@ -32,7 +32,7 @@ GLOBAL_PREFIXES = (".cargo/",)
 STEERING = {
     ".fork/components.toml", ".fork/linux-ok.txt", ".github/workflows/fork-build.yml",
     "scripts/fork/components.py", "scripts/fork/run-component.sh", "scripts/fork/libtest_summary.py",
-    "scripts/fork/clippy_annotations.py", "scripts/fork/linux_probe.py",
+    "scripts/fork/clippy_annotations.py", "scripts/fork/linux_probe.py", "scripts/fork/gpu_gate.py",
 }
 DOCS = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
 # Estimates, from the cold Windows runs of 2026-11-13 (docs/fork/CI.md): seconds per 100 000 lines.
@@ -177,8 +177,11 @@ class Model:
         jobs = c.get("job", [])
         if not jobs:
             return
-        named, crates = {}, set()
+        named, crates, optional = {}, set(), {}
         for job in jobs:
+            for o in job.get("optional_tests", []):
+                crate, _, t = o.partition("/")
+                optional.setdefault(crate, set()).add(t)
             if not job.get("name") or not job.get("args"):
                 self.errors.append(f"{name}: every job needs a name and args")
             for run in job.get("args", []):
@@ -193,7 +196,7 @@ class Model:
             if not tests:
                 continue  # a crate run whole (`-p host`) needs no list
             have = self.tests_of(crate)
-            for t in sorted(have - tests):
+            for t in sorted(have - tests - optional.get(crate, set())):
                 self.errors.append(f"{name}: {crate}/tests/{t}.rs is in no job (add it to a job of {name})")
             for t in sorted(tests - have):
                 self.errors.append(f"{name}: a job names --test {t}, but {crate}/tests/{t}.rs does not exist")
@@ -283,6 +286,18 @@ class Model:
             return list(c["crates"])
         return [x for run in job["args"] for x in self.flags(run, "-p")]
 
+    def optional_tests(self, job, run):
+        """`--test X` for each optional test of the job that exists in a crate this command runs with a test list.
+        Upstream adds a test file in one commit and the fork's map cannot name it before that commit is replayed,
+        so a name listed under `optional_tests` ("crate/test") is run once the file exists and ignored until then."""
+        crates = self.flags(run, "-p")
+        out = ""
+        for o in job.get("optional_tests", []):
+            crate, _, t = o.partition("/")
+            if crate in crates and self.flags(run, "--test") and t in self.tests_of(crate):
+                out += f" --test {t}"
+        return out
+
     def test_command(self, run):
         flags = self.missing_features(self.flags(run, "-p"))
         return f"cargo test --locked {run}" + (f" --features {','.join(flags)}" if flags else "")
@@ -308,7 +323,7 @@ class Model:
                 cmds = [self.test_command(" ".join(f"-p {x}" for x in c["crates"]))] + list(c.get("extra", []))
             else:
                 flags = "".join(f" --config {c}" for c in job.get("config", []))
-                cmds = [self.test_command(r) + flags for r in job["args"]]
+                cmds = [self.test_command(r + self.optional_tests(job, r)) + flags for r in job["args"]]
             label = comp if job is None else f"{comp} / {job['name']}"
             for os_name, os_label, info in targets:
                 result.append({

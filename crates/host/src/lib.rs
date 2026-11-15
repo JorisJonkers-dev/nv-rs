@@ -129,6 +129,9 @@ impl Host {
         // `crates/showoff`).
         jg::install(&mut engine);
         showoff::install(&mut engine);
+        // UI Organizer, when its row is on: after JIP, as xNVSE loads ui_organizer.dll after
+        // jip_nvse.dll (`crates/uio`).
+        uio::install(&mut engine);
         eprintln!("{}", choice.describe());
         if let Some(note) = &choice.ini_note {
             eprintln!("{note}");

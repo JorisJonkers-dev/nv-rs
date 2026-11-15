@@ -71,8 +71,8 @@ runs_on = "both"
 
 [[component]]
 name = "scripting"
-purpose = "The script extenders built in: xNVSE's commands, JIP LN NVSE's commands and the identities of JohnnyGuitar NVSE and ShowOff xNVSE"
-crates = ["nvse", "jip", "jg", "showoff"]
+purpose = "The script extenders built in: xNVSE's commands, JIP LN NVSE's commands UI Organizer and the identities of JohnnyGuitar NVSE and ShowOff xNVSE"
+crates = ["nvse", "jip", "jg", "showoff", "uio"]
 requires = ["core"]
 runs_on = "both"
 # The recorded real-game math results include tan and tanh cases that only Windows' libm reproduces bit for bit
@@ -103,6 +103,11 @@ runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not
 # by size. Every file of crates/engine/tests must be named in a job (checked), so a new test file cannot be lost.
+#
+# `optional_tests` of a job: "crate/test" names of test files upstream is about to add. The map is fork-owned, so
+# it cannot name a file before the commit that adds it is replayed, and that replay's own checks would fail on the
+# file being in no job. An optional test is not an error when absent and is run (appended to the job's `-p crate`
+# command that already lists tests) when present.
 #
 # `config` of a job: cargo `--config` settings for its commands. The typed jobs run the three crates that hold the
 # differential harness and the typed families at opt-level 1: debug assertions and overflow checks stay on (the
@@ -135,7 +140,8 @@ args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree -
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
-args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda", "-p engine --doc"]
+args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda --test jip_call_arity", "-p engine --doc"]
+optional_tests = ["engine/capture_run_mode"]
 
 [[component]]
 name = "repo-checks"
