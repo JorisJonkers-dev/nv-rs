@@ -16,6 +16,7 @@
 
 pub mod cache;
 pub mod sha256;
+pub mod vkd3d;
 
 pub use cache::{Cache, CacheCompiler};
 

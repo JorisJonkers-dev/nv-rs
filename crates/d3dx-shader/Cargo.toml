@@ -1,9 +1,15 @@
 [package]
 name = "d3dx-shader"
 version = "0.1.0"
-description = "The shader compiler seam of D3DX off Windows: the request, the key and the compile cache (one key space per compiler identity)"
+description = "The shader compiler seam of D3DX off Windows: the request, the compile cache (one key space per compiler identity) and the libvkd3d-shader backend loaded at run time"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# dlopen of libvkd3d-shader (already in the dependency tree through wgpu).
+libloading = "0.8"
+
+[dev-dependencies]
+# The reader and the converter the bytecode must pass (tests/converter.rs).
+d3d9-wgpu = { path = "../d3d9-wgpu" }

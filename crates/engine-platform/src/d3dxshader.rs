@@ -3,10 +3,10 @@
 //! On Windows the six imports (`D3DXCompileShader`, `D3DXGetShaderConstantTable`,
 //! `D3DXGetVertexShaderProfile`, `D3DXGetPixelShaderProfile`, `D3DXCreateBuffer`,
 //! `D3DXAssembleShader`) go to the player's own `d3dx9_38.dll` (`d3dxreal`, unchanged). Here they
-//! are answered by the seam of the `d3dx-shader` crate: the compile cache, with no
-//! backend yet. A request the cache cannot answer stops the run with the named error of the seam
-//! (no source text in it); a source a backend refuses would answer `D3DXERR_INVALIDDATA` and an
-//! error buffer, as D3DX does.
+//! are answered by the seam of the `d3dx-shader` crate: the compile cache first, then
+//! libvkd3d-shader loaded at run time. A request neither can answer stops the run with the named
+//! error of the seam (no source text in it); a compile the compiler refuses answers
+//! `D3DXERR_INVALIDDATA` and an error buffer, as D3DX does.
 //!
 //! The objects handed to the game are `ID3DXBuffer` and `ID3DXConstantTable`, kept entirely in
 //! engine memory (`[vtable, references, data, size]`). The table's two buffer slots answer (its
@@ -16,7 +16,8 @@
 use super::d3d9::{CODE_BASE, D3DERR_INVALIDCALL};
 use crate::{AbiFn, Engine, Ptr};
 use d3dx_shader::{
-    cache, Cache, CacheCompiler, CompileError, Kind, Macro, Request, ShaderCompiler,
+    cache, vkd3d::LazyVkd3d, Cache, CacheCompiler, CompileError, Kind, Macro, Request,
+    ShaderCompiler,
 };
 use std::cell::OnceCell;
 
@@ -30,14 +31,17 @@ thread_local! {
     static SEAM: OnceCell<CacheCompiler> = const { OnceCell::new() };
 }
 
-/// The compiler of this thread: the cache folder of the environment, no backend yet (a miss stops the
-/// run with the seam's named error).
+/// The compiler of this thread: the cache folder of the environment, and libvkd3d-shader behind it
+/// unless `NV_D3DX_SHADER_BACKEND=off` (cache only).
 fn with_seam<R>(f: impl FnOnce(&CacheCompiler) -> R) -> R {
     SEAM.with(|cell| {
         f(cell.get_or_init(|| {
             let root = cache::default_root()
                 .unwrap_or_else(|| std::env::temp_dir().join("nv-rs-d3dx-shaders"));
-            CacheCompiler::new(Cache::new(root), None)
+            let off = std::env::var("NV_D3DX_SHADER_BACKEND").is_ok_and(|v| v == "off");
+            let backend: Option<Box<dyn ShaderCompiler>> =
+                (!off).then(|| Box::new(LazyVkd3d::new()) as Box<dyn ShaderCompiler>);
+            CacheCompiler::new(Cache::new(root), backend)
         }))
     })
 }
@@ -411,5 +415,117 @@ mod tests {
         assert_eq!(e.vcall(object, 8, &[]).u32(), 1);
         assert_eq!(e.vcall(object, 8, &[]).u32(), 0);
         assert_eq!(e.call(create, &[16, 0]).u32(), D3DERR_INVALIDCALL);
+    }
+
+    /// A scratch folder as the seam's cache, with libvkd3d-shader behind it; `None` (a printed skip)
+    /// where the library is not installed (`NV_REQUIRE_VKD3D=1` fails instead).
+    fn engine_with_backend(test: &str) -> Option<(Engine, std::path::PathBuf)> {
+        if let Err(e) = d3dx_shader::vkd3d::Vkd3d::load() {
+            assert!(
+                !matches!(std::env::var("NV_REQUIRE_VKD3D").as_deref(), Ok("1")),
+                "{test}: {e}"
+            );
+            println!("skipped: {test} (libvkd3d-shader not available)");
+            return None;
+        }
+        println!("executed: {test}");
+        let dir = std::env::temp_dir().join(format!("nv-d3dxshader-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        SEAM.with(|c| {
+            let _ = c.set(CacheCompiler::new(
+                Cache::new(&dir),
+                Some(Box::new(LazyVkd3d::new())),
+            ));
+        });
+        let mut e = Engine::new();
+        for (i, (_, _, f)) in imports().iter().enumerate() {
+            e.register(0x7f00_0000 + 4 * i as u32, *f);
+        }
+        Some((e, dir))
+    }
+
+    fn put(e: &mut Engine, text: &str) -> u32 {
+        let at = e.mem.alloc(text.len() as u32 + 1);
+        e.mem.write(at, text.as_bytes());
+        e.mem.set_u8(at + text.len() as u32, 0);
+        at
+    }
+
+    #[test]
+    fn compile_shader_answers_buffers_and_a_table() {
+        let Some((mut e, dir)) = engine_with_backend("compile_shader_answers_buffers_and_a_table")
+        else {
+            return;
+        };
+        let source = "float4 c : register(c0);\nfloat4 main(float2 uv : TEXCOORD0) : COLOR { return c * uv.x; }\n";
+        let (text, entry, target) = (
+            put(&mut e, source),
+            put(&mut e, "main"),
+            put(&mut e, "ps_2_0"),
+        );
+        let out = e.mem.alloc(12);
+        let hr = e
+            .call(
+                0x7f00_0000,
+                &[
+                    text,
+                    source.len() as u32,
+                    0,
+                    0,
+                    entry,
+                    target,
+                    0,
+                    out,
+                    out + 4,
+                    out + 8,
+                ],
+            )
+            .u32();
+        assert_eq!(hr, 0);
+        let (shader, errors, table) = (e.mem.u32(out), e.mem.u32(out + 4), e.mem.u32(out + 8));
+        assert_eq!(errors, 0);
+        let (data, len) = (
+            e.vcall(shader, 12, &[]).u32(),
+            e.vcall(shader, 16, &[]).u32(),
+        );
+        assert_eq!(e.mem.u32(data), 0xffff_0200);
+        assert_eq!(e.mem.u32(data + len - 4), 0x0000_ffff);
+        assert_ne!(table, 0, "the compile made a constant table");
+        let (ctab, ctab_len) = (e.vcall(table, 12, &[]).u32(), e.vcall(table, 16, &[]).u32());
+        assert!(
+            ctab_len >= 28 && e.mem.u32(ctab) == 28,
+            "CTAB starts with its size field"
+        );
+        // The same bytecode's table through D3DXGetShaderConstantTable.
+        let again = e.mem.alloc(4);
+        assert_eq!(e.call(0x7f00_0000 + 4, &[data, again]).u32(), 0);
+        let second = e.mem.u32(again);
+        assert_eq!(e.vcall(second, 16, &[]).u32(), ctab_len);
+        // A refused source: the HRESULT and the error buffer, no shader.
+        let bad = "float4 main() : COLOR { return undeclared; }";
+        let text = put(&mut e, bad);
+        let hr = e
+            .call(
+                0x7f00_0000,
+                &[
+                    text,
+                    bad.len() as u32,
+                    0,
+                    0,
+                    entry,
+                    target,
+                    0,
+                    out,
+                    out + 4,
+                    out + 8,
+                ],
+            )
+            .u32();
+        assert_eq!(hr, D3DXERR_INVALIDDATA);
+        assert_eq!((e.mem.u32(out), e.mem.u32(out + 8)), (0, 0));
+        let messages = e.mem.u32(out + 4);
+        assert_ne!(messages, 0);
+        assert!(e.vcall(messages, 16, &[]).u32() > 1);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
