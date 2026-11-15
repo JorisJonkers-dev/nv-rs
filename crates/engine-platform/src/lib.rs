@@ -94,6 +94,9 @@ pub mod d3d9resource;
 pub mod d3dx;
 #[cfg(windows)]
 pub mod d3dxreal;
+// Fork-owned: the shader compiler imports off Windows (docs/fork/LINUX.md).
+#[cfg(not(windows))]
+pub mod d3dxshader;
 pub mod dinput;
 pub mod ds3d;
 pub mod dsfx;
@@ -986,6 +989,8 @@ fn layer_imports() -> Vec<(&'static str, &'static str, AbiFn)> {
             entry!(0, d3dxreal::assemble_shader(Ptr, u32, Ptr, Ptr, u32, Ptr, Ptr) -> u32).1,
         ),
     ]);
+    #[cfg(not(windows))]
+    imports.extend(d3dxshader::imports());
     imports
 }
 

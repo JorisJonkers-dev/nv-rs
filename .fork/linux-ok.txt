@@ -5,6 +5,7 @@ bink
 bsa
 d3d9-stream
 d3d9-wgpu
+d3dx-shader
 d3dx-tex
 engine-bs
 engine-core

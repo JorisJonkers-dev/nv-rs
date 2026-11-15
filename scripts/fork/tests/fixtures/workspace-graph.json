@@ -1428,22 +1428,22 @@
     {
      "features": [],
      "kind": null,
+     "name": "d3d9-wgpu"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "d3dx-shader"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "d3dx-tex"
     },
     {
      "features": [],
      "kind": null,
      "name": "engine-core"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "mp3"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "vorbis"
     },
     {
      "features": [
@@ -1455,7 +1455,12 @@
     {
      "features": [],
      "kind": null,
-     "name": "d3d9-wgpu"
+     "name": "mp3"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "vorbis"
     },
     {
      "kind": null,
@@ -1477,6 +1482,12 @@
    "features": [],
    "manifest_path": "/ws/crates/d3d9-stream/Cargo.toml",
    "name": "d3d9-stream"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/d3dx-shader/Cargo.toml",
+   "name": "d3dx-shader"
   },
   {
    "dependencies": [],
