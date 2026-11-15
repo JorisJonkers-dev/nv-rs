@@ -97,7 +97,9 @@ for c in "${commits[@]}"; do
   # A commit that adds `mod x;` to a fork-owned file upstream also has would arrive without that line and without the
   # fork's own version knowing the module: the rest of the commit then does not build. Stop before producing that branch.
   while IFS= read -r -d '' f; do
-    fork_owns "$f" && git cat-file -e "$c^:$f" 2>/dev/null && git cat-file -e "HEAD:$f" 2>/dev/null || continue
+    fork_owns "$f" || continue
+    git cat-file -e "$c^:$f" 2>/dev/null || continue
+    git cat-file -e "HEAD:$f" 2>/dev/null || continue
     if git diff "$c^" "$c" -- "$f" | grep -Eq '^\+[[:space:]]*(pub(\([a-z]+\))?[[:space:]]+)?mod[[:space:]]+[A-Za-z0-9_]+[[:space:]]*;'; then
       stop partial "$c" "upstream commit ${c:0:12} adds a module line to $f, which .fork/overlay-paths holds out of the replay, so the commit would be applied in part and not build: remove $f from .fork/overlay-paths (list it in .fork/allowed-divergence), or apply the commit by hand"
     fi
