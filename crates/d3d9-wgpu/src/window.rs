@@ -522,8 +522,9 @@ pub(crate) fn client_size(hwnd: isize) -> Option<(u32, u32)> {
 }
 
 #[cfg(not(windows))]
-pub(crate) fn client_size(_hwnd: isize) -> Option<(u32, u32)> {
-    None
+pub(crate) fn client_size(hwnd: isize) -> Option<(u32, u32)> {
+    // The window layer's size (`fork_window`); 0 where the window is gone.
+    Some(fork_window::client_size(hwnd)).filter(|&(w, h)| w > 0 && h > 0)
 }
 
 /// The primary display's refresh interval (the borderless window covers it), 60 a second where

@@ -33,6 +33,9 @@ pub struct WindowRequest {
     /// A window with a title bar and borders (the game's windowed mode) or a bare one (borderless).
     pub decorations: bool,
     pub visible: bool,
+    /// Borderless over the whole monitor (the game's `bFull Screen=1`: exclusive full screen is
+    /// not offered here, so the window covers the monitor instead).
+    pub fullscreen: bool,
 }
 
 impl Default for WindowRequest {
@@ -43,6 +46,7 @@ impl Default for WindowRequest {
             height: 720,
             decorations: true,
             visible: true,
+            fullscreen: false,
         }
     }
 }

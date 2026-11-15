@@ -71,6 +71,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 mod fork;
 #[cfg(not(windows))]
 use fork::make_stream;
+#[cfg(not(windows))]
+pub use fork::{window_created, window_moved, window_titled};
 
 /// The backends `NV_D3D9` names.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -421,9 +423,17 @@ pub(super) fn settle(e: &mut Engine) {
 }
 
 #[cfg(not(windows))]
-fn real_window(_e: &Engine, _handle: u32) -> Option<isize> {
-    // Offscreen: the backend draws into no window.
-    Some(0)
+fn real_window(e: &Engine, handle: u32) -> Option<isize> {
+    // Without a window of its own (no display, or `NV_D3D9_OFFSCREEN`): offscreen, id 0.
+    let _device = engine_core::real_threads::device_guard(e);
+    Some(
+        device_ref!(e)
+            .real
+            .windows
+            .get(&handle)
+            .copied()
+            .unwrap_or(0),
+    )
 }
 
 /// The real device behind the modelled device `this`, counted, for a caller that hands it to
@@ -725,6 +735,21 @@ fn raw_mouse(lparam: LPARAM) {
 pub fn held_keys() -> [bool; 256] {
     input().lock().map(|i| i.keys).unwrap_or([false; 256])
 }
+
+/// The keys the game's window holds (Linux: [`fork_window`]).
+#[cfg(not(windows))]
+pub fn held_keys() -> [bool; 256] {
+    fork::main_window().map_or([false; 256], fork_window::held_keys)
+}
+
+/// The game's window's input for this frame, taken ([`fork_window::take_input`]).
+#[cfg(not(windows))]
+pub fn take_input() -> Input {
+    fork::main_window().map_or_else(Input::default, fork_window::take_input)
+}
+
+#[cfg(not(windows))]
+pub use fork_window::Input;
 
 /// The real window's input for this frame: the keys and buttons held, the motion since the last
 /// call (taken: it starts again from 0).

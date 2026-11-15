@@ -6,6 +6,112 @@
 //! a tool (`NV_D3D9_RECORD` files replay with `d3d9-replay`).
 
 use super::*;
+use std::sync::atomic::{AtomicIsize, Ordering};
+
+const WS_CAPTION: u32 = 0x00C0_0000;
+const WS_VISIBLE: u32 = 0x1000_0000;
+
+/// The id of the first top-level real window (the game's main window), 0 for none: its keys and
+/// mouse are the game's DirectInput devices' ([`super::held_keys`], [`super::take_input`]).
+static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
+
+/// The game's real window's id, when there is one.
+pub(super) fn main_window() -> Option<isize> {
+    Some(MAIN_WINDOW.load(Ordering::Relaxed)).filter(|&w| w != 0)
+}
+
+/// The windows made, kept for the run (dropping one closes it).
+static KEPT: std::sync::Mutex<Vec<fork_window::Window>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether the game's windows are real ones: a display is there (X11 or Wayland) and
+/// `NV_D3D9_OFFSCREEN` is not set (CI without a display, and tests, stay off screen).
+fn windows_wanted() -> bool {
+    let set = |n: &str| std::env::var_os(n).is_some_and(|v| !v.is_empty());
+    wanted() && !set("NV_D3D9_OFFSCREEN") && (set("DISPLAY") || set("WAYLAND_DISPLAY"))
+}
+
+/// `CreateWindowExA` made the modelled window `handle`: a real window of its title and size (a
+/// child shares its parent's: one surface covers both). No caption (`WS_POPUP`: the game's
+/// full screen) is a borderless window over the monitor. The window thread, and with it the
+/// game's keys and mouse, close request and resizes, is `fork_window`'s. When the window cannot
+/// be made the run stays off screen.
+pub fn window_created(
+    e: &mut Engine,
+    handle: u32,
+    title: &[u8],
+    style: u32,
+    _ex_style: u32,
+    rect: [i32; 4],
+    parent: u32,
+) {
+    if !windows_wanted() {
+        return;
+    }
+    if parent != 0 {
+        if let Some(w) = real_window(e, parent).filter(|&w| w != 0) {
+            let _device = engine_core::real_threads::device_guard(e);
+            real(e).windows.insert(handle, w);
+        }
+        return;
+    }
+    let [left, top, right, bottom] = rect;
+    let request = fork_window::WindowRequest {
+        title: String::from_utf8_lossy(title).into_owned(),
+        width: right.wrapping_sub(left).clamp(1, 16384) as u32,
+        height: bottom.wrapping_sub(top).clamp(1, 16384) as u32,
+        decorations: style & WS_CAPTION == WS_CAPTION,
+        visible: style & WS_VISIBLE != 0,
+        fullscreen: style & WS_CAPTION == 0,
+    };
+    let (width, height, borderless) = (request.width, request.height, request.fullscreen);
+    match fork_window::Window::open(request, Some(d3d9_wgpu::window_changed)) {
+        Ok(window) => {
+            let id = window.id();
+            eprintln!(
+                "NV_D3D9={}: window {handle:#x} ({width}x{height}{}) is real window {id:#x}",
+                tag(),
+                if borderless {
+                    ", borderless over the monitor"
+                } else {
+                    ""
+                }
+            );
+            let _ = MAIN_WINDOW.compare_exchange(0, id, Ordering::Relaxed, Ordering::Relaxed);
+            KEPT.lock().unwrap_or_else(|p| p.into_inner()).push(window);
+            watch_close(id);
+            let _device = engine_core::real_threads::device_guard(e);
+            real(e).windows.insert(handle, id);
+        }
+        Err(error) => eprintln!(
+            "NV_D3D9={}: the real window could not be made ({error}): off screen",
+            tag()
+        ),
+    }
+}
+
+/// Closing the game's window ends the run, as on Windows (`WM_CLOSE`): the exit hooks run (the
+/// saves' copy-out), then the process ends.
+fn watch_close(id: isize) {
+    let spawned = std::thread::Builder::new()
+        .name("nv-window-close".into())
+        .spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            if fork_window::close_requested(id) {
+                eprintln!("NV_D3D9: the game's window was closed: the run ends");
+                crate::run_exit_hooks();
+                crate::end_process(0);
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("NV_D3D9: no watch on the window's close request ({error})");
+    }
+}
+
+/// `SetWindowTextA`: the real window's title is not changed after it is made (not offered yet).
+pub fn window_titled(_e: &mut Engine, _handle: u32, _title: &[u8]) {}
+
+/// `SetWindowPos`: the real window keeps the size it was made with (not offered yet).
+pub fn window_moved(_e: &mut Engine, _handle: u32, _rect: [i32; 4], _flags: u32) {}
 
 /// The wgpu backend, off screen, on the stream `which` names: the real Direct3D 9 is not there,
 /// so `real` and `real,wgpu` draw on wgpu too (a line says so). With the render thread, the
@@ -14,14 +120,19 @@ use super::*;
 pub(super) fn make_stream(e: &mut Engine, which: Backends) -> Stream {
     let name = which.name();
     if which != Backends::Wgpu {
-        eprintln!(
-            "NV_D3D9={name}: there is no real Direct3D 9 here: wgpu draws off screen instead"
-        );
+        eprintln!("NV_D3D9={name}: there is no real Direct3D 9 here: wgpu draws instead");
     }
     let wanted_thread = real(e).render_thread;
     let wgpu_cache = real(e).wgpu_cache.clone();
+    // To the game's window when windows are real ones (the stream is made at `Direct3DCreate9`,
+    // before the window is known; a device with no real window stays off screen).
+    let output = if windows_wanted() {
+        d3d9_wgpu::Output::Window
+    } else {
+        d3d9_wgpu::Output::Offscreen
+    };
     let backend = |answers: Option<std::sync::Arc<d3d9_wgpu::QueryAnswers>>| {
-        let b = d3d9_wgpu::WgpuBackend::new(d3d9_wgpu::Output::Offscreen);
+        let b = d3d9_wgpu::WgpuBackend::new(output);
         let b = match wgpu_cache.clone() {
             Some(dir) => b.with_cache_dir(dir),
             None => b,
@@ -108,9 +219,38 @@ mod tests {
     /// read back: the cleared colour in the corner, the triangle's colour at its centre.
     #[test]
     fn a_guest_program_draws_a_frame_through_the_recorder_on_wgpu() {
-        let backend = std::sync::Arc::new(std::sync::Mutex::new(d3d9_wgpu::WgpuBackend::new(
-            d3d9_wgpu::Output::Offscreen,
-        )));
+        guest_frame(None);
+    }
+
+    /// The same program with the game's window a real one (`fork_window`, X11 or Wayland) and
+    /// the frames presented to it: the Xvfb smoke (`fork-window-smoke.yml`) sets
+    /// `NV_WINDOW_SMOKE`; without it (no display) the test does nothing.
+    #[test]
+    fn a_guest_program_draws_to_a_window() {
+        if std::env::var_os("NV_WINDOW_SMOKE").is_none() {
+            return;
+        }
+        let window = fork_window::Window::open(
+            fork_window::WindowRequest {
+                width: 64,
+                height: 64,
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("a window under the display");
+        guest_frame(Some(window.id()));
+        assert!(!fork_window::close_requested(window.id()));
+    }
+
+    fn guest_frame(window: Option<isize>) {
+        let output = if window.is_some() {
+            d3d9_wgpu::Output::Window
+        } else {
+            d3d9_wgpu::Output::Offscreen
+        };
+        let backend =
+            std::sync::Arc::new(std::sync::Mutex::new(d3d9_wgpu::WgpuBackend::new(output)));
         let mut e = Engine::new();
         d3d9::load_adapter_table(&mut e, &table());
         let create = d3d9::proc_address(&mut e, b"Direct3DCreate9").unwrap();
@@ -118,6 +258,10 @@ mod tests {
         // What `NV_D3D9=wgpu` makes at the first `Direct3DCreate9`, with the test's backend.
         real(&mut e).stream = Some(Stream::direct(Box::new(Shared(backend.clone()))));
         let present = e.mem.alloc(0x38);
+        if let Some(id) = window {
+            // The modelled window 0x11c is the real window `id` (what `window_created` records).
+            real(&mut e).windows.insert(0x11c, id);
+        }
         e.mem.set_u32(present, 64);
         e.mem.set_u32(present + 4, 64);
         e.mem.set_u32(present + 0x1c, 0x11c);
