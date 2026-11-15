@@ -222,12 +222,22 @@ fn main() {
     // `NV_MOVE_MOUSE`. Every 5 s the status line (the heartbeat the launchers watch) and the
     // lists.
     let mut last: Option<Instant> = None;
+    // Discord Rich Presence (docs/fork/DISCORD.md): off without an application ID or with
+    // NV_DISCORD=0; its thread never waits on the game.
+    let presence = fork_presence::start(env!("CARGO_PKG_VERSION"));
+    let mut announced = false;
     let mut frame_log = host::frame_log::FrameLog::from_env();
     loop {
         game.set_keys_down(&[]);
         game.mouse([0; 3], [false; 8]);
         if !game.main_frame() {
             break;
+        }
+        if !announced {
+            announced = true;
+            if let Some(p) = &presence {
+                p.set_state(fork_presence::State::Running);
+            }
         }
         // `NV_REPEATABLE=FRAMES` (a test mode): the run ends after FRAMES of main's frames.
         if game.repeatable_end() {

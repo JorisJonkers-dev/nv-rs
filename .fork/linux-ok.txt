@@ -27,6 +27,7 @@ engine-platform
 engine-speedtree
 engine-typed
 esm
+fork-presence
 fork-window
 fos
 frame-model
