@@ -21,6 +21,8 @@ use std::fmt::Write;
 
 const D3D_OK: u32 = 0;
 const NOT_AVAILABLE: u32 = 0x8876_086a;
+/// The rate the mixer runs at off Windows (`fork_sound::MIX_RATE`).
+pub const MIX_RATE: u32 = 48_000;
 const DSERR_NODRIVER: u32 = 0x8878_0078;
 /// `ERROR_MOD_NOT_FOUND`: what `LoadLibraryA("nvapi.dll")` leaves on a machine without NVIDIA's.
 const ERROR_MOD_NOT_FOUND: u32 = 0x7e;
@@ -54,7 +56,7 @@ pub fn reference_sound_table() -> String {
     caps[2] = 100;
     caps[3] = 200_000;
     caps[4] = 1;
-    let rate = crate::fork_sound::MIX_RATE;
+    let rate = MIX_RATE;
     let primary = [1u32 | 2 << 16, rate, rate * 4, 4 | 16 << 16, 0];
     let primary_bytes = &hex(&primary)[..36];
     // DS3DLISTENER: size, position, velocity, front, top (3 words each), then three factors.
