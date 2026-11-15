@@ -46,6 +46,11 @@
      "name": "play-patch"
     },
     {
+     "features": [],
+     "kind": null,
+     "name": "uio"
+    },
+    {
      "kind": null,
      "name": "zlib-rs"
     },
@@ -1546,6 +1551,23 @@
    "features": [],
    "manifest_path": "/ws/crates/jip/Cargo.toml",
    "name": "jip"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/uio/Cargo.toml",
+   "name": "uio"
   },
   {
    "dependencies": [

@@ -72,7 +72,7 @@ runs_on = "both"
 [[component]]
 name = "scripting"
 purpose = "The script extenders built in: xNVSE's commands and JIP LN NVSE's commands"
-crates = ["nvse", "jip"]
+crates = ["nvse", "jip", "uio"]
 requires = ["core"]
 runs_on = "both"
 # The recorded real-game math results include tan and tanh cases that only Windows' libm reproduces bit for bit
@@ -140,7 +140,7 @@ args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree -
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
-args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda", "-p engine --doc"]
+args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda --test jip_call_arity", "-p engine --doc"]
 optional_tests = ["engine/capture_run_mode"]
 
 [[component]]
