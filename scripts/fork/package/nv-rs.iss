@@ -58,14 +58,20 @@ Filename: "{app}\READ ME.txt"; Description: "Read the guide"; Flags: postinstall
 [Code]
 // nv-rs refuses to run inside Documents or AppData and cannot write in Program Files, so the installer refuses them too,
 // in the wizard and for /DIR on a silent install.
+function IsUnder(Lower, Folder: String): Boolean;
+begin
+  Result := (Folder <> '') and (Pos(AddBackslash(Lowercase(Folder)), Lower) = 1);
+end;
+
 function BadFolder(Dir: String): String;
 var
   Lower: String;
 begin
   Result := '';
   Lower := AddBackslash(Lowercase(Dir));
-  if (Pos(AddBackslash(Lowercase(ExpandConstant('{commonpf}'))), Lower) = 1) or
-     (Pos(AddBackslash(Lowercase(ExpandConstant('{commonpf32}'))), Lower) = 1) then
+  // {commonpf} is the user's Programs folder in a non-administrator install, so the real folders come from the environment.
+  if (IsUnder(Lower, GetEnv('ProgramFiles')) or IsUnder(Lower, GetEnv('ProgramFiles(x86)')) or
+      IsUnder(Lower, GetEnv('ProgramW6432'))) then
     Result := 'Program Files'
   else if Pos(AddBackslash(Lowercase(ExpandConstant('{userdocs}'))), Lower) = 1 then
     Result := 'Documents'
