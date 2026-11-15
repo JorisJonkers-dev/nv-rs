@@ -106,6 +106,9 @@ jobs:
     if: ${{ needs.plan.outputs.archive != '' }}
     runs-on: windows-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
     env:
       ARCHIVE_CMD: ${{ needs.plan.outputs.archive }}
     steps:
@@ -124,6 +127,20 @@ jobs:
           start=$SECONDS
           bash -c "$ARCHIVE_CMD --no-run --timings --message-format=json-render-diagnostics" | python -I scripts/fork/archive.py build --out "$RUNNER_TEMP/archive"
           echo "Compile and archive $((SECONDS - start)) s: $(du -sm "$RUNNER_TEMP/archive" | cut -f1) MB" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The per-test times a previous run recorded (the typed jobs upload them): the shards are packed by them. Best effort:
+      # without them the shards take every n-th test.
+      - name: Recorded test times
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for run in $(gh run list --workflow Pipeline --status success --limit 8 --json databaseId --jq '.[].databaseId' --repo "$GITHUB_REPOSITORY"); do
+            rm -rf "$RUNNER_TEMP/times"
+            if gh run download "$run" --repo "$GITHUB_REPOSITORY" --pattern 'test-times-*' --dir "$RUNNER_TEMP/times" 2>/dev/null && ls "$RUNNER_TEMP"/times/*/times.json >/dev/null 2>&1; then
+              python -I scripts/fork/archive.py merge "$RUNNER_TEMP"/times/*/times.json --out "$RUNNER_TEMP/archive/times.json" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "from run $run" | tee -a "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+          done || true
       - name: Slowest compile units
         run: python -I scripts/fork/archive.py timings --dir target/cargo-timings --top 20 | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -230,6 +247,16 @@ jobs:
           set -o pipefail
           : >"$RUNNER_TEMP/test.log"
           python -I scripts/fork/archive.py run --dir "$RUNNER_TEMP/archive" --tests "$TESTS" --shard "$SHARD" --timings "$RUNNER_TEMP/timings.txt" 2>&1 | tee -a "$RUNNER_TEMP/test.log"
+      - name: Record test times
+        if: ${{ !cancelled() }}
+        run: mkdir -p "$RUNNER_TEMP/times" && python -I scripts/fork/archive.py record "$RUNNER_TEMP/test.log" --out "$RUNNER_TEMP/times/times.json" || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ !cancelled() }}
+        with:
+          name: test-times-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/times/times.json
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Summary
         if: ${{ !cancelled() }}
         env:

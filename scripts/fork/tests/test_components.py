@@ -276,7 +276,7 @@ class Affected(unittest.TestCase):
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
         self.assertIn("integration", got)
-        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 13)
+        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 1 + int(real_model().comps["integration"]["archive_shards"]))
 
     def test_a_fallout_change_reaches_every_component_whose_tests_link_it(self):
         _, got = self.reached(["crates/engine-fallout-cell/src/lib.rs"])
@@ -401,6 +401,29 @@ class Archive(unittest.TestCase):
         for key in ("typed_a", "typed_b"):
             got = sorted(x for i in (1, 2, 3) for x in archive.pick(names, f"{i}/3", key))
             self.assertEqual(got, sorted(names))
+
+
+class Packing(unittest.TestCase):
+    def test_every_test_lands_in_exactly_one_shard_and_the_slow_ones_are_spread(self):
+        items = [("b", f"t{i}") for i in range(30)]
+        times = {"b": {f"t{i}": (100.0 if i < 3 else 1.0) for i in range(30)}}
+        shards, load = archive.assign(items, 3, times)
+        self.assertEqual(sorted(x for sh in shards for x in sh), sorted(items))
+        self.assertTrue(all(any(t in ("t0", "t1", "t2") for _, t in sh) for sh in shards))
+        self.assertLess(max(load) - min(load), 2.0)
+        self.assertEqual(archive.assign(items, 3, times)[0], shards)  # every shard computes the same plan
+
+    def test_an_unknown_test_counts_as_the_median(self):
+        shards, load = archive.assign([("b", "a"), ("b", "new")], 2, {"b": {"a": 5.0}})
+        self.assertEqual(load, [5.0, 5.0])
+
+    def test_record_reads_report_time_lines(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        (d / "log").write_text("     Running tests/typed_x.rs (archive)\ntest a::b ... ok <1.250s>\ntest c ... FAILED <0.500s>\n")
+        ns = type("N", (), {"log": str(d / "log"), "out": str(d / "o.json")})
+        archive.record(ns)
+        self.assertEqual(json.loads((d / "o.json").read_text()), {"typed_x": {"a::b": 1.25, "c": 0.5}})
 
 
 class Summaries(unittest.TestCase):

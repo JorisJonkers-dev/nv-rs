@@ -125,7 +125,7 @@ crates = ["engine", "host", "play-patch", "nv-viewer"]
 requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog"]
 runs_on = "windows"
 # The typed jobs below are built once (scripts/fork/archive.py) and then run as this many equal shards of one pool.
-archive_shards = 12
+archive_shards = 24
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not
 # by size. Every file of crates/engine/tests must be named in a job (checked), so a new test file cannot be lost.
