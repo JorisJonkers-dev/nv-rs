@@ -841,6 +841,8 @@ name = "fork-window"
 version = "0.1.0"
 dependencies = [
  "raw-window-handle",
+ "wayland-client",
+ "wayland-protocols",
  "wgpu",
  "winit",
 ]

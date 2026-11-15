@@ -16,6 +16,10 @@ raw-window-handle = "=0.6.2"
 # macOS and others slot in as another module under `platform/`.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+# Idle inhibit (winit has none): zwp_idle_inhibit_manager_v1 on the window's own Wayland connection. The same versions winit
+# resolves to (they are in the tree already); `system` shares winit's libwayland connection, `dlopen` keeps it loaded at run time.
+wayland-client = { version = "=0.31.15", default-features = false, features = ["system", "dlopen"] }
+wayland-protocols = { version = "=0.32.13", default-features = false, features = ["client", "unstable"] }
 
 [[example]]
 name = "clear"

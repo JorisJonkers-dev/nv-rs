@@ -2,13 +2,26 @@
 //!
 //!   cargo run -p fork-window --example clear            until the window is closed or Escape
 //!   cargo run -p fork-window --example clear -- --smoke 30 frames, then exit 0
+//!   ... --smoke --hold 5 --fullscreen      keep showing frames 5 s after the 30th; borderless over a monitor
 //!
 //! Exits 1 with the reason when there is no display, no Vulkan adapter or no frame.
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn main() {
     use fork_window::{dik, Window, WindowRequest};
-    let smoke = std::env::args().any(|a| a == "--smoke");
+    let args: Vec<String> = std::env::args().collect();
+    let smoke = args.iter().any(|a| a == "--smoke");
+    let fullscreen = args.iter().any(|a| a == "--fullscreen");
+    let hold = args
+        .iter()
+        .position(|a| a == "--hold")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse::<f64>().ok())
+        .map_or(
+            std::time::Duration::ZERO,
+            std::time::Duration::from_secs_f64,
+        );
+    let mut done_at: Option<std::time::Instant> = None;
     let fail = |why: String| -> ! {
         eprintln!("clear: {why}");
         std::process::exit(1)
@@ -30,6 +43,8 @@ fn main() {
             title: "nv-rs window layer".into(),
             width: 640,
             height: 360,
+            fullscreen,
+            decorations: !fullscreen,
             ..Default::default()
         },
         None,
@@ -112,8 +127,18 @@ fn main() {
         queue.present(frame);
         shown += 1;
         if smoke && shown >= 30 {
-            println!("smoke: {shown} frames shown");
-            break;
+            let at = *done_at.get_or_insert_with(|| {
+                println!("smoke: {shown} frames shown");
+                std::time::Instant::now()
+            });
+            if at.elapsed() >= hold {
+                let (w, h) = fork_window::client_size(id);
+                println!(
+                    "final: window {w}x{h} surface {}x{}",
+                    config.width, config.height
+                );
+                break;
+            }
         }
     }
     // Surface first, then the window (the layer's contract).

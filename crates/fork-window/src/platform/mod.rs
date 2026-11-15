@@ -1,5 +1,7 @@
 //! X11 and Wayland: a winit 0.30 event loop on a thread of its own.
 
+mod idle;
+
 use crate::registry::{self, Handles, Shared};
 use crate::{dik, ChangeHook, WindowRequest};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
@@ -45,6 +47,24 @@ pub(crate) fn button_of(button: MouseButton) -> Option<usize> {
         MouseButton::Back => Some(3),
         MouseButton::Forward => Some(4),
         MouseButton::Other(_) => None,
+    }
+}
+
+/// How long the game has to take a close request before a second one ends the process.
+const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Whether a close request at `now` is a repeat of one the game left alone for [`CLOSE_GRACE`].
+fn close_ignored(first: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    first.is_some_and(|f| now.duration_since(f) >= CLOSE_GRACE)
+}
+
+/// `wayland` or `x11`, by the window's raw handle.
+fn session_name(w: &winit::window::Window) -> &'static str {
+    use raw_window_handle::RawWindowHandle;
+    match w.window_handle().map(|h| h.as_raw()) {
+        Ok(RawWindowHandle::Wayland(_)) => "wayland",
+        Ok(RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_)) => "x11",
+        _ => "unknown",
     }
 }
 
@@ -205,6 +225,10 @@ fn run(ready: mpsc::Sender<Result<EventLoopProxy<Command>, String>>) {
         cursor: None,
         rest: [0.0; 2],
         landed_on: None,
+        idle: None,
+        held: "none",
+        reported: None,
+        close_first: None,
     };
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("fork-window: the event loop ended: {e}");
@@ -229,6 +253,14 @@ struct App {
     rest: [f64; 2],
     /// The name of the output the window was last said to be on ([`App::landed`]).
     landed_on: Option<String>,
+    /// Keeps the screen awake while the window is up.
+    idle: Option<idle::Inhibit>,
+    /// How the pointer is held (for the report).
+    held: &'static str,
+    /// What the last report said (size in pixels, scale), so a line is made only on a change.
+    reported: Option<(u32, u32, u64)>,
+    /// When the first close request of the window came ([`close_ignored`]).
+    close_first: Option<std::time::Instant>,
 }
 
 impl App {
@@ -245,6 +277,8 @@ impl App {
         self.device_motion = false;
         self.cursor = None;
         self.rest = [0.0; 2];
+        self.reported = None;
+        self.close_first = None;
         let attrs = WindowAttributes::default()
             .with_title(self.request.title.clone())
             .with_inner_size(PhysicalSize::new(self.request.width, self.request.height))
@@ -277,9 +311,11 @@ impl App {
             *h = Some(Handles(display, handle));
         }
         self.id = registry::register(self.shared.clone());
+        self.idle = Some(idle::Inhibit::start(display, handle));
         self.window = Some(window);
-        self.hold_pointer();
+        self.held = self.hold_pointer();
         self.landed();
+        self.report();
         Ok(self.id)
     }
 
@@ -301,14 +337,43 @@ impl App {
     /// The game's cursor is drawn by the game (its DirectInput mouse is exclusive, so Windows
     /// holds and hides the pointer): hide the pointer and keep it in the window, locked where the
     /// compositor allows (Wayland), else confined (X11), else as it is.
-    fn hold_pointer(&self) {
-        let Some(w) = &self.window else { return };
+    ///
+    /// Returns how it is held: `locked`, `confined` or `none`.
+    fn hold_pointer(&self) -> &'static str {
+        let Some(w) = &self.window else {
+            return "none";
+        };
         w.set_cursor_visible(false);
-        if w.set_cursor_grab(CursorGrabMode::Locked).is_err()
-            && w.set_cursor_grab(CursorGrabMode::Confined).is_err()
-        {
+        if w.set_cursor_grab(CursorGrabMode::Locked).is_ok() {
+            "locked"
+        } else if w.set_cursor_grab(CursorGrabMode::Confined).is_ok() {
+            "confined"
+        } else {
             eprintln!("fork-window: the pointer cannot be held in the window");
+            "none"
         }
+    }
+
+    /// One line on how the window came up: the session, its size in pixels and the scale it is
+    /// drawn at, how the pointer is held and how the screen is kept awake (what to read when a
+    /// desktop misbehaves; `docs/fork/DESKTOPS.md`).
+    fn report(&mut self) {
+        let Some(w) = &self.window else { return };
+        let size = w.inner_size();
+        let key = (size.width, size.height, w.scale_factor().to_bits());
+        if self.reported == Some(key) {
+            return;
+        }
+        self.reported = Some(key);
+        let held = self.held;
+        let idle = self.idle.as_ref().map_or("none", idle::Inhibit::name);
+        eprintln!(
+            "fork-window: window {}x{} px at scale {} on {}, pointer {held}, idle inhibit {idle}",
+            size.width,
+            size.height,
+            w.scale_factor(),
+            session_name(w),
+        );
     }
 
     fn release_pointer(&self) {
@@ -387,6 +452,7 @@ impl ApplicationHandler<Command> for App {
                     registry::unregister(self.id);
                     self.id = 0;
                 }
+                self.idle = None;
                 self.window = None;
                 let _ = done.send(());
             }
@@ -396,6 +462,15 @@ impl ApplicationHandler<Command> for App {
     fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
+                let now = std::time::Instant::now();
+                if close_ignored(self.close_first, now) {
+                    // The user closed the window again and the game never took the first
+                    // request (stalled in a frame the compositor does not call back, a hung
+                    // driver): the window must still be closable.
+                    eprintln!("fork-window: the game did not answer a close request in {CLOSE_GRACE:?}; ending the process");
+                    std::process::exit(1);
+                }
+                self.close_first.get_or_insert(now);
                 self.shared
                     .close
                     .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -403,9 +478,13 @@ impl ApplicationHandler<Command> for App {
             WindowEvent::Resized(s) => {
                 self.shared.set_size(s.width, s.height);
                 self.landed();
+                self.report();
                 self.changed();
             }
-            WindowEvent::ScaleFactorChanged { .. } => self.changed(),
+            WindowEvent::ScaleFactorChanged { .. } => {
+                self.report();
+                self.changed();
+            }
             WindowEvent::Focused(on) => {
                 if !on {
                     // Losing the focus lets go of everything held (as the Windows layer does).
@@ -416,7 +495,7 @@ impl ApplicationHandler<Command> for App {
                     self.cursor = None;
                     self.release_pointer();
                 } else {
-                    self.hold_pointer();
+                    self.held = self.hold_pointer();
                     self.restore();
                     self.changed();
                 }
@@ -493,6 +572,17 @@ mod tests {
         assert!(wakes(&WindowEvent::RedrawRequested));
         assert!(!wakes(&WindowEvent::Focused(false)));
         assert!(!wakes(&WindowEvent::Occluded(true)));
+    }
+
+    #[test]
+    fn a_repeated_close_ends_a_game_that_ignored_the_first() {
+        let t0 = std::time::Instant::now();
+        assert!(!close_ignored(None, t0));
+        assert!(!close_ignored(
+            Some(t0),
+            t0 + std::time::Duration::from_secs(1)
+        ));
+        assert!(close_ignored(Some(t0), t0 + CLOSE_GRACE));
     }
 
     #[test]
