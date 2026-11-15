@@ -76,12 +76,21 @@ The mixer (DirectSound's mixing, the resamplers, 3D placement) is platform-indep
 WASAPI. `engine-platform/src/fork_sound.rs` is the device off Windows, behind the same `sound_out::start` and
 `device_mix` seam; the Windows code is unchanged.
 
-- **Pulse** (the default): `libpulse-simple` loaded with `dlopen` (`libpulse-simple.so.0`, or the file
-  `NV_PULSE_SIMPLE` names; the Nix package sets it). Nothing is linked, so no build prerequisite. Under PipeWire the
-  library talks to `pipewire-pulse`; under PulseAudio to the server. Prerequisite at run time: Arch `libpulse`,
-  Debian and Ubuntu `libpulse0`, Fedora `pulseaudio-libs`. The stream is 32-bit float at 48000 Hz, stereo (or the
-  layout the game's device asks for: mono, stereo, quad, surround, 5.1, 7.1), 80 ms of latency; the server resamples
-  and remixes to the sink. The mix format is fixed because the simple API cannot read the sink's.
+- **Pulse** (the default): libpulse (threaded main loop, context, stream API) loaded with `dlopen` (`libpulse.so.0`,
+  or the file `NV_PULSE` names; when only `NV_PULSE_SIMPLE` is set, as the Nix package does, the `libpulse.so.0` beside
+  it). Nothing is linked, so no build prerequisite. Under PipeWire the library talks to `pipewire-pulse`; under
+  PulseAudio to the server. Prerequisite at run time: Arch `libpulse`, Debian and Ubuntu `libpulse0`, Fedora
+  `pulseaudio-libs`.
+- **Layout** (nv-linux#216): `fork_sound::mix()` probes the default sink's channel map once (`pa_context_get_server_info`,
+  then `pa_context_get_sink_info_by_name`), converts it to a WAVE speaker mask and returns it, so `device_mix()` and
+  `GetSpeakerConfig` follow it: stereo 0x3, quad 0x33, 5.1 0x3F (side 5.1 0x60F), 7.1 0x63F, mono 0x4. A map that is not
+  exactly one of these falls back to the nearest layout whose speakers the sink has (else stereo) with one stderr line,
+  and the server remixes the rest. No server: stereo. `NV_SOUND_LAYOUT=auto|stereo|5.1|7.1` overrides (`5.1` keeps a
+  side-5.1 sink's side speakers); `auto` is the default. The probe is made once per process.
+- **Stream** (nv-linux#217): opened with `pa_stream_new` and an explicit `pa_channel_map` in WAVE order (FL FR FC LFE
+  BL BR SL SR, only the mask's bits), 32-bit float at 48000 Hz, 80 ms of latency (`PA_STREAM_ADJUST_LATENCY`); the
+  server resamples and remaps by position. The underflow callback counts underruns and the output thread calls
+  `Source::starved(count)`; one stderr line per stream says the first happened.
 - **Null**: a thread that pulls the mixer on the wall clock and drops the frames. It is the fallback when no sound
   server answers (a headless machine, CI), said once on stderr.
 - `NV_SOUND_BACKEND=auto|pulse|null`: `auto` (default) is Pulse, else Null; `pulse` refuses when there is no server
@@ -91,10 +100,10 @@ WASAPI. `engine-platform/src/fork_sound.rs` is the device off Windows, behind th
   table is `fork_tables::reference_sound_table()`: one default device with a software-only `DSCAPS`, written from
   the DirectSound headers (not captured), so `DirectSoundCreate8` succeeds. A `dsound.tsv` in the data folder wins.
 - Tests: `fork_sound` unit tests run on the null sink (no device, no game data). `cargo test -p engine-platform
-  fork_sound -- --ignored` plays 0.4 s of a quiet tone on the session's default sink.
+  fork_sound -- --ignored` plays 0.4 s of a quiet tone on the session's default sink, and 0.4 s on each channel of its
+  layout in turn (logging the sink's reported map; `NV_SOUND_LAYOUT=7.1` opens an eight-channel stream). If libpulse is not on the loader path set `NV_PULSE`.
 
-Open: the speaker layout is always stereo (a 5.1 sink is upmixed by the server, not mapped as DirectSound would),
-underruns are not reported to the mixer, the 3D path has not been listened to in a play run, and the launcher does not
+Open: the layout is not re-probed when the default sink changes mid-game (nv-linux#218), the 3D path has not been listened to in a play run, and the launcher does not
 set `NV_SOUND=out` yet.
 
 ## Shader compiler off Windows (nv-linux#178, #197, #200)
