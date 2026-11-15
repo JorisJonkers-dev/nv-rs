@@ -48,13 +48,13 @@ env:
   CARGO_TERM_COLOR: always
 
 concurrency:
-  group: package-windows-${{ github.event_name == 'workflow_call' && github.run_id || github.ref }}
+  group: package-windows-${{ inputs.programs-artifact != '' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     name: Build the Windows programs
-    if: ${{ github.event_name != 'workflow_call' }}
+    if: ${{ inputs.programs-artifact == '' }}
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
@@ -156,7 +156,7 @@ jobs:
 
       - name: Stage the package and make the ZIP
         run: |
-          $files = if (Test-Path release-files) { @('-ReleaseFiles', 'release-files') } else { @() }
+          $files = if (Test-Path release-files) { @{ ReleaseFiles = 'release-files' } } else { @{} }
           ./scripts/fork/package/package-windows.ps1 -Version $env:VERSION -Programs programs -Out dist @files
           if ($LASTEXITCODE) { throw 'packaging failed' }
 
@@ -205,7 +205,7 @@ jobs:
           Get-Content publish/SHA256SUMS
 
       - name: Attest build provenance (optional)
-        if: ${{ github.event_name == 'workflow_call' }}
+        if: ${{ inputs.programs-artifact != '' }}
         continue-on-error: true
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
@@ -217,4 +217,4 @@ jobs:
           name: ${{ env.PACKAGE_ARTIFACT }}
           path: publish
           if-no-files-found: error
-          retention-days: ${{ github.event_name == 'workflow_call' && 30 || 3 }}
+          retention-days: ${{ inputs.programs-artifact != '' && 30 || 3 }}
