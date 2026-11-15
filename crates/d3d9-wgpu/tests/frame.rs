@@ -3991,3 +3991,83 @@ fn a_failure_on_the_queue_thread_is_raised_on_the_render_thread() {
     }
     assert_eq!(g.b.device().map(|d| d.wgpu_errors()), Some(0));
 }
+
+/// A screen quad of pre-transformed vertices (`D3DFVF_XYZRHW | D3DFVF_TEX1`) drawn with no
+/// shaders, as the Bink movie player draws a movie frame, shows its texture at the pixels the
+/// vertices name: x to the right, y down from the top (an 8 by 8 target, a red 1 by 1 texture).
+#[test]
+fn a_quad_of_pre_transformed_vertices_without_shaders_draws_its_texture_at_its_pixels() {
+    let Some(mut g) = Gpu::new(8, 1) else { return };
+    for pixel in [false, true] {
+        g.run(Cmd::SetShader {
+            device: DEVICE,
+            pixel,
+            shader: 0,
+        });
+    }
+    const TEX: u32 = 0x1620;
+    let levels = words(&[TEX + 1]);
+    g.run(Cmd::CreateTexture {
+        device: DEVICE,
+        texture: TEX,
+        levels: Data::Bytes(&levels),
+        width: 1,
+        height: 1,
+        usage: 0,
+        format: A8R8G8B8,
+        pool: 1,
+    });
+    g.run(Cmd::UploadSurface {
+        surface: TEX + 1,
+        row: 4,
+        rows: 1,
+        data: Data::Bytes(&[0, 0, 255, 255]),
+    });
+    g.run(Cmd::SetTexture {
+        device: DEVICE,
+        sampler: 0,
+        texture: TEX,
+    });
+    g.state(ZENABLE, 0);
+    g.state(CULLMODE, 1);
+    g.run(Cmd::SetFvf {
+        device: DEVICE,
+        fvf: 0x104,
+    });
+    g.clear(1, 0, 1.0);
+    // Pixels x 1 to 5 and y 4 to 7, as a strip: x, y, z, rhw, u, v.
+    let quad = floats(&[
+        1.0, 4.0, 0.0, 1.0, 0.0, 0.0, //
+        5.0, 4.0, 0.0, 1.0, 1.0, 0.0, //
+        1.0, 7.0, 0.0, 1.0, 0.0, 1.0, //
+        5.0, 7.0, 0.0, 1.0, 1.0, 1.0,
+    ]);
+    g.run(Cmd::UploadBuffer {
+        buffer: VB,
+        offset: 0,
+        flags: 0,
+        data: Data::Bytes(&quad),
+    });
+    g.run(Cmd::SetStreamSource {
+        device: DEVICE,
+        stream: 0,
+        buffer: VB,
+        offset: 0,
+        stride: 24,
+    });
+    g.run(Cmd::DrawPrimitive {
+        device: DEVICE,
+        kind: 5,
+        start: 0,
+        count: 2,
+    });
+    let reds = g.reds();
+    let at = |x: usize, y: usize| reds[y * 8 + x];
+    assert_eq!(at(3, 5), 255, "inside the quad");
+    assert_eq!(at(2, 5), 255, "inside the quad");
+    assert_eq!(at(3, 1), 0, "above the quad (y is down from the top)");
+    assert_eq!(at(6, 5), 0, "right of the quad");
+    assert_eq!(at(0, 5), 0, "left of the quad");
+    assert_eq!(at(3, 3), 0, "above the quad's top edge");
+    assert_eq!(g.b.device().expect("the device").wgpu_errors(), 0);
+}

@@ -19,6 +19,7 @@ list entry and the row below. Keep both lists as small as possible.
 | `host/Cargo.toml`, `Cargo.toml`, `Cargo.lock`, `host/src/lib.rs`, `nvse/src/plugins.rs`, crates `jg` and `showoff` | Built-in JohnnyGuitar NVSE and ShowOff xNVSE identities and co-save | Upstream registering those plugins (it has not; JIP LN, UI Organizer and xNVSE are upstream's) |
 | `d3d9-wgpu/src/window.rs`: `choose_present_mode`, `present_mode`, `refresh_interval` and the display log line | Present mode by `NV_PRESENT` (Mailbox by default off Windows) and the display's refresh as the pacing interval; checked 2026-11-15: upstream has no display or present-mode choice off Windows | Upstream choosing the present mode and the refresh itself |
 | `crates/fork-presence` (new), `viewer/src/main.rs` (two hooks), `viewer/Cargo.toml`, `Cargo.toml`, `Cargo.lock` | Discord Rich Presence while the game runs (docs/fork/DISCORD.md); upstream has none (checked 2026-11-15) | Upstream adding presence |
+| `d3d9-wgpu/src/fixed.rs` (new), hooks in `device.rs`, `lib.rs`, a test in `tests/frame.rs` | A draw with no shaders of pre-transformed vertices (`D3DFVF_XYZRHW`, TEX1, DIFFUSE), which the Bink movie player uses for every frame, was skipped: the screen stayed blank during a movie | Upstream providing the fixed-function path |
 | `README.md` | Fork banner | None; fork-owned text |
 
 ## Redundancy check after the second sync of 2026-11-15

@@ -9,6 +9,7 @@
 
 use crate::answers::QueryAnswers;
 use crate::cache;
+use crate::fixed;
 use crate::format::{self, d3dfmt, Format};
 use crate::frame_rate;
 use crate::fxhash::Map;
@@ -710,6 +711,10 @@ pub struct Device {
     shader_bytecode: Map<u64, Vec<Arc<Shader>>>,
     collided: HashSet<u64>,
     decls_by_elements: Map<Vec<Element>, Arc<Decl>>,
+    /// The FVF a draw without shaders reads ([`fixed`]); cleared by a vertex declaration.
+    fvf: Option<u32>,
+    /// The shaders of the provided fixed-function draws, by whether the vertices have a diffuse colour.
+    fixed_shaders: [Option<(Arc<Shader>, Arc<Shader>)>; 2],
     /// The pipelines to make before play ([`prepare`]): the list, which of its entries are made
     /// (or tried), whether a new shader or sample count may have made more of them ready, the
     /// local list's file and whether it has entries it has not written. None without a cache folder.
@@ -1168,6 +1173,8 @@ impl Device {
             shader_bytecode: Map::default(),
             collided: HashSet::new(),
             decls_by_elements: Map::default(),
+            fvf: None,
+            fixed_shaders: [None, None],
             list,
             sample_mask: 1 << 1,
             listed_new: false,
@@ -2127,11 +2134,54 @@ impl Device {
         }
     }
 
+    /// `SetFVF`: the layout of a draw without shaders ([`fixed`]). A provided FVF also becomes
+    /// the vertex declaration, as Direct3D 9's does; another is only remembered.
+    pub(crate) fn set_fvf(&mut self, fvf: u32) {
+        if fvf == 0 {
+            return;
+        }
+        self.fvf = Some(fvf);
+        self.st.bound.declaration = UNKNOWN;
+        if let Some(diffuse) = fixed::supported(fvf) {
+            let elements = fixed::elements(diffuse)
+                .into_iter()
+                .map(|(stream, offset, ty, usage, index)| Element {
+                    stream,
+                    offset,
+                    ty,
+                    usage,
+                    index,
+                })
+                .collect();
+            self.st.decl = Some(self.decl_of(elements));
+        }
+    }
+
+    /// The shaders of a fixed-function draw of the FVF now set, made once; none when the FVF is
+    /// not provided.
+    fn fixed_function(&mut self) -> Option<(Arc<Shader>, Arc<Shader>)> {
+        let diffuse = fixed::supported(self.fvf?)?;
+        let k = usize::from(diffuse);
+        if self.fixed_shaders[k].is_none() {
+            let (vh, ph) = (UNKNOWN - 1 - 2 * k as Handle, UNKNOWN - 2 - 2 * k as Handle);
+            self.create_shader(vh, &fixed::vertex_shader(diffuse));
+            self.create_shader(ph, &fixed::pixel_shader(diffuse));
+            let (Some(Obj::Shader(v)), Some(Obj::Shader(p))) =
+                (self.objects.get(&vh), self.objects.get(&ph))
+            else {
+                return None;
+            };
+            self.fixed_shaders[k] = Some((v.clone(), p.clone()));
+        }
+        self.fixed_shaders[k].clone()
+    }
+
     pub(crate) fn set_declaration(&mut self, declaration: Handle) {
         if self.st.bound.declaration == declaration {
             return;
         }
         self.st.bound.declaration = declaration;
+        self.fvf = None;
         self.st.decl = match self.objects.get(&declaration) {
             Some(Obj::Decl(d)) => Some(d.clone()),
             _ => None,
@@ -3390,6 +3440,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         s
     }
 
+    /// A draw. Without both shaders it is a provided fixed-function draw ([`fixed`]) or skipped.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw(
         &mut self,
@@ -3400,12 +3451,43 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         count: u32,
         up: Option<(&[u8], u32)>,
     ) {
+        if self.st.vs.is_some() && self.st.ps.is_some() {
+            return self.draw_with(kind, indexed, base_vertex, start, count, up, None);
+        }
+        // The vertex constants the draw's own shader reads are the game's: put back after.
+        let ff = self.fixed_function();
+        let saved: [u8; 32] = self.st.vsf[..32].try_into().expect("two registers");
+        self.draw_with(kind, indexed, base_vertex, start, count, up, ff);
+        if self.st.vsf[..32] != saved {
+            self.st.vsf[..32].copy_from_slice(&saved);
+            self.st.touch(0);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_with(
+        &mut self,
+        kind: u32,
+        indexed: bool,
+        base_vertex: i32,
+        start: u32,
+        count: u32,
+        up: Option<(&[u8], u32)>,
+        fixed: Option<(Arc<Shader>, Arc<Shader>)>,
+    ) {
         // Listed pipelines whose shaders are now made, also when the game draws before its first
         // `Present` (its first frame).
         if self.listed_new {
             self.prepare_listed();
         }
-        let (Some(vs), Some(ps)) = (self.st.vs.clone(), self.st.ps.clone()) else {
+        let (Some(vs), Some(ps)) = (
+            fixed
+                .as_ref()
+                .map_or_else(|| self.st.vs.clone(), |f| Some(f.0.clone())),
+            fixed
+                .as_ref()
+                .map_or_else(|| self.st.ps.clone(), |f| Some(f.1.clone())),
+        ) else {
             self.warn("a draw without both shaders (fixed function is not provided): skipped");
             self.skipped += 1;
             return;
@@ -3617,6 +3699,14 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         let vh = v.h.min(th - vy).max(1);
         // Direct3D 9's pixel centres: each vertex shader moves its position half a pixel right
         // and down, by this viewport's size (the converter's module documentation).
+        if fixed.is_some() {
+            // The fixed-function vertex shader maps pixel positions to the viewport ([`fixed`]).
+            let c = fixed::constants(vw as f32, vh as f32);
+            for (k, v) in c.iter().enumerate() {
+                self.st.vsf[4 * k..4 * k + 4].copy_from_slice(&v.to_le_bytes());
+            }
+            self.st.touch(0);
+        }
         self.write_blocks([1.0 / vw as f32, -1.0 / vh as f32], [vs.fregs, ps.fregs]);
         self.begin_pass(None);
         let scissor = if self.st.rs[rs::SCISSORTESTENABLE] != 0 {
