@@ -53,3 +53,15 @@ The rust-cache is saved only on `fork` pushes (`save-if`), keyed per component a
 | jobs in a full run | 33 |
 | Windows jobs in a full run | 15 |
 | test binary `typed_shader`: tests | 307 |
+
+## After: typed shader family in three shards (PR 73 run, full build)
+
+| | Seconds |
+| --- | ---: |
+| run wall time | 902 (15.0 min; before: median 21.3 min, range 17.6 to 23.2) |
+| typed shader family shard 3/3 | 711 |
+| typed shader family shard 2/3 | 522 |
+| typed scene queries (now the slowest job) | 835 |
+| typed draw | 638 |
+| typed geometry and pathing | 574 |
+| Clippy | 466 |
