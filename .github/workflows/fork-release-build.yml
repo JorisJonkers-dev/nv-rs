@@ -30,10 +30,11 @@ name: Release Build
 # Publishing: release.yml dispatches this workflow with `tag` (the release-please tag, vX.Y.Z) and
 # `publish` true when a release is created (a tag made with the default token starts no workflow of its
 # own). The sources are the tag's; the packaging scripts (packaging/, scripts/fork/, .fork/) come from the
-# workflow's own ref and are laid over them, because a tag can predate them. The publish job refuses a tag
-# that is not vX.Y.Z on the fork branch at a release-please commit, then uploads the Linux tarball (the
-# name nvmod's install-nv-rs fetches), SHA256SUMS, release-manifest.json, capabilities.json, the schemas,
-# the Windows ZIP and the installer to the release, with one attestation over all of them.
+# workflow's own ref and are laid over them, because a tag can predate them. The `guard` job refuses a tag
+# that is not vX.Y.Z on the fork branch at a release-please commit. Then each platform publishes on its own, as
+# soon as it is ready: `publish-linux` uploads the Linux tarball (the name nvmod's install-nv-rs fetches),
+# SHA256SUMS, release-manifest.json, capabilities.json and the schemas; `publish-windows` (after the Windows
+# package) uploads the ZIP, the installer and SHA256SUMS-windows. Each attests its own assets.
 # `tag` without `publish` is a dry run that builds and attests nothing to the release.
 
 on:
@@ -441,11 +442,20 @@ jobs:
       - name: Smoke test the package (nv-viewer --check on folders that are not a game)
         run: nix build --print-build-logs --no-link .#checks.x86_64-linux.smoke
 
-  publish:
-    name: Publish the release assets
-    needs: [version, guard, linux, package]
+  # Each platform publishes as soon as its own build is done: Linux never waits for Windows. Both jobs upload to
+  # the release release-please already created (neither creates it), with `gh release upload --clobber`, so a
+  # re-run is harmless, and share one concurrency group per tag so their uploads never overlap. The asset names
+  # do not collide: Linux owns SHA256SUMS (the name nvmod's install-nv-rs reads), Windows owns SHA256SUMS-windows.
+  # capabilities.json, release-manifest.json and the schemas are the same files in both (one `release-files` job
+  # makes them) and Linux uploads them; the manifest has no per-platform asset list, so a Linux-only moment of the release is complete.
+  publish-linux:
+    name: Publish the Linux release assets
+    needs: [version, guard, linux]
     if: ${{ inputs.publish && inputs.tag != '' }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-upload-${{ inputs.tag }}
+      cancel-in-progress: false
     permissions:
       contents: write # upload the assets to the release
       id-token: write # the attestation is signed with the workflow's OIDC identity
@@ -460,22 +470,57 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: nv-rs-${{ env.VERSION }}-linux-x86_64-dev
-          path: linux
+          path: dist
 
+      - name: Verify the checksums
+        run: |
+          set -euo pipefail
+          ( cd dist && sha256sum --check SHA256SUMS && ls -l )
+
+      - name: Attest build provenance of the release assets
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/*
+
+      - name: Upload to the release
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$REPO" > /dev/null
+          gh release upload "$TAG" dist/* --repo "$REPO" --clobber
+
+  publish-windows:
+    name: Publish the Windows release assets
+    needs: [version, guard, package]
+    if: ${{ inputs.publish && inputs.tag != '' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-upload-${{ inputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ inputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
       - name: Download the Windows package
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: nv-rs-${{ env.VERSION }}-windows-x64-package
           path: windows
 
-      - name: Gather the assets and write one SHA256SUMS
+      - name: Gather the Windows assets
         run: |
           set -euo pipefail
+          ( cd windows && sha256sum --check SHA256SUMS )
           mkdir dist
-          cp linux/nv-rs-linux-x86_64-dev.tar.gz linux/*.json dist/
           cp windows/nv-rs-preview-*.zip windows/nv-rs-setup-*.exe dist/
-          for f in capabilities.json release-manifest.json; do cmp "linux/$f" "windows/$f"; done
-          ( cd dist && sha256sum -- * > ../SHA256SUMS && mv ../SHA256SUMS . && sha256sum --check SHA256SUMS && ls -l )
+          # Its own name, so it cannot overwrite the Linux SHA256SUMS; lists the ZIP, installer and the shared files.
+          cp windows/SHA256SUMS dist/SHA256SUMS-windows
+          ls -l dist
 
       - name: Attest build provenance of the release assets
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2

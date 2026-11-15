@@ -52,3 +52,23 @@ nv-rs today.
   and inside the ZIP; the manifest itself does not change for it.
 - Adding an optional field is not a version change; removing, renaming or retyping one is: add `v2` schemas and keep
   writing `v1` for a release.
+
+## Publishing a release (Linux does not wait for Windows)
+
+For a release-please tag (`tag` and `publish` inputs), `publish-linux` and `publish-windows` in `fork-release-build.yml`
+run independently after the `guard` job (fork branch, `vX.Y.Z`, release-please commit):
+
+| Job | Waits for | Uploads to the release | Attests |
+| --- | --- | --- | --- |
+| `publish-linux` | `linux` | `nv-rs-linux-x86_64-dev.tar.gz`, `SHA256SUMS`, `release-manifest.json`, `capabilities.json`, the schemas | those files |
+| `publish-windows` | `package` | `nv-rs-preview-<version>-windows-x64.zip`, `nv-rs-setup-<version>-windows-x64.exe`, `SHA256SUMS-windows` | those files |
+
+- The release already exists (release-please made it); neither job creates it. Both use `gh release upload --clobber`, so a
+  re-run is idempotent, and share the concurrency group `release-upload-<tag>`, so uploads never overlap.
+- `SHA256SUMS` is the Linux file, the one nvmod's `install-nv-rs` reads (it looks up only the asset it installs, so a
+  release with only the Linux assets verifies). The Windows hashes are in `SHA256SUMS-windows`, which never overwrites it.
+- `release-manifest.json` and `capabilities.json` are identical in both builds and carry no per-platform asset list, so
+  the Linux-only moment of a release is complete and nothing is "pending". The Windows assets appear when Windows is done.
+  nvmod needs no change.
+- Date-version builds (no tag) publish nothing; each job uploads its own workflow artefact as soon as it finishes, so the
+  Linux artefact (`nv-rs-<version>-linux-x86_64-dev`) can be downloaded while Windows is still running.
