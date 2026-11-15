@@ -102,6 +102,11 @@ impl Host {
             ));
         }
         let mut engine = Box::new(Engine::with_exe(&exe)?);
+        // A first run on Linux has no settings: make them where the launcher would (fork_tables).
+        #[cfg(not(windows))]
+        if let Some(install) = exe.parent() {
+            engine_platform::fork_tables::seed_machine_settings(install);
+        }
         // The play loop's patches (`crates/play-patch`, empty on main) replace the entries with
         // the same addresses.
         for (address, function) in play_patch::funcs() {
