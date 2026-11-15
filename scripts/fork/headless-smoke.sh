@@ -4,6 +4,10 @@
 #
 #   headless-smoke.sh <weston|cage|sway|labwc|x11> [path/to/clear]
 #
+# The window is borderless full screen over the headless output and held for two seconds; the run
+# fails unless the surface is the output's size in physical pixels (also at a fractional scale:
+# HEADLESS_SCALE=1.5 for sway), and on sway also unless the compositor reports an idle inhibitor.
+#
 # Needs the compositor on PATH, a Vulkan driver (lavapipe: VK_ICD_FILENAMES) and libwayland / libxkbcommon.
 # Exits 0 when the example shows its frames; 77 (skipped) when the compositor is not installed;
 # anything else is a failure. Prints what ran so the log says which backend was exercised.
@@ -52,7 +56,7 @@ case "$which_c" in
     ;;
   sway|labwc)
     if [ "$which_c" = sway ]; then
-      printf 'output * resolution 1280x720\n' >"$dir/config"
+      printf 'output * resolution 1280x720 scale %s\n' "${HEADLESS_SCALE:-1}" >"$dir/config"
       sway --unsupported-gpu -c "$dir/config" >"$dir/comp.log" 2>&1 &
     else
       labwc >"$dir/comp.log" 2>&1 &
@@ -78,10 +82,11 @@ case "$which_c" in
   cage)
     # cage runs one client full screen and exits with it.
     export XDG_CURRENT_DESKTOP=cage XDG_SESSION_TYPE=wayland
-    cage -- bash -c "'$clear_bin' --smoke" >"$out" 2>"$dir/comp.log"
+    cage -- bash -c "'$clear_bin' --smoke --hold 2 --fullscreen" >"$out" 2>"$dir/comp.log"
     rc=$?
     echo "compositor: cage (wlroots, headless)"; cat "$out"
     grep -q 'smoke: 30 frames shown' "$out" || { echo "FAIL (rc=$rc)"; cat "$dir/comp.log"; exit 1; }
+    grep -q 'final: window 1280x720 surface 1280x720' "$out" || { echo "FAIL: not the output's size"; exit 1; }
     exit 0
     ;;
   x11)
@@ -92,10 +97,26 @@ case "$which_c" in
     ;;
 esac
 
-echo "compositor: $which_c (display ${WAYLAND_DISPLAY:-$DISPLAY})"
-timeout 120 "$clear_bin" --smoke >"$out" 2>&1
+echo "compositor: $which_c (display ${WAYLAND_DISPLAY:-$DISPLAY}), scale ${HEADLESS_SCALE:-1}"
+flags=(--smoke --hold 2)
+[ "$which_c" = x11 ] || flags+=(--fullscreen)
+timeout 120 "$clear_bin" "${flags[@]}" >"$out" 2>&1 &
+client=$!
+tree=""
+if [ "$which_c" = sway ] && command -v swaymsg >/dev/null 2>&1; then
+  sleep 1.5
+  tree="$(swaymsg -t get_tree 2>/dev/null)"
+fi
+wait "$client"
 rc=$?
 cat "$out"
-if [ "$rc" -ne 0 ] || ! grep -q 'smoke: 30 frames shown' "$out"; then
-  echo "FAIL (rc=$rc)"; cat "$dir/comp.log"; exit 1
+fail() { echo "FAIL: $1 (rc=$rc)"; cat "$dir/comp.log"; exit 1; }
+{ [ "$rc" -eq 0 ] && grep -q 'smoke: 30 frames shown' "$out"; } || fail "the frames were not shown"
+if [ "$which_c" != x11 ]; then
+  grep -q 'final: window 1280x720 surface 1280x720' "$out" || fail "the surface is not the output's size in physical pixels"
+fi
+if [ "$which_c" = sway ]; then
+  printf '%s' "$tree" | grep -q '"inhibit_idle": true' || fail "sway sees no idle inhibitor"
+  grep -q 'idle inhibit wayland' "$out" || fail "the layer did not take the idle inhibit"
+  echo "idle inhibitor seen by sway"
 fi

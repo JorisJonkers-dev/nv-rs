@@ -51,6 +51,11 @@ jobs:
       - name: sway (wlroots)
         if: always()
         run: scripts/fork/headless-smoke.sh sway | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: sway at a fractional scale (1.5)
+        if: always()
+        env:
+          HEADLESS_SCALE: '1.5'
+        run: scripts/fork/headless-smoke.sh sway | tee -a "$GITHUB_STEP_SUMMARY"
       - name: labwc (wlroots)
         if: always()
         run: scripts/fork/headless-smoke.sh labwc | tee -a "$GITHUB_STEP_SUMMARY"

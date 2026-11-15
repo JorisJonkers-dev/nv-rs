@@ -28,7 +28,7 @@ source and documentation only, **-** not supported, **?** not known.
 | Cursor hide | R | R | R | R | R |
 | Focus loss and regain | Held keys and buttons are released on loss; the pointer is held again and fullscreen restored on regain (unit-tested events) | same | same | same | same |
 | Alt-Tab | The WM's; the game gets `Focused(false)` | Mutter's; Super also | KWin's | Binds are the user's | Binds are the user's |
-| Fractional scale | R: no scaling (X11 `Xft.dpi` is not read) | R: `wp_fractional_scale_v1` | R | R | V (CI-style run at scale 1.5: window 1280x720 px on a 1280x720 output, swap chain the same) |
+| Fractional scale | R: no scaling (X11 `Xft.dpi` is not read) | R: `wp_fractional_scale_v1` | R | R | V (CI, scale 1.5: window 1280x720 px on a 1280x720 output, swap chain the same) |
 | Native-resolution swap chain | n/a | R: winit sets `wp_viewporter`'s destination | R | R | V (above) |
 | Server-side decorations | WM | `xdg-decoration` is not offered by Mutter: winit draws its own frame when decorated; full screen has none | R: offered | R | V: offered |
 | Idle inhibit | `xdg-screensaver suspend` if xdg-utils is installed | `zwp_idle_inhibit_manager_v1`: Mutter implements it (R) | R | R | V: sway reports `inhibit_idle` true while the window is up |
@@ -72,7 +72,7 @@ missing. Tests: `scripts/fork/tests/test_desktop_hint.py` (stub tools). Run by h
 `Window smoke (desktops)` (`.github/workflows/fork-window-desktops.yml`, optional, not part of Pipeline Complete) runs
 `scripts/fork/headless-smoke.sh` under headless weston, cage, sway and labwc with a software renderer and lavapipe: a
 full screen window, 30 frames, the swap chain the output's size in physical pixels. On sway it also checks the idle inhibitor
-is seen by the compositor. `Window smoke` runs the X11 case under Xvfb.
+is seen by the compositor, and once more at scale 1.5. weston offers no idle inhibit manager (the log says `none` there); labwc, sway and cage's wlroots do. `Window smoke` runs the X11 case under Xvfb.
 
 Documented gaps, not run in CI:
 
