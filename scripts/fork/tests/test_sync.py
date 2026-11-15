@@ -143,6 +143,21 @@ class Replay(unittest.TestCase):
         self.assertEqual(self.fx.show("sync/upstream", "crates/b/lib.rs"), "b4\n")
         self.assertIn("shared.txt", (Path(self.tmp.name) / "dropped").read_text())
 
+    def test_commit_adding_a_mod_line_to_an_overlay_file_stops_before_a_broken_branch(self):
+        self.fx.on("main", {"crates/b/lib.rs": "b\nmod x;\n", "crates/b/x.rs": "x\n"}, "plain mod")
+        self.fx.on("main", {"shared.txt": "upstream\nmod stage;\n", "crates/b/stage.rs": "s\n"}, "mod in an overlay file")
+        res = self.fx.replay()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("applied in part", res.stderr)
+        info = sync_report.parse_stop(str(Path(self.tmp.name) / "stop"))
+        self.assertEqual((info["reason"], info["subject"]), ("partial", "mod in an overlay file"))
+        self.assertNotIn("crates/b/stage.rs", self.fx.files())
+        self.assertEqual(self.fx.show("sync/upstream", "crates/b/lib.rs"), "b\nmod x;\n")
+
+    def test_overlay_file_without_a_mod_line_still_wins_quietly(self):
+        self.fx.on("main", {"shared.txt": "upstream\nfn f() {}\n", "crates/b/lib.rs": "b6\n"}, "no mod line")
+        self.assertEqual(self.fx.replay().returncode, 0)
+
     def test_conflict_in_allowed_divergence_stops_and_is_reported(self):
         self.fx.on("fork", {"crates/a/lib.rs": "one\nFORK\nthree\n"}, "fork change")
         sha = self.fx.on("main", {"crates/a/lib.rs": "one\nUP\nthree\n"}, "upstream change")

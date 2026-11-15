@@ -26,6 +26,9 @@ MARKER = "<!-- sync-blocked -->"
 REASONS = {
     "conflict": ("a commit does not apply on top of the fork",
                  "Upstream changed lines that a fork-only change also changed."),
+    "partial": ("a commit would be replayed in part and break the build",
+                "The commit adds a `mod` line to a fork-owned file (`.fork/overlay-paths`) that upstream also has, and the module file arrives "
+                "without it. Take the file out of `.fork/overlay-paths` (list it in `.fork/allowed-divergence`), or apply the commit by hand."),
     "history": ("upstream rewrote its history",
                 "The upstream copy (main) no longer contains the commit the replay last reached. Stop, read upstream's repository, "
                 "then choose the fork point again by hand."),
