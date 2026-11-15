@@ -176,9 +176,12 @@ jobs:
           $dir = Join-Path $env:GITHUB_WORKSPACE 'installed'
           $setup = Resolve-Path "dist/nv-rs-setup-$env:VERSION-windows-x64.exe"
           # Before the real install: the installer refuses Program Files (a silent install too), writing nothing there.
-          $refused = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "`"/DIR=$env:ProgramFiles\nv-rs-refused`"", "/LOG=$env:RUNNER_TEMP/refused.log") -Wait -PassThru
-          if ($refused.ExitCode -eq 0) { Get-Content "$env:RUNNER_TEMP/refused.log"; throw 'the installer accepted Program Files' }
-          if (Test-Path -LiteralPath "$env:ProgramFiles\nv-rs-refused") { throw 'the refused install wrote to Program Files' }
+          $refused = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "`"/DIR=$env:ProgramFiles\nv-rs-refused`"", "/LOG=$env:RUNNER_TEMP/refused.log") -PassThru
+          if (-not $refused.WaitForExit(120000)) { $refused.Kill(); Get-Content "$env:RUNNER_TEMP/refused.log"; throw 'the installer did not finish a refused install in 120 s' }
+          Get-Content "$env:RUNNER_TEMP/refused.log" | Select-String 'cannot be installed' | ForEach-Object { $_.Line }
+          # What counts is that nothing was written there (a silent abort may leave exit status 0).
+          if (Test-Path -LiteralPath "$env:ProgramFiles\nv-rs-refused") { throw 'the installer wrote to Program Files' }
+          if (-not (Select-String -Path "$env:RUNNER_TEMP/refused.log" -Pattern 'cannot be installed' -Quiet)) { throw 'the installer did not refuse Program Files' }
           $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$dir", "/LOG=$env:RUNNER_TEMP/setup.log") -Wait -PassThru
           if ($p.ExitCode) { Get-Content "$env:RUNNER_TEMP/setup.log"; throw "the installer exited $($p.ExitCode)" }
           foreach ($f in 'Play.exe', 'app/FalloutNV.exe', 'Choose game folder.cmd', 'READ ME.txt', 'LICENSE') {

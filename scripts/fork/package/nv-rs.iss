@@ -99,10 +99,19 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  Bad: String;
+  Bad, Text: String;
 begin
   Result := '';
   Bad := BadFolder(ExpandConstant('{app}'));
   if Bad <> '' then
-    Result := 'nv-rs cannot be installed in ' + Bad + ' (it keeps its saves and settings beside its programs). Use another folder, for example C:\Games\nv-rs.';
+  begin
+    Text := 'nv-rs cannot be installed in ' + Bad + ' (it keeps its saves and settings beside its programs). Use another folder, for example C:\Games\nv-rs.';
+    if WizardSilent then
+    begin
+      // No message box on a silent install: log the reason and stop before anything is written.
+      Log(Text);
+      Abort;
+    end;
+    Result := Text;
+  end;
 end;
