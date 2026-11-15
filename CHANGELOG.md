@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.2.0...v0.3.0) (2026-11-15)
+
+
+### Features
+
+* **linux:** a window layer for X11 and Wayland: winit window thread, handle registry, wgpu surface and DirectInput-shaped input ([#40](https://github.com/JorisJonkers-dev/nv-rs/issues/40)) ([2290958](https://github.com/JorisJonkers-dev/nv-rs/commit/22909582f13d450b48c3ad2ac504ddd272c61d8d))
+* **linux:** machine tables for a Linux machine (adapter table, no-device sound table) ([#48](https://github.com/JorisJonkers-dev/nv-rs/issues/48)) ([79cd59b](https://github.com/JorisJonkers-dev/nv-rs/commit/79cd59bfac62604b4e3162762c9e0ec92df1c1f5))
+* **linux:** pure-Rust ID3DXConstantTable readers and device-caps shader profiles ([#43](https://github.com/JorisJonkers-dev/nv-rs/issues/43)) ([ebe543d](https://github.com/JorisJonkers-dev/nv-rs/commit/ebe543d6b8597db7aa72b0252b9605566541c99e))
+* **linux:** the Direct3D 9 recorder builds off Windows and draws a frame headless on wgpu ([#50](https://github.com/JorisJonkers-dev/nv-rs/issues/50)) ([23e8aa0](https://github.com/JorisJonkers-dev/nv-rs/commit/23e8aa07bf7be65534f7766b8fd67baf8944dd5c))
+
+
+### Bug Fixes
+
+* **ci:** package script splat and called-run detection in the Windows package workflow ([#44](https://github.com/JorisJonkers-dev/nv-rs/issues/44)) ([9bda5ff](https://github.com/JorisJonkers-dev/nv-rs/commit/9bda5ffe6c7837c259307bf92c7b0e2bc6a2efe0))
+
 ## [0.2.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.1.0...v0.2.0) (2026-11-15)
 
 
