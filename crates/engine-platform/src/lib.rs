@@ -92,11 +92,11 @@ pub mod d3d9query;
 pub mod d3d9real;
 pub mod d3d9resource;
 pub mod d3dx;
+#[cfg(windows)]
+pub mod d3dxreal;
 // Fork-owned: the shader compiler imports off Windows (docs/fork/LINUX.md).
 #[cfg(not(windows))]
 pub mod d3dxshader;
-#[cfg(windows)]
-pub mod d3dxreal;
 pub mod dinput;
 pub mod ds3d;
 pub mod dsfx;
