@@ -89,7 +89,9 @@ if ($bad) { throw "These must not be in the package: $($bad.FullName -join ', ')
 # package-playtest.ps1 (-Game) needs the player's own FalloutNV.exe and cannot run here: the maintainer runs it on the
 # programs artifact before a release is announced.
 $needles = @($env:USERNAME, $env:USERPROFILE, $root) | Where-Object { $_ }
-$programNeedles = @('nv-re', 'build43', 'fnv_decomp', '\target\release', 'FUN_', 'DAT_', 'LAB_')
+# 'nv-re' as package-playtest.ps1 has it would match the render thread's own name (nv-render), so only the private
+# repository's paths are needles here.
+$programNeedles = @('\nv-re\', '/nv-re/', 'build43', 'fnv_decomp', '\target\release', 'FUN_', 'DAT_', 'LAB_')
 $arguments = @($stage) + ($needles | ForEach-Object { '--needle'; $_ }) + ($programNeedles | ForEach-Object { '--program-needle'; $_ })
 & (Join-Path $x64 'package-check.exe') @arguments
 if ($LASTEXITCODE) { throw 'package-check found something that must not be in the package.' }
