@@ -40,21 +40,93 @@ pub(crate) const RETRY_MOST: Duration = Duration::from_secs(2);
 /// `D3DPRESENT_INTERVAL_IMMEDIATE`.
 const INTERVAL_IMMEDIATE: u32 = 0x8000_0000;
 
-/// The present mode for the game's present interval: `D3DPRESENT_INTERVAL_IMMEDIATE` (the game's
-/// `iPresentInterval=0`) or `NV_D3D9_PRESENT=immediate` without waiting for the display
-/// (`Immediate` where the surface has it), anything else with the display (`Fifo`: the game asks
-/// for no other interval than one).
-pub(crate) fn present_mode(interval: u32, caps: &wgpu::SurfaceCapabilities) -> wgpu::PresentMode {
-    let immediate = interval == INTERVAL_IMMEDIATE
-        || std::env::var("NV_D3D9_PRESENT").is_ok_and(|v| v.eq_ignore_ascii_case("immediate"));
-    if immediate && caps.present_modes.contains(&wgpu::PresentMode::Immediate) {
-        wgpu::PresentMode::Immediate
-    } else if immediate {
-        wgpu::PresentMode::AutoNoVsync
-    } else {
-        wgpu::PresentMode::Fifo
+/// What `NV_PRESENT` (or the older `NV_D3D9_PRESENT=immediate`) asks of the present mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PresentPref {
+    Fifo,
+    Mailbox,
+    Immediate,
+}
+
+impl PresentPref {
+    pub(crate) fn parse(value: &str) -> Option<PresentPref> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "fifo" => Some(PresentPref::Fifo),
+            "mailbox" => Some(PresentPref::Mailbox),
+            "immediate" => Some(PresentPref::Immediate),
+            _ => None,
+        }
+    }
+
+    fn from_env() -> Option<PresentPref> {
+        std::env::var("NV_PRESENT")
+            .ok()
+            .and_then(|v| PresentPref::parse(&v))
+            .or_else(|| {
+                std::env::var("NV_D3D9_PRESENT")
+                    .ok()
+                    .and_then(|v| PresentPref::parse(&v))
+                    .filter(|p| *p == PresentPref::Immediate)
+            })
     }
 }
+
+/// The present mode: the preference when the surface has it (`Immediate` that is missing becomes
+/// `AutoNoVsync`, `Mailbox` that is missing `Fifo`); with none, `D3DPRESENT_INTERVAL_IMMEDIATE`
+/// (the game's `iPresentInterval=0`) is `Immediate`, and anything else is `Mailbox` where
+/// `mailbox_default` and the surface has it (the swap chain then runs at the display's refresh
+/// without the game being held to a whole frame behind), else `Fifo`. Pure.
+pub(crate) fn choose_present_mode(
+    pref: Option<PresentPref>,
+    interval: u32,
+    supported: &[wgpu::PresentMode],
+    mailbox_default: bool,
+) -> wgpu::PresentMode {
+    use wgpu::PresentMode as M;
+    let has = |m| supported.contains(&m);
+    let pref = pref.unwrap_or(if interval == INTERVAL_IMMEDIATE {
+        PresentPref::Immediate
+    } else if mailbox_default {
+        PresentPref::Mailbox
+    } else {
+        PresentPref::Fifo
+    });
+    match pref {
+        PresentPref::Immediate if has(M::Immediate) => M::Immediate,
+        PresentPref::Immediate => M::AutoNoVsync,
+        PresentPref::Mailbox if has(M::Mailbox) => M::Mailbox,
+        _ => M::Fifo,
+    }
+}
+
+/// [`choose_present_mode`] for the game's present `interval`, `NV_PRESENT` and the surface.
+pub(crate) fn present_mode(interval: u32, caps: &wgpu::SurfaceCapabilities) -> wgpu::PresentMode {
+    choose_present_mode(
+        PresentPref::from_env(),
+        interval,
+        &caps.present_modes,
+        cfg!(not(windows)),
+    )
+}
+
+/// One line, once: the monitor's index, its size and refresh in hertz, and the present mode.
+#[cfg(not(windows))]
+fn log_display(mode: wgpu::PresentMode) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| match fork_window::display() {
+        Some(d) => eprintln!(
+            "NV_D3D9 display: monitor {} {}x{} {} Hz, present {mode:?}",
+            d.index,
+            d.monitor.width,
+            d.monitor.height,
+            d.refresh_hz()
+        ),
+        None => eprintln!("NV_D3D9 display: no monitor known, present {mode:?}"),
+    });
+}
+
+#[cfg(windows)]
+fn log_display(_: wgpu::PresentMode) {}
 
 /// The rest after a window gave no frame: none is asked for until it ends ([`RETRY_AFTER`] the
 /// first time, twice as long each time in a row, up to [`RETRY_MOST`]; short again once a frame
@@ -286,6 +358,7 @@ impl Window {
             c.format = wgpu::TextureFormat::R8Unorm;
         }
         c.present_mode = present_mode(self.interval, &caps);
+        log_display(c.present_mode);
         c.alpha_mode = caps
             .alpha_modes
             .first()
@@ -549,7 +622,9 @@ fn refresh_interval() -> Duration {
 
 #[cfg(not(windows))]
 fn refresh_interval() -> Duration {
-    Duration::from_secs_f64(1.0 / 60.0)
+    // The chosen display's own rate (`fork_window::display`), 60 where it does not say.
+    let hz = fork_window::display().map_or(60, |d| d.refresh_hz().max(1));
+    Duration::from_secs_f64(1.0 / f64::from(hz))
 }
 
 /// Whether the window, or the top-level window it is in, is minimised.
@@ -634,32 +709,44 @@ extern "system" {
 mod tests {
     use super::*;
 
-    /// The game's interval one waits for the display; `D3DPRESENT_INTERVAL_IMMEDIATE` does not,
-    /// `Immediate` where the surface has it.
+    /// `NV_PRESENT` wins; with none the game's interval picks (`Immediate` for the immediate
+    /// interval), else `Mailbox` where it is on offer and wanted by default, else `Fifo`.
     #[test]
-    fn the_present_interval_picks_the_present_mode() {
-        let caps = |modes: Vec<wgpu::PresentMode>| wgpu::SurfaceCapabilities {
-            present_modes: modes,
-            ..Default::default()
-        };
-        let all = caps(vec![
-            wgpu::PresentMode::Fifo,
-            wgpu::PresentMode::Immediate,
-            wgpu::PresentMode::Mailbox,
-        ]);
-        if std::env::var_os("NV_D3D9_PRESENT").is_none() {
-            assert_eq!(present_mode(1, &all), wgpu::PresentMode::Fifo);
-            assert_eq!(present_mode(0, &all), wgpu::PresentMode::Fifo);
-        }
+    fn the_present_mode_follows_the_preference_the_interval_and_the_surface() {
+        use wgpu::PresentMode as M;
+        let all = [M::Fifo, M::Immediate, M::Mailbox];
+        let fifo = [M::Fifo];
+        assert_eq!(choose_present_mode(None, 1, &all, true), M::Mailbox);
+        assert_eq!(choose_present_mode(None, 1, &fifo, true), M::Fifo);
+        assert_eq!(choose_present_mode(None, 1, &all, false), M::Fifo);
         assert_eq!(
-            present_mode(INTERVAL_IMMEDIATE, &all),
-            wgpu::PresentMode::Immediate
+            choose_present_mode(None, INTERVAL_IMMEDIATE, &all, true),
+            M::Immediate
         );
-        let fifo = caps(vec![wgpu::PresentMode::Fifo]);
         assert_eq!(
-            present_mode(INTERVAL_IMMEDIATE, &fifo),
-            wgpu::PresentMode::AutoNoVsync
+            choose_present_mode(None, INTERVAL_IMMEDIATE, &fifo, true),
+            M::AutoNoVsync
         );
+        let p = Some(PresentPref::Fifo);
+        assert_eq!(
+            choose_present_mode(p, INTERVAL_IMMEDIATE, &all, true),
+            M::Fifo
+        );
+        let p = Some(PresentPref::Mailbox);
+        assert_eq!(choose_present_mode(p, 1, &fifo, true), M::Fifo);
+        let p = Some(PresentPref::Immediate);
+        assert_eq!(choose_present_mode(p, 1, &all, true), M::Immediate);
+    }
+
+    #[test]
+    fn the_preference_is_parsed_by_name() {
+        assert_eq!(PresentPref::parse("Mailbox"), Some(PresentPref::Mailbox));
+        assert_eq!(PresentPref::parse(" fifo "), Some(PresentPref::Fifo));
+        assert_eq!(
+            PresentPref::parse("immediate"),
+            Some(PresentPref::Immediate)
+        );
+        assert_eq!(PresentPref::parse("x"), None);
     }
 
     /// A window that gives no frame rests: 100 ms, then twice as long each time in a row, up to
