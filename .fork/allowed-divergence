@@ -22,8 +22,13 @@ crates/engine-platform/src/lib.rs  # the module of the fork-owned platform answe
 crates/engine-platform/src/process.rs  # GlobalMemoryStatus(Ex) reads /proc/meminfo on Unix
 crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir
 crates/host/src/save_out.rs  # known_folders off Windows answers from the XDG data folder
+# Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
+Cargo.toml  # two workspace members
+Cargo.lock  # the two crates and the host's dependencies on them
+crates/host/Cargo.toml  # dependencies on the two crates
+crates/nvse/src/plugins.rs  # read_chunks and write_chunks: a section's records carried unchanged
 crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off Windows (lavapipe offers 4x at most; nv-linux#189)
 # The real-data gate (docs/fork/TESTING.md): an appended `#[cfg(test)] mod test_gate`. Not overlay paths: upstream adds `mod` lines to these files, and an overlay file would drop them (a replayed commit would then build without its module).
 crates/engine-core/src/lib.rs  # appended test_gate module
 crates/engine-havok/src/lib.rs  # appended test_gate module
-crates/host/src/lib.rs  # appended test_gate module; the adapter and texture-cache folders come from fork_platform::data_dir off Windows
+crates/host/src/lib.rs  # install calls of jg and showoff after JIP; appended test_gate module (the real-data gate); the adapter and texture-cache folders come from fork_platform::data_dir off Windows

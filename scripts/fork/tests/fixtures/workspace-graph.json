@@ -51,6 +51,16 @@
      "name": "uio"
     },
     {
+     "features": [],
+     "kind": null,
+     "name": "jg"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "showoff"
+    },
+    {
      "kind": null,
      "name": "zlib-rs"
     },
@@ -1551,6 +1561,40 @@
    "features": [],
    "manifest_path": "/ws/crates/jip/Cargo.toml",
    "name": "jip"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/showoff/Cargo.toml",
+   "name": "showoff"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/jg/Cargo.toml",
+   "name": "jg"
   },
   {
    "dependencies": [

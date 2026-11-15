@@ -1,0 +1,17 @@
+This crate is an original implementation for nv-rs of the role ShowOff xNVSE plays for mods
+(ADR-0016's "later built-ins"). It contains no code of the plugin and no decompiled code, and
+none was read for it: it is written from public behaviour and documentation only.
+
+Plugin: ShowOff xNVSE, release 1.84 is the target (the owner's list had 1.83). Opcode block
+0x3c93. DLL file name ShowOffNVSE.dll as seen in the owner's installation. Nexus mod 72541.
+
+Sources used (2026-11-14): none beyond xNVSE's documented plugin interface. No public source
+repository was found (GitHub repository and code searches return nothing), and its Nexus page
+and GECK Wiki category were not read (bot blocks answer HTTP 403; no workaround was attempted).
+
+Licence check: not recorded. The author and licence are not known from any document read, so
+this crate takes nothing but facts (names, opcode base, behaviour as publicly documented) and
+builds no command until its documentation is read and its licence terms are noted here.
+
+Unverified: the plugin name handed to xNVSE (ShowOff NVSE Plugin) and the version number
+(184). They are inert while ANSWERS_INSTALLED is false.

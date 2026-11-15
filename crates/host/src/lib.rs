@@ -124,6 +124,11 @@ impl Host {
         // JIP LN NVSE, xNVSE's plugin, right after it: its command slots, with no command built
         // yet, and answering "not installed" until the commands mods call are in (`crates/jip`).
         jip::install(&mut engine);
+        // JohnnyGuitar NVSE and ShowOff xNVSE, the next plugins in xNVSE's order of blocks: identity
+        // and co-save only, registered when they answer "installed" (not yet; `crates/jg`,
+        // `crates/showoff`).
+        jg::install(&mut engine);
+        showoff::install(&mut engine);
         // UI Organizer, when its row is on: after JIP, as xNVSE loads ui_organizer.dll after
         // jip_nvse.dll (`crates/uio`).
         uio::install(&mut engine);

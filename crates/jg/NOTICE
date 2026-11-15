@@ -1,0 +1,22 @@
+This crate is an original implementation for nv-rs of the role JohnnyGuitar NVSE plays for
+mods (ADR-0016's "later built-ins"). It contains no code of the plugin and no decompiled code,
+and none was read for it: it is written from public behaviour and documentation only.
+
+Plugin: JohnnyGuitar NVSE (author carxt and contributors), release 5.25a is the target (the
+owner's list had 5.20). Opcode block 0x3100. DLL file name johnnyguitar.dll as seen in the
+owner's installation.
+
+Sources used (2026-11-14): the plugin's repository page and README (https://github.com/carxt/
+JohnnyGuitarNVSE: the GitHub API reports the licence as LGPL-2.1, the README says LGPLv2.1-only,
+and points to its documentation on the GECK Wiki); xNVSE's documented plugin interface. The
+GECK Wiki answered the fetch with HTTP 403 (a bot block); no workaround was attempted, so the
+command documentation is not yet read and no command is built. A command is built only after
+its public documentation is read, with a note beside it of what it was read from.
+
+Licence check: LGPL-2.1-only. Because no code is copied, nothing of it is carried here; the
+credit is given for the names and the behaviour this crate follows. The earlier translation of
+its corrections of JIP's co-save is in crates/jip (see crates/jip/NOTICE).
+
+Unverified: the plugin name handed to xNVSE (JohnnyGuitarNVSE) and the version number
+(525): neither is stated in a public document read so far. They are inert while
+ANSWERS_INSTALLED is false.
