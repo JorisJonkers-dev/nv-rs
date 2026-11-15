@@ -44,6 +44,7 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has_jobs: ${{ steps.plan.outputs.has_jobs }}
+      archive: ${{ steps.plan.outputs.archive }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,6 +67,7 @@ jobs:
           fi
           echo "matrix=$(jq -c '{include: .include}' matrix.json)" >>"$GITHUB_OUTPUT"
           echo "has_jobs=$(jq '.include | length > 0' matrix.json)" >>"$GITHUB_OUTPUT"
+          echo "archive=$(jq -r '.archive' matrix.json)" >>"$GITHUB_OUTPUT"
           {
             echo "### Components in this run"
             echo
@@ -93,10 +95,42 @@ jobs:
       - run: rustup toolchain install
       - run: cargo fmt --all -- --check
 
+  # The test binaries of the archived jobs (the typed families), compiled ONCE; the jobs below only run them.
+  archive:
+    name: Test binaries (Windows)
+    needs: plan
+    if: ${{ needs.plan.outputs.archive != '' }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      ARCHIVE_CMD: ${{ needs.plan.outputs.archive }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: integration-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - name: Compile the test binaries once
+        run: |
+          set -o pipefail
+          start=$SECONDS
+          bash -c "$ARCHIVE_CMD --no-run --message-format=json-render-diagnostics" | python -I scripts/fork/archive.py build --out "$RUNNER_TEMP/archive"
+          echo "Compile and archive $((SECONDS - start)) s: $(du -sm "$RUNNER_TEMP/archive" | cut -f1) MB" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-archive
+          path: ${{ runner.temp }}/archive
+          retention-days: 1
+          compression-level: 1
+
   component:
     name: ${{ matrix.name }}
-    needs: plan
-    if: ${{ needs.plan.outputs.has_jobs == 'true' }}
+    needs: [plan, archive]
+    if: ${{ !cancelled() && needs.plan.outputs.has_jobs == 'true' && needs.plan.result == 'success' && needs.archive.result != 'failure' }}
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.informational }}
     timeout-minutes: ${{ matrix.timeout }}
@@ -114,10 +148,11 @@ jobs:
       # Linux `rendering` and `platform` run inside the flake's `ci` shell (docs/fork/CI-NIX.md): the one place with a
       # libvkd3d-shader recent enough for HLSL to d3dbc, lavapipe and the compiler, all of one C library.
       - name: Rust toolchain
-        if: ${{ env.IN_NIX != '1' }}
+        if: ${{ env.IN_NIX != '1' && !matrix.archive }}
         run: rustup toolchain install
       # Only the crates.io dependencies are restored (workspace crates are not cached): worth about 45 s.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ !matrix.archive }}
         with:
           workspaces: ${{ matrix.workspaces }}
           shared-key: ${{ matrix.cache }}-${{ runner.os }}${{ env.IN_NIX == '1' && '-nix' || '' }}
@@ -140,7 +175,23 @@ jobs:
           # Realises the shell (compiler, vkd3d, mesa, Vulkan loader) so the test step's time is the tests' own.
           nix develop .#ci --print-build-logs --command bash -c "echo \"libvkd3d-shader: \$NV_VKD3D_SHADER\"; vulkaninfo --summary | grep -E 'deviceName|driverInfo'" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Nix install ${installed} s, ci shell $((SECONDS - start - installed)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+      # An archived job runs the binaries the `archive` job compiled (scripts/fork/archive.py), in this checkout.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: ${{ matrix.archive }}
+        with:
+          name: test-archive
+          path: ${{ runner.temp }}/archive
+      - name: Run ${{ matrix.component }} from the archive
+        if: ${{ matrix.archive }}
+        env:
+          TESTS: ${{ matrix.tests }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -o pipefail
+          : >"$RUNNER_TEMP/test.log"
+          python -I scripts/fork/archive.py run --dir "$RUNNER_TEMP/archive" --tests "$TESTS" --shard "$SHARD" --timings "$RUNNER_TEMP/timings.txt" 2>&1 | tee -a "$RUNNER_TEMP/test.log"
       - name: Test ${{ matrix.component }}
+        if: ${{ !matrix.archive }}
         env:
           SCRIPT: ${{ matrix.script }}
           SHARD: ${{ matrix.shard }}
@@ -211,7 +262,7 @@ jobs:
   # One result for fork-ci.yml: failed when any required job failed (informational Linux jobs cannot fail it).
   done:
     name: Build result
-    needs: [plan, fmt, component, clippy]
+    needs: [plan, fmt, archive, component, clippy]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

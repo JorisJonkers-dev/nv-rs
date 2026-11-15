@@ -184,7 +184,10 @@ class Model:
                 optional.setdefault(crate, set()).add(t)
             if not job.get("name") or not job.get("args"):
                 self.errors.append(f"{name}: every job needs a name and args")
-            if int(job.get("shards", 1)) > 1:
+            if job.get("archive") and not (len(job.get("args", [])) == 1 and len(self.flags(job["args"][0], "-p")) == 1 and self.flags(job["args"][0], "--test")
+                                           and "--lib" not in job["args"][0] and "--doc" not in job["args"][0]):
+                self.errors.append(f"{name}: archived job {job.get('name')!r} must run one package's `--test` binaries and nothing else")
+            if int(job.get("shards", 1)) > 1 and not job.get("archive"):
                 # run-component.sh splits ONE test binary's test list; with several binaries the shards would overlap or miss tests.
                 one = len(job.get("args", [])) == 1 and len(self.flags(job["args"][0], "--test")) == 1 and "--lib" not in job["args"][0] and "--doc" not in job["args"][0]
                 if not one:
@@ -332,7 +335,12 @@ class Model:
             shards = int((job or {}).get("shards", 1))
             for shard in range(1, shards + 1):
                 label = comp if job is None else f"{comp} / {job['name']}" + (f" {shard}/{shards}" if shards > 1 else "")
-                result += self.shard_entries(comp, label, cmds, targets, f"{shard}/{shards}" if shards > 1 else "")
+                got = self.shard_entries(comp, label, cmds, targets, f"{shard}/{shards}" if shards > 1 else "")
+                if (job or {}).get("archive"):
+                    for e in got:
+                        e["archive"] = True
+                        e["tests"] = ",".join(self.flags(cmds[0], "--test"))
+                result += got
         return result
 
     def shard_entries(self, comp, label, cmds, targets, shard):
@@ -373,7 +381,21 @@ class Model:
             include += got
             status.append({"component": name, "tested": bool(got), "jobs": len(got),
                            "why": "" if got else "no crate of its test closure changed"})
-        return {"include": include, "components": status, "reason": reason}
+        return {"include": include, "components": status, "reason": reason, "archive": self.archive_command(include)}
+
+    def archive_command(self, include):
+        """The one build of the archived jobs' test binaries: the union of their `--test` lists, the config and features of the first."""
+        arch = [e for e in include if e.get("archive") and e["os"] == "windows-latest"]
+        if not arch:
+            return ""
+        tests = sorted({t for e in arch for t in e["tests"].split(",")})
+        first = arch[0]["script"]
+        pkg = self.flags(first, "-p")[0]
+        tail = first.split(" --test ", 1)[1]
+        # what follows the first job's own `--test` names in its command: the features and --config flags
+        extra = first[first.index(" --features"):] if " --features" in first else ""
+        cfg = "".join(f" --config {c}" for c in re.findall(r"--config (\S+)", first))
+        return f"cargo test --locked -p {pkg} " + " ".join(f"--test {t}" for t in tests) + extra.split(" --config")[0] + cfg
 
 
 def load(toml_path=".fork/components.toml", metadata=None, linux_ok=".fork/linux-ok.txt", overlay=".fork/overlay-paths"):

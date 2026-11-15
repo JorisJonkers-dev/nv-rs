@@ -23,6 +23,7 @@ FORK = HERE.parent
 REPO = FORK.parent.parent
 sys.path.insert(0, str(FORK))
 
+import archive  # noqa: E402,F401
 import clippy_annotations  # noqa: E402
 import components  # noqa: E402
 import libtest_summary  # noqa: E402
@@ -275,7 +276,7 @@ class Affected(unittest.TestCase):
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
         self.assertIn("integration", got)
-        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 9)
+        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 12)
 
     def test_a_fallout_change_reaches_every_component_whose_tests_link_it(self):
         _, got = self.reached(["crates/engine-fallout-cell/src/lib.rs"])
@@ -346,7 +347,7 @@ class RealMap(unittest.TestCase):
     def test_the_typed_jobs_build_the_harness_crates_at_opt_level_1_and_the_aggregator_does_not(self):
         got = {e["name"]: e["script"] for e in real_model().entries("integration")}
         typed = [v for k, v in got.items() if "typed" in k]
-        self.assertEqual(len(typed), 8)
+        self.assertEqual(len(typed), 11)
         for script in typed:
             for crate in ("engine-core", "engine-typed", "engine"):
                 self.assertIn(f"--config profile.dev.package.{crate}.opt-level=1", script)
@@ -378,6 +379,28 @@ class RealMap(unittest.TestCase):
         self.assertTrue(all(c.startswith("cargo ") for c in run("--commands").splitlines()))
         files.write_text("Cargo.lock\n")
         self.assertIn("EVERYTHING", run())
+
+
+class Archive(unittest.TestCase):
+    def test_the_plan_builds_the_union_of_the_archived_tests_once(self):
+        plan = real_model().plan()
+        self.assertTrue(plan["archive"].startswith("cargo test --locked -p engine --test typed_"))
+        self.assertEqual(plan["archive"].count("--test typed_shader"), 1)
+        archived = [e for e in plan["include"] if e.get("archive")]
+        self.assertTrue(archived)
+        for e in archived:
+            for t in e["tests"].split(","):
+                self.assertIn(f"--test {t}", plan["archive"])
+
+    def test_no_archived_job_means_no_archive_build(self):
+        self.assertEqual(real_model().plan(False, ["docs/x.md"])["archive"], "")
+
+    def test_shards_cover_every_test_exactly_once(self):
+        import archive
+        names = [f"t{i}" for i in range(23)]
+        for key in ("typed_a", "typed_b"):
+            got = sorted(x for i in (1, 2, 3) for x in archive.pick(names, f"{i}/3", key))
+            self.assertEqual(got, sorted(names))
 
 
 class Summaries(unittest.TestCase):

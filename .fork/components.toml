@@ -140,28 +140,37 @@ runs_on = "windows"
 # for them too is 5 times faster but compiles 5.5 minutes longer.
 [[component.job]]
 name = "typed shader family"
-# 307 tests, 973 s of the slowest job (compile 297 s): three shards of the one binary (run-component.sh, SHARD) bring the tests to about a third.
+# 307 tests, 973 s: three shards of the one binary.
 shards = 3
+archive = true
 args = ["-p engine --test typed_shader"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed draw, render, lights, particles"
+archive = true
+shards = 2
 args = ["-p engine --test typed_draw --test typed_render --test typed_lights --test typed_particles --test typed_multibound"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed scene queries: culling, dispatch, collision"
+archive = true
+shards = 2
 args = ["-p engine --test typed_culling --test typed_dispatch --test typed_collision"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed geometry and pathing"
+archive = true
+shards = 2
 args = ["-p engine --test typed_geometry --test typed_pathing"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed animation"
+archive = true
 args = ["-p engine --test typed_animation --test typed_anim_keys"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed runtime: crt, process, lock-free, leaves"
+archive = true
 args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree --test typed_leaves"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
