@@ -335,6 +335,12 @@ pub fn full_path(e: &Engine, name: &[u8]) -> Vec<u8> {
 /// character by character ([`separators`]), so a double-byte character whose second byte is
 /// `0x5C` stays one character.
 fn real_path(path: &[u8]) -> std::path::PathBuf {
+    files_host::host_path(path)
+}
+
+/// [`real_path`] before the host mapping: the game's path as the host's own path type reads it
+/// (what `files_host::host_path` starts from; on Windows the whole answer).
+fn windows_real_path(path: &[u8]) -> std::path::PathBuf {
     if path.is_ascii() {
         return std::path::PathBuf::from(String::from_utf8_lossy(path).into_owned());
     }
@@ -1442,7 +1448,7 @@ fn short_extension(name: &str) -> Option<String> {
 /// of it that are known decide (measured: `*.esm` finds `d.esmx` through `D6104~1.ESM`, not
 /// `c.esm.bak`; `?.esm` does not find `a b.esm`, `ABE286~1.ESM`). A short name is its
 /// extension ([`short_extension`]), then a base of at least three characters (`X~1`) whose
-/// first character is the long name's first one other than a space or a dot, upper case (the
+/// first two characters are the long name's first two other than a space or a dot, upper case (the
 /// rest may be a hash Windows makes: `D6104~1`). A pattern the known parts cannot decide stops the
 /// run as not provided.
 fn search_finds(pattern: &[u8], name: &str, shown: &str) -> bool {
@@ -1469,7 +1475,7 @@ fn search_finds(pattern: &[u8], name: &str, shown: &str) -> bool {
     let known: Vec<u8> = name
         .bytes()
         .filter(|&b| b != b' ' && b != b'.')
-        .take(1)
+        .take(2)
         .map(|b| b.to_ascii_uppercase())
         .collect();
     let literal: Vec<u8> = base_pattern
