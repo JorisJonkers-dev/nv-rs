@@ -271,7 +271,17 @@ fn machine_memory() -> Option<MachineMemory> {
             avail_page_file: status.ullAvailPageFile,
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
+    {
+        crate::fork_platform::machine_meminfo().map(|m| MachineMemory {
+            load: m.load,
+            total_phys: m.total_phys,
+            avail_phys: m.avail_phys,
+            total_page_file: m.total_page_file,
+            avail_page_file: m.avail_page_file,
+        })
+    }
+    #[cfg(not(any(windows, unix)))]
     {
         None
     }

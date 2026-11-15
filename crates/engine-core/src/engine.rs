@@ -7,6 +7,11 @@ use std::hash::{BuildHasherDefault, Hasher};
 use std::path::Path;
 use std::rc::Rc;
 
+// Fork-owned (docs/fork/LINUX.md): the real clock's start off Windows.
+#[cfg(unix)]
+#[path = "engine_unix.rs"]
+mod unix_clock;
+
 extern "Rust" {
     /// The registrations of the engine crates above this one, defined once
     /// per program by [`crate::assemble!`] (docs/ENGINE_CRATE.md, "The engine
@@ -639,6 +644,12 @@ impl Engine {
             }
             // SAFETY: GetTickCount takes nothing and only reads the system's tick count.
             self.clock_ms = unsafe { GetTickCount() };
+            self.clock_us = 0;
+        }
+        #[cfg(unix)]
+        {
+            // The machine's uptime in milliseconds, as GetTickCount counts it (engine_unix.rs).
+            self.clock_ms = unix_clock::tick_count().unwrap_or(0);
             self.clock_us = 0;
         }
         self.real_clock = Some(std::time::Instant::now());

@@ -3,7 +3,7 @@
 # one of these files that touches the same lines stops the replay (docs/fork/KEEPING-IN-SYNC.md, "Who wins").
 README.md
 # Test speed: the function table of a test engine is collected once per thread and copied (docs/fork/CI.md, "Upstream offers").
-crates/engine-core/src/engine.rs  # Engine::new_untyped copies a per-thread template in test builds
+crates/engine-core/src/engine.rs  # Engine::new_untyped copies a per-thread template in test builds; the real clock starts from the machine uptime on Unix (engine_unix.rs)
 # Test speed (docs/fork/CI.md, "Upstream offers"): each is a small, separable change in the differential harness.
 crates/engine-core/src/typed/diff.rs  # a case runs under its second control word only when the first run read or loaded the word
 crates/engine-core/src/x87.rs  # test builds note that the control word was read or loaded (nothing in a production build)
@@ -13,17 +13,19 @@ crates/engine-platform/Cargo.toml  # d3d9-wgpu as a dependency on every target (
 crates/engine-platform/src/d3d9device.rs  # the argument-word trait is built on Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3d9resource.rs  # its import of that trait is Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3dx.rs  # an unused binding off Windows
-crates/engine-platform/src/files.rs  # five changed lines: `mod files_host;` and its re-export (the Linux path code is in the overlay file files_host.rs), a warning-only attribute and a test constant off Windows
+crates/engine-platform/src/files.rs  # five changed lines: `mod files_host;` and its re-export (the Linux path code is in the overlay file files_host.rs), a warning-only attribute and a test constant off Windows; `find_fields` for the file times of FindFirstFileA on Unix, the Windows-only ignores removed
 crates/host/src/cell_offsets.rs  # asks files::host_path for the plugin's path (the Unix mapping of a game path)
-crates/nvse/src/commands/math.rs  # the bit-for-bit comparison is ignored off Windows (the host's libm for tan and tanh)
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
-crates/host/src/cell_offsets.rs  # the plugin path goes through files::real_path (a Linux path is not the game's backslash path)
+# Platform answers off Windows (docs/fork/LINUX.md): one hook each, the Windows arms untouched.
+crates/engine-platform/src/lib.rs  # the module of the fork-owned platform answers
+crates/engine-platform/src/process.rs  # GlobalMemoryStatus(Ex) reads /proc/meminfo on Unix
+crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir
+crates/host/src/save_out.rs  # known_folders off Windows answers from the XDG data folder
 # Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
 Cargo.toml  # two workspace members
 Cargo.lock  # the two crates and the host's dependencies on them
 crates/host/Cargo.toml  # dependencies on the two crates
-crates/host/src/lib.rs  # their install calls after JIP's; and an appended test_gate module (the real-data gate)
 crates/nvse/src/plugins.rs  # read_chunks and write_chunks: a section's records carried unchanged
 crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off Windows (lavapipe offers 4x at most; nv-linux#189)
 # The real-data gate (docs/fork/TESTING.md): an appended `#[cfg(test)] mod test_gate`. Not overlay paths: upstream adds `mod` lines to these files, and an overlay file would drop them (a replayed commit would then build without its module).
@@ -31,3 +33,4 @@ crates/engine-core/src/lib.rs  # appended test_gate module
 crates/engine-havok/src/lib.rs  # appended test_gate module
 crates/d3d9-wgpu/src/device.rs  # surface_for off Windows asks fork-window (X11, Wayland); the stub stays for other targets
 crates/d3d9-wgpu/Cargo.toml  # fork-window as a dependency on Linux
+crates/host/src/lib.rs  # install calls of jg and showoff after JIP; appended test_gate module (the real-data gate); the adapter and texture-cache folders come from fork_platform::data_dir off Windows

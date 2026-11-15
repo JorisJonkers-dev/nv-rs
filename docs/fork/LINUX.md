@@ -27,9 +27,27 @@ touched.
 | 6 | Tests that can only pass on Windows: `nvse`'s bit-for-bit math comparison is `#[cfg_attr(not(windows), ignore = "reason")]` (tan and tanh use the host's libm; the game's differ in the last bit: `dTan90`, `dTanh30`); the five `files` tests that need Windows file times or Windows paths are skipped on Linux by name in `.fork/linux-skip.txt`, applied by `scripts/fork/run-component.sh` | `nvse/src/commands/math.rs`, `.fork/linux-skip.txt` | honest failures off Windows, with no attribute in `files.rs` | no | no | none |
 | 7 | The probe workflow and its summary script | `.github/workflows/linux-probe.yml`, `scripts/fork/linux_test_summary.py` | CI loop without starting the Windows jobs | fork only | no | none |
 
-Not changed, on purpose: file times off Windows still stop the run with a message (the game
-reads times measured on NTFS; inventing them is the stand-in the project forbids), and
-`D3DXCompile*`, the sound output and the machine tables are as the native Linux plan describes them.
+Not changed, on purpose: `D3DXCompile*` and the sound output are as the native Linux plan describes them.
+
+## Platform answers off Windows (stage 2 of `docs/research/nv-rs-linux-playable.md` in nv-linux)
+
+The game's first calls on Linux no longer stop the run. The code is fork-owned and additive:
+`crates/engine-platform/src/fork_platform.rs` and `crates/engine-core/src/engine_unix.rs` (both in
+`.fork/overlay-paths`), reached by one `cfg(unix)` hook each. The Windows arms are the code that was there; the
+Windows jobs run the same tests as before (the four `files` tests that were `ignore`d off Windows run on Linux too).
+
+| Question | Windows | Linux |
+| --- | --- | --- |
+| File times of `FindFirstFileA` / `FindNextFileA` (`files.rs`, `write_find_data`) | the host's own search | the file's own metadata as `FILETIME`: last write, last access, and the birth time from `statx` (`STATX_BTIME`, through the standard library); on a file system that keeps no birth time, the older of the last write and the last status change. Attributes: directory, else archive (as `GetFileAttributesA` answers). A time the file system cannot give stops the run naming the file |
+| `GlobalMemoryStatus(Ex)` (`process.rs`) | `GlobalMemoryStatusEx` | `/proc/meminfo`: `MemTotal`, `MemAvailable` (`MemFree` without it), swap added for the page file; no `/proc` means no answer, as before |
+| Real clock's start (`Engine::start_real_clock`) | `GetTickCount` | the machine's uptime in ms from `/proc/uptime`, wrapped to 32 bits as `GetTickCount` wraps (0 if `/proc/uptime` is missing) |
+| Table paths (`dsound.tsv`, `d3d9_adapter.tsv`, `d3dx-cache`) | `%LOCALAPPDATA%\nv-rs` | `$XDG_DATA_HOME/nv-rs` (an absolute path), else `~/.local/share/nv-rs`; the `NV_*` overrides are unchanged |
+| `host::save_out::known_folders()` | `SHGetFolderPathW` | `<data folder>/nv-rs/userdata/{Documents,AppData/Roaming,AppData/Local}` (not created) |
+
+Code pages beyond ASCII and 1252 are not provided: a name's other characters become `?` (see `code_page`); a name
+that needs one still stops no run. Tests: `fork_platform::tests` and `unix_tests` (synthetic files with chosen times
+through `FindFirstFileA`, the `/proc/meminfo` parser on fixtures, the paths under a fake `XDG_DATA_HOME`) and
+`engine_unix::tests` (the uptime parser and the clock start).
 
 ## Finding for the owner
 

@@ -1,3 +1,4 @@
+#![cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
 //! The handle registry: the window's id, its raw handles, its size and its input.
 
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
