@@ -69,6 +69,10 @@ title` check then validates every commit in the pull request.
 | a file in `.fork/allowed-divergence` | upstream's change is replayed; if it touches the lines the fork changed, the replay **stops** (a person merges the two) |
 | any other file | replayed; a conflict stops the replay |
 
+A commit that adds a `mod x;` line to an overlay file upstream also has would arrive without that line (the fork wins) but with `x.rs`, and
+the build breaks. The replay stops on it with reason `partial`: take the file out of `.fork/overlay-paths` and list it in
+`.fork/allowed-divergence`, or apply the commit by hand.
+
 The divergence list is meant to grow. A file the fork wants to change for good goes into `.fork/allowed-divergence` with a
 reason; nothing needs to be accepted anywhere else.
 
