@@ -2,7 +2,3 @@
 # They run on Windows. They pass Windows paths straight to std::fs or need the file times that only Windows gives
 # (FindFirstFileA describes a file with its times; off Windows the run stops there, on purpose: docs/fork/LINUX.md).
 files::tests_kept_files  # the scratch files are named with Windows paths and opened with std::fs
-files::tests_player_files::a_wildcard_search_lists_then_runs_out
-files::tests_player_files::find_close_after_a_search_that_found_nothing_answers_false
-files::tests_player_files::a_read_only_open_reads_the_players_file_in_place
-files::tests_changed_directories::a_search_whose_folder_changed_since_it_began_stops

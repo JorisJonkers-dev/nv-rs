@@ -608,10 +608,7 @@ fn table(e: &mut Engine) -> &Table {
     if state!(e).sound.table.is_none() {
         let path = std::env::var_os("NV_DSOUND_TABLE")
             .map(std::path::PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("LOCALAPPDATA")
-                    .map(|d| std::path::PathBuf::from(d).join("nv-rs").join("dsound.tsv"))
-            });
+            .or_else(|| crate::fork_platform::data_dir().map(|d| d.join("dsound.tsv")));
         let text = path
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
