@@ -40,6 +40,16 @@ check("sound line present", bool(snd), f"{len(snd)} lines")
 panic = find(r"panicked at")
 check("no panic", not panic, f"{len(panic)} lines")
 
+# Optional: the NV_MEMLOG timeline (docs/fork/MEMLOG.md). Informational; present only when the line is.
+ml = [dict(kv.split("=", 1) for kv in l.split()[1:] if "=" in kv) for l in lines if l.startswith("NV_MEMLOG ")]
+if ml:
+    mb = lambda d, k: int(d.get(k, 0)) / 1048576
+    last = ml[-1]
+    peaks = [int(d.get("rss_peak", 0)) for d in ml]
+    check("memlog: rss peak and guest heap", peaks == sorted(peaks),
+          f"{len(ml)} lines; peak RSS {mb(last, 'rss_peak'):.0f} MB, guest heap {mb(last, 'heap_used'):.0f} MB used, "
+          f"peak {mb(last, 'heap_peak'):.0f} MB of {mb(last, 'heap_cap'):.0f} MB")
+
 for n, ok, d in results:
     print(f"{'PASS' if ok else 'FAIL'}  {n}" + (f"  [{d}]" if d else ""))
 allok = all(ok for _, ok, _ in results)
