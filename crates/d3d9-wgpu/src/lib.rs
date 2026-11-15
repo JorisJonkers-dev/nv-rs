@@ -20,6 +20,7 @@ mod cache;
 pub mod device;
 #[cfg(test)]
 mod fingerprint;
+mod fixed;
 pub mod format;
 pub mod frame_rate;
 mod fxhash;
@@ -191,6 +192,7 @@ impl Backend for WgpuBackend {
             }
             Cmd::SetRenderTarget { index, surface, .. } => d.set_render_target(index, surface),
             Cmd::SetDepthStencilSurface { surface, .. } => d.set_depth_stencil(surface),
+            Cmd::SetFvf { fvf, .. } => d.set_fvf(fvf),
             Cmd::SetViewport { viewport, .. } => d.set_viewport(viewport),
             Cmd::SetScissorRect { rect, .. } => d.set_scissor(rect),
             Cmd::SetRenderState { state, value, .. } => d.set_render_state(state, value),
@@ -356,7 +358,6 @@ impl Backend for WgpuBackend {
             Cmd::SetTransform { .. }
             | Cmd::SetGammaRamp { .. }
             | Cmd::SetTextureStageState { .. }
-            | Cmd::SetFvf { .. }
             | Cmd::SetMaterial { .. }
             | Cmd::SetLight { .. }
             | Cmd::LightEnable { .. }
