@@ -15,6 +15,7 @@
 //! Nothing here is game data: no shader, no cache file and no compiler binary is committed.
 
 pub mod cache;
+pub mod ctab;
 pub mod sha256;
 pub mod vkd3d;
 
