@@ -32,7 +32,7 @@ GLOBAL_PREFIXES = (".cargo/",)
 STEERING = {
     ".fork/components.toml", ".fork/linux-ok.txt", ".github/workflows/fork-build.yml",
     "scripts/fork/components.py", "scripts/fork/run-component.sh", "scripts/fork/libtest_summary.py",
-    "scripts/fork/clippy_annotations.py", "scripts/fork/linux_probe.py", "scripts/fork/gpu_gate.py",
+    "scripts/fork/clippy_annotations.py", "scripts/fork/linux_probe.py", "scripts/fork/gpu_gate.py", "scripts/fork/vkd3d_gate.py",
 }
 DOCS = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
 # Estimates, from the cold Windows runs of 2026-11-13 (docs/fork/CI.md): seconds per 100 000 lines.

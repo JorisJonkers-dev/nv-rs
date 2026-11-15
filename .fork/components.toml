@@ -92,7 +92,10 @@ name = "platform"
 purpose = "The Windows platform layer: window, Direct3D 9 and D3DX entry points, DirectInput, DirectSound, DirectShow, files, loader and process"
 crates = ["engine-platform"]
 requires = ["core", "formats", "rendering"]
-runs_on = "windows"
+runs_on = "both"
+# The Windows entry points are cfg(windows) code that only Windows can test; the Linux job runs the rest, among it the
+# shader compiler seam's tests against a recent libvkd3d-shader (docs/fork/CI-NIX.md).
+windows = "required"
 
 [[component]]
 name = "integration"
