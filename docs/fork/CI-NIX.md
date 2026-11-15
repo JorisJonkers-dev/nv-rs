@@ -49,9 +49,9 @@ Warm time is not measured yet; without a Nix store cache the 38 s of shell reali
 **Which jobs benefit.** `rendering`: the vkd3d tests (7 executed, none skipped, `vkd3d-shader 2.1` is nixpkgs' version
 name, the library is 1.19.x) and the lavapipe tests (47 executed on llvmpipe, Mesa 26.3.0), from one shell instead of two apt steps.
 `platform`: engine-platform's `d3dxshader` test now executes (it never ran on Linux: the component ran on Windows only); the
-component is a new Linux twin, informational, because 5 other engine-platform tests fail on Linux (`every_import_is_answered_by_one_function`,
-three `files::tests_code_pages` and `files::tests_player_files::a_read_only_open_reads_the_players_file_in_place`, found by this run, issue
-to follow in phase 2). `scripting` and the others gain nothing from Nix today beyond a pinned compiler. The Xvfb window smoke
+component is a new required Linux twin; 5 other engine-platform tests fail on Linux and are skipped by name in
+`.fork/linux-skip.txt` (nv-linux #205) (`every_import_is_answered_by_one_function`,
+three `files::tests_code_pages` and `files::tests_player_files::a_read_only_open_reads_the_players_file_in_place`, found by this run, ). `scripting` and the others gain nothing from Nix today beyond a pinned compiler. The Xvfb window smoke
 (pull request 40) needs the same shell: `xvfb-run` is in it already.
 
 **Failing loudly.** `NV_REQUIRE_VKD3D=1` (already honoured by the tests) makes a library that cannot be loaded a test failure, and
@@ -69,6 +69,6 @@ a pull request of their own.
 
 1. Done here: `ci` shell for `rendering` and `platform`, gate, strict env.
 2. Cache the Nix store with `actions/cache` (nv-linux 201).
-3. All Linux component jobs in the shell, no apt or rustup in them (nv-linux 202); fix or list the 5 failing platform tests.
+3. All Linux component jobs in the shell, no apt or rustup in them (nv-linux 202); fix the 5 skipped platform tests (nv-linux #205).
 4. Xvfb window smoke, lavapipe and vkd3d in one job log with a gate each (nv-linux 203).
 5. `nix flake check` as the Linux gate (fmt, clippy, tests) and automatic `flake.lock` bumps (nv-linux 204).
