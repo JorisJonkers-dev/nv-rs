@@ -44,3 +44,7 @@ crates/engine-platform/src/d3d9device.rs  # the call sites of the recorder on ev
 crates/engine-platform/src/d3d9resource.rs  # the call sites of the recorder on every target, `Word`, constant_registers and vertices_of on every target
 crates/engine-platform/src/d3d9query.rs  # the call sites of the recorder on every target
 crates/engine-platform/src/d3d9draw.rs  # the cut, close and settle of the recorder on every target
+# The game's window and input on Linux (docs/fork/LINUX.md, "Window and input"): each change is one line or a removed cfg(windows).
+crates/engine-platform/src/window.rs  # the calls into d3d9real for a window's creation, title and position lose their cfg(windows) (fork_d3d9rec.rs answers them off Windows)
+crates/host/src/player_move.rs  # the real window's keys and mouse (d3d9real::held_keys, take_input) are read on every target
+crates/d3d9-wgpu/src/window.rs  # client_size off Windows asks fork-window
