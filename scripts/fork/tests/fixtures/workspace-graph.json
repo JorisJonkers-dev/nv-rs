@@ -1484,7 +1484,13 @@
    "name": "d3d9-stream"
   },
   {
-   "dependencies": [],
+   "dependencies": [
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "d3d9-wgpu"
+    }
+   ],
    "features": [],
    "manifest_path": "/ws/crates/d3dx-shader/Cargo.toml",
    "name": "d3dx-shader"
