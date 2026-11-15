@@ -427,9 +427,35 @@ def cmd_graph(model, a):
               f"| ~{est:.0f} s | {t:.0f} | {c['runs_on']} |")
 
 
+def cmd_affected(model, a):
+    """What the change against --base (default origin/fork), plus uncommitted work, reaches: the selection a pull request's CI makes."""
+    if a.files_from:
+        files = read_list(a.files_from)
+    else:
+        base = a.base or "origin/fork"
+        files = sorted({f for f in sh("git", "diff", "--name-only", f"{base}...{a.head}").split("\n") + sh("git", "diff", "--name-only", "HEAD").split("\n") if f})
+    everything, why, changed, by_path = model.affected(files)
+    if a.crates:
+        print("\n".join(sorted(changed)))
+        return
+    plan = model.plan(False, files)
+    if a.commands:
+        seen = []
+        for e in plan["include"]:
+            if e["os"] == a.os:
+                seen += [c for c in e["script"].split("\n") if c and c not in seen]
+        print("\n".join(seen))
+        return
+    print(f"files changed: {len(files)}")
+    print("scope: " + (f"EVERYTHING ({why})" if everything else f"{len(changed)} changed crate(s), {len(by_path)} component path(s)"))
+    print("changed crates: " + (", ".join(sorted(changed)) or "none"))
+    for c in plan["components"]:
+        print(f"  {'test' if c['tested'] else 'skip'} {c['component']}" + (f" ({c['jobs']} job(s))" if c["tested"] else ""))
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["check", "graph", "matrix"])
+    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected"])
     ap.add_argument("--toml", default=".fork/components.toml")
     ap.add_argument("--metadata", help="a saved `cargo metadata --no-deps` instead of running cargo")
     ap.add_argument("--timings")
@@ -437,6 +463,9 @@ def main():
     ap.add_argument("--base")
     ap.add_argument("--head", default="HEAD")
     ap.add_argument("--files-from")
+    ap.add_argument("--os", default="ubuntu-latest", help="affected: the runner OS whose commands --commands prints")
+    ap.add_argument("--commands", action="store_true", help="affected: print the test commands of the affected jobs of --os (one per line)")
+    ap.add_argument("--crates", action="store_true", help="affected: print only the changed crates (one per line)")
     a = ap.parse_args()
     model = load(a.toml, a.metadata)
     model.check()
@@ -450,6 +479,8 @@ def main():
         print(f"ok: {len(model.pk)} crates in {len(model.comps)} components" + (f", {len(model.by_rule)} by rule" if model.by_rule else ""))
     elif a.cmd == "graph":
         cmd_graph(model, a)
+    elif a.cmd == "affected":
+        cmd_affected(model, a)
     else:
         files = []
         if a.event == "pull_request":

@@ -96,3 +96,27 @@ dev_check() {
   dev_cargo fmt "${pk[@]}" -- --check || return 1
   dev_cargo clippy "${pk[@]}" --all-targets -- -D warnings
 }
+
+# What a diff reaches, by the same map the pull request's CI uses (.fork/components.toml, scripts/fork/components.py).
+dev_affected() {
+  ( cd "$DEV_REPO" && python3 -I scripts/fork/components.py affected --base "${1:-origin/fork}" )
+}
+
+# The pull request's selection, run here: fmt, clippy of the changed crates, then the Linux commands of the affected
+# components (Windows-only components, the typed integration jobs among them, are left to CI). Stops at the first failure.
+dev_ci_lite() {
+  local base="${1:-origin/fork}" t0=$SECONDS line cmds
+  dev_affected "$base" || return 1
+  dev_cargo fmt --all -- --check || return 1
+  local out; out="$(cd "$DEV_REPO" && python3 -I scripts/fork/components.py affected --base "$base" --commands)" \
+    || { echo "# ci-lite: could not compute the selection against $base (fetch it, or pass another base)" >&2; return 1; }
+  mapfile -t cmds <<<"$out"
+  for line in "${cmds[@]}"; do
+    [ -n "$line" ] || continue
+    echo "# ci-lite: $line"
+    local -a words; read -r -a words <<<"$line"
+    [ "${words[0]}" = cargo ] || { echo "skipped (not cargo)"; continue; }
+    dev_cargo "${words[@]:1}" || { echo "# ci-lite: FAILED after $((SECONDS - t0)) s"; return 1; }
+  done
+  echo "# ci-lite: ok, $((SECONDS - t0)) s"
+}

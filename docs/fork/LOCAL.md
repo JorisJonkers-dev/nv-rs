@@ -12,6 +12,8 @@ Vulkan) without waiting for a CI Release Build. CI stays the merge gate: this lo
 | `nv-rs-dev smoke [--seconds N] [--shot]` | Runs N seconds (default 60) on the real display, stops it with SIGTERM, prints a PASS/FAIL checklist parsed from the log |
 | `nv-rs-dev test <crate> [args]` | `cargo test -p <crate>`, same cap and target dir |
 | `nv-rs-dev check [crate...]` | `cargo fmt --check` and `cargo clippy --all-targets -D warnings` for the named crates, default the crates changed against `origin/fork` |
+| `nv-rs-dev affected [base]` | the crates a diff changes and the components CI would test for it (`components.py affected`; "EVERYTHING" when the diff touches `Cargo.lock`, the toolchain, workflows, the map or a shared file) |
+| `nv-rs-dev ci-lite [base]` | `fmt --check`, then the Linux test commands of the affected components, as CI runs them; Windows-only jobs (the typed integration families) are left to CI |
 
 `~/.local/bin/nv-rs-dev` is a thin wrapper, not committed: it runs `scripts/fork/local/nv-rs-dev` from the checkout
 you are in (or `NV_DEV_REPO`, or the main clone). Recreate it with:
