@@ -156,11 +156,27 @@ fn monitor_of(m: &winit::monitor::MonitorHandle) -> crate::Monitor {
 fn pick_on(event_loop: &ActiveEventLoop) -> Option<crate::Display> {
     let handles: Vec<_> = event_loop.available_monitors().collect();
     let monitors: Vec<_> = handles.iter().map(monitor_of).collect();
+    let names: Vec<_> = handles
+        .iter()
+        .map(|h| h.name().unwrap_or_default())
+        .collect();
     let primary = event_loop
         .primary_monitor()
         .and_then(|p| handles.iter().position(|h| *h == p));
     let wanted = crate::parse_wanted(std::env::var("NV_MONITOR").ok().as_deref());
-    crate::pick(&monitors, wanted, primary)
+    crate::pick(
+        &monitors,
+        &names,
+        wanted.as_ref(),
+        crate::last_monitor().as_deref(),
+        primary,
+    )
+}
+
+/// Whether the session is Wayland, where a client cannot place its window: the compositor does.
+fn wayland_session() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some()
+        && std::env::var("WINIT_UNIX_BACKEND").map_or(true, |v| v != "x11")
 }
 
 fn run(ready: mpsc::Sender<Result<EventLoopProxy<Command>, String>>) {
@@ -188,6 +204,7 @@ fn run(ready: mpsc::Sender<Result<EventLoopProxy<Command>, String>>) {
         device_motion: false,
         cursor: None,
         rest: [0.0; 2],
+        landed_on: None,
     };
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("fork-window: the event loop ended: {e}");
@@ -210,6 +227,8 @@ struct App {
     cursor: Option<(f64, f64)>,
     /// The fractions of motion not yet whole game pixels, per axis.
     rest: [f64; 2],
+    /// The name of the output the window was last said to be on ([`App::landed`]).
+    landed_on: Option<String>,
 }
 
 impl App {
@@ -233,9 +252,16 @@ impl App {
             .with_resizable(false)
             .with_visible(self.request.visible)
             .with_fullscreen(self.request.fullscreen.then(|| {
-                // Over the monitor the pick names (`NV_MONITOR`, the primary, the first).
-                let chosen =
-                    pick_on(event_loop).and_then(|d| event_loop.available_monitors().nth(d.index));
+                // `NV_MONITOR` names the output. Otherwise on Wayland none is asked for: the
+                // compositor puts the window on the current output (GNOME: where the pointer or
+                // the focus is), and the monitor it landed on is read after (`landed`). On X11
+                // the pick (last used, primary, first).
+                let named = std::env::var_os("NV_MONITOR").is_some();
+                let chosen = if wayland_session() && !named {
+                    None
+                } else {
+                    pick_on(event_loop).and_then(|d| event_loop.available_monitors().nth(d.index))
+                };
                 winit::window::Fullscreen::Borderless(chosen)
             }));
         let window = event_loop
@@ -253,6 +279,7 @@ impl App {
         self.id = registry::register(self.shared.clone());
         self.window = Some(window);
         self.hold_pointer();
+        self.landed();
         Ok(self.id)
     }
 
@@ -305,6 +332,32 @@ impl App {
         w.request_redraw();
     }
 
+    /// The monitor the window is on now: one line when it differs from what was last said, and
+    /// its name kept for the next run's pick (the seeded size is chosen before the window exists).
+    fn landed(&mut self) {
+        let Some(m) = self.window.as_ref().and_then(|w| w.current_monitor()) else {
+            return;
+        };
+        let name = m.name().unwrap_or_default();
+        if name.is_empty() || self.landed_on.as_deref() == Some(name.as_str()) {
+            return;
+        }
+        let mon = monitor_of(&m);
+        eprintln!(
+            "fork-window: the window is on monitor {name} {}x{} {} Hz (placed by the {})",
+            mon.width,
+            mon.height,
+            crate::hz_of(mon.refresh_mhz),
+            if wayland_session() {
+                "compositor"
+            } else {
+                "pick"
+            }
+        );
+        crate::remember_monitor(&name);
+        self.landed_on = Some(name);
+    }
+
     fn changed(&self) {
         if let Some(f) = self.on_change {
             f();
@@ -349,6 +402,7 @@ impl ApplicationHandler<Command> for App {
             }
             WindowEvent::Resized(s) => {
                 self.shared.set_size(s.width, s.height);
+                self.landed();
                 self.changed();
             }
             WindowEvent::ScaleFactorChanged { .. } => self.changed(),

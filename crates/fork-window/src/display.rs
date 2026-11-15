@@ -14,11 +14,13 @@ pub struct Monitor {
     pub refresh_mhz: u32,
 }
 
-/// The monitor chosen, and where it is in the list the window system gave.
+/// The monitor chosen, where it is in the list the window system gave, and why.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Display {
     pub index: usize,
     pub monitor: Monitor,
+    /// `NV_MONITOR`, `last used`, `primary` or `first`.
+    pub why: &'static str,
 }
 
 impl Display {
@@ -37,12 +39,34 @@ pub fn hz_of(refresh_mhz: u32) -> u32 {
     }
 }
 
-/// The monitor to use: `wanted` (`NV_MONITOR`) when it is in the list, else the `primary` the
-/// system names, else the first (Wayland has no primary and no query for the monitor holding the
-/// focus or the cursor, so the first output stands in). Monitors with no area are never picked.
+/// What `NV_MONITOR` names: an index in the system's list, or an output's name (`DP-1`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Wanted {
+    Index(usize),
+    Name(String),
+}
+
+/// `NV_MONITOR`'s value; empty is none.
+pub fn parse_wanted(value: Option<&str>) -> Option<Wanted> {
+    let v = value?.trim();
+    if v.is_empty() {
+        return None;
+    }
+    Some(
+        v.parse()
+            .map_or_else(|_| Wanted::Name(v.to_string()), Wanted::Index),
+    )
+}
+
+/// The monitor to use, in this order: `wanted` (`NV_MONITOR`) when it names one in the list,
+/// the output the game last ran on (`last`, by name: Wayland has no query for the monitor holding
+/// the focus or the cursor, so the one the compositor placed the window on last time stands in),
+/// the `primary` the system names, the first. Monitors with no area are never picked.
 pub fn pick(
     monitors: &[Monitor],
-    wanted: Option<usize>,
+    names: &[String],
+    wanted: Option<&Wanted>,
+    last: Option<&str>,
     primary: Option<usize>,
 ) -> Option<Display> {
     let usable = |i: &usize| {
@@ -50,20 +74,54 @@ pub fn pick(
             .get(*i)
             .is_some_and(|m| m.width > 0 && m.height > 0)
     };
-    wanted
-        .into_iter()
-        .chain(primary)
-        .chain(0..monitors.len())
-        .find(usable)
-        .map(|index| Display {
-            index,
-            monitor: monitors[index],
-        })
+    let by_name = |n: &str| names.iter().position(|x| x == n);
+    let wanted_at = match wanted {
+        Some(Wanted::Index(i)) => Some(*i),
+        Some(Wanted::Name(n)) => by_name(n),
+        None => None,
+    };
+    let candidates = [
+        (wanted_at, "NV_MONITOR"),
+        (last.and_then(by_name), "last used"),
+        (primary, "primary"),
+    ];
+    for (at, why) in candidates {
+        if let Some(index) = at.filter(usable) {
+            return Some(Display {
+                index,
+                monitor: monitors[index],
+                why,
+            });
+        }
+    }
+    (0..monitors.len()).find(usable).map(|index| Display {
+        index,
+        monitor: monitors[index],
+        why: "first",
+    })
 }
 
-/// `NV_MONITOR`'s value: a monitor's index in the system's list.
-pub fn parse_wanted(value: Option<&str>) -> Option<usize> {
-    value.and_then(|v| v.trim().parse().ok())
+fn state_file() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".local/state"))
+        })?;
+    Some(base.join("nv-rs").join("last-monitor"))
+}
+
+/// The name of the output the game's window last landed on (kept across runs), if any.
+pub fn last_monitor() -> Option<String> {
+    let text = std::fs::read_to_string(state_file()?).ok()?;
+    Some(text.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+/// Keeps the output the window landed on for the next run's pick.
+pub fn remember_monitor(name: &str) {
+    if let Some(f) = state_file() {
+        let _ = f.parent().map(std::fs::create_dir_all);
+        let _ = std::fs::write(f, name);
+    }
 }
 
 /// The display the game runs on, asked of the window system on first use and kept; `None` where
@@ -94,7 +152,7 @@ fn probe() -> Option<Display> {
 mod tests {
     use super::*;
 
-    fn m(w: u32, h: u32, mhz: u32) -> Monitor {
+    const fn m(w: u32, h: u32, mhz: u32) -> Monitor {
         Monitor {
             width: w,
             height: h,
@@ -102,24 +160,49 @@ mod tests {
         }
     }
 
+    fn names(n: &[&str]) -> Vec<String> {
+        n.iter().map(|s| s.to_string()).collect()
+    }
+
+    const LIST: [Monitor; 3] = [
+        m(1080, 1920, 60000),
+        m(2560, 1440, 143912),
+        m(1920, 1080, 60000),
+    ];
+
     #[test]
-    fn the_override_wins_then_the_primary_then_the_first() {
-        let list = [
-            m(1080, 1920, 60000),
-            m(2560, 1440, 143912),
-            m(1920, 1080, 60000),
-        ];
-        assert_eq!(pick(&list, Some(2), Some(1)).unwrap().index, 2);
-        assert_eq!(pick(&list, None, Some(1)).unwrap().index, 1);
-        assert_eq!(pick(&list, None, None).unwrap().index, 0);
+    fn the_override_wins_then_the_last_then_the_primary_then_the_first() {
+        let n = names(&["A", "B", "C"]);
+        let w = Wanted::Index(2);
+        assert_eq!(
+            pick(&LIST, &n, Some(&w), Some("B"), Some(1)).unwrap().index,
+            2
+        );
+        let d = pick(&LIST, &n, None, Some("B"), Some(0)).unwrap();
+        assert_eq!((d.index, d.why), (1, "last used"));
+        assert_eq!(pick(&LIST, &n, None, None, Some(2)).unwrap().why, "primary");
+        let d = pick(&LIST, &n, None, Some("gone"), None).unwrap();
+        assert_eq!((d.index, d.why), (0, "first"));
+    }
+
+    #[test]
+    fn an_output_name_is_an_override_too() {
+        let n = names(&["DP-1", "DP-2", "HDMI-1"]);
+        let w = Wanted::Name("DP-2".into());
+        assert_eq!(pick(&LIST, &n, Some(&w), None, None).unwrap().index, 1);
+        let w = Wanted::Name("nope".into());
+        assert_eq!(pick(&LIST, &n, Some(&w), None, Some(2)).unwrap().index, 2);
     }
 
     #[test]
     fn a_bad_override_or_a_monitor_without_area_falls_through() {
         let list = [m(0, 0, 0), m(2560, 1440, 144000)];
-        assert_eq!(pick(&list, Some(9), None).unwrap().index, 1);
-        assert_eq!(pick(&list, Some(0), Some(0)).unwrap().index, 1);
-        assert_eq!(pick(&[], None, None), None);
+        let n = names(&["A", "B"]);
+        let w = Wanted::Index(9);
+        assert_eq!(pick(&list, &n, Some(&w), None, None).unwrap().index, 1);
+        let w = Wanted::Index(0);
+        assert_eq!(pick(&list, &n, Some(&w), None, Some(0)).unwrap().index, 1);
+        assert_eq!(pick(&[], &[], None, None, None), None);
     }
 
     #[test]
@@ -127,18 +210,16 @@ mod tests {
         assert_eq!(hz_of(143_912), 144);
         assert_eq!(hz_of(59_940), 60);
         assert_eq!(hz_of(0), 60);
-        assert_eq!(
-            pick(&[m(2560, 1440, 143_912)], None, None)
-                .unwrap()
-                .refresh_hz(),
-            144
-        );
     }
 
     #[test]
-    fn the_override_is_an_index() {
-        assert_eq!(parse_wanted(Some(" 1 ")), Some(1));
-        assert_eq!(parse_wanted(Some("DP-1")), None);
+    fn the_override_is_an_index_or_a_name() {
+        assert_eq!(parse_wanted(Some(" 1 ")), Some(Wanted::Index(1)));
+        assert_eq!(
+            parse_wanted(Some("DP-1")),
+            Some(Wanted::Name("DP-1".into()))
+        );
+        assert_eq!(parse_wanted(Some("  ")), None);
         assert_eq!(parse_wanted(None), None);
     }
 }
