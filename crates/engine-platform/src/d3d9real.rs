@@ -39,21 +39,38 @@
 //! from the game's own flags), and the backend's thread's floating-point state is not the game's.
 
 use crate::Engine;
+// Linux: the stream's recorder runs; the real Direct3D 9 and the window layer are Windows only (docs/fork/LINUX.md).
+#[cfg(not(windows))]
+type IDirect3DDevice9 = ();
 use d3d9_stream::{Cmd, Data, Reply, Slot, Stream};
 use std::collections::{HashMap, HashSet};
+#[cfg(windows)]
 use windows::core::PCSTR;
+#[cfg(windows)]
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+#[cfg(windows)]
 use windows::Win32::Graphics::Direct3D9::*;
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::ClientToScreen;
+#[cfg(windows)]
 use windows::Win32::System::LibraryLoader::GetModuleHandleA;
+#[cfg(windows)]
 use windows::Win32::UI::HiDpi::{
     SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
+#[cfg(windows)]
 use windows::Win32::UI::Input::{
     GetRawInputData, RegisterRawInputDevices, HRAWINPUT, MOUSE_MOVE_ABSOLUTE, RAWINPUT,
     RAWINPUTDEVICE, RAWINPUTDEVICE_FLAGS, RAWINPUTHEADER, RID_INPUT, RIM_TYPEMOUSE,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+#[cfg(not(windows))]
+#[path = "fork_d3d9rec.rs"]
+mod fork;
+#[cfg(not(windows))]
+use fork::make_stream;
 
 /// The backends `NV_D3D9` names.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -202,6 +219,7 @@ pub struct Real {
     locks: engine_core::AddrMap<u32, Vec<(u32, u32, u32)>>,
     /// With the render thread: the real queries as the backend carried them out
     /// (`d3d9backend::QueryBoard`), and how many `D3DISSUE_END`s of each the game recorded.
+    #[cfg(windows)]
     query_board: Option<std::sync::Arc<super::d3d9backend::QueryBoard>>,
     query_ends: engine_core::AddrMap<u32, u64>,
     /// How many queries the game made at each address (the board's `made`: a query made again at
@@ -221,6 +239,7 @@ pub struct Real {
     wgpu_cache: Option<std::path::PathBuf>,
     /// Tests: the real backend behind the stream, to look at ([`real_texture`]).
     #[cfg(test)]
+    #[cfg(windows)]
     test_backend: Option<std::sync::Arc<std::sync::Mutex<super::d3d9backend::RealBackend>>>,
 }
 
@@ -239,6 +258,7 @@ impl Real {
     /// Tests: whether no answer of the real device has differed from the model's, once every
     /// command recorded is carried out.
     #[cfg(test)]
+    #[cfg(windows)]
     pub(crate) fn logged_is_empty(&mut self) -> bool {
         if let Some(s) = self.stream.as_mut() {
             s.finish();
@@ -258,6 +278,7 @@ fn real(e: &mut Engine) -> &mut Real {
 /// Tests: `stream` as the backend's for the modelled device `device`, as a made device has one, so its
 /// calls are recorded (the two-producer tests watch the order the backend sees).
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn test_stream(e: &mut Engine, device: u32, stream: Stream) {
     let r = real(e);
     r.stream = Some(stream);
@@ -267,12 +288,14 @@ pub(crate) fn test_stream(e: &mut Engine, device: u32, stream: Stream) {
 /// Tests: the modelled object `object` as one the backend was asked for (its calls are recorded;
 /// a surface reads back through [`read_surface`]).
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn test_forwarded(e: &mut Engine, object: u32) {
     real(e).forwarded.insert(object);
 }
 
 /// The real window of a modelled window handle, when it has one (under the device lock with real
 /// threads: the window functions make them, the device presents in them).
+#[cfg(windows)]
 pub fn real_window(e: &Engine, handle: u32) -> Option<isize> {
     let _device = engine_core::real_threads::device_guard(e);
     device_ref!(e).real.windows.get(&handle).copied()
@@ -397,10 +420,17 @@ pub(super) fn settle(e: &mut Engine) {
     }
 }
 
+#[cfg(not(windows))]
+fn real_window(_e: &Engine, _handle: u32) -> Option<isize> {
+    // Offscreen: the backend draws into no window.
+    Some(0)
+}
+
 /// The real device behind the modelled device `this`, counted, for a caller that hands it to
 /// other code (the D3DX texture loader in `super::d3dxreal`, on the calling thread: the device
 /// is `D3DCREATE_MULTITHREADED`); `None` when the forwarding is off, the real `CreateDevice`
 /// failed, or the backend has no such device.
+#[cfg(windows)]
 pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
     let _device = engine_core::real_threads::device_guard(e);
     device_ref!(e)
@@ -413,6 +443,7 @@ pub fn real_device(e: &Engine, this: u32) -> Option<IDirect3DDevice9> {
 
 /// Whether any of the game's modelled devices has a real one behind it (for a D3DX call that
 /// takes no device, the image info).
+#[cfg(windows)]
 pub fn any_real_device(e: &Engine) -> bool {
     let _device = engine_core::real_threads::device_guard(e);
     device_ref!(e)
@@ -451,8 +482,10 @@ fn is_forwarded(e: &Engine, object: u32) -> bool {
 
 // The window.
 
+#[cfg(windows)]
 const CLASS_NAME: PCSTR = PCSTR(b"nv-rs-d3d9\0".as_ptr());
 
+#[cfg(windows)]
 extern "system" fn window_procedure(
     window: HWND,
     message: u32,
@@ -530,6 +563,7 @@ extern "system" fn window_procedure(
 
 /// What the real window's keyboard and mouse did since the last frame.
 #[derive(Debug, Clone, Copy)]
+#[cfg(windows)]
 pub struct Input {
     /// The keys held, by DirectInput key code (the scan code, 0x80 added for extended keys).
     pub keys: [bool; 256],
@@ -539,6 +573,7 @@ pub struct Input {
     pub buttons: [bool; 8],
 }
 
+#[cfg(windows)]
 impl Default for Input {
     fn default() -> Self {
         Input {
@@ -549,11 +584,13 @@ impl Default for Input {
     }
 }
 
+#[cfg(windows)]
 fn input() -> &'static std::sync::Mutex<Input> {
     static INPUT: std::sync::OnceLock<std::sync::Mutex<Input>> = std::sync::OnceLock::new();
     INPUT.get_or_init(|| std::sync::Mutex::new(Input::default()))
 }
 
+#[cfg(windows)]
 fn release_input() {
     if let Ok(mut i) = input().lock() {
         i.keys = [false; 256];
@@ -563,6 +600,7 @@ fn release_input() {
 }
 
 /// Frees the cursor [`hold_cursor`] held (no clip; Windows shows it again).
+#[cfg(windows)]
 fn let_go_of_cursor() {
     if CURSOR_HELD.swap(false, std::sync::atomic::Ordering::Relaxed) {
         unsafe {
@@ -575,14 +613,17 @@ fn let_go_of_cursor() {
 /// The centre of the held client area, in screen coordinates: the cursor is put back there after
 /// each raw mouse motion, so it never rests on the area's edge (where it showed, playtest
 /// 2026-11-03). The motion the game reads comes from raw input, not the cursor's position.
+#[cfg(windows)]
 static CURSOR_CENTRE: [std::sync::atomic::AtomicI32; 2] = [
     std::sync::atomic::AtomicI32::new(0),
     std::sync::atomic::AtomicI32::new(0),
 ];
 
 /// Whether the window holds the cursor (clipped to its client area, hidden over it).
+#[cfg(windows)]
 static CURSOR_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(windows)]
 fn cursor_held() -> bool {
     CURSOR_HELD.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -590,6 +631,7 @@ fn cursor_held() -> bool {
 /// Holds the cursor in the window's client area and hides it there, as Windows does for a
 /// program whose DirectInput mouse is exclusive and in the foreground (the game's:
 /// `SetCooperativeLevel` with `DISCL_EXCLUSIVE | DISCL_FOREGROUND`).
+#[cfg(windows)]
 fn hold_cursor(window: HWND) {
     unsafe {
         let mut rect = RECT::default();
@@ -634,6 +676,7 @@ fn hold_cursor(window: HWND) {
 
 /// Registers the window for the mouse's raw input: its relative counts are what DirectInput
 /// hands an exclusive mouse (no pointer acceleration, not stopped at the screen's edge).
+#[cfg(windows)]
 fn register_raw_mouse(window: HWND) {
     let device = RAWINPUTDEVICE {
         usUsagePage: 1,
@@ -646,6 +689,7 @@ fn register_raw_mouse(window: HWND) {
 }
 
 /// A raw input message: a mouse's relative motion is added to the frame's.
+#[cfg(windows)]
 fn raw_mouse(lparam: LPARAM) {
     let mut raw = RAWINPUT::default();
     let mut size = std::mem::size_of::<RAWINPUT>() as u32;
@@ -677,12 +721,14 @@ fn raw_mouse(lparam: LPARAM) {
 }
 
 /// The keys the real window holds, by DirectInput key code.
+#[cfg(windows)]
 pub fn held_keys() -> [bool; 256] {
     input().lock().map(|i| i.keys).unwrap_or([false; 256])
 }
 
 /// The real window's input for this frame: the keys and buttons held, the motion since the last
 /// call (taken: it starts again from 0).
+#[cfg(windows)]
 pub fn take_input() -> Input {
     match input().lock() {
         Ok(mut i) => {
@@ -696,6 +742,7 @@ pub fn take_input() -> Input {
 
 /// The DirectInput key code of a key message (`lParam`: scan code in bits 16..23, the extended
 /// bit 24); `None` for the fake shifts Windows sends around some extended keys.
+#[cfg(windows)]
 fn dik(lparam: isize) -> Option<u8> {
     let scan = ((lparam >> 16) & 0xff) as u8;
     let extended = lparam & (1 << 24) != 0;
@@ -722,6 +769,7 @@ fn dik(lparam: isize) -> Option<u8> {
 
 /// A message of the real window that is input (the mouse's motion comes from its raw input,
 /// [`raw_mouse`]).
+#[cfg(windows)]
 fn window_input(_window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) {
     let Ok(mut i) = input().lock() else { return };
     let button = |i: &mut Input, b: usize, down: bool| i.buttons[b] = down;
@@ -757,6 +805,7 @@ fn window_input(_window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) {
 /// A window to make on the window thread: title, style, extended style, rectangle, the real
 /// parent (0 for a top-level window), how a top-level `WS_VISIBLE` one is shown, and where the
 /// handle goes (0 when it failed).
+#[cfg(windows)]
 struct Request {
     title: Vec<u8>,
     style: u32,
@@ -769,6 +818,7 @@ struct Request {
 
 /// The window thread: it makes every real window (a child window's messages go to the thread
 /// that made it, so parent and children share it) and pumps their messages.
+#[cfg(windows)]
 fn window_thread() -> &'static std::sync::Mutex<std::sync::mpsc::Sender<Request>> {
     static THREAD: std::sync::OnceLock<std::sync::Mutex<std::sync::mpsc::Sender<Request>>> =
         std::sync::OnceLock::new();
@@ -785,6 +835,7 @@ fn window_thread() -> &'static std::sync::Mutex<std::sync::mpsc::Sender<Request>
 /// scripted runs, so that one does not take the keyboard and the cursor from whoever works
 /// beside it), and at the bottom of the window stack, behind that person's windows. Off, it is
 /// shown as the game's `WS_VISIBLE` window is: activated.
+#[cfg(windows)]
 fn shown_in_background() -> bool {
     std::env::var_os("NV_D3D9_BACKGROUND").is_some()
 }
@@ -795,6 +846,7 @@ fn shown_in_background() -> bool {
 /// style with `WS_VISIBLE`, its rectangle, the active window), never from the real one, so the
 /// game sees the same window whichever this is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(windows)]
 enum Showing {
     /// Shown and activated, as Windows shows the game's window.
     Activated,
@@ -807,6 +859,7 @@ enum Showing {
     Never,
 }
 
+#[cfg(windows)]
 impl Showing {
     /// The run's choice: `NV_D3D9_HIDDEN=1` before `NV_D3D9_BACKGROUND`.
     fn asked() -> Showing {
@@ -835,6 +888,7 @@ impl Showing {
 /// one is told the scaled size: 2048x1152 for 2560x1440 at 125%), and the game's child window
 /// (the one it draws in, made at its resolution) is sized to fill it.
 /// The run's choice ([`want_borderless`]) when it made one, else `NV_BORDERLESS=1`.
+#[cfg(windows)]
 fn borderless() -> bool {
     match BORDERLESS_CHOICE.load(std::sync::atomic::Ordering::Relaxed) {
         1 => true,
@@ -844,11 +898,13 @@ fn borderless() -> bool {
 }
 
 /// The run's borderless choice: 0 none made, 1 on, 2 off ([`want_borderless`]).
+#[cfg(windows)]
 static BORDERLESS_CHOICE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 /// Makes the game's window borderless or framed ([`borderless`]) whatever `NV_BORDERLESS`
 /// says: the run's choice (`host::fixes::Choice::borderless`, which reads `NV_BORDERLESS` and
 /// `Fallout.ini`'s `[nv-rs Display] bBorderless`), made before the game opens its window.
+#[cfg(windows)]
 pub fn want_borderless(on: bool) {
     BORDERLESS_CHOICE.store(if on { 1 } else { 2 }, std::sync::atomic::Ordering::Relaxed);
 }
@@ -856,23 +912,29 @@ pub fn want_borderless(on: bool) {
 /// Shows the wgpu backend's frame-rate counter from the start or not (`d3d9_wgpu::frame_rate`; the
 /// run's choice, `host::fixes::Choice::show_frame_rate`). F11 on the game's window shows or hides it
 /// afterwards ([`window_input`]). The real Direct3D 9 backend has no counter.
+#[cfg(windows)]
 pub fn want_frame_rate(on: bool) {
     d3d9_wgpu::frame_rate::show(on);
 }
 
 /// The borderless window ([`borderless`]), which keeps the monitor's size when the game moves or
 /// sizes its window (0: none), and the game's window that fills it.
+#[cfg(windows)]
 static BORDERLESS_WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+#[cfg(windows)]
 static BORDERLESS_CHILD: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 /// `PBT_APMRESUMESUSPEND`, `PBT_APMRESUMEAUTOMATIC`: the machine woke from sleep.
+#[cfg(windows)]
 const PBT_APMRESUMESUSPEND: u32 = 7;
+#[cfg(windows)]
 const PBT_APMRESUMEAUTOMATIC: u32 = 0x12;
 
 /// The display changed (`WM_DISPLAYCHANGE`, on the window thread, which is per-monitor DPI aware
 /// with the borderless window): when `window` is the borderless window, it and the game's window
 /// that fills it take the primary monitor's new size, so the picture covers the screen at a new
 /// resolution as it did at the old one (each backend fits its frames to the window).
+#[cfg(windows)]
 fn refit_borderless(window: HWND) {
     let borderless = BORDERLESS_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
     if borderless == 0 || window.0 as isize != borderless {
@@ -895,6 +957,7 @@ fn refit_borderless(window: HWND) {
     }
 }
 
+#[cfg(windows)]
 unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
     let module = GetModuleHandleA(None).unwrap_or_default();
     let class = WNDCLASSA {
@@ -1009,6 +1072,7 @@ unsafe fn run_window_thread(rx: std::sync::mpsc::Receiver<Request>) {
 /// 0): a real window of the same title, styles and rectangle (a child of the parent's real
 /// window).
 #[allow(clippy::too_many_arguments)]
+#[cfg(windows)]
 pub fn window_created(
     e: &mut Engine,
     handle: u32,
@@ -1063,6 +1127,7 @@ pub fn window_created(
 }
 
 /// The real window takes the title the game gave its record (`SetWindowTextA`).
+#[cfg(windows)]
 pub fn window_titled(e: &mut Engine, handle: u32, title: &[u8]) {
     let Some(window) = real_window(e, handle) else {
         return;
@@ -1076,6 +1141,7 @@ pub fn window_titled(e: &mut Engine, handle: u32, title: &[u8]) {
 
 /// `SetWindowPos` moved or sized the modelled window `handle` (`SWP_NOSIZE`, `SWP_NOMOVE` in
 /// `flags`): the real window follows.
+#[cfg(windows)]
 pub fn window_moved(e: &mut Engine, handle: u32, rect: [i32; 4], flags: u32) {
     let Some(window) = real_window(e, handle) else {
         return;
@@ -1118,6 +1184,7 @@ pub fn want_render_thread(e: &mut Engine, on: bool) {
 
 /// The backend `NV_D3D9` names ([`Backends`]), the real one with the queries' board when the
 /// game's side reads its queries without waiting (the render thread).
+#[cfg(windows)]
 fn backend_of(
     which: Backends,
     board: Option<std::sync::Arc<super::d3d9backend::QueryBoard>>,
@@ -1160,12 +1227,14 @@ fn backend_of(
 /// The wgpu backend on the game's window, with the F12 report (`shot::report_with`) at each
 /// `Present`, as the real backend makes it in its own: the back buffer read from wgpu before the
 /// frame is presented.
+#[cfg(windows)]
 struct WgpuWithReport {
     wgpu: d3d9_wgpu::WgpuBackend,
     /// The device's first back buffer (`CreateDevice`, `Reset`).
     back_buffer: u32,
 }
 
+#[cfg(windows)]
 impl d3d9_stream::Backend for WgpuWithReport {
     fn execute(&mut self, cmd: Cmd<Data<'_>>) -> Reply {
         match &cmd {
@@ -1212,12 +1281,17 @@ pub fn want_wgpu_cache(e: &mut Engine, dir: std::path::PathBuf) {
 /// (once), on the calling thread or on the render thread ([`want_render_thread`]), written to a
 /// file with `NV_D3D9_RECORD=FILE`.
 pub fn direct3d_created(e: &mut Engine) {
-    let Some(mut which) = backends() else { return };
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let Some(mut which) = backends() else {
+        return;
+    };
     if real(e).stream.is_some() {
         return;
     }
     // wgpu without a graphics card it can draw with (no Vulkan or Direct3D 12 driver, only the
     // software adapter): the real Direct3D 9 instead, so the player still gets a picture.
+    // Linux: wgpu draws off screen on any adapter, lavapipe included (no real Direct3D 9 to fall back on).
+    #[cfg(windows)]
     if which == Backends::Wgpu {
         match d3d9_wgpu::hardware_adapter() {
             Some(adapter) => eprintln!("NV_D3D9=wgpu: drawing with {adapter}"),
@@ -1234,6 +1308,7 @@ pub fn direct3d_created(e: &mut Engine) {
 /// The stream to the backend `which` (its board or answers for reading queries without waiting
 /// set on the game's side), on the render thread or the calling thread ([`want_render_thread`]),
 /// written to a file with `NV_D3D9_RECORD=FILE`.
+#[cfg(windows)]
 fn make_stream(e: &mut Engine, which: Backends) -> Stream {
     if which == Backends::Real && backends() != Some(Backends::Real) {
         DRAWING_REAL.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1365,12 +1440,15 @@ pub fn device_created(
             },
         )
     };
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut reply = create(e);
     // wgpu could not make the game's device (a driver that refuses it, a window it cannot show
     // in): the real Direct3D 9 instead, as when wgpu finds no graphics card (`direct3d_created`),
     // so the player still gets a picture. The device is the backend's first object: nothing was
     // made on wgpu that the real one lacks.
+    #[cfg(windows)]
     let failed = matches!(reply, Some(Reply::Device { created: false, .. }));
+    #[cfg(windows)]
     if failed
         && backends() == Some(Backends::Wgpu)
         && !DRAWING_REAL.load(std::sync::atomic::Ordering::Relaxed)
@@ -1390,9 +1468,15 @@ pub fn device_created(
     else {
         return;
     };
+    #[cfg(windows)]
     let shared = native
         .and_then(|n| n.0.downcast::<super::d3d9backend::SharedDevice>().ok())
         .map(|s| s.0);
+    #[cfg(not(windows))]
+    let shared: Option<IDirect3DDevice9> = {
+        let _ = native;
+        None
+    };
     let r = real(e);
     r.devices.retain(|(d, _)| *d != device);
     r.devices.push((device, shared));
@@ -2500,6 +2584,7 @@ fn wgpu_answer(r: &mut Real, query: u32) -> Option<Option<(u32, u32)>> {
 /// [`query_get_data`] with the render thread, without waiting for it: `None` without the render
 /// thread, or for a `D3DGETDATA_FLUSH` read whose `END` the real device has not issued yet (the
 /// call waits then).
+#[cfg(windows)]
 fn query_without_waiting(r: &mut Real, query: u32, flags: u32) -> Option<Option<(u32, u32)>> {
     let board = r.query_board.as_ref()?;
     let recorded = r.query_ends.get(&query).copied().unwrap_or(0);
@@ -2531,6 +2616,11 @@ fn query_without_waiting(r: &mut Real, query: u32, flags: u32) -> Option<Option<
             Some(Some((S_FALSE, 0)))
         }
     }
+}
+
+#[cfg(not(windows))]
+fn query_without_waiting(_r: &mut Real, _query: u32, _flags: u32) -> Option<Option<(u32, u32)>> {
+    None
 }
 
 /// `CreateOffscreenPlainSurface` made the modelled surface `surface`.
@@ -2633,6 +2723,7 @@ pub fn texture_set_lod(e: &mut Engine, texture: u32, lod: u32, model: u32) {
 // takes them only at those presents (counted from 1), so a short stretch can be taken every frame.
 // Nothing is read or made when `NV_SHOT` is unset; the game's state and the model are not touched.
 // ---------------------------------------------------------------------------------------------
+#[cfg(windows)]
 pub(super) mod shot {
     use super::*;
     use std::path::PathBuf;
@@ -2964,6 +3055,7 @@ pub(super) mod shot {
 //   left from an earlier draw), and other meshes drawn with a pixel shader a face mesh used are
 //   reported too (`another mesh, same pixel shader as a face pass`: an NPC head to compare with).
 // ---------------------------------------------------------------------------------------------
+#[cfg(windows)]
 pub(super) mod face_check {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -3065,6 +3157,7 @@ pub(super) mod face_check {
 }
 
 /// `NV_FACE_CHECK`: a texture was created (diagnostic only); the face texture is followed.
+#[cfg(windows)]
 pub(super) fn face_check_texture(
     texture: u32,
     levels: &[u32],
@@ -3103,6 +3196,7 @@ pub(super) fn face_check_texture(
 }
 
 /// `NV_FACE_CHECK`: a level of the face texture went to the real surface.
+#[cfg(windows)]
 pub(super) fn face_check_upload(
     surface: u32,
     real_surface: &IDirect3DSurface9,
@@ -3172,6 +3266,7 @@ pub(super) fn face_check_upload(
 }
 
 /// `NV_FACE_CHECK`: a sampler took a texture.
+#[cfg(windows)]
 pub(super) fn face_check_bind(sampler: u32, texture: u32) {
     let mut s = face_check::state();
     let old = s.samplers.insert(sampler, texture).unwrap_or(0);
@@ -3192,6 +3287,7 @@ pub(super) fn face_check_bind(sampler: u32, texture: u32) {
 }
 
 /// `NV_FACE_CHECK`: a shader was set.
+#[cfg(windows)]
 pub(super) fn face_check_shader(shader: u32, pixel: bool) {
     let mut s = face_check::state();
     if pixel {
@@ -3203,6 +3299,7 @@ pub(super) fn face_check_shader(shader: u32, pixel: bool) {
 
 /// `NV_FACE_CHECK`: a frame ends: its indexed draw counts (the first 12 frames once the face texture
 /// exists) and, once, the projection transform as set.
+#[cfg(windows)]
 pub(super) fn face_check_present() {
     let mut s = face_check::state();
     if s.faces.is_empty() {
@@ -3239,6 +3336,7 @@ pub(super) fn face_check_present() {
 
 /// `NV_FACE_CHECK`: an indexed draw with the face texture bound, or one of the few after it.
 /// `NV_FACE_CHECK`: a render state was set.
+#[cfg(windows)]
 pub(super) fn face_check_render_state(state: u32, value: u32) {
     let mut s = face_check::state();
     s.render_states.insert(state, value);
@@ -3248,6 +3346,7 @@ pub(super) fn face_check_render_state(state: u32, value: u32) {
 /// `NV_FACE_CHECK`: float shader constants were set (`pixel` for the pixel shader's).
 /// `NV_FACE_CHECK`: float constants set (`words`: the registers, 4 words each, as the call gave
 /// them).
+#[cfg(windows)]
 pub(super) fn face_check_constants(pixel: bool, start: u32, words: &[u32]) {
     let mut s = face_check::state();
     for (i, register) in words.chunks_exact(4).take(256).enumerate() {
@@ -3263,6 +3362,7 @@ pub(super) fn face_check_constants(pixel: bool, start: u32, words: &[u32]) {
 }
 
 /// The render states the face check prints, with their `D3DRENDERSTATETYPE` numbers.
+#[cfg(windows)]
 const FACE_CHECK_STATES: [(&str, u32); 14] = [
     ("ZENABLE", 7),
     ("FILLMODE", 8),
@@ -3282,6 +3382,7 @@ const FACE_CHECK_STATES: [(&str, u32); 14] = [
 
 /// The determinant of the upper-left 3x3 of three rows of four float words (a negative one
 /// mirrors, flipping the triangles' winding).
+#[cfg(windows)]
 fn face_check_det3(rows: [&[u32]; 3]) -> f32 {
     let m = |r: usize, c: usize| f32::from_bits(rows[r][c]);
     m(0, 0) * (m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1))
@@ -3291,6 +3392,7 @@ fn face_check_det3(rows: [&[u32]; 3]) -> f32 {
 
 /// The determinants the face check prints: view (2), projection (3), world (256) when set, and
 /// of vertex constants c0..c2 (rows) when set.
+#[cfg(windows)]
 pub(super) fn face_check_determinants(s: &face_check::State) -> String {
     let mut parts = Vec::new();
     for (name, state) in [("view", 2u32), ("projection", 3), ("world", 256)] {
@@ -3312,6 +3414,7 @@ pub(super) fn face_check_determinants(s: &face_check::State) -> String {
 }
 
 /// One line of float constants: `cN=(x,y,z,w)` for each register set so far, in order.
+#[cfg(windows)]
 pub(super) fn face_check_constant_list(map: &HashMap<u32, [u32; 4]>, below: u32) -> String {
     let mut registers: Vec<u32> = map.keys().copied().filter(|&r| r < below).collect();
     registers.sort();
@@ -3327,6 +3430,7 @@ pub(super) fn face_check_constant_list(map: &HashMap<u32, [u32; 4]>, below: u32)
 
 /// `NV_FACE_CHECK`: an indexed draw with the face texture bound, or one of the few after it.
 #[allow(clippy::too_many_arguments)]
+#[cfg(windows)]
 pub(super) fn face_check_draw(
     kind: u32,
     base_vertex: u32,
@@ -3450,6 +3554,7 @@ pub(super) fn face_check_draw(
 /// device released before the turn), so those tests run one at a time while the rest stay
 /// parallel; [`test_real_device_on`] and the backend's own test device check the turn is held.
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) struct RealTurn(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
 
 #[cfg(test)]
@@ -3461,6 +3566,7 @@ thread_local! {
 /// Test only: waits for and takes the test's [`RealTurn`] (a test that failed on its turn does
 /// not stop the others').
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn real_turn() -> RealTurn {
     static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let turn = TURN
@@ -3471,6 +3577,7 @@ pub(crate) fn real_turn() -> RealTurn {
 }
 
 #[cfg(test)]
+#[cfg(windows)]
 impl Drop for RealTurn {
     fn drop(&mut self) {
         HOLDS_REAL_TURN.with(|h| h.set(false));
@@ -3479,6 +3586,7 @@ impl Drop for RealTurn {
 
 /// Test only: stops a test that makes a real device without its [`RealTurn`].
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn assert_real_turn() {
     assert!(
         HOLDS_REAL_TURN.with(|h| h.get()),
@@ -3489,6 +3597,7 @@ pub(crate) fn assert_real_turn() {
 /// Test only: a hidden window of the window thread (64 by 64), for a real device; `None` when it
 /// could not be made.
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn test_window() -> Option<isize> {
     let (reply, answer) = std::sync::mpsc::channel();
     let sent = window_thread()
@@ -3512,6 +3621,7 @@ pub(crate) fn test_window() -> Option<isize> {
 /// Test only: the 64 by 64 windowed `D3DPRESENT_PARAMETERS` words a test device is made with
 /// (one back buffer, `D3DSWAPEFFECT_DISCARD`).
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn test_present() -> [u32; 14] {
     let mut p = [0u32; 14];
     p[0] = 64;
@@ -3528,12 +3638,14 @@ pub(crate) fn test_present() -> [u32; 14] {
 /// when the engine has none); `None` where Direct3D 9 has no device (no display adapter, as on
 /// CI).
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn test_real_device(e: &mut Engine, at: u32, behavior: u32) -> Option<IDirect3DDevice9> {
     test_real_device_on(e, at, behavior, false)
 }
 
 /// Test only: [`test_real_device`], the backend on the render thread with `threaded`.
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn test_real_device_on(
     e: &mut Engine,
     at: u32,
@@ -3593,6 +3705,7 @@ pub(crate) fn test_real_device_on(
 /// with `threaded`), with the modelled `devices` and `objects` given counterparts there (the
 /// stand-ins of `d3d9backend::stub`).
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn test_forwarding(
     e: &mut Engine,
     backend: Box<dyn d3d9_stream::Backend>,
@@ -3612,6 +3725,7 @@ pub(crate) fn test_forwarding(
 
 /// Test only: returns once every command recorded is carried out (the render thread's too).
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn test_finish(e: &mut Engine) {
     if let Some(s) = real(e).stream.as_mut() {
         s.finish();
@@ -3621,11 +3735,13 @@ pub(crate) fn test_finish(e: &mut Engine) {
 /// Test only: a backend shared with the test, which looks at it afterwards (its stand-ins' log,
 /// its real objects).
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) struct SharedBackend(
     pub(crate) std::sync::Arc<std::sync::Mutex<super::d3d9backend::RealBackend>>,
 );
 
 #[cfg(test)]
+#[cfg(windows)]
 impl d3d9_stream::Backend for SharedBackend {
     fn execute(&mut self, cmd: Cmd<Data<'_>>) -> Reply {
         self.0.lock().unwrap().execute(cmd)
@@ -3635,6 +3751,7 @@ impl d3d9_stream::Backend for SharedBackend {
 /// Test only: the real counterpart of the modelled texture or cube texture `texture`, after
 /// [`test_real_device`].
 #[cfg(test)]
+#[cfg(windows)]
 pub(crate) fn real_texture(e: &mut Engine, texture: u32) -> Option<IDirect3DBaseTexture9> {
     test_finish(e);
     let backend = real(e).test_backend.clone()?;
@@ -3643,6 +3760,7 @@ pub(crate) fn real_texture(e: &mut Engine, texture: u32) -> Option<IDirect3DBase
 }
 
 #[cfg(test)]
+#[cfg(windows)]
 mod tests {
     use super::*;
 

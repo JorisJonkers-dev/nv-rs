@@ -264,3 +264,22 @@ file upstream owns (both in `.fork/allowed-divergence`).
   exits 0. `.github/workflows/fork-window-smoke.yml` runs it under Xvfb on lavapipe (not required, outside Pipeline Complete).
 - Not done (nv-linux issues): the game's call sites do not use the registry yet (`engine-platform` window and
   `player_move.rs` input merge), Wayland pointer lock and cursor hold, the borderless refit and refresh rate, gamepads, IME.
+
+## Direct3D 9 off Windows (nv-linux#181, stage 3a)
+
+The recorder of `d3d9real.rs` (the game's Direct3D 9 calls recorded as `d3d9_stream::Cmd`) is built on every target. What is
+Windows only in that file (the real `d3d9.dll` forwarding, the window thread and its input, the F12 shot, `NV_FACE_CHECK`)
+carries a `#[cfg(windows)]` line; the recorder's call sites in `d3d9device.rs`, `d3d9resource.rs`, `d3d9query.rs`, `d3d9draw.rs`
+and `d3d9.rs` lost theirs, so the diff of every moved arm is the removed attribute line and nothing else. The Linux additions
+are in the fork-owned `fork_d3d9rec.rs`: `make_stream` gives the stream the wgpu backend in `Output::Offscreen` (no window;
+`NV_D3D9=real` or `real,wgpu` also draw on wgpu, with a line saying so), with the render thread, the occlusion answers and
+`NV_D3D9_RECORD` as on Windows. Without a backend (`NV_D3D9` unset) nothing is recorded, as before.
+
+Test: `d3d9real::fork::tests::a_guest_program_draws_a_frame_through_the_recorder_on_wgpu` drives `Engine::new()` through
+`Direct3DCreate9`, `CreateDevice`, shaders, a clear, `DrawPrimitiveUP` and `Present` and reads the back buffer from lavapipe
+(a cleared corner and the triangle's centre). The Nix CI shell sets `NV_REQUIRE_GPU=1`, so the test fails there when no adapter
+opens; elsewhere it skips with a line. It runs in the `platform` job (engine-platform, inside the `ci` shell).
+
+Not done (3b, the owner's session, nv-linux issues): the game's window handles do not map to the window layer (`real_window`
+answers "no window"), no run of the game with `NV_D3D9=wgpu NV_REPEATABLE=<frames>`, `GetRenderTargetData` and the read-backs are
+tested only through the recorder's calls here, and the real-device fallbacks stay Windows only.

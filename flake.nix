@@ -82,6 +82,8 @@
           export NV_VKD3D_SHADER=${pkgs.vkd3d.lib}/lib/libvkd3d-shader.so.1
           # The vkd3d tests fail, not skip, when the library cannot be loaded (d3dx-shader's NV_REQUIRE_VKD3D).
           export NV_REQUIRE_VKD3D=1
+          # The headless Direct3D 9 frame test (engine-platform, d3d9real/fork_d3d9rec.rs) fails, not skips, without an adapter.
+          export NV_REQUIRE_GPU=1
           export VK_ICD_FILENAMES=${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json
           export LD_LIBRARY_PATH=${pkgs.vulkan-loader}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
           export NV_WGPU_BACKEND=software
