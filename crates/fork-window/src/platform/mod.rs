@@ -17,6 +17,20 @@ use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::platform::x11::EventLoopBuilderExtX11;
 use winit::window::{CursorGrabMode, WindowAttributes, WindowId};
 
+/// Whether `event` says the window is back or changed, so the present loop is woken
+/// (`changed`).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn wakes(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::Focused(true)
+            | WindowEvent::Occluded(false)
+            | WindowEvent::RedrawRequested
+            | WindowEvent::Resized(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+    )
+}
+
 /// The DirectInput code of a physical key.
 pub(crate) fn dik_of(code: KeyCode) -> Option<u8> {
     dik::by_name(&format!("{code:?}"))
@@ -233,6 +247,20 @@ impl App {
         }
     }
 
+    /// What a window coming back needs: not minimised, and full screen again where it was asked
+    /// for and the compositor dropped it while the window was away; a redraw is requested.
+    fn restore(&self) {
+        let Some(w) = &self.window else { return };
+        if w.is_minimized() == Some(true) {
+            w.set_minimized(false);
+        }
+        if self.request.fullscreen && w.fullscreen().is_none() {
+            let monitor = w.current_monitor();
+            w.set_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)));
+        }
+        w.request_redraw();
+    }
+
     fn changed(&self) {
         if let Some(f) = self.on_change {
             f();
@@ -314,8 +342,17 @@ impl ApplicationHandler<Command> for App {
                     self.release_pointer();
                 } else {
                     self.hold_pointer();
+                    self.restore();
                     self.changed();
                 }
+            }
+            // Shown again (alt-tab back, the compositor mapping the window): the swap chain
+            // is asked for a frame at once, and a redraw is requested of the compositor.
+            WindowEvent::Occluded(false) | WindowEvent::RedrawRequested => {
+                if matches!(event, WindowEvent::Occluded(false)) {
+                    self.restore();
+                }
+                self.changed();
             }
             WindowEvent::KeyboardInput { event, .. } if !event.repeat => {
                 if let PhysicalKey::Code(code) = event.physical_key {
@@ -370,6 +407,17 @@ mod tests {
         assert_eq!(dik_of(KeyCode::ArrowDown), Some(0xd0));
         assert_eq!(dik_of(KeyCode::NumpadEnter), Some(0x9c));
         assert_eq!(dik_of(KeyCode::MediaPlayPause), None);
+    }
+
+    /// A window shown again must wake the present loop: every event that says so is one the
+    /// handler answers with `changed` (kept as a list to see none is dropped).
+    #[test]
+    fn coming_back_events_wake_the_present_loop() {
+        assert!(wakes(&WindowEvent::Focused(true)));
+        assert!(wakes(&WindowEvent::Occluded(false)));
+        assert!(wakes(&WindowEvent::RedrawRequested));
+        assert!(!wakes(&WindowEvent::Focused(false)));
+        assert!(!wakes(&WindowEvent::Occluded(true)));
     }
 
     #[test]

@@ -109,6 +109,15 @@ pub(crate) fn present_mode(interval: u32, caps: &wgpu::SurfaceCapabilities) -> w
     )
 }
 
+/// Whether a window that gave no frame for `why` has its swap chain configured again before it is
+/// asked again.
+fn reconfigures_after(why: NoFrame) -> bool {
+    matches!(
+        why,
+        NoFrame::Refused | NoFrame::TimedOut | NoFrame::Occluded | NoFrame::Outdated
+    )
+}
+
 /// One line, once: the monitor's index, its size and refresh in hertz, and the present mode.
 #[cfg(not(windows))]
 fn log_display(mode: wgpu::PresentMode) {
@@ -448,6 +457,10 @@ impl Window {
                 }
                 self.skipped += 1;
                 self.last_why = Some(why);
+                // What was submitted while no frame is shown is waited for, so a window that
+                // gives none does not leave the queue growing (a driver ran out of memory for
+                // submissions after minutes of frames never shown).
+                let _ = device.poll(wgpu::PollType::wait_indefinitely());
                 self.pace();
                 None
             }
@@ -520,6 +533,11 @@ impl Window {
     /// `why` no frame was had: none is asked for a while ([`Backoff`]).
     fn rested(&mut self, why: NoFrame) -> NoFrame {
         self.rest.failed(Instant::now());
+        // A refused frame, a timeout or an occluded window: the swap chain is made again at the
+        // next try, not trusted to still be the one the surface wants.
+        if reconfigures_after(why) {
+            self.stale = true;
+        }
         why
     }
 
@@ -736,6 +754,14 @@ mod tests {
         assert_eq!(choose_present_mode(p, 1, &fifo, true), M::Fifo);
         let p = Some(PresentPref::Immediate);
         assert_eq!(choose_present_mode(p, 1, &all, true), M::Immediate);
+    }
+
+    #[test]
+    fn a_window_that_gave_no_frame_is_configured_again_for_these_reasons() {
+        assert!(reconfigures_after(NoFrame::Refused));
+        assert!(reconfigures_after(NoFrame::Occluded));
+        assert!(!reconfigures_after(NoFrame::Minimised));
+        assert!(!reconfigures_after(NoFrame::Resting));
     }
 
     #[test]

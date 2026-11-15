@@ -830,6 +830,16 @@ pub struct Device {
     awaiting: Vec<(Handle, u64)>,
 }
 
+/// Whether the driver took the graphics device away during the run.
+static GONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True once the driver lost the graphics device (an out-of-memory submission, a reset): every
+/// call after it fails, so the run is ended with its exit hooks rather than left on a frozen
+/// window with a stream of validation errors.
+pub fn device_lost() -> bool {
+    GONE.load(Ordering::Acquire)
+}
+
 pub(crate) fn block_on<F: std::future::Future>(f: F) -> F::Output {
     // wgpu's native futures are ready when polled after the work they wait for (a `poll`).
     struct Noop;
@@ -6740,7 +6750,15 @@ fn open(
     let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
     {
         let lost = lost.clone();
-        device.set_device_lost_callback(move |_, _| lost.store(true, Ordering::Release));
+        device.set_device_lost_callback(move |reason, message| {
+            lost.store(true, Ordering::Release);
+            // A device the driver took away (out of memory in a submission, a reset), not one the
+            // layer destroyed itself: the run cannot go on (`device_lost`).
+            if reason != wgpu::DeviceLostReason::Destroyed {
+                eprintln!("NV_D3D9 wgpu: the graphics device was lost ({reason:?}): {message}");
+                GONE.store(true, Ordering::Release);
+            }
+        });
     }
     if FAIL_FOR_TESTS.load(Ordering::Relaxed) & LOST_FOR_TESTS != 0 {
         device.destroy();

@@ -338,3 +338,13 @@ way to choose another. The size and refresh (millihertz, rounded to hertz) are t
 - Present mode: `NV_PRESENT=fifo|mailbox|immediate`; with none, the game's immediate interval is `Immediate`, anything else
   `Mailbox` where the surface has it, else `Fifo` (Windows keeps `Fifo`). The pacing of a minimised window uses the display's
   refresh. One line says the result: `NV_D3D9 display: monitor <index> <w>x<h> <hz> Hz, present <mode>`.
+
+### Alt-tab and a lost device
+
+A window shown again (focus back, `Occluded(false)`, a redraw request) is made not minimised and, for the borderless
+window, full screen again, a redraw is requested and the present loop is woken at once (`fork-window`, `restore`). While
+no frame is shown the device is waited for each skipped frame (the queue does not grow), and a refused, timed-out,
+occluded or outdated frame has the swap chain configured again before the next ask. A device the driver took away
+(`radv/amdgpu: Not enough memory for command submission`, a reset) is logged with wgpu's reason and ends the run through the
+exit hooks (`d3d9_wgpu::device_lost`) instead of leaving a frozen window and a stream of validation errors.
+
