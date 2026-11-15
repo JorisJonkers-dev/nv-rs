@@ -98,6 +98,9 @@ impl Disk {
     }
 }
 
+#[cfg(not(windows))]
+mod short_names;
+
 /// A file's directory entry as `FindFirstFileA` describes it, for a file the game made or
 /// changed in this run: what the file system keeps in the directory and publishes when a handle
 /// that wrote is closed (measured: `build43-scratch/measure/findfile-changed/findfile-2026-11-03.txt`).
@@ -1885,6 +1888,12 @@ fn listing(directory: &std::path::Path, pattern: &[u8], shown: &str) -> Result<V
             ERROR_PATH_NOT_FOUND
         });
     };
+    let entries: Vec<std::fs::DirEntry> = entries.filter_map(Result::ok).collect();
+    let all: Vec<String> = entries
+        .iter()
+        .map(|entry| host_name_text(&entry.file_name()))
+        .collect();
+    let shorts = short_names::assign(&all);
     let mut found: Vec<Found> = Vec::new();
     for special in [".", ".."] {
         if search_finds(pattern, special, shown) {
@@ -1897,14 +1906,13 @@ fn listing(directory: &std::path::Path, pattern: &[u8], shown: &str) -> Result<V
             });
         }
     }
-    for entry in entries.filter_map(Result::ok) {
-        let name = host_name_text(&entry.file_name());
+    for (entry, name) in entries.into_iter().zip(all) {
         if search_finds(pattern, &name, shown) {
             found.push(Found::Disk {
                 path: entry.path(),
                 directory: entry.file_type().is_ok_and(|t| t.is_dir()),
+                short: shorts.get(&name).cloned().unwrap_or_default(),
                 name,
-                short: String::new(),
                 listed: None,
             });
         }
@@ -1955,12 +1963,12 @@ fn short_name(e: &Engine, path: &[u8]) -> Option<String> {
     if short_extension(&name).is_none() {
         return Some(String::new());
     }
-    let extension = name.rfind('.').map_or("", |at| &name[at + 1..]);
-    if extension.len() > 3 {
-        return None;
-    }
     #[cfg(windows)]
     {
+        let extension = name.rfind('.').map_or("", |at| &name[at + 1..]);
+        if extension.len() > 3 {
+            return None;
+        }
         let cut = last_separator(path)?;
         let taken = names_in(e, &path[..cut]);
         let mut generator = ntdll::Generator::new(&name);
@@ -1970,9 +1978,48 @@ fn short_name(e: &Engine, path: &[u8]) -> Option<String> {
     }
     #[cfg(not(windows))]
     {
-        let _ = e;
-        None
+        // The host keeps no short names: made as NTFS makes them ([`short_names`]), against
+        // the names the directory holds now.
+        let cut = last_separator(path)?;
+        let taken = names_in(e, &path[..cut]);
+        short_names::generate(&name, &taken).filter(|short| !short.is_empty())
     }
+}
+
+/// Every long and short name the directory at the full path `directory` holds now, upper case,
+/// elsewhere than on Windows: the host's entries the game did not delete or take into the run
+/// with the short names [`short_names::assign`] gives them, and the run's files there.
+#[cfg(not(windows))]
+fn names_in(e: &Engine, directory: &[u8]) -> std::collections::HashSet<String> {
+    let folder = key(directory);
+    let disk = &state_ref!(e).disk;
+    let mut taken = std::collections::HashSet::new();
+    let mut add = |name: &str, short: &str| {
+        taken.insert(name.to_ascii_uppercase());
+        if !short.is_empty() {
+            taken.insert(short.to_ascii_uppercase());
+        }
+    };
+    let mut host: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(real_path(directory)) {
+        for entry in entries.filter_map(Result::ok) {
+            let name = host_name_text(&entry.file_name());
+            let k = key(&[folder.as_slice(), b"\\", &ansi_bytes(&name)].concat());
+            if !disk.deleted.contains(&k) && !disk.files.contains_key(&k) {
+                host.push(name);
+            }
+        }
+    }
+    let shorts = short_names::assign(&host);
+    for name in &host {
+        add(name, shorts.get(name).map_or("", String::as_str));
+    }
+    for (k, entry) in &disk.entries {
+        if in_folder(k, &folder) && disk.files.contains_key(k) {
+            add(&entry.name, entry.short.as_deref().unwrap_or(""));
+        }
+    }
+    taken
 }
 
 /// Every long and short name the directory at the full path `directory` holds now, upper case:
@@ -4228,6 +4275,47 @@ mod tests_changed_directories {
         close(&mut e, made);
         let _ = std::fs::remove_dir_all(&dir);
         find_next_file_a(&mut e, h, Ptr::new(data));
+    }
+
+    /// The game's save flow elsewhere than on Windows: a save with a long name made in this run
+    /// is found by its exact name with an NTFS-like 8.3 name (it stopped the run before), a second
+    /// save with the same prefix gets `~2`, and a search of an untouched folder gives the files
+    /// already there their short names, the same on every search.
+    #[cfg(not(windows))]
+    #[test]
+    fn saves_made_in_this_run_and_found_on_disk_have_short_names() {
+        let dir = scratch(
+            "shortsave",
+            &[("Save 2   Courier  Old save  00 01 00.fos", 7)],
+        );
+        let mut e = Engine::new();
+        let a = "Save 1   Courier  Doc Mitchell s House  00 04 40";
+        let b = "Save 1   Courier  Goodsprings  00 05 10";
+        save(&mut e, &dir, a, &[0x10]);
+        save(&mut e, &dir, b, &[0x10]);
+        let one = listed(&mut e, &format!("{dir}\\{a}.fos"));
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].1, "SAVE1C~1.FOS");
+        let two = listed(&mut e, &format!("{dir}\\{b}.fos"));
+        assert_eq!(two[0].1, "SAVE1C~2.FOS");
+        assert!(one[0].4 > 0 && one[0].6 >= one[0].4, "times are set");
+        // A fresh run over the untouched folder: the file on disk has its short name too.
+        let dir2 = scratch(
+            "shortdisk",
+            &[("Save 2   Courier  Old save  00 01 00.fos", 7)],
+        );
+        let mut e = Engine::new();
+        let old = listed(
+            &mut e,
+            &format!("{dir2}\\Save 2   Courier  Old save  00 01 00.fos"),
+        );
+        assert_eq!(old[0].1, "");
+        let all = listed(&mut e, &format!("{dir2}\\*.fos"));
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].1, "SAVE2C~1.FOS");
+        assert_eq!(listed(&mut e, &format!("{dir2}\\*.fos")), all);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir2);
     }
 
     /// `.` of a directory the game changed is not listed as Windows would (its times move with
