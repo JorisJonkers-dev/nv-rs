@@ -17,7 +17,10 @@ mod surface;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod platform;
 
-pub use registry::{client_size, close_requested, held_keys, raw_handles, take_input, Input};
+pub use registry::{
+    client_size, close_requested, held_keys, raw_handles, scale_motion, set_game_area, take_input,
+    to_game_position, Input,
+};
 pub use surface::surface_for;
 
 #[cfg(all(unix, not(target_os = "macos")))]

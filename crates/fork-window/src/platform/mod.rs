@@ -15,7 +15,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::platform::x11::EventLoopBuilderExtX11;
-use winit::window::{WindowAttributes, WindowId};
+use winit::window::{CursorGrabMode, WindowAttributes, WindowId};
 
 /// The DirectInput code of a physical key.
 pub(crate) fn dik_of(code: KeyCode) -> Option<u8> {
@@ -117,6 +117,7 @@ fn run(request: WindowRequest, on_change: Option<ChangeHook>, ready: mpsc::Sende
         window: None,
         device_motion: false,
         cursor: None,
+        rest: [0.0; 2],
     };
     let result = event_loop.run_app(&mut app);
     if let (Err(e), Some(ready)) = (result, app.ready.take()) {
@@ -140,6 +141,8 @@ struct App {
     /// stand in for it.
     device_motion: bool,
     cursor: Option<(f64, f64)>,
+    /// The fractions of motion not yet whole game pixels, per axis.
+    rest: [f64; 2],
 }
 
 impl App {
@@ -148,6 +151,41 @@ impl App {
             let _ = r.send(Err(why));
         }
         event_loop.exit();
+    }
+
+    /// Motion of the pointer in window pixels as the game's: scaled to its back buffer.
+    fn add_motion(&mut self, dx: f64, dy: f64) {
+        let (gw, gh) = registry::game_area(&self.shared);
+        let (ww, wh) = self
+            .window
+            .as_ref()
+            .map_or((0, 0), |w| (w.inner_size().width, w.inner_size().height));
+        let x = registry::scale_motion(dx, gw, ww, &mut self.rest[0]);
+        let y = registry::scale_motion(dy, gh, wh, &mut self.rest[1]);
+        if let Ok(mut i) = self.shared.input.lock() {
+            i.motion[0] += x;
+            i.motion[1] += y;
+        }
+    }
+
+    /// The game's cursor is drawn by the game (its DirectInput mouse is exclusive, so Windows
+    /// holds and hides the pointer): hide the pointer and keep it in the window, locked where the
+    /// compositor allows (Wayland), else confined (X11), else as it is.
+    fn hold_pointer(&self) {
+        let Some(w) = &self.window else { return };
+        w.set_cursor_visible(false);
+        if w.set_cursor_grab(CursorGrabMode::Locked).is_err()
+            && w.set_cursor_grab(CursorGrabMode::Confined).is_err()
+        {
+            eprintln!("fork-window: the pointer cannot be held in the window");
+        }
+    }
+
+    fn release_pointer(&self) {
+        if let Some(w) = &self.window {
+            let _ = w.set_cursor_grab(CursorGrabMode::None);
+            w.set_cursor_visible(true);
+        }
     }
 
     fn changed(&self) {
@@ -188,6 +226,7 @@ impl ApplicationHandler<Command> for App {
         }
         self.id = registry::register(self.shared.clone());
         self.window = Some(window);
+        self.hold_pointer();
         if let Some(r) = self.ready.take() {
             let _ = r.send(Ok((self.id, self.proxy.clone())));
         }
@@ -226,7 +265,9 @@ impl ApplicationHandler<Command> for App {
                         i.buttons = [false; 8];
                     }
                     self.cursor = None;
+                    self.release_pointer();
                 } else {
+                    self.hold_pointer();
                     self.changed();
                 }
             }
@@ -253,9 +294,8 @@ impl ApplicationHandler<Command> for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 if !self.device_motion {
-                    if let (Some((x, y)), Ok(mut i)) = (self.cursor, self.shared.input.lock()) {
-                        i.motion[0] += (position.x - x) as i32;
-                        i.motion[1] += (position.y - y) as i32;
+                    if let Some((x, y)) = self.cursor {
+                        self.add_motion(position.x - x, position.y - y);
                     }
                 }
                 self.cursor = Some((position.x, position.y));
@@ -268,10 +308,7 @@ impl ApplicationHandler<Command> for App {
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
             self.device_motion = true;
-            if let Ok(mut i) = self.shared.input.lock() {
-                i.motion[0] += delta.0 as i32;
-                i.motion[1] += delta.1 as i32;
-            }
+            self.add_motion(delta.0, delta.1);
         }
     }
 }
