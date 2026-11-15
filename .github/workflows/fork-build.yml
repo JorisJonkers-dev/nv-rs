@@ -132,6 +132,14 @@ jobs:
           } >>"$GITHUB_ENV"
           dpkg-query -W -f='lavapipe driver: mesa-vulkan-drivers ${Version}\n' mesa-vulkan-drivers | tee -a "$GITHUB_STEP_SUMMARY"
           VK_ICD_FILENAMES="$icd" vulkaninfo --summary | grep -E 'deviceName|deviceType|driverInfo' | tee -a "$GITHUB_STEP_SUMMARY"
+      # The shader compiler seam's tests (crates/d3dx-shader, engine-platform's d3dxshader) compile synthetic HLSL with
+      # libvkd3d-shader at run time and skip, printing a line, where it is missing or too old to produce d3dbc.
+      - name: libvkd3d-shader
+        if: ${{ runner.os == 'Linux' && (matrix.component == 'rendering' || matrix.component == 'platform') }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libvkd3d-shader1
+          dpkg-query -W -f='libvkd3d-shader1 ${Version}\n' libvkd3d-shader1 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Test ${{ matrix.component }}
         env:
           SCRIPT: ${{ matrix.script }}

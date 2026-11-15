@@ -1,0 +1,28 @@
+nv-rs Windows package: installer and portable ZIP
+=================================================
+
+This package has no game files in it. You need your own installed Fallout: New Vegas, 1.4.0.525.
+READ ME.txt is the full guide; this page is about getting nv-rs onto the PC.
+
+Two ways, same programs
+-----------------------
+- The ZIP: extract the whole ZIP to a folder of its own, for example C:\Games\nv-rs, and double-click Play.exe.
+- The installer (nv-rs-setup-...exe): offers C:\Games\nv-rs, needs no administrator rights, adds Start menu entries.
+  It refuses Program Files, Documents and AppData, because nv-rs keeps your saves and settings in its own folder
+  (userdata) and keeps away from those places. Uninstalling removes the programs and leaves userdata (your saves)
+  alone; delete the folder yourself when you want them gone.
+
+Pointing nv-rs at the game
+--------------------------
+Play.exe finds Steam, GOG and Epic installs by itself. For a game somewhere else, double-click
+"Choose game folder.cmd" and pick the game's folder (the one with Data\FalloutNV.esm, or the Data folder itself).
+The same from a command prompt:  Play.exe --game "D:\Games\Fallout New Vegas"
+Play.exe --check does everything up to starting the game and says what it found.
+
+Windows SmartScreen
+-------------------
+Neither the installer nor the programs are signed (a code-signing certificate costs money each year and that is the
+owner's decision). Windows therefore shows "Windows protected your PC" the first time:
+click "More info", then "Run anyway", once you have decided you trust the download. Compare the file's SHA256 with the
+SHA256SUMS published with it first. With Smart App Control on, Windows 11 blocks unsigned programs without that
+button; nv-rs cannot run there. READ ME.txt, "If Windows or your antivirus objects", says the rest.

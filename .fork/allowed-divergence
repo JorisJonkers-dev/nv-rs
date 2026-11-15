@@ -18,7 +18,7 @@ crates/host/src/cell_offsets.rs  # asks files::host_path for the plugin's path (
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
 # Platform answers off Windows (docs/fork/LINUX.md): one hook each, the Windows arms untouched.
-crates/engine-platform/src/lib.rs  # the module of the fork-owned platform answers
+crates/engine-platform/src/lib.rs  # the module of the fork-owned platform answers; `pub mod d3dxshader;` and the six shader imports registered from it, both cfg(not(windows)) (docs/fork/LINUX.md, shader compiler)
 crates/engine-platform/src/process.rs  # GlobalMemoryStatus(Ex) reads /proc/meminfo on Unix
 crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir
 crates/host/src/save_out.rs  # known_folders off Windows answers from the XDG data folder
@@ -34,3 +34,4 @@ crates/engine-havok/src/lib.rs  # appended test_gate module
 crates/d3d9-wgpu/src/device.rs  # surface_for off Windows asks fork-window (X11, Wayland); the stub stays for other targets
 crates/d3d9-wgpu/Cargo.toml  # fork-window as a dependency on Linux
 crates/host/src/lib.rs  # install calls of jg and showoff after JIP; appended test_gate module (the real-data gate); the adapter and texture-cache folders come from fork_platform::data_dir off Windows
+# Shader compiler seam off Windows (docs/fork/LINUX.md, nv-linux#197, #200): the code is the new crate d3dx-shader and the new file engine-platform/src/d3dxshader.rs; its upstream-owned edits are one line each: the workspace member (Cargo.toml, Cargo.lock), engine-platform's dependency and the hook in engine-platform/src/lib.rs (listed above).

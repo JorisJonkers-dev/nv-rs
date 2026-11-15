@@ -1,0 +1,220 @@
+# Fork-only. The Windows package: a portable ZIP and an unsigned installer (Inno Setup), built from the Windows programs, and
+# a smoke test of the built artefacts on a hosted Windows runner (docs/fork/WINDOWS.md). No game data is used or produced:
+# the smoke test runs the real programs against empty and synthetic folders.
+#
+# Two ways in:
+#  - called by fork-release-build.yml (`programs-artifact` and `release-files-artifact` name the artefacts its `windows` and
+#    `release-files` jobs made; nothing is built twice, the package carries the release files and is attested);
+#  - on a pull request that changes the packaging, or by hand: the `build` job here builds the programs with the same flags
+#    first (a native Windows build in the fork's CI), and there are no release files.
+# Never publishes a release.
+name: Windows Package
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version, YYYY-MM-DD.N'
+        required: true
+        type: string
+      programs-artifact:
+        description: 'Name of the artefact holding the built programs (release/ and i686-pc-windows-msvc/release/)'
+        required: true
+        type: string
+      release-files-artifact:
+        description: 'Name of the artefact holding capabilities.json, release-manifest.json and the schemas'
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/fork-package-windows.yml'
+      - 'scripts/fork/package/**'
+      - 'distribution/**'
+      - 'scripts/launcher/**'
+      - 'viewer/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to name the package, YYYY-MM-DD.N'
+        required: false
+        default: '2000-01-01.1'
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: package-windows-${{ inputs.programs-artifact != '' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build the Windows programs
+    if: ${{ inputs.programs-artifact == '' }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain and the i686 target
+        run: |
+          rustup toolchain install
+          rustup target add i686-pc-windows-msvc
+
+      # Only the crates.io dependencies are restored; the key is this workflow's own.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: package-windows
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+
+      # The same flags and programs as fork-release-build.yml's `windows` job (and scripts/package-playtest.ps1).
+      - name: Build the programs
+        run: |
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }
+          $rustupHome = if ($env:RUSTUP_HOME) { $env:RUSTUP_HOME } else { Join-Path $env:USERPROFILE '.rustup' }
+          $registry = Join-Path $cargoHome 'registry\src'
+          $env:CARGO_ENCODED_RUSTFLAGS = @('-C', 'target-feature=+crt-static', "--remap-path-prefix=$env:GITHUB_WORKSPACE=nv-rs", "--remap-path-prefix=$registry=cargo", "--remap-path-prefix=$rustupHome=rustup") -join [char]0x1f
+          cargo build --release --locked -p nv-viewer
+          if ($LASTEXITCODE) { throw 'nv-viewer did not build.' }
+          foreach ($m in @('launcher', 'd3d9-capture', 'package-check')) {
+            cargo build --release --locked --manifest-path "scripts/$m/Cargo.toml"
+            if ($LASTEXITCODE) { throw "$m did not build." }
+          }
+          foreach ($m in @('nvapi-capture', 'dsound-capture')) {
+            cargo build --release --locked --target i686-pc-windows-msvc --manifest-path "scripts/$m/Cargo.toml"
+            if ($LASTEXITCODE) { throw "$m did not build." }
+          }
+
+      - name: Lay the programs out like a cargo target directory
+        run: |
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'programs'
+          New-Item -ItemType Directory -Force -Path (Join-Path $dir 'release'), (Join-Path $dir 'i686-pc-windows-msvc/release') | Out-Null
+          foreach ($f in 'Play.exe', 'nv-viewer.exe', 'd3d9-capture.exe', 'package-check.exe') {
+            Copy-Item -LiteralPath "target/release/$f" -Destination (Join-Path $dir 'release')
+          }
+          foreach ($f in 'nvapi-capture.exe', 'dsound-capture.exe') {
+            Copy-Item -LiteralPath "target/i686-pc-windows-msvc/release/$f" -Destination (Join-Path $dir 'i686-pc-windows-msvc/release')
+          }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: package-windows-programs-${{ github.run_id }}
+          path: programs
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    name: Package, install and smoke test
+    needs: build
+    # `build` is skipped when called from the release build, which already built the programs.
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ inputs.version || '2000-01-01.1' }}
+      PROGRAMS_ARTIFACT: ${{ inputs.programs-artifact || format('package-windows-programs-{0}', github.run_id) }}
+      RELEASE_FILES_ARTIFACT: ${{ inputs.release-files-artifact }}
+      PACKAGE_ARTIFACT: nv-rs-${{ inputs.version || '2000-01-01.1' }}-windows-x64-package
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the programs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ env.PROGRAMS_ARTIFACT }}
+          path: programs
+
+      - name: Download the release files
+        if: ${{ env.RELEASE_FILES_ARTIFACT != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ env.RELEASE_FILES_ARTIFACT }}
+          path: release-files
+
+      - name: Smoke test the built program as it is
+        run: ./scripts/fork/package/smoke-test.ps1 -Viewer programs/release/nv-viewer.exe -Work "$env:RUNNER_TEMP/smoke-built"
+
+      - name: Stage the package and make the ZIP
+        run: |
+          $files = if (Test-Path release-files) { @{ ReleaseFiles = 'release-files' } } else { @{} }
+          ./scripts/fork/package/package-windows.ps1 -Version $env:VERSION -Programs programs -Out dist @files
+          if ($LASTEXITCODE) { throw 'packaging failed' }
+
+      # Inno Setup is on the hosted Windows image (6.7.1 when this was written); build-installer.ps1 fails if it is not.
+      - name: Build the installer
+        run: ./scripts/fork/package/build-installer.ps1 -Version $env:VERSION -Stage "dist/nv-rs-preview-$env:VERSION-windows-x64" -Out dist
+
+      - name: Smoke test the extracted ZIP, with its launcher
+        run: |
+          $dest = Join-Path $env:GITHUB_WORKSPACE 'extracted'
+          Expand-Archive -LiteralPath "dist/nv-rs-preview-$env:VERSION-windows-x64.zip" -DestinationPath $dest
+          $root = Join-Path $dest "nv-rs-preview-$env:VERSION-windows-x64"
+          ./scripts/fork/package/smoke-test.ps1 -Viewer "$root/app/FalloutNV.exe" -Launcher "$root/Play.exe" -Work "$env:RUNNER_TEMP/smoke-zip"
+
+      - name: Silent install, smoke test the installed copy, uninstall
+        run: |
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'installed'
+          $setup = Resolve-Path "dist/nv-rs-setup-$env:VERSION-windows-x64.exe"
+          # Before the real install: the installer refuses Program Files (a silent install too), writing nothing there.
+          $refused = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "`"/DIR=$env:ProgramFiles\nv-rs-refused`"", "/LOG=$env:RUNNER_TEMP/refused.log") -PassThru
+          if (-not $refused.WaitForExit(120000)) { $refused.Kill(); Get-Content "$env:RUNNER_TEMP/refused.log"; throw 'the installer did not finish a refused install in 120 s' }
+          Get-Content "$env:RUNNER_TEMP/refused.log" | Select-String 'cannot be installed' | ForEach-Object { $_.Line }
+          # What counts is that nothing was written there (a silent abort may leave exit status 0).
+          if (Test-Path -LiteralPath "$env:ProgramFiles\nv-rs-refused") { throw 'the installer wrote to Program Files' }
+          if (-not (Select-String -Path "$env:RUNNER_TEMP/refused.log" -Pattern 'cannot be installed' -Quiet)) { throw 'the installer did not refuse Program Files' }
+          $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$dir", "/LOG=$env:RUNNER_TEMP/setup.log") -Wait -PassThru
+          if ($p.ExitCode) { Get-Content "$env:RUNNER_TEMP/setup.log"; throw "the installer exited $($p.ExitCode)" }
+          foreach ($f in 'Play.exe', 'app/FalloutNV.exe', 'Choose game folder.cmd', 'READ ME.txt', 'LICENSE') {
+            if (-not (Test-Path -LiteralPath (Join-Path $dir $f))) { throw "the installed copy lacks $f" }
+          }
+          if ((Get-FileHash "$dir/app/FalloutNV.exe").Hash -ne (Get-FileHash programs/release/nv-viewer.exe).Hash) { throw 'the installed program differs from the built one' }
+          ./scripts/fork/package/smoke-test.ps1 -Viewer "$dir/app/FalloutNV.exe" -Launcher "$dir/Play.exe" -Work "$env:RUNNER_TEMP/smoke-installed"
+          $uninstall = Get-ChildItem -LiteralPath $dir -Filter 'unins*.exe' | Select-Object -First 1
+          $u = Start-Process -FilePath $uninstall.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($u.ExitCode) { throw "the uninstaller exited $($u.ExitCode)" }
+
+      - name: Gather the files to publish
+        run: |
+          New-Item -ItemType Directory -Force -Path publish | Out-Null
+          Copy-Item "dist/nv-rs-preview-$env:VERSION-windows-x64.zip" publish
+          Copy-Item "dist/nv-rs-setup-$env:VERSION-windows-x64.exe" publish
+          if (Test-Path release-files) { Copy-Item release-files/*.json publish }
+          $lines = Get-ChildItem -File publish | Where-Object { $_.Name -ne 'SHA256SUMS' } | Sort-Object Name |
+            ForEach-Object { '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant(), $_.Name }
+          Set-Content -LiteralPath publish/SHA256SUMS -Value $lines -Encoding utf8NoBOM
+          Get-Content publish/SHA256SUMS
+
+      - name: Attest build provenance (optional)
+        if: ${{ inputs.programs-artifact != '' }}
+        continue-on-error: true
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: publish/*
+
+      - name: Upload the package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.PACKAGE_ARTIFACT }}
+          path: publish
+          if-no-files-found: error
+          retention-days: ${{ inputs.programs-artifact != '' && 30 || 3 }}

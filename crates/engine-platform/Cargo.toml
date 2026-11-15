@@ -16,6 +16,8 @@ d3d9-stream = { path = "../d3d9-stream" }
 vorbis = { path = "../vorbis" }
 # The textures D3DX makes (d3dx.rs), translated: byte for byte the 32-bit d3dx9_38.dll, no DLL.
 d3dx-tex = { path = "../d3dx-tex" }
+# The shader compiler seam off Windows (d3dxshader.rs): the cache and libvkd3d-shader loaded at run time.
+d3dx-shader = { path = "../d3dx-shader" }
 
 # The Direct3D 9 calls on wgpu: a backend of the same stream (d3d9real.rs on Windows). It also builds on
 # Linux, where `end_process` and the D3DX format table use it.

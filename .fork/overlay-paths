@@ -10,6 +10,7 @@
 .github/workflows/fork-build.yml
 .github/workflows/fork-ci.yml
 .github/workflows/fork-fuzz.yml
+.github/workflows/fork-package-windows.yml
 .github/workflows/fork-release-build.yml
 .github/workflows/fork-security.yml
 .github/workflows/fork-sync.yml
