@@ -51,7 +51,7 @@ name, the library is 1.19.x) and the lavapipe tests (47 executed on llvmpipe, Me
 `platform`: engine-platform's `d3dxshader` test now executes (it never ran on Linux: the component ran on Windows only); the
 component is a new required Linux twin; 5 other engine-platform tests fail on Linux and are skipped by name in
 `.fork/linux-skip.txt` (nv-linux #205) (`every_import_is_answered_by_one_function`,
-three `files::tests_code_pages` and `files::tests_player_files::a_read_only_open_reads_the_players_file_in_place`, found by this run, ). `scripting` and the others gain nothing from Nix today beyond a pinned compiler. The Xvfb window smoke
+three `files::tests_code_pages` and `files::tests_player_files::a_read_only_open_reads_the_players_file_in_place`, found by this run). `scripting` and the others gain nothing from Nix today beyond a pinned compiler. The Xvfb window smoke
 (pull request 40) needs the same shell: `xvfb-run` is in it already.
 
 **Failing loudly.** `NV_REQUIRE_VKD3D=1` (already honoured by the tests) makes a library that cannot be loaded a test failure, and
