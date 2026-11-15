@@ -418,6 +418,7 @@ version = "0.1.0"
 dependencies = [
  "engine-core",
  "engine-gamebryo",
+ "uio",
 ]
 
 [[package]]
@@ -977,6 +978,7 @@ version = "0.1.0"
 dependencies = [
  "engine-core",
  "nvse",
+ "uio",
 ]
 
 [[package]]
