@@ -134,6 +134,19 @@ class Jobs(unittest.TestCase):
         self.assertEqual(m.errors, [])
         self.assertEqual([e["name"] for e in m.entries("c")], ["Component: c / job 0 (Windows)", "Component: c / job 1 (Windows)"])
 
+    def test_a_sharded_job_is_one_entry_per_shard(self):
+        jobs = [{"name": "j", "args": ["-p big --test one"], "shards": 2}, {"name": "k", "args": ["-p big --test two --test dir", "-p small"]}]
+        m = model([comp("c", ["big", "small"], job=jobs)], self.meta, root=str(self.tmp))
+        self.assertEqual(m.errors, [])
+        got = [(e["name"], e["shard"]) for e in m.entries("c")]
+        self.assertEqual(got[:2], [("Component: c / j 1/2 (Windows)", "1/2"), ("Component: c / j 2/2 (Windows)", "2/2")])
+        self.assertEqual(got[2], ("Component: c / k (Windows)", ""))
+
+    def test_shards_need_exactly_one_test_binary(self):
+        jobs = [{"name": "j", "args": ["-p big --test one --test dir"], "shards": 2}]
+        m = model([comp("c", ["big"], job=jobs)], workspace({"big": []}), root=str(self.tmp))
+        self.assertTrue(any("exactly one `--test` binary" in e for e in m.errors), m.errors)
+
     def test_a_test_file_in_no_job_fails(self):
         m = self.split(["-p big --test one --test dir", "-p small"])
         self.assertTrue(any("big/tests/two.rs is in no job" in e for e in m.errors), m.errors)
@@ -262,7 +275,7 @@ class Affected(unittest.TestCase):
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
         self.assertIn("integration", got)
-        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 7)
+        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 9)
 
     def test_a_fallout_change_reaches_every_component_whose_tests_link_it(self):
         _, got = self.reached(["crates/engine-fallout-cell/src/lib.rs"])
@@ -333,7 +346,7 @@ class RealMap(unittest.TestCase):
     def test_the_typed_jobs_build_the_harness_crates_at_opt_level_1_and_the_aggregator_does_not(self):
         got = {e["name"]: e["script"] for e in real_model().entries("integration")}
         typed = [v for k, v in got.items() if "typed" in k]
-        self.assertEqual(len(typed), 6)
+        self.assertEqual(len(typed), 8)
         for script in typed:
             for crate in ("engine-core", "engine-typed", "engine"):
                 self.assertIn(f"--config profile.dev.package.{crate}.opt-level=1", script)
@@ -352,7 +365,7 @@ class RealMap(unittest.TestCase):
         data = json.loads(out)
         # the count follows .fork/linux-ok.txt (one Linux twin per fully covered component), so compare with the model instead of a constant
         self.assertEqual(len(data["include"]), len(real_model().plan()["include"]))
-        self.assertEqual({"name", "component", "cache", "os", "informational", "workspaces", "timeout", "script"}, set(data["include"][0]))
+        self.assertEqual({"name", "component", "cache", "os", "informational", "shard", "workspaces", "timeout", "script"}, set(data["include"][0]))
 
 
 class Summaries(unittest.TestCase):

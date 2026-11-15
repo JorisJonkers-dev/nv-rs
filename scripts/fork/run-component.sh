@@ -63,6 +63,14 @@ while IFS= read -r cmd; do
       start=$SECONDS
       run="$cmd"
       [[ "$cmd" == *" --doc"* || -z "$skips" ]] || run="$cmd --$skips"
+      if [ -n "${SHARD:-}" ]; then
+        # SHARD=i/n: this job runs every n-th test (sorted by name) of the one test binary of the command; the other
+        # shards run the rest. Names are matched exactly, so a name that is a prefix of another does not pull it in.
+        names="$(bash -c "$cmd -- --list" 2>/dev/null | sed -n 's/^\(.*\): test$/\1/p' | LC_ALL=C sort | awk -v i="${SHARD%/*}" -v n="${SHARD#*/}" '(NR - 1) % n == i - 1')"
+        if [ -z "$names" ]; then echo "::error title=shard::no tests listed for shard $SHARD"; rc=1; continue; fi
+        echo "shard $SHARD: $(wc -l <<<"$names") tests"
+        run="$cmd -- --exact $(tr '\n' ' ' <<<"$names")$skips"
+      fi
       bash -c "$run" 2>&1 | tee -a "$LOG" | group_binaries
       status=${PIPESTATUS[0]}
       echo "test $((SECONDS - start))" >>"$TIMINGS"

@@ -143,6 +143,7 @@ jobs:
       - name: Test ${{ matrix.component }}
         env:
           SCRIPT: ${{ matrix.script }}
+          SHARD: ${{ matrix.shard }}
         run: |
           if [ "$IN_NIX" = 1 ]; then
             nix develop .#ci --command bash scripts/fork/run-component.sh
