@@ -468,11 +468,39 @@ pub fn wgpu_cache_path() -> Option<PathBuf> {
     std::env::var_os("NV_WGPU_CACHE").map(PathBuf::from)
 }
 
+/// The adapter table of this Linux machine, written to [`adapter_table_path`] (the file stays local
+/// and git-ignored); the text even where the file can't be written. A bad profile file is named.
+#[cfg(not(windows))]
+pub fn write_linux_adapter_table() -> Option<String> {
+    let profile = engine_platform::fork_tables::machine_profile()
+        .map_err(|why| eprintln!("the Linux machine profile is not usable: {why}"))
+        .ok()?;
+    let text = engine_platform::fork_tables::adapter_table(&profile);
+    if let Some(path) = adapter_table_path() {
+        let _ = path.parent().map(std::fs::create_dir_all);
+        if let Err(why) = std::fs::write(&path, &text) {
+            eprintln!(
+                "the adapter table could not be written to {}: {why}",
+                path.display()
+            );
+        }
+    }
+    Some(text)
+}
+
 /// Gives the Direct3D 9 layer the player's adapter table ([`adapter_table_path`]) before the
 /// renderer's start-up asks about the adapter. Without the file nothing is loaded: the first
 /// Direct3D 9 query stops that stage and its message says how to capture the table.
 fn load_adapter_table(e: &mut Engine) {
-    if let Some(text) = adapter_table_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+    #[allow(unused_mut)]
+    let mut text = adapter_table_path().and_then(|p| std::fs::read_to_string(p).ok());
+    // Off Windows no capture tool exists: without a file, the table is made from this machine
+    // (wgpu's adapter and the reference profile) and kept where the file belongs (`fork_tables`).
+    #[cfg(not(windows))]
+    if text.is_none() {
+        text = write_linux_adapter_table();
+    }
+    if let Some(text) = text {
         engine_platform::d3d9::load_adapter_table(e, &text);
     }
     if let Some(dir) = texture_cache_path() {

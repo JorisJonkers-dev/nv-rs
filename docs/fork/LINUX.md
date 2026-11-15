@@ -49,6 +49,26 @@ that needs one still stops no run. Tests: `fork_platform::tests` and `unix_tests
 through `FindFirstFileA`, the `/proc/meminfo` parser on fixtures, the paths under a fake `XDG_DATA_HOME`) and
 `engine_unix::tests` (the uptime parser and the clock start).
 
+## Machine tables of a Linux machine (nv-linux#179)
+
+Nothing captures the adapter table on Linux, so `engine_platform::fork_tables` writes it. Decision (owner, by time to a
+working game): a shared reference profile, not a per-machine capture. The default is the owner's card, an AMD Radeon
+RX 7900 XTX on RADV (`1002:744c`, D3D9 driver `aticfx32.dll`, the file the game keys its AMD path on). At run time the
+name, vendor id and device id come from wgpu's adapter info (`d3d9_wgpu::identity`) and the driver file from the vendor;
+a software adapter (lavapipe) keeps the reference card. The capabilities and format answers are one Shader Model 3 set
+written from the Direct3D 9 structures, the same for every vendor; no Windows capture is copied. Folders are under
+`userdata_dir()`, the time zone is UTC. Without `d3d9_adapter.tsv` the host writes the generated table where that file
+belongs (git-ignored); an existing file wins, so a capture still overrides everything.
+
+Another machine: `linux_profile.txt` in the data folder (or `NV_LINUX_PROFILE`), `key = value` lines: `name`,
+`vendor_id`, `device_id` (hex), `driver`, `bias_minutes`, `userdata`, and `mode = WxH@Hz` (first is current). Display
+modes are the reference list unless the file gives them; the current monitor is not read (no window exists at this stage).
+
+Sound: without `dsound.tsv` off Windows the table is `fork_tables::no_device_sound_table()`: `DirectSoundCreate8` fails
+with `DSERR_NODRIVER`, so the game runs silent until real output lands (nv-linux#149).
+
+Not yet known: what the game does on the AMD path with this table (stop lines and counts); that needs the owner's run.
+
 ## Shader compiler off Windows (nv-linux#178, #197, #200)
 
 The six D3DX shader imports (`D3DXCompileShader`, `D3DXGetShaderConstantTable`, `D3DXGetVertexShaderProfile`,

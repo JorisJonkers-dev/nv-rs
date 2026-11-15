@@ -609,9 +609,11 @@ fn table(e: &mut Engine) -> &Table {
         let path = std::env::var_os("NV_DSOUND_TABLE")
             .map(std::path::PathBuf::from)
             .or_else(|| crate::fork_platform::data_dir().map(|d| d.join("dsound.tsv")));
-        let text = path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
+        let text = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+        // Off Windows no capture tool exists: without a file the game runs silent (fork_tables).
+        #[cfg(not(windows))]
+        let text = text.or_else(|| Some(crate::fork_tables::no_device_sound_table()));
+        let text = text
             .unwrap_or_else(|| panic!("the sound table ({path:?}) is not there: {CAPTURE_HINT}"));
         load_table(e, &text);
     }
