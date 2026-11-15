@@ -108,7 +108,9 @@ dev_ci_lite() {
   local base="${1:-origin/fork}" t0=$SECONDS line cmds
   dev_affected "$base" || return 1
   dev_cargo fmt --all -- --check || return 1
-  mapfile -t cmds < <(cd "$DEV_REPO" && python3 -I scripts/fork/components.py affected --base "$base" --commands)
+  local out; out="$(cd "$DEV_REPO" && python3 -I scripts/fork/components.py affected --base "$base" --commands)" \
+    || { echo "# ci-lite: could not compute the selection against $base (fetch it, or pass another base)" >&2; return 1; }
+  mapfile -t cmds <<<"$out"
   for line in "${cmds[@]}"; do
     [ -n "$line" ] || continue
     echo "# ci-lite: $line"
