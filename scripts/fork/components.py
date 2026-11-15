@@ -381,7 +381,7 @@ class Model:
             include += got
             status.append({"component": name, "tested": bool(got), "jobs": len(got),
                            "why": "" if got else "no crate of its test closure changed"})
-        return {"include": include, "components": status, "reason": reason, "archive": self.archive_command(include)}
+        return {"include": include, "components": status, "reason": reason, "archive": self.archive_command(include), "include_archive": [e for e in include if e.get("archive")], "include_rest": [e for e in include if not e.get("archive")]}
 
     def archive_command(self, include):
         """The one build of the archived jobs' test binaries: the union of their `--test` lists, the config and features of the first."""

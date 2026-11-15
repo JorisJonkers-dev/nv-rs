@@ -34,6 +34,8 @@ def build(a):
         if "test" not in t["kind"]:
             continue
         name = t["name"]
+        if name in seen:
+            sys.exit(f"two test targets are named {name!r}; the archive is keyed by name")
         exe = m["executable"]
         dest = os.path.basename(exe)
         shutil.copy2(exe, os.path.join(out, dest))
@@ -42,6 +44,20 @@ def build(a):
         sys.exit("no test executable in the cargo output")
     json.dump(sorted(seen.values(), key=lambda e: e["name"]), open(os.path.join(out, "manifest.json"), "w"), indent=1)
     print(f"archived {len(seen)} test binaries: {', '.join(sorted(seen))}")
+
+
+def timings(a):
+    """The slowest units of a `cargo --timings` build as a Markdown table (stdout)."""
+    import glob
+    import re
+    html = open(sorted(glob.glob(os.path.join(a.dir, "cargo-timing*.html")))[-1], encoding="utf-8").read()
+    data = json.loads(re.search(r"const UNIT_DATA = (\[.*?\]);\n", html, re.S).group(1))
+    data.sort(key=lambda u: -u["duration"])
+    print(f"Top {a.top} of {len(data)} compile units by wall time (cargo --timings; units overlap, so the sum exceeds the build)\n")
+    print("| Unit | Seconds | Codegen start (s) |\n| --- | ---: | ---: |")
+    for u in data[:a.top]:
+        mode = u.get("mode", "")
+        print(f"| {u['name']} {u['version']}{' ' + mode if mode and mode != 'todo' else ''} | {u['duration']:.1f} | {u.get('rmeta_time') or 0:.1f} |")
 
 
 def tests_of(exe, cwd):
@@ -90,6 +106,9 @@ def main():
     b = sub.add_parser("build")
     b.add_argument("--out", required=True)
     b.add_argument("--root", default=".")
+    t = sub.add_parser("timings")
+    t.add_argument("--dir", required=True)
+    t.add_argument("--top", type=int, default=20)
     r = sub.add_parser("run")
     r.add_argument("--dir", required=True)
     r.add_argument("--tests", required=True, help="comma-separated test binary names")
@@ -97,7 +116,7 @@ def main():
     r.add_argument("--timings", default=os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "timings.txt"))
     r.add_argument("rest", nargs="*")
     a = ap.parse_args()
-    build(a) if a.cmd == "build" else run(a)
+    {"build": build, "run": run, "timings": timings}[a.cmd](a)
 
 
 if __name__ == "__main__":
