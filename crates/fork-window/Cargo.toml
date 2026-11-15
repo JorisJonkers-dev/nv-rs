@@ -1,0 +1,22 @@
+[package]
+name = "fork-window"
+version = "0.1.0"
+description = "Fork-owned window layer for platforms other than Windows: a window thread, a handle registry, a wgpu surface from raw handles and DirectInput-shaped input (docs/fork/LINUX.md, stage 4)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+# Pinned with d3d9-wgpu (ADR-0007): the surface is made on the instance the device layer opens.
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan"] }
+raw-window-handle = "=0.6.2"
+
+# X11 and Wayland (Wayland's libraries are loaded at run time: one binary runs on both sessions).
+# macOS and others slot in as another module under `platform/`.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+
+[[example]]
+name = "clear"
+path = "examples/clear.rs"

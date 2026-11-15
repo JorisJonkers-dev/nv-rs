@@ -1,0 +1,47 @@
+# Fork-only. The window layer's smoke test (docs/fork/LINUX.md, "Window and input"): opens a window under Xvfb, makes a wgpu
+# surface on Mesa's software Vulkan driver (lavapipe), shows 30 cleared frames and exits 0. Not required, and not part of
+# Pipeline Complete: it needs a display stack that can fail for reasons of the runner. It runs on a change to the layer.
+name: Window smoke
+
+on:
+  pull_request:
+    paths: ['crates/fork-window/**', '.github/workflows/fork-window-smoke.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: window-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Window smoke (Xvfb, lavapipe)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: window-smoke
+          save-if: false
+      - name: Display and software Vulkan
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libx11-6 libxkbcommon-x11-0 libxcursor1 libxi6 libvulkan1 mesa-vulkan-drivers vulkan-tools
+          icds=(/usr/share/vulkan/icd.d/lvp_icd*.json)
+          echo "VK_ICD_FILENAMES=${icds[0]}" >>"$GITHUB_ENV"
+      - name: Build
+        run: cargo build --locked -p fork-window --example clear
+      - name: Smoke (X11)
+        env:
+          WINIT_UNIX_BACKEND: x11
+        run: |
+          xvfb-run -a -s '-screen 0 1280x720x24' target/debug/examples/clear --smoke | tee smoke.txt
+          grep -q 'smoke: 30 frames shown' smoke.txt
+          { echo '### Window smoke'; echo '```'; cat smoke.txt; echo '```'; } >>"$GITHUB_STEP_SUMMARY"

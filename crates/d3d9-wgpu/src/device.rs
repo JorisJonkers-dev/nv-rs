@@ -6867,7 +6867,16 @@ extern "system" {
     fn GetModuleHandleW(name: *const u16) -> isize;
 }
 
-#[cfg(not(windows))]
+/// Linux (X11, Wayland): the window is an id of the fork's window layer.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn surface_for(
+    instance: &wgpu::Instance,
+    window: isize,
+) -> Result<wgpu::Surface<'static>, String> {
+    fork_window::surface_for(instance, window)
+}
+
+#[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
 pub(crate) fn surface_for(
     _instance: &wgpu::Instance,
     _window: isize,

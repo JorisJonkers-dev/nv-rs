@@ -29,3 +29,5 @@ crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off 
 # The real-data gate (docs/fork/TESTING.md): an appended `#[cfg(test)] mod test_gate`. Not overlay paths: upstream adds `mod` lines to these files, and an overlay file would drop them (a replayed commit would then build without its module).
 crates/engine-core/src/lib.rs  # appended test_gate module
 crates/engine-havok/src/lib.rs  # appended test_gate module
+crates/d3d9-wgpu/src/device.rs  # surface_for off Windows asks fork-window (X11, Wayland); the stub stays for other targets
+crates/d3d9-wgpu/Cargo.toml  # fork-window as a dependency on Linux
