@@ -2,28 +2,35 @@
  "_note": "cargo metadata --no-deps of the workspace, reduced to what scripts/fork/components.py reads (name, manifest, features, dependencies: workspace ones with kind and the features they switch on, external ones by name and kind only). Refresh: see docs/fork/CI.md.",
  "packages": [
   {
-   "dependencies": [
-    {
-     "features": [],
-     "kind": null,
-     "name": "host"
-    }
-   ],
+   "dependencies": [],
    "features": [],
-   "manifest_path": "/ws/viewer/Cargo.toml",
-   "name": "nv-viewer"
+   "manifest_path": "/ws/crates/bink/Cargo.toml",
+   "name": "bink"
   },
   {
    "dependencies": [
     {
      "features": [],
      "kind": null,
-     "name": "engine"
-    },
+     "name": "esm"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/bsa/Cargo.toml",
+   "name": "bsa"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/d3d9-stream/Cargo.toml",
+   "name": "d3d9-stream"
+  },
+  {
+   "dependencies": [
     {
      "features": [],
      "kind": null,
-     "name": "engine-platform"
+     "name": "d3d9-stream"
     },
     {
      "features": [],
@@ -31,48 +38,52 @@
      "name": "esm"
     },
     {
-     "features": [],
      "kind": null,
-     "name": "jip"
+     "name": "naga"
+    },
+    {
+     "kind": null,
+     "name": "raw-window-handle"
+    },
+    {
+     "kind": null,
+     "name": "wgpu"
     },
     {
      "features": [],
      "kind": null,
-     "name": "nvse"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "play-patch"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "uio"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "jg"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "showoff"
-    },
-    {
-     "kind": null,
-     "name": "zlib-rs"
-    },
-    {
-     "features": [],
-     "kind": "dev",
-     "name": "bsa"
+     "name": "fork-window"
     }
    ],
    "features": [],
-   "manifest_path": "/ws/crates/host/Cargo.toml",
-   "name": "host"
+   "manifest_path": "/ws/crates/d3d9-wgpu/Cargo.toml",
+   "name": "d3d9-wgpu"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "d3d9-wgpu"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/d3dx-shader/Cargo.toml",
+   "name": "d3dx-shader"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/d3dx-shader/Cargo.toml",
+   "name": "d3dx-shader"
+  },
+  {
+   "dependencies": [],
+   "features": [
+    "software-truncation"
+   ],
+   "manifest_path": "/ws/crates/d3dx-tex/Cargo.toml",
+   "name": "d3dx-tex"
   },
   {
    "dependencies": [
@@ -217,18 +228,6 @@
    ],
    "manifest_path": "/ws/crates/engine-core/Cargo.toml",
    "name": "engine-core"
-  },
-  {
-   "dependencies": [
-    {
-     "features": [],
-     "kind": null,
-     "name": "engine-core"
-    }
-   ],
-   "features": [],
-   "manifest_path": "/ws/crates/engine-gamebryo/Cargo.toml",
-   "name": "engine-gamebryo"
   },
   {
    "dependencies": [
@@ -475,7 +474,7 @@
     {
      "features": [],
      "kind": "dev",
-     "name": "engine-fallout-env"
+     "name": "engine-fallout-facegen"
     },
     {
      "features": [],
@@ -519,37 +518,8 @@
     }
    ],
    "features": [],
-   "manifest_path": "/ws/crates/engine-fallout-facegen/Cargo.toml",
-   "name": "engine-fallout-facegen"
-  },
-  {
-   "dependencies": [
-    {
-     "features": [],
-     "kind": null,
-     "name": "engine-core"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "engine-gamebryo"
-    }
-   ],
-   "features": [],
-   "manifest_path": "/ws/crates/engine-havok/Cargo.toml",
-   "name": "engine-havok"
-  },
-  {
-   "dependencies": [
-    {
-     "features": [],
-     "kind": null,
-     "name": "engine-core"
-    }
-   ],
-   "features": [],
-   "manifest_path": "/ws/crates/engine-speedtree/Cargo.toml",
-   "name": "engine-speedtree"
+   "manifest_path": "/ws/crates/engine-fallout-env/Cargo.toml",
+   "name": "engine-fallout-env"
   },
   {
    "dependencies": [
@@ -598,7 +568,7 @@
     {
      "features": [],
      "kind": "dev",
-     "name": "engine-fallout-facegen"
+     "name": "engine-fallout-env"
     },
     {
      "features": [],
@@ -642,8 +612,8 @@
     }
    ],
    "features": [],
-   "manifest_path": "/ws/crates/engine-fallout-env/Cargo.toml",
-   "name": "engine-fallout-env"
+   "manifest_path": "/ws/crates/engine-fallout-facegen/Cargo.toml",
+   "name": "engine-fallout-facegen"
   },
   {
    "dependencies": [
@@ -1408,10 +1378,33 @@
    "name": "engine-fallout-unplaced-b"
   },
   {
-   "dependencies": [],
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    }
+   ],
    "features": [],
-   "manifest_path": "/ws/crates/frame-model/Cargo.toml",
-   "name": "frame-model"
+   "manifest_path": "/ws/crates/engine-gamebryo/Cargo.toml",
+   "name": "engine-gamebryo"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-gamebryo"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/engine-havok/Cargo.toml",
+   "name": "engine-havok"
   },
   {
    "dependencies": [
@@ -1472,89 +1465,16 @@
    "name": "engine-platform"
   },
   {
-   "dependencies": [],
-   "features": [],
-   "manifest_path": "/ws/crates/bink/Cargo.toml",
-   "name": "bink"
-  },
-  {
-   "dependencies": [],
-   "features": [],
-   "manifest_path": "/ws/crates/d3d9-stream/Cargo.toml",
-   "name": "d3d9-stream"
-  },
-  {
-   "dependencies": [
-    {
-     "features": [],
-     "kind": "dev",
-     "name": "d3d9-wgpu"
-    }
-   ],
-   "features": [],
-   "manifest_path": "/ws/crates/d3dx-shader/Cargo.toml",
-   "name": "d3dx-shader"
-  },
-  {
-   "dependencies": [],
-   "features": [],
-   "manifest_path": "/ws/crates/d3dx-shader/Cargo.toml",
-   "name": "d3dx-shader"
-  },
-  {
-   "dependencies": [],
-   "features": [
-    "software-truncation"
-   ],
-   "manifest_path": "/ws/crates/d3dx-tex/Cargo.toml",
-   "name": "d3dx-tex"
-  },
-  {
-   "dependencies": [],
-   "features": [],
-   "manifest_path": "/ws/crates/mp3/Cargo.toml",
-   "name": "mp3"
-  },
-  {
-   "dependencies": [],
-   "features": [],
-   "manifest_path": "/ws/crates/vorbis/Cargo.toml",
-   "name": "vorbis"
-  },
-  {
    "dependencies": [
     {
      "features": [],
      "kind": null,
-     "name": "d3d9-stream"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "esm"
-    },
-    {
-     "kind": null,
-     "name": "naga"
-    },
-    {
-     "kind": null,
-     "name": "raw-window-handle"
-    },
-    {
-     "kind": null,
-     "name": "wgpu"
+     "name": "engine-core"
     }
    ],
    "features": [],
-   "manifest_path": "/ws/crates/d3d9-wgpu/Cargo.toml",
-   "name": "d3d9-wgpu"
-  },
-  {
-   "dependencies": [],
-   "features": [],
-   "manifest_path": "/ws/crates/esm/Cargo.toml",
-   "name": "esm"
+   "manifest_path": "/ws/crates/engine-speedtree/Cargo.toml",
+   "name": "engine-speedtree"
   },
   {
    "dependencies": [
@@ -1569,38 +1489,104 @@
    "name": "engine-typed"
   },
   {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/esm/Cargo.toml",
+   "name": "esm"
+  },
+  {
    "dependencies": [
     {
-     "features": [],
      "kind": null,
-     "name": "engine-core"
+     "name": "raw-window-handle"
     },
     {
-     "features": [],
      "kind": null,
-     "name": "nvse"
+     "name": "wgpu"
+    },
+    {
+     "kind": null,
+     "name": "winit"
     }
    ],
    "features": [],
-   "manifest_path": "/ws/crates/jip/Cargo.toml",
-   "name": "jip"
+   "manifest_path": "/ws/crates/fork-window/Cargo.toml",
+   "name": "fork-window"
+  },
+  {
+   "dependencies": [],
+   "features": [
+    "write"
+   ],
+   "manifest_path": "/ws/crates/fos/Cargo.toml",
+   "name": "fos"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/frame-model/Cargo.toml",
+   "name": "frame-model"
   },
   {
    "dependencies": [
     {
      "features": [],
      "kind": null,
-     "name": "engine-core"
+     "name": "engine"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-platform"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "esm"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "jip"
     },
     {
      "features": [],
      "kind": null,
      "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "play-patch"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "uio"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "jg"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "showoff"
+    },
+    {
+     "kind": null,
+     "name": "zlib-rs"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "bsa"
     }
    ],
    "features": [],
-   "manifest_path": "/ws/crates/showoff/Cargo.toml",
-   "name": "showoff"
+   "manifest_path": "/ws/crates/host/Cargo.toml",
+   "name": "host"
   },
   {
    "dependencies": [
@@ -1633,8 +1619,32 @@
     }
    ],
    "features": [],
-   "manifest_path": "/ws/crates/uio/Cargo.toml",
-   "name": "uio"
+   "manifest_path": "/ws/crates/jip/Cargo.toml",
+   "name": "jip"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/mp3/Cargo.toml",
+   "name": "mp3"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "host"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/viewer/Cargo.toml",
+   "name": "nv-viewer"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/nvinspect/Cargo.toml",
+   "name": "nvinspect"
   },
   {
    "dependencies": [
@@ -1670,26 +1680,40 @@
     {
      "features": [],
      "kind": null,
-     "name": "esm"
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
     }
    ],
    "features": [],
-   "manifest_path": "/ws/crates/bsa/Cargo.toml",
-   "name": "bsa"
+   "manifest_path": "/ws/crates/showoff/Cargo.toml",
+   "name": "showoff"
   },
   {
-   "dependencies": [],
-   "features": [
-    "write"
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    }
    ],
-   "manifest_path": "/ws/crates/fos/Cargo.toml",
-   "name": "fos"
+   "features": [],
+   "manifest_path": "/ws/crates/uio/Cargo.toml",
+   "name": "uio"
   },
   {
    "dependencies": [],
    "features": [],
-   "manifest_path": "/ws/crates/nvinspect/Cargo.toml",
-   "name": "nvinspect"
+   "manifest_path": "/ws/crates/vorbis/Cargo.toml",
+   "name": "vorbis"
   }
  ],
  "workspace_root": "/ws"

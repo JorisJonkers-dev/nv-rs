@@ -223,3 +223,24 @@ The `rendering` component's Linux job installs Mesa's software Vulkan driver (`m
 `scripts/fork/gpu_gate.py` reads the log, writes the executed and skipped counts to the job summary and fails the job when
 any of them skipped. The driver version is printed in the summary. `window.rs` is Windows only. Replaying a synthetic
 recording with `d3d9-replay` against a stored frame hash is not done yet (tracked in nv-linux).
+
+## Window and input (stage 4): `crates/fork-window`
+
+A fork-owned crate, additive: Windows keeps `engine-platform`'s window thread and its raw input. Off Windows the device
+layer's `surface_for` (`d3d9-wgpu/src/device.rs`, the stub that said the window layer's port was to come) asks
+`fork_window::surface_for`; that and the dependency in `d3d9-wgpu/Cargo.toml` (Linux only) are the whole change to a
+file upstream owns (both in `.fork/allowed-divergence`).
+
+- A window is an id (the device API passes a bare `isize`). `Window::open(request, on_change)` runs a winit 0.30.13 event
+  loop on a thread of its own (`with_any_thread` for X11 and Wayland), creates the window sized from the request, and puts
+  its raw display and window handles in a registry. `surface_for` makes the wgpu surface from them (Wayland, Xlib, XCB).
+  Wayland's libraries are loaded at run time (`wayland-dlopen`); winit chooses Wayland in a Wayland session, else X11.
+- Input is kept in the shape of `d3d9real::Input`: keys by DirectInput key code (`dik.rs`, a table with tests), mouse
+  buttons in DirectInput's order, relative motion (`DeviceEvent::MouseMotion`, the pointer's own moves where the
+  compositor sends none) and the wheel in 120s. `take_input(id)` and `held_keys(id)` read it once a frame; losing the
+  focus releases everything. The close request is a flag (`close_requested`), not a process exit: the host decides.
+- Shutdown: `Window::shutdown` (or drop) ends the loop and the thread; drop every surface first.
+- Smoke: `cargo run -p fork-window --example clear -- --smoke` opens a window, clears 30 frames through wgpu on Vulkan and
+  exits 0. `.github/workflows/fork-window-smoke.yml` runs it under Xvfb on lavapipe (not required, outside Pipeline Complete).
+- Not done (nv-linux issues): the game's call sites do not use the registry yet (`engine-platform` window and
+  `player_move.rs` input merge), Wayland pointer lock and cursor hold, the borderless refit and refresh rate, gamepads, IME.
