@@ -28,6 +28,8 @@ d3d9-wgpu = { path = "../d3d9-wgpu" }
 # for GlobalMemoryStatus(Ex) (process.rs).
 [target.'cfg(not(windows))'.dependencies]
 fork-window = { path = "../fork-window" }
+# The sound output off Windows (fork_sound.rs): libpulse-simple loaded at run time, as d3dx-shader loads vkd3d.
+libloading = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }

@@ -34,8 +34,8 @@
         # The test suite runs in the fork's CI; this build is the package. The smoke test below runs the result.
         doCheck = false;
         postInstall = ''
-          # The shader compiler loads libvkd3d-shader at run time (docs/fork/LINUX.md): the package carries it.
-          wrapProgram $out/bin/nv-viewer --set-default NV_VKD3D_SHADER ${pkgs.vkd3d.lib}/lib/libvkd3d-shader.so.1
+          # The shader compiler loads libvkd3d-shader, and the sound output libpulse-simple, at run time (docs/fork/LINUX.md): the package carries both.
+          wrapProgram $out/bin/nv-viewer --set-default NV_VKD3D_SHADER ${pkgs.vkd3d.lib}/lib/libvkd3d-shader.so.1 --set-default NV_PULSE_SIMPLE ${pkgs.libpulseaudio}/lib/libpulse-simple.so.0
           install -Dm755 packaging/linux/nv-rs-launch $out/bin/nv-rs-launch
           install -Dm644 packaging/linux/nv-rs.png $out/share/icons/hicolor/256x256/apps/nv-rs.png
           install -Dm644 packaging/linux/README.txt $out/share/doc/nv-rs/README.txt
