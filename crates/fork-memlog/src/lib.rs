@@ -54,7 +54,9 @@ pub struct MemLog {
 pub fn parse_interval(v: Option<&str>) -> Option<Duration> {
     let s = v?.trim();
     let secs: f64 = s.parse().ok()?;
-    (0.05..=86_400.0).contains(&secs).then(|| Duration::from_secs_f64(secs))
+    (0.05..=86_400.0)
+        .contains(&secs)
+        .then(|| Duration::from_secs_f64(secs))
 }
 
 impl MemLog {
