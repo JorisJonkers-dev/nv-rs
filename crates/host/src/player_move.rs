@@ -1273,7 +1273,7 @@ impl PlayerMovement {
         match turn {
             Ok(()) => {
                 self.main_frames += 1;
-                if crate::uncap::screen(e) != crate::uncap::Screen::Loading {
+                if play_clock_used() && crate::uncap::screen(e) != crate::uncap::Screen::Loading {
                     self.script_frames += 1;
                 }
                 // `NV_REPEATABLE`: the virtual clock moves on to the frame's end.
@@ -1499,6 +1499,12 @@ fn script_frame(token: &str) -> Option<(bool, u64)> {
         Some(rest) => Some((true, rest.parse().ok()?)),
         None => Some((false, token.parse().ok()?)),
     }
+}
+
+/// Whether a script item counts play frames (so [`PlayerMovement::script_frames`] is kept; reading
+/// the screen costs a few reads of the game's memory on each frame).
+fn play_clock_used() -> bool {
+    key_script().iter().any(|k| k.0) || mouse_script().iter().any(|m| m.0)
 }
 
 /// One `NV_MOVE_KEYS` item: whether its frame counts play frames only, the first frame, the key,
