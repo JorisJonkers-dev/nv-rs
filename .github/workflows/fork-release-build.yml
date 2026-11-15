@@ -334,8 +334,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # The repository only allows GitHub-owned and a few listed actions, so Nix comes from its own installer (single user).
       - name: Install Nix
-        uses: cachix/install-nix-action@1ca7d21a94afc7c957383a2d217460d980de4934 # v31.10.1
+        run: |
+          set -euo pipefail
+          sudo mkdir -m 0755 /nix
+          sudo chown "$(id -un)" /nix
+          curl --proto '=https' --tlsv1.2 -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon
+          mkdir -p ~/.config/nix
+          echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
 
       - name: Build the package
         run: nix build --print-build-logs --no-link --print-out-paths .#nv-viewer
