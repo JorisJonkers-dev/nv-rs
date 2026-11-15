@@ -67,8 +67,27 @@
         touch $out
       '';
 
-      devShells.${system}.default = pkgs.mkShell {
+      devShells.${system} = {
+      default = pkgs.mkShell {
         packages = [ toolchain pkgs.pkg-config ];
+      };
+
+      # The environment the fork's Linux CI tests run in (docs/fork/CI-NIX.md): the pinned compiler, a recent
+      # libvkd3d-shader (the runners' apt one is too old for HLSL to d3dbc), the software Vulkan driver (lavapipe)
+      # with the Vulkan loader, and a virtual X server. Everything, the C library included, comes from the one pinned
+      # nixpkgs, so the libraries `dlopen`ed by a test binary match its C library. `nix develop .#ci --command ...`.
+      ci = pkgs.mkShell {
+        packages = [ toolchain pkgs.pkg-config pkgs.xvfb pkgs.xvfb-run pkgs.vulkan-tools ];
+        shellHook = ''
+          export NV_VKD3D_SHADER=${pkgs.vkd3d.lib}/lib/libvkd3d-shader.so.1
+          # The vkd3d tests fail, not skip, when the library cannot be loaded (d3dx-shader's NV_REQUIRE_VKD3D).
+          export NV_REQUIRE_VKD3D=1
+          export VK_ICD_FILENAMES=${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json
+          export LD_LIBRARY_PATH=${pkgs.vulkan-loader}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+          export NV_WGPU_BACKEND=software
+          export RUST_TEST_NOCAPTURE=1
+        '';
+      };
       };
     };
 }

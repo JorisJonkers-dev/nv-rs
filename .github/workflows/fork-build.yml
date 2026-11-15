@@ -105,45 +105,53 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       PY: ${{ matrix.os == 'windows-latest' && 'python' || 'python3' }}
+      # Linux jobs that run in the flake's ci shell.
+      IN_NIX: ${{ matrix.os == 'ubuntu-latest' && (matrix.component == 'rendering' || matrix.component == 'platform') && '1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup toolchain install
+      # Linux `rendering` and `platform` run inside the flake's `ci` shell (docs/fork/CI-NIX.md): the one place with a
+      # libvkd3d-shader recent enough for HLSL to d3dbc, lavapipe and the compiler, all of one C library.
+      - name: Rust toolchain
+        if: ${{ env.IN_NIX != '1' }}
+        run: rustup toolchain install
       # Only the crates.io dependencies are restored (workspace crates are not cached): worth about 45 s.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ${{ matrix.workspaces }}
-          shared-key: ${{ matrix.cache }}-${{ runner.os }}
+          shared-key: ${{ matrix.cache }}-${{ runner.os }}${{ env.IN_NIX == '1' && '-nix' || '' }}
           save-if: ${{ github.ref == 'refs/heads/fork' }}
-      # Mesa's software Vulkan driver (lavapipe), so the d3d9-wgpu GPU tests run on a device here instead of skipping.
-      # NV_WGPU_BACKEND=software asks the backend for the software adapter; the tests print a line when they skip.
-      - name: Software Vulkan (lavapipe)
-        if: ${{ runner.os == 'Linux' && matrix.component == 'rendering' }}
+      # The repository only allows GitHub-owned and a few listed actions, so Nix comes from its own installer
+      # (single user), as in fork-release-build.yml. Binary cache: cache.nixos.org only (docs/fork/CI-NIX.md).
+      - name: Nix and the ci shell
+        if: ${{ env.IN_NIX == '1' }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan1 vulkan-tools
-          icds=(/usr/share/vulkan/icd.d/lvp_icd*.json)
-          icd="${icds[0]}"
-          {
-            echo "VK_ICD_FILENAMES=$icd"
-            echo "NV_WGPU_BACKEND=software"
-            echo "RUST_TEST_NOCAPTURE=1"
-          } >>"$GITHUB_ENV"
-          dpkg-query -W -f='lavapipe driver: mesa-vulkan-drivers ${Version}\n' mesa-vulkan-drivers | tee -a "$GITHUB_STEP_SUMMARY"
-          VK_ICD_FILENAMES="$icd" vulkaninfo --summary | grep -E 'deviceName|deviceType|driverInfo' | tee -a "$GITHUB_STEP_SUMMARY"
-      # The shader compiler seam's tests (crates/d3dx-shader, engine-platform's d3dxshader) compile synthetic HLSL with
-      # libvkd3d-shader at run time and skip, printing a line, where it is missing or too old to produce d3dbc.
-      - name: libvkd3d-shader
-        if: ${{ runner.os == 'Linux' && (matrix.component == 'rendering' || matrix.component == 'platform') }}
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libvkd3d-shader1
-          dpkg-query -W -f='libvkd3d-shader1 ${Version}\n' libvkd3d-shader1 | tee -a "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          start=$SECONDS
+          sudo mkdir -m 0755 /nix
+          sudo chown "$(id -un)" /nix
+          curl --proto '=https' --tlsv1.2 -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon
+          mkdir -p ~/.config/nix
+          echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+          installed=$((SECONDS - start))
+          export PATH="$HOME/.nix-profile/bin:$PATH"
+          # Realises the shell (compiler, vkd3d, mesa, Vulkan loader) so the test step's time is the tests' own.
+          nix develop .#ci --print-build-logs --command bash -c "echo \"libvkd3d-shader: \$NV_VKD3D_SHADER\"; vulkaninfo --summary | grep -E 'deviceName|driverInfo'" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Nix install ${installed} s, ci shell $((SECONDS - start - installed)) s" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Test ${{ matrix.component }}
         env:
           SCRIPT: ${{ matrix.script }}
-        run: bash scripts/fork/run-component.sh
+        run: |
+          if [ "$IN_NIX" = 1 ]; then
+            nix develop .#ci --command bash scripts/fork/run-component.sh
+          else
+            bash scripts/fork/run-component.sh
+          fi
+      - name: Shader compiler tests ran against libvkd3d-shader
+        if: ${{ !cancelled() && env.IN_NIX == '1' }}
+        run: python3 -I scripts/fork/vkd3d_gate.py "$RUNNER_TEMP/test.log" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: GPU tests ran on a device
         if: ${{ !cancelled() && runner.os == 'Linux' && matrix.component == 'rendering' }}
         run: python3 -I scripts/fork/gpu_gate.py "$RUNNER_TEMP/test.log" | tee -a "$GITHUB_STEP_SUMMARY"
