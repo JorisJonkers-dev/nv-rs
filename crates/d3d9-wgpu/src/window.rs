@@ -217,6 +217,8 @@ pub(crate) struct Window {
     /// that keeps answering suboptimal must not have the swap chain made again, and the GPU waited
     /// for, on every frame.
     suboptimal_at: Option<(u32, u32)>,
+    /// The last tiny client size said ([`usable_size`]).
+    tiny_said: Option<(u32, u32)>,
     rest: Backoff,
     /// The [`CHANGED`] count last seen.
     seen_changes: u64,
@@ -313,6 +315,7 @@ impl Window {
             configured: false,
             stale: true,
             suboptimal_at: None,
+            tiny_said: None,
             rest: Backoff::new(),
             seen_changes: CHANGED.load(std::sync::atomic::Ordering::Relaxed),
             refresh: refresh_interval(),
@@ -551,6 +554,19 @@ impl Window {
         if width == 0 || height == 0 {
             return Err(NoFrame::NoArea);
         }
+        if !usable_size(width, height) {
+            // A swap chain a few pixels across shows the whole picture as a handful of giant
+            // pixels (the window of a game's New Game once did): none is made, the window has no
+            // area for a frame until it is a real size again.
+            if self.tiny_said != Some((width, height)) {
+                self.tiny_said = Some((width, height));
+                eprintln!(
+                    "NV_D3D9 wgpu: stop: the window's client area is {width}x{height}, under {MIN_SIDE}x{MIN_SIDE}: no frame is made for it (the swap chain stays {}x{})",
+                    self.config.width, self.config.height
+                );
+            }
+            return Err(NoFrame::NoArea);
+        }
         let resized = (width, height) != (self.config.width, self.config.height);
         if always || resized || self.stale || !self.configured {
             self.config.width = width;
@@ -598,6 +614,14 @@ impl Window {
         eprintln!("NV_D3D9 wgpu: the window's surface was lost: made again");
         self.fit(device, true)
     }
+}
+
+/// The smallest side of a window's client area a frame is made for.
+pub(crate) const MIN_SIDE: u32 = 32;
+
+/// Whether a client area of `width` by `height` is a size to configure a swap chain for.
+pub(crate) fn usable_size(width: u32, height: u32) -> bool {
+    width >= MIN_SIDE && height >= MIN_SIDE
 }
 
 /// The client area's size of `hwnd` in the calling thread's pixels (the window's own, once
@@ -727,6 +751,18 @@ extern "system" {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A client area of 6 by 4 (the owner's New Game picture was that many giant pixels) gets no
+    /// swap chain; real sizes do, a 640x480 window and the smallest the game's own window makes.
+    #[test]
+    fn a_client_area_a_few_pixels_across_is_no_size_for_a_frame() {
+        assert!(!usable_size(6, 4));
+        assert!(!usable_size(1920, 4));
+        assert!(!usable_size(31, 1080));
+        assert!(usable_size(32, 32));
+        assert!(usable_size(640, 480));
+        assert!(usable_size(1920, 1080));
+    }
 
     /// `NV_PRESENT` wins; with none the game's interval picks (`Immediate` for the immediate
     /// interval), else `Mailbox` where it is on offer and wanted by default, else `Fifo`.

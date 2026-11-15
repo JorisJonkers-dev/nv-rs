@@ -55,3 +55,12 @@ line, no panic. Exit status is 0 only if all pass; the viewer exit status 124 is
 that script when the wording changes.
 
 First run on `fork` at #66 (2026-11-15, 45 s, RX 7900 XTX on Wayland): 8 of 8 checks pass, 1920x1080 at 144 Hz, frame counter 1 to about 8800, 0 wgpu errors.
+
+## GPU memory safety
+
+The amdgpu driver once ran out of memory during a New Game and took the compositor with it. Two guards now stand in front of that:
+
+- `nv-rs-run` samples VRAM and GTT every 2 s into `<log>.gpumem` and stops the game at `NV_VRAM_LIMIT_PCT` (default 90; use 50 while debugging).
+- `d3d9-wgpu` counts the bytes of every texture and buffer it makes (`budget.rs`) and refuses what goes past `NV_GPU_BUDGET_MB` (default 80 % of the first DRM card's `mem_info_vram_total`; 0 switches it off) or a texture side over 16384, with one `NV_D3D9 wgpu: stop: ...` line. Every 600th present prints the budget and wgpu's allocator report (`gpu memory made by the layer: ...; driver allocator ...`). A window client area under 32 pixels a side gets no swap chain (`stop: the window's client area is WxH`), and each (re)made set of back buffers is logged (`back buffers WxH`).
+
+To test without risking the desktop, run with `NV_D3D9_OFFSCREEN=1 NV_HUD=0 NV_VRAM_LIMIT_PCT=50`; there is no window, so nothing can reach the compositor.
