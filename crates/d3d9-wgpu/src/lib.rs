@@ -16,6 +16,7 @@
 
 mod ahead;
 mod answers;
+mod budget;
 mod cache;
 pub mod device;
 #[cfg(test)]

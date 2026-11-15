@@ -4071,3 +4071,57 @@ fn a_quad_of_pre_transformed_vertices_without_shaders_draws_its_texture_at_its_p
     assert_eq!(at(3, 3), 0, "above the quad's top edge");
     assert_eq!(g.b.device().expect("the device").wgpu_errors(), 0);
 }
+
+/// A game that makes render targets without end, or one of an absurd size, is stopped by the
+/// layer's budget (`NV_GPU_BUDGET_MB`) with a refusal, not by the driver running out of memory:
+/// the bytes of dropped textures are given back, an over-sized texture is refused whatever the
+/// budget, and wgpu reports no error for any of it.
+#[test]
+fn a_texture_leak_and_an_absurd_texture_stop_at_the_gpu_budget() {
+    let Some(mut g) = Gpu::with_env(32, 1, &[("NV_GPU_BUDGET_MB", "40")]) else {
+        return;
+    };
+    let mut made = 0u32;
+    for k in 0..200u32 {
+        // 1024 by 1024 A8R8G8B8: 4 MB each, nine or ten of them fit.
+        let (texture, level) = (0x3000 + 2 * k, 0x3001 + 2 * k);
+        let levels = words(&[level]);
+        g.run(Cmd::CreateTexture {
+            device: DEVICE,
+            texture,
+            levels: Data::Bytes(&levels),
+            width: 1024,
+            height: 1024,
+            usage: 1,
+            format: A8R8G8B8,
+            pool: 0,
+        });
+        made = k + 1;
+    }
+    assert_eq!(made, 200);
+    let (live, refused) = g.b.device().expect("the device").gpu_budget_for_tests();
+    assert!(
+        live <= 40 << 20,
+        "live {live} bytes is over the 40 MB budget"
+    );
+    assert!(live >= 36 << 20, "the textures that fit were made: {live}");
+    assert!(
+        (190..=191).contains(&refused),
+        "all but the nine or ten that fit were refused: {refused}"
+    );
+    // An absurd size: refused at any budget, no giant allocation, no wgpu error.
+    let levels = words(&[0x5001]);
+    g.run(Cmd::CreateTexture {
+        device: DEVICE,
+        texture: 0x5000,
+        levels: Data::Bytes(&levels),
+        width: 1 << 20,
+        height: 1 << 20,
+        usage: 1,
+        format: A8R8G8B8,
+        pool: 0,
+    });
+    let d = g.b.device().expect("the device");
+    assert_eq!(d.gpu_budget_for_tests().1, refused + 1);
+    assert_eq!(d.wgpu_errors(), 0);
+}

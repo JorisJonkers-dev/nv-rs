@@ -8,6 +8,7 @@
 //! state (pipelines, shader modules, samplers, bind groups) are where the speed work starts.
 
 use crate::answers::QueryAnswers;
+use crate::budget;
 use crate::cache;
 use crate::fixed;
 use crate::format::{self, d3dfmt, Format};
@@ -46,6 +47,8 @@ pub(crate) struct Tex {
     samples: u32,
     id: u64,
     batch: AtomicU64,
+    /// Its bytes in the layer's video-memory budget, given back when the texture is dropped.
+    _charge: budget::Charge,
 }
 
 /// A surface: a level (and face) of a texture, or a standalone render target or depth surface
@@ -67,6 +70,7 @@ pub(crate) struct Buf {
     buffer: wgpu::Buffer,
     index32: bool,
     batch: AtomicU64,
+    _charge: budget::Charge,
 }
 
 pub(crate) struct Shader {
@@ -771,6 +775,8 @@ pub struct Device {
     /// The copies of textures a draw samples while drawing into them, by the texture's id
     /// ([`Device::copy_for_sampling`]).
     target_copies: Map<u64, Arc<Tex>>,
+    /// The video memory the textures and buffers made here may use ([`budget`]).
+    budget: Arc<budget::Budget>,
     /// Textures and surfaces destroyed since the last `Present`, by id: the cached bind groups and
     /// depth stand-ins that hold them are dropped then ([`Device::purge_destroyed`]).
     destroyed: HashSet<u64>,
@@ -1206,6 +1212,7 @@ impl Device {
             next_count_slot: 0,
             reduce: Map::default(),
             target_copies: Map::default(),
+            budget: budget::Budget::from_environment(),
             destroyed: HashSet::new(),
             next_id: 1,
             presents: 0,
@@ -1286,6 +1293,30 @@ impl Device {
         }
     }
 
+    /// One `stop:` line the first time (then every 1000th) an allocation is refused: the game
+    /// goes on without the object instead of the driver running out of memory.
+    fn refuse_allocation(
+        &mut self,
+        what: &str,
+        width: u32,
+        height: u32,
+        bytes: u64,
+        why: &budget::Refusal,
+    ) {
+        let n = self.budget.refused();
+        if n == 1 || n % 1000 == 0 {
+            let reason = match why {
+                budget::Refusal::Size => "a side past the largest the layer makes",
+                budget::Refusal::Budget => "the layer's video-memory budget is used up",
+            };
+            eprintln!(
+                "NV_D3D9 wgpu: stop: a {what} of {width}x{height} ({:.1} MB) is refused: {reason}; {} (refusal {n})",
+                bytes as f64 / 1_048_576.0,
+                self.budget.report()
+            );
+        }
+    }
+
     fn make_back_buffers(
         &mut self,
         pp: &PresentParameters,
@@ -1298,6 +1329,13 @@ impl Device {
             pp.format
         };
         self.back_buffers = back_buffers.to_vec();
+        eprintln!(
+            "NV_D3D9 wgpu: back buffers {}x{} format {format:#x} ({} of them, depth {})",
+            pp.width,
+            pp.height,
+            back_buffers.len(),
+            pp.auto_depth
+        );
         for &h in back_buffers {
             let s = self.new_surface(pp.width, pp.height, format, false, 1);
             if let Some(s) = s {
@@ -1363,6 +1401,33 @@ impl Device {
             self.listed_new = true;
         }
         let layers = if cube { 6 } else { 1 };
+        let side = self
+            .device
+            .limits()
+            .max_texture_dimension_2d
+            .min(budget::MAX_SIDE);
+        let bytes = budget::texture_bytes(
+            width,
+            height,
+            levels,
+            layers,
+            samples,
+            format.bytes,
+            format.block,
+        );
+        let charge = if width > side || height > side {
+            self.budget.note_refused();
+            Err(budget::Refusal::Size)
+        } else {
+            self.budget.take(width, height, bytes)
+        };
+        let charge = match charge {
+            Ok(c) => c,
+            Err(why) => {
+                self.refuse_allocation("texture", width, height, bytes, &why);
+                return None;
+            }
+        };
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -1410,6 +1475,7 @@ impl Device {
             samples,
             id,
             batch: AtomicU64::new(0),
+            _charge: charge,
         }))
     }
 
@@ -1571,6 +1637,13 @@ impl Device {
     pub(crate) fn create_buffer(&mut self, buffer: Handle, index: bool, length: u32, format: u32) {
         self.st.bound.forget(buffer);
         let size = u64::from(length.max(4).div_ceil(4) * 4);
+        let charge = match self.budget.take(1, 1, size) {
+            Ok(c) => c,
+            Err(why) => {
+                self.refuse_allocation("buffer", length, 1, size, &why);
+                return;
+            }
+        };
         let wgpu_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size,
@@ -1585,6 +1658,7 @@ impl Device {
             buffer: wgpu_buffer,
             index32: index && format == 102,
             batch: AtomicU64::new(0),
+            _charge: charge,
         });
         self.objects
             .insert(buffer, Obj::Buffer(b, vec![0; size as usize]));
@@ -6225,6 +6299,23 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                     w.configures, w.refused
                 ))
             );
+            let alloc = self
+                .device
+                .generate_allocator_report()
+                .map_or(String::new(), |r| {
+                    format!(
+                        "; driver allocator {:.1} MB allocated in {} blocks, {:.1} MB reserved",
+                        r.total_allocated_bytes as f64 / 1_048_576.0,
+                        r.blocks.len(),
+                        r.total_reserved_bytes as f64 / 1_048_576.0
+                    )
+                });
+            eprintln!(
+                "NV_D3D9 wgpu: present {frame}: {}{alloc}; {} target copies, {} count targets",
+                self.budget.report(),
+                self.target_copies.len(),
+                self.count_targets.len()
+            );
             self.report_made();
         }
     }
@@ -6409,6 +6500,12 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// Whether the device submits on a queue thread ([`Submitter`]; tests).
     pub fn has_queue_thread(&self) -> bool {
         self.submitter.is_some()
+    }
+
+    /// The layer's video-memory budget as it stands: live bytes and allocations refused (tests).
+    pub fn gpu_budget_for_tests(&self) -> (u64, u64) {
+        self.sync();
+        (self.budget.live(), self.budget.refused())
     }
 
     /// The errors wgpu reported so far (a refused pass or submit among them; tests).
