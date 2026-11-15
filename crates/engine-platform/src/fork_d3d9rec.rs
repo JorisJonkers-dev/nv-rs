@@ -96,6 +96,13 @@ fn watch_close(id: isize) {
         .name("nv-window-close".into())
         .spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(50));
+            if d3d9_wgpu::device_lost() {
+                eprintln!(
+                    "NV_D3D9: the graphics device was lost: the run ends (see the line above)"
+                );
+                crate::run_exit_hooks();
+                crate::end_process(1);
+            }
             if fork_window::close_requested(id) {
                 eprintln!("NV_D3D9: the game's window was closed: the run ends");
                 crate::run_exit_hooks();
