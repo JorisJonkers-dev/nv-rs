@@ -1,19 +1,24 @@
 # Fork-only. release-please keeps a release PR open and, when it is merged, tags vX.Y.Z and creates the
 # GitHub Release (org standard). It never touches Cargo.toml or Cargo.lock (release-type simple), so
-# distribution/DEPENDENCY-LOCK.sha256 stays valid. The Windows programs come from fork-release-build.yml.
+# distribution/DEPENDENCY-LOCK.sha256 stays valid. The Linux tarball, the Windows ZIP and installer and the release files are built and attached by
+# fork-release-build.yml, dispatched below (a tag made with the default token starts no workflow of its own).
 name: Release
 
 on:
   push:
     branches: [fork]
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
     # The fork's own App credentials live in this environment, readable only by runs on the fork branch.
     environment: fork-sync
     steps:
@@ -28,7 +33,22 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: rp
         with:
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the release build, with publishing, for the new tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh workflow run fork-release-build.yml --repo "$REPO" --ref fork -f tag="$TAG" -f publish=true
