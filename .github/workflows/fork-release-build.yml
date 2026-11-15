@@ -133,6 +133,7 @@ jobs:
       contents: read
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -178,7 +179,8 @@ jobs:
           "${tool[@]}" validate --schema .fork/schemas/nv-rs-capabilities.v1.json release-files/capabilities.json
           "${tool[@]}" validate --schema .fork/schemas/nv-rs-release-manifest.v1.json release-files/release-manifest.json
           # The checked-in copy is the tables' too: a release from a tree where they disagree is refused.
-          "${tool[@]}" capabilities --check .fork/capabilities.json
+          # A tag's tables can differ from the checked-in file of this ref; the file is generated from the tag's own.
+          if [ -z "${RELEASE_TAG}" ]; then "${tool[@]}" capabilities --check .fork/capabilities.json; fi
           # The schemas are published next to the binaries so nvmod can vendor them.
           cp .fork/schemas/*.json release-files/
           cat release-files/release-manifest.json
