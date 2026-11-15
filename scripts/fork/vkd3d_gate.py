@@ -12,7 +12,7 @@ import re
 import sys
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
-EXECUTED = re.compile(r"executed: \S+ \((.+)\)\s*$")
+EXECUTED = re.compile(r"executed: \S+(?: \((.+)\))?\s*$")
 SKIPPED = re.compile(r"skipped: \S+ \(libvkd3d-shader not available\)")
 
 
@@ -24,7 +24,7 @@ def main(path):
             m = EXECUTED.search(line)
             if m:
                 executed += 1
-                versions.add(m.group(1))
+                versions.add(m.group(1) or "version not printed")
             elif SKIPPED.search(line):
                 skipped += 1
     print("### Shader compiler tests (libvkd3d-shader)\n")
