@@ -263,8 +263,16 @@ file upstream owns (both in `.fork/allowed-divergence`).
 - Shutdown: `Window::shutdown` (or drop) ends the loop and the thread; drop every surface first.
 - Smoke: `cargo run -p fork-window --example clear -- --smoke` opens a window, clears 30 frames through wgpu on Vulkan and
   exits 0. `.github/workflows/fork-window-smoke.yml` runs it under Xvfb on lavapipe (not required, outside Pipeline Complete).
-- Not done (nv-linux issues): the game's call sites do not use the registry yet (`engine-platform` window and
-  `player_move.rs` input merge), Wayland pointer lock and cursor hold, the borderless refit and refresh rate, gamepads, IME.
+- Wired to the game (`fork_d3d9rec.rs`): `CreateWindowExA` opens a `fork_window` window when `NV_D3D9` is set, a display is
+  there (`DISPLAY` or `WAYLAND_DISPLAY`) and `NV_D3D9_OFFSCREEN` is not; its id is what `real_window` answers, so the device
+  and `Present` use `Output::Window` on the wgpu surface (a child window shares its parent's). A window without a caption
+  (the game's `bFull Screen=1`: exclusive full screen is not offered) is borderless over the monitor
+  (`WindowRequest::fullscreen`). Keys, buttons, relative motion and the wheel reach the game through
+  `d3d9real::held_keys` and `take_input` (the same calls the Windows build makes in `host/player_move.rs`). A close request
+  runs the exit hooks and ends the process, as `WM_CLOSE` does. The swap chain follows the window's size. Without a display
+  the run stays off screen. The Xvfb smoke also runs `a_guest_program_draws_to_a_window` (`NV_WINDOW_SMOKE=1`).
+- Not done (nv-linux issues): Wayland pointer lock and cursor hold, title and `SetWindowPos` changes after the window is
+  made, refresh rate, gamepads, IME, exclusive full screen.
 
 ## Direct3D 9 off Windows (nv-linux#181, stage 3a)
 
@@ -281,6 +289,5 @@ Test: `d3d9real::fork::tests::a_guest_program_draws_a_frame_through_the_recorder
 (a cleared corner and the triangle's centre). The Nix CI shell sets `NV_REQUIRE_GPU=1`, so the test fails there when no adapter
 opens; elsewhere it skips with a line. It runs in the `platform` job (engine-platform, inside the `ci` shell).
 
-Not done (3b, the owner's session, nv-linux issues): the game's window handles do not map to the window layer (`real_window`
-answers "no window"), no run of the game with `NV_D3D9=wgpu NV_REPEATABLE=<frames>`, `GetRenderTargetData` and the read-backs are
+Not done (3b, the owner's session, nv-linux issues): no run of the game with `NV_D3D9=wgpu NV_REPEATABLE=<frames>`, `GetRenderTargetData` and the read-backs are
 tested only through the recorder's calls here, and the real-device fallbacks stay Windows only.

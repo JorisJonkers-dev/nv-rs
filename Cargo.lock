@@ -728,6 +728,7 @@ dependencies = [
  "d3dx-shader",
  "d3dx-tex",
  "engine-core",
+ "fork-window",
  "mp3",
  "nvse",
  "vorbis",

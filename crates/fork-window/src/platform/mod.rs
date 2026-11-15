@@ -167,7 +167,12 @@ impl ApplicationHandler<Command> for App {
             .with_inner_size(PhysicalSize::new(self.request.width, self.request.height))
             .with_decorations(self.request.decorations)
             .with_resizable(false)
-            .with_visible(self.request.visible);
+            .with_visible(self.request.visible)
+            .with_fullscreen(
+                self.request
+                    .fullscreen
+                    .then_some(winit::window::Fullscreen::Borderless(None)),
+            );
         let window = match event_loop.create_window(attrs) {
             Ok(w) => w,
             Err(e) => return self.fail(event_loop, format!("create window: {e}")),

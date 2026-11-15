@@ -5,7 +5,7 @@ name: Window smoke
 
 on:
   pull_request:
-    paths: ['crates/fork-window/**', '.github/workflows/fork-window-smoke.yml']
+    paths: ['crates/fork-window/**', 'crates/engine-platform/src/fork_d3d9rec.rs', '.github/workflows/fork-window-smoke.yml']
   workflow_dispatch:
 
 permissions:
@@ -45,3 +45,11 @@ jobs:
           xvfb-run -a -s '-screen 0 1280x720x24' target/debug/examples/clear --smoke | tee smoke.txt
           grep -q 'smoke: 30 frames shown' smoke.txt
           { echo '### Window smoke'; echo '```'; cat smoke.txt; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+      - name: Guest program to the window (X11)
+        env:
+          WINIT_UNIX_BACKEND: x11
+          NV_WINDOW_SMOKE: '1'
+        run: |
+          xvfb-run -a -s '-screen 0 1280x720x24' cargo test --locked -p engine-platform --lib a_guest_program_draws_to_a_window -- --nocapture 2>&1 | tee guest.txt
+          grep -q 'test result: ok. 1 passed' guest.txt
+          grep -q 'on the game.s window' guest.txt
