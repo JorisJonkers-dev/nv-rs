@@ -60,14 +60,19 @@ case "$which_c" in
     pids+=($!)
     # sway and labwc take the first free name (wayland-0, wayland-1, ...).
     for _ in $(seq 1 100); do
-      sock="$(cd "$dir" && ls -d wayland-[0-9]* 2>/dev/null | grep -v '\.lock$' | head -n 1)"
+      sock=""
+      for f in "$dir"/wayland-[0-9]*; do
+        case "$f" in *.lock) continue;; esac
+        [ -S "$f" ] && sock="${f##*/}" && break
+      done
       [ -n "$sock" ] && break
       sleep 0.1
     done
     [ -n "${sock:-}" ] || { echo "the compositor made no socket" >&2; cat "$dir/comp.log"; exit 1; }
     export WAYLAND_DISPLAY="$sock" XDG_CURRENT_DESKTOP="$which_c" XDG_SESSION_TYPE=wayland
     if [ "$which_c" = sway ]; then
-      export SWAYSOCK="$(ls "$dir"/sway-ipc.*.sock 2>/dev/null | head -n 1)"
+      for f in "$dir"/sway-ipc.*.sock; do SWAYSOCK="$f"; done
+      export SWAYSOCK
     fi
     ;;
   cage)
