@@ -409,6 +409,19 @@ impl Default for Engine {
     }
 }
 
+/// The game's (Windows) form of a host folder: `/` is `\`, and a Unix path, which has no drive
+/// letter, goes under `Z:`, the host's root as the game sees it (as Wine's is; `files::host_path`
+/// maps it back). Without the drive, `GetFullPathNameA` of a relative name had no full path to
+/// make and stopped the run. A folder that has a drive (Windows hosts) is only turned.
+pub fn game_folder(host: &str) -> String {
+    let turned = host.replace('/', "\\");
+    if turned.starts_with('\\') && !turned.starts_with("\\\\") {
+        format!("Z:{turned}")
+    } else {
+        turned
+    }
+}
+
 impl Engine {
     /// Empty memory, every translated unit registered: this crate's
     /// (`units::crt`, `units::platform`) and those of the engine crates the
@@ -539,8 +552,7 @@ impl Engine {
         // The process starts in the executable's folder (where Steam starts
         // the game): `GetCurrentDirectoryA` reports it.
         if let Some(folder) = exe.parent() {
-            let folder = folder.to_string_lossy().replace('/', "\\");
-            e.kernel.current_directory = folder.into_bytes();
+            e.kernel.current_directory = game_folder(&folder.to_string_lossy()).into_bytes();
         }
         Ok(e)
     }
@@ -1554,6 +1566,13 @@ fn block_check_from_env() -> Option<(bool, bool, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_unix_game_folder_goes_under_the_z_drive() {
+        assert_eq!(game_folder("/home/me/FNV"), r"Z:\home\me\FNV");
+        assert_eq!(game_folder("C:/Games/FNV"), r"C:\Games\FNV");
+        assert_eq!(game_folder(r"\\server\share"), r"\\server\share");
+    }
 
     /// Engines copy one template table: what one registers, replaces or drops is its own, and the next
     /// engine starts from the translations again.
