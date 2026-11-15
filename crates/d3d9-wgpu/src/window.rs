@@ -207,6 +207,9 @@ impl Window {
         let _dpi = DpiScope::of(hwnd);
         let area = client_size(hwnd).filter(|&(w, h)| w > 0 && h > 0);
         let (width, height) = area.unwrap_or(fallback);
+        // The pointer's motion is scaled to the back buffer that is stretched over the window.
+        #[cfg(not(windows))]
+        fork_window::set_game_area(hwnd, fallback.0, fallback.1);
         let mut w = Window {
             hwnd,
             instance,

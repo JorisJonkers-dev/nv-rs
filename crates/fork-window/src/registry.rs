@@ -42,6 +42,9 @@ pub(crate) struct Shared {
     /// Width in the high 32 bits, height in the low.
     pub size: AtomicU64,
     pub close: AtomicBool,
+    /// The game's back buffer, width in the high 32 bits, height in the low; 0 until the device
+    /// layer says (`Present` stretches it over the whole client area).
+    pub game: AtomicU64,
 }
 
 impl Shared {
@@ -51,6 +54,7 @@ impl Shared {
             input: Mutex::new(Input::default()),
             size: AtomicU64::new(0),
             close: AtomicBool::new(false),
+            game: AtomicU64::new(0),
         })
     }
 
@@ -100,6 +104,51 @@ pub fn client_size(id: isize) -> (u32, u32) {
     })
 }
 
+/// Tells window `id` the size of the game's back buffer, which `Present` stretches over the
+/// client area: the pointer's motion is scaled to it ([`scale_motion`]) so the game's cursor and
+/// the pointer cover the same distance.
+pub fn set_game_area(id: isize, width: u32, height: u32) {
+    if let Some(s) = get(id) {
+        s.game
+            .store(((width as u64) << 32) | height as u64, Ordering::Relaxed);
+    }
+}
+
+/// The game's back buffer size of window `id` ((0, 0) until [`set_game_area`]).
+pub(crate) fn game_area(s: &Shared) -> (u32, u32) {
+    let v = s.game.load(Ordering::Relaxed);
+    ((v >> 32) as u32, v as u32)
+}
+
+/// Window pixels of pointer motion as game pixels: the back buffer is stretched over the client
+/// area, so a move of `delta` window pixels is `delta * game / window` game pixels. `rest` keeps
+/// the fraction not yet whole (carried to the next call); the whole part is returned. An unknown
+/// size (0) leaves the motion as it is.
+pub fn scale_motion(delta: f64, game: u32, window: u32, rest: &mut f64) -> i32 {
+    let scaled = if game == 0 || window == 0 {
+        delta
+    } else {
+        delta * game as f64 / window as f64
+    } + *rest;
+    // A hair added away from zero so 640 / 3 * 3 does not read as 639.9999.
+    let whole = (scaled + scaled.signum() * 1e-9).trunc();
+    *rest = scaled - whole;
+    whole as i32
+}
+
+/// The game's cursor position for a pointer at (`x`, `y`) in the window (both in window pixels):
+/// the same place in the stretched back buffer, kept inside it.
+pub fn to_game_position(x: f64, y: f64, game: (u32, u32), window: (u32, u32)) -> (i32, i32) {
+    let map = |v: f64, g: u32, w: u32| {
+        if g == 0 || w == 0 {
+            v as i32
+        } else {
+            ((v * g as f64 / w as f64) as i32).clamp(0, g as i32 - 1)
+        }
+    };
+    (map(x, game.0, window.0), map(y, game.1, window.1))
+}
+
 /// The keys window `id` holds, by DirectInput key code.
 pub fn held_keys(id: isize) -> [bool; 256] {
     get(id)
@@ -129,6 +178,36 @@ pub fn close_requested(id: isize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_motion_is_scaled_to_the_back_buffer() {
+        let mut rest = 0.0;
+        // 1080 window pixels across a 640 pixel back buffer: 1080 of motion is 640.
+        assert_eq!(scale_motion(1080.0, 640, 1080, &mut rest), 640);
+        assert_eq!(scale_motion(-540.0, 640, 1080, &mut rest), -320);
+        // Small moves are not lost: the fraction carries over.
+        let mut rest = 0.0;
+        let total: i32 = (0..1080)
+            .map(|_| scale_motion(1.0, 640, 1080, &mut rest))
+            .sum();
+        assert_eq!(total, 640);
+        // An unknown size leaves the motion alone.
+        assert_eq!(scale_motion(7.0, 0, 1080, &mut 0.0), 7);
+    }
+
+    #[test]
+    fn pointer_positions_map_into_the_back_buffer() {
+        assert_eq!(to_game_position(0.0, 0.0, (640, 480), (1080, 1920)), (0, 0));
+        assert_eq!(
+            to_game_position(540.0, 960.0, (640, 480), (1080, 1920)),
+            (320, 240)
+        );
+        assert_eq!(
+            to_game_position(5000.0, -3.0, (640, 480), (1080, 1920)),
+            (639, 0)
+        );
+        assert_eq!(to_game_position(10.0, 20.0, (0, 0), (0, 0)), (10, 20));
+    }
 
     #[test]
     fn ids_are_not_zero_and_input_is_taken() {
