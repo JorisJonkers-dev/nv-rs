@@ -11,12 +11,14 @@
 //! are modules of `platform`; X11 and Wayland (winit 0.30) are the one that exists.
 
 pub mod dik;
+mod display;
 mod registry;
 mod surface;
 
 #[cfg(all(unix, not(target_os = "macos")))]
 mod platform;
 
+pub use display::{display, hz_of, parse_wanted, pick, Display, Monitor};
 pub use registry::{
     client_size, close_requested, held_keys, raw_handles, scale_motion, set_game_area, take_input,
     to_game_position, Input,

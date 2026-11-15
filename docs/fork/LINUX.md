@@ -299,7 +299,7 @@ file upstream owns (both in `.fork/allowed-divergence`).
   runs the exit hooks and ends the process, as `WM_CLOSE` does. The swap chain follows the window's size. Without a display
   the run stays off screen. The Xvfb smoke also runs `a_guest_program_draws_to_a_window` (`NV_WINDOW_SMOKE=1`).
 - Not done (nv-linux issues): Wayland pointer lock and cursor hold, title and `SetWindowPos` changes after the window is
-  made, refresh rate, gamepads, IME, exclusive full screen.
+  made, gamepads, IME, exclusive full screen.
 
 ## Direct3D 9 off Windows (nv-linux#181, stage 3a)
 
@@ -318,3 +318,23 @@ opens; elsewhere it skips with a line. It runs in the `platform` job (engine-pla
 
 Not done (3b, the owner's session, nv-linux issues): no run of the game with `NV_D3D9=wgpu NV_REPEATABLE=<frames>`, `GetRenderTargetData` and the read-backs are
 tested only through the recorder's calls here, and the real-device fallbacks stay Windows only.
+
+### Display match
+
+The game's window and rendering follow the display the process started on (`fork-window/src/display.rs`). The monitor is
+`NV_MONITOR=<index>` (the window system's order), else the primary monitor, else the first output; Wayland has no primary
+and no query for the monitor holding the focus or the cursor, so the first output stands in there and `NV_MONITOR` is the
+way to choose another. The size and refresh (millihertz, rounded to hertz) are the monitor's own.
+
+- Settings: a new `FalloutPrefs.ini`, and an existing one that lacks the keys, gets `iSize W`, `iSize H` and
+  `bFull Screen=1` under `[Display]` (`seed_settings`, `prefs_with_display`). A key already in the file is the player's choice
+  and is never changed. Delete the key (or the file) to get the display's size again.
+- The game reads the display through the adapter table: the display is the current mode of `GetAdapterDisplayMode` and
+  `EnumAdapterModes` (`with_current_mode`), so the engine sees the real size and refresh. A `mode =` line in
+  `linux_profile.txt` still replaces it.
+- A borderless window (the game's full screen) is made over that monitor, and the swap chain follows the window, so
+  `SetWindowPos`, `ChangeDisplaySettings` and `Reset` at another size only change the back buffer, which is scaled to the
+  window. A windowed request keeps its size (resizing after creation is not offered).
+- Present mode: `NV_PRESENT=fifo|mailbox|immediate`; with none, the game's immediate interval is `Immediate`, anything else
+  `Mailbox` where the surface has it, else `Fifo` (Windows keeps `Fifo`). The pacing of a minimised window uses the display's
+  refresh. One line says the result: `NV_D3D9 display: monitor <index> <w>x<h> <hz> Hz, present <mode>`.

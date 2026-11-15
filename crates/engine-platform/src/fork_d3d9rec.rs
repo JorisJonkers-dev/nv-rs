@@ -110,7 +110,7 @@ fn watch_close(id: isize) {
 /// `SetWindowTextA`: the real window's title is not changed after it is made (not offered yet).
 pub fn window_titled(_e: &mut Engine, _handle: u32, _title: &[u8]) {}
 
-/// `SetWindowPos`: the real window keeps the size it was made with (not offered yet).
+/// `SetWindowPos`: the real window keeps the size it was made with: the borderless window covers the chosen monitor and the swap chain follows it (docs/fork/LINUX.md, "Display match").
 pub fn window_moved(_e: &mut Engine, _handle: u32, _rect: [i32; 4], _flags: u32) {}
 
 /// The wgpu backend, off screen, on the stream `which` names: the real Direct3D 9 is not there,

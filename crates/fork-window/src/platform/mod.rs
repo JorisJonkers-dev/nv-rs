@@ -92,6 +92,51 @@ impl Drop for Window {
     }
 }
 
+/// The monitors of this session, asked on an event loop made here and dropped before the
+/// function returns; the pick is [`crate::pick`] with `NV_MONITOR` and the primary monitor.
+pub(crate) fn probe_monitors() -> Option<crate::Display> {
+    use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
+    struct Probe(Option<crate::Display>);
+    impl ApplicationHandler<Command> for Probe {
+        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+            self.0 = pick_on(event_loop);
+        }
+        fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+    }
+    let mut builder = EventLoop::<Command>::with_user_event();
+    EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+    EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
+    let mut event_loop = builder.build().ok()?;
+    let mut probe = Probe(None);
+    for _ in 0..50 {
+        let status =
+            event_loop.pump_app_events(Some(std::time::Duration::from_millis(20)), &mut probe);
+        if probe.0.is_some() || matches!(status, PumpStatus::Exit(_)) {
+            break;
+        }
+    }
+    probe.0
+}
+
+fn monitor_of(m: &winit::monitor::MonitorHandle) -> crate::Monitor {
+    let size = m.size();
+    crate::Monitor {
+        width: size.width,
+        height: size.height,
+        refresh_mhz: m.refresh_rate_millihertz().unwrap_or(0),
+    }
+}
+
+fn pick_on(event_loop: &ActiveEventLoop) -> Option<crate::Display> {
+    let handles: Vec<_> = event_loop.available_monitors().collect();
+    let monitors: Vec<_> = handles.iter().map(monitor_of).collect();
+    let primary = event_loop
+        .primary_monitor()
+        .and_then(|p| handles.iter().position(|h| *h == p));
+    let wanted = crate::parse_wanted(std::env::var("NV_MONITOR").ok().as_deref());
+    crate::pick(&monitors, wanted, primary)
+}
+
 fn run(request: WindowRequest, on_change: Option<ChangeHook>, ready: mpsc::Sender<Ready>) {
     // winit takes Wayland when the session is one, else X11 (`WINIT_UNIX_BACKEND=x11` forces X11;
     // a second event loop cannot be made after a failed one, so there is no retry here).
@@ -206,11 +251,12 @@ impl ApplicationHandler<Command> for App {
             .with_decorations(self.request.decorations)
             .with_resizable(false)
             .with_visible(self.request.visible)
-            .with_fullscreen(
-                self.request
-                    .fullscreen
-                    .then_some(winit::window::Fullscreen::Borderless(None)),
-            );
+            .with_fullscreen(self.request.fullscreen.then(|| {
+                // Over the monitor the pick names (`NV_MONITOR`, the primary, the first).
+                let chosen =
+                    pick_on(event_loop).and_then(|d| event_loop.available_monitors().nth(d.index));
+                winit::window::Fullscreen::Borderless(chosen)
+            }));
         let window = match event_loop.create_window(attrs) {
             Ok(w) => w,
             Err(e) => return self.fail(event_loop, format!("create window: {e}")),

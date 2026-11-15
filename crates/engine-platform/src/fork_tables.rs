@@ -951,6 +951,14 @@ pub fn machine_profile() -> Result<Profile, String> {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| "/tmp/nv-rs/userdata".into());
     let mut p = Profile::radv_reference(&userdata);
+    // The display the process started on is the current mode, so the game reads its real size
+    // and refresh (`GetAdapterDisplayMode`); a profile file's `mode` lines still replace it.
+    if let Some(d) = fork_window::display() {
+        p.modes = with_current_mode(
+            &p.modes,
+            (d.monitor.width, d.monitor.height, d.refresh_hz()),
+        );
+    }
     if let Some(gpu) = d3d9_wgpu::identity::gpu_identity() {
         p = p.with_gpu(&gpu);
     }
@@ -961,6 +969,67 @@ pub fn machine_profile() -> Result<Profile, String> {
         Some(text) => p.parse(&text),
         None => Ok(p),
     }
+}
+
+/// `modes` with `current` first, and any other mode of its size dropped (the same size at
+/// another rate would be a second answer for one size).
+pub fn with_current_mode(
+    modes: &[(u32, u32, u32)],
+    current: (u32, u32, u32),
+) -> Vec<(u32, u32, u32)> {
+    let mut out = vec![current];
+    out.extend(
+        modes
+            .iter()
+            .copied()
+            .filter(|m| (m.0, m.1) != (current.0, current.1)),
+    );
+    out
+}
+
+/// `prefs` with the display keys the game has no value for yet: `iSize W`, `iSize H` and
+/// `bFull Screen` (borderless full screen over the display) put under `[Display]`. A key already
+/// there is a choice and is kept; `None` when nothing was missing.
+pub fn prefs_with_display(prefs: &str, width: u32, height: u32) -> Option<String> {
+    let has = |key: &str| {
+        prefs.lines().any(|l| {
+            l.split_once('=')
+                .is_some_and(|(k, _)| k.trim().eq_ignore_ascii_case(key))
+        })
+    };
+    let mut add = String::new();
+    for (key, value) in [
+        ("iSize W", width.to_string()),
+        ("iSize H", height.to_string()),
+        ("bFull Screen", "1".to_string()),
+    ] {
+        if !has(key) {
+            add.push_str(&format!("{key}={value}\r\n"));
+        }
+    }
+    if add.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    let mut done = false;
+    for line in prefs.split_inclusive('\n') {
+        out.push_str(line);
+        if !done && line.trim().eq_ignore_ascii_case("[Display]") {
+            if !line.ends_with('\n') {
+                out.push_str("\r\n");
+            }
+            out.push_str(&add);
+            done = true;
+        }
+    }
+    if !done {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push_str("\r\n");
+        }
+        out.push_str("[Display]\r\n");
+        out.push_str(&add);
+    }
+    Some(out)
 }
 
 /// The settings folder the game reads on Windows, `Documents\My Games\FalloutNV`, under the
@@ -978,15 +1047,26 @@ fn settings_folder(userdata: &str) -> std::path::PathBuf {
 /// and a `FalloutPrefs.ini` whose `[Display] sD3DDevice` is the adapter's name (`004da570` hands
 /// over to the launcher when it differs or is missing). A file that exists is never touched, and
 /// nothing is written to the installation. Answers the files it made.
+///
+/// With a `display` size, the display keys the preferences lack (`iSize W`, `iSize H`,
+/// `bFull Screen`) are added, in a new file and in an existing one that has none of them; values
+/// already there are the player's and stay.
 pub fn seed_settings(
     userdata: &str,
     install: &std::path::Path,
     adapter_name: &str,
+    display: Option<(u32, u32)>,
 ) -> std::io::Result<Vec<std::path::PathBuf>> {
     let folder = settings_folder(userdata);
     let mut made = Vec::new();
     let ini = folder.join("Fallout.ini");
     let prefs = folder.join("FalloutPrefs.ini");
+    if let (Some((w, h)), true) = (display, prefs.exists()) {
+        let text = std::fs::read_to_string(&prefs).unwrap_or_default();
+        if let Some(text) = prefs_with_display(&text, w, h) {
+            std::fs::write(&prefs, text)?;
+        }
+    }
     if ini.exists() && prefs.exists() {
         return Ok(made);
     }
@@ -997,10 +1077,11 @@ pub fn seed_settings(
         made.push(ini);
     }
     if !prefs.exists() {
-        std::fs::write(
-            &prefs,
-            format!("[Display]\r\nsD3DDevice={adapter_name}\r\n"),
-        )?;
+        let base = format!("[Display]\r\nsD3DDevice={adapter_name}\r\n");
+        let text = display
+            .and_then(|(w, h)| prefs_with_display(&base, w, h))
+            .unwrap_or(base);
+        std::fs::write(&prefs, text)?;
         made.push(prefs);
     }
     Ok(made)
@@ -1014,7 +1095,8 @@ pub fn seed_machine_settings(install: &std::path::Path) {
         Ok(p) => p,
         Err(why) => return eprintln!("the settings are not made: {why}"),
     };
-    match seed_settings(&profile.userdata, install, &profile.name) {
+    let display = fork_window::display().map(|d| (d.monitor.width, d.monitor.height));
+    match seed_settings(&profile.userdata, install, &profile.name, display) {
         Ok(made) => {
             for f in made {
                 eprintln!("settings made: {}", f.display());
@@ -1121,6 +1203,39 @@ mod tests {
     }
 
     #[test]
+    fn the_display_keys_are_added_where_missing_and_kept_where_set() {
+        let new = prefs_with_display("[Display]\r\nsD3DDevice=X\r\n", 2560, 1440).unwrap();
+        assert_eq!(
+            new,
+            "[Display]\r\niSize W=2560\r\niSize H=1440\r\nbFull Screen=1\r\nsD3DDevice=X\r\n"
+        );
+        // The player's own values stay; only the missing key is added.
+        let kept =
+            prefs_with_display("[Display]\r\niSize W=800\r\niSize H=600\r\n", 2560, 1440).unwrap();
+        assert!(kept.contains("iSize W=800") && kept.contains("bFull Screen=1"));
+        assert!(!kept.contains("2560"));
+        assert_eq!(
+            prefs_with_display(
+                "[Display]\r\niSize W=1\r\niSize H=1\r\nbFull Screen=0\r\n",
+                5,
+                5
+            ),
+            None
+        );
+        let bare = prefs_with_display("", 1920, 1080).unwrap();
+        assert!(bare.starts_with("[Display]\r\niSize W=1920"));
+    }
+
+    #[test]
+    fn the_display_is_the_current_mode() {
+        let m = with_current_mode(
+            &[(1920, 1080, 60), (2560, 1440, 60), (640, 480, 60)],
+            (2560, 1440, 144),
+        );
+        assert_eq!(m, vec![(2560, 1440, 144), (1920, 1080, 60), (640, 480, 60)]);
+    }
+
+    #[test]
     fn first_run_settings_are_made_once_and_never_overwritten() {
         let dir = std::env::temp_dir().join(format!("nv-seed-{}", std::process::id()));
         let install = dir.join("game");
@@ -1128,7 +1243,7 @@ mod tests {
         std::fs::write(install.join("Fallout_default.ini"), "[Archive]\r\n").unwrap();
         let userdata = dir.join("ud");
         let ud = userdata.to_str().unwrap();
-        let made = seed_settings(ud, &install, "Card X").unwrap();
+        let made = seed_settings(ud, &install, "Card X", None).unwrap();
         assert_eq!(made.len(), 2);
         let folder = settings_folder(ud);
         assert_eq!(
@@ -1136,7 +1251,9 @@ mod tests {
             "[Display]\r\nsD3DDevice=Card X\r\n"
         );
         std::fs::write(folder.join("Fallout.ini"), "mine").unwrap();
-        assert!(seed_settings(ud, &install, "Card Y").unwrap().is_empty());
+        assert!(seed_settings(ud, &install, "Card Y", None)
+            .unwrap()
+            .is_empty());
         assert_eq!(
             std::fs::read_to_string(folder.join("Fallout.ini")).unwrap(),
             "mine"
