@@ -617,7 +617,7 @@ impl Window {
 }
 
 /// The smallest side of a window's client area a frame is made for.
-pub(crate) const MIN_SIDE: u32 = 32;
+pub(crate) const MIN_SIDE: u32 = 16;
 
 /// Whether a client area of `width` by `height` is a size to configure a swap chain for.
 pub(crate) fn usable_size(width: u32, height: u32) -> bool {
@@ -758,8 +758,9 @@ mod tests {
     fn a_client_area_a_few_pixels_across_is_no_size_for_a_frame() {
         assert!(!usable_size(6, 4));
         assert!(!usable_size(1920, 4));
-        assert!(!usable_size(31, 1080));
-        assert!(usable_size(32, 32));
+        assert!(!usable_size(15, 1080));
+        assert!(usable_size(16, 16));
+        assert!(usable_size(32, 24));
         assert!(usable_size(640, 480));
         assert!(usable_size(1920, 1080));
     }
