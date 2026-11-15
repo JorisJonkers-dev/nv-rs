@@ -88,7 +88,7 @@ pub mod x87;
 
 pub use abi::{AbiFn, Ret};
 pub use engine::{AddrMap, AddrSet, CallHook, Engine, OpenHandler, Trace};
-pub use mem::Mem;
+pub use mem::{HeapStats, Mem};
 pub use ptr::{Field, Inline, Layout, Ptr, Scalar};
 
 /// What every unit file imports.

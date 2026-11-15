@@ -611,6 +611,24 @@ pub const HEAP_LARGEST_BLOCK: u32 = {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fault(pub u32);
 
+/// The heap's counters at one moment ([`Mem::heap_stats`]); bytes, and addresses in the guest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeapStats {
+    /// Both ranges together.
+    pub capacity: u64,
+    /// `capacity - available`: live blocks, with the heap's own rounding.
+    pub used: u64,
+    /// What the heap can still hand out (free blocks, quick stacks, fresh space).
+    pub available: u64,
+    /// Bytes in the bins.
+    pub free_bytes: u64,
+    pub largest_free: u32,
+    /// The next fresh address.
+    pub top: u32,
+    /// The highest address ever reached.
+    pub peak: u32,
+}
+
 pub struct Mem {
     /// The guest space: one block of host address space, guest address `a` at host address
     /// `base + a`, and just below `base`, in the same block, the table of mapped pages ([`Space`],
@@ -2385,6 +2403,25 @@ impl Mem {
         self.heap.available()
     }
 
+    /// The heap's counters, read-only (the fork's `NV_MEMLOG` timeline): bytes in use, free blocks
+    /// and quick stacks, the largest free block, the next fresh address and the highest reached.
+    pub fn heap_stats(&self) -> HeapStats {
+        if let Some(s) = self.shared {
+            return s.with(|m| m.heap_stats());
+        }
+        let capacity = u64::from(HEAP_LOW_END - HEAP_BASE) + u64::from(HEAP_END - HEAP_HIGH_BASE);
+        let available = self.heap.available();
+        HeapStats {
+            capacity,
+            used: capacity.saturating_sub(available),
+            available,
+            free_bytes: self.heap.free_bytes(),
+            largest_free: self.heap.largest_free(),
+            top: self.heap.top(),
+            peak: self.heap.peak(),
+        }
+    }
+
     /// Allocates `size` bytes (8-byte aligned, zero-filled) on the heap, as a block of the exe's
     /// memory pool for that size ([`block_bytes`]). A freed block of the same pool is reused
     /// first, newest first: from its quick stack (up to 4 KB), or among the first blocks of its
@@ -2827,6 +2864,27 @@ mod tests {
         assert_eq!(c, a);
         assert_eq!(m.u32(c), 0, "reused blocks are zeroed");
         m.free(0);
+    }
+
+    /// `heap_stats` equals the accessors through allocate, free and reuse, and its peak never falls.
+    #[test]
+    fn heap_stats_follow_the_heap() {
+        let mut m = Mem::new();
+        let s0 = m.heap_stats();
+        assert_eq!(s0.used, s0.capacity - m.heap_available());
+        assert_eq!(s0.top, m.heap_top());
+        let blocks: Vec<u32> = (0..64).map(|_| m.alloc(1000)).collect();
+        let s1 = m.heap_stats();
+        assert!(s1.used >= s0.used + 64 * 1000);
+        assert_eq!(s1.available, m.heap_available());
+        assert_eq!(s1.peak, m.heap_top());
+        for &b in &blocks {
+            m.free(b);
+        }
+        let s2 = m.heap_stats();
+        assert!(s2.used < s1.used);
+        assert!(s2.peak >= s1.peak);
+        assert_eq!(s2.used + s2.available, s2.capacity);
     }
 
     #[test]

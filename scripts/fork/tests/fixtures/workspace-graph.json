@@ -1495,6 +1495,12 @@
    "name": "esm"
   },
   {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/fork-memlog/Cargo.toml",
+   "name": "fork-memlog"
+  },
+  {
    "dependencies": [
     {
      "kind": null,
@@ -1728,6 +1734,21 @@
      "features": [],
      "kind": null,
      "name": "fork-presence"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-memlog"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "d3d9-wgpu"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
     }
    ],
    "features": [],

@@ -1,0 +1,8 @@
+[package]
+name = "fork-memlog"
+version = "0.1.0"
+description = "Fork-owned memory timeline: one key=value line every N seconds behind NV_MEMLOG (docs/fork/MEMLOG.md)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false

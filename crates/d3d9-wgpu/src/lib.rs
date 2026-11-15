@@ -26,6 +26,7 @@ pub mod frame_rate;
 mod fxhash;
 pub mod identity;
 pub mod loading;
+pub mod memstats;
 mod prepare;
 pub mod shot;
 pub mod sm;

@@ -14,6 +14,7 @@ use crate::format::{self, d3dfmt, Format};
 use crate::frame_rate;
 use crate::fxhash::Map;
 use crate::loading;
+use crate::memstats;
 use crate::prepare;
 use crate::shot::{self, Shots};
 use crate::sm::{self, wgsl, Stage};
@@ -6197,6 +6198,15 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         }
         if let Some(l) = &mut self.list {
             l.save_if_due(self.presents, false);
+        }
+        if self.presents % memstats::PUBLISH_EVERY == 0 {
+            memstats::publish(memstats::GpuMemStats {
+                kept_bytes: self.kept.values().map(|k| k.len() as u64).sum(),
+                kept_levels: self.kept.values().filter(|k| !k.is_empty()).count() as u64,
+                bind_groups: self.groups.len() as u64,
+                pipelines: self.pipelines.len() as u64,
+                presents: self.presents,
+            });
         }
         if self.presents % 600 == 1 {
             // The bytes kept for read-backs (`ReadSurface`), printed for their memory cost.

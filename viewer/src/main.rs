@@ -227,6 +227,9 @@ fn main() {
     let presence = fork_presence::start(env!("CARGO_PKG_VERSION"));
     let mut announced = false;
     let mut frame_log = host::frame_log::FrameLog::from_env();
+    // `NV_MEMLOG=<seconds>`: one line of memory numbers per interval; off without it.
+    let mut memlog = fork_memlog::MemLog::from_env();
+    let mut frames: u64 = 0;
     loop {
         game.set_keys_down(&[]);
         game.mouse([0; 3], [false; 8]);
@@ -246,6 +249,16 @@ fn main() {
         if let Some(log) = &mut frame_log {
             log.record(&mut game.engine);
         }
+        frames += 1;
+        if let Some(m) = &mut memlog {
+            let now = Instant::now();
+            if m.due(now) {
+                println!(
+                    "{}",
+                    memlog_line(m, now, frames, game.engine.mem.heap_stats())
+                );
+            }
+        }
         if last.map_or(true, |at| at.elapsed() >= Duration::from_secs(5)) {
             last = Some(Instant::now());
             println!("{}", game.movement.summary());
@@ -263,6 +276,37 @@ fn main() {
         game.movement.summary()
     );
     host::end_process(1);
+}
+
+/// One `NV_MEMLOG` line: the heap's counters, the host process and the GPU layer's, read now.
+fn memlog_line(
+    m: &mut fork_memlog::MemLog,
+    now: Instant,
+    frames: u64,
+    h: engine_core::HeapStats,
+) -> String {
+    let g = d3d9_wgpu::memstats::snapshot();
+    m.line(
+        now,
+        frames,
+        &fork_memlog::Heap {
+            capacity: h.capacity,
+            used: h.used,
+            free: h.free_bytes,
+            largest_free: u64::from(h.largest_free),
+            top: u64::from(h.top),
+            peak_addr: u64::from(h.peak),
+        },
+        &fork_memlog::host_now(),
+        &fork_memlog::Gpu {
+            kept_bytes: g.kept_bytes,
+            kept_levels: g.kept_levels,
+            bind_groups: g.bind_groups,
+            pipelines: g.pipelines,
+            presents: g.presents,
+        },
+        fork_memlog::card_now().as_ref(),
+    )
 }
 
 #[cfg(test)]
