@@ -19,3 +19,4 @@ crates/nvse/src/commands/math.rs  # the bit-for-bit comparison is ignored off Wi
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
 crates/host/src/cell_offsets.rs  # the plugin path goes through files::real_path (a Linux path is not the game's backslash path)
+crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off Windows (lavapipe offers 4x at most; nv-linux#189)
