@@ -332,6 +332,10 @@ pub struct PlayerMovement {
     /// its frames (each a pass of its message loop) and how its last turn ended.
     main_thread: Option<engine::thread_host::MainThread>,
     pub main_frames: u64,
+    /// Main's frames that were not a loading screen: the clock of the scripted keys and mouse
+    /// whose frame number has a `p` before it (`NV_MOVE_KEYS=p120:1C:30`), which a load of any
+    /// length does not move, so a script waits for the game rather than for the wall clock.
+    pub script_frames: u64,
     main_stage: Stage<()>,
     /// The line [`PlayerMovement::finish_main_frame`] printed when main's frames ended, one of
     /// `Game's main stopped in frame N: why (in ..)`, `Game's main returned C in frame N` and
@@ -376,6 +380,7 @@ impl Default for PlayerMovement {
             threads: Stage::NotTried,
             main_thread: None,
             main_frames: 0,
+            script_frames: 0,
             main_stage: Stage::NotTried,
             main_stop: None,
             main_end: None,
@@ -1268,6 +1273,9 @@ impl PlayerMovement {
         match turn {
             Ok(()) => {
                 self.main_frames += 1;
+                if crate::uncap::screen(e) != crate::uncap::Screen::Loading {
+                    self.script_frames += 1;
+                }
                 // `NV_REPEATABLE`: the virtual clock moves on to the frame's end.
                 e.repeatable_frame_end();
                 // `NV_REPEATABLE` with `NV_SOUND=out`: the sound's virtual device takes the
@@ -1484,21 +1492,35 @@ impl PlayerMovement {
     }
 }
 
+/// The frame of a script item: a number counts all of main's frames, a number with a `p` before
+/// it (`p120`) counts the frames that are not a loading screen ([`PlayerMovement::script_frames`]).
+fn script_frame(token: &str) -> Option<(bool, u64)> {
+    match token.strip_prefix('p') {
+        Some(rest) => Some((true, rest.parse().ok()?)),
+        None => Some((false, token.parse().ok()?)),
+    }
+}
+
+/// One `NV_MOVE_KEYS` item: whether its frame counts play frames only, the first frame, the key,
+/// how many frames.
+type KeyStep = (bool, u64, u8, u64);
+
 /// `NV_MOVE_KEYS=FRAME:DIK:HOLD,..` (hex DIK key codes): keys held down from main's frame FRAME
 /// for HOLD frames, on top of the viewer's (a diagnostic: drives the game's menus with exact
-/// frame timing).
-fn key_script() -> &'static [(u64, u8, u64)] {
-    static SCRIPT: std::sync::OnceLock<Vec<(u64, u8, u64)>> = std::sync::OnceLock::new();
+/// frame timing). `FRAME` is `p` and a number to count only the frames that are not a loading
+/// screen.
+fn key_script() -> &'static [KeyStep] {
+    static SCRIPT: std::sync::OnceLock<Vec<KeyStep>> = std::sync::OnceLock::new();
     SCRIPT.get_or_init(|| {
         std::env::var("NV_MOVE_KEYS")
             .unwrap_or_default()
             .split(',')
             .filter_map(|item| {
                 let mut part = item.trim().split(':');
-                let frame = part.next()?.parse().ok()?;
+                let (play, frame) = script_frame(part.next()?)?;
                 let code = u8::from_str_radix(part.next()?, 16).ok()?;
                 let hold = part.next().map_or(Some(1), |h| h.parse().ok())?;
-                Some((frame, code, hold))
+                Some((play, frame, code, hold))
             })
             .collect()
     })
@@ -1518,7 +1540,7 @@ fn real_input_reaches_game() -> bool {
 }
 
 /// One `NV_MOVE_MOUSE` item: the first frame, the motion per frame, how many frames, the buttons.
-type MouseStep = (u64, i32, i32, u64, u8);
+type MouseStep = (bool, u64, i32, i32, u64, u8);
 
 /// `NV_MOVE_MOUSE=FRAME:DX:DY:HOLD[:BUTTONS],..` (decimal): the mouse moves by (DX, DY) on each
 /// of main's frames FRAME..FRAME+HOLD, with the buttons of the BUTTONS bit mask (bit 0 the left
@@ -1532,12 +1554,12 @@ fn mouse_script() -> &'static [MouseStep] {
             .split(',')
             .filter_map(|item| {
                 let mut part = item.trim().split(':');
-                let frame = part.next()?.parse().ok()?;
+                let (play, frame) = script_frame(part.next()?)?;
                 let dx = part.next()?.parse().ok()?;
                 let dy = part.next()?.parse().ok()?;
                 let hold = part.next().map_or(Some(1), |h| h.parse().ok())?;
                 let buttons = part.next().map_or(Some(0), |b| b.parse().ok())?;
-                Some((frame, dx, dy, hold, buttons))
+                Some((play, frame, dx, dy, hold, buttons))
             })
             .collect()
     })
@@ -1615,7 +1637,7 @@ impl crate::Host {
     pub fn set_keys_down(&mut self, down: &[u8]) {
         self.join();
         let script = key_script();
-        let frame = self.movement.main_frames;
+        let (all, play) = (self.movement.main_frames, self.movement.script_frames);
         // The real game window's keyboard (`NV_D3D9=real`, Windows) holds keys too, unless a
         // script drives the run ([`real_input_reaches_game`]).
         let window_keys = if real_input_reaches_game() {
@@ -1624,9 +1646,10 @@ impl crate::Host {
             [false; 256]
         };
         for code in 0..=255u8 {
-            let scripted = script
-                .iter()
-                .any(|&(at, c, hold)| c == code && frame >= at && frame < at + hold);
+            let scripted = script.iter().any(|&(p, at, c, hold)| {
+                let frame = if p { play } else { all };
+                c == code && frame >= at && frame < at + hold
+            });
             let held = down.contains(&code) || scripted || window_keys[code as usize];
             engine_platform::dinput::key(&mut self.engine, code, held);
         }
@@ -1656,19 +1679,17 @@ impl crate::Host {
         // the window would switch the game's interface to its mouse path and the keys would miss.
         // With `NV_MOVE_REAL_INPUT=1` the mouse is the player's again once the last scripted key
         // is released; otherwise a scripted run never takes it ([`real_input_reaches_game`]).
+        let (all, play) = (self.movement.main_frames, self.movement.script_frames);
         let scripted_until = key_script()
             .iter()
-            .map(|&(at, _, hold)| at + hold)
-            .max()
-            .unwrap_or(0);
-        let (mut motion, mut buttons) =
-            if !real_input_reaches_game() || self.movement.main_frames < scripted_until {
-                ([0; 3], [false; 8])
-            } else {
-                (motion, buttons)
-            };
-        let frame = self.movement.main_frames;
-        for &(at, dx, dy, hold, mask) in mouse_script() {
+            .any(|&(p, at, _, hold)| (if p { play } else { all }) < at + hold);
+        let (mut motion, mut buttons) = if !real_input_reaches_game() || scripted_until {
+            ([0; 3], [false; 8])
+        } else {
+            (motion, buttons)
+        };
+        for &(p, at, dx, dy, hold, mask) in mouse_script() {
+            let frame = if p { play } else { all };
             if frame >= at && frame < at + hold {
                 motion[0] += dx;
                 motion[1] += dy;
@@ -2350,6 +2371,14 @@ mod tests {
     /// `Host::begin_main_frame`); later calls do not call it again. An end in the start-up
     /// (`Host::start` runs main's first frame, before the hook can be set) is handed over by
     /// `Host::end_if_main_ended`.
+    #[test]
+    fn a_script_frame_counts_all_frames_or_play_frames_by_its_prefix() {
+        assert_eq!(script_frame("120"), Some((false, 120)));
+        assert_eq!(script_frame("p120"), Some((true, 120)));
+        assert_eq!(script_frame("p"), None);
+        assert_eq!(script_frame("x1"), None);
+    }
+
     #[test]
     fn main_end_goes_to_the_host_hook_once() {
         const EXIT_PROCESS: u32 = 0x00fd_f0ec;

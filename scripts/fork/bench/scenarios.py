@@ -22,6 +22,19 @@ for _i, _c in enumerate("1234567890"):
 _PUNCT = {".": "period", ",": "comma", "-": "minus", "/": "slash"}
 
 
+def _order(item):
+    """Sort key of a script item: a frame is a number (main-loop frames) or "p" and a number (frames that are not a
+    loading screen, `NV_MOVE_KEYS` in crates/host/src/player_move.rs); the two clocks are not comparable, so the
+    host takes them as they come."""
+    f = item[0]
+    return (isinstance(f, str), int(str(f).lstrip("p")))
+
+
+def on_play_clock(items):
+    """Items of a Script built in play frames, as the game takes them: frame numbers with the "p" prefix."""
+    return [(f"p{it[0]}",) + tuple(it[1:]) for it in items]
+
+
 @dataclass
 class Plan:
     name: str
@@ -59,9 +72,9 @@ class Plan:
             e["NV_THREADS"] = opts["threads"]
         e.update(self.extra_env)
         if self.keys:
-            e["NV_MOVE_KEYS"] = ",".join(f"{f}:{d:X}:{h}" for f, d, h in sorted(self.keys))
+            e["NV_MOVE_KEYS"] = ",".join(f"{f}:{d:X}:{h}" for f, d, h in sorted(self.keys, key=_order))
         if self.mouse:
-            e["NV_MOVE_MOUSE"] = ",".join(f"{f}:{x}:{y}:{h}:{b}" for f, x, y, h, b in sorted(self.mouse))
+            e["NV_MOVE_MOUSE"] = ",".join(f"{f}:{x}:{y}:{h}:{b}" for f, x, y, h, b in sorted(self.mouse, key=_order))
         return e
 
 
@@ -111,12 +124,13 @@ class Script:
                 raise ValueError(f"no key for {ch!r}")
         return self
 
-    def console(self, command, settle=1.0):
+    def console(self, command, settle=1.0, close=True):
         """Open the console, type a command, run it, close the console."""
         self.press("grave", 0.1, 0.5)
         self.type(command)
         self.press("enter", 0.1, settle)
-        self.press("grave", 0.1, 0.4)
+        if close:
+            self.press("grave", 0.1, 0.4)
         return self
 
     def look(self, dx, dy, seconds):
@@ -185,14 +199,21 @@ OPENING = [
     (2600, "enter", 30),  # New; "Start a new game?"
     (2900, "enter", 30),  # Yes; the intro movie starts (loading screen)
     (6000, "esc", 30),  # skip the intro movie; the new game's first frame
-    *[(6500 + 400 * k, "enter", 30) for k in range(6)],  # the downloadable packs' message boxes
 ]
 OPENING_END = 7800  # first frames in the first room; Doc Mitchell's house
+# The rest of the opening counts play frames (frames that are not a loading screen), so a slow load does not move it.
+# The loading screen began at main frame 2899, so the new game's first frame is play frame 2899.
+PLAY_START = 2899
+PACKS = [(PLAY_START + 500 + 400 * k, "enter", 30) for k in range(6)]  # the downloadable packs' message boxes
+PLAY_END = PLAY_START + 1800  # first frames in the first room; Doc Mitchell's house
+# main frames the loading screen of the new game took in the reference runs; only for when a run is ended by frames
+LOADING_FRAMES = 3200
 
 
 def opening(plan):
     for f, key, hold in OPENING:
         plan.keys.append((f, DIK[key], hold))
+    plan.keys.extend((f"p{f}", DIK[key], hold) for f, key, hold in PACKS)
 
 
 def boot(opts):
@@ -216,10 +237,77 @@ def newgame(opts):
     return p
 
 
+# The opening quest's id (a form id of the base game) and its stages that matter here. The quest runs on timers and on
+# lines Doc says; those lines never finish on this port (docs/fork/BENCH.md), so the scenario sets the stage the line
+# would have set, through the game's own console. The console takes ids, not editor names, on this port.
+OPENING_QUEST = "104c1c"
+STAGE_NAME, STAGE_SEX, STAGE_REFLECTRON = 10, 17, 36
+# play frames the quest needs to reach the stage in which Doc's second line is due (it does by about 10 s)
+QUEST_SETTLE_S = 20.0
+
+
+def chargen(opts):
+    """The opening's choices with fixed answers: name, sex, then the mirror (the face menu) opened. Reaches the face
+    menu and stops: it does not draw its head or take keys yet (docs/fork/BENCH.md)."""
+    p = Plan(
+        "chargen",
+        "New game, then through the opening quest's name and sex choices to the face menu, by the console's stage command",
+        fps=opts["fps"],
+        capped_only=True,
+    )
+    opening(p)
+    sc = Script(fps=opts["fps"], t=PLAY_END / opts["fps"] + QUEST_SETTLE_S)
+    stage = lambda n: f"setstage {OPENING_QUEST} {n}"  # noqa: E731
+    sc.console(stage(STAGE_NAME), settle=2.0, close=False)  # the name box opens over the console
+    sc.wait(2.0).type("Courier").press("enter", 0.25, 2.0)  # accepting the name closes the console too
+    sc.console(stage(STAGE_SEX), settle=2.0, close=False)
+    sc.press("grave", 0.25, 2.5)  # the sex box (first choice is the default)
+    sc.press("enter", 0.25, 2.0)
+    sc.console(stage(STAGE_REFLECTRON), settle=2.0, close=False)
+    sc.wait(8.0)
+    p.keys += on_play_clock(sc.keys)
+    p.end_frame = LOADING_FRAMES + sc.frame() + 600
+    p.checks = [reached_screen("loading"), reached_screen("play"), player_placed()]
+    return p
+
+
+def probe(opts):
+    """A debugging scenario: PROBE is a `;`-list of console commands and `key:`, `type:`, `wait:`, `mouse:`, `click`,
+    `close` steps after the opening, PROBE_START seconds into the first room."""
+    import os
+    p = Plan("probe", "probe", fps=opts["fps"], capped_only=True)
+    opening(p)
+    sc = Script(fps=opts["fps"], t=PLAY_END / opts["fps"] + float(os.environ.get("PROBE_START", "2")))
+    cmds = [c for c in os.environ.get("PROBE", "").split(";") if c]
+    for i, c in enumerate(cmds):
+        if c.startswith("key:"):
+            sc.press(c[4:], 0.25, 1.5)
+        elif c.startswith("wait:"):
+            sc.wait(float(c[5:]))
+        elif c.startswith("type:"):
+            sc.type(c[5:])
+        elif c.startswith("mouse:"):
+            dx, dy, secs = c[6:].split(":")
+            sc.look(int(dx), int(dy), float(secs))
+        elif c == "click":
+            sc.click(0.3, 1.0)
+        elif c == "close":
+            sc.press("grave", 0.25, 0.8)
+        elif c.startswith("run:"):  # a command in the console that is already open
+            sc.type(c[4:]).press("enter", 0.25, 2.5)
+        else:
+            sc.console(c, settle=2.5, close=False)
+    p.keys += on_play_clock(sc.keys)
+    p.mouse += on_play_clock(sc.mouse)
+    p.end_frame = LOADING_FRAMES + sc.frame() + 400
+    p.checks = []
+    return p
+
+
 def build(name, opts):
     if name not in SCENARIOS:
         raise SystemExit(f"unknown scenario {name!r}; known: {', '.join(sorted(SCENARIOS))}")
     return SCENARIOS[name](opts)
 
 
-SCENARIOS = {"boot": boot, "newgame": newgame}
+SCENARIOS = {"boot": boot, "newgame": newgame, "chargen": chargen, "probe": probe}

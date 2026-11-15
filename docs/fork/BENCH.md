@@ -56,6 +56,8 @@ Runs go to `~/.local/state/nv-rs/bench/<scenario>-<time>/` (`NV_BENCH_DIR` chang
 | --- | --- | --- |
 | `boot` | Skips the start-up movies, sits on the main menu for 50 s | works |
 | `newgame` | Menu, New, intro movie, the pack messages, to the first room (Doc Mitchell's house), 20 s there. Capped mode only | works (see below) |
+| `chargen` | `newgame`, then the opening quest's name and sex choices (stages set by console), to the face menu. Capped mode only | works to the face menu (see below) |
+| `probe` | Debugging: `PROBE="getstage 104c1c;key:enter;wait:2;mouse:10:5:1"` runs console commands and key, mouse and wait steps in the first room | a tool |
 
 Planned: `goodsprings`, `novac`, `strip`, `soak` (a long looped walk watching memory growth), each its own change.
 
@@ -71,16 +73,37 @@ The script is by main-loop frame, open loop. Findings that shaped it (2026-11-15
   state queries (`coc`, `player.getpos`) are available to scenarios.
 - The mouse script (`NV_MOVE_MOUSE`) moved no menu cursor in the main menu; menus are driven by keys.
 
-### What the engine lacks for the rest of the opening and for outdoors
+### The opening quest, diagnosed (2026-11-16)
 
-- Doc Mitchell's opening dialogue never starts: after the first room is shown the player stays seated and E, Enter, Space
-  and a click do nothing for 60 s+. Character creation and the tutorial therefore cannot be reached by input alone. Either
-  the opening's quest script does not run, or the input does not reach the first-person controls in that state. Not yet
-  diagnosed.
+The input is not at fault. Keys reach the game in every state tried (console, the name box, message boxes). What was found
+with the game's console (`getstage`, `sqv`) on the first room:
+
+- The opening quest runs (its timers advance) and stops in the stage in which Doc's second line is due. Doc's first line
+  finishes (its result script sets the next stage) and the second never does, with the threads real or stepped and with
+  the fork's fixes on or off (so it is not the dialogue topic index). That second line is the first with an idle animation
+  attached, so the stop is most likely in the animation the line waits for; not yet confirmed. Upstream-owned code.
+- E, Enter, Space and a click do nothing in that state by design: the quest disables every control but looking in its first
+  stage and enables them in a late one. It was never an input fault.
+- The face menu (the mirror) opens, but its head is black, its right-hand screen is empty and neither Esc, Tab, Enter, the
+  arrows nor the scripted mouse do anything in it (Esc opens the pause menu over it). A menu cursor does not follow the
+  scripted mouse in any menu tried.
+
+`chargen` therefore sets the stage that each unfinished line would have set, through the console (the console takes form
+ids on this port, not editor names; the quest's id is the constant `OPENING_QUEST`), types the name, takes the first sex
+choice and opens the face menu, where it stops. Reaching the SPECIAL, tag and trait menus and walking out needs that menu to
+work first.
+
+### Script clocks
+
+`NV_MOVE_KEYS` and `NV_MOVE_MOUSE` frames count main-loop frames, which a loading screen spins at about 1 ms each, so a
+step after a load depended on how long the load took. A frame written with a `p` before it (`p3399:1C:30`) counts only
+frames that are not a loading screen, so it waits for the game's loads: `newgame` and `chargen` take the first room's steps
+that way (`Script` items go through `on_play_clock`). The two clocks mix in one script; the movie skip stays on the
+main-frame clock because it is pressed during a load. A step that waits for a named screen is still not there.
+
+### What the engine lacks for outdoors
+
 - A console teleport to the town (`coc goodsprings`) stops the game in the first outdoor frames with
   `IDirect3DDevice9::CreateQuery(9) is not in the machine table` (the adapter table has no query lines on this machine;
   `d3d9-capture device queries` is a Windows tool). Until that is solved on Linux, scenarios that go outdoors will report
   that stop, which is what the verdict is for.
-- The script cannot wait for an event. A scripted step that depends on a screen change (a load that takes longer on a cold
-  disk) can miss. An engine-side `NV_MOVE_KEYS` that counts only non-loading frames, or a key that waits for a named
-  screen, would make every scenario closed loop.
