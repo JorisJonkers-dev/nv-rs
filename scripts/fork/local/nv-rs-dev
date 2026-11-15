@@ -3,6 +3,7 @@
 #   nv-rs-dev build              build only nv-viewer (profile "play") into a shared target dir
 #   nv-rs-dev run [args]         run that build against the Steam game folder, log under ~/.local/state/nv-rs/logs
 #   nv-rs-dev smoke [--seconds N] [--shot]   run N seconds (default 60), stop it, print a PASS/FAIL checklist
+#   nv-rs-dev bench <run|list|report|compare|analyze> ...   scripted playthrough and benchmark runs (docs/fork/BENCH.md)
 #   nv-rs-dev test <crate> [args]  cargo test -p <crate>
 #   nv-rs-dev affected [base]    the crates and components a diff reaches (default base origin/fork), as the pull request's CI selects them
 #   nv-rs-dev ci-lite [base]     fmt, clippy of the changed crates and the Linux test jobs of the affected components, as CI would run them
@@ -18,11 +19,18 @@ case "$cmd" in
   build) dev_build "$@" ;;
   run) dev_run "$@" ;;
   smoke) dev_smoke "$@" ;;
+  bench)
+    # Scripted playthrough runs and their reports (docs/fork/BENCH.md). The run environment is dev_env's;
+    # sound is off unless NV_SOUND is set.
+    NV_SOUND="${NV_SOUND:-none}"; dev_env
+    unset NV_SOUND   # the runner decides the sound (default: silent)
+    export NV_BENCH_VIEWER="${NV_BENCH_VIEWER:-$(dev_viewer)}" NV_BENCH_GAME="${NV_BENCH_GAME:-$GAME}"
+    exec python3 -I "$HERE/../bench/nvbench.py" "$@" ;;
   test)
     [ $# -ge 1 ] || { echo "usage: nv-rs-dev test <crate> [cargo test args]" >&2; exit 2; }
     c="$1"; shift; dev_cargo test -p "$c" "$@" ;;
   check) dev_check "$@" ;;
   affected) dev_affected "$@" ;;
   ci-lite) dev_ci_lite "$@" ;;
-  *) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

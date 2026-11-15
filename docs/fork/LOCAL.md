@@ -10,6 +10,7 @@ Vulkan) without waiting for a CI Release Build. CI stays the merge gate: this lo
 | `nv-rs-dev build` | `cargo build --profile play -p nv-viewer --bin nv-viewer` only; never the whole workspace |
 | `nv-rs-dev run [args]` | Runs that binary on the Steam game folder as `nv-rs-run` does (`NV_D3D9=wgpu`, Nix-store `LD_LIBRARY_PATH` fallback for wayland, xkbcommon and vulkan, `NV_SOUND=out`, `NV_PULSE_SIMPLE` fallback); log in `~/.local/state/nv-rs/logs/dev-<time>.log` |
 | `nv-rs-dev smoke [--seconds N] [--shot]` | Runs N seconds (default 60) on the real display, stops it with SIGTERM, prints a PASS/FAIL checklist parsed from the log |
+| `nv-rs-dev bench <run\|list\|report\|compare>` | Scripted playthrough runs with frame-time, memory and stability reports: [BENCH.md](BENCH.md) |
 | `nv-rs-dev test <crate> [args]` | `cargo test -p <crate>`, same cap and target dir |
 | `nv-rs-dev check [crate...]` | `cargo fmt --check` and `cargo clippy --all-targets -D warnings` for the named crates, default the crates changed against `origin/fork` |
 | `nv-rs-dev affected [base]` | the crates a diff changes and the components CI would test for it (`components.py affected`; "EVERYTHING" when the diff touches `Cargo.lock`, the toolchain, workflows, the map or a shared file) |
