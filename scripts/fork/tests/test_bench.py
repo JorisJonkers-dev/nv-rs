@@ -218,6 +218,13 @@ class ScenarioTests(unittest.TestCase):
         self.assertIn(scenarios.DIK["lshift"], codes)
         self.assertEqual(codes.count(scenarios.DIK["a"]), 1)
 
+    def test_play_clock_items_get_the_p_prefix_and_the_env_keeps_both_clocks(self):
+        plan = scenarios.build("chargen", self.OPTS)
+        keys = plan.env(self.OPTS)["NV_MOVE_KEYS"].split(",")
+        self.assertTrue(any(k.startswith("p") for k in keys))
+        self.assertTrue(any(not k.startswith("p") for k in keys))
+        self.assertEqual(scenarios.on_play_clock([(5, 1, 2)]), [("p5", 1, 2)])
+
     def test_env_for_modes(self):
         plan = scenarios.build("boot", self.OPTS)
         capped = plan.env(self.OPTS)
@@ -243,7 +250,7 @@ class ScenarioTests(unittest.TestCase):
             for item in env.get("NV_MOVE_KEYS", "").split(","):
                 if item:
                     f, k, h = item.split(":")
-                    int(f), int(k, 16), int(h)
+                    int(f.lstrip("p")), int(k, 16), int(h)
 
 
 class CliTests(unittest.TestCase):
