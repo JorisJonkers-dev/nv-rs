@@ -52,6 +52,14 @@ fn engine() -> Engine {
         eax: 0x48f,
         ..Ret::default()
     });
+    // `ExtraDataList::GetCanNotWear` (`00418b10`): JIP wraps it, and this engine has no
+    // translations to hold it (they are assembled in the host), as in `crates/jip/src/test_support.rs`.
+    if !e.is_registered(0x0041_8b10) {
+        e.register(0x0041_8b10, |e, a| Ret {
+            eax: u32::from(e.mem.u8(a[0] + 0xf) & 0x40 != 0),
+            ..Ret::default()
+        });
+    }
     e
 }
 
