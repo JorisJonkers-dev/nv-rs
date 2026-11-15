@@ -736,6 +736,24 @@ fn windows_lines(o: &mut String) {
     }
 }
 
+/// `D3DQUERYTYPE` event and occlusion, the two the game makes (the retail HAL takes both).
+const QUERY_EVENT: u32 = 8;
+const QUERY_OCCLUSION: u32 = 9;
+
+/// The `CreateQuery(type, NULL)` lines of `d3d9-capture device queries` for a real GPU: event
+/// and occlusion are taken; every other type up to 0x14 (the timestamps, the timings, the
+/// driver-private ones) is `D3DERR_NOTAVAILABLE`, as a driver without them answers.
+fn query_lines(o: &mut String) {
+    for kind in 0..=0x14u32 {
+        let hr: u32 = if kind == QUERY_EVENT || kind == QUERY_OCCLUSION {
+            0
+        } else {
+            0x8876_086a
+        };
+        writeln!(o, "CreateQuery\t{kind:x}\t{hr:x}").unwrap();
+    }
+}
+
 /// The adapter table of the machine `p` describes, as `Adapter::parse` reads it.
 pub fn adapter_table(p: &Profile) -> String {
     let cur = p.modes.first().copied().unwrap_or((1920, 1080, 60));
@@ -750,6 +768,7 @@ pub fn adapter_table(p: &Profile) -> String {
         writeln!(o, "GetSystemMetrics\t{index:x}\t{:x}", metric(index, cur)).unwrap();
     }
     windows_lines(&mut o);
+    query_lines(&mut o);
     // Folders: the Windows directory and CSIDL personal, appdata, local appdata, common appdata,
     // common documents, under the user data folder.
     // The game's paths are Windows paths: `Z:` is the host's root (`files::host_path`, as Wine's),
@@ -1204,6 +1223,24 @@ mod tests {
             crate::d3d9::captured_format_check(&mut e, &[0, 1, 22, 1, 3, 22]),
             Some(0)
         );
+    }
+
+    /// The table says event and occlusion queries are taken and the rest are not available, so the
+    /// first outdoor frame's `CreateQuery(9)` no longer stops the run.
+    #[test]
+    fn the_table_takes_event_and_occlusion_queries() {
+        let table = adapter_table(&reference());
+        let mut e = Engine::new();
+        crate::d3d9::load_adapter_table(&mut e, &table);
+        assert_eq!(crate::d3d9::query_support(&mut e, 8), Some(0));
+        assert_eq!(crate::d3d9::query_support(&mut e, 9), Some(0));
+        for kind in [0, 4, 10, 11, 12, 0x14] {
+            assert_eq!(
+                crate::d3d9::query_support(&mut e, kind),
+                Some(0x8876_086a),
+                "type {kind}"
+            );
+        }
     }
 
     /// The caps the table gives say a card takes any texture size: with POW2 or SQUAREONLY the
