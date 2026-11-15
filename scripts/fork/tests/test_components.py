@@ -271,7 +271,7 @@ class Affected(unittest.TestCase):
 
     def test_the_vendored_wgpu_hal_reaches_the_crates_that_use_wgpu(self):
         _, got = self.reached(["vendor/wgpu-hal/src/lib.rs"])
-        self.assertEqual(got, {"rendering", "platform", "integration", "repo-checks", "release-files"})
+        self.assertEqual(got, {"rendering", "window-layer", "platform", "integration", "repo-checks", "release-files"})
 
     def test_the_launcher_and_the_distribution_scripts_run_their_component(self):
         for f in ("scripts/launcher/src/main.rs", "scripts/ledger/src/main.rs", "distribution/Settings.ps1"):

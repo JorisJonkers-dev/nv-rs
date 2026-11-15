@@ -80,10 +80,17 @@ runs_on = "both"
 windows = "required"
 
 [[component]]
+name = "window-layer"
+purpose = "The window layer off Windows: a winit window thread for X11 and Wayland, the handle registry, the wgpu surface and DirectInput-shaped input (docs/fork/LINUX.md). Fork-owned; Windows keeps engine-platform's window thread"
+crates = ["fork-window"]
+requires = []
+runs_on = "both"
+
+[[component]]
 name = "rendering"
 purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal)"
 crates = ["d3d9-stream", "d3d9-wgpu"]
-requires = ["formats"]
+requires = ["formats", "window-layer"]
 runs_on = "both"
 windows = "required"
 
