@@ -24,7 +24,7 @@ crates/engine-platform/src/dsound.rs  # the sound table's default folder comes f
 crates/host/src/game_ini.rs  # off Unix hosts the table's Documents folder `Z:\...` is read as the host path
 crates/host/src/save_out.rs  # known_folders off Windows answers from the XDG data folder
 # Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
-Cargo.toml  # two workspace members
+Cargo.toml  # workspace members (two crates, fork-presence)
 Cargo.lock  # the two crates and the host's dependencies on them
 crates/host/Cargo.toml  # dependencies on the two crates
 crates/nvse/src/plugins.rs  # read_chunks and write_chunks: a section's records carried unchanged
@@ -50,3 +50,6 @@ crates/host/src/player_move.rs  # the real window's keys and mouse (d3d9real::he
 crates/d3d9-wgpu/src/window.rs  # client_size off Windows asks fork-window; the present mode is chosen by choose_present_mode (NV_PRESENT, Mailbox by default off Windows) and the refresh interval and one display log line come from fork_window::display(); skipped frames wait for the device, and a window that gave no frame is configured again
 # Sound output off Windows (docs/fork/LINUX.md, nv-linux#149): the code is the new file engine-platform/src/fork_sound.rs; its upstream-owned edits are the hooks in engine-platform/src/sound_out.rs, listed here, and the lines noted above for lib.rs, Cargo.toml, dsound.rs and Cargo.lock.
 crates/engine-platform/src/sound_out.rs  # the non-Windows arms of `start` and `device_mix` call fork_sound.rs (they answered "no device"); `Output::running` and `is_muted` for it, cfg(not(windows)); the Windows WASAPI code is unchanged
+# Discord Rich Presence (docs/fork/DISCORD.md, crates/fork-presence).
+viewer/src/main.rs  # starts presence before main's frames and marks the first frame
+viewer/Cargo.toml  # the fork-presence dependency

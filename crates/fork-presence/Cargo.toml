@@ -1,0 +1,16 @@
+[package]
+name = "fork-presence"
+version = "0.1.0"
+description = "Fork-owned Discord Rich Presence: a background thread shows the running game on the player's Discord (docs/fork/DISCORD.md)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+# The Discord client side. Off, `start` is inert. macOS is added to the target list below later.
+default = ["discord"]
+discord = ["dep:discord-rich-presence"]
+
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+discord-rich-presence = { version = "=1.0.0", optional = true }

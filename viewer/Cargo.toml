@@ -10,3 +10,6 @@ publish = false
 [dependencies]
 # The game's own translated code (crates/engine), started on the player's FalloutNV.exe.
 host = { path = "../crates/host" }
+
+# Discord Rich Presence (docs/fork/DISCORD.md): a background thread, off without an application ID.
+fork-presence = { path = "../crates/fork-presence" }
