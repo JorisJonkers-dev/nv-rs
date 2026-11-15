@@ -85,7 +85,7 @@ var
   Bad: String;
 begin
   Result := True;
-  if CurPageID = wpSelectDir then
+  if (CurPageID = wpSelectDir) and not WizardSilent then
   begin
     Bad := BadFolder(WizardDirValue);
     if Bad <> '' then
