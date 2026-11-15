@@ -52,13 +52,15 @@ fn engine() -> Engine {
         eax: 0x48f,
         ..Ret::default()
     });
-    // `ExtraDataList::GetCanNotWear` (`00418b10`): JIP wraps it, and this engine has no
-    // translations to hold it (they are assembled in the host), as in `crates/jip/src/test_support.rs`.
-    if !e.is_registered(0x0041_8b10) {
-        e.register(0x0041_8b10, |e, a| Ret {
-            eax: u32::from(e.mem.u8(a[0] + 0xf) & 0x40 != 0),
-            ..Ret::default()
-        });
+    // The extenders' installs also patch game code at fixed addresses, and the tool has no
+    // image of the exe. Stand in for it instead of for one address at a time: every page of the
+    // image reads zero, and every function the wrap table lists is a stand-in that returns 0, so
+    // a new patch upstream adds needs nothing here. Only the command tables are read afterwards.
+    e.map(0x0040_0000, 0x00f0_0000);
+    for entry in engine_core::extend::WRAPS {
+        if !e.is_registered(entry.addr) {
+            e.register(entry.addr, |_, _| Ret::default());
+        }
     }
     e
 }
