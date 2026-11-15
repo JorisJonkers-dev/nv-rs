@@ -175,6 +175,10 @@ jobs:
         run: |
           $dir = Join-Path $env:GITHUB_WORKSPACE 'installed'
           $setup = Resolve-Path "dist/nv-rs-setup-$env:VERSION-windows-x64.exe"
+          # Before the real install: the installer refuses Program Files (a silent install too), writing nothing there.
+          $refused = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$env:ProgramFiles\nv-rs-refused", "/LOG=$env:RUNNER_TEMP/refused.log") -Wait -PassThru
+          if ($refused.ExitCode -eq 0) { Get-Content "$env:RUNNER_TEMP/refused.log"; throw 'the installer accepted Program Files' }
+          if (Test-Path -LiteralPath "$env:ProgramFiles\nv-rs-refused") { throw 'the refused install wrote to Program Files' }
           $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$dir", "/LOG=$env:RUNNER_TEMP/setup.log") -Wait -PassThru
           if ($p.ExitCode) { Get-Content "$env:RUNNER_TEMP/setup.log"; throw "the installer exited $($p.ExitCode)" }
           foreach ($f in 'Play.exe', 'app/FalloutNV.exe', 'Choose game folder.cmd', 'READ ME.txt', 'LICENSE') {
@@ -182,10 +186,6 @@ jobs:
           }
           if ((Get-FileHash "$dir/app/FalloutNV.exe").Hash -ne (Get-FileHash programs/release/nv-viewer.exe).Hash) { throw 'the installed program differs from the built one' }
           ./scripts/fork/package/smoke-test.ps1 -Viewer "$dir/app/FalloutNV.exe" -Launcher "$dir/Play.exe" -Work "$env:RUNNER_TEMP/smoke-installed"
-          # The installer refuses Program Files (a silent install too), writing nothing there.
-          $refused = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$env:ProgramFiles\nv-rs-refused") -Wait -PassThru
-          if ($refused.ExitCode -eq 0) { throw 'the installer accepted Program Files' }
-          if (Test-Path -LiteralPath "$env:ProgramFiles\nv-rs-refused") { throw 'the refused install wrote to Program Files' }
           $uninstall = Get-ChildItem -LiteralPath $dir -Filter 'unins*.exe' | Select-Object -First 1
           $u = Start-Process -FilePath $uninstall.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
           if ($u.ExitCode) { throw "the uninstaller exited $($u.ExitCode)" }
