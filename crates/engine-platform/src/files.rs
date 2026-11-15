@@ -2799,6 +2799,20 @@ mod tests_full_path_name {
     /// Every row of the measurement (2026-10-27), with the current directory `C:\G\F` in place
     /// of the scratch folder's: the text, the length, the file part and the last error.
     #[test]
+    fn a_relative_data_path_resolves_under_a_z_drive_folder() {
+        let mut e = Engine::new();
+        e.kernel.current_directory = br"Z:\home\me\FNV".to_vec();
+        assert_eq!(
+            full(&mut e, r"Data\Video\Fallout INTRO Vsk.bik", 260).1,
+            r"Z:\home\me\FNV\Data\Video\Fallout INTRO Vsk.bik"
+        );
+        assert_eq!(
+            full(&mut e, "Data/Video/a.bik", 260).1,
+            r"Z:\home\me\FNV\Data\Video\a.bik"
+        );
+    }
+
+    #[test]
     fn full_path_names_follow_the_measured_rows() {
         let mut e = Engine::new();
         e.kernel.current_directory = br"C:\G\F".to_vec();
