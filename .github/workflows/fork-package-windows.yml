@@ -176,7 +176,7 @@ jobs:
           $dir = Join-Path $env:GITHUB_WORKSPACE 'installed'
           $setup = Resolve-Path "dist/nv-rs-setup-$env:VERSION-windows-x64.exe"
           # Before the real install: the installer refuses Program Files (a silent install too), writing nothing there.
-          $refused = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$env:ProgramFiles\nv-rs-refused", "/LOG=$env:RUNNER_TEMP/refused.log") -Wait -PassThru
+          $refused = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "`"/DIR=$env:ProgramFiles\nv-rs-refused`"", "/LOG=$env:RUNNER_TEMP/refused.log") -Wait -PassThru
           if ($refused.ExitCode -eq 0) { Get-Content "$env:RUNNER_TEMP/refused.log"; throw 'the installer accepted Program Files' }
           if (Test-Path -LiteralPath "$env:ProgramFiles\nv-rs-refused") { throw 'the refused install wrote to Program Files' }
           $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$dir", "/LOG=$env:RUNNER_TEMP/setup.log") -Wait -PassThru
