@@ -1,0 +1,56 @@
+# Fork-only. The window layer's smoke on Wayland compositors without a screen (docs/fork/DESKTOPS.md, "CI"): the `clear`
+# example opens a window under weston, cage, sway and labwc (headless, software renderer) and shows 30 frames through
+# wgpu on lavapipe. Not required, not part of Pipeline Complete; one job, one build, each compositor a step of its own so
+# one failure does not hide the others. GNOME (Mutter), KDE (KWin) and Hyprland are not run here: see the document.
+name: Window smoke (desktops)
+
+on:
+  pull_request:
+    paths:
+      - 'crates/fork-window/**'
+      - 'scripts/fork/headless-smoke.sh'
+      - '.github/workflows/fork-window-desktops.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: window-desktops-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktops:
+    name: Window smoke (Wayland compositors)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: window-smoke
+          save-if: false
+      - name: Compositors and software Vulkan
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq weston cage sway labwc libwayland-client0 libxkbcommon0 libvulkan1 mesa-vulkan-drivers
+          icds=(/usr/share/vulkan/icd.d/lvp_icd*.json)
+          echo "VK_ICD_FILENAMES=${icds[0]}" >>"$GITHUB_ENV"
+      - name: Build
+        run: cargo build --locked -p fork-window --example clear
+      - name: weston
+        if: always()
+        run: scripts/fork/headless-smoke.sh weston | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: cage (wlroots)
+        if: always()
+        run: scripts/fork/headless-smoke.sh cage | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: sway (wlroots)
+        if: always()
+        run: scripts/fork/headless-smoke.sh sway | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: labwc (wlroots)
+        if: always()
+        run: scripts/fork/headless-smoke.sh labwc | tee -a "$GITHUB_STEP_SUMMARY"
