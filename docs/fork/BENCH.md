@@ -26,6 +26,12 @@ Options of `run`: `--windowed --yes-windowed` (a real window; refused without bo
 Runs go to `~/.local/state/nv-rs/bench/<scenario>-<time>/` (`NV_BENCH_DIR` changes it): `viewer.log`, `frames.tsv`,
 `samples.tsv`, `summary.json`, `report.md`, `report.html` (inline SVG charts, no script). Numbers only: no game data.
 
+## Across refs, configurations and machines
+
+`nv-rs-dev matrix` and `nv-rs-dev compare` drive this runner for several refs (commit, branch, tag, PR), several
+configurations (session, mode, resolution, preset, threads, sound) and several hosts, and compare each ref with a baseline
+using the thresholds below; see [LOCAL.md](LOCAL.md#matrix-runs). `--json` gives CI a machine-readable summary.
+
 ## What is recorded
 
 - Frame times from `NV_FRAME_LOG`: average, p50, p95, p99, max, fps, 1% and 0.1% lows, overall and for the play screen; an

@@ -7,7 +7,10 @@ Vulkan) without waiting for a CI Release Build. CI stays the merge gate: this lo
 
 | Command | What it does |
 | --- | --- |
-| `nv-rs-dev build` | `cargo build --profile play -p nv-viewer --bin nv-viewer` only; never the whole workspace |
+| `nv-rs-dev build [--clean]` | `cargo build --profile play -p nv-viewer --bin nv-viewer` only; never the whole workspace. `--clean`: a cold build in a fresh `<target>-cold` dir with no compiler cache, timed (the shared dir is never emptied under another worker); every build appends its time to `~/.local/state/nv-rs/build-times.tsv` |
+| `nv-rs-dev matrix [spec.toml] [flags]` | Builds, tests and benchmarks many refs, configurations and hosts, and writes one comparison report: [Matrix runs](#matrix-runs) |
+| `nv-rs-dev compare <baseline> <candidate>` | A two-ref matrix |
+| `nv-rs-dev clean [--all]` | Removes this loop's own caches, sizes first: [Clean](#clean) |
 | `nv-rs-dev run [args]` | Runs that binary on the Steam game folder as `nv-rs-run` does (`NV_D3D9=wgpu`, Nix-store `LD_LIBRARY_PATH` fallback for wayland, xkbcommon and vulkan, `NV_SOUND=out`, `NV_PULSE_SIMPLE` fallback); log in `~/.local/state/nv-rs/logs/dev-<time>.log` |
 | `nv-rs-dev smoke [--seconds N] [--shot]` | Runs N seconds (default 60) on the real display, stops it with SIGTERM, prints a PASS/FAIL checklist parsed from the log |
 | `nv-rs-dev bench <run\|list\|report\|compare>` | Scripted playthrough runs with frame-time, memory and stability reports: [BENCH.md](BENCH.md) |
@@ -39,6 +42,89 @@ Measured on this machine (16 threads, 31 GB): see the table below.
 | --- | --- | --- |
 | Cold (empty target dir) | 233 s (3 m 53 s) | about 5.8 GB (sampled every 2 s), so 12G leaves room |
 | Warm, nothing changed | 0 s (no-op); an incremental rebuild after a one-crate change depends on the crate, not measured | |
+
+## Clean
+
+`nv-rs-dev clean` prints what it would remove with sizes, then asks (or takes `--yes`; `--dry-run` only prints). Without
+`--all`: the shared cargo target dir, the cold-build dir, the matrix binary cache and the `matrix-*` worktrees it made.
+With `--all`: also the sccache dir, matrix reports, bench runs and their scratch saves, dev logs and remote run dirs. It
+removes only paths under `~/.cache/nv-rs` and `~/.local/state/nv-rs` (or `NV_DEV_TARGET` when that has `nv-rs` in its
+path), never follows symlinks, never touches your own worktrees (only the `matrix-` prefix), and takes the matrix lock so
+it will not run under a matrix in progress.
+
+## Matrix runs
+
+`nv-rs-dev matrix` answers "is this PR (or commit, branch, tag) better or worse than `fork`, on these settings, on these
+machines" with one command and one report.
+
+```sh
+nv-rs-dev matrix --ref fork --ref 93 --ref v0.3.0 --scenario boot --config mode=uncapped      # flags
+nv-rs-dev matrix matrix.toml                                                                  # or a spec file
+nv-rs-dev compare fork 93                                                                     # two refs, defaults
+nv-rs-dev matrix matrix.toml --json                                                           # CI: one JSON line on stdout
+```
+
+A spec file (TOML; flags add to it):
+
+```toml
+baseline = "fork"                 # default: the first ref; each other ref is judged against it
+refs = ["fork", "93", "v0.3.0", "working"]   # commit, branch, tag, PR number (93 or pr:93); "working" = this checkout as it is
+scenarios = ["boot"]              # bench scenarios (nv-rs-dev bench list)
+hosts = ["local", "box2"]         # "local" or names from ~/.config/nv-rs/hosts.toml
+test = true                       # the affected components' Linux tests (ci-lite) per ref, against the baseline commit
+bench = true
+scale = 0.5                       # bench --scale
+thresholds = { fps = 3 }          # bench compare thresholds, percent
+
+[[config]]                        # one bench setting set; default: offscreen capped 1920x1080, preset fixes
+name = "lo"
+session = "offscreen"             # offscreen | xvfb | nested-wayland
+mode = "capped"                   # capped | uncapped (peak fps, immediate present)
+resolution = "1280x720"
+preset = "fixes"                  # fixes | vanilla
+threads = "real"                  # real | stepped
+sound = "silent"
+vram_limit_pct = 70
+env = { NV_SOMETHING = "1" }      # extra environment, e.g. an audio layout switch the build reads
+args = ["--seconds", "30"]        # extra `bench run` arguments
+```
+
+What it does, per host: resolves each ref (a PR number is fetched from `origin`), makes a detached worktree
+`~/Projects/<owner>/worktrees/<repo>/matrix-<ref>@<sha>` (never in the repository), builds `nv-viewer` through
+`nv-rs-dev build` (memory-capped, the shared target dir, so dependency builds are shared; sccache is used when installed;
+one cargo process at a time, enforced by a lock), keeps the binary per commit in `~/.cache/nv-rs/matrix-bin` so a repeat run
+rebuilds nothing, runs `ci-lite` for the tests, then runs every scenario in every config for every ref through
+`nv-rs-dev bench run` (the existing runner and its VRAM watchdog). Results go to `~/.local/state/nv-rs/matrix/<time>/`:
+`matrix.md`, `matrix.html` (no script), `matrix.json` and the per-run bench directories. Every non-baseline ref is compared
+with the baseline by the same `report.compare` and thresholds as `bench compare`; the report lists the deltas and
+`REGRESSION` verdicts. Only numbers go in a report: no game data.
+
+Safety: sessions are `offscreen` (no window at all), `xvfb` (a private X server through `xvfb-run`, the window cannot reach
+your desktop) and `nested-wayland` (needs the bench runner's `--session` option; a cell is reported `skipped` until the
+runner has it). A windowed run on the real display is not available through the matrix.
+
+Exit status: 0 all fine, 1 a regression, a failed build, failed tests or a bench error, 2 a usage error. `--json` prints one
+JSON object on stdout (progress goes to stderr) with `ok`, the build and test status of each ref and the comparisons with
+the keys that regressed, for CI to read.
+
+### Other machines
+
+`~/.config/nv-rs/hosts.toml` (yours; nothing about hosts is in the repository, and no secrets belong in it: ssh keys come
+from your agent):
+
+```toml
+[host.box2]
+ssh = "me@box2"                  # anything `ssh` accepts, ~/.ssh/config aliases included
+repo = "~/src/nv-rs"             # an nv-rs checkout on the host (with this tooling: it runs its own scripts/fork/local)
+sync = "git"                     # git: `git fetch origin` there, so any ref pushed to origin works
+                                 # rsync: this checkout's tree is copied over first (target/ excluded), so "working" and local commits work
+game = "~/Games/Fallout New Vegas"
+cache = "~/.cache/nv-rs"         # target dir, binaries and run dirs of the host
+```
+
+The whole matrix runs on the host with its own game folder, GPU and cache; only `results.json`, `summary.json`, `report.md`
+and `report.html` come back (the logs stay there), and the host appears in the one report next to `local`. Hosts run one at a
+time. `--dry-run` prints the resolved plan and the exact ssh and rsync commands without running anything.
 
 ## Rules for workers
 
