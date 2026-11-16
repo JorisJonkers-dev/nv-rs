@@ -144,6 +144,7 @@ pub(crate) struct Recorder {
     last: Option<Instant>,
     frames: Vec<Frame>,
     file: Option<Mutex<std::io::BufWriter<std::fs::File>>>,
+    threads: threads::Sampler,
 }
 
 impl Recorder {
@@ -162,6 +163,7 @@ impl Recorder {
             last: None,
             frames: Vec::new(),
             file,
+            threads: threads::Sampler::default(),
         }
     }
 
@@ -197,7 +199,162 @@ impl Recorder {
     /// The report lines since the last one (the frames are taken).
     pub(crate) fn report(&mut self) -> Vec<String> {
         let frames = std::mem::take(&mut self.frames);
-        report_lines(&frames)
+        let mut lines = report_lines(&frames);
+        if enabled() {
+            lines.extend(self.threads.report());
+        }
+        lines
+    }
+}
+
+/// Per-thread busy time of the whole process (Linux: `/proc/self/task/*/stat`), so the report shows which threads
+/// are the bottleneck and which sit idle.
+pub(crate) mod threads {
+    use std::collections::HashMap;
+    use std::time::Instant;
+
+    /// The kernel's clock tick (`USER_HZ`), 100 on every Linux ABI that matters.
+    const TICKS_PER_SEC: f64 = 100.0;
+
+    /// One thread's cumulative CPU time in ticks (user plus system) and its name.
+    #[derive(Clone, Debug, PartialEq)]
+    pub(crate) struct Sample {
+        pub(crate) name: String,
+        pub(crate) ticks: u64,
+    }
+
+    /// Parses one `/proc/<pid>/task/<tid>/stat` line. The name sits in parentheses and may hold spaces and
+    /// parentheses, so the fields after it are found from the last `)`.
+    pub(crate) fn parse_stat(line: &str) -> Option<Sample> {
+        let open = line.find('(')?;
+        let close = line.rfind(')')?;
+        if close < open {
+            return None;
+        }
+        let name = line[open + 1..close].to_string();
+        // After ") ": state is field 3, utime and stime are fields 14 and 15 (1-based).
+        let rest: Vec<&str> = line[close + 1..].split_whitespace().collect();
+        let utime: u64 = rest.get(11)?.parse().ok()?;
+        let stime: u64 = rest.get(12)?.parse().ok()?;
+        Some(Sample {
+            name,
+            ticks: utime + stime,
+        })
+    }
+
+    /// Reads every thread of this process, by thread id (empty where `/proc` is not there).
+    pub(crate) fn read_all() -> HashMap<u32, Sample> {
+        let mut out = HashMap::new();
+        let Ok(dir) = std::fs::read_dir("/proc/self/task") else {
+            return out;
+        };
+        for entry in dir.flatten() {
+            let Some(tid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|n| n.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            if let Some(s) = std::fs::read_to_string(entry.path().join("stat"))
+                .ok()
+                .as_deref()
+                .and_then(parse_stat)
+            {
+                out.insert(tid, s);
+            }
+        }
+        out
+    }
+
+    /// The report line from two readings `wall_secs` apart (pure, tested): threads over 1% busy, busiest first, as
+    /// `name/tid busy%`, and the process's total in cores.
+    pub(crate) fn report_line(
+        before: &HashMap<u32, Sample>,
+        after: &HashMap<u32, Sample>,
+        wall_secs: f64,
+    ) -> Option<String> {
+        if wall_secs <= 0.0 {
+            return None;
+        }
+        let mut busy: Vec<(f64, u32, &str)> = Vec::new();
+        let mut total = 0.0;
+        for (tid, now) in after {
+            let was = before.get(tid).map_or(0, |b| b.ticks);
+            let pct = now.ticks.saturating_sub(was) as f64 / TICKS_PER_SEC / wall_secs * 100.0;
+            total += pct;
+            if pct >= 1.0 {
+                busy.push((pct, *tid, &now.name));
+            }
+        }
+        busy.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+        let list: Vec<String> = busy
+            .iter()
+            .map(|(pct, tid, name)| format!("{name}/{tid} {pct:.0}%"))
+            .collect();
+        Some(format!(
+            "NV_PERF: thread busy over {wall_secs:.1} s, {:.2} cores in all: {}",
+            total / 100.0,
+            if list.is_empty() {
+                "none over 1%".to_string()
+            } else {
+                list.join(", ")
+            }
+        ))
+    }
+
+    /// Keeps the last reading between reports.
+    #[derive(Default)]
+    pub(crate) struct Sampler {
+        last: Option<(Instant, HashMap<u32, Sample>)>,
+    }
+
+    impl Sampler {
+        pub(crate) fn report(&mut self) -> Option<String> {
+            let now = (Instant::now(), read_all());
+            let line = self.last.as_ref().and_then(|(t, before)| {
+                report_line(before, &now.1, now.0.duration_since(*t).as_secs_f64())
+            });
+            self.last = Some(now);
+            line
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn stat_names_with_spaces_and_parentheses_parse() {
+            let line = "123 (render (a) thr) S 1 2 3 4 5 6 7 8 9 10 250 50 0 0 20 0 1 0 100 1 2";
+            let s = parse_stat(line).unwrap();
+            assert_eq!(s.name, "render (a) thr");
+            assert_eq!(s.ticks, 300);
+            assert!(parse_stat("garbage").is_none());
+        }
+
+        #[test]
+        fn busy_percent_is_ticks_over_wall_time() {
+            let mk = |t| Sample {
+                name: "game".into(),
+                ticks: t,
+            };
+            let before = HashMap::from([(1, mk(100)), (2, mk(0))]);
+            let after = HashMap::from([(1, mk(268)), (2, mk(0)), (3, mk(50))]);
+            let line = report_line(&before, &after, 2.0).unwrap();
+            assert!(line.contains("game/1 84%"), "{line}");
+            assert!(line.contains("game/3 25%"), "{line}");
+            assert!(!line.contains("game/2"), "{line}");
+            assert!(line.contains("1.09 cores"), "{line}");
+            assert!(report_line(&before, &after, 0.0).is_none());
+        }
+
+        #[test]
+        fn this_process_has_threads_to_read() {
+            if cfg!(target_os = "linux") {
+                assert!(!read_all().is_empty());
+            }
+        }
     }
 }
 
