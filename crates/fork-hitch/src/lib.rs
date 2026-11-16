@@ -1154,9 +1154,13 @@ mod tests {
     /// The event ring belongs to the process and the tests run in parallel: every test that writes
     /// to it or reads it holds this lock, so another test's event cannot land between its own
     /// event and its read.
+    /// The event ring is one global: the tests that use it take turns, and each starts with an
+    /// empty ring, so an event of one test is never in another's context.
     fn ring_lock() -> MutexGuard<'static, ()> {
         static LOCK: Mutex<()> = Mutex::new(());
-        LOCK.lock().unwrap_or_else(|p| p.into_inner())
+        let turn = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        events().filled = 0;
+        turn
     }
 
     #[test]
@@ -1271,15 +1275,10 @@ mod tests {
         r.ctx.screen = Screen::Play;
         rec.stats.frame(r.wall_ns, Screen::Play);
         // With no load event in its context: a stall in play.
-        if !recent_events(now_ns(), CONTEXT_MS)
-            .iter()
-            .any(|e| e.kind == "world.change")
-        {
-            report_hitch(&mut rec, &r, 7_000_000, 0);
-            assert_eq!((rec.stats.hitches, rec.stats.play_hitches()), (1, 1));
-            assert_ne!(rec.stats.worst[0].cause, Cause::Loading);
-            rec.stats = Stats::default();
-        }
+        report_hitch(&mut rec, &r, 7_000_000, 0);
+        assert_eq!((rec.stats.hitches, rec.stats.play_hitches()), (1, 1));
+        assert_ne!(rec.stats.worst[0].cause, Cause::Loading);
+        rec.stats = Stats::default();
         // Right after a world change: the same frame is a load.
         event("world.change", 1);
         report_hitch(&mut rec, &r, 7_000_000, 0);
