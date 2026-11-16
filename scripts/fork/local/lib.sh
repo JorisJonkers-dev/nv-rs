@@ -38,6 +38,9 @@ dev_env() {
     export LD_LIBRARY_PATH
   fi
   export NV_SOUND="${NV_SOUND:-out}"
+  # Scripted and local-loop runs keep their saves in a scratch folder, never in the owner's userdata
+  # (a real run through nv-rs-run keeps the default: saves persist there); the caller may set it.
+  export NV_SAVE_OUT="${NV_SAVE_OUT:-$HOME/.local/state/nv-rs/bench/saves-$(date +%Y%m%dT%H%M%S)-$$}"
   if [ -z "${NV_PULSE_SIMPLE:-}" ] && ! ldconfig -p 2>/dev/null | grep -q libpulse-simple; then
     local f
     for f in /nix/store/*-libpulseaudio-*/lib/libpulse-simple.so.0; do [ -e "$f" ] && NV_PULSE_SIMPLE="$f" && break; done

@@ -410,7 +410,10 @@ pub fn run(job: &Job) -> Result<Option<String>, String> {
                 .and_then(|()| std::fs::rename(temporary, target))
                 .and_then(|()| sync_parent(target));
             match (written, copied) {
-                (Ok(()), Some(name)) => Ok(Some(format!("NV_SAVE_OUT: copied {name}"))),
+                (Ok(()), Some(name)) => Ok(Some(format!(
+                    "NV_SAVE_OUT: copied {name} to {}",
+                    target.display()
+                ))),
                 (Ok(()), None) => Ok(None),
                 (Err(err), Some(_)) => Err(format!(
                     "NV_SAVE_OUT: {} not copied: {err}",
@@ -663,7 +666,10 @@ mod tests {
         let mut watch = Watch::default();
         assert_eq!(
             look(&e, &mut watch, Some(&dir), None),
-            vec!["NV_SAVE_OUT: copied quicksave.fos".to_string()]
+            vec![format!(
+                "NV_SAVE_OUT: copied quicksave.fos to {}",
+                dir.join("quicksave.fos").display()
+            )]
         );
         assert_eq!(
             std::fs::read(dir.join("quicksave.fos")).unwrap(),
@@ -675,7 +681,10 @@ mod tests {
         put(&mut e, &key("quicksave.fos"), b"FO3SAVEGAME two");
         assert_eq!(
             look(&e, &mut watch, Some(&dir), None),
-            vec!["NV_SAVE_OUT: copied quicksave.fos".to_string()]
+            vec![format!(
+                "NV_SAVE_OUT: copied quicksave.fos to {}",
+                dir.join("quicksave.fos").display()
+            )]
         );
         assert_eq!(
             std::fs::read(dir.join("quicksave.fos")).unwrap(),
@@ -685,7 +694,10 @@ mod tests {
         put(&mut e, &key("quicksave.nvse"), b"NVSE");
         assert_eq!(
             look(&e, &mut watch, Some(&dir), None),
-            vec!["NV_SAVE_OUT: copied quicksave.nvse".to_string()]
+            vec![format!(
+                "NV_SAVE_OUT: copied quicksave.nvse to {}",
+                dir.join("quicksave.nvse").display()
+            )]
         );
         assert_eq!(std::fs::read(dir.join("quicksave.nvse")).unwrap(), b"NVSE");
         // A change to a file that is not a save hands on nothing.
@@ -695,7 +707,10 @@ mod tests {
         watch.failed(&key("quicksave.fos"));
         assert_eq!(
             look(&e, &mut watch, Some(&dir), None),
-            vec!["NV_SAVE_OUT: copied quicksave.fos".to_string()]
+            vec![format!(
+                "NV_SAVE_OUT: copied quicksave.fos to {}",
+                dir.join("quicksave.fos").display()
+            )]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -749,7 +764,10 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "NV_SAVE_OUT: copied made again.fos".to_string(),
+                format!(
+                    "NV_SAVE_OUT: copied made again.fos to {}",
+                    saves_dir.join("made again.fos").display()
+                ),
                 "NV_SAVE_OUT: copied old.fos (deleted)".to_string()
             ]
         );
