@@ -8,6 +8,8 @@ description = "The platform layer of the engine (ADR-0006): the window, Direct3D
 
 [dependencies]
 engine-core = { path = "../engine-core" }
+# Logging: levels, a JSON file, soft stops (docs/fork/LOGGING.md).
+fork-log = { path = "../fork-log" }
 # The Bink layer (bink.rs) decodes with the repository's own Bink 1 decoder.
 bink = { path = "../bink" }
 mp3 = { path = "../mp3" }

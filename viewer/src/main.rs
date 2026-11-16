@@ -135,6 +135,8 @@ fn main() {
             SetProcessDpiAwarenessContext(-1);
         }
     }
+    // Logging (docs/fork/LOGGING.md): the JSON file and the panic hook, before anything logs.
+    fork_log::init();
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let args = match parse(&raw) {
         Ok(Some(args)) => args,
@@ -230,7 +232,16 @@ fn main() {
     // `NV_MEMLOG=<seconds>`: one line of memory numbers per interval; off without it.
     let mut memlog = fork_memlog::MemLog::from_env();
     let mut frames: u64 = 0;
+    // `NV_STATUS_SECS`: the status line's interval, 5 s by default, 0 for none (the stop's line
+    // and the exit summary stay).
+    let status_every = std::env::var("NV_STATUS_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map_or(Duration::from_secs(5), |s| {
+            Duration::from_secs_f64(s.max(0.0))
+        });
     loop {
+        fork_log::set_frame(game.movement.main_frames);
         game.set_keys_down(&[]);
         game.mouse([0; 3], [false; 8]);
         if !game.main_frame() {
@@ -259,9 +270,13 @@ fn main() {
                 );
             }
         }
-        if last.map_or(true, |at| at.elapsed() >= Duration::from_secs(5)) {
+        if !status_every.is_zero() && last.map_or(true, |at| at.elapsed() >= status_every) {
             last = Some(Instant::now());
-            println!("{}", game.movement.summary());
+            fork_log::log_stdout(
+                fork_log::Level::Info,
+                "status",
+                format_args!("{}", game.movement.summary()),
+            );
             if let Some(path) = &args.movement_missing {
                 write_lists(&game, path);
             }

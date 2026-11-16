@@ -1374,7 +1374,15 @@ impl PlayerMovement {
                 } else {
                     crate::save_out::flush();
                 }
-                eprintln!("{line}");
+                // The log: a stop is an error with a structured final record (reason, class,
+                // address chain, last lines); a clean end is information. The line stays as it
+                // was, whole (scripts match it).
+                if end.clean() {
+                    fork_log::log_raw(fork_log::Level::Info, "stop", format_args!("{line}"));
+                } else {
+                    fork_log::log_raw(fork_log::Level::Error, "stop", format_args!("{line}"));
+                    fork_log::report_stop(&why);
+                }
                 self.main_stop = Some(line);
                 self.main_end = Some(end);
                 self.main_stage = Stage::Failed(why);

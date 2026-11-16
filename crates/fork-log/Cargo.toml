@@ -1,0 +1,8 @@
+[package]
+name = "fork-log"
+version = "0.1.0"
+description = "Fork-owned logging: levels and targets, text on stderr, JSON lines in a file, a panic hook, soft stops (docs/fork/LOGGING.md)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
