@@ -129,4 +129,7 @@ With `NV_PROFILE=1` the sampler names the running guest functions of a thread st
 
 Measured with `nv-rs-dev bench run newgame --threads real` on the optimised build (`play-opt`), `NV_HITCH=off` against the default, machine-wide bench lock:
 
-OVERHEAD_TABLE
+Not measured yet. The first default-mode run of `newgame --threads real` on `play-opt` (2026-11-16) gave 102.7 fps and p99 19.8 ms on the play screen
+with the recorder on, but the machine was shared (other viewers ran, `noisy_machine` set) and there is no `NV_HITCH=off` run beside it, so it says nothing about overhead.
+The measurement to make: alternate `NV_HITCH=off nv-rs-dev bench run newgame --threads real` and the same without the variable, at least three of each, and
+compare fps, p99 and the process CPU of the `samples.tsv`; the target is under 1% of frame time.
