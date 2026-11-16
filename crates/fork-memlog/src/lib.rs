@@ -27,6 +27,14 @@ pub struct Heap {
 pub struct Host {
     pub rss: u64,
     pub rss_peak: u64,
+    /// The process's virtual size (`VmSize`): the guest's 4 GB reservation counts in full, so this
+    /// is the number to hold against the host's address-space limits, not its memory use. 0 where
+    /// the platform gives none.
+    pub vm_size: u64,
+    /// The resident set that is anonymous memory (`RssAnon`): the guest's committed pages, the
+    /// host's heap and the GPU layer's CPU-side copies; the rest of `rss` is mapped files (the
+    /// executable, libraries, the driver). 0 where the platform gives none.
+    pub rss_anon: u64,
 }
 
 /// The card's own memory in bytes (amdgpu sysfs, Linux): what every process on the GPU holds, not
@@ -151,6 +159,13 @@ pub fn format_line(
         gpu.pipelines,
         gpu.presents
     );
+    // Appended only when the platform gives them (Linux), after the stable keys.
+    if host.vm_size > 0 {
+        line.push_str(&format!(
+            " vm_size={} rss_anon={}",
+            host.vm_size, host.rss_anon
+        ));
+    }
     // Appended only when the driver gives them, after the stable keys.
     if let Some(c) = card {
         line.push_str(&format!(
@@ -222,6 +237,8 @@ pub fn parse_proc_status(text: &str) -> Host {
     Host {
         rss,
         rss_peak: kb("VmHWM").max(rss),
+        vm_size: kb("VmSize"),
+        rss_anon: kb("RssAnon"),
     }
 }
 
@@ -263,6 +280,7 @@ pub fn host_now() -> Host {
     Host {
         rss: c.working_set as u64,
         rss_peak: c.peak_working_set as u64,
+        ..Host::default()
     }
 }
 
@@ -276,13 +294,15 @@ pub fn host_now() -> Host {
 mod tests {
     use super::*;
 
-    const STATUS: &str = "Name:\tnv-viewer\nVmPeak:\t 9000000 kB\nVmHWM:\t 2048000 kB\nVmRSS:\t 1024000 kB\nThreads:\t12\n";
+    const STATUS: &str = "Name:\tnv-viewer\nVmPeak:\t 9000000 kB\nVmSize:\t 8000000 kB\nRssAnon:\t 900000 kB\nVmHWM:\t 2048000 kB\nVmRSS:\t 1024000 kB\nThreads:\t12\n";
 
     #[test]
     fn proc_status_parses() {
         let h = parse_proc_status(STATUS);
         assert_eq!(h.rss, 1_024_000 * 1024);
         assert_eq!(h.rss_peak, 2_048_000 * 1024);
+        assert_eq!(h.vm_size, 8_000_000 * 1024);
+        assert_eq!(h.rss_anon, 900_000 * 1024);
     }
 
     #[test]
@@ -316,6 +336,17 @@ mod tests {
     }
 
     #[test]
+    fn vm_keys_append_only_when_known() {
+        let (h, mut o, g) = sample();
+        let base = format_line(0.0, 1, 1, &h, 1, &o, &g, None);
+        assert!(!base.contains("vm_size"));
+        o.vm_size = 7_000_000_000;
+        o.rss_anon = 400;
+        let with = format_line(0.0, 1, 1, &h, 1, &o, &g, None);
+        assert_eq!(with, format!("{base} vm_size=7000000000 rss_anon=400"));
+    }
+
+    #[test]
     fn interval_parsing() {
         assert_eq!(parse_interval(None), None);
         for off in ["", "0", "off", "yes", "-3", "nan", "inf", "100000"] {
@@ -342,6 +373,7 @@ mod tests {
             Host {
                 rss: 1,
                 rss_peak: 2,
+                ..Host::default()
             },
             Gpu {
                 kept_bytes: 3,
