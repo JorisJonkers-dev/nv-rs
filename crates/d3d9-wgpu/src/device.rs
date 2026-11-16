@@ -391,6 +391,8 @@ struct Listed {
 struct ListFile {
     file: std::path::PathBuf,
     lines: std::sync::Mutex<Vec<String>>,
+    /// The lines of the shipped list, which the size cap never drops from the file.
+    shipped: usize,
     /// How many lines the file has (none written yet: the count read).
     written: std::sync::atomic::AtomicUsize,
     writing: std::sync::Mutex<()>,
@@ -411,7 +413,14 @@ impl ListFile {
             }
             self.written.store(lines.len(), Ordering::Relaxed);
             let mut t = String::new();
-            for l in lines.iter() {
+            // `NV_PIPELINE_CACHE_MAX_MB`: an eighth of it (at least 1 MB) for the list, the
+            // oldest recorded lines dropped from the file first.
+            let cap = (cache::max_bytes() / 8).max(1 << 20);
+            let start = cache::trim_list(&lines, self.shipped, cap);
+            for l in lines[..self.shipped.min(lines.len())]
+                .iter()
+                .chain(lines[start..].iter())
+            {
                 t.push_str(l);
                 t.push('\n');
             }
@@ -458,6 +467,7 @@ impl Listed {
         let file = dir.join("pipelines.txt");
         let mut list = prepare::List::default();
         let (shipped, s1) = list.merge(SHIPPED_LIST);
+        let shipped_entries = list.entries.len();
         let (local, s2) = match std::fs::read_to_string(&file) {
             Ok(text) => list.merge(&text),
             Err(_) => (0, 0),
@@ -471,6 +481,7 @@ impl Listed {
         let lines: Vec<String> = list.entries.iter().map(prepare::Entry::line).collect();
         let shared = Arc::new(ListFile {
             file,
+            shipped: shipped_entries,
             // Written when this run adds a line (the file then holds the shipped ones too).
             written: std::sync::atomic::AtomicUsize::new(lines.len()),
             lines: std::sync::Mutex::new(lines),

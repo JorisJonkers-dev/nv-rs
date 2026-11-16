@@ -34,6 +34,20 @@ the bytecode only. So:
 Layer (b) is per GPU and driver (wgpu refuses a blob of another adapter, backend or driver, and the file name carries
 the adapter), so a driver update is one cold start, not a crash. Layer (c) is per bytecode hash and per machine's play.
 
+- `NV_PIPELINE_CACHE_MAX_MB=N` (default 256) caps the pipeline folder: the driver cache files of other adapters go
+  oldest first until the `wgpu_pipeline_cache_*.bin` files fit (this run's file is never removed), and the recorded
+  part of `pipelines.txt` is held to an eighth of it (at least 1 MB), oldest recorded lines dropped first; the shipped
+  lines always stay.
+
+## Why there is no SPIR-V layer
+
+The vendored `wgpu-hal` Vulkan backend always makes shader modules as intermediate modules
+(`Workarounds::SEPARATE_ENTRY_POINTS`, set for every device): the module holds naga's validated IR and the SPIR-V is
+written per pipeline stage, with that pipeline layout's binding map. So the "modules" thread time at the start is
+wgpu-core parsing and validating WGSL, and the SPIR-V is written inside pipeline-library creation. SPIR-V cached per
+shader would not match the per-layout words, and passing it as a raw (passthrough) module would skip the binding map:
+not safe. It was tried (capture at module creation: no SPIR-V is written there) and dropped.
+
 ## Stamp, validation, safety
 
 - The stamp of (a) is a fingerprint of `crates/d3d9-wgpu/src/sm/` (`build.rs`), so a converter change opens a new folder
