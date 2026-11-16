@@ -13,7 +13,8 @@ game folder and run only locally; CI runs the parsing, report and compare code a
 | Command | What it does |
 | --- | --- |
 | `nv-rs-dev bench list` | The scenarios |
-| `nv-rs-dev bench run <scenario> [--mode capped\|uncapped] [options]` | Runs one and writes the run directory and report |
+| `nv-rs-dev bench run <scenario> [--cap N] [--mode unlimited\|capped\|peak] [options]` | Runs one and writes the run directory and report. Unlimited by default |
+| `nv-rs-dev bench suite [--scenarios a,b] [--cap N] [--save-baseline NAME] [--baseline NAME]` | The scenarios back to back (the lock is held one scenario at a time), one headline table with the change against the previous suite and a baseline |
 | `nv-rs-dev bench report <run>` | Prints a run's report (`<run>` is a directory, a summary.json, a name, or `latest[:scenario]`) |
 | `nv-rs-dev bench compare <baseline> <candidate> [--threshold key=pct]` | Regression check; exit status 1 on a regression |
 | `nv-rs-dev bench analyze <viewer.log> [--frames F] [--samples S]` | Parses an existing log |
@@ -61,8 +62,14 @@ are not to be trusted (a run by hand on the side, an `nv-rs-run` session, a work
 
 ## Modes and safety
 
-- `capped` (default): 144 frames a second limit, mailbox present: pacing and 1% lows. `uncapped`: no limit,
-  `NV_PRESENT=immediate`: peak fps (offscreen, the swap chain does not exist, so it measures the work).
+- **Unlimited is the default, as real play is.** `--mode unlimited`: `NV_FRAME_LIMIT=0` and `NV_FPS_LIMIT=0` in play and
+  in loading, `NV_PRESENT=mailbox`, no vsync pacing, so fps is what the game and the card can do. Only the menus keep
+  `NV_MENU_FRAME_LIMIT=120` (the menus run on time and drop keys at thousands of frames a second). `--cap N` (or
+  `--mode capped`) is the one way to a limit, for pacing tests: `NV_FRAME_LIMIT=N`. `--mode peak` presents `Immediate`.
+  A run whose fps is not a headline says so: the report and the suite table show **CAPPED** (verdict) when a limiter
+  variable is set, when `--cap` was asked, or when the measured play fps sits within 2% of a usual cap value (24, 30, 48,
+  50, 60, 72, 75, 90, 100, 120, 144, 165, 240: something else limits it, such as a display, a compositor or the driver).
+  Compare such a run only with capped ones.
 - Offscreen (`NV_D3D9_OFFSCREEN=1`) by default: no window, no compositor involved. Sound runs on the game's clock into
   the null sink (`NV_SOUND=out`, `NV_SOUND_BACKEND=null`), so the speakers get nothing. The game's voice lines and movies
   need that clock: with `NV_D3D9_HIDDEN=1` (which mutes the device, and was the bench's way until 2026-11-16) Doc
@@ -144,80 +151,100 @@ Step names are the scripted input's key codes and counts (the scenarios carry no
 
 ## Scenarios
 
-| Scenario | What it does | State |
-| --- | --- | --- |
-| `boot` | Skips the start-up movies, sits on the main menu for 50 s | works |
-| `newgame` | Menu, New, intro movie, the pack messages, to the first room (Doc Mitchell's house), 20 s there. Capped mode only | works (see below) |
-| `chargen` | `newgame`, then the opening quest's name and sex choices (stages set by console), to the face menu. Capped mode only | works to the face menu (see below) |
-| `probe` | Debugging: `PROBE="getstage 104c1c;key:enter;wait:2;mouse:10:5:1"` runs console commands and key, mouse and wait steps in the first room | a tool |
+The world scenarios are driven by **wall-clock, closed-loop real input** (`driver.py`, `drivers.py`): a Wayland virtual
+keyboard and pointer (`vinput.py`, standard library, the Wayland wire protocol; sway's own, never the session's) send real
+key and pointer events into the nested window, timed in seconds and by the game's own screen (the frame log's `screen`
+column), so a scenario is valid at any frame rate. The virtual keyboard carries a real xkb keymap, so the game gets true
+scancodes (`wtype` gives each key a private keycode and the game reads it as the wrong key), and it exists before the game
+starts (a seat without a keyboard when the game binds it is never given one). The run needs `--nested headless`, which
+is the default for these scenarios (`--legacy` runs the old frame-counted `NV_MOVE_KEYS` scripts offscreen at a cap).
 
-| `chargen` | `newgame` then the opening quest's name and sex by console stage commands, to the face menu | works |
-| `goodsprings`, `novac`, `strip` | Without a save: finish the opening quest by its last stage, teleport by a placed reference's form id, dismiss the packs' message boxes, a fixed walk loop (`--scale` sets the laps) | teleport works, walking blocked (below) |
-| `combat` | In Goodsprings: three hostile geckos placed by form id, pistol and ammo added and equipped, a click script | as above, firing not verified |
-| `soak` | Goodsprings, Novac, the Strip, Freeside in turn, repeated (20 min at scale 1) | as above, later teleports untested |
+| Scenario | What it does |
+| --- | --- |
+| `quick` | **The quick suite, one viewer session, 120 s in all (`TOO_LONG` over that, start-up and loading included):** start-up (shorter fixed waits), the new game's first room, then Doc's house, Goodsprings and the Strip in turn by console teleports, each place's measured script at half length (about 10 s) |
+| `doc_house`, `goodsprings`, `strip`, `novac` | Each the same for one place (start-up, new game, then the place): ~3 s warm-up, ~18 s measured |
+| `newgame` | Start-up movies skipped, menu, New, the intro movie skipped, the pack boxes, the first room, 20 s there |
+| `boot` | The start-up movies skipped, 40 s on the main menu |
+| `combat` | Goodsprings, three hostile geckos by form id, a pistol and ammo added and equipped, clicks and turns |
+| `soak` | Novac, the Strip, Goodsprings and Doc's house in turn, the measured script eight times in each, repeated (`--scale`) |
+| `chargen`, `probe`, `realwalk` | Frame-script tools (`--legacy`): the name and sex by console stage commands to the face menu; free console commands; real input after a teleport |
 
-Form ids used (base game, numbers only): quest `104C1C` (stage 200 is the end), markers `1658B7` Goodsprings, `8D0A3`
-Novac, `16ACB9` the Strip, `13A669` Freeside, creature `168D0B`, pistol `E3778`, ammo `8ED03`. Found by scanning
-FalloutNV.esm for editor ids; the ids are not game data.
+The measured script of a place (about 18 s, the same everywhere): a yaw sweep right and back (pointer counts, the game's
+sensitivity decides the angle), pitch up, down through level and level again, forward 3 s, strafe left and right 1 s each,
+forward 3 s turning. Goodneighbor is not in this load order (base game and the DLC: no such
+worldspace or cell in FalloutNV.esm or the DLC masters), so there is no `goodneighbor` scenario.
 
-What works (2026-11-16): `setstage 104c1c 200` frees the player and ends Doc's lines; `player.moveto 1658B7` loads the
-Goodsprings exterior (it renders; the old `CreateQuery(9)` stop does not appear any more); the downloadable packs'
-message boxes then come one after another (`menu` screen; Enter dismisses; the first one closes the console, so no
-console key follows). Goodsprings exterior ran at about 105 fps (capped, 2560x1440) with 0 wgpu errors and VRAM 2.4 GiB.
+Verdicts: the stability checks; `reached the loading and play screens`; `player moved 150 units a place`; `the camera
+turned (<place>)` (the walk's heading changed by 15 degrees or more between the first forward leg and the last seconds of
+the turning one, read from the player's position: the view turned in between); `game time keeps wall time` (game seconds
+over wall seconds 0.85 to 1.15, which fails if the game depends on the frame rate: 500+ fps must not change what the game
+does); `the player landed` (height settled); `within the wall-time budget (TOO_LONG)`; and **CAPPED** when the fps is not
+a headline (above). Each measured stretch is a phase in the log (`# driver: phase NAME start|end frame=N t=S`), and a
+`quick` run reports the fps, p99 and 1% low of each place and the seconds of each phase.
 
-What blocks: after the teleport the scripted `W` and the mouse do not move or turn the player (path 0 units, the same
-view after minutes, offscreen and nested alike), so the "moved N units" verdicts fail honestly. `enableplayercontrols`,
-`player.setrestrained 0` and `player.setav paralysis 0` did not change it. Unknown: whether the opening's quest script
-holds the controls (finishing it by stage may skip what gives them back), or the scripted keys do not reach the
-player's controls in play. A prepared save (another worker is on save writing) would answer which; a real-input run in
-the nested window (`wtype`/`wlrctl` events into it) would answer the other. An open flake: about one run in ten stops
-at frame 6001 (the intro movie skip) with `WaitForSingleObject ... semaphore count 0` in stepped threads.
+How a place is reached without a save (form ids of the base game, numbers only; found by scanning FalloutNV.esm, the ids
+are not game data): the opening quest `104C1C` has the player seated in an animated camera with movement and looking off
+(its stage 0 runs `DisablePlayerControls 1 1 1 1 0 0 1` and a script package). Its stage 50 removes the package and stage 55
+gives movement and looking back (`EnablePlayerControls 1 0 0 1 1 1 0`), so the driver sets `setstage 104c1c 50`, then 55,
+and the player walks; jumping straight to the last stage left the player unable to move for the whole earlier work (path 0
+units). Then `player.moveto <marker>`: `1658B7` Goodsprings, `16ACB9` the Strip, `8D0A3` Novac, `107235` Doc's house; the
+downloadable packs' message boxes arrive after the opening's stages and with the first exterior, a few seconds after the
+load, at no fixed time. The driver never assumes the console's state: it opens the console from the play screen and sees
+the screen turn to menu, shuts it as soon as a teleport's load is over (a box that comes over the open console never
+gets the keyboard), and dismisses boxes with Enter, Down, Enter in turn (a box's button takes Enter only once an arrow
+key has given it the focus; not in the start-up, where Down in the pause menu moves to Save). A menu that outlasts 6 s
+gets the console key, again every 6 s. The warm-up of a place is the play screen held 3 s with no box, so a late box is
+dismissed before the measured script starts rather than measured as a menu. `168D0B` is the hostile gecko, `E3778` the pistol, `8ED03` the ammo.
 
-Planned: the same scenarios once a save or the controls are solved; their route lengths and the fps numbers then stand.
+Why `NV_MOVE_KEYS` real input needed `NV_MOVE_REAL_INPUT=1`: a run with a key or mouse script shuts the window's keyboard
+and mouse out (`real_input_reaches_game`, `crates/host/src/player_move.rs`), so real events never arrived until the
+drivers stopped using scripts altogether.
 
-### How the input is driven, and its limits
+### Known issue: the player sometimes stops answering movement and the mouse
 
-The script is by main-loop frame, open loop. Findings that shaped it (2026-11-15, offscreen, 144 Hz cap):
+In some quick runs (2026-11-16: 2 of 6, 1 of the 3 in the results below) the player walks and the view turns in
+every place; in the others both stop a few seconds after the opening's stages (the player path
+stays under 50 units, `player moved` fails), while the console keeps taking typed text. Seen in that state with
+`GetPlayerControlsDisabled`: movement and looking enabled, the player not restrained, speed multiplier 100, carrying
+nothing changes nothing. The failing runs had a pack's box dismissed in Doc's house before the first walk; the working
+ones did not. The keys reach the game's DirectInput keyboard (the console types; `input.key` lines), so the cause is
+past the input path; it is not found yet. A run where the player did not move is not valid for the walking part of the
+measured script; its fps is the view standing at the place, sweeping.
 
-- A key tap shorter than about 20 frames is dropped by the menus; scenarios hold keys for 30 frames.
-- The first arrow press after the menu appears only wakes its keyboard mode and moves nothing. The script presses twice.
-- The intro movie plays on the loading screen at about 800 frames a second and is skipped with Esc; every frame count
-  during a loading screen is wall-time dependent, which is why `newgame` is timed in frames and valid only capped.
-- The game's console works through the keys (`~`, text, Enter; `Script.console()` in `scenarios.py`), so teleports and
-  state queries (`coc`, `player.getpos`) are available to scenarios.
-- The mouse script (`NV_MOVE_MOUSE`) moved no menu cursor in the main menu; menus are driven by keys.
+### Results: the quick suite, 2026-11-16
 
-### The opening quest, diagnosed (2026-11-16)
+`nv-rs-dev bench suite --quick --resolution 2560x1440 --vram-limit-pct 50 --nested headless` (the suite turns on
+`NV_PERF`), `play-opt` build of `fork` at the time, unlimited (no frame limiter; menus 120), real threads, RX 7900 XTX,
+16-core machine with no other viewer running (no run flagged noisy). Three runs; the table gives the median of the three
+for each number (each run's own numbers in brackets). fps, p99 and 1% low are of the play-screen frames of each place's
+measured script (about 10 s: the yaw and pitch sweeps, the walks); "busy" is the busiest thread's CPU share over the
+`NV_PERF` reports logged during that script, as milliseconds of a mean frame. The run's total wall time, start-up and
+loading included, was 113, 111 and 121 s (budget 120 s: the third was `TOO_LONG`, its Goodsprings warm-up waited on
+boxes).
 
-The input is not at fault. Keys reach the game in every state tried (console, the name box, message boxes). What was found
-with the game's console (`getstage`, `sqv`) on the first room:
+| Place | avg fps | p99 ms | 1% low fps | busiest thread ms/frame |
+| --- | --- | --- | --- | --- |
+| Doc Mitchell's house | 193 (193, 190, 222) | 6.9 (6.9, 15.4, 6.4) | 127 (127, 52, 129) | 5.1 (5.1, 5.1, 4.4) |
+| Goodsprings | 137 (146, 137, 131) | 14.7 (8.7, 14.7, 27.1) | 68 (72, 68, 30) | 2.2 (2.0, 2.2, 7.1) |
+| The Strip | 166 (166, 167, 156) | 8.0 (8.0, 7.9, 13.5) | 103 (108, 103, 71) | 5.4 (5.4, 4.6, 6.3) |
+| Whole session, play screen | 207 (202, 207, 208) | 11.6 (8.2, 11.6, 12.4) | 65 (94, 65, 56) | 3.2 (3.2, 2.9, 3.3) |
 
-- The opening quest runs (its timers advance) and stops in the stage in which Doc's second line is due. Doc's first line
-  finishes (its result script sets the next stage) and the second never does, with the threads real or stepped and with
-  the fork's fixes on or off (so it is not the dialogue topic index). That second line is the first with an idle animation
-  attached, so the stop is most likely in the animation the line waits for; not yet confirmed. Upstream-owned code.
-- E, Enter, Space and a click do nothing in that state by design: the quest disables every control but looking in its first
-  stage and enables them in a late one. It was never an input fault.
-- The face menu (the mirror) opens, but its head is black, its right-hand screen is empty and neither Esc, Tab, Enter, the
-  arrows nor the scripted mouse do anything in it (Esc opens the pause menu over it). A menu cursor does not follow the
-  scripted mouse in any menu tried.
+The player walked and the view turned in the third run only (path 2353 units; heading changes 44 and 77 degrees in
+Doc's house and on the Strip); in the other two the view stood still at each place (see the known issue above), so their
+place numbers are of a standing view. The fps of the places differ little between the walking run and the others; the
+1% low and p99 move more from run to run than between the places. The baseline `quick-20261116` (under
+`~/.local/state/nv-rs/bench/baselines/`, local) holds the first run's rows; `bench suite --quick --baseline
+quick-20261116` compares with it.
 
-`chargen` therefore sets the stage that each unfinished line would have set, through the console (the console takes form
-ids on this port, not editor names; the quest's id is the constant `OPENING_QUEST`), types the name, takes the first sex
-choice and opens the face menu, where it stops. Reaching the SPECIAL, tag and trait menus and walking out needs that menu to
-work first.
+### Ctrl and sneak
 
-### Script clocks
+Real `Ctrl` taps and holds reach the game in the nested window (`input.key: LeftControl (0x1d) down reaches the game`,
+then `up`, in the log with `NV_LOG=game=info`), so the reported "Ctrl does nothing on GNOME" is not the game dropping the key
+once it is delivered by the compositor to the window; whether `GetSneaking` toggles needs the player free (stage 55) and is
+read off the screen (the sneak indicator) with `--shots`.
 
-`NV_MOVE_KEYS` and `NV_MOVE_MOUSE` frames count main-loop frames, which a loading screen spins at about 1 ms each, so a
-step after a load depended on how long the load took. A frame written with a `p` before it (`p3399:1C:30`) counts only
-frames that are not a loading screen, so it waits for the game's loads: `newgame` and `chargen` take the first room's steps
-that way (`Script` items go through `on_play_clock`). The two clocks mix in one script; the movie skip stays on the
-main-frame clock because it is pressed during a load. A step that waits for a named screen is still not there.
+### Notes on the old scripts
 
-### What the engine lacks for outdoors
-
-- (Not reproduced on 2026-11-16: `player.moveto` by form id loads the exterior.) A console teleport to the town (`coc goodsprings`) stopped the game in the first outdoor frames with
-  `IDirect3DDevice9::CreateQuery(9) is not in the machine table` (the adapter table has no query lines on this machine;
-  `d3d9-capture device queries` is a Windows tool). Until that is solved on Linux, scenarios that go outdoors will report
-  that stop, which is what the verdict is for.
+The frame-counted scripts (`--legacy`, `chargen`, `probe`) and their findings stand: a key tap shorter than about 20 frames
+is dropped by the menus at the old cap, the first arrow press only wakes the menu's keyboard mode, `p`-prefixed frames
+count only the frames that are not a loading screen. They are valid only capped (`--legacy` implies `--cap 144`).
