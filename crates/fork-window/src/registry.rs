@@ -16,6 +16,37 @@ pub struct Input {
     pub motion: [i32; 3],
     /// The buttons held, in DirectInput's order (left, right, middle, X1, X2).
     pub buttons: [bool; 8],
+    /// Keys pressed since the last read of the keys, held or not by now: a tap shorter than a
+    /// frame (down and up between two reads) still reaches the game as one frame down.
+    pub key_taps: [bool; 256],
+    /// The same for the buttons.
+    pub button_taps: [bool; 8],
+}
+
+impl Input {
+    /// A key or button changed: a press is kept until a frame has read it.
+    pub fn set_key(&mut self, code: u8, down: bool) {
+        self.keys[code as usize] = down;
+        if down {
+            self.key_taps[code as usize] = true;
+        }
+    }
+
+    /// See [`Input::set_key`].
+    pub fn set_button(&mut self, button: usize, down: bool) {
+        self.buttons[button] = down;
+        if down {
+            self.button_taps[button] = true;
+        }
+    }
+
+    /// Everything released (focus lost): nothing is held and no press is waiting.
+    pub fn release_all(&mut self) {
+        self.keys = [false; 256];
+        self.buttons = [false; 8];
+        self.key_taps = [false; 256];
+        self.button_taps = [false; 8];
+    }
 }
 
 impl Default for Input {
@@ -24,6 +55,8 @@ impl Default for Input {
             keys: [false; 256],
             motion: [0; 3],
             buttons: [false; 8],
+            key_taps: [false; 256],
+            button_taps: [false; 8],
         }
     }
 }
@@ -150,10 +183,21 @@ pub fn to_game_position(x: f64, y: f64, game: (u32, u32), window: (u32, u32)) ->
 }
 
 /// The keys window `id` holds, by DirectInput key code.
+///
+/// A key pressed and released since the last call counts as held in this one (a tap shorter than
+/// a frame: Control's sneak toggle, a single click), and is released in the next.
 pub fn held_keys(id: isize) -> [bool; 256] {
-    get(id)
-        .and_then(|s| s.input.lock().ok().map(|i| i.keys))
-        .unwrap_or([false; 256])
+    let Some(s) = get(id) else {
+        return [false; 256];
+    };
+    let Ok(mut i) = s.input.lock() else {
+        return [false; 256];
+    };
+    let mut held = i.keys;
+    for (h, tap) in held.iter_mut().zip(i.key_taps.iter_mut()) {
+        *h |= std::mem::take(tap);
+    }
+    held
 }
 
 /// The input of window `id` for this frame: what is held, and the motion since the last call
@@ -165,7 +209,10 @@ pub fn take_input(id: isize) -> Input {
     let Ok(mut i) = s.input.lock() else {
         return Input::default();
     };
-    let now = *i;
+    let mut now = *i;
+    for (b, tap) in now.buttons.iter_mut().zip(i.button_taps.iter_mut()) {
+        *b |= std::mem::take(tap);
+    }
     i.motion = [0; 3];
     now
 }
@@ -207,6 +254,34 @@ mod tests {
             (639, 0)
         );
         assert_eq!(to_game_position(10.0, 20.0, (0, 0), (0, 0)), (10, 20));
+    }
+
+    /// A Control tap that starts and ends between two frames' reads (a hitching frame) reaches the
+    /// game as one frame down, then up: the sneak toggle works however short the press is.
+    #[test]
+    fn a_tap_between_two_frames_is_not_lost() {
+        let s = Shared::new();
+        let id = register(s.clone());
+        {
+            let mut i = s.input.lock().unwrap();
+            i.set_key(0x1d, true);
+            i.set_key(0x1d, false);
+            i.set_button(0, true);
+            i.set_button(0, false);
+        }
+        assert!(held_keys(id)[0x1d], "the tap is seen by the frame");
+        assert!(!held_keys(id)[0x1d], "and released by the next");
+        assert!(take_input(id).buttons[0]);
+        assert!(!take_input(id).buttons[0]);
+        // Still held: stays down, and a press lost with the focus is not replayed.
+        {
+            let mut i = s.input.lock().unwrap();
+            i.set_key(0x9d, true);
+            assert!(i.key_taps[0x9d]);
+            i.release_all();
+        }
+        assert!(!held_keys(id)[0x9d]);
+        unregister(id);
     }
 
     #[test]
