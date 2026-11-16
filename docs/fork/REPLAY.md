@@ -11,7 +11,7 @@ the backend only: no engine, no game thread, no window. The first use is the dec
 | --- | --- | --- |
 | `null` | counts the commands and hashes the draws; the floor of the harness | `crates/d3d9-replay/src/null.rs` |
 | `wgpu` | the game's backend (`d3d9-wgpu`, vendored wgpu-hal) on an offscreen device, with its finishing and queue threads | `crates/d3d9-replay/src/replay.rs` |
-| `vulkan` | a throwaway raw `ash` prototype of the draw, state and bind path, a measurement tool and not a backend | a later change |
+| `vulkan` | a throwaway raw `ash` prototype of the draw, state and bind path, a measurement tool and not a backend: Vulkan 1.3, dynamic rendering, push descriptors, one ring for the registers, pipelines made on first use, one thread; textures keep no contents and queries, copies, multisampling, clip planes and the alpha test are left out | `crates/d3d9-replay/src/vulkan.rs` (`NV_REPLAY_VK_DEVICE` picks the adapter by name) |
 
 ## Streams
 

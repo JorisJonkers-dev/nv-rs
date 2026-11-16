@@ -10,6 +10,7 @@
 //! - [`replay`]: the parsed stream, the backends it is played into and the timing loop.
 //! - [`null`]: the floor, a backend that only counts.
 //! - [`synthetic`]: a made-up scene, for tests and for the harness's own check.
+//! - [`vulkan`]: a throwaway raw Vulkan prototype of the draw path.
 //! - [`stats`]: percentiles and the CPU time of the thread and of the process.
 
 pub mod container;
@@ -18,4 +19,5 @@ pub mod replay;
 pub mod rescale;
 pub mod stats;
 pub mod synthetic;
+pub mod vulkan;
 pub mod window;

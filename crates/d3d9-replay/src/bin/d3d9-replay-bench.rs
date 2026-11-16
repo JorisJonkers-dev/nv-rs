@@ -6,7 +6,7 @@
 //!                                                     a window of a recording as a container
 //! d3d9-replay-bench synth OUT [--frames N] [--draws N] [--textures N] [--size WxH]
 //!                                                     a made-up scene as a container
-//! d3d9-replay-bench run   FILE [--backend null|wgpu|all] [--size WxH] [--warmup N]
+//! d3d9-replay-bench run   FILE [--backend null|wgpu|vulkan|all] [--size WxH] [--warmup N]
 //!                         [--passes N] [--runs N] [--split] [--gpu]
 //! ```
 //!
@@ -115,6 +115,45 @@ fn info(path: &Path) -> Result<(), String> {
             }
             _ => {}
         }
+    }
+    // The targets and the textures' formats, so a window's shape is known before it is replayed.
+    let mut made: std::collections::BTreeMap<String, usize> = Default::default();
+    for c in &cmds {
+        let key = match c {
+            Cmd::CreateSurface {
+                width,
+                height,
+                format,
+                multisample,
+                depth,
+                ..
+            } => {
+                format!(
+                    "surface {width}x{height} fmt {format:#x} ms {multisample}{}",
+                    if *depth { " depth" } else { "" }
+                )
+            }
+            Cmd::CreateTexture {
+                width,
+                height,
+                format,
+                usage,
+                levels,
+                ..
+            } if usage & 3 != 0 => {
+                format!(
+                    "target texture {width}x{height} fmt {format:#x} levels {}",
+                    levels.len() / 4
+                )
+            }
+            Cmd::CreateTexture { format, .. } => format!("texture fmt {format:#x}"),
+            Cmd::CreateCubeTexture { format, .. } => format!("cube fmt {format:#x}"),
+            _ => continue,
+        };
+        *made.entry(key).or_default() += 1;
+    }
+    for (k, n) in &made {
+        println!("  made: {k} x{n}");
     }
     println!("frames: {}", per_frame.len());
     if let Some(s) = size_of(&cmds) {
@@ -226,8 +265,9 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     let replay = Replay::parse(&bytes, setup)?;
     let back = size_of(&replay.cmds[..replay.setup.max(1)]).unwrap_or((0, 0));
+    let all = matches!(flag(args, "--backend").as_deref(), None | Some("all"));
     let backends: Vec<String> = match flag(args, "--backend").as_deref() {
-        None | Some("all") => vec!["null".into(), "wgpu".into()],
+        None | Some("all") => vec!["null".into(), "wgpu".into(), "vulkan".into()],
         Some(b) => b.split(',').map(str::to_string).collect(),
     };
     let o = Options {
@@ -256,10 +296,25 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut target: Box<dyn Target> = match name.as_str() {
                 "null" => Box::new(null::Null::new()),
                 "wgpu" => Box::new(WgpuTarget::new(has(args, "--gpu").then_some(total_frames))),
-                other => return Err(format!("unknown backend {other} (null, wgpu)")),
+                "vulkan" => match d3d9_replay::vulkan::VulkanTarget::new(
+                    has(args, "--gpu").then_some(total_frames),
+                ) {
+                    Ok(t) => Box::new(t),
+                    // With every backend asked for, a machine without Vulkan skips this one.
+                    Err(e) if all => {
+                        println!("vulkan: skipped ({e})");
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                },
+                other => return Err(format!("unknown backend {other} (null, wgpu, vulkan)")),
             };
             let res = replay::run(target.as_mut(), &replay, o)?;
             report(&res, r);
+            let notes = target.notes();
+            if !notes.is_empty() {
+                println!("  notes: {notes}");
+            }
             if has(args, "--split") {
                 let s = replay::split(target.as_mut(), &replay, overhead);
                 print_split(name, &s);
