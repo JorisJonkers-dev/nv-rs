@@ -36,7 +36,7 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Fork approach: off Windows the host keeps no 8.3 short names, as a Windows volume with their generation off: a search matches the long name only and never stops for a short name, and `cAlternateFileName` is empty for host files and the run's files. On Windows the behaviour is unchanged (the first two letters rule out a short name, the plain stop stays)
 - Decision: drop when upstream matches long names only off Windows
 - Reason: wildcard searches for a master's archives (`<name>*.bsa`) in a folder that holds an archive whose long name has spaces stopped the game in its first frame, once per pattern the short-name rules could not decide
-- Evidence: JorisJonkers-dev/nv-rs#331; the test `off_windows_a_search_matches_the_long_name_only` and the save tests in `tests_changed_directories`
+- Evidence: JorisJonkers-dev/nv-rs#331; the test `off_windows_a_search_matches_the_long_name_only`, the save tests in `tests_changed_directories` and `crates/host/tests/linux_saves.rs`
 
 ## Older table
 
