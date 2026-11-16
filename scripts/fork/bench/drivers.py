@@ -264,6 +264,59 @@ def session(places, measure=1.0, quiet=6.0, brisk=False, sneak_at=()):
     return run
 
 
+ROUND_TRIP_SAVE = "nvbench-roundtrip"  # the save the save round trip writes (docs/fork/RELEASE-TEST.md)
+
+
+def note_state(d, what):
+    """The player's position in the log (`# driver: state WHAT x=.. y=.. z=..`), which parse.parse_log reads."""
+    pos = d.position()
+    if pos:
+        d.note(f"state {what} x={pos[0]:.1f} y={pos[1]:.1f} z={pos[2]:.1f}")
+
+
+def save_game(d, opts):
+    """The first half of the save round trip: a new game, the player freed, Goodsprings, a short walk off the marker,
+    the position noted, then the console's `save` and a few seconds for the file to be written."""
+    if not start_new_game(d, hold_first_room=0.0):
+        return
+    free_player(d)
+    at_marker(d, "1658B7")
+    warm_first_exterior(d)
+    ensure_walks(d)
+    d.walk(1.5)
+    d.settle_play(quiet=2.0, timeout=30)
+    note_state(d, "saved")
+    d.console_open()
+    d.console_line(f"save {ROUND_TRIP_SAVE}", 3.0)
+    d.console_close(quiet=1.0)
+    d.wait(3.0)
+    d.note("saved")
+
+
+def continue_game(d, opts):
+    """The second half: a new session, the start-up movies skipped, Continue on the main menu (it loads the newest
+    save), the play screen, and the position noted."""
+    if not d.until(lambda: bool(d.tail()), 90, what="the first frame"):
+        return
+    for _ in range(4):
+        d.wait(2.0)
+        d.tap("esc", 0.1)
+    d.wait(6.0)
+    d.tap("down", 0.3)  # wakes the menu's keyboard mode, on Continue
+    d.wait(1.5)
+    d.tap("enter", 0.3)  # Continue: "Continue from your last saved game?"
+    d.wait(1.5)
+    d.tap("enter", 0.3)  # Yes: the newest save loads
+    # The load of a save shows no loading screen in the frame log, and a box comes with it: wait for the player to be
+    # placed (the position leaves the start-up value), then dismiss the boxes.
+    placed = lambda: (d.position() or (2048.0, 2048.0, 128.0))[:2] != (2048.0, 2048.0)
+    if not d.until(placed, 180, what="the loaded game"):
+        return
+    d.settle_play(quiet=3.0, timeout=60)
+    note_state(d, "loaded")
+    d.wait(2.0)
+
+
 def combat(d, opts, marker="1658B7", hostile="168D0B", pistol="E3778", ammo="8ED03"):
     if not start_new_game(d, hold_first_room=0.0):
         return
@@ -305,6 +358,8 @@ DRIVERS = {
     "sneak": session(["goodsprings"], sneak_at=("goodsprings",)),
     "quick": session(["doc_house", "goodsprings", "strip"], measure=0.5, quiet=3.0, brisk=True),
     "combat": combat,
+    "save": save_game,
+    "continue": continue_game,
     "soak": soak,
 }
 

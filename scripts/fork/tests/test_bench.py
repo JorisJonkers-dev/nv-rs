@@ -597,6 +597,16 @@ class QuickSuiteTests(unittest.TestCase):
         still = parse.sneak_ratios(still, log["phases"], [250])
         self.assertIsNone(still["goodsprings"]["ratio"])
 
+    def test_save_round_trip_notes_the_positions_and_checks_them(self):
+        log = parse.parse_log("# driver: state saved x=-67700.5 y=2400.0 z=8370.2\n# driver: phase x start frame=1 t=0.1\n")
+        self.assertEqual(log["states"], {"saved": [-67700.5, 2400.0, 8370.2]})
+        for name, state in (("save", "saved"), ("continue", "loaded")):
+            plan = scenarios.build(name, dict(ScenarioTests.OPTS, legacy=False))
+            self.assertTrue(callable(plan.drive))
+            check = [fn for n, fn in plan.checks if n == f"the {state} position was noted"][0]
+            self.assertEqual(check({"states": {state: [1.0, 2.0, 3.0]}})[0], True)
+            self.assertEqual(check({"states": {}})[0], False)
+
     def test_too_long_and_budget_check(self):
         s = make_summary()
         s["settings"]["budget_s"] = 120.0

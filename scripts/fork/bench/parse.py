@@ -168,6 +168,7 @@ BAD_MEMORY = re.compile(r"not enough memory|device.?lost|out of memory|ErrorOutO
 RE_BUSY = re.compile(r"NV_PERF: thread busy over [\d.]+ s, [\d.]+ cores in all: [^,]*?/\d+ (\d+(?:\.\d+)?)%")
 
 
+RE_STATE = re.compile(r"# driver: state (\S+) x=(-?[\d.]+) y=(-?[\d.]+) z=(-?[\d.]+)")
 RE_PHASE = re.compile(r"# driver: phase (\S+) (start|end) frame=(\d+) t=([\d.]+)")
 RE_LOG_FRAME = re.compile(r"^\[f(\d+) ")
 
@@ -193,10 +194,16 @@ def parse_log(text):
         "phases": [],  # (name, start|end, frame, seconds since the run began) from the driver's notes
         "busiest_thread_pct": [],  # NV_PERF's report: the busiest thread's CPU share, one per report
         "phase_busy_pct": {},  # phase name -> the busiest-thread shares of the reports logged while it was open
+        "states": {},  # the driver's noted player positions by name (the save round trip: saved, loaded)
         "ctrl_down_frames": [],  # the frames where a real Ctrl press reached the game (input.key lines)
     }
     open_phases = set()
     for line in text.splitlines():
+        if line.startswith("# driver: state "):
+            m = RE_STATE.match(line)
+            if m:
+                out["states"][m.group(1)] = [float(m.group(2)), float(m.group(3)), float(m.group(4))]
+            continue
         if line.startswith("# driver: phase "):
             m = RE_PHASE.match(line)
             if m:
@@ -490,6 +497,7 @@ def summarize(frame_rows, log, samples, missing=(0, 0), stops=0):
         "hitches": hitches(frame_rows),
         "phases": phase_stats(frame_rows, log["phases"], log.get("phase_busy_pct")),
         "heading_change_deg": heading_changes(frame_rows, log["phases"]),
+        "states": log.get("states") or {},
         "sneak": sneak_ratios(frame_rows, log["phases"], log.get("ctrl_down_frames") or ()),
         "main_busy_pct": round(sum(log["busiest_thread_pct"]) / len(log["busiest_thread_pct"]), 1) if log["busiest_thread_pct"] else None,
         "untranslated_addresses": missing[0],
