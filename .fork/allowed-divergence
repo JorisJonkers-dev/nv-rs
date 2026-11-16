@@ -3,7 +3,7 @@
 # one of these files that touches the same lines stops the replay (docs/fork/KEEPING-IN-SYNC.md, "Who wins").
 README.md
 # Test speed: the function table of a test engine is collected once per thread and copied (docs/fork/CI.md, "Upstream offers").
-crates/engine-core/src/engine.rs  # Engine::new_untyped copies a per-thread template in test builds; the real clock starts from the machine uptime on Unix (engine_unix.rs)
+crates/engine-core/src/engine.rs  # Engine::new_untyped copies a per-thread template in test builds
 # Test speed (docs/fork/CI.md, "Upstream offers"): each is a small, separable change in the differential harness.
 crates/engine-core/src/typed/diff.rs  # a case runs under its second control word only when the first run read or loaded the word
 crates/engine-core/src/x87.rs  # test builds note that the control word was read or loaded (nothing in a production build)
@@ -13,7 +13,7 @@ crates/engine-platform/Cargo.toml  # d3d9-wgpu as a dependency on every target (
 crates/engine-platform/src/d3d9device.rs  # the argument-word trait is built on Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3d9resource.rs  # its import of that trait is Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3dx.rs  # an unused binding off Windows
-crates/engine-platform/src/files.rs  # five changed lines: `mod files_host;` and its re-export (the Linux path code is in the overlay file files_host.rs), a warning-only attribute and a test constant off Windows; `real_path` answers `files_host::host_path` (the Windows code is `windows_real_path`, unchanged); a search pattern's first two letters rule out a short name; `find_fields` for the file times of FindFirstFileA on Unix, the Windows-only ignores removed
+crates/engine-platform/src/files.rs  # five changed lines: `mod files_host;` and its re-export (the Linux path code is in the overlay file files_host.rs), `real_path` answers `files_host::host_path` (the Windows code is `windows_real_path`, unchanged); a search pattern's first two letters rule out a short name; `find_fields` for the file times of FindFirstFileA on Unix, the Windows-only ignores removed
 crates/host/src/cell_offsets.rs  # asks files::host_path for the plugin's path (the Unix mapping of a game path)
 crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
@@ -34,7 +34,7 @@ crates/engine-core/src/lib.rs  # appended test_gate module; re-exports HeapStats
 crates/engine-havok/src/lib.rs  # appended test_gate module
 crates/d3d9-wgpu/src/device.rs  # surface_for off Windows asks fork-window (X11, Wayland); the stub stays for other targets; SetFVF and a draw without shaders of pre-transformed vertices use the shaders of fixed.rs (the Bink movie quad); a video-memory budget (budget.rs) on every texture and buffer, its report lines and the back buffer log line; log lines go through fork_log with a level and the target d3d9 (docs/fork/LOGGING.md); `game` trace events (gpu.*, draw.fixed_quad, present.*, loading.*)
 crates/d3d9-wgpu/Cargo.toml  # fork-window as a dependency on Linux; fork-log dependency
-crates/host/src/lib.rs  # install calls of jg and showoff after JIP; appended test_gate module (the real-data gate); the adapter and texture-cache folders come from fork_platform::data_dir off Windows; off Windows the adapter table is generated afresh each run (fork_tables) and the first-run settings are made (fork_tables::seed_machine_settings); log lines go through fork_log (targets host, sound, loader); `pub mod fork_trace;` (the game trace sampler)
+crates/host/src/lib.rs  # install calls of jg and showoff after JIP; appended test_gate module (the real-data gate); upstream's refusal to start the game off Windows (not_provided_here) applies to macOS only, Linux runs the game; the adapter and texture-cache folders come from fork_platform::data_dir off Windows; off Windows the adapter table is generated afresh each run (fork_tables) and the first-run settings are made (fork_tables::seed_machine_settings); log lines go through fork_log (targets host, sound, loader); `pub mod fork_trace;` (the game trace sampler)
 # Shader compiler seam off Windows (docs/fork/LINUX.md, nv-linux#197, #200): the code is the new crate d3dx-shader and the new file engine-platform/src/d3dxshader.rs; its upstream-owned edits are one line each: the workspace member (Cargo.toml, Cargo.lock), engine-platform's dependency and the hook in engine-platform/src/lib.rs (listed above).
 crates/d3d9-wgpu/src/lib.rs  # `pub mod identity;` (the card wgpu reports, for the Linux machine table); `mod fixed;` and SetFvf reaches the device; `pub mod memstats;` (NV_MEMLOG counters); `mod budget;`; `pub mod shader_cache;` and its store on the backend
 # Direct3D 9 recorder off Windows (docs/fork/LINUX.md, "Direct3D 9 off Windows", nv-linux#181): `d3d9real` is built on every target, its Windows-only items carry a cfg(windows) line and the fork-owned fork_d3d9rec.rs gives Linux the wgpu backend off screen; the call sites below lose their cfg(windows) line (the Windows arm is the same text).

@@ -21,8 +21,10 @@ d3dx-tex = { path = "../d3dx-tex" }
 # The shader compiler seam off Windows (d3dxshader.rs): the cache and libvkd3d-shader loaded at run time.
 d3dx-shader = { path = "../d3dx-shader" }
 
-# The Direct3D 9 calls on wgpu: a backend of the same stream (d3d9real.rs on Windows). It also builds on
-# Linux, where `end_process` and the D3DX format table use it.
+# The Direct3D 9 calls on wgpu instead, or beside the real d3d9.dll for comparison (NV_D3D9=wgpu,
+# NV_D3D9=real,wgpu; d3d9real.rs): a backend of the same stream. On every system: the formats it
+# makes (d3dx.rs) and its start screen's output (lib.rs) are asked about outside d3d9real.rs, and
+# wgpu (Vulkan, Metal) is what Linux and macOS will draw with.
 d3d9-wgpu = { path = "../d3d9-wgpu" }
 
 # The Direct3D 9 layer forwarded to the real d3d9.dll with NV_D3D9=real (ADR-0008, d3d9real.rs):
