@@ -313,9 +313,10 @@ file upstream owns (both in `.fork/allowed-divergence`).
 
 ## Direct3D 9 off Windows (#196, stage 3a)
 
-The recorder of `d3d9real.rs` (the game's Direct3D 9 calls recorded as `d3d9_stream::Cmd`) is built on every target. What is
-Windows only in that file (the real `d3d9.dll` forwarding, the window thread and its input, the F12 shot, `NV_FACE_CHECK`)
-carries a `#[cfg(windows)]` line; the recorder's call sites in `d3d9device.rs`, `d3d9resource.rs`, `d3d9query.rs`, `d3d9draw.rs`
+The recorder of `d3d9real.rs` (the game's Direct3D 9 calls recorded as `d3d9_stream::Cmd`) is built on every target. Upstream
+split the file (slaterain/nv-rs#635): the Win32 window, its messages and raw input are in `d3d9real/win32.rs` (Windows only),
+and the real `d3d9.dll` forwarding carries `#[cfg(windows)]`. Off Windows the fork's `fork_d3d9rec.rs` is the window layer in
+place of upstream's `d3d9real/elsewhere.rs`, which refuses a window. The recorder's call sites in `d3d9device.rs`, `d3d9resource.rs`, `d3d9query.rs`, `d3d9draw.rs`
 and `d3d9.rs` lost theirs, so the diff of every moved arm is the removed attribute line and nothing else. The Linux additions
 are in the fork-owned `fork_d3d9rec.rs`: `make_stream` gives the stream the wgpu backend in `Output::Offscreen` (no window;
 `NV_D3D9=real` or `real,wgpu` also draw on wgpu, with a line saying so), with the render thread, the occlusion answers and
