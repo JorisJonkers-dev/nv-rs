@@ -281,6 +281,16 @@ pub fn open(e: &mut Engine, name: Ptr, flags: u32) -> u32 {
         waiting: (0, 0),
         track,
     };
+    fork_log::game_info!(
+        "movie.open",
+        "{shown} handle {bink:08x}: {}x{}, {} frames at {}/{} fps, sound track {}, flags {flags:#x}",
+        handle_fields[0],
+        handle_fields[1],
+        handle_fields[2],
+        handle_fields[5],
+        handle_fields[6],
+        movie.track.is_some()
+    );
     put(e, bink, movie);
     bink
 }
@@ -315,6 +325,24 @@ fn sound_track(movie: &::bink::Movie<'_>, shown: &str) -> (Vec<u8>, u16, u32) {
 // Platform: replaces binkw32.dll _BinkClose@4 (import)
 /// `BinkClose(bink)`: closes the movie and frees its handle.
 pub fn close(e: &mut Engine, bink: u32) {
+    // FrameNum is 1-based, so a movie that played to its end closes with FrameNum at its count
+    // or back at 1 (it wraps); one closed earlier was skipped or cut off by the game.
+    let (frames, at) = (e.mem.u32(bink + 8), e.mem.u32(bink + FRAME_NUM));
+    // LastFrameNum is -1 until a frame was decoded: none shown.
+    let last = if e.mem.u32(bink + LAST_FRAME_NUM) == 0xffff_ffff {
+        0
+    } else {
+        e.mem.u32(bink + LAST_FRAME_NUM)
+    };
+    fork_log::game_info!(
+        "movie.close",
+        "handle {bink:08x}: frame {last} of {frames} shown (FrameNum {at}){}",
+        if last < frames {
+            ", closed before its end (skipped)"
+        } else {
+            ", played to its end"
+        }
+    );
     drop(take(e, bink, "BinkClose"));
     super::dsound::stop_stream(e, bink);
     e.mem.free(bink - 4);
@@ -355,7 +383,12 @@ pub fn do_frame(e: &mut Engine, bink: u32) -> i32 {
     }
     movie.decoded = Some(index);
     movie.pixels = None;
+    fork_log::game_often!("movie.frame", "handle {bink:08x} frame {index}");
     if movie.start.is_none() {
+        fork_log::game_info!(
+            "movie.start",
+            "handle {bink:08x}: first frame {index} decoded"
+        );
         movie.start = Some(e.clock_now_ms());
         movie.base = index;
         if let Some((pcm, channels, rate)) = movie.track.take() {
@@ -492,6 +525,7 @@ pub fn pause(e: &mut Engine, bink: u32, pause: i32) -> i32 {
         0
     };
     put(e, bink, movie);
+    fork_log::game_info!("movie.pause", "handle {bink:08x}: paused={}", pause != 0);
     super::dsound::pause_stream(e, bink, pause != 0);
     answer
 }

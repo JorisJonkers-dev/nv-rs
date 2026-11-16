@@ -56,6 +56,33 @@ Final records (`"event"` set) carry `reason`, `frame`, `thread`, counts of `soft
 
 No game data goes into a record: only names of calls, counts, paths of the machine's own files and the engine's messages.
 
+## The `game` event trace
+
+For diagnosing a run from its log (the loading-screen bug): every event is on target `game`, with the main frame and a monotonic
+millisecond clock (`[f123 +4567ms] movie.open: ...`; JSON fields `kind`, `ms`, `frame`). It is in the JSON file always, and on the
+screen with `NV_LOG=game=debug` (or `game=info`). Repeating kinds are throttled (the first five, then every thousandth) and their
+counts are in the exit summary.
+
+| Kind | When |
+| --- | --- |
+| `movie.open`, `movie.start`, `movie.frame`, `movie.pause`, `movie.close` | Bink: name, size, frame count, rate, sound; close says whether it played to its end or was closed early (skipped) |
+| `input.key`, `input.mouse` | a change of state that reaches the game's DirectInput: Escape, Enter, Space and keypad Enter at info, other keys throttled |
+| `audio.create`, `audio.play`, `audio.stop`, `audio.volume`, `audio.stream.play`, `audio.stream.stop`, `audio.stream.volume` | DirectSound buffers (id = the buffer's guest address) and the movie/music streams |
+| `gpu.texture.create`, `gpu.texture.destroy`, `gpu.surface.create`, `gpu.render_target` | textures and surfaces at screen scale (512x384 or more) and every render target |
+| `draw.fixed_quad` | a draw without shaders (the movie quad): viewport, target size, texture size and format |
+| `present.source`, `present` | which surface the present shows, when it changes; each present throttled |
+| `loading.begin`, `loading.end` | the start's loading screen (the d3d9 layer's own) |
+
+From the game's own state (`crates/host/src/fork_trace.rs`, read-only, once a frame, changes only; the words are those
+`loadingmenu.rs` names): `menu.loading` (the loading menu is up or gone, and whether it is the game's first load), `load.thread`
+(the loading thread object exists: a load runs), `load.music` and `load.movie` (the movie player word set or cleared).
+
+Not traced, and there is no seam to trace them at: the main, pause and other menus and the menu stack, and the kind of a later
+load (new game, save, door or fast travel). The menus are the game's translated code; the port intercepts none of their calls and
+the stack is a structure no translation names a global for. `bInitialLoad` only tells the first load from the rest. Tracing them
+needs a patch row in `engine-core`'s extend hooks at a menu's show and hide functions (an engine-core change), or reading the
+interface manager's menu list once its layout is named.
+
 ## Soft stops
 
 A stop is classified by its reason (`fork_log::classify`). `untranslated` and `memory` always halt: the port itself is wrong and

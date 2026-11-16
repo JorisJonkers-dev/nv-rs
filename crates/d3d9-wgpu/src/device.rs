@@ -706,6 +706,8 @@ pub struct Device {
     pipeline_cache: Option<cache::PipelineCacheFile>,
     /// When the last `Present` began ([`Made::longest_frame`]).
     last_present: Option<std::time::Instant>,
+    /// The surface the last present showed (id, size), for the `game` trace of changes.
+    shown: Option<(u64, u32, u32)>,
     /// The screen of the backend's own long steps ([`Device::show_progress`]), made when first shown.
     loading: Option<loading::Screen>,
     /// The game's start ([`Start`]): until the game draws anything, its black frames show the
@@ -1175,6 +1177,7 @@ impl Device {
             stand_in_pixel: None,
             pipeline_cache,
             last_present: None,
+            shown: None,
             loading: None,
             start: None,
             shader_bytecode: Map::default(),
@@ -1577,6 +1580,14 @@ impl Device {
         else {
             return;
         };
+        if target || (width >= 512 && height >= 384) {
+            fork_log::game_info!(
+                "gpu.texture.create",
+                "texture {texture:#x} {width}x{height}, {} levels, D3D format {format:#x}{}",
+                levels.len(),
+                if target { " (render target)" } else { "" }
+            );
+        }
         let mut surfaces = Vec::with_capacity(levels.len());
         for (k, &h) in levels.iter().enumerate() {
             let (layer, level) = if cube {
@@ -1609,6 +1620,17 @@ impl Device {
             ));
         }
         if let Some(s) = self.new_surface(width, height, format, depth, samples) {
+            if width >= 512 && height >= 384 {
+                fork_log::game_info!(
+                    "gpu.surface.create",
+                    "{} {surface:#x} {width}x{height}, D3D format {format:#x}, {samples}x",
+                    if depth {
+                        "depth surface"
+                    } else {
+                        "render surface"
+                    }
+                );
+            }
             self.objects.insert(surface, Obj::Surface(s));
         } else if format != d3dfmt::NULL {
             self.warn(format!("a surface of format {format:#x} is not provided"));
@@ -1774,6 +1796,14 @@ impl Device {
         }
         match self.objects.remove(&object) {
             Some(Obj::Texture(t, surfaces)) => {
+                if t.width >= 512 && t.height >= 384 {
+                    fork_log::game_info!(
+                        "gpu.texture.destroy",
+                        "texture {object:#x} {}x{}",
+                        t.width,
+                        t.height
+                    );
+                }
                 if let Some(c) = self.target_copies.remove(&t.id) {
                     self.destroyed.insert(c.id);
                 }
@@ -2067,6 +2097,14 @@ impl Device {
         if self.st.rt.get(index as usize).is_some_and(|r| same(r, &s)) {
             return;
         }
+        fork_log::game_often!(
+            "gpu.render_target",
+            "slot {index} set to {}",
+            s.as_ref().map_or_else(
+                || "none".to_string(),
+                |s| format!("{:#x} {}x{}", surface, s.width, s.height)
+            )
+        );
         if let Some(slot) = self.st.rt.get_mut(index as usize) {
             *slot = s;
         }
@@ -3775,6 +3813,15 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         // Direct3D 9's pixel centres: each vertex shader moves its position half a pixel right
         // and down, by this viewport's size (the converter's module documentation).
         if fixed.is_some() {
+            let tex = self.st.textures[0].as_ref();
+            fork_log::game_often!(
+                "draw.fixed_quad",
+                "viewport {vw}x{vh} on a {tw}x{th} target, texture {}",
+                tex.map_or_else(
+                    || "none".to_string(),
+                    |t| format!("{}x{} {:?}", t.width, t.height, t.format.wgpu)
+                )
+            );
             // The fixed-function vertex shader maps pixel positions to the viewport ([`fixed`]).
             let c = fixed::constants(vw as f32, vh as f32);
             for (k, v) in c.iter().enumerate() {
@@ -6037,6 +6084,24 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             self.made.longest_frame = self.made.longest_frame.max(now - t);
         }
         self.last_present = Some(now);
+        let source = self
+            .st
+            .rt
+            .first()
+            .and_then(Option::as_ref)
+            .map(|s| (s.id, s.width, s.height));
+        if source != self.shown {
+            fork_log::game_info!(
+                "present.source",
+                "present {frame}: showing {}",
+                source.map_or_else(
+                    || "no render target".to_string(),
+                    |(id, w, h)| format!("surface #{id} {w}x{h}")
+                )
+            );
+            self.shown = source;
+        }
+        fork_log::game_often!("present", "present {frame}");
         // Listed pipelines whose shaders the game has now made, made before its next frame.
         self.prepare_listed();
         self.end_pass();
@@ -6051,6 +6116,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             .and_then(|s| s.over(&self.device, self.presents))
         {
             fork_log::info!(target: "d3d9", "NV_D3D9 wgpu: the start's loading screen ended: {why}");
+            fork_log::game_info!("loading.end", "the start's loading screen ended: {why}");
             if let (Some(s), true) = (self.start.take(), why.starts_with("the game's first")) {
                 if let Some(f) = &s.record {
                     let _ = std::fs::write(
@@ -7457,6 +7523,7 @@ impl Start {
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        fork_log::game_info!("loading.begin", "the start's loading screen begins");
         Start {
             count,
             decide,
