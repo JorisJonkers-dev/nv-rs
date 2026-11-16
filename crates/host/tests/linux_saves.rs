@@ -1,6 +1,7 @@
 //! Saving on Linux, end to end and without game data: the calls the game makes to save (create a
 //! temporary file, write it, rename it over the save, move the old one to `.bak`, delete a save),
-//! made through the engine's file layer on `Z:\` paths with long names and 8.3 short names; then
+//! made through the engine's file layer on `Z:\` paths with long names (no 8.3 short names: the
+//! host keeps none, as a Windows volume with their generation off); then
 //! the host's copy-out landing the files in the port's own Saves folder (written under a
 //! temporary name, synced, renamed); then a new run listing the folder back with
 //! `FindFirstFileA` and `FindNextFileA`, reading a save and saving over it. A failure case: a
@@ -211,7 +212,7 @@ fn on_disk(dir: &Path) -> Vec<String> {
 }
 
 #[test]
-fn a_save_made_over_and_deleted_is_listed_with_short_names() {
+fn a_save_made_over_and_deleted_is_listed_by_its_long_name() {
     let root = scratch("engine");
     let saves = root.join(".local/share/nv-rs/userdata/Documents/My Games/FalloutNV/Saves");
     std::fs::create_dir_all(&saves).unwrap();
@@ -228,17 +229,15 @@ fn a_save_made_over_and_deleted_is_listed_with_short_names() {
     let exact = g.list(&format!("{saves}\\{LONG}.fos"));
     assert_eq!(exact.len(), 1, "a name made in this run is found by itself");
     assert_eq!(exact[0].0, format!("{LONG}.fos"));
-    assert_eq!(exact[0].1, "SAVE1C~1.FOS");
+    assert_eq!(exact[0].1, "", "no short name");
     assert_eq!(exact[0].2, 320);
     let all = g.list(&format!("{saves}\\*.fos"));
     let longs: Vec<&str> = all.iter().map(|l| l.0.as_str()).collect();
     assert_eq!(longs, [format!("{LONG}.fos"), format!("{OTHER}.fos")]);
     let shorts: Vec<&str> = all.iter().map(|l| l.1.as_str()).collect();
-    assert_eq!(shorts, ["SAVE1C~1.FOS", "SAVE2C~1.FOS"]);
-    // A search by the short name finds the long one.
-    let by_short = g.list(&format!("{saves}\\SAVE2C~?.FOS"));
-    assert_eq!(by_short.len(), 1);
-    assert_eq!(by_short[0].0, format!("{OTHER}.fos"));
+    assert_eq!(shorts, ["", ""]);
+    // A search by a short name Windows would give finds nothing: there is none.
+    assert!(g.list(&format!("{saves}\\SAVE2C~?.FOS")).is_empty());
     assert_eq!(g.list(&format!("{saves}\\*.nvse")).len(), 1);
     assert_eq!(g.read(&format!("{saves}\\{LONG}.fos")), vec![5u8; 320]);
     assert_eq!(g.read(&format!("{saves}\\{LONG}.fos.bak")), vec![4u8; 310]);
@@ -319,15 +318,15 @@ fn the_copy_out_lands_the_saves_and_a_new_run_lists_loads_and_saves_over_them() 
     );
 
     // The next run of the game: the folder is listed as the game lists it for its save list,
-    // with short names, and the save is read back.
+    // with no short names, and the save is read back.
     let mut next = Game::new();
     let all = next.list(&format!("{saves}\\*.fos"));
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].0, format!("{LONG}.fos"));
-    assert_eq!(all[0].1, "SAVE1C~1.FOS");
+    assert_eq!(all[0].1, "");
     assert_eq!(all[0].2, 40);
     let exact = next.list(&format!("{saves}\\{LONG}.fos"));
-    assert_eq!(exact[0].1, "SAVE1C~1.FOS");
+    assert_eq!(exact[0].1, "");
     assert_eq!(next.read(&format!("{saves}\\{LONG}.fos")), vec![6u8; 40]);
 
     // Saved over, as the player does with the same name: the old save becomes `.bak`, and the

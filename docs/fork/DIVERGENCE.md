@@ -30,6 +30,14 @@ A new upstream-owned file needs a record in this file, in the same pull request,
 
 The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
 
+### Short names off Windows
+- Files: `crates/engine-platform/src/files.rs` (`search_finds`, `listing`, `player_entry`, `short_name`, `write_entry`, `find_first_file_a`; the fork's `files/short_names.rs` removed)
+- Upstream approach: off Windows upstream lists host files with empty short names, but `search_finds` still matches against a short name a name would have and stops the run on any pattern its first letter does not rule out; on Windows the file system answers (checked on `origin/main`, 2026-11-16)
+- Fork approach: off Windows the host keeps no 8.3 short names, as a Windows volume with their generation off: a search matches the long name only and never stops for a short name, and `cAlternateFileName` is empty for host files and the run's files. On Windows the behaviour is unchanged (the first two letters rule out a short name, the plain stop stays)
+- Decision: drop when upstream matches long names only off Windows
+- Reason: wildcard searches for a master's archives (`<name>*.bsa`) in a folder that holds an archive whose long name has spaces stopped the game in its first frame, once per pattern the short-name rules could not decide
+- Evidence: JorisJonkers-dev/nv-rs#331; the test `off_windows_a_search_matches_the_long_name_only`, the save tests in `tests_changed_directories` and `crates/host/tests/linux_saves.rs`
+
 ### Direct3D 9 window layer off Windows
 - Files: `crates/engine-platform/src/d3d9real.rs`, `crates/engine-platform/src/d3d9real/elsewhere.rs` (deleted), `crates/engine-platform/src/fork_d3d9rec.rs` (fork-owned)
 - Upstream approach: since slaterain/nv-rs#635, `d3d9real.rs` builds on every system, the Win32 window moved unchanged into `d3d9real/win32.rs`, and off Windows `d3d9real/elsewhere.rs` stops the run when the game asks for a window ("no window layer"). The real Direct3D 9 parts are `cfg(windows)`, and asking for it off Windows ends the run.
