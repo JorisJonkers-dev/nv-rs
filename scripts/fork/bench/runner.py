@@ -17,6 +17,7 @@ import threading
 import time
 from pathlib import Path
 
+import lock
 import nested
 import parse
 
@@ -224,10 +225,13 @@ def launch(plan, opts, run_dir):
         wd.start()
         reason = None
         first_frame_at = None
+        others_max, others_at = lock.other_viewers([proc.pid]), time.time()
         try:
             while proc.poll() is None:
                 time.sleep(0.5)
                 now = time.time()
+                if now - others_at >= 5:
+                    others_max, others_at = max(others_max, lock.other_viewers([proc.pid])), now
                 lf_n = last_frame(frames)
                 if lf_n is not None and first_frame_at is None:
                     first_frame_at = now
@@ -257,6 +261,8 @@ def launch(plan, opts, run_dir):
     return {
         "scenario": plan.name,
         "ended_by": reason or "viewer exited",
+        "other_viewers_max": others_max,
+        "noisy": others_max > 0,
         "exit_status": rc,
         "wall_s": round(time.time() - started, 1),
         "watchdog": wd.killed,
