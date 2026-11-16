@@ -447,6 +447,7 @@ def scrub(text, home=None):
     text = re.sub(r"/home/[^/\s\"']+", "~", text)
     text = re.sub(r"/Users/[^/\s\"']+", "~", text)
     text = re.sub(r"[A-Za-z]:\\+Users\\+[^\\\s\"']+", "~", text)
+    text = re.sub(r"%USERPROFILE%", "~", text, flags=re.I)
     text = re.sub(r"(?:~|/)[^\s\"']*(?:steamapps|SteamLibrary|Fallout[ _]New[ _]Vegas|Fallout New Vegas)[^\s\"')]*", "<game folder>", text, flags=re.I)
     text = re.sub(r"/nix/store/[a-z0-9]{32}-", "/nix/store/", text)
     return text

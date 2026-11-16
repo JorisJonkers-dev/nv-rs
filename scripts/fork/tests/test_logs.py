@@ -181,8 +181,9 @@ class Bundle(unittest.TestCase):
         self.assertLess(len(text), 8000)
 
     def test_scrub(self):
-        self.assertEqual(logs.scrub("/home/bob/x and /Users/al/y and C:\\Users\\cy\\z", home="/home/bob"), "~/x and ~/y and ~\\z")
+        self.assertEqual(logs.scrub("/home/bob/x and /" "Users/al/y and C:" "\\Users\\cy\\z", home="/home/bob"), "~/x and ~/y and ~\\z")
         self.assertIn("<game folder>", logs.scrub("/mnt/SteamLibrary/steamapps/common/Fallout New Vegas/Data/x.esp"))
+        self.assertEqual(logs.scrub("%USERPROFILE%\\Documents", home="/home/bob"), "~\\Documents")
 
 
 class Colors(unittest.TestCase):
