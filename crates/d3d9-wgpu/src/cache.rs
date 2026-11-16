@@ -100,6 +100,69 @@ pub(crate) fn cache_stem(adapter: &str, sources: &str) -> String {
     format!("{adapter}-{}", &sources[..8])
 }
 
+/// The size cap of the pipeline folder: `NV_PIPELINE_CACHE_MAX_MB` (default 256) in bytes.
+pub(crate) fn max_bytes() -> u64 {
+    cap_from(std::env::var("NV_PIPELINE_CACHE_MAX_MB").ok().as_deref())
+}
+
+fn cap_from(var: Option<&str>) -> u64 {
+    var.and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(256)
+        << 20
+}
+
+/// Removes the driver's cache files of other adapters, least recently used first, until the
+/// folder's `wgpu_pipeline_cache_*.bin` files together fit in `cap`; the one named `keep` (this
+/// run's) is never removed. Returns how many went.
+pub(crate) fn evict_blobs(dir: &Path, keep: &str, cap: u64) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut files = Vec::new();
+    let mut total = 0u64;
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if !(name.starts_with("wgpu_pipeline_cache_") && name.ends_with(".bin")) {
+            continue;
+        }
+        let Ok(m) = e.metadata() else { continue };
+        total += m.len();
+        if name != keep {
+            files.push((
+                m.modified().unwrap_or(std::time::UNIX_EPOCH),
+                m.len(),
+                e.path(),
+            ));
+        }
+    }
+    files.sort();
+    let mut n = 0;
+    for (_, len, path) in files {
+        if total <= cap {
+            break;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            total -= len;
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Where the pipeline list's text starts so that it fits in `cap` bytes: the first `keep_first`
+/// lines (the shipped ones) always stay, then the oldest of the rest go. The index of the first
+/// line kept after those.
+pub(crate) fn trim_list(lines: &[String], keep_first: usize, cap: u64) -> usize {
+    let keep_first = keep_first.min(lines.len());
+    let mut total: u64 = lines.iter().map(|l| l.len() as u64 + 1).sum();
+    let mut start = keep_first;
+    while total > cap && start < lines.len() {
+        total -= lines[start].len() as u64 + 1;
+        start += 1;
+    }
+    start
+}
+
 /// Removes the pipeline cache files earlier builds wrote for this adapter (another sources'
 /// fingerprint, or none), so a new build's first start is cold and old files don't pile up.
 pub(crate) fn remove_other_builds(dir: &Path, adapter: &str, current: &str) {
@@ -287,6 +350,10 @@ impl PipelineCacheFile {
         let adapter = wgpu::util::pipeline_cache_key(info)?;
         let name = cache_stem(&adapter, SOURCES);
         remove_other_builds(dir, &adapter, &name);
+        let removed = evict_blobs(dir, &format!("{name}.bin"), max_bytes());
+        if removed > 0 {
+            eprintln!("NV_D3D9 wgpu: pipeline cache folder over its cap: {removed} cache file(s) of other adapters removed");
+        }
         // A folder that cannot be made (a read-only place, a path that is no folder) means no
         // cache, with one line: never a failed start. A relative path is taken from the working
         // folder, as any other path the host is given.
@@ -617,5 +684,60 @@ mod tests {
         remove_other_builds(&dir, "pipelines", "x");
         assert!(dir.join("pipelines.txt").exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_pipeline_folder_cap_evicts_other_adapters_oldest_first_and_keeps_this_one() {
+        let d = std::env::temp_dir().join(format!("nv-blobcap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let now = std::time::SystemTime::now();
+        for (n, age) in [("a", 300u64), ("b", 200), ("c", 100)] {
+            let p = d.join(format!("wgpu_pipeline_cache_{n}.bin"));
+            std::fs::write(&p, vec![0u8; 100]).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&p)
+                .unwrap()
+                .set_modified(now - std::time::Duration::from_secs(age))
+                .unwrap();
+        }
+        std::fs::write(d.join("pipelines.txt"), b"keep").unwrap();
+        std::fs::write(d.join("other.bin"), vec![0u8; 100]).unwrap();
+        // 300 bytes of cache files; the cap 150 leaves "c" (this run's, kept) and one more is not
+        // needed: a and b go, c stays even though 100 <= 150.
+        assert_eq!(evict_blobs(&d, "wgpu_pipeline_cache_c.bin", 150), 2);
+        assert!(d.join("wgpu_pipeline_cache_c.bin").exists());
+        assert!(!d.join("wgpu_pipeline_cache_a.bin").exists());
+        assert!(d.join("pipelines.txt").exists() && d.join("other.bin").exists());
+        // Under the cap nothing goes; this run's file is never removed even over it.
+        assert_eq!(evict_blobs(&d, "wgpu_pipeline_cache_c.bin", 1000), 0);
+        assert_eq!(evict_blobs(&d, "wgpu_pipeline_cache_c.bin", 1), 0);
+        assert!(d.join("wgpu_pipeline_cache_c.bin").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_list_cap_drops_the_oldest_local_lines_and_never_the_shipped_ones() {
+        let lines: Vec<String> = (0..10).map(|n| format!("line{n}")).collect();
+        // 6 bytes a line with its newline: 60 in all.
+        assert_eq!(trim_list(&lines, 3, 1000), 3, "under the cap: all kept");
+        assert_eq!(
+            trim_list(&lines, 3, 35),
+            8,
+            "five lines fit: the last two kept after the shipped three"
+        );
+        assert_eq!(
+            trim_list(&lines, 3, 0),
+            10,
+            "the shipped three are kept whatever the cap"
+        );
+    }
+
+    #[test]
+    fn the_cap_variable_is_megabytes_with_a_default() {
+        assert_eq!(cap_from(None), 256 << 20);
+        assert_eq!(cap_from(Some("8")), 8 << 20);
+        assert_eq!(cap_from(Some("junk")), 256 << 20);
     }
 }
