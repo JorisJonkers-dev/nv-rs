@@ -233,7 +233,8 @@ inside: `bin/nv-viewer`, `bin/nv-rs-launch`, `install.sh`, `share/applications/n
 release manifest files and their schemas). Beside it, as before: `capabilities.json`, `release-manifest.json`, the
 schemas and `SHA256SUMS`, all attested.
 
-**The contract with nvmod.** `nvmod install-nv-rs` fetches `<release url>/SHA256SUMS` and the asset named
+**The contract with the installing side.** The Toolbox (`raul`) fetches, installs, checks and launches nv-rs
+(the Toolbox's ADR-0007); until its tool supply lands, `nvmod install-nv-rs` does it the same way. It fetches `<release url>/SHA256SUMS` and the asset named
 `nv-rs-linux-x86_64-dev.tar.gz` (`DEFAULT_ASSET`), checks the hash and the attestation, accepts only plain files and
 folders that stay inside the folder (no link, no absolute path, no `..`), finds `nv-viewer` and `release-manifest.json`
 by name anywhere in the tree and runs the manifest's `installation_check`. So the asset name is fixed (it was
@@ -246,7 +247,7 @@ and that exactly one `nv-viewer` and one manifest are in the tree.
 | Way | Command |
 | --- | --- |
 | Tarball | unpack, then `./install.sh` (to `~/.local`, or `--prefix DIR`): `bin/`, the desktop entry with the launcher's full path, the icon |
-| nvmod | `nvmod install-nv-rs` |
+| Toolbox | `raul` installs and launches it; until the Toolbox's tool supply lands, `nvmod install-nv-rs` |
 | Nix | `nix profile install github:JorisJonkers-dev/nv-rs` (or `nix run github:JorisJonkers-dev/nv-rs -- --check` after `nv-rs-launch --set-data`) |
 | Launch | `nv-rs-launch --set-data "<game folder>"` once; then `nv-rs-launch --check` or `nv-rs-launch`; or directly `nv-viewer "<game folder>" [--check]` |
 
@@ -268,8 +269,8 @@ release build runs it on the unpacked tarball and on an `install.sh` prefix; the
 (`nix build .#checks.x86_64-linux.smoke`). Pull requests run the same script against a stand-in viewer
 (`task scripts`), so the packaging cannot rot between releases.
 
-Not done: publishing. The workflow never creates a release (the maintainer decides); nvmod's default URL
-(`releases/latest/download`) needs the four files above attached to a GitHub Release by hand until that is decided.
+Not done: publishing. The workflow never creates a release (the maintainer decides); the installing side's default
+URL (`releases/latest/download`) needs the four files above attached to a GitHub Release by hand until that is decided.
 macOS can follow the same layout (`packaging/macos/`, a `macos` job) when a native build exists.
 
 ## GPU tests on Linux (lavapipe)

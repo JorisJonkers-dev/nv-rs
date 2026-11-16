@@ -1,9 +1,11 @@
 # The release files: capabilities.json and release-manifest.json
 
 A fork-only addition (nothing of it is offered to upstream, and nothing upstream owns was changed for it). A
-release build writes two machine-readable files next to the binaries, for the installer and manager that
-consume nv-rs as a subprocess (nvmod-rs). They hold names, counts and hashes of this repository's own tables;
-no game data.
+release build writes two machine-readable files next to the binaries, for the Toolbox (`raul`, in
+rauls-trusty-toolbox), which fetches, verifies, installs and starts nv-rs as a subprocess (the Toolbox's ADR-0007).
+Until the Toolbox's tool supply lands, nvmod's `install-nv-rs` does the same steps and reads the same files. They
+hold names, counts and hashes of this repository's own tables; no game data. Both are engine Contracts: nv-rs
+defines and versions them, and the Toolbox snapshots each version a Known-good set names.
 
 | File | Schema | What it says |
 | --- | --- | --- |
@@ -65,10 +67,11 @@ run independently after the `guard` job (fork branch, `vX.Y.Z`, release-please c
 
 - The release already exists (release-please made it); neither job creates it. Both use `gh release upload --clobber`, so a
   re-run is idempotent, and share the concurrency group `release-upload-<tag>`, so uploads never overlap.
-- `SHA256SUMS` is the Linux file, the one nvmod's `install-nv-rs` reads (it looks up only the asset it installs, so a
+- `SHA256SUMS` is the Linux file, the one the installing side reads (the Toolbox, and until then nvmod's
+  `install-nv-rs`; it looks up only the asset it installs, so a
   release with only the Linux assets verifies). The Windows hashes are in `SHA256SUMS-windows`, which never overwrites it.
 - `release-manifest.json` and `capabilities.json` are identical in both builds and carry no per-platform asset list, so
   the Linux-only moment of a release is complete and nothing is "pending". The Windows assets appear when Windows is done.
-  nvmod needs no change.
+  The installing side needs no change.
 - Date-version builds (no tag) publish nothing; each job uploads its own workflow artefact as soon as it finishes, so the
   Linux artefact (`nv-rs-<version>-linux-x86_64-dev`) can be downloaded while Windows is still running.
