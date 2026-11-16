@@ -7,7 +7,7 @@ Vulkan) without waiting for a CI Release Build. CI stays the merge gate: this lo
 
 | Command | What it does |
 | --- | --- |
-| `nv-rs-dev build [--clean]` | `cargo build --profile play -p nv-viewer --bin nv-viewer` only; never the whole workspace. `--clean`: a cold build in a fresh `<target>-cold` dir with no compiler cache, timed (the shared dir is never emptied under another worker); every build appends its time to `~/.local/state/nv-rs/build-times.tsv` |
+| `nv-rs-dev build [--opt] [--clean]` | `cargo build --profile play -p nv-viewer --bin nv-viewer` only; never the whole workspace. `--opt`: profile `play-opt` (every crate at opt-level 3, no incremental; about 4 minutes warm here) for measuring; `nv-rs-dev bench` runs that binary by default (`NV_DEV_PROFILE=play` for the quick one). Release artifacts (`--release` in the release and package workflows) were already optimised, with engine-core as one code unit. `--clean`: a cold build in a fresh `<target>-cold` dir with no compiler cache, timed (the shared dir is never emptied under another worker); every build appends its time to `~/.local/state/nv-rs/build-times.tsv` |
 | `nv-rs-dev matrix [spec.toml] [flags]` | Builds, tests and benchmarks many refs, configurations and hosts, and writes one comparison report: [Matrix runs](#matrix-runs) |
 | `nv-rs-dev compare <baseline> <candidate>` | A two-ref matrix |
 | `nv-rs-dev clean [--all]` | Removes this loop's own caches, sizes first: [Clean](#clean) |
