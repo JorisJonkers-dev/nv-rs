@@ -32,6 +32,8 @@ const VERSION: u32 = 1;
 const HEADER: usize = 8 + 4 + 16 + 8 + 8;
 /// An entry larger than this is never written or read (the largest converted shader is a few
 /// hundred KB).
+/// A hit refreshes the entry's modified time when it is older than this.
+const TOUCH_AFTER_SECS: u64 = 3600;
 const MAX_ENTRY: u64 = 16 << 20;
 /// The default size cap of the whole store.
 pub const DEFAULT_MAX_BYTES: u64 = 1 << 30;
@@ -236,9 +238,17 @@ impl ShaderCache {
                 self.counters
                     .bytes_read
                     .fetch_add(text.len() as u64, Ordering::Relaxed);
-                // The least-recently-used order the cap evicts in.
-                if let Ok(f) = std::fs::File::options().write(true).open(&path) {
-                    let _ = f.set_modified(std::time::SystemTime::now());
+                // The least-recently-used order the cap evicts in: refreshed when the entry's
+                // time is over an hour old (a touch per hit costs more than the hit).
+                let stale = std::fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_none_or(|age| age.as_secs() > TOUCH_AFTER_SECS);
+                if stale {
+                    if let Ok(f) = std::fs::File::options().write(true).open(&path) {
+                        let _ = f.set_modified(std::time::SystemTime::now());
+                    }
                 }
             }
             None => {
@@ -341,7 +351,7 @@ pub fn log_summaries() {
         .filter_map(Weak::upgrade)
         .collect();
     for c in all {
-        fork_log::info!(target: "d3d9", "NV_D3D9 wgpu: {}", c.summary());
+        eprintln!("NV_D3D9 wgpu: {}", c.summary());
     }
 }
 
@@ -604,7 +614,7 @@ mod tests {
                 .write(true)
                 .open(c.path(k))
                 .unwrap();
-            f.set_modified(now - std::time::Duration::from_secs(1000 - n as u64 * 10))
+            f.set_modified(now - std::time::Duration::from_secs(100_000 - n as u64 * 10))
                 .unwrap();
         }
         assert!(c.get(keys[0]).is_some());
