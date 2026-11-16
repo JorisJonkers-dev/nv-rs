@@ -28,6 +28,7 @@ mod fxhash;
 pub mod identity;
 pub mod loading;
 pub mod memstats;
+mod perf;
 mod prepare;
 pub mod shot;
 pub mod sm;

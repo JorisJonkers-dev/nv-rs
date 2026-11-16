@@ -706,6 +706,8 @@ pub struct Device {
     pipeline_cache: Option<cache::PipelineCacheFile>,
     /// When the last `Present` began ([`Made::longest_frame`]).
     last_present: Option<std::time::Instant>,
+    /// `NV_PERF`'s frame records ([`crate::perf`]).
+    perf: crate::perf::Recorder,
     /// The surface the last present showed (id, size), for the `game` trace of changes.
     shown: Option<(u64, u32, u32)>,
     /// The screen of the backend's own long steps ([`Device::show_progress`]), made when first shown.
@@ -1177,6 +1179,7 @@ impl Device {
             stand_in_pixel: None,
             pipeline_cache,
             last_present: None,
+            perf: crate::perf::Recorder::new(),
             shown: None,
             loading: None,
             start: None,
@@ -1568,6 +1571,7 @@ impl Device {
         cube: bool,
         pool: u32,
     ) {
+        let _perf = crate::perf::span(crate::perf::Cat::Create);
         self.keep_levels(texture, levels, pool);
         self.st.bound.forget(texture);
         let count = if cube {
@@ -1657,6 +1661,7 @@ impl Device {
     }
 
     pub(crate) fn create_buffer(&mut self, buffer: Handle, index: bool, length: u32, format: u32) {
+        let _perf = crate::perf::span(crate::perf::Cat::Create);
         self.st.bound.forget(buffer);
         let size = u64::from(length.max(4).div_ceil(4) * 4);
         let charge = match self.budget.take(1, 1, size) {
@@ -1849,6 +1854,7 @@ impl Device {
     /// recording the next one into a fresh register ring, UP vertices and upload stage while it is
     /// finished and submitted (in order with every other queue operation).
     fn flush(&mut self) {
+        let _perf = crate::perf::span(crate::perf::Cat::Flush);
         self.end_pass();
         let finishing = std::mem::take(&mut self.finishing);
         let encoder = self.encoder.take();
@@ -1890,6 +1896,7 @@ impl Device {
         ];
         let pool = Arc::clone(&s.pool);
         s.send(Box::new(move |queue: &wgpu::Queue| {
+            let _perf = crate::perf::span(crate::perf::Cat::QueueSubmit);
             let delay = SUBMIT_DELAY_FOR_TESTS.load(Ordering::Relaxed);
             if delay > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(u64::from(delay)));
@@ -1930,12 +1937,14 @@ impl Device {
     /// Waits until the queue thread has run everything handed to it (a read-back, a frame of the
     /// window, a screen that submits by itself, the end); its failure, if one, said here.
     fn sync(&self) {
+        let _perf = crate::perf::span(crate::perf::Cat::Sync);
         if let Some(s) = &self.submitter {
             s.sync();
         }
     }
 
     pub(crate) fn upload_surface(&mut self, surface: Handle, data: &[u8]) {
+        let _perf = crate::perf::span(crate::perf::Cat::Upload);
         // The stream carries whole levels (`UploadSurface`, checked when read); one shorter all
         // the same changes only the bytes it carries, so the rest still reads back.
         if self.kept.contains_key(&surface) {
@@ -2010,6 +2019,7 @@ impl Device {
         offset: u32,
         data: &d3d9_stream::Data<'_>,
     ) {
+        let _perf = crate::perf::span(crate::perf::Cat::Upload);
         let Some(Obj::Buffer(b, shadow)) = self.objects.get_mut(&buffer) else {
             return;
         };
@@ -2404,6 +2414,7 @@ impl Device {
     }
 
     fn end_pass(&mut self) {
+        let _perf = crate::perf::span(crate::perf::Cat::Pass);
         self.pass = None;
         self.pass_targets = None;
         if let Some(c) = self.pass_count.take() {
@@ -2765,6 +2776,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// Opens a render pass on the current targets (loading what they hold), or clears them as it
     /// opens (`clear`: colour, depth, stencil).
     fn begin_pass(&mut self, clear: Option<(wgpu::Color, Option<f32>, Option<u32>, bool)>) {
+        let _perf = crate::perf::span(crate::perf::Cat::Pass);
         let targets = self.current_targets();
         if clear.is_none() && self.pass.is_some() && self.pass_targets.as_ref() == Some(&targets) {
             return;
@@ -3201,6 +3213,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         samplers: &[((u32, u8, bool), usize)],
         copies: &[Option<Arc<Tex>>; 20],
     ) {
+        let _perf = crate::perf::span(crate::perf::Cat::Group);
         if let (last, Some(_)) = &self.last_groups[k] {
             if last.as_slice() == key {
                 return;
@@ -3564,6 +3577,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         count: u32,
         up: Option<(&[u8], u32)>,
     ) {
+        let _perf = crate::perf::span(crate::perf::Cat::Draw);
         if self.st.vs.is_some() && self.st.ps.is_some() {
             return self.draw_with(kind, indexed, base_vertex, start, count, up, None);
         }
@@ -5055,6 +5069,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         topology: wgpu::PrimitiveTopology,
         samplers: &[(u32, u8, bool)],
     ) -> Option<Pipe> {
+        let _perf = crate::perf::span(crate::perf::Cat::Pipeline);
         self.made_on_draws += 1;
         let started = std::time::Instant::now();
         let (vkey, pkey, tasks) = self.module_tasks(key, vs, ps, inputs);
@@ -5737,6 +5752,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// `ReadSurface`: the bytes of a managed or system-memory level as the backend keeps them
     /// (`size` of them, rows packed); none for another level or another size.
     pub(crate) fn read_surface(&self, surface: Handle, size: u32) -> Option<Vec<u8>> {
+        let _perf = crate::perf::span(crate::perf::Cat::ReadBack);
         self.kept
             .get(&surface)
             .filter(|b| b.len() == size as usize)
@@ -5822,6 +5838,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         destination: Handle,
         pitch: u32,
     ) -> Option<d3d9_stream::Rows> {
+        let _perf = crate::perf::span(crate::perf::Cat::ReadBack);
         let src = self.surface_of(source)?;
         let read = if src.samples > 1 {
             // Direct3D 9 refuses a multisampled source (D3DERR_INVALIDCALL, as documented and
@@ -6079,6 +6096,8 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
 
     /// `Present` of the stream's `frame` (numbered as the forwarding layer's captures are).
     pub(crate) fn present(&mut self, frame: u32) {
+        self.perf.frame_end();
+        let _perf = crate::perf::span(crate::perf::Cat::Present);
         let now = std::time::Instant::now();
         if let Some(t) = self.last_present {
             self.made.longest_frame = self.made.longest_frame.max(now - t);
@@ -6393,6 +6412,9 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// own few for clears, copies and counts are not counted, nor kept in the pipeline cache), what
     /// that took, and the longest time between two presents on this thread.
     fn report_made(&mut self) {
+        for line in self.perf.report() {
+            fork_log::info!(target: "d3d9", "{line}");
+        }
         let m = std::mem::take(&mut self.made);
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         fork_log::debug!(target: "d3d9",
