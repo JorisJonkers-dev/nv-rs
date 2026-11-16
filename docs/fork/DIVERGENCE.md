@@ -54,6 +54,14 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: the Linux play path starts without `NV_SAVE_OUT`, and mods' settings must last between sessions there as on the launcher's Windows path.
 - Evidence: `mod_files::tests::the_native_build_keeps_mod_files_beside_its_own_saves` (host) and `fork_platform::tests::mod_files_on_a_unix_host_read_the_game_and_keep_writes_in_the_ports_folder` (engine-platform).
 
+### A test of the extender's group GF patches
+- Files: `crates/jip/src/game_patches/gf_tests.rs`
+- Upstream approach: `deferred_start_through_the_listener_puts_group_gfs_part_in` (slaterain/nv-rs#649) drives the extender's deferred start in a world without a data handler; slaterain/nv-rs#636, merged beside it, made the deferred start look a plugin up there, so on upstream's `main` the test stops on a read of unmapped memory at `0x011C3F2C`.
+- Fork approach: the test maps an empty data handler before the deferred start; the code under test is unchanged.
+- Decision: drop when upstream fixes the test.
+- Reason: the scripting component's required jobs run this test.
+- Evidence: the extender crate's tests fail on that test at upstream's 955f0dc0 and passes with the change.
+
 ## Older table
 
 | Fork-only change | Why | Upstream change that makes it unnecessary |

@@ -487,6 +487,13 @@ fn deferred_start_through_the_listener_puts_group_gfs_part_in() {
         (jip_patches::INSTALLED, MARK_AS_MODIFIED, 1),
     ] {
         let mut e = d01_world();
+        // Fork: the deferred start also runs group GS's script patch (slaterain/nv-rs#636, merged
+        // beside this one), which looks its plugin up in the data handler: give the world a
+        // handler with no files loaded, so that patch finds nothing.
+        if !e.mem.is_mapped(0x011c_3f2c) {
+            e.map(0x011c_3000, 0x1000);
+            e.mem.set_u32(0x011c_3f2c, 0x011c_3000);
+        }
         find_stand_ins(&mut e);
         read_override_archives(&mut e);
         assert_eq!(g130_answer(&mut e, b"DATA\\Foo.bsa"), Some(1));
