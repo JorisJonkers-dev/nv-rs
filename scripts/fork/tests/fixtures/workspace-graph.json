@@ -43,6 +43,11 @@
      "name": "fork-log"
     },
     {
+     "features": [],
+     "kind": null,
+     "name": "fork-hitch"
+    },
+    {
      "kind": null,
      "name": "naga"
     },
@@ -1505,6 +1510,18 @@
    "name": "esm"
   },
   {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/fork-hitch/Cargo.toml",
+   "name": "fork-hitch"
+  },
+  {
    "dependencies": [],
    "features": [],
    "manifest_path": "/ws/crates/fork-log/Cargo.toml",
@@ -1750,6 +1767,11 @@
      "features": [],
      "kind": null,
      "name": "fork-log"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-hitch"
     },
     {
      "features": [],
