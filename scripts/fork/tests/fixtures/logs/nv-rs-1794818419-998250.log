@@ -1,0 +1,9 @@
+2026-11-16T08:40:19.005Z INFO  host f-: logging: JSON lines to /home/someone/.local/state/nv-rs/logs/nv-rs-1794818419-998250.jsonl
+2026-11-16T08:40:19.090Z INFO  host f-: Preset fixes: uncapped frame rate, high-frame-rate landing
+2026-11-16T08:40:19.120Z INFO  d3d9 f-: NV_D3D9 wgpu: the game's device on AMD Radeon RX 7900 XTX (RADV NAVI31) (Vulkan)
+2026-11-16T08:40:23.000Z DEBUG d3d9 f300: NV_D3D9 wgpu: present 300: 7.0 ms
+2026-11-16T08:40:28.000Z WARN  window f640: NV_D3D9 wgpu: the window's surface was lost: made again
+2026-11-16T08:40:50.000Z WARN  window f4400: NV_D3D9 wgpu: the window's surface was lost: made again
+2026-11-16T08:41:04.000Z WARN  files f6900: FindFirstFileA(Data\Meshes): not listed, using the host folder
+2026-11-16T08:41:09.000Z INFO  status f7200: Game's movement: main 7200 frames; running; 0 untranslated addresses reached.
+2026-11-16T08:41:18.000Z INFO  host f8600: Game's main returned 0 in frame 8600
