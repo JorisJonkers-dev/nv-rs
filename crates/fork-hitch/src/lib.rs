@@ -1029,6 +1029,14 @@ mod tests {
         })
     }
 
+    /// The event ring belongs to the process and the tests run in parallel: every test that writes
+    /// to it or reads it holds this lock, so another test's event cannot land between its own
+    /// event and its read.
+    fn ring_lock() -> MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     #[test]
     fn the_defaults_are_on_at_25_ms_and_three_medians() {
         let c = cfg(&[]);
@@ -1056,6 +1064,7 @@ mod tests {
 
     #[test]
     fn the_events_of_the_context_come_oldest_first_with_their_age() {
+        let _ring = ring_lock();
         event("test.first", 1);
         event("test.second", 2);
         let now = now_ns();
@@ -1080,6 +1089,7 @@ mod tests {
 
     #[test]
     fn a_kind_is_cut_at_a_character_boundary() {
+        let _ring = ring_lock();
         event(&"é".repeat(40), 0);
         let seen = recent_events(now_ns(), 500);
         assert!(seen.iter().any(|e| e.kind.starts_with('é')));
@@ -1088,6 +1098,9 @@ mod tests {
     /// The whole path on a synthetic run: steady frames, one slow one with a file stall in it.
     #[test]
     fn a_slow_frame_makes_one_classified_record_in_the_ring_and_stats() {
+        let _ring = ring_lock();
+        // report_hitch takes the sampler's samples: not while a sampler test is filling them.
+        let _turn = sampler::turn();
         let mut rec = Recorder::new(cfg(&[("NV_HITCH_SUMMARY_SECS", "0")]));
         // Drive report_hitch and the stats directly: the global recorder belongs to the process.
         let mut r = Rec {
