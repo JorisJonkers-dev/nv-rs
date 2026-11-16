@@ -859,6 +859,14 @@ pub fn move_file_a(e: &mut Engine, existing: Ptr, new: Ptr) -> u32 {
         return 0;
     };
     if from_attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+        if fork_log::soft_stop(
+            "files",
+            "MoveFileA",
+            format_args!("a directory is not provided"),
+        ) {
+            e.kernel.last_error = ERROR_ACCESS_DENIED;
+            return 0;
+        }
         panic!("MoveFileA of a directory is not provided");
     }
     let (kf, kt) = (key(&from), key(&to));
@@ -1066,7 +1074,10 @@ pub fn find_first_file_a(e: &mut Engine, name: Ptr, data: Ptr) -> u32 {
     let k = key(&path);
     let shown = String::from_utf8_lossy(&path).into_owned();
     if state!(e).disk.files.contains_key(&k) {
-        let entry = run_entry(e, &k, &shown);
+        let Some(entry) = run_entry(e, &k, &shown) else {
+            e.kernel.last_error = ERROR_FILE_NOT_FOUND;
+            return INVALID_HANDLE_VALUE;
+        };
         if let Err(code) = write_entry(e, data, &entry, &shown) {
             e.kernel.last_error = code;
             return INVALID_HANDLE_VALUE;
@@ -1076,9 +1087,11 @@ pub fn find_first_file_a(e: &mut Engine, name: Ptr, data: Ptr) -> u32 {
             .insert(KernelObject::FindFile(Opaque::new(Search::default())));
     }
     if state!(e).disk.directories.contains(&k) {
-        panic!(
-            "FindFirstFileA(\"{shown}\"): a directory the game made in this run is not provided"
-        );
+        let why = "a directory the game made in this run is not provided";
+        if let Some(answer) = soft_find(e, "FindFirstFileA", &shown, why) {
+            return answer;
+        }
+        panic!("FindFirstFileA(\"{shown}\"): {why}");
     }
     let fail = |e: &mut Engine, code: u32| {
         e.kernel.last_error = code;
@@ -1094,11 +1107,19 @@ pub fn find_first_file_a(e: &mut Engine, name: Ptr, data: Ptr) -> u32 {
     match std::fs::metadata(&real) {
         Ok(meta) if trailing && meta.is_dir() => return fail(e, ERROR_FILE_NOT_FOUND),
         Ok(_) if trailing => {
-            panic!("FindFirstFileA(\"{shown}\"): a trailing separator is not provided")
+            let why = "a trailing separator is not provided";
+            if let Some(answer) = soft_find(e, "FindFirstFileA", &shown, why) {
+                return answer;
+            }
+            panic!("FindFirstFileA(\"{shown}\"): {why}")
         }
         Ok(_) => {}
         Err(_) if trailing => {
-            panic!("FindFirstFileA(\"{shown}\"): a trailing separator is not provided")
+            let why = "a trailing separator is not provided";
+            if let Some(answer) = soft_find(e, "FindFirstFileA", &shown, why) {
+                return answer;
+            }
+            panic!("FindFirstFileA(\"{shown}\"): {why}")
         }
         Err(_) if own.is_ok() => {}
         Err(_) => {
@@ -1372,19 +1393,32 @@ fn last_part(path: &[u8]) -> String {
 
 /// The [`Entry`] of the file at key `k`, made or changed in this run; a file of the run without
 /// one (`CopyFileA`'s copies: not measured) stops the run.
-fn run_entry(e: &Engine, k: &[u8], shown: &str) -> Entry {
-    state_ref!(e)
-        .disk
-        .entries
-        .get(k)
-        .cloned()
-        .unwrap_or_else(|| {
-            panic!(
-            "FindFirstFileA(\"{shown}\"): {}, a file of this run whose directory entry was not \
-             recorded (CopyFileA's times were not measured), is not provided",
+fn run_entry(e: &Engine, k: &[u8], shown: &str) -> Option<Entry> {
+    let found = state_ref!(e).disk.entries.get(k).cloned();
+    if found.is_none() {
+        let why = format!(
+            "{}, a file of this run whose directory entry was not recorded (CopyFileA's times were \
+             not measured), is not provided",
             String::from_utf8_lossy(k)
-        )
-        })
+        );
+        if !fork_log::soft_stop("files", "FindFirstFileA", format_args!("{shown}: {why}")) {
+            panic!("FindFirstFileA(\"{shown}\"): {why}");
+        }
+    }
+    found
+}
+
+/// A recoverable failure of a search or lookup the layer does not model: under the soft stop
+/// policy (the default off Windows) it is logged and the call answers "found nothing"
+/// (`ERROR_FILE_NOT_FOUND`, `INVALID_HANDLE_VALUE`); under `halt` it is `None` and the caller
+/// stops as before.
+fn soft_find(e: &mut Engine, call: &str, shown: &str, why: &str) -> Option<u32> {
+    if fork_log::soft_stop("files", call, format_args!("{shown}: {why}")) {
+        e.kernel.last_error = ERROR_FILE_NOT_FOUND;
+        Some(INVALID_HANDLE_VALUE)
+    } else {
+        None
+    }
 }
 
 /// The directory entry of the file at the full path `path` now: the run's ([`Disk::entries`]),
@@ -1611,11 +1645,24 @@ fn find_first_wild(e: &mut Engine, text: &[u8], data: Ptr) -> u32 {
             _ => None,
         };
         if let Some(why) = why {
-            panic!("FindFirstFileA(\"{shown}\"): {why} is not provided");
+            let why = format!("{why} is not provided");
+            if fork_log::soft_stop("files", "FindFirstFileA", format_args!("{shown}: {why}")) {
+                e.kernel.last_error = ERROR_FILE_NOT_FOUND;
+                return INVALID_HANDLE_VALUE;
+            }
+            panic!("FindFirstFileA(\"{shown}\"): {why}");
         }
         found.push(item);
     }
     if made_here && (search_finds(pattern, ".", &shown) || search_finds(pattern, "..", &shown)) {
+        if fork_log::soft_stop(
+            "files",
+            "FindFirstFileA",
+            format_args!("{shown}: \".\" and \"..\" of a directory the game made in this run"),
+        ) {
+            e.kernel.last_error = ERROR_FILE_NOT_FOUND;
+            return INVALID_HANDLE_VALUE;
+        }
         panic!(
             "FindFirstFileA(\"{shown}\"): \".\" and \"..\" of a directory the game made in this \
              run are not provided"
@@ -1624,6 +1671,14 @@ fn find_first_wild(e: &mut Engine, text: &[u8], data: Ptr) -> u32 {
     for k in disk.directories.iter().filter(|k| in_folder(k, &folder)) {
         let name = last_part(k);
         if search_finds(pattern, &name, &shown) {
+            if fork_log::soft_stop(
+                "files",
+                "FindFirstFileA",
+                format_args!("{shown}: \"{name}\", a directory the game made in this run"),
+            ) {
+                e.kernel.last_error = ERROR_FILE_NOT_FOUND;
+                return INVALID_HANDLE_VALUE;
+            }
             panic!(
                 "FindFirstFileA(\"{shown}\"): \"{name}\", a directory the game made in this run, \
                  is not provided"
@@ -1631,7 +1686,9 @@ fn find_first_wild(e: &mut Engine, text: &[u8], data: Ptr) -> u32 {
         }
     }
     for k in disk.files.keys().filter(|k| in_folder(k, &folder)) {
-        let entry = run_entry(e, k, &shown);
+        let Some(entry) = run_entry(e, k, &shown) else {
+            continue;
+        };
         let finds = match &entry.short {
             Some(short) => {
                 wild_match(pattern, &ansi_bytes(&entry.name))
@@ -4471,7 +4528,24 @@ mod tests_changed_directories {
         let dir = scratch("dot", &[]);
         let mut e = Engine::new();
         save(&mut e, &dir, "nvfix", &[0x10]);
-        listed(&mut e, &format!("{dir}\\*"));
+        fork_log::with_policy(fork_log::Policy::Halt, || {
+            listed(&mut e, &format!("{dir}\\*"));
+        });
+    }
+
+    /// Under the soft policy (the default off Windows) the same search is logged and finds
+    /// nothing, as the call's documented failure: the game goes on.
+    #[test]
+    fn under_the_soft_policy_that_search_finds_nothing_and_the_run_goes_on() {
+        let dir = scratch("dotsoft", &[]);
+        let mut e = Engine::new();
+        save(&mut e, &dir, "nvfix", &[0x10]);
+        let before = fork_log::soft_stops();
+        fork_log::with_policy(fork_log::Policy::Soft, || {
+            assert!(listed(&mut e, &format!("{dir}\\*")).is_empty());
+        });
+        assert!(fork_log::soft_stops() > before);
+        assert_eq!(e.kernel.last_error, ERROR_FILE_NOT_FOUND);
     }
 }
 

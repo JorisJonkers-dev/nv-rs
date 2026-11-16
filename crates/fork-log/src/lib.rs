@@ -19,7 +19,7 @@ mod sink;
 pub mod stop;
 
 pub use filter::{Filter, Level};
-pub use stop::{classify, soft_stop, soft_stops, StopClass};
+pub use stop::{classify, soft_stop, soft_stops, with_policy, Policy, StopClass};
 
 use std::collections::VecDeque;
 use std::fmt::{self, Display, Write as _};
