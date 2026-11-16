@@ -80,6 +80,7 @@ pub fn iterate(
         it,
         key_out,
         keep_going,
+        0x0044_e550,
         |e, face, bucket, last_key| {
             typed_call!(
                 FAMILY,
@@ -123,6 +124,7 @@ pub fn iterate_words(
         it,
         key_out,
         keep_going,
+        0x0044_ea60,
         |e, face, bucket, last_key| {
             typed_call!(
                 FAMILY,
@@ -161,6 +163,7 @@ pub fn iterate_lip_task_map(
         it,
         key_out,
         keep_going,
+        0x0090_6af0,
         |e, face, bucket, last_key| {
             typed_call!(
                 FAMILY,
@@ -183,19 +186,33 @@ pub fn iterate_lip_task_map(
 /// The bucket walk of [`iterate`] and [`iterate_words`], under the lock: `first` finds a bucket's
 /// first node, `next` the node after the iterator's last key.
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 fn walk(
     e: &mut Engine,
     this: Ptr<LockFreeMap>,
     it: Ptr<LockFreeMapIterator>,
     key_out: Ptr<u32>,
     keep_going: u8,
+    first_addr: u32,
     first: impl Fn(&mut Engine, Ptr<MapInterface>, u32, Ptr<u32>) -> bool,
     next: impl Fn(&mut Engine, Ptr<MapInterface>, u32, Ptr<u32>) -> bool,
 ) -> bool {
     let s = store(e);
     let mut found = false;
+    let mut predicted: Option<u32> = None;
     if e.get(it, LockFreeMapIterator::cFlags) & AT_END == 0 {
         loop {
+            // Empty buckets are passed over by reading their heads, not by the node protocol
+            // ([`skip`]): a walk that restarts every frame crosses thousands of them.
+            if keep_going != 0 && e.get(it, LockFreeMapIterator::cFlags) & HAS_LAST_KEY == 0 {
+                match skip(e, s, this, it, first_addr) {
+                    Skip::Ended => return false,
+                    Skip::Predicted(bucket) => {
+                        predicted.get_or_insert(bucket);
+                    }
+                    Skip::Moved | Skip::None => {}
+                }
+            }
             let bucket = e.get(it, LockFreeMapIterator::iBucket);
             let last_key = field_ptr(it, LockFreeMapIterator::LastKey);
             let face = interface(e, this);
@@ -222,8 +239,144 @@ fn walk(
             }
             set_flag(e, it, HAS_LAST_KEY, false);
         }
+        if let Some(bucket) = predicted {
+            // `NV_LOCKFREE_SKIP=check`: the node protocol went on from the first bucket; it must
+            // end at or past the one the head reads named, and at its end only when they ended.
+            let reached = e.get(it, LockFreeMapIterator::iBucket);
+            assert!(
+                reached >= bucket,
+                "NV_LOCKFREE_SKIP=check: the walk stopped at bucket {reached}, before bucket {bucket}"
+            );
+        }
     }
     found
+}
+
+/// What [`skip`] did.
+enum Skip {
+    /// Nothing: the switch is off, or the iterator is not at a fresh bucket in range.
+    None,
+    /// Buckets passed over; the iterator stands at the first one with a node.
+    Moved,
+    /// All the rest were empty and the iterator is at its end, as the walk leaves it.
+    Ended,
+    /// Check mode: the first bucket with a node, found by reading and nothing written.
+    Predicted(u32),
+}
+
+/// How the walks pass empty buckets: `NV_LOCKFREE_SKIP` unset or anything else reads the heads
+/// (a bucket with no node costs a read), `0` or `off` takes the node protocol bucket by bucket
+/// as the exe's loop does, `check` runs that and then asserts it ended where the reading said.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[doc(hidden)]
+pub enum SkipMode {
+    On,
+    Off,
+    Check,
+}
+
+static SKIP_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// The mode in force: the first call reads `NV_LOCKFREE_SKIP`.
+fn skip_mode() -> SkipMode {
+    use std::sync::atomic::Ordering::Relaxed;
+    match SKIP_MODE.load(Relaxed) {
+        1 => SkipMode::On,
+        2 => SkipMode::Off,
+        3 => SkipMode::Check,
+        _ => {
+            let mode = match std::env::var("NV_LOCKFREE_SKIP").as_deref() {
+                Ok("0" | "off") => SkipMode::Off,
+                Ok("check") => SkipMode::Check,
+                _ => SkipMode::On,
+            };
+            set_skip_mode(mode);
+            mode
+        }
+    }
+}
+
+/// Sets the mode (the tests' switch for comparing the two ways of walking).
+#[doc(hidden)]
+pub fn set_skip_mode(mode: SkipMode) {
+    let word = match mode {
+        SkipMode::On => 1,
+        SkipMode::Off => 2,
+        SkipMode::Check => 3,
+    };
+    SKIP_MODE.store(word, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The walk's miss on a bucket with no node, repeated: each such bucket makes the exe's loop read
+/// the head, publish and recheck it, write the interface's scratch fields, clear the slots and
+/// move the iterator on, and the one the loop stops at is then the first with a node. A bucket
+/// whose head names no node is skipped by reading the head: the iterator ends as the loop leaves
+/// it (`iBucket` moved, the has-last-key flag clear, or at the end the at-end flag set with the
+/// scratch fields of the last bucket and the slots cleared). A thread's other walks see no
+/// difference: the scratch fields are its own interface's and the slots hold nothing between
+/// walks; a node linked into a bucket after its head was read is one the loop could have missed
+/// as well. Under the map's lock, as the loop is.
+fn skip(
+    e: &mut Engine,
+    s: engine_core::typed::moved::Store,
+    this: Ptr<LockFreeMap>,
+    it: Ptr<LockFreeMapIterator>,
+    first_addr: u32,
+) -> Skip {
+    let mode = skip_mode();
+    // Off; a run that counts or records the calls (the differential test, stepped threads' time
+    // slices, a call hook): the calls the loop makes for each bucket are what they see; or the
+    // first-node function or the interface getter replaced (a fix over them is called as before).
+    if mode == SkipMode::Off
+        || e.slice_hook.is_some()
+        || e.call_log.is_some()
+        || e.typed_noting_direct()
+        || e.call_hook().is_some()
+        || !e.typed_direct(FAMILY, first_addr)
+        || !e.typed_direct(FAMILY, 0x0044_9f80)
+    {
+        return Skip::None;
+    }
+    let from = e.get(it, LockFreeMapIterator::iBucket);
+    let count = map_get(e, s, this, LockFreeMap::iNumBuckets);
+    if from >= count {
+        return Skip::None;
+    }
+    let face = interface(e, this);
+    let map = s.get(e, face, MapInterface::map);
+    let buckets = map_get(e, s, map, LockFreeMap::pBuckets);
+    let mut at = from;
+    while at < count {
+        let link = LockFreeMap::bucket(buckets, at);
+        if !s.get(e, link, BucketHead::head).node().is_null() {
+            break;
+        }
+        at += 1;
+    }
+    if mode == SkipMode::Check {
+        return if at == from {
+            Skip::None
+        } else {
+            Skip::Predicted(at)
+        };
+    }
+    if at == from {
+        return Skip::None;
+    }
+    if at < count {
+        e.set(it, LockFreeMapIterator::iBucket, at);
+        return Skip::Moved;
+    }
+    // Every bucket from `from` on is empty: the last one's miss, as `first_node` leaves it.
+    let link = LockFreeMap::bucket(buckets, count - 1);
+    let head = s.get(e, link, BucketHead::head);
+    s.set(e, face, MapInterface::previous, link);
+    s.set(e, face, MapInterface::current, head);
+    iface::release_slots(e, face);
+    e.set(it, LockFreeMapIterator::iBucket, count);
+    set_flag(e, it, HAS_LAST_KEY, true);
+    set_flag(e, it, AT_END, true);
+    Skip::Ended
 }
 
 /// A key word where the caller keeps it.

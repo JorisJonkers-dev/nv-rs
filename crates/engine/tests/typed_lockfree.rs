@@ -560,6 +560,38 @@ fn iterate() {
     .assert_same();
 }
 
+#[test]
+fn iterate_over_empty_buckets() {
+    // Every bucket empty, or only the last one with its nodes: the walk passes the empty ones and
+    // ends at the iterator's end, or stops at the last bucket; the iterator at each bucket.
+    Diff::new(entry!(
+        0x0044_b8d0,
+        map::iterate(Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>, u8) -> bool
+    ))
+    .family(&lockfree::LOCKFREE)
+    .family(&leaf::LEAVES)
+    .ignore_calls(INLINED)
+    .max_calls(MAX_CALLS)
+    .inputs(&[Input::Of(&[0, 1, 2, 3]), Input::Of(&[0, 1]), Input::Flag])
+    .setup(|e, case| {
+        let w = world(e, true);
+        let last = e.mem.u32(w.buckets + 12);
+        for bucket in 0..NUM_BUCKETS {
+            e.mem.set_u32(w.buckets + bucket * 4, 0);
+        }
+        if case.word(1) != 0 {
+            e.mem.set_u32(w.buckets + 12, last);
+        }
+        let it = e.mem.alloc(0x10);
+        e.mem.set_u32(it + 4, case.word(0));
+        let key_out = e.mem.alloc(4);
+        let value_out = holder_of(e, 0);
+        vec![w.map, it, key_out, value_out, case.word(2)]
+    })
+    .run()
+    .assert_same();
+}
+
 /// The keys looked for: below, at and past each node of each bucket.
 const KEYS: &[u32] = &[0, 1, 2, 3, 4, 5, 6, 7, 11, 12];
 
@@ -2548,5 +2580,77 @@ mod forms {
     #[test]
     fn the_tree_node_map_lives_alike_in_every_form() {
         every_form(tree_life, 20);
+    }
+}
+
+mod skipping {
+    //! The walks pass the empty buckets by reading their heads (`NV_LOCKFREE_SKIP`): the same
+    //! iteration, run to its end over a sparse map, answers the same keys and leaves every word of
+    //! the map, the iterator and the interface the same as the exe's bucket-by-bucket loop does.
+    use super::*;
+    use engine_typed::lockfree::map::{set_skip_mode, SkipMode};
+
+    /// A map of `count` buckets with nodes in the buckets named, one more after the last bucket's
+    /// empty tail, and the iteration of it: the answers and the memory after each step.
+    fn iteration(mode: SkipMode, count: u32, full: &[u32], mid_flags: u8) -> Vec<(u32, Vec<u8>)> {
+        let mut e = Engine::new_untyped_for_test();
+        e.typed_apply_for_test(&[&lockfree::LOCKFREE, &leaf::LEAVES], "lockfree");
+        let w = world(&mut e, true);
+        let buckets = e.mem.alloc(count * 4);
+        for (i, bucket) in full.iter().enumerate() {
+            let node = node(&mut e, *bucket + count * (i as u32 + 1), 0);
+            e.mem.set_u32(buckets + bucket * 4, node);
+        }
+        e.mem.set_u32(w.map + 8, count);
+        e.mem.set_u32(w.map + 0xc, buckets);
+        let it = e.mem.alloc(0x10);
+        e.mem.set_u8(it + 0xc, mid_flags);
+        let key_out = e.mem.alloc(4);
+        let value_out = holder_of(&mut e, 0);
+        set_skip_mode(mode);
+        let mut seen = Vec::new();
+        for _ in 0..(full.len() + 3) {
+            let found = e
+                .call(0x0044_b8d0, &[w.map, it, key_out, value_out, 1])
+                .u32();
+            let mut memory = Vec::new();
+            for (at, len) in [
+                (w.map, 0x40),
+                (w.face, 0x24),
+                (w.refs, 24),
+                (w.manager, 0x10),
+                (it, 0x10),
+                (key_out, 4),
+                (buckets, count * 4),
+            ] {
+                memory.extend(e.mem.bytes(at, len));
+            }
+            seen.push((found, memory));
+        }
+        set_skip_mode(SkipMode::On);
+        seen
+    }
+
+    #[test]
+    fn a_sparse_map_iterates_alike_with_the_buckets_skipped_and_not() {
+        for (count, full) in [
+            (64u32, vec![17u32, 40]),
+            (64, vec![0, 1, 63]),
+            (64, vec![]),
+            (1, vec![]),
+            (1, vec![0]),
+            (3, vec![2]),
+            (4096, vec![4095]),
+            (4096, vec![5, 6, 3000]),
+        ] {
+            for flags in [0u8, 2] {
+                let off = iteration(SkipMode::Off, count, &full, flags);
+                let on = iteration(SkipMode::On, count, &full, flags);
+                assert_eq!(on, off, "{count} buckets, nodes in {full:?}, flags {flags}");
+                // The check mode runs the loop and asserts it ended where the reading said.
+                let check = iteration(SkipMode::Check, count, &full, flags);
+                assert_eq!(check, off, "{count} buckets, nodes in {full:?}, check");
+            }
+        }
     }
 }
