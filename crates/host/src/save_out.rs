@@ -188,6 +188,8 @@ fn real_path(path: &Path) -> PathBuf {
 /// the real path it leads to (a junction or a drive made with `subst` doesn't get round this).
 /// Compared without case, `/` read as `\`.
 /// The rest of OneDrive is not the game's: a Desktop kept there is where many people unzip things.
+/// Off Windows a full path starts with `/`, and with no `USERPROFILE` only the `known` folders (the
+/// port's own Documents) are the player's.
 pub fn refused(dir: &Path, profile: Option<&Path>, known: &[PathBuf]) -> Option<&'static str> {
     let norm = |p: &Path| {
         let text = p.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
@@ -201,20 +203,28 @@ pub fn refused(dir: &Path, profile: Option<&Path>, known: &[PathBuf]) -> Option<
     };
     let real_dir = norm(&real_path(dir));
     let dir = norm(dir);
-    if !dir.contains(':') && !dir.starts_with("\\\\") {
+    let rooted_here = !cfg!(windows) && dir.starts_with('\\');
+    if !dir.contains(':') && !dir.starts_with("\\\\") && !rooted_here {
         return Some("not a full path");
     }
     if dir.split('\\').any(|part| part == "..") {
         return Some("a `..` in the path");
     }
-    let Some(profile) = profile else {
-        return Some("USERPROFILE is not set, so the player's folders are unknown");
-    };
-    let profile = norm(profile);
-    let mut roots: Vec<String> = ["documents", "onedrive\\documents", "appdata"]
-        .iter()
-        .map(|player| format!("{profile}\\{player}"))
-        .collect();
+    let mut roots: Vec<String> = Vec::new();
+    match profile {
+        Some(profile) => {
+            let profile = norm(profile);
+            roots.extend(
+                ["documents", "onedrive\\documents", "appdata"]
+                    .iter()
+                    .map(|player| format!("{profile}\\{player}")),
+            );
+        }
+        None if cfg!(windows) => {
+            return Some("USERPROFILE is not set, so the player's folders are unknown")
+        }
+        None => {}
+    }
     for folder in known {
         roots.push(norm(folder));
         roots.push(norm(&real_path(folder)));
@@ -605,6 +615,7 @@ mod tests {
                 "{dir}"
             );
         }
+        #[cfg(windows)]
         assert!(refused(Path::new(r"D:\scratch"), None, &[]).is_some());
         for dir in [
             r"C:\Users\<name>\nv-re\work\build43-scratch\docs-port\My Games\FalloutNV\Saves",
@@ -613,6 +624,31 @@ mod tests {
             r"D:\scratch",
         ] {
             assert_eq!(refused(Path::new(dir), Some(profile), &[]), None, "{dir}");
+        }
+    }
+
+    /// Off Windows: a full path starts with `/`, there is no profile, and the port's own Documents
+    /// (the known folder) is refused, so the bench's scratch folders take the saves.
+    #[test]
+    #[cfg(not(windows))]
+    fn off_windows_a_rooted_scratch_folder_takes_the_saves() {
+        let known = vec![PathBuf::from(
+            "/home/u/.local/share/nv-rs/userdata/Documents",
+        )];
+        assert_eq!(
+            refused(
+                Path::new("/home/u/.local/state/nv-rs/bench/saves-1"),
+                None,
+                &known
+            ),
+            None
+        );
+        for bad in [
+            "/home/u/.local/share/nv-rs/userdata/Documents/My Games/FalloutNV/Saves",
+            "relative/saves",
+            "/tmp/a/../b",
+        ] {
+            assert!(refused(Path::new(bad), None, &known).is_some(), "{bad}");
         }
     }
 
