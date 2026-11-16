@@ -831,12 +831,9 @@ pub fn finish() {
             json_path().map_or(String::new(), |p| format!("; log {}", p.display()))
         )]);
     }
-    let level = if soft_stops() > 0 || ERRORS.load(Ordering::Relaxed) > 0 {
-        Level::Warn
-    } else {
-        Level::Info
-    };
-    log(level, "host", format_args!("{}", summary()));
+    // The final summary on the terminal says the same in its own lines; this one is for the files
+    // (and `normal`), and not a warning of its own.
+    log(Level::Info, "host", format_args!("{}", summary()));
     flush();
     write_final("exit", Level::Info, &|o| {
         o.push_str(",\"summary\":");

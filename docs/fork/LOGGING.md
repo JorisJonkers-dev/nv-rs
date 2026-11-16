@@ -141,7 +141,7 @@ if fork_log::soft_stop("d3d9", "IDirect3DQuery9::Issue", format_args!("flags {fl
 panic!("IDirect3DQuery9::Issue({flags:#x}) is not provided");
 ```
 
-The exit summary (`Log summary: N errors, M warnings, K soft stops (calls...)`) is printed by `engine_platform::end_process`, with a
+The exit summary (`Log summary: N errors, M warnings, K soft stops (calls...)`, `info`, so in the files; the terminal shows the final summary lines) is written by `engine_platform::end_process`, with a
 last record in the JSON file.
 
 Sites that use it (`git grep soft_stop`), each with the failure the call documents:
