@@ -103,8 +103,29 @@ static POLICY: OnceLock<Policy> = OnceLock::new();
 static SOFT_TOTAL: AtomicU64 = AtomicU64::new(0);
 static SOFT_CALLS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
 
-/// The policy in force (`NV_STOP_POLICY`, read once).
+thread_local! {
+    static OVERRIDE: std::cell::Cell<Option<Policy>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs `f` with `policy` in force on this thread (for tests: the environment's policy is read
+/// once per process).
+pub fn with_policy<R>(policy: Policy, f: impl FnOnce() -> R) -> R {
+    let before = OVERRIDE.with(|o| o.replace(Some(policy)));
+    struct Restore(Option<Policy>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            OVERRIDE.with(|o| o.set(self.0));
+        }
+    }
+    let _restore = Restore(before);
+    f()
+}
+
+/// The policy in force (this thread's override, else `NV_STOP_POLICY`, read once).
 pub fn policy() -> Policy {
+    if let Some(p) = OVERRIDE.with(std::cell::Cell::get) {
+        return p;
+    }
     *POLICY.get_or_init(|| Policy::parse(std::env::var("NV_STOP_POLICY").ok().as_deref()))
 }
 
@@ -216,6 +237,20 @@ mod tests {
                 Policy::Soft
             }
         );
+    }
+
+    #[test]
+    fn override_wins_on_its_thread_and_is_restored() {
+        let outside = policy();
+        with_policy(Policy::Halt, || assert_eq!(policy(), Policy::Halt));
+        with_policy(Policy::Soft, || {
+            assert!(soft_stop("t", "OverrideCall", format_args!("x")));
+            with_policy(Policy::Halt, || {
+                assert!(!soft_stop("t", "OverrideCall", format_args!("x")));
+            });
+            assert_eq!(policy(), Policy::Soft);
+        });
+        assert_eq!(policy(), outside);
     }
 
     #[test]

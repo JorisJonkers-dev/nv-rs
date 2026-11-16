@@ -322,6 +322,7 @@ version = "0.1.0"
 dependencies = [
  "d3d9-stream",
  "esm",
+ "fork-log",
  "fork-window",
  "naga",
  "raw-window-handle",

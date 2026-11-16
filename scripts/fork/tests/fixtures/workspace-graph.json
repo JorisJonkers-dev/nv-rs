@@ -38,6 +38,11 @@
      "name": "esm"
     },
     {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
+    },
+    {
      "kind": null,
      "name": "naga"
     },

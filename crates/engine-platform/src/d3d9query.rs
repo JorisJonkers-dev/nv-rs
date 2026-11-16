@@ -201,7 +201,16 @@ fn issue(e: &mut Engine, this: Ptr, flags: u32) -> u32 {
     let state = match flags {
         ISSUE_BEGIN => State::Begun,
         ISSUE_END => State::Ended,
-        _ => panic!("IDirect3DQuery9::Issue({flags:#x}) is not provided"),
+        _ => {
+            if fork_log::soft_stop(
+                "d3d9",
+                "IDirect3DQuery9::Issue",
+                format_args!("flags {flags:#x} are not provided"),
+            ) {
+                return D3DERR_INVALIDCALL;
+            }
+            panic!("IDirect3DQuery9::Issue({flags:#x}) is not provided")
+        }
     };
     query(e, this).state = state;
     super::d3d9real::query_issue(e, this.addr(), flags);
@@ -249,6 +258,13 @@ fn get_data(e: &mut Engine, this: Ptr, data: Ptr, size: u32, flags: u32) -> u32 
             }
             let _ = flags;
             if kind == OCCLUSION {
+                if fork_log::soft_stop(
+                    "d3d9",
+                    "IDirect3DQuery9::GetData",
+                    format_args!("an occlusion query's pixel count without NV_D3D9=real"),
+                ) {
+                    return D3DERR_INVALIDCALL;
+                }
                 panic!(
                     "IDirect3DQuery9::GetData of an occlusion query without NV_D3D9=real (nothing \
                      is drawn, so no pixel count) is not provided"
@@ -257,5 +273,27 @@ fn get_data(e: &mut Engine, this: Ptr, data: Ptr, size: u32, flags: u32) -> u32 
             write_result(e, data, size, 1);
             D3D_OK
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fork_log::stop::{with_policy, Policy};
+
+    #[test]
+    fn an_unknown_issue_flag_answers_invalid_call_when_soft() {
+        let mut e = Engine::new();
+        let before = fork_log::soft_stops();
+        let hr = with_policy(Policy::Soft, || issue(&mut e, Ptr::new(0), 0x8000));
+        assert_eq!(hr, D3DERR_INVALIDCALL);
+        assert!(fork_log::soft_stops() > before);
+    }
+
+    #[test]
+    #[should_panic(expected = "is not provided")]
+    fn an_unknown_issue_flag_stops_when_halting() {
+        let mut e = Engine::new();
+        with_policy(Policy::Halt, || issue(&mut e, Ptr::new(0), 0x8000));
     }
 }

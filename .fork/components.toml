@@ -111,7 +111,7 @@ runs_on = "both"
 name = "rendering"
 purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), and the shader compiler seam off Windows (cache and libvkd3d-shader)"
 crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader"]
-requires = ["formats", "window-layer"]
+requires = ["formats", "window-layer", "log"]
 runs_on = "both"
 windows = "required"
 

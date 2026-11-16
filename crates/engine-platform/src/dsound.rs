@@ -1332,7 +1332,7 @@ impl super::sound_out::Source for Stream {
     /// Named on stderr (the first ten, then every hundredth) and in the recording's log.
     fn starved(&mut self, count: u64) {
         if count <= 10 || count % 100 == 0 {
-            eprintln!(
+            fork_log::warn!(target: "sound",
                 "sound: the device ran out of sound to play ({count} so far on the {:?} stream)",
                 self.which
             );
@@ -1373,11 +1373,11 @@ pub fn start_output(e: &mut Engine) -> bool {
     let _ = super::resampler::tables();
     // The endpoint's mix format (`super::sound_out::device_mix`): its rate and layout.
     let Some((mix_rate, mix)) = super::sound_out::device_mix() else {
-        eprintln!("sound: no output device; the game's sound is not heard");
+        fork_log::warn!(target: "sound", "sound: no output device; the game's sound is not heard");
         return false;
     };
     if !mix.provided() {
-        eprintln!(
+        fork_log::warn!(target: "sound",
             "sound: {}; the game's sound is not heard",
             super::sound_out::not_provided(mix)
         );
@@ -1405,11 +1405,11 @@ pub fn start_output(e: &mut Engine) -> bool {
     let output = match open_stream(&voices, Which::Game, &mut device, idle) {
         Ok(o) => o,
         Err(Refused::Format(why)) => {
-            eprintln!("sound: {why}; the game's sound is not heard");
+            fork_log::warn!(target: "sound", "sound: {why}; the game's sound is not heard");
             return false;
         }
         Err(_) => {
-            eprintln!("sound: no output device; the game's sound is not heard");
+            fork_log::warn!(target: "sound", "sound: no output device; the game's sound is not heard");
             return false;
         }
     };
@@ -1421,7 +1421,7 @@ pub fn start_output(e: &mut Engine) -> bool {
         match open_stream(&voices, Which::Own, &mut own_device, idle) {
             Ok(o) => Some(o),
             Err(_) => {
-                eprintln!("sound: no stream for the movies' and the music's sound; not heard");
+                fork_log::warn!(target: "sound", "sound: no stream for the movies' and the music's sound; not heard");
                 None
             }
         }
@@ -1430,7 +1430,7 @@ pub fn start_output(e: &mut Engine) -> bool {
     };
     let (game, own) = (device.current(), own_device.current());
     let (Some(game_place), Some(own_place)) = (Place::new(game), Place::new(own)) else {
-        eprintln!(
+        fork_log::warn!(target: "sound",
             "sound: no matrix for the device's layout {game:?}; the game's sound is not heard"
         );
         return false;
@@ -1459,7 +1459,9 @@ pub fn start_output(e: &mut Engine) -> bool {
                 r.repeatable = idle.is_some();
                 voices.lock().expect("the voices").record = Some(r);
             }
-            Err(err) => eprintln!("sound: cannot record to {}: {err}", path.display()),
+            Err(err) => {
+                fork_log::warn!(target: "sound", "sound: cannot record to {}: {err}", path.display())
+            }
         }
     }
     if idle.is_some() {
@@ -1477,7 +1479,7 @@ pub fn start_output(e: &mut Engine) -> bool {
         }
     }
     if split {
-        eprintln!(
+        fork_log::info!(target: "sound",
             "sound: output on the default device, {rate} Hz, {} channels (speaker mask {:#x}); \
              the game's device {} channels{}, the movies' and the music's {}",
             mix.channels,
@@ -1487,13 +1489,13 @@ pub fn start_output(e: &mut Engine) -> bool {
             own.channels
         );
     } else {
-        eprintln!(
+        fork_log::info!(target: "sound",
             "sound: output on the default device, {rate} Hz, {} channels",
             mix.channels
         );
     }
     if idle.is_some() {
-        eprintln!(
+        fork_log::info!(target: "sound",
             "sound: NV_REPEATABLE: no stream is opened on that device (nothing is heard); the \
              frames are mixed on the virtual clock at each main frame's end"
         );
@@ -1553,7 +1555,7 @@ pub fn note(e: &mut Engine, what: &str) {
 /// `RESAMPLEDMO.DLL` is another build than the one `super::resampler` reads.
 fn unheard(e: &mut Engine, example: &str) {
     if state!(e).sound.noted.insert("resampling") {
-        eprintln!("sound: not exact: this Windows' RESAMPLEDMO.DLL tables were not found, so sound at another rate goes through DirectSound's second converter (first: {example}); see docs/SOUND.md");
+        fork_log::warn!(target: "sound", "sound: not exact: this Windows' RESAMPLEDMO.DLL tables were not found, so sound at another rate goes through DirectSound's second converter (first: {example}); see docs/SOUND.md");
     }
 }
 
@@ -2046,6 +2048,17 @@ pub fn co_create_instance(
 /// answered as captured with `out` NULL. A chosen device or an outer object is not provided.
 pub fn direct_sound_create8(e: &mut Engine, device: u32, out: Ptr, outer: u32) -> u32 {
     if device != 0 || outer != 0 {
+        // The game's own sound set-up handles a failed create (no sound).
+        if fork_log::soft_stop(
+            "sound",
+            "DirectSoundCreate8",
+            format_args!("a device GUID or an outer object is not provided"),
+        ) {
+            if !out.is_null() {
+                e.mem.set_u32(out.addr(), 0);
+            }
+            return DSERR_INVALIDPARAM;
+        }
         panic!("DirectSoundCreate8 with a device GUID or an outer object is not provided");
     }
     let result = table(e).create;
@@ -2442,7 +2455,7 @@ where
     let o = match got {
         Ok(o) => o,
         Err(why) => {
-            eprintln!(
+            fork_log::warn!(target: "sound",
                 "sound: the stream in {} channels cannot be opened ({why:?}); the game's sound \
                  is not heard",
                 now.channels
@@ -2452,7 +2465,7 @@ where
     };
     let rate = state!(e).sound.mix.as_ref().map_or(0, |m| m.rate);
     if o.rate != rate {
-        eprintln!(
+        fork_log::info!(target: "sound",
             "sound: the default device now mixes at {} Hz, not {rate} Hz as when the output \
              started: not provided; the game's sound is not heard",
             o.rate
@@ -2461,7 +2474,7 @@ where
     }
     if o.layout != now {
         let Some(place) = Place::new(o.layout) else {
-            eprintln!(
+            fork_log::warn!(target: "sound",
                 "sound: no matrix for the device's layout {:?}; the game's sound is not heard",
                 o.layout
             );
@@ -3316,7 +3329,16 @@ fn lock(
             }
             (offset, bytes)
         }
-        _ => panic!("IDirectSoundBuffer::Lock flags {flags:#x} are not provided"),
+        _ => {
+            if fork_log::soft_stop(
+                "sound",
+                "IDirectSoundBuffer::Lock",
+                format_args!("flags {flags:#x} are not provided"),
+            ) {
+                return DSERR_INVALIDPARAM;
+            }
+            panic!("IDirectSoundBuffer::Lock flags {flags:#x} are not provided")
+        }
     };
     let first = bytes.min(b.bytes - offset);
     let second = bytes - first;
@@ -3364,7 +3386,7 @@ fn open_window(e: &mut Engine, at: u32, b: &Buffer) -> u32 {
             && e.mem.bytes(window, b.bytes)[..] != kept[..]
             && s.written_after_unlock.insert(at)
         {
-            eprintln!(
+            fork_log::warn!(target: "sound",
                 "NV_DSOUND_BUFFERS=same-layout: the sound buffer {at:#x} was written through an \
                  old lock's address after its unlock ({} bytes)",
                 b.bytes
@@ -6462,6 +6484,26 @@ mod tests {
             "DsBuffer\t2e0 0 1 1 5622 10 3\t0",
         );
         Table::parse(&text);
+    }
+
+    #[test]
+    fn a_chosen_device_fails_softly_with_a_null_object() {
+        let mut e = engine();
+        e.mem.set_u32(0x1000, 0xdead);
+        let hr = fork_log::stop::with_policy(fork_log::stop::Policy::Soft, || {
+            direct_sound_create8(&mut e, 0x1100, Ptr::new(0x1000), 0)
+        });
+        assert_eq!(hr, DSERR_INVALIDPARAM);
+        assert_eq!(e.mem.u32(0x1000), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "a device GUID or an outer object is not provided")]
+    fn a_chosen_device_stops_under_the_halt_policy() {
+        let mut e = engine();
+        fork_log::stop::with_policy(fork_log::stop::Policy::Halt, || {
+            direct_sound_create8(&mut e, 0x1100, Ptr::new(0x1000), 0)
+        });
     }
 
     #[test]
