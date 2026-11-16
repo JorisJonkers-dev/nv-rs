@@ -138,8 +138,21 @@ def spans(lines):
     return ",".join(str(a) if a == b else f"{a}-{b}" for a, b in out)
 
 
+def load_plan(path, directory):
+    """The plan artifact, wherever the download put it; an absent or unreadable plan means nothing to measure."""
+    for candidate in (path, os.path.join(directory, "plan.json")):
+        try:
+            with open(candidate, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            doc.setdefault("include", [])
+            return doc
+        except (OSError, ValueError, AttributeError):
+            continue
+    return {"include": [], "reason": "no plan was recorded for this run, so nothing was measured"}
+
+
 def report(args):
-    plan_doc = json.load(open(args.plan, encoding="utf-8"))
+    plan_doc = load_plan(args.plan, args.dir)
     ranges = changed_ranges(args.base, args.head)
     all_changed = changed_files(args.base, args.head)
     rows, merged_pr, merged_base, missing = [], {}, {}, []
