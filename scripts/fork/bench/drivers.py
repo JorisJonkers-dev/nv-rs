@@ -100,7 +100,7 @@ def free_player(d):
     boxes the stages bring dismissed.
 
     The opening runs on its own clock too: its quest script steps the early stages on a timer, and the end of the
-    doctor's first spoken line sets stage 5, which puts the sitting package back on the player (and starts the timer to
+    opening's first spoken line sets stage 5, which puts the sitting package back on the player (and starts the timer to
     stage 7, which does it again). When that line ends after these stages, which depends on how long the start-up took,
     the player is held by the package again a few seconds later: movement and looking enabled, but nothing moves. So the
     timer is stopped here, and `ensure_walks` takes a package that came back off before each measured script."""
