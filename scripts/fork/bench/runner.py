@@ -18,11 +18,13 @@ import threading
 import time
 from pathlib import Path
 
+import driver
 import lock
 import nested
 import record
 import watch
 import parse
+import vinput
 
 HOME = Path.home()
 STATE = Path(os.environ.get("NV_BENCH_DIR", HOME / ".local/state/nv-rs/bench"))
@@ -187,6 +189,68 @@ def borrowed_libs(env):
     return out
 
 
+def screen_tail(path, n=40):
+    """The last rows of the frame log as (frame, screen, x) tuples."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - max(65536, n * 160)))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    rows = []
+    for line in lines[1:]:
+        p = line.split("\t")
+        if len(p) > 9 and p[0].isdigit():
+            try:
+                rows.append((int(p[0]), p[8].strip(), float(p[5])))
+            except ValueError:
+                pass
+    return rows[-n:]
+
+
+def run_real(plan, frames, comp, vi, lf, proc):
+    """Wait until the player has been teleported (x moved past plan.real_after_x) and the play screen has held for
+    plan.real_settle_frames, then send the plan's real input steps."""
+    stable = 0
+    while proc.poll() is None:
+        time.sleep(0.5)
+        rows = screen_tail(frames, plan.real_settle_frames + 100)
+        if not rows:
+            continue
+        run = 0
+        for _, scr, x in reversed(rows):
+            if scr != "play" or x > plan.real_after_x:
+                break
+            run += 1
+        stable = run
+        if stable >= plan.real_settle_frames:
+            break
+    if proc.poll() is not None:
+        return
+    lf.write(f"# inject: real input starts (frame {rows[-1][0] if rows else 0})\n")
+    lf.flush()
+    try:
+        vi.run(plan.real)
+    except (OSError, ValueError, RuntimeError) as e:
+        lf.write(f"# inject: failed: {e}\n")
+    lf.write("# inject: real input done\n")
+    lf.flush()
+
+
+def run_drive(plan, drv, opts, done, lf):
+    try:
+        lf.write("# driver: starts\n")
+        lf.flush()
+        plan.drive(drv, opts)
+    except Exception as e:  # a driver's failure ends the run with its message in the log
+        lf.write(f"# driver: failed: {e!r}\n")
+    finally:
+        lf.write("# driver: done\n")
+        lf.flush()
+        done.set()
+
+
 def launch(plan, opts, run_dir):
     """Run the viewer under `plan` (scenarios.Plan) and `opts` (a dict); returns run.json's content."""
     run_dir = Path(run_dir)
@@ -205,7 +269,7 @@ def launch(plan, opts, run_dir):
         }
     )
     env.update(borrowed_libs(env))
-    comp = None
+    comp, vi = None, None
     if opts.get("nested"):
         sway = nested.find_sway()
         if not sway:
@@ -216,6 +280,13 @@ def launch(plan, opts, run_dir):
             raise SystemExit(f"the nested compositor did not start: see {run_dir}/compositor.log")
         env.update(comp.env())
         env.pop("DISPLAY", None)
+        # the virtual keyboard and pointer exist before the game binds the seat, and live for the whole run
+        try:
+            vi = vinput.VirtualInput(f"{comp.runtime}/{comp.socket}")
+            vi.start()
+        except (OSError, RuntimeError) as e:
+            vi = None
+            print(f"bench: no virtual input ({e}): real input steps are skipped", file=sys.stderr)
     rec = None
     watch.write_steps(run_dir, plan)
     watch.write_session(run_dir, comp, opts)
@@ -235,6 +306,15 @@ def launch(plan, opts, run_dir):
         lf.write(f"# mode: {opts['mode']}, window: {'on screen' if opts['windowed'] else 'offscreen'}, nested: {opts.get('nested') or 'no'}\n")
         lf.flush()
         proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, env=env, cwd=run_dir)
+        drive_done = threading.Event()
+        if plan.drive:
+            if not vi:
+                proc.terminate()
+                raise SystemExit("this scenario is a wall-clock driver and needs real input into a window: --nested headless (or --legacy for the frame-counted script)")
+            drv = driver.Driver(vi, frames, proc, lf)
+            threading.Thread(target=run_drive, args=(plan, drv, opts, drive_done, lf), daemon=True).start()
+        elif vi and plan.real:
+            threading.Thread(target=run_real, args=(plan, frames, comp, vi, lf, proc), daemon=True).start()
         wd = Watchdog(proc.pid, run_dir / "samples.tsv", opts["vram_limit_pct"], gpu)
         wd.start()
         reason = None
@@ -251,6 +331,9 @@ def launch(plan, opts, run_dir):
                     first_frame_at = now
                 if wd.killed:
                     reason = "watchdog"
+                    break
+                if drive_done.is_set():
+                    reason = "scenario end (driver)"
                     break
                 if lf_n is not None and plan.end_frame and lf_n >= plan.end_frame:
                     reason = "scenario end (frame)"
@@ -272,6 +355,8 @@ def launch(plan, opts, run_dir):
         lf.write(f"# exit status: {rc}\n")
     if rec and rec.proc:
         rec.stop(first_frame_at)
+    if vi:
+        vi.close()
     if comp:
         comp.stop()
     return {

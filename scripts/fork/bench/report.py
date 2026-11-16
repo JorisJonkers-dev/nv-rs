@@ -55,11 +55,27 @@ def fmt(v, nd=1):
 # markdown
 
 
+def headline_line(summary):
+    import suite
+    h = suite.headline(summary)
+    parts = [f"{suite.cell(h, 'fps', '{:.0f}')} fps average", f"p50 {suite.cell(h, 'p50_ms', '{:.2f}')} ms", f"p99 {suite.cell(h, 'p99_ms', '{:.2f}')} ms",
+             f"1% low {suite.cell(h, 'low1_fps', '{:.0f}')} fps", f"0.1% low {suite.cell(h, 'low01_fps', '{:.0f}')} fps"]
+    if h["busy_ms"] is not None:
+        parts.append(f"main thread busy {h['busy_ms']:.2f} ms/frame")
+    if h["hitches_per_min"] is not None:
+        parts.append(f"{h['hitches_per_min']:.1f} hitches/min")
+    if h["vram_peak_mib"] is not None:
+        parts.append(f"VRAM peak {h['vram_peak_mib']:.0f} MiB")
+    if h["capped"]:
+        return f"CAPPED ({h['capped']}): fps is not a headline for this run. Play screen: " + ", ".join(parts) + "."
+    return f"Headline ({h['mode']}, no frame limit, play screen): " + ", ".join(parts) + "."
+
+
 def markdown(summary):
     m, v = summary["metrics"], summary["verdict"]
     ft, fp = m["frame_time"], m.get("frame_time_play") or {}
     mem = m.get("memory") or {}
-    out = [f"# Bench run: {summary['scenario']}", ""]
+    out = [f"# Bench run: {summary['scenario']}", "", headline_line(summary), ""]
     out.append(f"Verdict: **{'PASS' if v['ok'] else 'FAIL'}**  ")
     if summary["run"].get("noisy"):
         out.append(f"NOISY: {summary['run'].get('other_viewers_max')} other nv-viewer process(es) ran during this run, so its frame times are not valid.  ")
@@ -90,6 +106,9 @@ def markdown(summary):
             ser = summary.get("series", {}).get(key)
             if ser:
                 out += ["", f"{label} over time: `{sparkline(ser)}`"]
+    ck = m.get("clock") or {}
+    if ck.get("ratio") is not None:
+        out += ["", "## Game clock", "", f"Game time / wall time {ck['ratio']:.3f} over {ck['play_s']} s of play; walking speed {ck['speed']} units/s; fell {ck['fall']} units, landed: {ck['settled']}; longest stand-still after moving {ck['stuck_s']} s."]
     out += ["", "## Counters", ""]
     out.append(
         f"wgpu errors {m['wgpu_errors']}, skipped draws {m['skipped_draws']} of {m['draws']}, stops {m['stops']}, "

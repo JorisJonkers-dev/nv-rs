@@ -20,6 +20,8 @@ import nvbench  # noqa: E402
 import parse  # noqa: E402
 import lock  # noqa: E402
 import report  # noqa: E402
+import suite  # noqa: E402
+import vinput  # noqa: E402
 import scenarios  # noqa: E402
 
 HEADER = "frame\tus\tm_fdelta\thk_count\thk_time\tpx\tpy\tpz\tscreen\tqpc\tpoll_qpc\tpresent\tshown\tshown_qpc\tinput_to_present_us"
@@ -29,10 +31,11 @@ def frame_log(n=300, dt_us=7000, slow_every=100, slow_us=40000, walk=True):
     lines = [HEADER]
     us = 1_000_000
     for i in range(n):
-        us += slow_us if slow_every and i and i % slow_every == 0 else dt_us
+        step = slow_us if slow_every and i and i % slow_every == 0 else dt_us
+        us += step
         screen = "menu" if i < 50 else "play"
         x = 100.0 + (i - 50) * 2.0 if walk and i >= 50 else 0.0
-        lines.append(f"{i}\t{us}\t0.016\t1\t0.0\t{x}\t200.0\t10.0\t{screen}\t0\t0\t0\t0\t0\t")
+        lines.append(f"{i}\t{us}\t{step / 1e6}\t1\t0.0\t{x}\t200.0\t10.0\t{screen}\t0\t0\t0\t0\t0\t")
     lines.append("# input to present over the last 1000 measured frames: p50 1.0 ms, p95 2.0 ms")
     return "\n".join(lines) + "\n"
 
@@ -206,7 +209,7 @@ class LoadingFrameTests(unittest.TestCase):
 
 
 class ScenarioTests(unittest.TestCase):
-    OPTS = {"mode": "capped", "windowed": False, "preset": "fixes", "threads": None, "resolution": "1920x1080", "sound": None, "fps": 100.0}
+    OPTS = {"mode": "capped", "windowed": False, "preset": "fixes", "threads": None, "resolution": "1920x1080", "sound": None, "fps": 100.0, "legacy": True}
 
     def test_script_converts_seconds_to_frames(self):
         s = scenarios.Script(fps=100.0)
@@ -374,6 +377,245 @@ class LockTests(unittest.TestCase):
         self.assertNotIn("NOISY", report.markdown(a))
         rows, ok = report.compare(a, b)
         self.assertIn("NOISY: the candidate", report.compare_markdown(a, b, rows, ok))
+
+
+class VirtualInputTests(unittest.TestCase):
+    def test_wire_messages_and_events(self):
+        import struct
+        m = vinput.message(5, 2, struct.pack("<I", 7))
+        self.assertEqual(m, struct.pack("<II", 5, (12 << 16) | 2) + struct.pack("<I", 7))
+        self.assertEqual(vinput.string_arg("wl_seat"), struct.pack("<I", 8) + b"wl_seat\0")
+        events, rest = vinput.parse_events(m + m[:6])
+        self.assertEqual(events, [(5, 2, struct.pack("<I", 7))])
+        self.assertEqual(rest, m[:6])
+
+    def test_global_event(self):
+        import struct
+        name = b"wl_seat\0"
+        body = struct.pack("<II", 3, len(name)) + vinput.pad(name) + struct.pack("<I", 7)
+        self.assertEqual(vinput.parse_global(body), (3, "wl_seat", 7))
+
+    def test_key_codes_are_evdev(self):
+        self.assertEqual((vinput.EVDEV["w"], vinput.EVDEV["ctrl"], vinput.EVDEV["esc"]), (17, 29, 1))
+        self.assertEqual(vinput.BTN["left"], 0x110)
+
+    def test_real_steps_let_the_window_input_in_and_scripted_runs_otherwise_shut_it_out(self):
+        opts = dict(ScenarioTests.OPTS, windowed=True)
+        self.assertEqual(scenarios.build("realwalk", opts).env(opts)["NV_MOVE_REAL_INPUT"], "1")
+        self.assertNotIn("NV_MOVE_REAL_INPUT", scenarios.build("goodsprings", opts).env(opts))
+
+    def test_world_scenarios_free_the_player_by_the_quest_stages_that_do_it(self):
+        p = scenarios.build("goodsprings", ScenarioTests.OPTS)
+        self.assertIn(scenarios.DIK["enter"], [k for _, k, _ in p.keys])
+        self.assertEqual((scenarios.QUEST_DONE_STAGE, scenarios.OPENING_QUEST), (200, "104c1c"))
+
+
+class ClockSanityTests(unittest.TestCase):
+    def rows(self, fdelta_scale=1.0, z=None):
+        rows = parse.parse_frame_log(frame_log(n=400, slow_every=0))
+        for i, r in enumerate(rows):
+            r["fdelta"] = (r["dt_ms"] or 7.0) / 1000.0 * fdelta_scale
+            if z:
+                r["pos"][2] = z(i)
+        return rows
+
+    def test_game_time_ratio_and_walking_speed(self):
+        ck = parse.game_clock_sanity(self.rows())
+        self.assertAlmostEqual(ck["ratio"], 1.0, places=2)
+        self.assertAlmostEqual(ck["speed"], 2.0 / 0.007, delta=5)
+        slow = parse.game_clock_sanity(self.rows(fdelta_scale=0.5))
+        self.assertAlmostEqual(slow["ratio"], 0.5, places=2)
+
+    def test_fall_and_landing(self):
+        ck = parse.game_clock_sanity(self.rows(z=lambda i: 1000.0 if i < 100 else max(0.0, 1000.0 - (i - 100) * 50.0)))
+        self.assertTrue(ck["settled"])
+        self.assertEqual(ck["fall"], 1000.0)
+        ck = parse.game_clock_sanity(self.rows(z=lambda i: 1000.0 - i * 5.0))
+        self.assertFalse(ck["settled"])  # still falling at the end
+
+    def test_too_little_play_gives_nothing(self):
+        self.assertIsNone(parse.game_clock_sanity([])["ratio"])
+
+
+class SuiteTests(unittest.TestCase):
+    def summary(self, name="goodsprings", fps_dt=None, noisy=False):
+        s = make_summary()
+        s["scenario"], s["name"] = name, f"{name}-20260101T000000"
+        s["run"] = dict(s["run"], noisy=noisy)
+        s["metrics"]["hitches"] = {"count": 3, "per_min": 1.5}
+        s["metrics"]["main_busy_pct"] = 80.0
+        return s
+
+    def test_headline_has_the_numbers_first(self):
+        h = suite.headline(self.summary())
+        for k in ("fps", "p50_ms", "p99_ms", "low1_fps", "low01_fps", "busy_ms", "hitches_per_min", "vram_peak_mib", "verdict", "noisy"):
+            self.assertIn(k, h)
+        self.assertEqual(h["hitches_per_min"], 1.5)
+        self.assertIn("fps average", report.markdown(self.summary()).split("\n")[2])
+
+    def test_capped_runs_are_not_headlines(self):
+        s = self.summary()
+        s["settings"]["limiters"] = {"NV_FRAME_LIMIT": "144"}
+        self.assertEqual(suite.headline(s)["verdict"], "CAPPED")
+        self.assertTrue(report.markdown(s).startswith("# Bench run: goodsprings\n\nCAPPED (limiter set: NV_FRAME_LIMIT=144)"))
+        s = self.summary()
+        s["settings"].update(limiters={}, mode="unlimited")
+        s["metrics"]["frame_time_play"]["fps"] = 143.2  # within 2% of 144: something else limits it
+        self.assertIn("within 2% of the 144", suite.headline(s)["capped"])
+        s["metrics"]["frame_time_play"]["fps"] = 412.0
+        self.assertIsNone(suite.headline(s)["capped"])
+        self.assertEqual(suite.limiters_in({"NV_FRAME_LIMIT": "0", "NV_FPS_LIMIT": "60"}), {"NV_FPS_LIMIT": "60"})
+        s["settings"]["mode"] = "capped"
+        self.assertEqual(suite.capped_reason(s["settings"], 90.0), "--cap")
+
+    def test_table_deltas_and_noisy_marker(self):
+        a, b = suite.headline(self.summary("newgame")), suite.headline(self.summary("goodsprings", noisy=True))
+        prev = {"newgame": dict(a, fps=a["fps"] / 2)}
+        base = {"goodsprings": dict(b, fps=b["fps"] * 2)}
+        t = suite.table([a, b], prev, base)
+        self.assertIn("fps vs previous", t)
+        self.assertIn("+100.0%", t)  # newgame doubled against the previous suite
+        self.assertIn("-50.0%", t)  # goodsprings halved against the baseline
+        self.assertIn("NOISY", t)
+        self.assertIsNone(suite.delta_pct(1, 0))
+
+    def test_baselines_and_previous_suite_round_trip(self):
+        with tempfile.TemporaryDirectory() as d:
+            rows = [suite.headline(self.summary("newgame"))]
+            suite.save_baseline(d, "ref", rows)
+            self.assertEqual(suite.load_baseline(d, "ref")["newgame"]["scenario"], "newgame")
+            self.assertIsNone(suite.load_baseline(d, "nope"))
+            for n in ("suite-20260101T000000", "suite-20260102T000000"):
+                (Path(d) / n).mkdir()
+                (Path(d) / n / "suite.json").write_text(json.dumps({"rows": rows}))
+            self.assertIn("newgame", suite.previous_suite(d, "suite-20260103T000000"))
+            self.assertIsNone(suite.previous_suite(d, "suite-20260101T000000"))
+
+    def test_perf_busy_and_hitches_parse(self):
+        log = parse.parse_log("NV_PERF: thread busy over 10.0 s, 2.3 cores in all: nv-main/1234 84%, render/5 40%\n")
+        self.assertEqual(log["busiest_thread_pct"], [84.0])
+        rows = parse.parse_frame_log(frame_log(n=400, slow_every=100, slow_us=60000))
+        h = parse.hitches(rows)
+        self.assertEqual(h["count"], 3)
+        self.assertGreater(h["per_min"], 0)
+
+
+class QuickSuiteTests(unittest.TestCase):
+    LOG = """# driver: phase startup start frame=1 t=0.10
+# driver: phase startup end frame=6000 t=40.00
+# driver: phase goodsprings start frame=6001 t=40.10
+# driver: phase goodsprings.measured start frame=6500 t=48.00
+# driver: phase goodsprings.walk1 start frame=6600 t=50.00
+# driver: phase goodsprings.walk1 end frame=6700 t=53.00
+# driver: phase goodsprings.walk2 start frame=6800 t=55.00
+# driver: phase goodsprings.walk2 end frame=6900 t=58.00
+# driver: phase goodsprings.measured end frame=6900 t=58.00
+"""
+
+    def test_phases_parse_with_their_frames_and_seconds(self):
+        log = parse.parse_log(self.LOG)
+        self.assertEqual(log["phases"][0], ("startup", "start", 1, 0.1))
+        self.assertEqual(len(log["phases"]), 9)
+
+    def test_measured_phase_gets_its_own_fps_and_wall(self):
+        rows = parse.parse_frame_log(frame_log(n=7000, dt_us=2000, slow_every=0))
+        for r in rows:
+            r["screen"] = "play"
+        ph = {p["name"]: p for p in parse.phase_stats(rows, parse.parse_log(self.LOG)["phases"])}
+        self.assertEqual(ph["startup"]["wall_s"], 39.9)
+        self.assertAlmostEqual(ph["goodsprings.measured"]["fps"], 500.0, delta=1)
+
+    def test_heading_change_between_the_two_walks(self):
+        rows = parse.parse_frame_log(frame_log(n=7000, dt_us=10000, slow_every=0, walk=False))
+        for r in rows:
+            r["screen"] = "play"
+            f = r["frame"]
+            if 6600 <= f <= 6700:
+                r["pos"][:2] = [(f - 6600) * 5.0, 0.0]  # along +x
+            elif 6800 <= f <= 6900:
+                turn = 0 if f < 6830 else 1  # a first stretch, then walking along +y
+                r["pos"][:2] = [500.0 + (0 if turn else (f - 6800) * 5.0), (f - 6830) * 5.0 if turn else 0.0]
+        deg = parse.heading_changes(rows, parse.parse_log(self.LOG)["phases"])
+        self.assertAlmostEqual(deg["goodsprings"], 90.0, delta=1)
+
+    def test_too_long_and_budget_check(self):
+        s = make_summary()
+        s["settings"]["budget_s"] = 120.0
+        s["run"]["wall_s"] = 130.0
+        self.assertEqual(suite.headline(s)["verdict"], "TOO_LONG")
+        s["run"]["wall_s"] = 100.0
+        self.assertNotEqual(suite.headline(s)["verdict"], "TOO_LONG")
+        plan = scenarios.build("quick", dict(ScenarioTests.OPTS, legacy=False))
+        self.assertEqual(plan.budget_s, 120.0)
+        checks = nvbench.verdict_checks(make_summary()["metrics"], plan, 150.0)
+        self.assertTrue(any("TOO_LONG" in c["name"] and not c["ok"] for c in checks))
+
+    def test_world_scenarios_are_one_session_and_quick_has_three_places(self):
+        import drivers
+        self.assertEqual(scenarios.WORLD["quick"][0], ("doc_house", "goodsprings", "strip"))
+        for n in ("doc_house", "goodsprings", "strip", "novac", "quick"):
+            self.assertIn(n, drivers.DRIVERS)
+            self.assertIn(n, scenarios.SCENARIOS)
+
+    def test_phase_rows_expand_a_quick_run_into_its_places(self):
+        s = make_summary()
+        s["scenario"] = "quick"
+        s["metrics"]["phases"] = [{"name": "strip.measured", "wall_s": 18.0, "fps": 321.0, "p99_ms": 4.0, "low1_fps": 200.0}]
+        rows = suite.phase_rows(s)
+        self.assertEqual((rows[0]["scenario"], rows[0]["fps"]), ("quick:strip", 321.0))
+
+
+class DriverTests(unittest.TestCase):
+    OPTS = dict(ScenarioTests.OPTS, legacy=False, mode="unlimited", windowed=True, scale=0.34)
+
+    def test_default_scenarios_are_drivers_with_no_frame_script(self):
+        for name in ("newgame", "goodsprings", "novac", "strip", "combat", "soak", "boot"):
+            plan = scenarios.build(name, self.OPTS)
+            self.assertTrue(callable(plan.drive), name)
+            env = plan.env(self.OPTS)
+            self.assertNotIn("NV_MOVE_KEYS", env)
+            self.assertFalse(plan.capped_only)
+
+    def test_threads_are_real_unless_asked(self):
+        plan = scenarios.build("boot", self.OPTS)
+        self.assertEqual(plan.env(self.OPTS)["NV_THREADS"], "real")
+        self.assertEqual(plan.env(dict(self.OPTS, threads="stepped"))["NV_THREADS"], "stepped")
+
+    def test_unlimited_mode_is_real_play_with_the_menu_limit(self):
+        env = scenarios.build("boot", self.OPTS).env(self.OPTS)
+        self.assertEqual((env["NV_FRAME_LIMIT"], env["NV_MENU_FRAME_LIMIT"], env["NV_PRESENT"]), ("0", "120", "mailbox"))
+        capped = scenarios.build("boot", dict(self.OPTS, mode="capped", cap=60)).env(dict(self.OPTS, mode="capped", cap=60))
+        self.assertEqual((capped["NV_FRAME_LIMIT"], capped["NV_FPS_LIMIT"]), ("60", "60"))
+        peak = scenarios.build("boot", dict(self.OPTS, mode="peak")).env(dict(self.OPTS, mode="peak"))
+        self.assertEqual((peak["NV_PRESENT"], peak["NV_MENU_FRAME_LIMIT"]), ("immediate", "120"))
+
+    def test_frame_log_tail_parses_whole_lines_only(self):
+        import driver
+        text = "7\t1\t0.01\t0\t0\t1.5\t2.5\t3.5\tmenu\n8\t1\t0.01\t0\t0\t1.5\t2.5\t3.5\tplay\n9\t1\t0.0"
+        self.assertEqual([(r[0], r[1]) for r in driver.parse_tail(text)], [(8, "play")])
+
+    def test_driver_waits_on_the_screen_and_taps_while_it_waits(self):
+        import driver
+
+        class Proc:
+            def poll(self):
+                return None
+
+        class Vi:
+            taps = []
+
+            def tap(self, key, hold):
+                self.taps.append(key)
+
+        clock = [0.0]
+        d = driver.Driver(Vi(), "/nonexistent", Proc(), clock=lambda: clock[0], sleep=lambda s: clock.__setitem__(0, clock[0] + s))
+        screens = iter(["loading"] * 30 + ["play"] * 10)
+        d.screen = lambda: next(screens, "play")
+        self.assertTrue(d.until_not_screen("loading", 60, tap="esc", tap_every=1.0))
+        self.assertTrue(Vi.taps and set(Vi.taps) == {"esc"})
+        d2 = driver.Driver(Vi(), "/nonexistent", Proc(), clock=lambda: clock[0], sleep=lambda s: clock.__setitem__(0, clock[0] + s))
+        d2.screen = lambda: "menu"
+        self.assertFalse(d2.until_screen("play", 3))
 
 
 class CliTests(unittest.TestCase):
