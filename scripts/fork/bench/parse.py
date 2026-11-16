@@ -164,7 +164,8 @@ RE_MEMLOG = re.compile(r"^NV_MEMLOG ((?:\w+=[-\d.]+\s*)+)")
 BAD_MEMORY = re.compile(r"not enough memory|device.?lost|out of memory|ErrorOutOfDeviceMemory", re.I)
 
 
-RE_BUSY = re.compile(r"NV_PERF: thread busy over [\d.]+ s, [\d.]+ cores in all: \S+? (\d+(?:\.\d+)?)%")
+# the busiest thread comes first; its name may hold spaces ("game main threa/806899 42%")
+RE_BUSY = re.compile(r"NV_PERF: thread busy over [\d.]+ s, [\d.]+ cores in all: [^,]*?/\d+ (\d+(?:\.\d+)?)%")
 
 
 RE_PHASE = re.compile(r"# driver: phase (\S+) (start|end) frame=(\d+) t=([\d.]+)")
@@ -190,17 +191,22 @@ def parse_log(text):
         "memlog": [],
         "phases": [],  # (name, start|end, frame, seconds since the run began) from the driver's notes
         "busiest_thread_pct": [],  # NV_PERF's report: the busiest thread's CPU share, one per report
+        "phase_busy_pct": {},  # phase name -> the busiest-thread shares of the reports logged while it was open
     }
+    open_phases = set()
     for line in text.splitlines():
         if line.startswith("# driver: phase "):
             m = RE_PHASE.match(line)
             if m:
                 out["phases"].append((m.group(1), m.group(2), int(m.group(3)), float(m.group(4))))
+                (open_phases.add if m.group(2) == "start" else open_phases.discard)(m.group(1))
             continue
         if "NV_PERF: thread busy" in line:
             m = RE_BUSY.search(line)
             if m:
                 out["busiest_thread_pct"].append(float(m.group(1)))
+                for name in open_phases:
+                    out["phase_busy_pct"].setdefault(name, []).append(float(m.group(1)))
             continue
         m = RE_MOVEMENT.search(line)
         if m:
@@ -303,10 +309,13 @@ def sample_summary(rows):
     }
 
 
-def phase_stats(rows, phases):
+def phase_stats(rows, phases, busy=None):
     """Per phase of a driven run: its seconds of wall time, and for the measured stretches the play frames' fps, p99 and
     1% low (frames between the phase's first and last frame). Phases with no end (the run was cut) end at the last
-    frame."""
+    frame. With `busy` (parse_log's phase_busy_pct) a measured phase also gets the busiest thread's mean CPU share over
+    the NV_PERF reports logged while it ran, and that share as milliseconds of a mean frame (`busy_ms`). A report covers
+    the seconds since the previous one, so the first report of a phase reaches a few seconds back (into the warm-up of
+    the same place)."""
     last_frame = rows[-1]["frame"] if rows else 0
     spans, open_ = [], {}
     for name, kind, frame, t in phases:
@@ -325,6 +334,10 @@ def phase_stats(rows, phases):
             st = frame_stats(dts) if dts else None
             if st:
                 row.update(fps=st["fps"], p99_ms=st["p99_ms"], low1_fps=st["low1_fps"], frames=st["frames"])
+                pcts = (busy or {}).get(name)
+                if pcts and st["fps"]:
+                    pct = sum(pcts) / len(pcts)
+                    row.update(busy_pct=round(pct, 1), busy_ms=round(pct / 100.0 * 1000.0 / st["fps"], 2))
         out.append(row)
     return out
 
@@ -433,7 +446,7 @@ def summarize(frame_rows, log, samples, missing=(0, 0), stops=0):
         "memory": sm,
         "clock": game_clock_sanity(frame_rows),
         "hitches": hitches(frame_rows),
-        "phases": phase_stats(frame_rows, log["phases"]),
+        "phases": phase_stats(frame_rows, log["phases"], log.get("phase_busy_pct")),
         "heading_change_deg": heading_changes(frame_rows, log["phases"]),
         "main_busy_pct": round(sum(log["busiest_thread_pct"]) / len(log["busiest_thread_pct"]), 1) if log["busiest_thread_pct"] else None,
         "untranslated_addresses": missing[0],

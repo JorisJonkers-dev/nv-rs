@@ -48,7 +48,7 @@ def phase_rows(summary):
         if ph["name"].endswith(".measured") and ph.get("fps"):
             place = ph["name"].split(".")[0]
             out.append(dict(base, scenario=f"{summary['scenario']}:{place}", fps=ph["fps"], p50_ms=None, p99_ms=ph.get("p99_ms"),
-                            low1_fps=ph.get("low1_fps"), low01_fps=None, busy_ms=None, hitches_per_min=None, wall_s=ph.get("wall_s")))
+                            low1_fps=ph.get("low1_fps"), low01_fps=None, busy_ms=ph.get("busy_ms"), hitches_per_min=None, wall_s=ph.get("wall_s")))
     return out
 
 

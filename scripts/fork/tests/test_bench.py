@@ -525,6 +525,17 @@ class QuickSuiteTests(unittest.TestCase):
         self.assertEqual(ph["startup"]["wall_s"], 39.9)
         self.assertAlmostEqual(ph["goodsprings.measured"]["fps"], 500.0, delta=1)
 
+    def test_measured_phase_gets_the_busy_reports_logged_inside_it(self):
+        text = self.LOG.replace("# driver: phase goodsprings.walk1 start", "NV_PERF: thread busy over 4.0 s, 2.0 cores in all: game main threa/1 80%, x/2 10%\n# driver: phase goodsprings.walk1 start")
+        text = "NV_PERF: thread busy over 4.0 s, 2.0 cores in all: game main threa/1 20%\n" + text
+        log = parse.parse_log(text)
+        rows = parse.parse_frame_log(frame_log(n=7000, dt_us=2000, slow_every=0))
+        for r in rows:
+            r["screen"] = "play"
+        ph = {p["name"]: p for p in parse.phase_stats(rows, log["phases"], log["phase_busy_pct"])}
+        self.assertEqual(ph["goodsprings.measured"]["busy_pct"], 80.0)
+        self.assertAlmostEqual(ph["goodsprings.measured"]["busy_ms"], 1.6, delta=0.01)
+
     def test_heading_change_between_the_two_walks(self):
         rows = parse.parse_frame_log(frame_log(n=7000, dt_us=10000, slow_every=0, walk=False))
         for r in rows:
@@ -616,6 +627,34 @@ class DriverTests(unittest.TestCase):
         d2 = driver.Driver(Vi(), "/nonexistent", Proc(), clock=lambda: clock[0], sleep=lambda s: clock.__setitem__(0, clock[0] + s))
         d2.screen = lambda: "menu"
         self.assertFalse(d2.until_screen("play", 3))
+
+
+    def test_settle_play_dismisses_a_box_and_tries_the_console_key_when_it_stays(self):
+        import driver
+
+        class Proc:
+            def poll(self):
+                return None
+
+        class Vi:
+            def __init__(self):
+                self.taps = []
+
+            def tap(self, key, hold):
+                self.taps.append(key)
+
+        clock = [0.0]
+        vi = Vi()
+        d = driver.Driver(vi, "/nonexistent", Proc(), clock=lambda: clock[0], sleep=lambda s: clock.__setitem__(0, clock[0] + s))
+        screens = iter(["menu"] * 130 + ["play"] * 40)  # 13 s of a box that will not go, then play
+        d.screen = lambda: next(screens, "play")
+        self.assertTrue(d.settle_play(quiet=2.0, timeout=60))
+        self.assertEqual(vi.taps[:3], ["enter", "down", "enter"])
+        self.assertEqual(vi.taps.count("grave"), 2)  # at 6 s and at 12 s of menu
+        vi.taps.clear()
+        screens = iter(["menu"] * 130 + ["play"] * 40)
+        self.assertTrue(d.settle_play(quiet=2.0, timeout=60, tap="enter", console_after=None))
+        self.assertEqual(set(vi.taps), {"enter"})
 
 
 class CliTests(unittest.TestCase):

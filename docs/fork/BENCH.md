@@ -161,7 +161,7 @@ is the default for these scenarios (`--legacy` runs the old frame-counted `NV_MO
 
 | Scenario | What it does |
 | --- | --- |
-| `quick` | **The quick suite, one viewer session, 120 s in all (`TOO_LONG` over that, start-up and loading included):** start-up, the new game's first room, then Doc's house, Goodsprings and the Strip in turn by console teleports |
+| `quick` | **The quick suite, one viewer session, 120 s in all (`TOO_LONG` over that, start-up and loading included):** start-up (shorter fixed waits), the new game's first room, then Doc's house, Goodsprings and the Strip in turn by console teleports, each place's measured script at half length (about 10 s) |
 | `doc_house`, `goodsprings`, `strip`, `novac` | Each the same for one place (start-up, new game, then the place): ~3 s warm-up, ~18 s measured |
 | `newgame` | Start-up movies skipped, menu, New, the intro movie skipped, the pack boxes, the first room, 20 s there |
 | `boot` | The start-up movies skipped, 40 s on the main menu |
@@ -188,12 +188,53 @@ are not game data): the opening quest `104C1C` has the player seated in an anima
 gives movement and looking back (`EnablePlayerControls 1 0 0 1 1 1 0`), so the driver sets `setstage 104c1c 50`, then 55,
 and the player walks; jumping straight to the last stage left the player unable to move for the whole earlier work (path 0
 units). Then `player.moveto <marker>`: `1658B7` Goodsprings, `16ACB9` the Strip, `8D0A3` Novac, `107235` Doc's house; the
-downloadable packs' message boxes arrive with the first exterior and are dismissed with Enter (a box shuts the console
-itself; a console key after it would open it again). `168D0B` is the hostile gecko, `E3778` the pistol, `8ED03` the ammo.
+downloadable packs' message boxes arrive after the opening's stages and with the first exterior, a few seconds after the
+load, at no fixed time. The driver never assumes the console's state: it opens the console from the play screen and sees
+the screen turn to menu, shuts it as soon as a teleport's load is over (a box that comes over the open console never
+gets the keyboard), and dismisses boxes with Enter, Down, Enter in turn (a box's button takes Enter only once an arrow
+key has given it the focus; not in the start-up, where Down in the pause menu moves to Save). A menu that outlasts 6 s
+gets the console key, again every 6 s. The warm-up of a place is the play screen held 3 s with no box, so a late box is
+dismissed before the measured script starts rather than measured as a menu. `168D0B` is the hostile gecko, `E3778` the pistol, `8ED03` the ammo.
 
 Why `NV_MOVE_KEYS` real input needed `NV_MOVE_REAL_INPUT=1`: a run with a key or mouse script shuts the window's keyboard
 and mouse out (`real_input_reaches_game`, `crates/host/src/player_move.rs`), so real events never arrived until the
 drivers stopped using scripts altogether.
+
+### Known issue: the player sometimes stops answering movement and the mouse
+
+In some quick runs (2026-11-16: 2 of 6, 1 of the 3 in the results below) the player walks and the view turns in
+every place; in the others both stop a few seconds after the opening's stages (the player path
+stays under 50 units, `player moved` fails), while the console keeps taking typed text. Seen in that state with
+`GetPlayerControlsDisabled`: movement and looking enabled, the player not restrained, speed multiplier 100, carrying
+nothing changes nothing. The failing runs had a pack's box dismissed in Doc's house before the first walk; the working
+ones did not. The keys reach the game's DirectInput keyboard (the console types; `input.key` lines), so the cause is
+past the input path; it is not found yet. A run where the player did not move is not valid for the walking part of the
+measured script; its fps is the view standing at the place, sweeping.
+
+### Results: the quick suite, 2026-11-16
+
+`nv-rs-dev bench suite --quick --resolution 2560x1440 --vram-limit-pct 50 --nested headless` (the suite turns on
+`NV_PERF`), `play-opt` build of `fork` at the time, unlimited (no frame limiter; menus 120), real threads, RX 7900 XTX,
+16-core machine with no other viewer running (no run flagged noisy). Three runs; the table gives the median of the three
+for each number (each run's own numbers in brackets). fps, p99 and 1% low are of the play-screen frames of each place's
+measured script (about 10 s: the yaw and pitch sweeps, the walks); "busy" is the busiest thread's CPU share over the
+`NV_PERF` reports logged during that script, as milliseconds of a mean frame. The run's total wall time, start-up and
+loading included, was 113, 111 and 121 s (budget 120 s: the third was `TOO_LONG`, its Goodsprings warm-up waited on
+boxes).
+
+| Place | avg fps | p99 ms | 1% low fps | busiest thread ms/frame |
+| --- | --- | --- | --- | --- |
+| Doc Mitchell's house | 193 (193, 190, 222) | 6.9 (6.9, 15.4, 6.4) | 127 (127, 52, 129) | 5.1 (5.1, 5.1, 4.4) |
+| Goodsprings | 137 (146, 137, 131) | 14.7 (8.7, 14.7, 27.1) | 68 (72, 68, 30) | 2.2 (2.0, 2.2, 7.1) |
+| The Strip | 166 (166, 167, 156) | 8.0 (8.0, 7.9, 13.5) | 103 (108, 103, 71) | 5.4 (5.4, 4.6, 6.3) |
+| Whole session, play screen | 207 (202, 207, 208) | 11.6 (8.2, 11.6, 12.4) | 65 (94, 65, 56) | 3.2 (3.2, 2.9, 3.3) |
+
+The player walked and the view turned in the third run only (path 2353 units; heading changes 44 and 77 degrees in
+Doc's house and on the Strip); in the other two the view stood still at each place (see the known issue above), so their
+place numbers are of a standing view. The fps of the places differ little between the walking run and the others; the
+1% low and p99 move more from run to run than between the places. The baseline `quick-20261116` (under
+`~/.local/state/nv-rs/bench/baselines/`, local) holds the first run's rows; `bench suite --quick --baseline
+quick-20261116` compares with it.
 
 ### Ctrl and sneak
 

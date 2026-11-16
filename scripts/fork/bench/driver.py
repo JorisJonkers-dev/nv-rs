@@ -103,31 +103,37 @@ class Driver:
 
         return self.until(ok, timeout, every=0.1, what=f"the end of the {name} screen")
 
-    def settle_play(self, quiet=6.0, timeout=180.0, tap="enter", tap_every=1.5, console_after=4.0):
-        """Dismiss message boxes with `tap` until the play screen has held `quiet` seconds without a box. A menu screen
-        that stays for `console_after` s may be the console left open (the first box shuts it, a teleport without a box
-        does not): the console key is tried once for each stretch of menu."""
-        since, last, menu_since, tried = [None], [0.0], [None], [False]
+    def settle_play(self, quiet=6.0, timeout=180.0, tap=("enter", "down", "enter"), tap_every=0.75, console_after=6.0):
+        """Dismiss message boxes with the keys of `tap` in turn until the play screen has held `quiet` seconds without a
+        box. A box's button takes Enter only once it has the keyboard focus, which an arrow key gives it (a box that came
+        while the mouse moved has none), hence a Down between the Enters. Not for the start-up: in the pause menu Down
+        moves to Save (pass tap="enter" there). A box that came while the console was open never gets the keyboard
+        (the console has it): when a stretch of menu outlasts `console_after` s the console key is tapped, and again
+        every `console_after` s while the menu stays (a tap over a box with no console under it opens one, which the
+        next tap shuts). None: never."""
+        keys = (tap,) if isinstance(tap, str) else tuple(tap)
+        since, last, menu_since, tried, turn = [None], [0.0], [None], [None], [0]
 
         def ok():
             now = self.clock()
             scr = self.screen()
             if scr == "play":
                 since[0] = since[0] or now
-                menu_since[0], tried[0] = None, False
+                menu_since[0], tried[0] = None, None
                 return now - since[0] >= quiet
             since[0] = None
             if scr != "loading":
                 menu_since[0] = menu_since[0] or now
-                if not tried[0] and now - menu_since[0] >= console_after:
-                    tried[0] = True
+                if console_after is not None and now - (tried[0] or menu_since[0]) >= console_after:
+                    tried[0] = now
                     self.tap("grave", 0.15)
                     return False
             else:
-                menu_since[0], tried[0] = None, False
+                menu_since[0], tried[0] = None, None
             if now - last[0] >= tap_every:
                 last[0] = now
-                self.tap(tap)
+                self.tap(keys[turn[0] % len(keys)], 0.1)
+                turn[0] += 1
             return False
 
         return self.until(ok, timeout, every=0.1, what="the play screen to settle")
@@ -162,7 +168,7 @@ class Driver:
             self.look(turn, 0, 1.0)
         t.join()
 
-    def type(self, text, gap=0.08):
+    def type(self, text, gap=0.025):
         for ch in text:
             if ch == " ":
                 self.vi.tap("space", 0.04)
@@ -178,12 +184,36 @@ class Driver:
                 self.vi.tap(ch, 0.04)
             self.sleep(gap)
 
-    def console_open(self):
-        self.tap("grave", 0.15)
-        self.wait(0.5)
+    def ensure_play(self, timeout=20.0):
+        """Back to the play screen: boxes dismissed with Enter, a console left open shut with its key (closed loop)."""
+        return self.settle_play(quiet=1.0, timeout=timeout)
+
+    def console_open(self, tries=3):
+        """Open the console from the play screen and see it open (the screen turns to menu). A box in the way is
+        dismissed first; a box shuts the console by itself, so the console is never assumed open."""
+        for _ in range(tries):
+            if self.screen() != "play":
+                self.ensure_play()
+            self.tap("grave", 0.15)
+            if self.until_screen("menu", 2.0):
+                self.wait(0.3)
+                return True
+        self.note("the console did not open")
+        return False
+
+    def console_close(self, quiet=2.0, timeout=30.0):
+        """Shut the console and wait for the play screen to hold `quiet` seconds, dismissing a box that comes with what
+        the console did (the downloadable packs' boxes come after the opening and with the first exterior)."""
+        if self.screen() == "menu":
+            self.tap("grave", 0.15)
+            self.until_screen("play", 2.0)
+        return self.settle_play(quiet=quiet, timeout=timeout)
 
     def console_line(self, text, settle=1.0):
-        """A line into the console that is already open."""
+        """A line into the console; if a box shut it since it was opened, it is opened again first."""
+        if self.screen() == "play" and not self.console_open():
+            return False
         self.type(text)
         self.tap("enter", 0.15)
         self.wait(settle)
+        return True
