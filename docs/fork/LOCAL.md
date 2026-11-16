@@ -15,6 +15,7 @@ Vulkan) without waiting for a CI Release Build. CI stays the merge gate: this lo
 | `nv-rs-dev smoke [--seconds N] [--shot]` | Runs N seconds (default 60) on the real display, stops it with SIGTERM, prints a PASS/FAIL checklist parsed from the log |
 | `nv-rs-dev bench <run\|list\|report\|compare>` | Scripted playthrough runs with frame-time, memory and stability reports: [BENCH.md](BENCH.md) |
 | `nv-rs-dev logs [--run ID\|latest\|latest-bad] [--errors\|--hitches\|--tail N\|--grep PAT\|--around FRAME] [--diff A B] [--bundle]` | What happened in a run, in under 40 lines (80 for a bad one): [LOGS.md](LOGS.md). Also `nv-rs-logs` |
+| `nv-rs-dev replay <build\|run\|info\|pack\|synth\|streams>` | The replay-bench of a recorded Direct3D 9 stream (null, wgpu, raw Vulkan), under the bench lock: [REPLAY.md](REPLAY.md) |
 | `nv-rs-dev test <crate> [args]` | `cargo test -p <crate>`, same cap and target dir |
 | `nv-rs-dev check [crate...]` | `cargo fmt --check` and `cargo clippy --all-targets -D warnings` for the named crates, default the crates changed against `origin/fork` |
 | `nv-rs-dev affected [base]` | the crates a diff changes and the components CI would test for it (`components.py affected`; "EVERYTHING" when the diff touches `Cargo.lock`, the toolchain, workflows, the map or a shared file) |

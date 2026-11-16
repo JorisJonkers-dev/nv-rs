@@ -117,8 +117,8 @@ runs_on = "both"
 
 [[component]]
 name = "rendering"
-purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), and the shader compiler seam off Windows (cache and libvkd3d-shader)"
-crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader"]
+purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), the shader compiler seam off Windows (cache and libvkd3d-shader), and the fork-owned replay-bench that times a recorded stream through a null, the wgpu and a raw Vulkan backend (docs/fork/REPLAY.md)"
+crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader", "d3d9-replay"]
 requires = ["formats", "window-layer", "log", "hitch"]
 runs_on = "both"
 windows = "required"

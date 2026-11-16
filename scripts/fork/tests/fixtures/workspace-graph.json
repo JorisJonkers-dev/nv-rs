@@ -73,6 +73,35 @@
    "dependencies": [
     {
      "features": [],
+     "kind": null,
+     "name": "d3d9-stream"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "d3d9-wgpu"
+    },
+    {
+     "kind": null,
+     "name": "flate2"
+    },
+    {
+     "kind": null,
+     "name": "libc"
+    },
+    {
+     "kind": null,
+     "name": "wgpu"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/d3d9-replay/Cargo.toml",
+   "name": "d3d9-replay"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
      "kind": "dev",
      "name": "d3d9-wgpu"
     }

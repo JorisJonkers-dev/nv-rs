@@ -22,8 +22,8 @@ crates/engine-platform/src/dsound.rs  # the sound table's default folder comes f
 crates/host/src/game_ini.rs  # off Unix hosts the table's Documents folder `Z:\...` is read as the host path
 crates/host/src/save_out.rs  # known_folders off Windows answers from the XDG data folder
 # Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
-Cargo.toml  # workspace members (two crates, fork-presence, fork-memlog, fork-log)
-Cargo.lock  # the two crates and the host's dependencies on them
+Cargo.toml  # workspace members (two crates, fork-presence, fork-memlog, fork-log, d3d9-replay)
+Cargo.lock  # the two crates and the host's dependencies on them; d3d9-replay and its flate2
 crates/host/Cargo.toml  # dependencies on the two crates; fork-log
 crates/nvse/src/plugins.rs  # read_chunks and write_chunks: a section's records carried unchanged
 crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off Windows (lavapipe offers 4x at most; nv-linux#189); a test of the fixed-function quad; a test of the video-memory budget
@@ -34,7 +34,7 @@ crates/d3d9-wgpu/src/device.rs  # surface_for off Windows asks fork-window (X11,
 crates/d3d9-wgpu/Cargo.toml  # fork-window as a dependency on Linux; fork-log dependency
 crates/host/src/lib.rs  # install calls of jg and showoff after JIP; appended test_gate module (the real-data gate); upstream's refusal to start the game off Windows (not_provided_here) applies to macOS only, Linux runs the game; the adapter and texture-cache folders come from fork_platform::data_dir off Windows; off Windows the adapter table is generated afresh each run (fork_tables) and the first-run settings are made (fork_tables::seed_machine_settings); log lines go through fork_log (targets host, sound, loader); `pub mod fork_trace;` (the game trace sampler)
 # Shader compiler seam off Windows (docs/fork/LINUX.md, nv-linux#197, #200): the code is the new crate d3dx-shader and the new file engine-platform/src/d3dxshader.rs; its upstream-owned edits are one line each: the workspace member (Cargo.toml, Cargo.lock), engine-platform's dependency and the hook in engine-platform/src/lib.rs (listed above).
-crates/d3d9-wgpu/src/lib.rs  # `pub mod identity;` (the card wgpu reports, for the Linux machine table); `mod fixed;` and SetFvf reaches the device; `pub mod memstats;` (NV_MEMLOG counters); `mod budget;`; `pub mod shader_cache;` and its store on the backend
+crates/d3d9-wgpu/src/lib.rs  # `pub mod identity;` (the card wgpu reports, for the Linux machine table); `mod fixed;` and SetFvf reaches the device; `pub mod memstats;` (NV_MEMLOG counters); `mod budget;`; `pub mod shader_cache;` and its store on the backend; `mod gputime;` (the replay-bench's GPU timestamps)
 # Pipeline cache size cap (docs/fork/SHADER-CACHE.md, NV_PIPELINE_CACHE_MAX_MB): additive helpers and two hooks.
 crates/d3d9-wgpu/src/cache.rs  # max_bytes, evict_blobs and trim_list (NV_PIPELINE_CACHE_MAX_MB, default 256): other adapters' driver cache files go oldest first and the recorded pipeline list keeps the shipped lines; the call in PipelineCacheFile and their tests
 # Direct3D 9 recorder off Windows (docs/fork/LINUX.md, "Direct3D 9 off Windows", nv-linux#181): `d3d9real` is built on every target, its Windows-only items carry a cfg(windows) line and the fork-owned fork_d3d9rec.rs gives Linux the wgpu backend off screen; the call sites below lose their cfg(windows) line (the Windows arm is the same text).
@@ -66,3 +66,5 @@ crates/host/src/topic_index.rs  # the one-time topic index report is an info lin
 # NV_FPS_LIMIT (docs/fork/LINUX.md): the plain name for the play frame limit; NV_FRAME_LIMIT is unchanged and wins.
 crates/host/src/fixes.rs  # Choice reads NV_FPS_LIMIT as the play frame limit (iFrameLimit) before NV_FRAME_LIMIT, which wins when both are set; a test of it
 docs/PLAYTESTING.md  # the settings table names NV_FPS_LIMIT beside NV_FRAME_LIMIT
+# The replay-bench (docs/fork/REPLAY.md, crates/d3d9-replay, gputime.rs): the GPU time of a frame by timestamp queries, asked for only with NV_REPLAY_GPU_TIMING; the game's run never does.
+crates/d3d9-wgpu/src/device.rs  # `flush`, `on_queue` and `sync` are pub(crate) for gputime.rs; the timestamp features when NV_REPLAY_GPU_TIMING asks; the `gpu_timer` field

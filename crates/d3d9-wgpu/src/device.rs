@@ -719,6 +719,8 @@ pub struct Device {
     last_present: Option<std::time::Instant>,
     /// `NV_PERF`'s frame records ([`crate::perf`]).
     perf: crate::perf::Recorder,
+    /// The replay-bench's GPU timestamps (`gputime.rs`); none in the game's run.
+    pub(crate) gpu_timer: Option<crate::gputime::GpuTimer>,
     /// The surface the last present showed (id, size), for the `game` trace of changes.
     shown: Option<(u64, u32, u32)>,
     /// The screen of the backend's own long steps ([`Device::show_progress`]), made when first shown.
@@ -1200,6 +1202,7 @@ impl Device {
             pipeline_cache,
             last_present: None,
             perf: crate::perf::Recorder::new(),
+            gpu_timer: None,
             shown: None,
             loading: None,
             start: None,
@@ -1873,7 +1876,7 @@ impl Device {
     /// the queue thread ([`Submitter`]) the batch is handed to it whole, and this thread goes on
     /// recording the next one into a fresh register ring, UP vertices and upload stage while it is
     /// finished and submitted (in order with every other queue operation).
-    fn flush(&mut self) {
+    pub(crate) fn flush(&mut self) {
         let _perf = crate::perf::span(crate::perf::Cat::Flush);
         self.end_pass();
         let finishing = std::mem::take(&mut self.finishing);
@@ -1941,7 +1944,7 @@ impl Device {
 
     /// `job` run with the queue in order with the queue operations before it: on the queue thread
     /// ([`Submitter`]), or here on a machine without one.
-    fn on_queue(&self, job: impl FnOnce(&wgpu::Queue) + Send + 'static) {
+    pub(crate) fn on_queue(&self, job: impl FnOnce(&wgpu::Queue) + Send + 'static) {
         match &self.submitter {
             Some(s) => s.send(Box::new(job)),
             None => job(&self.queue),
@@ -1956,7 +1959,7 @@ impl Device {
 
     /// Waits until the queue thread has run everything handed to it (a read-back, a frame of the
     /// window, a screen that submits by itself, the end); its failure, if one, said here.
-    fn sync(&self) {
+    pub(crate) fn sync(&self) {
         let _perf = crate::perf::span(crate::perf::Cat::Sync);
         if let Some(s) = &self.submitter {
             s.sync();
@@ -7081,7 +7084,8 @@ fn open(
         | wgpu::Features::CLIP_DISTANCES
         | wgpu::Features::FLOAT32_BLENDABLE
         | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
-        | wgpu::Features::PIPELINE_CACHE;
+        | wgpu::Features::PIPELINE_CACHE
+        | crate::gputime::features();
     let features = adapter.features() & wanted;
     let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("d3d9-wgpu"),

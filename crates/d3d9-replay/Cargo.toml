@@ -1,0 +1,20 @@
+[package]
+name = "d3d9-replay"
+version = "0.1.0"
+description = "Fork-owned replay-bench of the recorded Direct3D 9 call stream: the cost of a draw through a null backend, the wgpu backend and a throwaway raw Vulkan prototype (docs/fork/REPLAY.md)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+d3d9-stream = { path = "../d3d9-stream" }
+d3d9-wgpu = { path = "../d3d9-wgpu" }
+# The container's compression (pure Rust backend, miniz_oxide).
+flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
+# wgpu's state types, which `d3d9_wgpu::state` converts the game's render states to.
+wgpu = { version = "=30.0.1", default-features = false, features = ["std"] }
+
+# The CPU time of a thread and of the process (Unix).
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"

@@ -25,6 +25,7 @@ mod fixed;
 pub mod format;
 pub mod frame_rate;
 mod fxhash;
+mod gputime;
 pub mod identity;
 pub mod loading;
 pub mod memstats;
