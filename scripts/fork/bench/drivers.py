@@ -88,6 +88,10 @@ def measured(d, opts):
     d.look(0, -8, 1.2 * k)  # level again
     place = getattr(d, "place", "place")
     clear_box(d)
+    if place == "doc_house":
+        # The opening's package can come back after the warm-up's check (the end of its first line sets it again):
+        # checked once more right before the walks.
+        ensure_walks(d)
     phase(d, place + ".walk1", "start")
     d.walk(3.0 * k)  # forward
     phase(d, place + ".walk1", "end")
@@ -133,8 +137,10 @@ def free_player(d):
     return d.console_close(quiet=0.5)
 
 
-def walks(d, keys=("w", "s"), seconds=0.4, units=5.0):
-    """Whether a short step moves the player (forward, else back: a wall in front stops one of them only)."""
+def walks(d, keys=("w", "s"), seconds=0.4, units=30.0):
+    """Whether a short step moves the player (forward, else back: a wall in front stops one of them only). A free step
+    of 0.4 s goes 70 units or more; the opening's package moves a held player a few units on its own, so a smaller
+    threshold took that drift for a step."""
     for key in keys:
         before = d.position()
         d.hold((key,), seconds)
