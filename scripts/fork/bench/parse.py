@@ -189,6 +189,8 @@ def parse_log(text):
         "panics": 0,
         "memory_failures": 0,
         "watchdog": None,
+        "guard": None,  # the memory guard's stop line (guard.py), if it stopped the run
+        "caps_line": None,
         "exit_status": None,
         "memlog": [],
         "phases": [],  # (name, start|end, frame, seconds since the run began) from the driver's notes
@@ -247,6 +249,12 @@ def parse_log(text):
             out["panics"] += 1
         elif BAD_MEMORY.search(line):
             out["memory_failures"] += 1
+        if line.startswith("# memory guard:"):
+            out["guard"] = line.strip()[:300]
+            continue
+        if line.startswith("# memory caps:"):
+            out["caps_line"] = line.strip()[2:400]
+            continue
         if line.startswith("# GPU memory watchdog"):
             out["watchdog"] = line.strip()[:200]
         m = re.match(r"# exit status: (-?\d+)", line)
@@ -512,6 +520,8 @@ def summarize(frame_rows, log, samples, missing=(0, 0), stops=0):
         "panics": log["panics"],
         "memory_failures": log["memory_failures"],
         "watchdog": log["watchdog"],
+        "guard": log.get("guard"),
+        "caps": log.get("caps_line"),
         "exit_status": log["exit_status"],
         "memlog_lines": len(log["memlog"]),
         "heap_used_end": log["memlog"][-1].get("heap_used") if log["memlog"] else None,

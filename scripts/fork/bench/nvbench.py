@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import drivers  # noqa: E402
+import guard  # noqa: E402
 import lock  # noqa: E402
 import parse  # noqa: E402
 import report  # noqa: E402
@@ -112,6 +113,7 @@ def verdict_checks(m, plan, run_wall=None):
     add("no panic", m["panics"] == 0, f"{m['panics']} panics")
     add("no memory or device-lost line", m["memory_failures"] == 0, f"{m['memory_failures']} lines")
     add("GPU memory watchdog quiet", not m["watchdog"], m["watchdog"] or "")
+    add("memory guard quiet", not m.get("guard"), m.get("guard") or (m.get("caps") or ""))
     # The harness stops the game with SIGTERM at the end of a scenario: 143, 124 and a clean 0 are ends.
     add("viewer exit status", m["exit_status"] in (0, 124, 143, -15, None), f"exit {m['exit_status']}")
     for place, deg in (m.get("heading_change_deg") or {}).items():
@@ -171,11 +173,30 @@ def refuse(a):
     return 0
 
 
+# Exit status of a run the memory guard refused or that runs are halted for (guard.py).
+HALTED = 4
+VRAM_LIMIT_PCT_MAX = 70
+
+
+def guard_refusal(a):
+    """Why the memory guard refuses this run before anything starts, or None."""
+    h = guard.halted()
+    if h:
+        return f"bench runs are halted since {h.get('time', '?')}: {h.get('reason')}. Look at the cause, then nv-rs-dev bench clear-halt"
+    if a.vram_limit_pct is None or not 0 < a.vram_limit_pct <= VRAM_LIMIT_PCT_MAX:
+        return f"--vram-limit-pct (NV_VRAM_LIMIT_PCT) can only be lowered: 1 to {VRAM_LIMIT_PCT_MAX}"
+    return None
+
+
 def cmd_run(a):
     """Runs one scenario holding the machine-wide bench lock (--no-lock for debugging runs that make no numbers)."""
     refused = refuse(a)
     if refused:
         return refused
+    why = guard_refusal(a)
+    if why:
+        print(f"bench: refused: {why}", file=sys.stderr)
+        return HALTED
     if a.no_lock:
         print("bench: no lock (--no-lock): the numbers of this run are not valid if anything else runs", file=sys.stderr)
         return run_scenario(a)
@@ -184,6 +205,11 @@ def cmd_run(a):
         print(f"bench: the lock was not free within {a.wait_timeout} s: held by {lock.describe(bl.read_holder())}", file=sys.stderr)
         return 3
     try:
+        # Again under the lock: a run that ended while this one waited may have halted the bench.
+        why = guard_refusal(a)
+        if why:
+            print(f"bench: refused: {why}", file=sys.stderr)
+            return HALTED
         return run_scenario(a)
     finally:
         bl.release()
@@ -201,7 +227,8 @@ def run_scenario(a):
     fps = a.ref_fps or float(a.cap or (144 if a.mode == "capped" else 60))
     opts = {
         "mode": a.mode, "windowed": a.windowed, "viewer": viewer, "game": game, "preset": a.preset, "threads": a.threads,
-        "resolution": a.resolution, "sound": a.sound, "mem": a.mem, "fps": fps, "timeout_s": a.timeout,
+        "resolution": a.resolution, "sound": a.sound, "mem": a.mem, "vram_cap_mib": a.vram_cap_mib, "gtt_cap_mib": a.gtt_cap_mib,
+        "fps": fps, "timeout_s": a.timeout,
         "vram_limit_pct": a.vram_limit_pct, "shots": a.shots, "nested": a.nested, "record": a.record, "record_fps": a.record_fps, "record_format": a.record_format, "scale": a.scale,
         "cap": a.cap, "legacy": a.legacy, "perf": a.perf,
     }
@@ -222,7 +249,12 @@ def run_scenario(a):
         plan.wall_after_first_s *= a.scale
     run_dir = runner.run_dir_for(plan.name)
     print(f"bench {plan.name} ({a.mode}, {('nested ' + a.nested) if a.nested else ('windowed' if a.windowed else 'offscreen')}, VRAM limit {a.vram_limit_pct}%) -> {run_dir}")
-    run = runner.launch(plan, opts, run_dir)
+    try:
+        run = runner.launch(plan, opts, run_dir)
+    except guard.Refused as e:
+        print(f"bench: refused by the memory guard: {e}", file=sys.stderr)
+        (run_dir / "refused.txt").write_text(f"{e}\n")
+        return HALTED
     build = ""
     try:
         build = subprocess.run(["git", "-C", str(Path(viewer).resolve().parent), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -231,7 +263,7 @@ def run_scenario(a):
     settings = {
         "mode": a.mode, "window": ("nested " + a.nested) if a.nested else ("windowed" if a.windowed else "offscreen"), "preset": a.preset, "threads": a.threads or "default",
         "resolution": a.resolution, "build": build or Path(viewer).name, "viewer_mtime": int(Path(viewer).stat().st_mtime),
-        "vram_limit_pct": a.vram_limit_pct, "ref_fps": fps, "cap": a.cap,
+        "vram_limit_pct": a.vram_limit_pct, "ref_fps": fps, "cap": a.cap, "caps": run.get("caps"),
         "watched": watch.was_watched(run_dir), "recorded": (run_dir / "record.json").exists(),
         "limiters": suite.limiters_in(plan.env(opts)), "budget_s": plan.budget_s or None,
     }
@@ -302,10 +334,16 @@ def cmd_suite(a):
     out = runner.STATE / name
     out.mkdir(parents=True, exist_ok=True)
     rows, failed = [], []
-    for sc in names:
+    halted = None
+    for i, sc in enumerate(names):
         b = argparse.Namespace(**vars(a))
         b.scenario = sc
         status = cmd_run(b)
+        if status == HALTED or guard.halted():
+            # A refused or halted run stops the whole suite: no later scenario starts.
+            halted = (guard.halted() or {}).get("reason") or "refused by the memory guard"
+            failed.extend([f"{sc} (stopped)"] + names[i + 1:])
+            break
         if status in (2, 3):
             failed.append(sc)
             continue
@@ -329,8 +367,23 @@ def cmd_suite(a):
     print(md)
     if failed:
         print(f"not run: {', '.join(failed)}", file=sys.stderr)
+    if halted:
+        print(f"suite stopped: {halted}", file=sys.stderr)
+        print(f"suite: {out}")
+        return HALTED
     print(f"suite: {out}")
     return 0 if rows and not failed and all(r["checks_ok"] and not r.get("too_long") for r in rows) else 1
+
+
+def cmd_clear_halt(_a):
+    h = guard.halted()
+    if not h:
+        print("bench runs are not halted")
+        return 0
+    print(f"halted since {h.get('time', '?')}: {h.get('reason')}")
+    guard.clear_halt()
+    print("cleared: bench runs may start again")
+    return 0
 
 
 def cmd_report(a):
@@ -393,8 +446,12 @@ def run_args(r):
     r.add_argument("--threads", choices=["real", "stepped"])
     r.add_argument("--resolution", default="1920x1080")
     r.add_argument("--sound", choices=["out", "device", "none", "silent"], help="silent (default): the sound runs, the speakers get nothing; out: audible; none: no sound device at all")
-    r.add_argument("--mem", default=os.environ.get("NV_BENCH_MEM", "12G"), help="host memory cap of the run (systemd scope); empty for none")
-    r.add_argument("--vram-limit-pct", type=int, default=int(os.environ.get("NV_VRAM_LIMIT_PCT", "70")), help="stop the game when the card's VRAM or GTT use passes this percent (0: off)")
+    r.add_argument("--mem", default=os.environ.get("NV_BENCH_MEM") or None,
+                   help="lower the host memory cap of the run (systemd scope; the default is half the available memory, 12G at most)")
+    r.add_argument("--vram-cap-mib", type=int, default=None, help="lower the run's VRAM cap (default: half the card's VRAM)")
+    r.add_argument("--gtt-cap-mib", type=int, default=None, help="lower the run's GTT cap (default: a quarter of the GTT)")
+    r.add_argument("--vram-limit-pct", type=int, default=int(os.environ.get("NV_VRAM_LIMIT_PCT", str(VRAM_LIMIT_PCT_MAX))),
+                   help=f"also stop the game when the card's whole VRAM or GTT use passes this percent ({VRAM_LIMIT_PCT_MAX} at most)")
     r.add_argument("--timeout", type=float, default=7200.0, help="hard wall limit in seconds")
     r.add_argument("--ref-fps", type=float, help="frames per second the scenario's seconds are converted at")
     r.add_argument("--frames", type=int, help="override: stop at this main frame")
@@ -426,6 +483,7 @@ def main(argv=None):
     su.add_argument("--baseline", metavar="NAME", help="compare with a stored baseline (default: the baseline named 'default' if there is one)")
     run_args(su)
     su.set_defaults(fn=cmd_suite)
+    sub.add_parser("clear-halt", help="allow bench runs again after the memory guard halted them (look at the cause first)").set_defaults(fn=cmd_clear_halt)
     p = sub.add_parser("report")
     p.add_argument("run")
     p.set_defaults(fn=cmd_report)

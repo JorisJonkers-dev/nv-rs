@@ -60,6 +60,33 @@ The run also scans /proc for other `nv-viewer` processes every 5 s; if any ran, 
 and `run.other_viewers_max`, the report says NOISY, and `bench compare` says which side was noisy: such timing rows
 are not to be trusted (a run by hand on the side, an `nv-rs-run` session, a worker that skipped the lock).
 
+## The memory guard (every run)
+
+A bench run once started while another program held almost all of the card's memory; the driver then refused the
+desktop's own command submissions (`Not enough memory for command submission`) and the session crashed. Every
+`nv-rs-dev bench run` and `bench suite`, and the replay-bench's `run`, therefore goes through `scripts/fork/bench/guard.py`.
+No option switches it off.
+
+| What | How |
+| --- | --- |
+| Host memory | The viewer and the nested compositor run in transient systemd scopes with `MemoryMax`, `MemoryHigh` (90% of it) and `MemorySwapMax=0`. Together they get half the memory available at start, 12 GiB at most; the compositor's scope is a fifth of that (2 GiB at most) and the viewer's the rest. Without `systemd-run` there is no run |
+| GPU memory, before | The card's VRAM and GTT use is read from amdgpu sysfs. The run is refused when the free VRAM cannot hold its cap (half the card's VRAM) plus 2048 MiB kept for the desktop, or the free GTT its cap (a quarter of the GTT) plus 1024 MiB |
+| GPU memory, during | Every 100 ms. At 90% of the way to the lower of the run's cap (over the use at start) and the card's total less the desktop's margin, the viewer's whole process group gets TERM, then KILL two seconds later. `--vram-limit-pct` (70 at most) stays as a second, card-wide limit, checked every second |
+| Engine | `NV_GPU_BUDGET_MB` is set to the run's VRAM cap (a lower value in the environment stays). The Direct3D layer refuses allocations past it with a `stop:` line, and the guard ends the run at that line |
+| Unreadable card | A card whose memory can no longer be read during the run stops it: an unguarded run does not go on. A card with no amdgpu sysfs memory files is refused at the start |
+| Session health | Once a second: an amdgpu line in the kernel log with `Not enough memory for command submission`, a GPU reset, a ring timeout or a lost device, or a desktop compositor (`gnome-shell`, `kwin_wayland`, `mutter`) that ran at the start and is gone |
+| Halt | When the guard stops a run, or the session is in trouble, it writes `~/.cache/nv-rs/bench.halt`. Every later run is refused (exit status 4), and a suite stops at once and starts no further scenario. `nv-rs-dev bench clear-halt` removes it, after the cause is understood |
+
+The caps are the defaults and can only be lowered: `--mem`, `--vram-cap-mib`, `--gtt-cap-mib` and `--vram-limit-pct`
+refuse a higher value. Every run logs its caps and the card's use at start (`# memory caps:` in `viewer.log`), writes
+`caps.json`, and keeps the caps, the card's use at start, its peak during the run and any guard stop in
+`summary.json` (`run.caps`, `run.card_at_start_mib`, `run.card_peak_mib`, `run.guard`). The verdict has a
+`memory guard quiet` check. When `journalctl -k` cannot be read, the log says so (`# memory guard warning:`) and only the
+card's use and the desktop's compositor are watched.
+
+The card's use is the whole card's, every program on it: another program that fills the card during a run also stops
+the run and halts the bench, on purpose. The desktop is what is protected.
+
 ## Modes and safety
 
 - **Unlimited is the default, as real play is.** `--mode unlimited`: `NV_FRAME_LIMIT=0` and `NV_FPS_LIMIT=0` in play and

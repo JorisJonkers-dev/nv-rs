@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 import driver
+import guard
 import lock
 import nested
 import record
@@ -32,16 +33,8 @@ CLK_TCK = os.sysconf("SC_CLK_TCK")
 
 
 def find_gpu():
-    """The amdgpu sysfs directory with the most VRAM, or None (no sampling, no watchdog)."""
-    best, size = None, -1
-    for d in glob.glob("/sys/class/drm/card*/device"):
-        try:
-            total = int(Path(d, "mem_info_vram_total").read_text())
-        except (OSError, ValueError):
-            continue
-        if total > size:
-            best, size = d, total
-    return best
+    """The amdgpu sysfs directory with the most VRAM, or None (guard.find_gpu)."""
+    return guard.find_gpu()
 
 
 def read_int(path):
@@ -166,18 +159,35 @@ def run_dir_for(name):
     return d
 
 
-def memory_cap_prefix(limit):
-    """A systemd user scope with a hard memory cap and no CPU limit or nice (a quota would distort the
-    measurement); empty when the scope is unavailable."""
-    if not limit or not shutil.which("systemd-run"):
-        return []
-    cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "-p", f"MemoryMax={limit}", "-p", "MemorySwapMax=0"]
-    try:
-        if subprocess.run(cmd + ["true"], capture_output=True, timeout=10).returncode == 0:
-            return cmd
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    return []
+def run_caps(opts, card):
+    """The run's memory caps (guard.py) for the card as read now: the defaults of this machine, lowered where the
+    options ask. Refuses a run when the caps cannot be made."""
+    caps = guard.default_caps(guard.mem_available(), card)
+    return guard.lowered(caps, host=guard.parse_size(opts.get("mem")), vram_mib=opts.get("vram_cap_mib"), gtt_mib=opts.get("gtt_cap_mib"))
+
+
+def stop_all(proc, comp):
+    """The guard's stop: the viewer's process group, then the nested compositor's."""
+    guard.stop_group(proc.pid, alive=lambda: proc.poll() is None)
+    if comp and comp.proc and comp.proc.poll() is None:
+        guard.stop_group(comp.proc.pid, alive=lambda: comp.proc.poll() is None)
+
+
+class LogTail:
+    """The text a growing log file gained since the last call."""
+
+    def __init__(self, path):
+        self.path, self.pos = Path(path), 0
+
+    def __call__(self):
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(self.pos)
+                data = f.read()
+                self.pos += len(data)
+                return data.decode("utf-8", "replace")
+        except OSError:
+            return ""
 
 
 def borrowed_libs(env):
@@ -263,6 +273,16 @@ def run_drive(plan, drv, opts, done, lf):
 def launch(plan, opts, run_dir):
     """Run the viewer under `plan` (scenarios.Plan) and `opts` (a dict); returns run.json's content."""
     run_dir = Path(run_dir)
+    # The memory guard first: no caps, or a card without room for the run and the desktop, no run (guard.Refused).
+    h = guard.halted()
+    if h:
+        raise guard.Refused(f"bench runs are halted since {h.get('time', '?')}: {h.get('reason')}")
+    gpu = find_gpu()
+    base = guard.read_gpu(gpu) if gpu else None  # one reading: the caps and the room are judged on the same numbers
+    caps = run_caps(opts, base)
+    guard.preflight(caps, base)
+    kernel_log_ok = guard.kernel_log_readable()
+    (run_dir / "caps.json").write_text(json.dumps(caps.as_dict(), indent=1))
     log = run_dir / "viewer.log"
     frames = run_dir / "frames.tsv"
     missing = run_dir / "missing.tsv"
@@ -279,13 +299,18 @@ def launch(plan, opts, run_dir):
             "RUST_LOG": env.get("RUST_LOG", "info"),
         }
     )
+    # The engine's own budget (d3d9-wgpu budget.rs): allocations past the run's VRAM cap are refused with a stop line.
+    # A lower NV_GPU_BUDGET_MB in the environment stays; a higher one, or 0 (which would switch it off), does not.
+    asked = env.get("NV_GPU_BUDGET_MB", "").strip()
+    budget_mib = min(caps.vram_mib, int(asked)) if asked.isdigit() and int(asked) > 0 else caps.vram_mib
+    env["NV_GPU_BUDGET_MB"] = str(budget_mib)
     env.update(borrowed_libs(env))
     comp, vi = None, None
     if opts.get("nested"):
         sway = nested.find_sway()
         if not sway:
             raise SystemExit("no sway on PATH (nix shell nixpkgs#sway, or NV_BENCH_SWAY): needed by --nested")
-        comp = nested.Nested(sway, run_dir, opts["resolution"], opts["nested"])
+        comp = nested.Nested(sway, run_dir, opts["resolution"], opts["nested"], scope=guard.scope_prefix(caps.sway_bytes))
         if not comp.start():
             comp.stop()
             raise SystemExit(f"the nested compositor did not start: see {run_dir}/compositor.log")
@@ -308,15 +333,38 @@ def launch(plan, opts, run_dir):
                 print(f"bench: not recording: {rec.note}", file=sys.stderr)
         else:
             print("bench: --record needs --nested headless (nothing to record offscreen)", file=sys.stderr)
-    cmd = memory_cap_prefix(opts.get("mem")) + [opts["viewer"], opts["game"], "--movement-missing", str(missing)]
-    gpu = find_gpu()
+    try:
+        scope = guard.scope_prefix(caps.host_bytes)
+    except guard.Refused:
+        if comp:
+            comp.stop()
+        raise
+    cmd = scope + [opts["viewer"], opts["game"], "--movement-missing", str(missing)]
     started = time.time()
+    desktop = guard.desktop_pids()
     with open(log, "w") as lf:
         lf.write(f"# nv-rs bench {plan.name} {time.strftime('%Y%m%dT%H%M%S')}\n")
         lf.write(f"# keys: {env.get('NV_MOVE_KEYS', '')}\n# mouse: {env.get('NV_MOVE_MOUSE', '')}\n")
         lf.write(f"# mode: {opts['mode']}, window: {'on screen' if opts['windowed'] else 'offscreen'}, nested: {opts.get('nested') or 'no'}\n")
+        lf.write(f"# memory caps: host {caps.host_bytes // guard.MIB} MiB, compositor {caps.sway_bytes // guard.MIB} MiB, VRAM {caps.vram_mib} MiB "
+                 f"(engine budget {budget_mib} MiB), GTT {caps.gtt_mib} MiB; kept for the desktop {caps.vram_margin_mib} MiB VRAM, "
+                 f"{caps.gtt_margin_mib} MiB GTT; card at start {base.vram_used:.0f} of {base.vram_total:.0f} MiB VRAM, "
+                 f"{base.gtt_used:.0f} of {base.gtt_total:.0f} MiB GTT\n")
+        if not kernel_log_ok:
+            lf.write("# memory guard warning: the kernel log cannot be read (journalctl -k); GPU resets are not seen, "
+                     "only the card's use and the desktop's compositor\n")
         lf.flush()
-        proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, env=env, cwd=run_dir)
+        # Its own process group, so the guard stops the viewer and everything it started at once.
+        proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, env=env, cwd=run_dir, start_new_session=True)
+        tail = LogTail(log)
+        own = {proc.pid} | ({comp.proc.pid} if comp and comp.proc else set())
+        gd = guard.Guard(
+            caps, base, read=lambda: guard.read_gpu(gpu),
+            stop=lambda: stop_all(proc, comp),
+            health=lambda: guard.session_trouble(guard.kernel_lines_since(started), desktop, guard.desktop_pids(), own),
+            log_text=tail,
+        )
+        gd.start()
         drive_done = threading.Event()
         if plan.drive:
             if not vi:
@@ -340,6 +388,9 @@ def launch(plan, opts, run_dir):
                 lf_n = last_frame(frames)
                 if lf_n is not None and first_frame_at is None:
                     first_frame_at = now
+                if gd.stopped:
+                    reason = "memory guard"
+                    break
                 if wd.killed:
                     reason = "watchdog"
                     break
@@ -358,9 +409,12 @@ def launch(plan, opts, run_dir):
         except KeyboardInterrupt:
             reason = "interrupted"
         if proc.poll() is None:
-            terminate(proc.pid)
+            guard.stop_group(proc.pid, grace=5, alive=lambda: proc.poll() is None)
         rc = proc.wait()
+        gd.finish()
         wd.finish()
+        if gd.stopped:
+            lf.write(f"# memory guard: {gd.stopped}: stopped the game; later runs are halted (nv-rs-dev bench clear-halt)\n")
         if wd.killed:
             lf.write(f"# GPU memory watchdog: {wd.killed}: stopped the game\n")
         lf.write(f"# exit status: {rc}\n")
@@ -379,4 +433,9 @@ def launch(plan, opts, run_dir):
         "wall_s": round(time.time() - started, 1),
         "watchdog": wd.killed,
         "gpu_sysfs": bool(gpu),
+        "caps": dict(caps.as_dict(), engine_budget_mib=budget_mib),
+        "guard": gd.stopped,
+        "session_trouble": gd.trouble,
+        "card_at_start_mib": {"vram": round(base.vram_used), "gtt": round(base.gtt_used)},
+        "card_peak_mib": {"vram": round(gd.peak["vram_mib"]), "gtt": round(gd.peak["gtt_mib"])},
     }

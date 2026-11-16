@@ -19,6 +19,7 @@ import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import guard  # noqa: E402
 import lock  # noqa: E402
 
 STREAMS = Path(os.environ.get("NV_REPLAY_STREAMS", Path.home() / ".local/share/nv-rs-research/streams"))
@@ -45,7 +46,7 @@ def listing(streams=STREAMS):
     return sorted(p for p in streams.glob("*.nvrs")) if streams.is_dir() else []
 
 
-def run_locked(argv, wait_timeout=None, use_lock=True, exe=None, other=lock.other_viewers, out=print, timeout=300):
+def run_locked(argv, wait_timeout=None, use_lock=True, exe=None, other=lock.other_viewers, out=print, timeout=300, guarded=None):
     """Runs the binary with `argv` under the bench lock; the exit status."""
     held = lock.BenchLock(wait_timeout=wait_timeout, out=out)
     if use_lock and not held.acquire():
@@ -62,11 +63,8 @@ def run_locked(argv, wait_timeout=None, use_lock=True, exe=None, other=lock.othe
         t = threading.Thread(target=watch, daemon=True)
         t.start()
         noisy["n"] = other()
-        try:
-            rc = subprocess.call([str(exe or binary()), *argv], timeout=timeout)
-        except subprocess.TimeoutExpired:
-            out(f"the run was stopped after {timeout} s")
-            rc = 124
+        # The same memory guard as every bench run (guard.py): refused while halted or without room, capped, sampled.
+        rc = (guarded or guard.run_guarded)([str(exe or binary()), *argv], timeout=timeout, out=out)
         stop.set()
         if noisy["n"]:
             out(f"NOISY: {noisy['n']} other nv-viewer process(es) ran during the measurement")

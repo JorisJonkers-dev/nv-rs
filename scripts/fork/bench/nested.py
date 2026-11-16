@@ -37,8 +37,11 @@ def parse_resolution(text):
 
 
 class Nested:
-    def __init__(self, sway, run_dir, resolution, mode="headless", mem="4G"):
-        self.sway, self.dir, self.mode, self.mem = sway, Path(run_dir), mode, mem
+    def __init__(self, sway, run_dir, resolution, mode="headless", scope=None):
+        """`scope` is the systemd-run prefix of the compositor's memory-capped scope (guard.scope_prefix): required."""
+        if not scope:
+            raise ValueError("the nested compositor runs only in a memory-capped scope")
+        self.sway, self.dir, self.mode, self.scope = sway, Path(run_dir), mode, list(scope)
         self.w, self.h = parse_resolution(resolution)
         self.proc = None
         self.socket = f"nv-bench-{os.getpid()}"
@@ -60,9 +63,7 @@ class Nested:
         else:  # a window in the session; WAYLAND_DISPLAY of the owner's session is the host
             env["WAYLAND_DISPLAY"] = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
             env["WLR_BACKENDS"] = "wayland"
-        cmd = [self.sway, "-c", str(conf)]
-        if shutil.which("systemd-run"):
-            cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "-p", f"MemoryMax={self.mem}", "-p", "MemorySwapMax=0"] + cmd
+        cmd = self.scope + [self.sway, "-c", str(conf)]
         self.log = open(self.dir / "compositor.log", "w")
         before = set(Path(self.runtime).glob("wayland-*"))
         self.proc = subprocess.Popen(cmd, stdout=self.log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
