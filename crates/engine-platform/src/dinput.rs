@@ -667,7 +667,7 @@ pub fn key(e: &mut Engine, code: u8, down: bool) {
             0x1c => "Enter",
             0x39 => "Space",
             0x9c => "KeypadEnter",
-            _ => "",
+            _ => modifier_name(code),
         };
         let state = if down { "down" } else { "up" };
         if name.is_empty() {
@@ -699,6 +699,20 @@ pub fn key(e: &mut Engine, code: u8, down: bool) {
                 d.overflowed = true;
             }
         }
+    }
+}
+
+/// The modifier keys (Control, Shift, Alt) by DirectInput key code: the game reads Control for
+/// sneaking and Shift for running, so their presses are logged at info like Escape and Enter.
+fn modifier_name(code: u8) -> &'static str {
+    match code {
+        0x1d => "LeftControl",
+        0x9d => "RightControl",
+        0x2a => "LeftShift",
+        0x36 => "RightShift",
+        0x38 => "LeftAlt",
+        0xb8 => "RightAlt",
+        _ => "",
     }
 }
 
@@ -761,6 +775,14 @@ pub fn mouse_button(e: &mut Engine, button: usize, down: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modifier_keys_are_named_for_the_log() {
+        assert_eq!(modifier_name(0x1d), "LeftControl");
+        assert_eq!(modifier_name(0x9d), "RightControl");
+        assert_eq!(modifier_name(0x2a), "LeftShift");
+        assert_eq!(modifier_name(0x11), "");
+    }
 
     #[test]
     fn async_key_state_reads_tab_and_either_alt() {

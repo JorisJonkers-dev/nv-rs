@@ -489,8 +489,7 @@ impl ApplicationHandler<Command> for App {
                 if !on {
                     // Losing the focus lets go of everything held (as the Windows layer does).
                     if let Ok(mut i) = self.shared.input.lock() {
-                        i.keys = [false; 256];
-                        i.buttons = [false; 8];
+                        i.release_all();
                     }
                     self.cursor = None;
                     self.release_pointer();
@@ -511,13 +510,13 @@ impl ApplicationHandler<Command> for App {
             WindowEvent::KeyboardInput { event, .. } if !event.repeat => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     if let (Some(k), Ok(mut i)) = (dik_of(code), self.shared.input.lock()) {
-                        i.keys[k as usize] = event.state == ElementState::Pressed;
+                        i.set_key(k, event.state == ElementState::Pressed);
                     }
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let (Some(b), Ok(mut i)) = (button_of(button), self.shared.input.lock()) {
-                    i.buttons[b] = state == ElementState::Pressed;
+                    i.set_button(b, state == ElementState::Pressed);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -560,6 +559,14 @@ mod tests {
         assert_eq!(dik_of(KeyCode::Escape), Some(0x01));
         assert_eq!(dik_of(KeyCode::ArrowDown), Some(0xd0));
         assert_eq!(dik_of(KeyCode::NumpadEnter), Some(0x9c));
+        // The modifiers arrive as keys too (winit sends them as KeyboardInput): Control is the
+        // game's sneak, Shift its walk and run, Alt the Alt-Tab test.
+        assert_eq!(dik_of(KeyCode::ControlLeft), Some(0x1d));
+        assert_eq!(dik_of(KeyCode::ControlRight), Some(0x9d));
+        assert_eq!(dik_of(KeyCode::ShiftLeft), Some(0x2a));
+        assert_eq!(dik_of(KeyCode::ShiftRight), Some(0x36));
+        assert_eq!(dik_of(KeyCode::AltLeft), Some(0x38));
+        assert_eq!(dik_of(KeyCode::AltRight), Some(0xb8));
         assert_eq!(dik_of(KeyCode::MediaPlayPause), None);
     }
 
