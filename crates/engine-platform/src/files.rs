@@ -1118,6 +1118,13 @@ pub fn find_first_file_a(e: &mut Engine, name: Ptr, data: Ptr) -> u32 {
     if let Err(code) = write_find_data(e, data, &meta, &stored, &shown) {
         return fail(e, code);
     }
+    // A file on the host has its 8.3 name from its directory's table, as a search lists it.
+    #[cfg(not(windows))]
+    if !meta.is_dir() {
+        let short = host_short(&real);
+        e.mem.write(data.addr() + 0x130, short.as_bytes());
+        e.mem.set_u8(data.addr() + 0x130 + short.len() as u32, 0);
+    }
     e.kernel
         .insert(KernelObject::FindFile(Opaque::new(Search::default())))
 }
@@ -1234,7 +1241,17 @@ fn write_names(e: &mut Engine, d: u32, name: &[u8], short: &[u8]) -> Result<(), 
 /// `findfile-changed/findfile-2026-11-03.txt` 8). A short name that could not be made as Windows
 /// makes it ([`short_name`]) stops the run.
 fn write_entry(e: &mut Engine, data: Ptr, entry: &Entry, shown: &str) -> Result<(), u32> {
-    let Some(short) = &entry.short else {
+    let _ = shown;
+    // A short name that was not made when the entry was (it is only held as `None` on Windows,
+    // where ntdll's names for a long extension differ from NTFS's) is made now: nothing a game
+    // lists may stop it for a short name.
+    #[cfg(not(windows))]
+    let on_demand = entry_short(&entry.name);
+    #[cfg(not(windows))]
+    let short = entry.short.as_ref().unwrap_or(&on_demand);
+    #[cfg(windows)]
+    let Some(short) = &entry.short
+    else {
         panic!(
             "FindFirstFileA(\"{shown}\"): the 8.3 short name of \"{}\", made in this run, is not \
              provided",
@@ -1943,9 +1960,50 @@ fn player_entry(path: &[u8]) -> Option<Entry> {
     }
     #[cfg(not(windows))]
     {
-        let _ = path;
-        None
+        let real = real_path(path);
+        let meta = std::fs::metadata(&real).ok().filter(|m| m.is_file())?;
+        let shown = String::from_utf8_lossy(path).into_owned();
+        let (attributes, created, accessed, written) =
+            crate::fork_platform::find_fields(&meta, &shown);
+        Some(Entry {
+            name: real.file_name().map(host_name_text)?,
+            short: Some(host_short(&real)),
+            attributes,
+            size: meta.len(),
+            created,
+            accessed,
+            written,
+        })
     }
+}
+
+/// The short name of a name with nothing else known about its directory: empty for a name that
+/// needs none, else the first `~N` name ([`short_names::generate`]).
+#[cfg(not(windows))]
+fn entry_short(name: &str) -> String {
+    short_names::generate(name, &std::collections::HashSet::new()).unwrap_or_default()
+}
+
+/// The 8.3 short name of the host file `real`, from its directory's table ([`short_names::assign`]:
+/// the same on every run for the same directory); empty for a name that needs none. The table is
+/// made from the directory as it is when asked, so a file made or renamed since is in it.
+#[cfg(not(windows))]
+fn host_short(real: &std::path::Path) -> String {
+    let (Some(parent), Some(name)) = (real.parent(), real.file_name()) else {
+        return String::new();
+    };
+    let name = host_name_text(name);
+    let all: Vec<String> = std::fs::read_dir(parent)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| host_name_text(&entry.file_name()))
+                .collect()
+        })
+        .unwrap_or_default();
+    short_names::assign(&all)
+        .remove(&name)
+        .unwrap_or_else(|| entry_short(&name))
 }
 
 /// The 8.3 short name the file system gives the name of the full path `path` when it enters its
@@ -1980,9 +2038,11 @@ fn short_name(e: &Engine, path: &[u8]) -> Option<String> {
     {
         // The host keeps no short names: made as NTFS makes them ([`short_names`]), against
         // the names the directory holds now.
-        let cut = last_separator(path)?;
-        let taken = names_in(e, &path[..cut]);
-        short_names::generate(&name, &taken).filter(|short| !short.is_empty())
+        let taken = match last_separator(path) {
+            Some(cut) => names_in(e, &path[..cut]),
+            None => std::collections::HashSet::new(),
+        };
+        Some(short_names::generate(&name, &taken).unwrap_or_else(|| entry_short(&name)))
     }
 }
 
@@ -3638,7 +3698,8 @@ mod tests_kept_files {
 
     /// The scratch file `name` in `dir` with `bytes`; its full path.
     fn file(dir: &str, name: &str, bytes: &[u8]) -> String {
-        let path = format!("{dir}\\{name}");
+        // `/` is a separator for the game's calls and for the host, on every system.
+        let path = format!("{dir}/{name}");
         std::fs::write(&path, bytes).unwrap();
         path
     }
@@ -4309,13 +4370,69 @@ mod tests_changed_directories {
             &mut e,
             &format!("{dir2}\\Save 2   Courier  Old save  00 01 00.fos"),
         );
-        assert_eq!(old[0].1, "");
+        assert_eq!(old[0].1, "SAVE2C~1.FOS");
         let all = listed(&mut e, &format!("{dir2}\\*.fos"));
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].1, "SAVE2C~1.FOS");
         assert_eq!(listed(&mut e, &format!("{dir2}\\*.fos")), all);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    /// Owner's crash: a save in a `Z:` path with the game's exact name.
+    #[cfg(not(windows))]
+    #[test]
+    fn save_in_z_path_with_game_name() {
+        let dir = scratch("zsave", &[]);
+        let saves = format!("{dir}/.local/share/nv-rs/userdata/Documents/My Games/FalloutNV/Saves");
+        std::fs::create_dir_all(&saves).unwrap();
+        let z = format!("Z:{}", saves.replace('/', "\\"));
+        let mut e = Engine::new();
+        let a = "Save 1   Courier  Doc Mitchell s House  00 03 39";
+        save(&mut e, &z, a, &[0x10]);
+        let one = listed(&mut e, &format!("{z}\\{a}.fos"));
+        assert_eq!(one.len(), 1);
+        save(&mut e, &z, a, &[0x10]);
+        let one = listed(&mut e, &format!("{z}\\{a}.fos"));
+        assert_eq!(one.len(), 1);
+        // An entry whose short name was never made is listed with one made now, not a stop.
+        let k = key(format!("{z}\\{a}.fos").as_bytes());
+        state!(e).disk.entries.get_mut(&k).unwrap().short = None;
+        let one = listed(&mut e, &format!("{z}\\{a}.fos"));
+        assert_eq!(one[0].1, "SAVE1C~1.FOS");
+        for i in 0..12 {
+            let n = format!("Save {i}   Courier  Doc Mitchell s House  00 03 {i:02}");
+            save(&mut e, &z, &n, &[0x10]);
+            assert_eq!(listed(&mut e, &format!("{z}\\{n}.fos")).len(), 1, "{n}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A save over one the player already has on disk.
+    #[cfg(not(windows))]
+    #[test]
+    fn save_over_a_save_on_disk() {
+        let n = "Save 1   Courier  Doc Mitchell s House  00 03 39";
+        let dir = scratch(
+            "zover",
+            &[
+                (&format!("{n}.fos"), 5),
+                (&format!("{n}.fos.bak"), 5),
+                ("Save 2   Courier  Other  00 01 01.fos", 5),
+            ],
+        );
+        let mut e = Engine::new();
+        save(&mut e, &dir, n, &[0x10]);
+        assert_eq!(listed(&mut e, &format!("{dir}\\{n}.fos")).len(), 1);
+        assert_eq!(listed(&mut e, &format!("{dir}\\{n}.fos.bak")).len(), 1);
+        assert_eq!(listed(&mut e, &format!("{dir}\\*.fos")).len(), 2);
+        assert_eq!(listed(&mut e, &format!("{dir}\\*.bak")).len(), 1);
+        let on_disk = listed(
+            &mut e,
+            &format!("{dir}\\Save 2   Courier  Other  00 01 01.fos"),
+        );
+        assert_eq!(on_disk[0].1, "SAVE2C~1.FOS");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `.` of a directory the game changed is not listed as Windows would (its times move with
@@ -5195,6 +5312,9 @@ mod tests_code_pages {
         assert_eq!(e.mem.u32(part), buffer + 7);
         // A real file named ソ.txt opens by its 932 bytes and reads.
         let dir = scratch("dbcs");
+        // The scratch folder's path is the host's own (`/tmp/...` is not a Windows full path), so
+        // no current folder is put in front of it.
+        e.kernel.current_directory = Vec::new();
         std::fs::write(dir.join("\u{30bd}.txt"), b"so").unwrap();
         assert_eq!(read_named(&mut e, &dir, so), Ok(b"so".to_vec()));
         let names: Vec<Vec<u8>> = listing(&dir, b"*.txt", "test")
