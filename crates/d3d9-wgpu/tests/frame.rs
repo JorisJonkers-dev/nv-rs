@@ -4125,3 +4125,78 @@ fn a_texture_leak_and_an_absurd_texture_stop_at_the_gpu_budget() {
     assert_eq!(d.gpu_budget_for_tests().1, refused + 1);
     assert_eq!(d.wgpu_errors(), 0);
 }
+
+/// The same quad over the whole 8 by 8 target with a texture of two texels, red then black: the
+/// texture coordinates are read, so the left half is red and the right half black.
+#[test]
+fn a_quad_of_pre_transformed_vertices_without_shaders_maps_its_texture_coordinates() {
+    let Some(mut g) = Gpu::new(8, 1) else { return };
+    for pixel in [false, true] {
+        g.run(Cmd::SetShader {
+            device: DEVICE,
+            pixel,
+            shader: 0,
+        });
+    }
+    const TEX: u32 = 0x1640;
+    let levels = words(&[TEX + 1]);
+    g.run(Cmd::CreateTexture {
+        device: DEVICE,
+        texture: TEX,
+        levels: Data::Bytes(&levels),
+        width: 2,
+        height: 1,
+        usage: 0,
+        format: A8R8G8B8,
+        pool: 1,
+    });
+    g.run(Cmd::UploadSurface {
+        surface: TEX + 1,
+        row: 8,
+        rows: 1,
+        data: Data::Bytes(&[0, 0, 255, 255, 0, 0, 0, 255]),
+    });
+    g.run(Cmd::SetTexture {
+        device: DEVICE,
+        sampler: 0,
+        texture: TEX,
+    });
+    g.state(ZENABLE, 0);
+    g.state(CULLMODE, 1);
+    g.run(Cmd::SetFvf {
+        device: DEVICE,
+        fvf: 0x104,
+    });
+    g.clear(1, 0, 1.0);
+    // Pixels x 1 to 5 and y 4 to 7, as a strip: x, y, z, rhw, u, v.
+    let quad = floats(&[
+        0.0, 0.0, 0.0, 1.0, 0.0, 0.0, //
+        8.0, 0.0, 0.0, 1.0, 1.0, 0.0, //
+        0.0, 8.0, 0.0, 1.0, 0.0, 1.0, //
+        8.0, 8.0, 0.0, 1.0, 1.0, 1.0,
+    ]);
+    g.run(Cmd::UploadBuffer {
+        buffer: VB,
+        offset: 0,
+        flags: 0,
+        data: Data::Bytes(&quad),
+    });
+    g.run(Cmd::SetStreamSource {
+        device: DEVICE,
+        stream: 0,
+        buffer: VB,
+        offset: 0,
+        stride: 24,
+    });
+    g.run(Cmd::DrawPrimitive {
+        device: DEVICE,
+        kind: 5,
+        start: 0,
+        count: 2,
+    });
+    let reds = g.reds();
+    let at = |x: usize, y: usize| reds[y * 8 + x];
+    assert_eq!(at(1, 4), 255, "the left half shows the first texel");
+    assert_eq!(at(6, 4), 0, "the right half shows the second texel");
+    assert_eq!(g.b.device().expect("the device").wgpu_errors(), 0);
+}
