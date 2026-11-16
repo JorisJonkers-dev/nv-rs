@@ -350,6 +350,12 @@ chosen before the window exists, so the first run may seed another output's size
 - Present mode: `NV_PRESENT=fifo|mailbox|immediate`; with none, the game's immediate interval is `Immediate`, anything else
   `Mailbox` where the surface has it, else `Fifo` (Windows keeps `Fifo`). The pacing of a minimised window uses the display's
   refresh. One line says the result: `NV_D3D9 display: monitor <index> <w>x<h> <hz> Hz, present <mode>`.
+- No frame limit by default. Under the `fixes` preset the game's own 10 ms step and sleep are replaced (`NV_UNCAP`), the play
+  frame limit is 0 (unlimited; `NV_FPS_LIMIT=N` or `FrameLimit=N` in settings.ini sets one) and `Mailbox` presents let the game
+  render faster than the display refreshes without tearing. The only limiter left is the menu limit (`NV_MENU_FRAME_LIMIT`,
+  120 a second; loading screens and play have none), which keeps the menus from spinning. The high-frame-rate landing and
+  grab fixes stay on: they keep physics right at any rate. `NV_PRESENT=immediate` presents without waiting at all (tearing);
+  `fifo` only when asked for.
 
 ### Alt-tab and a lost device
 
