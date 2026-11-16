@@ -54,7 +54,7 @@ log (`::group::` per compile and per test binary), annotates failed tests, and w
 Where a component runs: Windows is authoritative (upstream's gate). A component marked `runs_on = "both"` also gets a
 Linux twin that is **informational** (it cannot fail the run) until every crate of the component is in
 [`.fork/linux-ok.txt`](../../.fork/linux-ok.txt); then the component runs on Linux only, required, and its Windows job goes away,
-unless the component says `windows = "required"` (it holds `cfg(windows)` code). `Linux probe` lists which crates build on Linux; promote its
+unless the component says `windows = "required"` (it holds `cfg(windows)` code). A component without crates (only `commands`) that says `linux = "required"` has a required Linux job and no Windows job: `native-saves` (the save test of the native build, `crates/host/tests/linux_saves.rs`). `Linux probe` lists which crates build on Linux; promote its
 artifact to `linux-ok.txt` once the twins pass.
 
 ## Adding or moving a crate
