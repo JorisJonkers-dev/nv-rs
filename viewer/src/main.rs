@@ -240,6 +240,7 @@ fn main() {
         .map_or(Duration::from_secs(5), |s| {
             Duration::from_secs_f64(s.max(0.0))
         });
+    let mut trace = host::fork_trace::Trace::default();
     loop {
         fork_log::set_frame(game.movement.main_frames);
         game.set_keys_down(&[]);
@@ -257,6 +258,7 @@ fn main() {
         if game.repeatable_end() {
             host::end_process(0);
         }
+        trace.sample(&game.engine);
         if let Some(log) = &mut frame_log {
             log.record(&mut game.engine);
         }

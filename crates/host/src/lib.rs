@@ -21,6 +21,7 @@ pub mod cell_offsets;
 pub mod direct_files;
 pub mod draw_thread;
 pub mod fixes;
+pub mod fork_trace;
 pub mod form_types;
 pub mod frame_log;
 pub mod full_screen;

@@ -73,9 +73,15 @@ counts are in the exit summary.
 | `present.source`, `present` | which surface the present shows, when it changes; each present throttled |
 | `loading.begin`, `loading.end` | the start's loading screen (the d3d9 layer's own) |
 
-Not yet traced: the game's menus (the menu stack, main, loading and pause menus), which are the game's own translated code and have
-no intercepted seam, the cause of a music stop beyond "the game stopped it", the kind of load (new game, save, cell), and cell or
-world loads. Those need hooks in the engine crates; the trace is ready for them (`fork_log::game_info!("menu.open", ...)`).
+From the game's own state (`crates/host/src/fork_trace.rs`, read-only, once a frame, changes only; the words are those
+`loadingmenu.rs` names): `menu.loading` (the loading menu is up or gone, and whether it is the game's first load), `load.thread`
+(the loading thread object exists: a load runs), `load.music` and `load.movie` (the movie player word set or cleared).
+
+Not traced, and there is no seam to trace them at: the main, pause and other menus and the menu stack, and the kind of a later
+load (new game, save, door or fast travel). The menus are the game's translated code; the port intercepts none of their calls and
+the stack is a structure no translation names a global for. `bInitialLoad` only tells the first load from the rest. Tracing them
+needs a patch row in `engine-core`'s extend hooks at a menu's show and hide functions (an engine-core change), or reading the
+interface manager's menu list once its layout is named.
 
 ## Soft stops
 
