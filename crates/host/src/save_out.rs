@@ -32,7 +32,13 @@ use std::sync::{Mutex, OnceLock};
 fn out_dir() -> Option<&'static Path> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
     DIR.get_or_init(|| {
-        let dir = PathBuf::from(std::env::var_os("NV_SAVE_OUT")?);
+        let dir = match std::env::var_os("NV_SAVE_OUT") {
+            Some(dir) if dir == "off" => return None,
+            Some(dir) => PathBuf::from(dir),
+            // The game runs natively here and its Documents is the port's own folder
+            // (`known_folders`): its saves belong in the Saves folder there, not in memory.
+            None => return native_saves_dir(),
+        };
         let profile = std::env::var_os("USERPROFILE").map(PathBuf::from);
         if let Some(why) = refused(&dir, profile.as_deref(), &known_folders()) {
             warn_visibly(
@@ -50,6 +56,26 @@ fn out_dir() -> Option<&'static Path> {
         Some(dir)
     })
     .as_deref()
+}
+
+/// The Saves folder of the native build's own Documents (`<data folder>/nv-rs/userdata/Documents/
+/// My Games/FalloutNV/Saves`), where saves are kept when `NV_SAVE_OUT` is not set; `None` on
+/// Windows (the player's real Documents is never written to without being asked) and where the
+/// data folder is unknown.
+fn native_saves_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        let documents = known_folders().into_iter().next()?;
+        let dir = documents.join("My Games").join("FalloutNV").join("Saves");
+        for name in clean_parts(&dir) {
+            println!("NV_SAVE_OUT: removed {name}, a copy cut short by an earlier run's end");
+        }
+        Some(dir)
+    }
 }
 
 /// The copy-out's temporary files (`<save>.fos.part`, `<save>.nvse.part`) an earlier run left in
@@ -345,6 +371,26 @@ pub fn jobs(e: &Engine, watch: &mut Watch, dir: Option<&Path>, prefs: Option<&Pa
     jobs
 }
 
+/// `bytes` into the new file `path`, on disk before it returns (`fsync`), so the rename that
+/// follows never publishes a file whose data is still only in the cache.
+fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+/// The folder of `path` synced, so a rename in it survives a crash (Unix; Windows has no such
+/// call and its rename is journalled).
+fn sync_parent(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        return std::fs::File::open(parent)?.sync_all();
+    }
+    let _ = path;
+    Ok(())
+}
+
 /// Does `job`'s disk work: the log line when there is one (`Ok`), or the line saying why a
 /// write failed (`Err`).
 pub fn run(job: &Job) -> Result<Option<String>, String> {
@@ -360,10 +406,14 @@ pub fn run(job: &Job) -> Result<Option<String>, String> {
             let written = dir
                 .as_deref()
                 .map_or(Ok(()), std::fs::create_dir_all)
-                .and_then(|()| std::fs::write(temporary, bytes))
-                .and_then(|()| std::fs::rename(temporary, target));
+                .and_then(|()| write_synced(temporary, bytes))
+                .and_then(|()| std::fs::rename(temporary, target))
+                .and_then(|()| sync_parent(target));
             match (written, copied) {
-                (Ok(()), Some(name)) => Ok(Some(format!("NV_SAVE_OUT: copied {name}"))),
+                (Ok(()), Some(name)) => Ok(Some(format!(
+                    "NV_SAVE_OUT: copied {name} to {}",
+                    target.display()
+                ))),
                 (Ok(()), None) => Ok(None),
                 (Err(err), Some(_)) => Err(format!(
                     "NV_SAVE_OUT: {} not copied: {err}",
@@ -616,7 +666,10 @@ mod tests {
         let mut watch = Watch::default();
         assert_eq!(
             look(&e, &mut watch, Some(&dir), None),
-            vec!["NV_SAVE_OUT: copied quicksave.fos".to_string()]
+            vec![format!(
+                "NV_SAVE_OUT: copied quicksave.fos to {}",
+                dir.join("quicksave.fos").display()
+            )]
         );
         assert_eq!(
             std::fs::read(dir.join("quicksave.fos")).unwrap(),
@@ -628,7 +681,10 @@ mod tests {
         put(&mut e, &key("quicksave.fos"), b"FO3SAVEGAME two");
         assert_eq!(
             look(&e, &mut watch, Some(&dir), None),
-            vec!["NV_SAVE_OUT: copied quicksave.fos".to_string()]
+            vec![format!(
+                "NV_SAVE_OUT: copied quicksave.fos to {}",
+                dir.join("quicksave.fos").display()
+            )]
         );
         assert_eq!(
             std::fs::read(dir.join("quicksave.fos")).unwrap(),
@@ -638,7 +694,10 @@ mod tests {
         put(&mut e, &key("quicksave.nvse"), b"NVSE");
         assert_eq!(
             look(&e, &mut watch, Some(&dir), None),
-            vec!["NV_SAVE_OUT: copied quicksave.nvse".to_string()]
+            vec![format!(
+                "NV_SAVE_OUT: copied quicksave.nvse to {}",
+                dir.join("quicksave.nvse").display()
+            )]
         );
         assert_eq!(std::fs::read(dir.join("quicksave.nvse")).unwrap(), b"NVSE");
         // A change to a file that is not a save hands on nothing.
@@ -648,7 +707,10 @@ mod tests {
         watch.failed(&key("quicksave.fos"));
         assert_eq!(
             look(&e, &mut watch, Some(&dir), None),
-            vec!["NV_SAVE_OUT: copied quicksave.fos".to_string()]
+            vec![format!(
+                "NV_SAVE_OUT: copied quicksave.fos to {}",
+                dir.join("quicksave.fos").display()
+            )]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -702,7 +764,10 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "NV_SAVE_OUT: copied made again.fos".to_string(),
+                format!(
+                    "NV_SAVE_OUT: copied made again.fos to {}",
+                    saves_dir.join("made again.fos").display()
+                ),
                 "NV_SAVE_OUT: copied old.fos (deleted)".to_string()
             ]
         );
@@ -781,6 +846,41 @@ mod tests {
         assert_eq!(std::fs::read(dir.join("exit.fos")).unwrap(), bytes);
         assert!(!dir.join("exit.fos.part").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A save over one already on disk (the player's, from an earlier run) replaces it whole, in a
+    /// folder that did not exist, and leaves no temporary file.
+    #[test]
+    fn a_save_replaces_one_on_disk_and_leaves_no_part_file() {
+        let dir = std::env::temp_dir().join(format!("nv-save-over-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let name = "Save 1   Courier  Doc Mitchell s House  00 03 39.fos";
+        let write = |bytes: Vec<u8>| Job::Write {
+            key: name.to_ascii_lowercase().into_bytes(),
+            dir: Some(dir.clone()),
+            target: dir.join(name),
+            temporary: dir.join(format!("{name}.part")),
+            bytes,
+            copied: Some(name.into()),
+        };
+        assert!(run(&write(vec![1; 1000])).unwrap().is_some());
+        assert!(run(&write(vec![2; 50])).unwrap().is_some());
+        assert_eq!(std::fs::read(dir.join(name)).unwrap(), vec![2; 50]);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Off Windows saves have a folder of their own without `NV_SAVE_OUT`: the Saves folder of
+    /// the port's Documents.
+    #[cfg(not(windows))]
+    #[test]
+    fn the_native_default_is_the_saves_folder_of_the_ports_documents() {
+        if let Some(dir) = native_saves_dir() {
+            assert!(
+                dir.ends_with("Documents/My Games/FalloutNV/Saves"),
+                "{dir:?}"
+            );
+        }
     }
 
     /// With the copy-out's thread gone (its receiver dropped), a job is done on the caller's
