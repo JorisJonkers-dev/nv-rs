@@ -77,6 +77,21 @@ class GateTests(unittest.TestCase):
         self.assertEqual(cr.fork_owned_crates(d), ["fork-log", "fork-window"])
 
 
+class MergeTests(unittest.TestCase):
+    def test_merge_reads_the_directory_it_is_given(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "cov-formats").mkdir()
+        (d / "cov-formats" / "lcov.info").write_text(LCOV)
+        (d / "cov-formats" / "baseline.txt").write_text("nightly 123\n")
+        plan_doc = {"include": [{"component": "formats"}, {"component": "core"}]}
+        rows, merged_pr, merged_base, missing, baselines = cr.merge_dir(str(d), plan_doc, {"crates/esm/src/a.rs": {2}})
+        self.assertEqual([r[0] for r in rows], ["formats"])
+        self.assertEqual(rows[0][3], 1)
+        self.assertEqual(sorted(merged_pr), ["crates/bsa/src/b.rs", "crates/esm/src/a.rs"])
+        self.assertEqual(merged_base, {})
+        self.assertEqual(missing, ["core"])
+        self.assertEqual(baselines, {"nightly 123"})
+
 class FormatTests(unittest.TestCase):
     def test_spans(self):
         self.assertEqual(cr.spans({1, 2, 3, 7, 9, 10}), "1-3,7,9-10")

@@ -50,6 +50,25 @@ To flip it, once a nightly run on `fork` has succeeded (the first one was starte
 
 Every Linux component runs with a 90 minute timeout and `continue-on-error`. `core` and the `fallout-*` components run instrumented differential tests and are the ones that may exceed it; a component that times out is reported as "not measured" and does not break the run. If the first nightly run shows a timeout, split that component into `[[component.job]]` entries (as `integration` does) or add it to `SKIP` in `coverage_report.py`, and record the measured times here.
 
+The first nightly run (run 43850925215, started by hand on `fork` on 2026-11-16) passed with every component measured and none
+near the timeout; the whole run took about 13 minutes. Job times, from start to end:
+
+| Component | Time |
+|---|---|
+| fallout-gameplay | 7 min 30 s |
+| engine-base | 5 min 17 s |
+| fallout-front | 4 min 56 s |
+| fallout-world | 4 min 54 s |
+| scripting | 4 min 09 s |
+| native-saves | 3 min 41 s |
+| core | 2 min 01 s |
+| window-layer | 2 min 01 s |
+| presence | 1 min 40 s |
+| log | 1 min 21 s |
+| memlog | 1 min 20 s |
+| hitch | 1 min 17 s |
+| formats | 1 min 09 s |
+
 ## Limits
 
 * The delta compares with the last nightly run, not exactly the pull request's base commit.

@@ -238,7 +238,7 @@ def merge_dir(directory, plan_doc, ranges):
     baselines = set()
     for item in plan_doc["include"]:
         comp = item["component"]
-        base_dir = os.path.join(args.dir, f"cov-{comp}")
+        base_dir = os.path.join(directory, f"cov-{comp}")
         pr = parse_lcov(os.path.join(base_dir, "lcov.info"))
         base = parse_lcov(os.path.join(base_dir, "base.info"))
         try:
