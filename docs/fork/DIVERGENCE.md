@@ -32,9 +32,9 @@ The older table below stays and counts as a reason only ("table row only" in the
 
 ### Short names off Windows
 - Files: `crates/engine-platform/src/files.rs` (`search_finds`, `listing`, `player_entry`, `short_name`, `write_entry`, `find_first_file_a`; the fork's `files/short_names.rs` removed)
-- Upstream approach: upstream does not list host files off Windows; on Windows the file system answers short names, and `search_finds` (the run's own files) rules out a short name by the pattern's first letter and stops on any pattern it cannot decide (checked on `origin/main`, 2026-11-16)
+- Upstream approach: off Windows upstream lists host files with empty short names, but `search_finds` still matches against a short name a name would have and stops the run on any pattern its first letter does not rule out; on Windows the file system answers (checked on `origin/main`, 2026-11-16)
 - Fork approach: off Windows the host keeps no 8.3 short names, as a Windows volume with their generation off: a search matches the long name only and never stops for a short name, and `cAlternateFileName` is empty for host files and the run's files. On Windows the behaviour is unchanged (the first two letters rule out a short name, the plain stop stays)
-- Decision: drop when upstream lists host files off Windows itself
+- Decision: drop when upstream matches long names only off Windows
 - Reason: wildcard searches for a master's archives (`<name>*.bsa`) in a folder that holds an archive whose long name has spaces stopped the game in its first frame, once per pattern the short-name rules could not decide
 - Evidence: JorisJonkers-dev/nv-rs#331; the test `off_windows_a_search_matches_the_long_name_only` and the save tests in `tests_changed_directories`
 
