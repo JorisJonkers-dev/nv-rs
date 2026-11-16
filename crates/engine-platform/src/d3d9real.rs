@@ -148,7 +148,7 @@ pub fn backends() -> Option<Backends> {
 fn asked(value: Option<&str>, choice: u8) -> Option<Backends> {
     match value {
         Some(value) if !value.trim().is_empty() => Backends::parse(value).unwrap_or_else(|why| {
-            eprintln!("{why}");
+            fork_log::warn!(target: "d3d9", "{why}");
             None
         }),
         _ => match choice {
@@ -309,7 +309,7 @@ pub fn real_window(e: &Engine, handle: u32) -> Option<isize> {
 #[inline(never)]
 fn missing(e: &mut Engine, call: &'static str) {
     if real(e).logged.insert(call) {
-        eprintln!(
+        fork_log::warn!(target: "d3d9",
             "NV_D3D9=real: {call}: the model answers 0x00000000, the real runtime 0xffffffff"
         );
     }
@@ -505,7 +505,7 @@ extern "system" fn window_procedure(
     // Closing the game's window ends the run (the player's way out, also when the game has
     // stopped); the window itself is not destroyed first.
     if message == WM_CLOSE {
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9={}: the game's window was closed: the run ends",
             tag()
         );
@@ -1114,7 +1114,7 @@ pub fn window_created(
         match real_window(e, parent) {
             Some(p) => p,
             None => {
-                eprintln!(
+                fork_log::warn!(target: "d3d9",
                     "NV_D3D9={}: a child window of a window without a real one",
                     tag()
                 );
@@ -1140,14 +1140,16 @@ pub fn window_created(
         .unwrap_or(false);
     match answer.recv().ok().filter(|&w| sent && w != 0) {
         Some(window) => {
-            eprintln!(
+            fork_log::info!(target: "d3d9",
                 "NV_D3D9={}: window {handle:#x} (style {style:#x}, parent {parent:#x}, {rect:?}) is real window {window:#x}",
                 tag()
             );
             let _device = engine_core::real_threads::device_guard(e);
             real(e).windows.insert(handle, window);
         }
-        None => eprintln!("NV_D3D9={}: the real window could not be made", tag()),
+        None => {
+            fork_log::fatal!(target: "d3d9", "NV_D3D9={}: the real window could not be made", tag())
+        }
     }
 }
 
@@ -1320,9 +1322,11 @@ pub fn direct3d_created(e: &mut Engine) {
     #[cfg(windows)]
     if which == Backends::Wgpu {
         match d3d9_wgpu::hardware_adapter() {
-            Some(adapter) => eprintln!("NV_D3D9=wgpu: drawing with {adapter}"),
+            Some(adapter) => {
+                fork_log::info!(target: "d3d9", "NV_D3D9=wgpu: drawing with {adapter}")
+            }
             None => {
-                eprintln!("NV_D3D9=wgpu: no graphics card wgpu can draw with (Vulkan or Direct3D 12): the real Direct3D 9 draws instead");
+                fork_log::warn!(target: "d3d9", "NV_D3D9=wgpu: no graphics card wgpu can draw with (Vulkan or Direct3D 12): the real Direct3D 9 draws instead");
                 which = Backends::Real;
             }
         }
@@ -1347,7 +1351,7 @@ fn make_stream(e: &mut Engine, which: Backends) -> Stream {
     // the calls on the game's threads, as diagnostics keep the threads stepped.
     let refused = wanted_thread && face_check::enabled();
     if refused {
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9={name}: the render thread is not taken with NV_FACE_CHECK: the calls stay on the game's threads"
         );
     }
@@ -1363,7 +1367,7 @@ fn make_stream(e: &mut Engine, which: Backends) -> Stream {
         let answers = matches!(which, Backends::Wgpu)
             .then(|| std::sync::Arc::new(d3d9_wgpu::QueryAnswers::default()));
         real(e).wgpu_answers = answers.clone();
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9={name}: the render thread is on (NV_RENDER_THREAD=0 turns it off; at most {} frame(s) in flight{})",
             settings.frames_in_flight,
             if settings.check { ", the stream checked" } else { "" }
@@ -1388,11 +1392,11 @@ fn make_stream(e: &mut Engine, which: Backends) -> Stream {
             }
         });
         match recording {
-            Ok(()) => eprintln!(
+            Ok(()) => fork_log::info!(target: "d3d9",
                 "NV_D3D9_RECORD: every Direct3D 9 command goes to {}",
                 std::path::Path::new(&path).display()
             ),
-            Err(error) => eprintln!(
+            Err(error) => fork_log::warn!(target: "d3d9",
                 "NV_D3D9_RECORD: {} could not be written ({error}): not recorded",
                 std::path::Path::new(&path).display()
             ),
@@ -1441,7 +1445,7 @@ pub fn device_created(
         real_window(e, h)
     };
     let (Some(window), Some(focus)) = (map(e, words[7]), map(e, focus)) else {
-        eprintln!(
+        fork_log::fatal!(target: "d3d9",
             "NV_D3D9={}: CreateDevice: the game's window has no real window",
             tag()
         );
@@ -1479,7 +1483,7 @@ pub fn device_created(
         && backends() == Some(Backends::Wgpu)
         && !DRAWING_REAL.load(std::sync::atomic::Ordering::Relaxed)
     {
-        eprintln!("NV_D3D9=wgpu: wgpu could not make the game's device: the real Direct3D 9 draws instead");
+        fork_log::warn!(target: "d3d9", "NV_D3D9=wgpu: wgpu could not make the game's device: the real Direct3D 9 draws instead");
         // The wgpu stream is let go first (its render thread ends, its record is written out),
         // then the real one takes over.
         real(e).stream = None;

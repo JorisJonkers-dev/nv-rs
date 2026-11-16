@@ -67,7 +67,7 @@ pub fn window_created(
     match fork_window::Window::open(request, Some(d3d9_wgpu::window_changed)) {
         Ok(window) => {
             let id = window.id();
-            eprintln!(
+            fork_log::info!(target: "d3d9",
                 "NV_D3D9={}: window {handle:#x} ({width}x{height}{}) is real window {id:#x}",
                 tag(),
                 if borderless {
@@ -82,7 +82,7 @@ pub fn window_created(
             let _device = engine_core::real_threads::device_guard(e);
             real(e).windows.insert(handle, id);
         }
-        Err(error) => eprintln!(
+        Err(error) => fork_log::warn!(target: "d3d9",
             "NV_D3D9={}: the real window could not be made ({error}): off screen",
             tag()
         ),
@@ -97,20 +97,20 @@ fn watch_close(id: isize) {
         .spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(50));
             if d3d9_wgpu::device_lost() {
-                eprintln!(
+                fork_log::fatal!(target: "d3d9", 
                     "NV_D3D9: the graphics device was lost: the run ends (see the line above)"
                 );
                 crate::run_exit_hooks();
                 crate::end_process(1);
             }
             if fork_window::close_requested(id) {
-                eprintln!("NV_D3D9: the game's window was closed: the run ends");
+                fork_log::info!(target: "d3d9", "NV_D3D9: the game's window was closed: the run ends");
                 crate::run_exit_hooks();
                 crate::end_process(0);
             }
         });
     if let Err(error) = spawned {
-        eprintln!("NV_D3D9: no watch on the window's close request ({error})");
+        fork_log::warn!(target: "d3d9", "NV_D3D9: no watch on the window's close request ({error})");
     }
 }
 
@@ -127,7 +127,7 @@ pub fn window_moved(_e: &mut Engine, _handle: u32, _rect: [i32; 4], _flags: u32)
 pub(super) fn make_stream(e: &mut Engine, which: Backends) -> Stream {
     let name = which.name();
     if which != Backends::Wgpu {
-        eprintln!("NV_D3D9={name}: there is no real Direct3D 9 here: wgpu draws instead");
+        fork_log::info!(target: "d3d9", "NV_D3D9={name}: there is no real Direct3D 9 here: wgpu draws instead");
     }
     let wanted_thread = real(e).render_thread;
     let (shader_settings, wgpu_cache) =
@@ -154,7 +154,7 @@ pub(super) fn make_stream(e: &mut Engine, which: Backends) -> Stream {
         let settings = d3d9_stream::Settings::from_env();
         let answers = std::sync::Arc::new(d3d9_wgpu::QueryAnswers::default());
         real(e).wgpu_answers = Some(answers.clone());
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9={name}: the render thread is on (NV_RENDER_THREAD=0 turns it off; at most {} frame(s) in flight)",
             settings.frames_in_flight
         );
@@ -173,11 +173,11 @@ pub(super) fn make_stream(e: &mut Engine, which: Backends) -> Stream {
             }
         });
         match recording {
-            Ok(()) => eprintln!(
+            Ok(()) => fork_log::info!(target: "d3d9",
                 "NV_D3D9_RECORD: every Direct3D 9 command goes to {}",
                 std::path::Path::new(&path).display()
             ),
-            Err(error) => eprintln!(
+            Err(error) => fork_log::warn!(target: "d3d9",
                 "NV_D3D9_RECORD: {} could not be written ({error}): not recorded",
                 std::path::Path::new(&path).display()
             ),

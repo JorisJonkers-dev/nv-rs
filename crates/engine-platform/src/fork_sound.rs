@@ -483,6 +483,9 @@ mod pulse {
                     _ => Library::new("libpulse.so.0"),
                 },
             }
+            .map_err(|e| {
+                fork_log::warn!(target: "sound", "sound: libpulse cannot be loaded ({e}): no sound output (NV_PULSE names the file)");
+            })
             .ok()?;
             load(lib)
         })

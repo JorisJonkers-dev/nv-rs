@@ -1064,13 +1064,13 @@ fn note_source(e: &mut Engine, source: TextureSource) {
     }
     state!(e).graphics.d3dx_texture_sources.push(source);
     match source {
-        TextureSource::Dll => eprintln!(
+        TextureSource::Dll => fork_log::info!(target: "d3d9",
             "D3DX textures: through the player's 64-bit d3dx9_38.dll in this process, on the real device"
         ),
         TextureSource::Cache(why) => {
-            eprintln!("D3DX textures: from the texture cache ({why})")
+            fork_log::info!(target: "d3d9", "D3DX textures: from the texture cache ({why})")
         }
-        TextureSource::Translated => eprintln!(
+        TextureSource::Translated => fork_log::info!(target: "d3d9",
             "D3DX textures: translated (d3dx-tex), byte for byte the 32-bit d3dx9_38.dll's"
         ),
     }
@@ -1092,7 +1092,7 @@ pub enum NotTranslated {
 /// the cache.
 fn note_not_translated(e: &mut Engine, kind: NotTranslated, why: &str) {
     if !state!(e).graphics.d3dx_not_translated.contains(&kind) {
-        eprintln!(
+        fork_log::warn!(target: "d3d9",
             "D3DX textures: {why} is not translated; the player's DLL answers, or without it D3DXERR_INVALIDDATA (once per kind)"
         );
         state!(e).graphics.d3dx_not_translated.push(kind);
