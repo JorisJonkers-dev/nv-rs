@@ -5,6 +5,8 @@
   nv-rs-dev bench list
   nv-rs-dev bench report <run dir | summary.json>
   nv-rs-dev bench compare <baseline> <candidate> [--threshold key=pct ...]
+  nv-rs-dev bench watch [latest|RUN|PID]   (live view of a nested run)
+  nv-rs-dev bench record [latest|RUN|PID] / bench run --record, then bench replay RUN
   nv-rs-dev bench analyze <viewer.log> [--frames frames.tsv] [--samples samples.tsv]   (parse an existing run)
 
 Runs write ~/.local/state/nv-rs/bench/<scenario>-<time>/ (NV_BENCH_DIR changes it): numbers and logs only.
@@ -20,8 +22,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lock  # noqa: E402
 import parse  # noqa: E402
 import report  # noqa: E402
+import replay  # noqa: E402
 import runner  # noqa: E402
 import scenarios  # noqa: E402
+import watch  # noqa: E402
 
 GAME_DEFAULT = Path.home() / "Games/SteamLibrary/steamapps/common/Fallout New Vegas"
 
@@ -131,7 +135,7 @@ def run_scenario(a):
     opts = {
         "mode": a.mode, "windowed": a.windowed, "viewer": viewer, "game": game, "preset": a.preset, "threads": a.threads,
         "resolution": a.resolution, "sound": a.sound, "mem": a.mem, "fps": fps, "timeout_s": a.timeout,
-        "vram_limit_pct": a.vram_limit_pct, "shots": a.shots, "nested": a.nested, "scale": a.scale,
+        "vram_limit_pct": a.vram_limit_pct, "shots": a.shots, "nested": a.nested, "record": a.record, "record_fps": a.record_fps, "record_format": a.record_format, "scale": a.scale,
     }
     plan = scenarios.build(a.scenario, opts)
     if plan.capped_only and a.mode != "capped" and not a.force:
@@ -160,6 +164,7 @@ def run_scenario(a):
         "mode": a.mode, "window": ("nested " + a.nested) if a.nested else ("windowed" if a.windowed else "offscreen"), "preset": a.preset, "threads": a.threads or "default",
         "resolution": a.resolution, "build": build or Path(viewer).name, "viewer_mtime": int(Path(viewer).stat().st_mtime),
         "vram_limit_pct": a.vram_limit_pct, "ref_fps": fps,
+        "watched": watch.was_watched(run_dir), "recorded": (run_dir / "record.json").exists(),
     }
     summary = analyze_dir(run_dir, plan, run, settings)
     write_reports(run_dir, summary)
@@ -275,6 +280,9 @@ def main(argv=None):
     r.add_argument("--seconds", type=float, help="override: stop this long after the first frame")
     r.add_argument("--scale", type=float, help="scale the scenario's length (soak: 0.1 for a short test)")
     r.add_argument("--shots", help="debugging: save the game's frames (NV_SHOT_WGPU=DIR[,every_ms]) for you to look at; never commit them")
+    r.add_argument("--record", action="store_true", help="record the nested screen to screen.mp4 in the run directory (needs --nested headless and wf-recorder); then: bench replay RUN")
+    r.add_argument("--record-fps", type=int, default=30)
+    r.add_argument("--record-format", choices=["mp4", "webm"], default="mp4")
     r.add_argument("--force", action="store_true", help="run a capped-only scenario uncapped")
     r.add_argument("--mouse", help="extra NV_MOVE_MOUSE items FRAME:DX:DY:HOLD[:BUTTONS],...")
     r.add_argument("--keys", help="extra NV_MOVE_KEYS items FRAME:DIKHEX:HOLD,...")
@@ -295,6 +303,7 @@ def main(argv=None):
     an.add_argument("--scenario")
     an.add_argument("--out")
     an.set_defaults(fn=cmd_analyze)
+    watch.register(sub, runner.STATE, resolve, replay)
     a = ap.parse_args(argv)
     return a.fn(a) or 0
 

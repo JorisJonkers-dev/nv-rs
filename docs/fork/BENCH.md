@@ -109,6 +109,39 @@ with 0 wgpu errors; there the swap chain was configured 24 times in three minute
 reconfigures it (monitor 1920x1080 at 144 Hz, window 2560x1440). What to capture if it happens again: the run's `.gpumem`
 file, `NV_LOG=game=debug`, the "swap chain configured N times" line, and `dmesg` for `amdgpu` lines.
 
+## Watching, recording and replaying a run
+
+Needs the tools of a nested run plus `grim` (web view), `wayvnc` (VNC view), `wf-recorder` (recording), `ffmpeg` and `mpv` (optional):
+`nix shell nixpkgs#sway nixpkgs#grim nixpkgs#wayvnc nixpkgs#wf-recorder nixpkgs#ffmpeg nixpkgs#mpv`. A missing tool stops only
+its own feature, with that hint. Every run writes `session.json` (the nested socket, the `--shots` folder), `steps.json`
+(the scripted input by main frame) and, through the viewer's hitch recorder, `hitches.csv` into its run directory.
+
+Live view, from a second terminal while the run goes (read-only: it attaches to the nested compositor's own socket, never
+to your session, takes no focus and no input):
+
+    nv-rs-dev bench watch                 # newest session; opens http://localhost:PORT/ (MJPEG, 5 fps at half size)
+    nv-rs-dev bench watch PID|RUN --mode vnc   # wayvnc on localhost:5900, input disabled; any VNC client
+    nv-rs-dev bench watch --bind 0.0.0.0  # for another device (shows the game screen to your network: your call)
+
+An offscreen run (no nested compositor) shows the newest file of its `--shots` folder instead. There is no tap in the viewer's
+render path, and none is planned: a read-back there would be the cost the numbers exclude. A run that had a watcher or a
+recorder attached carries `watched: true` in `summary.json` settings (and `recorded: true`): treat its numbers as not baselines.
+
+Recording: `bench run <scenario> --nested headless --record [--record-fps 30|60] [--record-format mp4|webm]`, or `bench record
+[latest|RUN|PID]` for a session already running. wf-recorder encodes with VAAPI (`h264_vaapi`, the card's encoder, so the CPU
+stays free) when `/dev/dri/renderD128` accepts it, else x264 ultrafast; `NV_BENCH_RECORD_CODEC=x264` forces the latter. The
+file is capped at 2 GiB (`bench record --cap-mb`; the recording stops, valid, and `record.json` says `truncated`). `screen.mp4`,
+`record.json` and `record.log` stay in the run directory and are never committed: they show game content.
+
+Replay: `nv-rs-dev bench replay [latest|RUN] [--burn] [--play]` writes `timeline.json`, `timeline.tsv` (kind, t_s, frame, value,
+label: frame times, hitches, screens, steps on the video's clock), `timeline.ass` and `replay.html` into the run directory and
+prints the commands. `replay.html` is one local file (no external scripts, works offline): the video, a frame-time graph with a
+moving cursor, a hitch list and prev/next-hitch buttons, step and screen lists; click the graph or a list entry to seek.
+`xdg-open RUN/replay.html`, or `mpv --sub-file=RUN/timeline.ass RUN/screen.mp4` (hitches flash red in the corner, the status line
+names the screen and step); `--burn` writes `screen.timeline.mp4` with the subtitles burned in. The video clock is the engine
+clock from the first frame plus the recording's lead-in; the hitch recorder's wall stamps pin that to a few milliseconds.
+Step names are the scripted input's key codes and counts (the scenarios carry no names yet).
+
 ## Scenarios
 
 | Scenario | What it does | State |
