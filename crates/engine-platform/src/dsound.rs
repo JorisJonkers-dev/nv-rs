@@ -1643,6 +1643,7 @@ pub fn tick(e: &mut Engine) {
     if state!(e).sound.mix.is_none() {
         return;
     }
+    let _sound = fork_hitch::span_main(fork_hitch::Counter::SoundNs);
     let now = e.clock_now_us();
     if let Some(m) = &state!(e).sound.mix {
         let mut v = m.voices.lock().expect("the voices");

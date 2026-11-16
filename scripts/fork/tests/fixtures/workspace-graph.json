@@ -154,6 +154,11 @@
     {
      "kind": null,
      "name": "windows"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-hitch"
     }
    ],
    "features": [
@@ -1396,6 +1401,11 @@
     {
      "kind": null,
      "name": "windows"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-hitch"
     }
    ],
    "features": [],
@@ -1677,6 +1687,11 @@
      "features": [],
      "kind": "dev",
      "name": "bsa"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-hitch"
     }
    ],
    "features": [],

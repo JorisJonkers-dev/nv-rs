@@ -82,7 +82,9 @@ def sampler_line(h, names):
         a = int(e["addr"], 16)
         hot.append(f"{names.get(a, e['addr'])} x{e['n']}")
     if s.get("in_guest"):
-        bits.append(f"game code x{s['in_guest']}")
+        chain = s.get("last_call_chain") or []
+        after = f" after {names.get(int(chain[-1], 16), chain[-1])}" if chain else ""
+        bits.append(f"game code x{s['in_guest']}{after}")
     return "; ".join(bits) + (" | " + ", ".join(hot) if hot else "")
 
 

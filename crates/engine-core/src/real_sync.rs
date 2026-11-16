@@ -385,6 +385,7 @@ fn wait(e: &mut Engine, handles: &[u32], objects: &[Arc<Object>], all: bool, tim
     }
     let deadline = (timeout != INFINITE).then(|| e.clock_now_us() + u64::from(timeout) * 1000);
     let main = ctx(e).id == MAIN_THREAD_ID;
+    let _sync_wait = fork_hitch::span_main(fork_hitch::Counter::SyncWaitNs);
     let started = lock_stats().map(|_| std::time::Instant::now());
     note_state(e, || {
         let list: Vec<String> = handles.iter().map(|h| format!("{h:x}")).collect();

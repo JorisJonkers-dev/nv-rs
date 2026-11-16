@@ -861,6 +861,26 @@ class CliTests(unittest.TestCase):
             self.assertIn("Bench run: boot", buf.getvalue())
         self.assertEqual(nvbench.main(["run", "boot", "--windowed"]), 2)
 
+    def test_hitch_summary_joins_the_report_and_the_verdict(self):
+        summary = {"schema": "nv-rs-run-summary/1", "frame_ms": {"p99": 31.0}, "over_pct": {"16.7": 4.0},
+                   "hitches": {"count": 9, "per_min": 5.5, "slow_windows": 1, "by_cause": {"file_io": {"n": 9, "ms": 700}}},
+                   "worst": [{"wall_ms": 120.0, "frame": 77, "cause": "file_io", "trigger": "cell.change", "top": ["ReadFile"]}],
+                   "flags": ["hitches_per_min_high", "p99_over_20ms"], "verdict": "FLAGGED: x"}
+        with tempfile.TemporaryDirectory() as d:
+            run = Path(d) / "boot-20260101T000000"
+            run.mkdir()
+            (run / "viewer.log").write_text(VIEWER_LOG.replace("2 wgpu errors", "0 wgpu errors"))
+            (run / "frames.tsv").write_text(frame_log())
+            clean = nvbench.analyze_dir(run)
+            self.assertNotIn("no hitch flags", [c["name"] for c in clean["verdict"]["checks"]])
+            (run / "run-summary-1-2.json").write_text(json.dumps(summary))
+            s = nvbench.analyze_dir(run)
+            check = [c for c in s["verdict"]["checks"] if c["name"] == "no hitch flags"][0]
+            self.assertFalse(check["ok"])
+            self.assertIn("5.5/min", check["detail"])
+            self.assertIn("## Hitches", report.markdown(s))
+            self.assertIn("file_io x9", report.markdown(s))
+
 
 if __name__ == "__main__":
     unittest.main()

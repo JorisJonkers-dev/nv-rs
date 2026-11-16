@@ -436,7 +436,11 @@ impl KernelLock {
     #[cold]
     fn acquire(&self, me: u64) {
         let started = lock_stats().map(|_| std::time::Instant::now());
+        let waited = fork_hitch::enabled().then(std::time::Instant::now);
         self.acquire_here(me);
+        if let Some(t) = waited {
+            fork_hitch::lock_wait(self.device, t.elapsed().as_nanos() as u64);
+        }
         if let (Some(s), Some(t)) = (lock_stats(), started) {
             let sums = if self.device { &s.device } else { &s.kernel };
             sums[role()].add(t.elapsed());
@@ -861,6 +865,7 @@ impl World {
     /// briefly before it parks ([`watch_briefly`]); an unpark that finds it watching leaves the
     /// next park a spurious return, which the caller's loop takes as any other.
     fn wait_for_objects(&self, me: &Waiter, timeout: Option<Duration>) {
+        let _wait = fork_hitch::span_main(fork_hitch::Counter::WaitNs);
         me.woken.store(false, Ordering::SeqCst);
         let held = self.kernel.release_all();
         let was = self.leave_guest();
@@ -1263,6 +1268,7 @@ struct ThreadExit(u32);
 fn run_thread(engine: SendEngine, world: &'static World, i: usize, start: u32, parameter: u32) {
     let mut e = engine.0;
     GAME_THREAD.with(|g| g.set(true));
+    fork_hitch::set_role(fork_hitch::Role::Game);
     // What was registered since the template was made, replacements included (a call finds only
     // a missing function by itself).
     sync_registered(&mut e);
@@ -1334,7 +1340,11 @@ fn locked_call(e: &mut Engine, args: &[u32]) -> Ret {
         .as_ref()
         .expect("a locked platform call on a real thread's engine")
         .world;
+    // The hitch recorder: the main thread's platform time (the lock wait included) and the call
+    // the sampler sees it in.
+    let _call = fork_hitch::enter_call(addr, &e.call_stack);
     world.kernel.lock(world);
+    fork_hitch::note_holder(addr);
     let _held = Held(world);
     park_if_suspended(e);
     if world.late_count.load(Ordering::Acquire) != e.real.as_ref().map_or(0, |r| r.late_seen) {
@@ -1392,6 +1402,7 @@ fn device_call(e: &mut Engine, args: &[u32]) -> Ret {
         .as_ref()
         .expect("a device platform call on a real thread's engine")
         .world;
+    let _call = fork_hitch::enter_call(addr, &e.call_stack);
     if !world.device.held_here() {
         park_here(e);
     }
