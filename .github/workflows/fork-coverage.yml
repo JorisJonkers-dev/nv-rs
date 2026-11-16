@@ -91,7 +91,10 @@ jobs:
           shared-key: cov-${{ matrix.cache }}-${{ runner.os }}
           save-if: ${{ github.ref == 'refs/heads/fork' }}
       - name: Install cargo-llvm-cov
-        run: command -v cargo-llvm-cov >/dev/null && [ "$(cargo llvm-cov --version | cut -d' ' -f2)" = "$LLVM_COV_VERSION" ] || cargo install --locked "cargo-llvm-cov@$LLVM_COV_VERSION"
+        run: |
+          if ! command -v cargo-llvm-cov >/dev/null || [ "$(cargo llvm-cov --version | cut -d' ' -f2)" != "$LLVM_COV_VERSION" ]; then
+            cargo install --locked "cargo-llvm-cov@$LLVM_COV_VERSION"
+          fi
 
       - name: Measure this commit
         run: |
