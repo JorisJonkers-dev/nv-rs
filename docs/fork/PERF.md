@@ -18,6 +18,11 @@ Sampling the game's own code: `perf` (`nix shell nixpkgs#linuxPackages.perf`) wo
 `perf_event_paranoid=2`; the hardware cycles event is not available). The viewer's symbols are kept, so a flat profile by
 thread (`--sort comm,dso`) and symbol is readable.
 
+Each report also gets a line `NV_PERF: thread busy over N s, X cores in all: name/tid 84%, ...`: the CPU time of every
+thread of the process (Linux: `/proc/self/task/*/stat`, 10 ms resolution) over the wall time since the previous report,
+busiest first, threads under 1% left out. It shows whether the game main thread (one thread near 100%) or a helper is
+the bottleneck, and how much of the machine the run uses. It is the measurement the threading work is judged by.
+
 ## Findings (2026-11-16, unmodded first room, offscreen, 144 Hz cap, RX 7900 XTX)
 
 - The backend is not the cost. At 945 draws a frame the device thread spends 0.6 ms recording draws (0.65 us a draw), the
