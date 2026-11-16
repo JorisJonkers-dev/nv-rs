@@ -32,6 +32,12 @@ OPTIONS:
     --check                  only check the installation (FalloutNV.exe is 1.4.0.525) and
                              what the run will find, print it and end: status 0 when the
                              game can start, 1 when not
+    --precompile-shaders     convert and compile every shader of the load order into the shader
+                             caches (docs/fork/SHADER-CACHE.md) and end: the Data folder's shader
+                             packages, then each --shader-root in order (later roots replace a
+                             package of the same name)
+    --shader-root PATH       another Data folder, or shader package file, of the load order
+                             (with --precompile-shaders; repeatable)
     -h, --help               print this
 
 Other arguments (the removed viewer's place name, --walk, --physics, --wait, --background,
@@ -51,6 +57,10 @@ struct Args {
     movement_probe: bool,
     /// `--check`: check the installation and end.
     check: bool,
+    /// `--precompile-shaders`: fill the shader caches and end.
+    precompile_shaders: bool,
+    /// `--shader-root`: later roots of the load order.
+    shader_roots: Vec<PathBuf>,
     /// The removed viewer's arguments, ignored.
     ignored: Vec<String>,
 }
@@ -65,6 +75,12 @@ fn parse(raw: &[String]) -> Result<Option<Args>, String> {
             "-h" | "--help" => return Ok(None),
             "--movement-probe" => args.movement_probe = true,
             "--check" => args.check = true,
+            "--precompile-shaders" => args.precompile_shaders = true,
+            "--shader-root" => {
+                i += 1;
+                let dir = raw.get(i).ok_or("--shader-root needs a PATH")?;
+                args.shader_roots.push(PathBuf::from(dir));
+            }
             "--movement-missing" => {
                 i += 1;
                 let file = raw.get(i).ok_or("--movement-missing needs a FILE")?;
@@ -171,6 +187,30 @@ fn main() {
                 for line in lines {
                     println!("{line}");
                 }
+                return;
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                host::end_process(1);
+            }
+        }
+    }
+    if args.precompile_shaders {
+        let mut roots = vec![data.clone()];
+        roots.extend(args.shader_roots.iter().cloned());
+        let (shader_cache, pipelines) =
+            d3d9_wgpu::shader_cache::plan(host::wgpu_cache_path(), true);
+        let options = d3d9_wgpu::precompile::Options {
+            roots,
+            shader_cache,
+            pipelines,
+        };
+        match d3d9_wgpu::precompile::run(&options) {
+            Ok(r) => {
+                println!(
+                    "precompiled: {} packages ({} replaced by a later root), {} shaders, {} distinct, {} unreadable, {} waited for, {:.2} s",
+                    r.packages, r.overridden, r.shaders, r.unique, r.unreadable, r.waited_for, r.elapsed.as_secs_f64()
+                );
                 return;
             }
             Err(e) => {

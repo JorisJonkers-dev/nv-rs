@@ -4469,6 +4469,12 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         waiting
     }
 
+    /// Makes every shader's pipeline library at the start, listed or not, whatever the pipeline
+    /// cache held (the precompile pass, [`crate::precompile`]).
+    pub fn precompiling(&mut self) {
+        self.warm_start = false;
+    }
+
     /// How many shader modules (with their libraries) the game's start waited for (tests).
     pub fn start_waited_for(&self) -> usize {
         self.start_jobs
