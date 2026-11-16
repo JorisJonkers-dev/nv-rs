@@ -164,6 +164,7 @@ is the default for these scenarios (`--legacy` runs the old frame-counted `NV_MO
 | `quick` | **The quick suite, one viewer session, 120 s in all (`TOO_LONG` over that, start-up and loading included):** start-up (shorter fixed waits), the new game's first room, then Doc's house, Goodsprings and the Strip in turn by console teleports, each place's measured script at half length (about 10 s) |
 | `doc_house`, `goodsprings`, `strip`, `novac` | Each the same for one place (start-up, new game, then the place): ~3 s warm-up, ~18 s measured |
 | `sneak` | Goodsprings, then the sneak check: a step forward standing, real Ctrl, the same step sneaking; fails when sneaking is not slower (see "Ctrl and sneak") |
+| `save`, `continue` | The save round trip of the release test ([RELEASE-TEST.md](RELEASE-TEST.md)): a new game saved in the first town with the console, then a new session that loads it with Continue; each notes the player's position |
 | `newgame` | Start-up movies skipped, menu, New, the intro movie skipped, the pack boxes, the first room, 20 s there |
 | `boot` | The start-up movies skipped, 40 s on the main menu |
 | `combat` | Goodsprings, three hostile geckos by form id, a pistol and ammo added and equipped, clicks and turns |

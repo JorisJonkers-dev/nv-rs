@@ -485,6 +485,30 @@ WORLD = {
 }
 
 
+def state_noted(name):
+    """The driver noted the player's position as `name` (the save round trip)."""
+    def check(m):
+        st = (m.get("states") or {}).get(name)
+        return bool(st), (f"{name} at " + ", ".join(f"{v:.1f}" for v in st)) if st else f"no {name} position in the log"
+
+    return (f"the {name} position was noted", check)
+
+
+def round_trip_plan(name, opts):
+    """The save round trip's two runs (docs/fork/RELEASE-TEST.md): `save` writes a save in a new game, `continue` loads
+    it in a new session from the main menu. Each notes the player's position; the release test compares them."""
+    desc = {
+        "save": "New game, Goodsprings, a short walk, the position noted, then the console's save",
+        "continue": "Start-up, Continue on the main menu (the newest save), the position noted",
+    }[name]
+    p = Plan(name, desc, fps=opts.get("fps", 60.0))
+    p.checks = [reached_screen("play"), player_placed(), state_noted("saved" if name == "save" else "loaded")]
+    if name == "save":
+        p.checks.insert(0, reached_screen("loading"))
+    p.drive, p.self_scaled = DRIVERS[name], True
+    return p
+
+
 def world_plan(name, opts):
     places, desc = WORLD[name]
     n = len(places)
@@ -514,4 +538,5 @@ SCENARIOS = {
     "goodsprings": goodsprings, "novac": novac, "strip": strip, "combat": combat, "soak": soak, "realwalk": realwalk,
     "doc_house": lambda opts: world_plan("doc_house", opts), "quick": lambda opts: world_plan("quick", opts),
     "sneak": lambda opts: world_plan("sneak", opts),
+    "save": lambda opts: round_trip_plan("save", opts), "continue": lambda opts: round_trip_plan("continue", opts),
 }
