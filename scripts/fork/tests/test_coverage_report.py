@@ -58,5 +58,23 @@ class FormatTests(unittest.TestCase):
         self.assertIsNone(cr.pct(0, 0))
 
 
+class PlanTests(unittest.TestCase):
+    def test_absent_plan_means_nothing_to_measure(self):
+        d = tempfile.mkdtemp()
+        doc = cr.load_plan(str(Path(d) / "nope" / "plan.json"), d)
+        self.assertEqual(doc["include"], [])
+        self.assertIn("nothing was measured", doc["reason"])
+
+    def test_plan_is_found_beside_the_directory_root(self):
+        d = tempfile.mkdtemp()
+        (Path(d) / "plan.json").write_text('{"include": [{"component": "formats"}], "reason": "x"}')
+        self.assertEqual(cr.load_plan(str(Path(d) / "missing.json"), d)["include"][0]["component"], "formats")
+
+    def test_unreadable_plan_is_empty(self):
+        d = tempfile.mkdtemp()
+        (Path(d) / "plan.json").write_text("not json")
+        self.assertEqual(cr.load_plan(str(Path(d) / "plan.json"), d)["include"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
