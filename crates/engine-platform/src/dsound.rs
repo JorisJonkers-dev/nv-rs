@@ -1478,6 +1478,7 @@ pub fn start_output(e: &mut Engine) -> bool {
             v.own.pace = Some(Pace::new(now));
         }
     }
+    fork_log::fact("audio", &format!("{rate} Hz, {} channels", mix.channels));
     if split {
         fork_log::info!(target: "sound",
             "sound: output on the default device, {rate} Hz, {} channels (speaker mask {:#x}); \

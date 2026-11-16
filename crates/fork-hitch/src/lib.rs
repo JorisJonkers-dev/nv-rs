@@ -724,7 +724,8 @@ fn finish_hook(how: &str) {
     if !enabled() {
         return;
     }
-    write_summary(how);
+    // The end of the run is shown once, on the terminal too: a clean exit, or a panic that ends it.
+    write_summary_with(how, how == "exit" || how == "panic");
     if how == "exit" {
         finish();
     }
@@ -781,6 +782,8 @@ fn locked<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Describes the run in the summary: `build`, `profile`, `gpu`, `driver`, `session`,
 /// `resolution`, `threads`. Short strings, no game data and no paths of the player's.
 pub fn set_meta(key: &str, value: &str) {
+    // The start header says the same things (fork-log's facts).
+    fork_log::fact(key, value);
     locked(&run_state().meta).insert(key.to_string(), value.to_string());
 }
 
@@ -838,6 +841,12 @@ fn periodic() {
 /// Writes `run-summary-<unix>-<pid>.json` next to the JSON log. The first real end of the run
 /// (anything but `running`) is the reason kept when it is written again.
 pub fn write_summary(how: &str) {
+    write_summary_with(how, false);
+}
+
+/// [`write_summary`], and with `show` the final summary lines on the terminal (fork-log's
+/// headline, once).
+fn write_summary_with(how: &str, show: bool) {
     let st = run_state();
     let ended = {
         let mut e = locked(&st.ended);
@@ -869,7 +878,7 @@ pub fn write_summary(how: &str) {
     let (errors, warnings) = fork_log::counts();
     let meta = locked(&st.meta).clone();
     let peaks = locked(&st.peaks).clone();
-    let text = run::build(&run::Input {
+    let input = run::Input {
         id: &id,
         started_unix: st.started_unix,
         ended_unix: now_unix,
@@ -884,9 +893,17 @@ pub fn write_summary(how: &str) {
         other_viewers: st.other_viewers.load(Ordering::Relaxed),
         log_name: &log_name,
         thresholds: &cfg.thresholds,
-    });
+    };
+    let text = run::build(&input);
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join(format!("run-summary-{id}.json"));
+    if show {
+        fork_log::final_summary(&run::final_lines(
+            &input,
+            &fork_log::json_path().map_or_else(|| "-".to_string(), |p| p.display().to_string()),
+            &path.display().to_string(),
+        ));
+    }
     let tmp = dir.join(format!("run-summary-{id}.json.tmp"));
     if std::fs::write(&tmp, text + "\n").is_ok() {
         let _ = std::fs::rename(&tmp, &path);

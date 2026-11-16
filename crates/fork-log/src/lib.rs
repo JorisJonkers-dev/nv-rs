@@ -8,23 +8,28 @@
 //! fork_log::warn!(target: "files", "{} could not be listed", "a folder");
 //! ```
 //!
-//! Text goes to stderr, filtered by `NV_LOG` (else `RUST_LOG`), default `info`. The JSON file
-//! (`NV_LOG_JSON=path|auto|off`, default `auto`) is written once [`init`] ran, filtered by
-//! `NV_LOG_JSON_FILTER` (default `debug`), so it holds more than the screen does. Neither holds
-//! game data: callers pass names of calls and counts, never file contents.
+//! The terminal is quiet by default (`NV_LOG_TERM`, [`term`]): the start header, warnings and
+//! errors (repeats limited), stops, the final summary and, on a terminal, one live status
+//! line. Everything else goes to two files beside each other, filtered by `NV_LOG_JSON_FILTER`
+//! (default `debug`): the JSON lines (`NV_LOG_JSON=path|auto|off`, default `auto`) and the same
+//! lines as plain text (`.log`). Neither holds game data: callers pass names of calls and
+//! counts, never file contents.
 
 mod filter;
 pub mod game;
 mod sink;
 pub mod stop;
+pub mod term;
 
 pub use filter::{Filter, Level};
 pub use stop::{classify, soft_stop, soft_stops, with_policy, Policy, StopClass};
+pub use term::{Mode, TermPolicy};
 
 use std::collections::VecDeque;
 use std::fmt::{self, Display, Write as _};
+use std::io::IsTerminal;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
@@ -37,34 +42,73 @@ static ERRORS: AtomicU64 = AtomicU64::new(0);
 static WARNINGS: AtomicU64 = AtomicU64::new(0);
 static RING: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 static FILE: Mutex<Option<sink::JsonFile>> = Mutex::new(None);
+static TEXT_FILE: Mutex<Option<sink::JsonFile>> = Mutex::new(None);
+static DEDUP: Mutex<Option<term::Dedup>> = Mutex::new(None);
+static FACTS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+static HEADER_DONE: AtomicBool = AtomicBool::new(false);
+static SUMMARY_DONE: AtomicBool = AtomicBool::new(false);
+
+/// The live status line: what is drawn now and its width.
+struct Status {
+    text: String,
+    shown: usize,
+}
+static STATUS: Mutex<Status> = Mutex::new(Status {
+    text: String::new(),
+    shown: 0,
+});
 
 struct Config {
+    /// The terminal's policy and its filter.
+    term: TermPolicy,
     text: Filter,
+    /// The files' filter (the JSON lines and the plain text).
     json: Filter,
     full: bool,
-    /// The most verbose level either sink shows.
+    /// The most verbose level any sink shows.
     loosest: u8,
+    /// The live status line: stderr is a terminal, `NV_STATUS_SECS` is not 0 and the terminal
+    /// does not already show the status lines.
+    live_status: bool,
+    status_secs: f64,
 }
 
 fn config() -> &'static Config {
     static CONFIG: OnceLock<Config> = OnceLock::new();
     CONFIG.get_or_init(|| {
         let var = |n: &str| std::env::var(n).ok().filter(|v| !v.trim().is_empty());
-        // The `game` trace (game.rs) is for the file unless asked for: `NV_LOG=game=debug`.
-        let text = Filter::parse(
-            &var("NV_LOG")
-                .or_else(|| var("RUST_LOG"))
-                .unwrap_or_else(|| "info,game=off".to_string()),
-            Level::Info,
-        );
-        let json = Filter::parse(&var("NV_LOG_JSON_FILTER").unwrap_or_default(), Level::Debug);
+        // The terminal: `NV_LOG_TERM`, else `NV_LOG`/`RUST_LOG` as the filter it always was, else
+        // quiet. `NV_LOG`/`RUST_LOG` also widen the files' filter (`game=trace` reaches them).
+        let legacy = var("NV_LOG").or_else(|| var("RUST_LOG"));
+        let term = TermPolicy::parse(var("NV_LOG_TERM").as_deref(), legacy.as_deref());
+        let text = term.filter.clone();
+        let json = match var("NV_LOG_JSON_FILTER") {
+            Some(own) => Filter::parse(&own, Level::Debug),
+            None => {
+                let base = Filter::parse("", Level::Debug);
+                match &legacy {
+                    Some(l) => base.union(&Filter::parse(l, Level::Info)),
+                    None => base,
+                }
+            }
+        };
         let full = var("NV_LOG_FORMAT").is_some_and(|v| v.eq_ignore_ascii_case("full"));
+        let status_secs = var("NV_STATUS_SECS")
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .map_or(5.0, |s| s.max(0.0));
+        let live_status = status_secs > 0.0
+            && term.mode != Mode::Off
+            && !text.allows(Level::Info, "status")
+            && std::io::stderr().is_terminal();
         let loosest = text.loosest().max(json.loosest());
         Config {
+            term,
             text,
             json,
             full,
             loosest,
+            live_status,
+            status_secs,
         }
     })
 }
@@ -84,21 +128,88 @@ pub fn enabled(level: Level, target: &str) -> bool {
     (level as u8) <= c.loosest && (c.text.allows(level, target) || c.json.allows(level, target))
 }
 
+/// How a message is written.
+#[derive(Clone, Copy, Default)]
+struct How {
+    /// Without the `warning:`/`error:` prefix.
+    raw: bool,
+    /// To stdout instead of stderr.
+    stdout: bool,
+    /// On the terminal whatever the policy says (a fatal failure).
+    force: bool,
+}
+
 /// Logs a message.
 pub fn log(level: Level, target: &str, args: fmt::Arguments<'_>) {
-    emit(level, target, false, false, args, &[]);
+    emit(level, target, How::default(), args, &[]);
 }
 
 /// Logs a message whose text goes to stdout, as it is: the status heartbeat that launchers and
 /// scripts read from there.
 pub fn log_stdout(level: Level, target: &str, args: fmt::Arguments<'_>) {
-    emit(level, target, true, true, args, &[]);
+    emit(
+        level,
+        target,
+        How {
+            raw: true,
+            stdout: true,
+            force: false,
+        },
+        args,
+        &[],
+    );
 }
 
 /// Logs a message whose text goes out as it is, without the `warning:`/`error:` prefix: the
 /// lines scripts match (`Game's main stopped in frame N`).
 pub fn log_raw(level: Level, target: &str, args: fmt::Arguments<'_>) {
-    emit(level, target, true, false, args, &[]);
+    emit(
+        level,
+        target,
+        How {
+            raw: true,
+            ..How::default()
+        },
+        args,
+        &[],
+    );
+}
+
+/// A fatal failure (a stop, device lost, out of memory, no window, no game data, a missing
+/// library): an error that reaches the terminal whatever `NV_LOG_TERM` says, never limited as a
+/// repeat.
+pub fn fatal(target: &str, args: fmt::Arguments<'_>) {
+    emit(
+        Level::Error,
+        target,
+        How {
+            force: true,
+            ..How::default()
+        },
+        args,
+        &[],
+    );
+}
+
+/// [`fatal`] with the text as it is (the stop line scripts match).
+pub fn fatal_raw(target: &str, args: fmt::Arguments<'_>) {
+    emit(
+        Level::Error,
+        target,
+        How {
+            raw: true,
+            force: true,
+            ..How::default()
+        },
+        args,
+        &[],
+    );
+}
+
+/// A line the quiet terminal shows too (the start header, the final summary): `info` on the
+/// target `headline`.
+pub fn headline(args: fmt::Arguments<'_>) {
+    emit(Level::Info, "headline", How::default(), args, &[]);
 }
 
 /// Logs a message with structured fields (they appear in the JSON record, not on the screen).
@@ -108,7 +219,7 @@ pub fn event(
     args: fmt::Arguments<'_>,
     fields: &[(&str, &dyn Display)],
 ) {
-    emit(level, target, false, false, args, fields);
+    emit(level, target, How::default(), args, fields);
 }
 
 fn thread_name() -> String {
@@ -120,16 +231,15 @@ fn thread_name() -> String {
 fn emit(
     level: Level,
     target: &str,
-    raw: bool,
-    stdout: bool,
+    how: How,
     args: fmt::Arguments<'_>,
     fields: &[(&str, &dyn Display)],
 ) {
     let c = config();
-    if (level as u8) > c.loosest {
+    if !how.force && (level as u8) > c.loosest {
         return;
     }
-    let to_text = c.text.allows(level, target);
+    let mut to_text = c.term.prints(level, target, how.force);
     let to_json = c.json.allows(level, target);
     if !to_text && !to_json {
         return;
@@ -142,14 +252,16 @@ fn emit(
     let message = args.to_string();
     let now = SystemTime::now();
     let ts = sink::timestamp(now);
+    if to_text && !how.force && level <= Level::Warn && c.term.limits_repeats() {
+        let mut d = DEDUP.lock().unwrap_or_else(|p| p.into_inner());
+        let d = d.get_or_insert_with(term::Dedup::default);
+        to_text = d.admit(target, &message, &|| {
+            render_text(level, target, how.raw, c.full, &ts, &message)
+        });
+    }
     if to_text {
-        let line = render_text(level, target, raw, c.full, &ts, &message);
-        use std::io::Write;
-        if stdout {
-            let _ = writeln!(std::io::stdout().lock(), "{line}");
-        } else {
-            let _ = writeln!(std::io::stderr().lock(), "{line}");
-        }
+        let line = render_text(level, target, how.raw, c.full, &ts, &message);
+        terminal_write(how.stdout, &line);
     }
     // The ring keeps what either sink shows, as one short line.
     {
@@ -168,16 +280,170 @@ fn emit(
         ring.push_back(line);
     }
     if to_json {
-        let record = render_json(
-            level,
-            target,
-            &ts,
-            &message,
-            fields,
-            frame(),
-            &thread_name(),
-        );
+        let thread = thread_name();
+        let record = render_json(level, target, &ts, &message, fields, frame(), &thread);
         write_json(&record, level <= Level::Warn);
+        let plain = render_file_text(level, target, &ts, &message, frame());
+        if let Some(f) = TEXT_FILE.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+            f.line(&plain, level <= Level::Warn);
+        }
+    }
+}
+
+/// One line of the plain-text log: `2026-11-16T09:40:19.586Z INFO  d3d9 f123: message`.
+fn render_file_text(
+    level: Level,
+    target: &str,
+    ts: &str,
+    message: &str,
+    frame: Option<u64>,
+) -> String {
+    let f = frame.map_or_else(|| "-".to_string(), |f| f.to_string());
+    // One record is one line: a message with line breaks keeps them as `\n`.
+    let message = message.replace('\r', "").replace('\n', "\\n");
+    format!(
+        "{ts} {:<5} {target} f{f}: {message}",
+        level.name().to_ascii_uppercase()
+    )
+}
+
+/// Writes a line to the terminal without breaking the live status line: the status is erased,
+/// the line written, the status drawn again.
+fn terminal_write(stdout: bool, line: &str) {
+    use std::io::Write;
+    let mut st = STATUS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut err = std::io::stderr().lock();
+    if st.shown > 0 {
+        let _ = err.write_all(term::erase(st.shown).as_bytes());
+        st.shown = 0;
+    }
+    if stdout {
+        let _ = writeln!(std::io::stdout().lock(), "{line}");
+    } else {
+        let _ = writeln!(err, "{line}");
+    }
+    if !st.text.is_empty() {
+        let text = st.text.clone();
+        let _ = err.write_all(term::draw(&text, 0).as_bytes());
+        st.shown = text.chars().count();
+    }
+}
+
+/// Draws the live status line (`f 123456  143 fps  p99 7 ms  hitches 0`) when stderr is a
+/// terminal, `NV_STATUS_SECS` is not 0 and the terminal does not show the status lines anyway;
+/// otherwise nothing. One line, overwriting itself.
+pub fn live_status(text: &str) {
+    use std::io::Write;
+    let c = config();
+    if !c.live_status {
+        return;
+    }
+    let width = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(80);
+    let text = term::fit_status(text, width);
+    let mut st = STATUS.lock().unwrap_or_else(|p| p.into_inner());
+    let _ = std::io::stderr()
+        .lock()
+        .write_all(term::draw(&text, st.shown).as_bytes());
+    st.shown = text.chars().count();
+    st.text = text;
+}
+
+/// Erases the live status line and stops it (before the final summary).
+pub fn clear_status() {
+    use std::io::Write;
+    let mut st = STATUS.lock().unwrap_or_else(|p| p.into_inner());
+    if st.shown > 0 {
+        let _ = std::io::stderr()
+            .lock()
+            .write_all(term::erase(st.shown).as_bytes());
+    }
+    st.shown = 0;
+    st.text.clear();
+}
+
+/// The interval of the status lines, `NV_STATUS_SECS` (5 s by default, 0 for none).
+pub fn status_secs() -> f64 {
+    config().status_secs
+}
+
+/// Whether the live status line is on (so a caller computes its numbers only then).
+pub fn live_status_on() -> bool {
+    config().live_status
+}
+
+/// The terminal's mode.
+pub fn term_mode() -> Mode {
+    config().term.mode
+}
+
+/// Records a fact about the run for the start header (`gpu`, `driver`, `display`, `resolution`,
+/// `audio`, `threads`, `version`, ...). Short text, no paths of the player's, no game data.
+pub fn fact(key: &str, value: &str) {
+    let mut f = FACTS.lock().unwrap_or_else(|p| p.into_inner());
+    match f.iter_mut().find(|(k, _)| k == key) {
+        Some((_, v)) => *v = value.to_string(),
+        None => f.push((key.to_string(), value.to_string())),
+    }
+}
+
+/// A fact recorded with [`fact`].
+pub fn fact_value(key: &str) -> Option<String> {
+    FACTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.clone())
+}
+
+/// Prints the start header once (3 to 6 lines; in the files always). The viewer calls it when the
+/// first frame has gone, by when the window, the device and the sound have said what they are.
+pub fn print_header() {
+    if HEADER_DONE.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let json = json_path().map(|p| p.display().to_string());
+    let text = text_path().map(|p| p.display().to_string());
+    for l in term::header_lines(&fact_value, json.as_deref(), text.as_deref()) {
+        headline(format_args!("{l}"));
+    }
+}
+
+/// The path of the plain-text log, when one is open.
+pub fn text_path() -> Option<PathBuf> {
+    TEXT_FILE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .map(|f| f.path().to_path_buf())
+}
+
+/// Prints the final summary lines of the run once (the verdict first), after erasing the live
+/// status. The recorder that knows the numbers calls it; without one, [`finish`] says less.
+pub fn final_summary(lines: &[String]) {
+    if SUMMARY_DONE.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    clear_status();
+    print_header();
+    for l in lines {
+        headline(format_args!("{l}"));
+    }
+}
+
+/// Prints the warnings and errors that were cut as repeats, with their counts.
+fn flush_repeats() {
+    let lines = DEDUP
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_mut()
+        .map(term::Dedup::take_repeats)
+        .unwrap_or_default();
+    for l in lines {
+        terminal_write(false, &l);
     }
 }
 
@@ -254,6 +520,9 @@ fn write_json(record: &str, urgent: bool) {
 /// Flushes the JSON file (before the process ends).
 pub fn flush() {
     if let Some(f) = FILE.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+        f.flush();
+    }
+    if let Some(f) = TEXT_FILE.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
         f.flush();
     }
 }
@@ -378,12 +647,37 @@ pub fn init() -> Option<PathBuf> {
     match sink::JsonFile::open(&path, max_mb * 1024 * 1024) {
         Ok(f) => {
             *FILE.lock().unwrap_or_else(|p| p.into_inner()) = Some(f);
+            // The same lines as plain text beside it, with the same bound (`NV_LOG_TEXT=off`
+            // switches it off).
+            let text_off = var("NV_LOG_TEXT").is_some_and(|v| {
+                matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "off" | "0" | "none" | "false"
+                )
+            });
+            if !text_off {
+                let text = path.with_extension("log");
+                match sink::JsonFile::open(&text, max_mb * 1024 * 1024) {
+                    Ok(f) => *TEXT_FILE.lock().unwrap_or_else(|p| p.into_inner()) = Some(f),
+                    Err(why) => log(
+                        Level::Warn,
+                        "host",
+                        format_args!(
+                            "logging: the text log {} cannot be opened: {why}",
+                            text.display()
+                        ),
+                    ),
+                }
+            }
             log(
                 Level::Info,
                 "host",
                 format_args!(
-                    "logging: JSON lines to {} (NV_LOG_JSON=off stops it)",
-                    path.display()
+                    "logging: JSON lines to {}, text to {} (NV_LOG_JSON=off stops them)",
+                    path.display(),
+                    text_path()
+                        .unwrap_or_else(|| path.with_extension("log"))
+                        .display()
                 ),
             );
             Some(path)
@@ -526,13 +820,24 @@ pub fn summary() -> String {
 /// What to do as the process ends: the summary line (a warning when anything failed), a final
 /// record in the JSON file, and the flush.
 pub fn finish() {
+    flush_repeats();
     run_finish_hooks("exit");
+    if !SUMMARY_DONE.load(Ordering::Relaxed) {
+        // No recorder said how the run went (NV_HITCH=off): the counts are the summary.
+        let (errors, warnings) = counts();
+        final_summary(&[format!(
+            "run ended: {errors} errors, {warnings} warnings, {} soft stops{}",
+            soft_stops(),
+            json_path().map_or(String::new(), |p| format!("; log {}", p.display()))
+        )]);
+    }
     let level = if soft_stops() > 0 || ERRORS.load(Ordering::Relaxed) > 0 {
         Level::Warn
     } else {
         Level::Info
     };
     log(level, "host", format_args!("{}", summary()));
+    flush();
     write_final("exit", Level::Info, &|o| {
         o.push_str(",\"summary\":");
         sink::json_str(o, &summary());
@@ -542,6 +847,12 @@ pub fn finish() {
 /// `error!(target: "files", "message {}", x)`.
 #[macro_export]
 macro_rules! error { (target: $t:expr, $($a:tt)+) => { $crate::log($crate::Level::Error, $t, format_args!($($a)+)) }; }
+/// A fatal failure: on the terminal whatever `NV_LOG_TERM` says.
+#[macro_export]
+macro_rules! fatal { (target: $t:expr, $($a:tt)+) => { $crate::fatal($t, format_args!($($a)+)) }; }
+/// A line the quiet terminal shows too: `headline!("...")`.
+#[macro_export]
+macro_rules! headline { ($($a:tt)+) => { $crate::headline(format_args!($($a)+)) }; }
 #[macro_export]
 macro_rules! warn { (target: $t:expr, $($a:tt)+) => { $crate::log($crate::Level::Warn, $t, format_args!($($a)+)) }; }
 #[macro_export]
@@ -571,6 +882,18 @@ mod tests {
             r#"{"ts":"T","level":"warn","target":"files","message":"a \"b\"","fields":{"call":"X","n":"3"},"frame":7,"thread":"main"}"#
         );
         assert!(render_json(Level::Info, "x", "T", "m", &[], None, "t").contains("\"frame\":null"));
+    }
+
+    #[test]
+    fn the_text_log_line_has_time_level_target_and_frame() {
+        assert_eq!(
+            render_file_text(Level::Warn, "window", "T", "a\nb", Some(12)),
+            "T WARN  window f12: a\\nb"
+        );
+        assert_eq!(
+            render_file_text(Level::Info, "d3d9", "T", "m", None),
+            "T INFO  d3d9 f-: m"
+        );
     }
 
     #[test]

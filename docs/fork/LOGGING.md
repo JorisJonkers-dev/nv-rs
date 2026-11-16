@@ -21,19 +21,60 @@ Fork-owned (`crates/fork-log`). The crate has no dependency and starts no thread
 `script`, `loader`, `stop`, `status`, `host`. Rules: a stop or a recoverable failure is `error` or `warn`; one-time facts
 (adapter, present mode, thread mode) are `info`; anything per frame or per call is `debug` or `trace`.
 
-Text goes to stderr. It keeps the old shape so scripts still match: `info` lines are bare, `warn` and `error` get a
+Terminal text goes to stderr (the status heartbeat to stdout). It keeps the old shape so scripts still match: `info` lines are bare, `warn` and `error` get a
 `warning: ` / `error: ` prefix, `debug` and `trace` get `[debug target] `. The stop line and the status line are written whole.
 `NV_LOG_FORMAT=full` adds the time, level and target to every line.
 
 | Variable | Meaning |
 | --- | --- |
-| `NV_LOG` | Text filter, `RUST_LOG` syntax: `info` (default), `warn,d3d9=debug,sound=off`. Falls back to `RUST_LOG`. |
+| `NV_LOG_TERM` | What the terminal shows: `quiet` (default), `normal`, `verbose`, `off`, or a filter in `RUST_LOG` syntax (`warn,d3d9=debug`). See "The terminal". |
+| `NV_LOG` | Falls back to `RUST_LOG`. The filter of the terminal when `NV_LOG_TERM` is not set (as before), and always widens the files' filter (`NV_LOG=game=trace` puts the trace in the files). |
 | `NV_LOG_FORMAT` | `plain` (default) or `full`. |
-| `NV_STATUS_SECS` | The status line's interval; 5 by default, `0` for none. It is `info` on target `status`, so `NV_LOG=warn` also hides it. |
+| `NV_STATUS_SECS` | The status interval; 5 by default, `0` for none. It drives the one-line live status on a terminal (below) and the `Game's movement` heartbeat lines (`info` on target `status`: file only unless the terminal shows `info`, as `NV_LOG_TERM=verbose` or a bench run's `RUST_LOG=info` does). |
 | `NV_LOG_JSON` | `auto` (default), `off`, or a path. |
-| `NV_LOG_JSON_FILTER` | The file's own filter; `debug` by default, so the file holds more than the screen. |
+| `NV_LOG_JSON_FILTER` | The files' own filter; `debug` by default, so the files hold more than the screen does. |
+| `NV_LOG_TEXT` | `off` stops the plain-text log (below); on by default with the JSON file. |
 | `NV_LOG_JSON_MAX_MB` | Size bound of the file, 64 by default. |
 | `NV_STOP_POLICY` | `soft` (default off Windows) or `halt`. |
+
+## The terminal
+
+The terminal is quiet by default (`NV_LOG_TERM=quiet`). What it shows, in this order:
+
+1. A start header of 3 to 6 lines (build, GPU and driver, resolution and display, audio and threads, the log paths), printed when the first
+   frame has gone. The lines come from the run's facts (`fork_log::fact`; `fork_hitch::set_meta` sets them too).
+2. Warnings and errors, the same message (digits ignored) at most three times, then counted: at the end `warning: ... (x repeated 40 times)`.
+3. Stops with their reason and exe address chain (the `Game's main stopped in frame N: ... (in ...)` line), soft stops (`error` on
+   target `stop`, throttled already), and a panic (the previous panic hook prints it).
+4. On a terminal, one self-overwriting status line `f 123456  143 fps  p99 7 ms  hitches 0` every `NV_STATUS_SECS` (5 s), drawn on
+   stderr with carriage returns only (no escape codes, so a Windows console behaves the same). Off when stderr is a pipe or a file,
+   with `NV_STATUS_SECS=0`, and when the terminal already shows the `status` lines.
+5. At the end the final summary: the verdict (`OK:`, `FLAGGED:` or `FAILED:`), fps, p99, 1% and 0.1% low, frames, play and loading time,
+   hitch count and the worst three, peaks, soft stops, errors, warnings, flags, and the paths of the log and the run summary.
+
+Fatal failures always print, at any `NV_LOG_TERM` (even `off`): `fork_log::fatal!` (a stop line, a graphics device lost, no game data,
+a failed start of the host); they are errors, so they are also in both files.
+
+| `NV_LOG_TERM` | Shows |
+| --- | --- |
+| `quiet` | the above |
+| `normal` | quiet plus the one-time facts (`info`), without the periodic lines (`status`, `hitch`, `game`) |
+| `verbose` | everything at `debug`, every repeat, no limits (the files' detail on the screen) |
+| `off` | the fatal failures only |
+| a filter | `warn,d3d9=debug`, as `RUST_LOG` writes it; no repeat limit |
+
+Precedence: `NV_LOG_TERM` for the terminal, else `NV_LOG`, else `RUST_LOG` (as the filter, no repeat limit: what they did before), else
+`quiet`. The files' filter is `NV_LOG_JSON_FILTER`, else `debug` widened by `NV_LOG`/`RUST_LOG`. The per-present stats, the pipeline
+reports, `Game's movement`, the preset's fix list, the shader start report and the one-time facts are `info` or `debug`: they are in
+the files and not on a quiet terminal. Messages of a level no sink shows are not formatted (a comparison and a return).
+
+The files: `nv-rs-<unix>-<pid>.jsonl` (JSON lines) and `nv-rs-<unix>-<pid>.log` beside it, the same records as plain text
+(`2026-11-16T09:40:19.586Z INFO  d3d9 f123: message`; frame `-` before the first), with the same bound and rotation (`.1`). The newest
+nine runs are kept, all their files together. `nv-rs-dev logs` reads them (below).
+
+The owner-local `~/.local/bin/nv-rs-run` pipes the viewer through `tee` into its own log. It should let the terminal output through as it is
+(it is short now) and, after the run, print `nv-rs-dev logs`, which says what happened in under 40 lines. It no longer needs to keep
+the viewer's output as the record: the two files hold everything. A pipe is not a terminal, so the live status line is off there.
 
 ## JSON log
 
@@ -43,8 +84,8 @@ before the first), `thread`. `auto` writes `$XDG_STATE_HOME/nv-rs/logs/nv-rs-<un
 bound the file becomes `<file>.1` (one older copy is dropped) and a new one starts. Warnings and errors are flushed at once, other
 lines within a second, and everything at exit.
 
-The owner-local launcher `~/.local/bin/nv-rs-run` is not changed by the fork: the log is on by default, so it needs nothing. To
-choose the place, export `NV_LOG_JSON=/path/run.jsonl` there; to see more on screen, `NV_LOG=debug`.
+The log is on by default, so a launcher needs nothing. To choose the place, export `NV_LOG_JSON=/path/run.jsonl` (the text log goes
+beside it, `.log`); to see more on screen, `NV_LOG_TERM=verbose`.
 
 Final records (`"event"` set) carry `reason`, `frame`, `thread`, counts of `soft_stops`, `errors` and `warnings`, and `last_lines`
 (the last 200 lines either sink took):

@@ -123,14 +123,25 @@ fn reconfigures_after(why: NoFrame) -> bool {
 fn log_display(mode: wgpu::PresentMode) {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| match fork_window::display() {
-        Some(d) => fork_log::info!(target: "window",
+        Some(d) => {
+            fork_log::fact(
+                "display",
+                &format!(
+                    "{}x{} {} Hz, {mode:?}",
+                    d.monitor.width,
+                    d.monitor.height,
+                    d.refresh_hz()
+                ),
+            );
+            fork_log::info!(target: "window",
             "NV_D3D9 display: monitor {} {}x{} {} Hz ({}), present {mode:?}",
             d.index,
             d.monitor.width,
             d.monitor.height,
             d.refresh_hz(),
             d.why
-        ),
+            );
+        }
         None => {
             fork_log::info!(target: "window", "NV_D3D9 display: no monitor known, present {mode:?}")
         }

@@ -263,7 +263,8 @@ fn sort_entry(e: &mut Engine, a: &[u32]) -> Ret {
             let epoch_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis());
-            eprintln!(
+            fork_log::info!(
+                target: "host",
                 "topic index after the load (epoch_ms {epoch_ms}, {engines} engine(s), {} infos \
                  noted): {:?}",
                 index.topics.len(),

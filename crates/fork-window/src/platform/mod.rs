@@ -367,7 +367,8 @@ impl App {
         self.reported = Some(key);
         let held = self.held;
         let idle = self.idle.as_ref().map_or("none", idle::Inhibit::name);
-        eprintln!(
+        fork_log::info!(
+            target: "window",
             "fork-window: window {}x{} px at scale {} on {}, pointer {held}, idle inhibit {idle}",
             size.width,
             size.height,
@@ -408,7 +409,8 @@ impl App {
             return;
         }
         let mon = monitor_of(&m);
-        eprintln!(
+        fork_log::info!(
+            target: "window",
             "fork-window: the window is on monitor {name} {}x{} {} Hz (placed by the {})",
             mon.width,
             mon.height,

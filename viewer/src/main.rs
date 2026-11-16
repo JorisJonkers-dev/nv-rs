@@ -153,7 +153,8 @@ fn main() {
         }
     };
     if !args.ignored.is_empty() {
-        println!(
+        fork_log::warn!(
+            target: "host",
             "Ignored (the removed viewer's arguments): {}",
             args.ignored.join(" ")
         );
@@ -161,7 +162,7 @@ fn main() {
     let data = match find_data_folder(&args.data) {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("error: {e}");
+            fork_log::fatal!(target: "host", "{e}");
             host::end_process(1);
         }
     };
@@ -174,7 +175,7 @@ fn main() {
                 return;
             }
             Err(e) => {
-                eprintln!("error: {e}");
+                fork_log::fatal!(target: "host", "{e}");
                 host::end_process(1);
             }
         }
@@ -190,18 +191,18 @@ fn main() {
     let choice = match host::fixes::Choice::read_with(command_line_test) {
         Ok(choice) => choice,
         Err(e) => {
-            eprintln!("error: {e}");
+            fork_log::fatal!(target: "host", "{e}");
             host::end_process(1);
         }
     };
     let mut game = match host::Host::start_with(&data, &choice) {
         Ok(host) => host,
         Err(e) => {
-            eprintln!("error: {e}");
+            fork_log::fatal!(target: "host", "{e}");
             host::end_process(1);
         }
     };
-    println!("{}", game.describe());
+    fork_log::info!(target: "host", "{}", game.describe());
     game.movement.probe = args.movement_probe;
     // The run ends where the game's `main` ends its frames (`host::Host::at_main_end`), as the
     // original's process does: with main's answer when it returned, with the game's own code
@@ -243,6 +244,8 @@ fn main() {
         .map_or(Duration::from_secs(5), |s| {
             Duration::from_secs_f64(s.max(0.0))
         });
+    // The live status line's numbers: the frames and the time of the last one.
+    let mut live = (Instant::now(), 0u64);
     let mut trace = host::fork_trace::Trace::default();
     let mut last_ctx = fork_hitch::Context::default();
     loop {
@@ -291,8 +294,26 @@ fn main() {
         if frames % 300 == 0 {
             hitch_peaks(game.engine.mem.heap_stats());
         }
+        // The start header, once the window, the device and the sound have said what they are.
+        if frames == 1 {
+            fork_log::print_header();
+        }
         if !status_every.is_zero() && last.map_or(true, |at| at.elapsed() >= status_every) {
             last = Some(Instant::now());
+            if fork_log::live_status_on() {
+                let now = Instant::now();
+                let secs = now.duration_since(live.0).as_secs_f64().max(0.001);
+                let fps = (frames - live.1) as f64 / secs;
+                live = (now, frames);
+                let s = fork_hitch::stats();
+                let measured = s.frames > 0;
+                fork_log::live_status(&fork_log::term::status_text(
+                    game.movement.main_frames,
+                    fps,
+                    measured.then(|| s.percentile_ms(0.99)),
+                    measured.then_some(s.hitches),
+                ));
+            }
             fork_log::log_stdout(
                 fork_log::Level::Info,
                 "status",

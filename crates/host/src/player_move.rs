@@ -1297,7 +1297,11 @@ impl PlayerMovement {
                 crate::save_out::copy_saves(e, status_line);
                 if status_line {
                     self.main_reported = Some(std::time::Instant::now());
-                    println!("{}", self.summary());
+                    fork_log::log_stdout(
+                        fork_log::Level::Info,
+                        "status",
+                        format_args!("{}", self.summary()),
+                    );
                     // A typed family's dual run (`NV_TYPED=<family>:dual`): words compared and
                     // differences so far.
                     if let Some(line) = engine::typed::dual_line(e) {
@@ -1380,7 +1384,7 @@ impl PlayerMovement {
                 if end.clean() {
                     fork_log::log_raw(fork_log::Level::Info, "stop", format_args!("{line}"));
                 } else {
-                    fork_log::log_raw(fork_log::Level::Error, "stop", format_args!("{line}"));
+                    fork_log::fatal_raw("stop", format_args!("{line}"));
                     fork_log::report_stop(&why);
                 }
                 self.main_stop = Some(line);
