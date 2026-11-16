@@ -717,6 +717,10 @@ class DriverTests(unittest.TestCase):
         d.console_line = console_line_off
         self.assertFalse(drivers.ensure_walks(d, tries=1))
         self.assertEqual(lines, ["player.removescriptpackage"])
+        # The package's own drift (a few units) is not a step.
+        drift = iter([0.0, 8.0, 8.0, 16.0] * 10)
+        d.position = lambda: (next(drift), 0.0, 0.0)
+        self.assertFalse(drivers.walks(d))
 
     def test_sneak_check_taps_ctrl_between_the_standing_and_the_sneaking_steps(self):
         import driver
