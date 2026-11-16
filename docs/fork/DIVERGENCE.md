@@ -30,13 +30,13 @@ A new upstream-owned file needs a record in this file, in the same pull request,
 
 The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
 
-### Short-name matching in FindFirstFileA
-- Files: `crates/engine-platform/src/files.rs` (`search_finds`)
-- Upstream approach: upstream rules out a short name by the pattern's first letter only and stops the run on any other pattern that could match a short name it does not know (checked on `origin/main`, 2026-11-16)
-- Fork approach: a pattern's first two letters rule out a short name, and so does a literal start of 8 or more characters without `~` (a short-name base has at most 8 characters, with its `~` among the first 7); a pattern neither rule decides still stops the run
-- Decision: drop when upstream decides these patterns itself
-- Reason: a search such as `<name>*.bsa` in a folder that holds an archive whose long name has spaces stopped the game in its first frame
-- Evidence: JorisJonkers-dev/nv-rs#331; the test `a_long_literal_start_rules_out_a_short_name`
+### Short names off Windows
+- Files: `crates/engine-platform/src/files.rs` (`search_finds`, `listing`, `player_entry`, `short_name`, `write_entry`, `find_first_file_a`; the fork's `files/short_names.rs` removed)
+- Upstream approach: upstream does not list host files off Windows; on Windows the file system answers short names, and `search_finds` (the run's own files) rules out a short name by the pattern's first letter and stops on any pattern it cannot decide (checked on `origin/main`, 2026-11-16)
+- Fork approach: off Windows the host keeps no 8.3 short names, as a Windows volume with their generation off: a search matches the long name only and never stops for a short name, and `cAlternateFileName` is empty for host files and the run's files. On Windows the behaviour is unchanged (the first two letters rule out a short name, the plain stop stays)
+- Decision: drop when upstream lists host files off Windows itself
+- Reason: wildcard searches for a master's archives (`<name>*.bsa`) in a folder that holds an archive whose long name has spaces stopped the game in its first frame, once per pattern the short-name rules could not decide
+- Evidence: JorisJonkers-dev/nv-rs#331; the test `off_windows_a_search_matches_the_long_name_only` and the save tests in `tests_changed_directories`
 
 ## Older table
 
