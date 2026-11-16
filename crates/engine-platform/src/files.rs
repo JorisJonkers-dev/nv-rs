@@ -235,7 +235,12 @@ fn read_range(
             file
         }
     };
-    read_at(&file, start, count)
+    // The read of the host file, with the kernel lock given back meanwhile (real threads): the
+    // file is the handle's own `Arc`, the read touches no platform state and no game memory, so
+    // another thread's platform calls (the main thread's among them) are not held up by a read
+    // from the disk, which a cell load makes by the thousand. The copy into guest memory and the
+    // position's update come after, under the lock again. With stepped threads it just reads.
+    engine_core::real_threads::without_kernel_lock(e, || read_at(&file, start, count))
 }
 
 /// A read-only handle's host file for the player's file it reads ([`OpenFile::kept`]): opened by
