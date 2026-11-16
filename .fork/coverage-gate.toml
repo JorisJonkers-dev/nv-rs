@@ -1,10 +1,9 @@
 # Fork-only. The changed-line coverage gate of the fork-owned crates (docs/fork/COVERAGE.md, "The gate").
-# The `coverage-gate` job of fork-coverage.yml fails only when `enforce = true` AND the pull request's baseline is
-# a nightly run's artifact (not the base commit measured in the run) AND the changed executable lines of the
-# fork-owned crates are covered below the minimum. Until then the job reports and passes.
-# To flip it: set `enforce = true` here once a nightly run on `fork` has succeeded, then (owner decision) add
-# `coverage-gate` to the `needs` of `pipeline-complete` in fork-ci.yml. Upstream-owned code is never gated.
-enforce = false
+# The `coverage-gate` job of fork-coverage.yml (called by fork-ci.yml, so part of Pipeline Complete) fails only when
+# `enforce = true` AND the pull request's baseline is a nightly run's artifact (not the base commit measured in the
+# run) AND the changed executable lines of the fork-owned crates are covered below the minimum. Otherwise it reports
+# and passes. Upstream-owned code is never gated. Set `enforce = false` to make it informational again.
+enforce = true
 min_changed_line_coverage = 70.0
 # Crates counted as fork-owned beyond the derived ones (directories in .fork/overlay-paths, components marked
 # "Fork-owned" in .fork/components.toml).

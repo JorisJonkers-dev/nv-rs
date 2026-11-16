@@ -29,22 +29,25 @@ Closest fit: loot-rs for the tool (`cargo llvm-cov`, ignore regex for test files
 
 ## How it runs
 
-* Workflow `Coverage` (`fork-coverage.yml`), separate from `Pipeline`. It is not in `Pipeline Complete`, is not a required check and never fails a pull request: the measure jobs are `continue-on-error`.
+* Workflow `Coverage` (`fork-coverage.yml`). On a pull request `fork-ci.yml` calls it as the job `coverage` (`workflow_call`), so it is part of `Pipeline Complete`; the nightly baseline is its own schedule. Only the gate (below) can fail it: the measure jobs are `continue-on-error`, and a failed comment does not count.
 * Linux only, `cargo llvm-cov 0.9.1` (pinned) with the toolchain of `rust-toolchain.toml`, one job per component with the component's own first `cargo test -p ...` line. Not measured: `rendering` and `platform` (Nix shell, GPU), `integration` (hours), `launcher-and-ledger`, `release-files`, `repo-checks`. Windows-only components have no Linux job and are not measured.
 * A change to `fork-coverage.yml` or `coverage_report.py` measures `formats` as a smoke run, so the comment has numbers.
 * Baseline: the nightly run (03:47 UTC, also manual) measures every Linux component on `fork` and stores `cov-<component>` (lcov) for 30 days. A pull request downloads the latest one; with none yet it measures the base commit in the same job.
 * Output: a sticky comment (total line coverage PR against base and the delta, a table per component, changed files with their uncovered lines, the count of uncovered changed lines), the same text in the run summary, and the artifacts `cov-<component>`, `coverage-comment`, `coverage-plan`.
 * Permissions: `contents: read` everywhere; `actions: read` on the measure jobs (baseline download); `pull-requests: write` only on the comment job, which checks out nothing and posts a file the report job rendered. A pull request from a fork gets the run summary and no comment.
-* The gate: the job `coverage-gate` (below) checks the changed lines of the fork-owned crates. Not in `Pipeline Complete` either.
-* Making the whole report required later: add `coverage` to the `needs` of `pipeline-complete` in `fork-ci.yml` (owner decision, see below).
+* The gate: the job `coverage-gate` (below) checks the changed lines of the fork-owned crates and blocks the merge through `Pipeline Complete`.
 
 ## The gate: fork-owned crates
 
 The job `coverage-gate` of `fork-coverage.yml` computes, from the same artifacts as the comment, the share of the executable changed lines of the **fork-owned crates** that a test ran, and compares it with `min_changed_line_coverage` (70) of `.fork/coverage-gate.toml`. Fork-owned crates are derived, not listed by hand: directories named in `.fork/overlay-paths` (`crates/<name>/`) and the crates of a component of `.fork/components.toml` whose purpose says "Fork-owned" (today `fork-log`, `fork-hitch`, `fork-window`, `fork-presence`, `fork-memlog`), plus `extra_crates` of the toml. Upstream-owned code stays report-only. The comment shows the same result under "Fork-owned crates: changed-line coverage".
 
-It is informational (the job passes and says so) until BOTH hold: `enforce = true` in `.fork/coverage-gate.toml`, and the pull request's baseline is a nightly run's artifact (`baseline.txt` reads "the last nightly run"; a base commit measured in the same run does not count). Then a coverage below the minimum fails the job.
+**The rule.** A pull request whose executable changed lines in the fork-owned crates are less than 70% covered (`min_changed_line_coverage`) fails `coverage-gate`, so it fails `Pipeline Complete` and cannot merge. The gate enforces only when BOTH hold: `enforce = true` in `.fork/coverage-gate.toml` (set since the first nightly baseline, run 43850925215), and the pull request's baseline is a nightly run's artifact (`baseline.txt` reads "the last nightly run"; a base commit measured in the same run does not count). In every other case it passes with a report:
 
-To flip it, once a nightly run on `fork` has succeeded (the first one was started by hand on 2026-11-16): set `enforce = true` in `.fork/coverage-gate.toml` in a pull request; to make it block merges, add `coverage-gate` to the `needs` of `pipeline-complete` in `fork-ci.yml` (not done yet: owner decision). To switch it off again, set `enforce = false`.
+* No nightly baseline (none yet, or the last one expired after 30 days): the gate warns ("informational: no nightly baseline artifact yet") and passes.
+* A change to upstream-owned code only: no changed line in a fork-owned crate, so there is nothing to gate; the comment still reports its coverage.
+* A fork-owned component that failed to measure: the report names it as not measured; its lines are not gated.
+
+To switch the gate off again, set `enforce = false` (the job then passes and says so); to change the threshold, edit `min_changed_line_coverage`.
 
 ## The nightly run and heavy components
 
