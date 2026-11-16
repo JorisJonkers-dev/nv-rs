@@ -667,7 +667,7 @@
     },
     {
       "commands": {
-        "implemented": 997,
+        "implemented": 1000,
         "implemented_names": [
           "GetLNVersion",
           "GetTimeStamp",
@@ -1075,6 +1075,7 @@
           "GetActiveUIComponentName",
           "GetActiveUIComponentFullName",
           "GetActiveUIComponentID",
+          "GetMenuTargetRef",
           "GetMenuItemFilter",
           "ClickMenuButton",
           "RemoveItemTarget",
@@ -1201,6 +1202,7 @@
           "CCCLoadNCCS",
           "CCCLocationName",
           "CCCGetReputation",
+          "GetSelectedItemRef",
           "GetWeaponRefModFlags",
           "SetWeaponRefModFlags",
           "GetBarterItems",
@@ -1231,6 +1233,7 @@
           "GetInterruptPackage",
           "GetSessionTime",
           "GetQuestTargetsChanged",
+          "GetWorldMapPosMults",
           "GetActiveEffects",
           "GetActorProcessingLevel",
           "GetActorsByProcessingLevel",
