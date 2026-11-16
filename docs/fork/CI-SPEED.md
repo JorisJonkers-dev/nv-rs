@@ -68,4 +68,4 @@ The rust-cache is saved only on `fork` pushes (`save-if`), keyed per component a
 
 ## Runs that are not in Pipeline Complete
 
-The coverage run (`fork-coverage.yml`, with its `coverage-gate` job) and the divergence report (`fork-divergence.yml`) run next to the pipeline and cost no pipeline time. The divergence report is one cheap job (a checkout and git diffs, about a minute) and posts one comment. The upstream sync runs once a week instead of every day (fewer runs of the replay, the capabilities build and the pipeline on `sync/upstream`).
+The coverage run (`fork-coverage.yml`) is a job of the pipeline on pull requests, because its `coverage-gate` job blocks merges (docs/fork/COVERAGE.md); its measure jobs run in parallel with the builds and took about 13 minutes at most in the first nightly run. The divergence report (`fork-divergence.yml`) runs next to the pipeline and costs no pipeline time. The divergence report is one cheap job (a checkout and git diffs, about a minute) and posts one comment. The upstream sync runs once a week instead of every day (fewer runs of the replay, the capabilities build and the pipeline on `sync/upstream`).

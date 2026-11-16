@@ -76,6 +76,7 @@ def parse_frame_log(text):
                     "us": us,
                     "screen": parts[cols["screen"]].strip().lower() if "screen" in cols else "",
                     "pos": [float(parts[cols[k]]) for k in ("px", "py", "pz")],
+                    "fdelta": float(parts[cols["m_fdelta"]]) if "m_fdelta" in cols else None,
                 }
             )
         except (KeyError, ValueError, IndexError):
@@ -163,6 +164,13 @@ RE_MEMLOG = re.compile(r"^NV_MEMLOG ((?:\w+=[-\d.]+\s*)+)")
 BAD_MEMORY = re.compile(r"not enough memory|device.?lost|out of memory|ErrorOutOfDeviceMemory", re.I)
 
 
+# the busiest thread comes first; its name may hold spaces ("game main threa/806899 42%")
+RE_BUSY = re.compile(r"NV_PERF: thread busy over [\d.]+ s, [\d.]+ cores in all: [^,]*?/\d+ (\d+(?:\.\d+)?)%")
+
+
+RE_PHASE = re.compile(r"# driver: phase (\S+) (start|end) frame=(\d+) t=([\d.]+)")
+
+
 def parse_log(text):
     """Counters out of a viewer log; the last report of each cumulative counter wins."""
     out = {
@@ -181,8 +189,25 @@ def parse_log(text):
         "watchdog": None,
         "exit_status": None,
         "memlog": [],
+        "phases": [],  # (name, start|end, frame, seconds since the run began) from the driver's notes
+        "busiest_thread_pct": [],  # NV_PERF's report: the busiest thread's CPU share, one per report
+        "phase_busy_pct": {},  # phase name -> the busiest-thread shares of the reports logged while it was open
     }
+    open_phases = set()
     for line in text.splitlines():
+        if line.startswith("# driver: phase "):
+            m = RE_PHASE.match(line)
+            if m:
+                out["phases"].append((m.group(1), m.group(2), int(m.group(3)), float(m.group(4))))
+                (open_phases.add if m.group(2) == "start" else open_phases.discard)(m.group(1))
+            continue
+        if "NV_PERF: thread busy" in line:
+            m = RE_BUSY.search(line)
+            if m:
+                out["busiest_thread_pct"].append(float(m.group(1)))
+                for name in open_phases:
+                    out["phase_busy_pct"].setdefault(name, []).append(float(m.group(1)))
+            continue
         m = RE_MOVEMENT.search(line)
         if m:
             out["status_lines"].append((int(m.group(1)), int(m.group(2))))
@@ -284,6 +309,122 @@ def sample_summary(rows):
     }
 
 
+def phase_stats(rows, phases, busy=None):
+    """Per phase of a driven run: its seconds of wall time, and for the measured stretches the play frames' fps, p99 and
+    1% low (frames between the phase's first and last frame). Phases with no end (the run was cut) end at the last
+    frame. With `busy` (parse_log's phase_busy_pct) a measured phase also gets the busiest thread's mean CPU share over
+    the NV_PERF reports logged while it ran, and that share as milliseconds of a mean frame (`busy_ms`). A report covers
+    the seconds since the previous one, so the first report of a phase reaches a few seconds back (into the warm-up of
+    the same place)."""
+    last_frame = rows[-1]["frame"] if rows else 0
+    spans, open_ = [], {}
+    for name, kind, frame, t in phases:
+        if kind == "start":
+            open_[name] = (frame, t)
+        elif name in open_:
+            f0, t0 = open_.pop(name)
+            spans.append((name, f0, frame, t - t0))
+    for name, (f0, t0) in open_.items():
+        spans.append((name, f0, last_frame, None))
+    out = []
+    for name, f0, f1, secs in spans:
+        row = {"name": name, "wall_s": None if secs is None else round(secs, 1)}
+        if name.endswith(".measured"):
+            dts = [r["dt_ms"] for r in rows if f0 <= r["frame"] <= f1 and r["screen"] == "play" and r["dt_ms"] is not None and 0 <= r["dt_ms"] < 5000]
+            st = frame_stats(dts) if dts else None
+            if st:
+                row.update(fps=st["fps"], p99_ms=st["p99_ms"], low1_fps=st["low1_fps"], frames=st["frames"])
+                pcts = (busy or {}).get(name)
+                if pcts and st["fps"]:
+                    pct = sum(pcts) / len(pcts)
+                    row.update(busy_pct=round(pct, 1), busy_ms=round(pct / 100.0 * 1000.0 / st["fps"], 2))
+        out.append(row)
+    return out
+
+
+def heading_changes(rows, phases):
+    """Per place of a driven run: the angle in degrees between the direction walked in `<place>.walk1` and the direction of
+    the last 1.5 s of `<place>.walk2` (the view turned in between, so the walk goes another way): the camera turned
+    if it is well over 0. None when either leg moved less than 30 units. Pure."""
+    import math
+    spans = {}
+    for name, kind, frame, t in phases:
+        spans.setdefault(name, {})[kind] = (frame, t)
+    out = {}
+    for name in [n for n in spans if n.endswith(".walk1")]:
+        place = name[:-6]
+        w1, w2 = spans.get(name, {}), spans.get(place + ".walk2", {})
+        if "start" not in w1 or "end" not in w1 or "start" not in w2 or "end" not in w2:
+            continue
+
+        def leg(f0, f1, tail_s=None):
+            rs = [r for r in rows if f0 <= r["frame"] <= f1 and r["screen"] == "play"]
+            if tail_s is not None and rs:
+                cut = rs[-1]["t"] - tail_s
+                rs = [r for r in rs if r["t"] >= cut]
+            if len(rs) < 2:
+                return None
+            dx, dy = rs[-1]["pos"][0] - rs[0]["pos"][0], rs[-1]["pos"][1] - rs[0]["pos"][1]
+            return (dx, dy) if math.hypot(dx, dy) >= 30 else None
+
+        a, b = leg(w1["start"][0], w1["end"][0]), leg(w2["start"][0], w2["end"][0], 1.5)
+        if a and b:
+            ang = abs(math.degrees(math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1])))
+            out[place] = round(ang, 1)
+    return out
+
+
+def hitches(rows):
+    """Hitches in the play frames: a frame over 25 ms and over three times the median. Count and a minute's worth."""
+    dts = [r["dt_ms"] for r in rows if r["screen"] == "play" and r["dt_ms"] is not None and 0 <= r["dt_ms"] < 5000]
+    if len(dts) < 10:
+        return {"count": 0, "per_min": None}
+    med = sorted(dts)[len(dts) // 2]
+    n = sum(1 for d in dts if d > 25.0 and d > 3 * med)
+    minutes = sum(dts) / 60000.0
+    return {"count": n, "per_min": round(n / minutes, 2) if minutes > 0 else None}
+
+
+def game_clock_sanity(rows):
+    """Game time against wall time, and the player's fall and landing, over the play frames (500+ fps must not change
+    what the game does): `ratio` is the sum of the game's frame deltas over the wall time of the same frames (1.0: the
+    game keeps real time); `speed` is the walked path over the wall seconds the player was walking (units a second);
+    `fall` is how far the player dropped below the highest point since arrival and `settled` whether the height
+    stopped changing (landed) in the last fifth of the run; `stuck_s` the longest stretch of play with no movement at
+    all after the player first moved. Pure."""
+    play = [r for r in rows if r["screen"] == "play" and r["dt_ms"] is not None and 0 <= r["dt_ms"] < 1000 and r.get("fdelta") is not None]
+    out = {"ratio": None, "speed": None, "fall": None, "settled": None, "stuck_s": None, "play_s": 0.0}
+    if len(play) < 10:
+        return out
+    wall = sum(r["dt_ms"] for r in play) / 1000.0
+    out["play_s"] = round(wall, 1)
+    out["ratio"] = round(sum(r["fdelta"] for r in play) / wall, 3) if wall > 0 else None
+    zs = [r["pos"][2] for r in play]
+    top = max(zs[: max(1, len(zs) // 5)])
+    out["fall"] = round(max(0.0, top - min(zs)), 1)
+    tail = zs[-max(10, len(zs) // 5):]
+    out["settled"] = (max(tail) - min(tail)) < 200.0
+    moving_s, path, last, still, longest = 0.0, 0.0, None, 0.0, 0.0
+    started = False
+    for r in play:
+        p = r["pos"]
+        if last is not None:
+            d = ((p[0] - last[0]) ** 2 + (p[1] - last[1]) ** 2) ** 0.5
+            if d < 20000:
+                if d > 0.01:
+                    started = True
+                    path += d
+                    moving_s += r["dt_ms"] / 1000.0
+                    still = 0.0
+                elif started:
+                    still += r["dt_ms"] / 1000.0
+                    longest = max(longest, still)
+        last = p
+    out["speed"] = round(path / moving_s, 1) if moving_s > 1.0 else None
+    out["stuck_s"] = round(longest, 1) if started else None
+    return out
+
+
 def summarize(frame_rows, log, samples, missing=(0, 0), stops=0):
     """The run's metrics as one flat-ish dict (what summary.json holds under `metrics`)."""
     fs = frame_summary(frame_rows)
@@ -303,6 +444,11 @@ def summarize(frame_rows, log, samples, missing=(0, 0), stops=0):
         # the frame log shows (2048, 2048, 128) until the game puts the player in a cell
         "player_placed": any(r["pos"] not in ([0.0, 0.0, 0.0], [2048.0, 2048.0, 128.0]) for r in frame_rows),
         "memory": sm,
+        "clock": game_clock_sanity(frame_rows),
+        "hitches": hitches(frame_rows),
+        "phases": phase_stats(frame_rows, log["phases"], log.get("phase_busy_pct")),
+        "heading_change_deg": heading_changes(frame_rows, log["phases"]),
+        "main_busy_pct": round(sum(log["busiest_thread_pct"]) / len(log["busiest_thread_pct"]), 1) if log["busiest_thread_pct"] else None,
         "untranslated_addresses": missing[0],
         "untranslated_hits": missing[1],
         "stop_lines": log["stop_lines"],
