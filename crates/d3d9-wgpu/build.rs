@@ -56,4 +56,11 @@ fn main() {
     let hash = fingerprint::fingerprint(&workspace, &all);
     assert_ne!(hash, fingerprint::EMPTY, "nothing was hashed");
     println!("cargo:rustc-env=D3D9_WGPU_PIPELINE_SOURCES={hash:016x}");
+    // The converted-shader cache's stamp (`shader_cache.rs`): only the converter's sources
+    // decide the WGSL text, so a change elsewhere in the crate keeps the cache.
+    let mut conv = Vec::new();
+    fingerprint::files_under(&here.join("src/sm"), &mut conv);
+    let hash = fingerprint::fingerprint(&workspace, &conv);
+    assert_ne!(hash, fingerprint::EMPTY, "no converter source was hashed");
+    println!("cargo:rustc-env=D3D9_WGPU_CONVERTER_SOURCES={hash:016x}");
 }

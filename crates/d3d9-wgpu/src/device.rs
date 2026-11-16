@@ -810,6 +810,8 @@ pub struct Device {
     /// The module threads: each shader's modules made when the game creates it
     /// ([`Device::queue_modules`]); started with the first.
     modules_ahead: Option<crate::ahead::Queue<ModKey, ModuleMade>>,
+    /// The converted shaders kept between runs ([`crate::shader_cache`]), when on.
+    pub(crate) shader_cache: Option<Arc<crate::shader_cache::ShaderCache>>,
     /// The modules the module threads made since their queue last ran empty, and their time
     /// (said in one line when it does: [`Device::collect_modules`]); of them, those whose
     /// pipeline library was made too.
@@ -1169,6 +1171,7 @@ impl Device {
             list_offers: 0,
             modules_here: 0,
             modules_ahead: None,
+            shader_cache: None,
             ahead_burst: (0, std::time::Duration::ZERO, 0),
             libraries,
             warm_start,
@@ -4563,7 +4566,17 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             .modules_ahead
             .get_or_insert_with(|| crate::ahead::Queue::new(worker_threads(), "nv-wgpu-modules"));
         let ahead = self.libraries_ahead.clone();
-        q.push(key, module_job(device, s.clone(), link, library, ahead));
+        q.push(
+            key,
+            module_job(
+                device,
+                s.clone(),
+                link,
+                library,
+                ahead,
+                self.shader_cache.clone(),
+            ),
+        );
     }
 
     /// What making `s`'s pipeline library takes, right after its module (made with `link`) on
@@ -4870,7 +4883,12 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 fixed,
             };
             let t = std::time::Instant::now();
-            let source = wgsl::convert(&vs.program, &link);
+            let source = crate::shader_cache::convert(
+                self.shader_cache.as_deref(),
+                &vs.tokens,
+                &vs.program,
+                &link,
+            );
             tasks.push(ModuleTask {
                 key: ModKey::V(vkey.clone()),
                 source,
@@ -4887,7 +4905,12 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 fixed,
             };
             let t = std::time::Instant::now();
-            let source = wgsl::convert(&ps.program, &link);
+            let source = crate::shader_cache::convert(
+                self.shader_cache.as_deref(),
+                &ps.tokens,
+                &ps.program,
+                &link,
+            );
             tasks.push(ModuleTask {
                 key: ModKey::P(pkey.clone()),
                 source,
@@ -7322,6 +7345,7 @@ fn module_job(
     link: wgsl::Link,
     library: Option<LibraryAhead>,
     ahead: Arc<std::sync::atomic::AtomicBool>,
+    store: Option<Arc<crate::shader_cache::ShaderCache>>,
 ) -> crate::ahead::Job<ModuleMade> {
     Box::new(move || {
         let delay = MODULE_DELAY_FOR_TESTS.load(Ordering::Relaxed);
@@ -7329,7 +7353,8 @@ fn module_job(
             std::thread::sleep(std::time::Duration::from_millis(u64::from(delay)));
         }
         let t = std::time::Instant::now();
-        let source = wgsl::convert(&shader.program, &link);
+        let source =
+            crate::shader_cache::convert(store.as_deref(), &shader.tokens, &shader.program, &link);
         let convert = t.elapsed();
         let t = std::time::Instant::now();
         let module = match source {

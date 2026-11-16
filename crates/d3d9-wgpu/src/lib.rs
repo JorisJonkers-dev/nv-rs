@@ -30,6 +30,7 @@ pub mod loading;
 pub mod memstats;
 mod perf;
 mod prepare;
+pub mod shader_cache;
 pub mod shot;
 pub mod sm;
 pub mod state;
@@ -40,6 +41,7 @@ mod window;
 pub fn save_pipeline_caches() {
     cache::save_all_now();
     device::save_lists_now();
+    shader_cache::log_summaries();
 }
 pub use answers::{Answer, QueryAnswers};
 use d3d9_stream::{Backend, Cmd, Data, Handle, Reply};
@@ -54,6 +56,8 @@ pub struct WgpuBackend {
     game_device: Handle,
     /// Where the driver's compiled pipelines are kept between runs ([`WgpuBackend::with_cache_dir`]).
     cache_dir: Option<std::path::PathBuf>,
+    /// The converted-shader store ([`WgpuBackend::with_shader_cache`]).
+    shader_cache: Option<std::sync::Arc<shader_cache::ShaderCache>>,
     /// Where occlusion counts are posted for the game's threads ([`WgpuBackend::with_answers`]).
     answers: Option<std::sync::Arc<QueryAnswers>>,
 }
@@ -67,6 +71,7 @@ impl WgpuBackend {
             device: None,
             game_device: 0,
             cache_dir: None,
+            shader_cache: None,
             answers: None,
         }
     }
@@ -76,6 +81,14 @@ impl WgpuBackend {
     /// (`cache.rs`). The host chooses the folder; without one nothing is read or written.
     pub fn with_cache_dir(mut self, dir: std::path::PathBuf) -> Self {
         self.cache_dir = Some(dir);
+        self
+    }
+
+    /// Keeps the converted shaders on disk between runs ([`shader_cache`]), keyed by the
+    /// bytecode's content. `settings` `None` (the switch is off) keeps nothing.
+    pub fn with_shader_cache(mut self, settings: Option<&shader_cache::Settings>) -> Self {
+        self.shader_cache = settings
+            .and_then(|s| shader_cache::ShaderCache::open(s, shader_cache::CONVERTER_STAMP));
         self
     }
 
@@ -144,6 +157,7 @@ impl Backend for WgpuBackend {
             return match made {
                 Ok(mut d) => {
                     d.answers = self.answers.clone();
+                    d.shader_cache = self.shader_cache.clone();
                     self.device = Some(d);
                     self.game_device = *device;
                     // No D3DX side channel: the texture loader cannot use a wgpu device.
