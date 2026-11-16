@@ -68,3 +68,10 @@ crates/host/src/fixes.rs  # Choice reads NV_FPS_LIMIT as the play frame limit (i
 docs/PLAYTESTING.md  # the settings table names NV_FPS_LIMIT beside NV_FRAME_LIMIT
 # The replay-bench (docs/fork/REPLAY.md, crates/d3d9-replay, gputime.rs): the GPU time of a frame by timestamp queries, asked for only with NV_REPLAY_GPU_TIMING; the game's run never does.
 crates/d3d9-wgpu/src/device.rs  # `flush`, `on_queue` and `sync` are pub(crate) for gputime.rs; the timestamp features when NV_REPLAY_GPU_TIMING asks; the `gpu_timer` field
+# The hitch flight recorder (docs/fork/HITCHES.md, crates/fork-hitch): relaxed counters and a few stores at the places that know the numbers; nothing changes what a function computes.
+crates/engine-core/Cargo.toml  # the fork-hitch dependency
+crates/engine-core/src/real_threads.rs  # the main thread's platform call span, the contended lock waits, the object wait span, the thread roles
+crates/engine-core/src/real_sync.rs  # a span around the lock-free event and semaphore wait
+crates/engine-core/src/draw_thread.rs  # the main thread's join wait added to the counters
+crates/engine-core/src/thread_host.rs  # the main thread's role
+crates/engine-core/src/profile.rs  # the shadow stack as the hitch sampler's guest-chain source under NV_PROFILE
