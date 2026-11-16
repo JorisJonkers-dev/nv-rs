@@ -3698,7 +3698,8 @@ mod tests_kept_files {
 
     /// The scratch file `name` in `dir` with `bytes`; its full path.
     fn file(dir: &str, name: &str, bytes: &[u8]) -> String {
-        let path = format!("{dir}\\{name}");
+        // `/` is a separator for the game's calls and for the host, on every system.
+        let path = format!("{dir}/{name}");
         std::fs::write(&path, bytes).unwrap();
         path
     }
@@ -5311,6 +5312,9 @@ mod tests_code_pages {
         assert_eq!(e.mem.u32(part), buffer + 7);
         // A real file named ソ.txt opens by its 932 bytes and reads.
         let dir = scratch("dbcs");
+        // The scratch folder's path is the host's own (`/tmp/...` is not a Windows full path), so
+        // no current folder is put in front of it.
+        e.kernel.current_directory = Vec::new();
         std::fs::write(dir.join("\u{30bd}.txt"), b"so").unwrap();
         assert_eq!(read_named(&mut e, &dir, so), Ok(b"so".to_vec()));
         let names: Vec<Vec<u8>> = listing(&dir, b"*.txt", "test")
