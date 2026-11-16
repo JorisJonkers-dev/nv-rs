@@ -13,12 +13,15 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
 import lock
 import nested
+import record
+import watch
 import parse
 
 HOME = Path.home()
@@ -195,6 +198,7 @@ def launch(plan, opts, run_dir):
     env.update(
         {
             "NV_FRAME_LOG": str(frames),
+            "NV_HITCH_CSV": env.get("NV_HITCH_CSV", str(run_dir / "hitches.csv")),
             "NV_MEMLOG": env.get("NV_MEMLOG", "1"),
             "RUST_BACKTRACE": "1",
             "RUST_LOG": env.get("RUST_LOG", "info"),
@@ -212,6 +216,16 @@ def launch(plan, opts, run_dir):
             raise SystemExit(f"the nested compositor did not start: see {run_dir}/compositor.log")
         env.update(comp.env())
         env.pop("DISPLAY", None)
+    rec = None
+    watch.write_steps(run_dir, plan)
+    watch.write_session(run_dir, comp, opts)
+    if opts.get("record"):
+        if comp:
+            rec = record.Recorder(run_dir, comp.socket, comp.runtime, fps=opts.get("record_fps", 30), fmt=opts.get("record_format", "mp4"))
+            if not rec.start():
+                print(f"bench: not recording: {rec.note}", file=sys.stderr)
+        else:
+            print("bench: --record needs --nested headless (nothing to record offscreen)", file=sys.stderr)
     cmd = memory_cap_prefix(opts.get("mem")) + [opts["viewer"], opts["game"], "--movement-missing", str(missing)]
     gpu = find_gpu()
     started = time.time()
@@ -256,6 +270,8 @@ def launch(plan, opts, run_dir):
         if wd.killed:
             lf.write(f"# GPU memory watchdog: {wd.killed}: stopped the game\n")
         lf.write(f"# exit status: {rc}\n")
+    if rec and rec.proc:
+        rec.stop(first_frame_at)
     if comp:
         comp.stop()
     return {
