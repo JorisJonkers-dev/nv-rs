@@ -35,7 +35,39 @@ Closest fit: loot-rs for the tool (`cargo llvm-cov`, ignore regex for test files
 * Baseline: the nightly run (03:47 UTC, also manual) measures every Linux component on `fork` and stores `cov-<component>` (lcov) for 30 days. A pull request downloads the latest one; with none yet it measures the base commit in the same job.
 * Output: a sticky comment (total line coverage PR against base and the delta, a table per component, changed files with their uncovered lines, the count of uncovered changed lines), the same text in the run summary, and the artifacts `cov-<component>`, `coverage-comment`, `coverage-plan`.
 * Permissions: `contents: read` everywhere; `actions: read` on the measure jobs (baseline download); `pull-requests: write` only on the comment job, which checks out nothing and posts a file the report job rendered. A pull request from a fork gets the run summary and no comment.
-* Making it required later: add `coverage` to the `needs` of `pipeline-complete` in `fork-ci.yml` (owner decision, see below).
+* The gate: the job `coverage-gate` (below) checks the changed lines of the fork-owned crates. Not in `Pipeline Complete` either.
+* Making the whole report required later: add `coverage` to the `needs` of `pipeline-complete` in `fork-ci.yml` (owner decision, see below).
+
+## The gate: fork-owned crates
+
+The job `coverage-gate` of `fork-coverage.yml` computes, from the same artifacts as the comment, the share of the executable changed lines of the **fork-owned crates** that a test ran, and compares it with `min_changed_line_coverage` (70) of `.fork/coverage-gate.toml`. Fork-owned crates are derived, not listed by hand: directories named in `.fork/overlay-paths` (`crates/<name>/`) and the crates of a component of `.fork/components.toml` whose purpose says "Fork-owned" (today `fork-log`, `fork-hitch`, `fork-window`, `fork-presence`, `fork-memlog`), plus `extra_crates` of the toml. Upstream-owned code stays report-only. The comment shows the same result under "Fork-owned crates: changed-line coverage".
+
+It is informational (the job passes and says so) until BOTH hold: `enforce = true` in `.fork/coverage-gate.toml`, and the pull request's baseline is a nightly run's artifact (`baseline.txt` reads "the last nightly run"; a base commit measured in the same run does not count). Then a coverage below the minimum fails the job.
+
+To flip it, once a nightly run on `fork` has succeeded (the first one was started by hand on 2026-11-16): set `enforce = true` in `.fork/coverage-gate.toml` in a pull request; to make it block merges, add `coverage-gate` to the `needs` of `pipeline-complete` in `fork-ci.yml` (not done yet: owner decision). To switch it off again, set `enforce = false`.
+
+## The nightly run and heavy components
+
+Every Linux component runs with a 90 minute timeout and `continue-on-error`. `core` and the `fallout-*` components run instrumented differential tests and are the ones that may exceed it; a component that times out is reported as "not measured" and does not break the run. If the first nightly run shows a timeout, split that component into `[[component.job]]` entries (as `integration` does) or add it to `SKIP` in `coverage_report.py`, and record the measured times here.
+
+The first nightly run (run 43850925215, started by hand on `fork` on 2026-11-16) passed with every component measured and none
+near the timeout; the whole run took about 13 minutes. Job times, from start to end:
+
+| Component | Time |
+|---|---|
+| fallout-gameplay | 7 min 30 s |
+| engine-base | 5 min 17 s |
+| fallout-front | 4 min 56 s |
+| fallout-world | 4 min 54 s |
+| scripting | 4 min 09 s |
+| native-saves | 3 min 41 s |
+| core | 2 min 01 s |
+| window-layer | 2 min 01 s |
+| presence | 1 min 40 s |
+| log | 1 min 21 s |
+| memlog | 1 min 20 s |
+| hitch | 1 min 17 s |
+| formats | 1 min 09 s |
 
 ## Limits
 

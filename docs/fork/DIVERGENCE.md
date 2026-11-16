@@ -5,6 +5,33 @@ is listed in `.fork/allowed-divergence` and, here, with its reason and the upstr
 unnecessary. A sync or a worker checks this list first: when upstream now does the thing, drop the fork's edit, the
 list entry and the row below. Keep both lists as small as possible.
 
+## Process
+
+Every pull request gets a comment "Divergence from upstream" (`.github/workflows/fork-divergence.yml`,
+`scripts/fork/divergence_report.py`). It warns and never fails. It uses `.fork/overlay-paths`, the fork-only crates of
+`.fork/components.toml` and the workflows to tell fork-owned files from upstream-owned ones, and reports:
+
+* the upstream-owned files the pull request changes, and their changed lines;
+* the total divergence: files and lines of upstream-owned code that differ from upstream at the commit it was last replayed to, at the base, at the head and a week before the base;
+* the budget of `.fork/divergence-budget.toml`: a warning when one pull request changes more than 300 lines of upstream-owned code (`pr_changed_lines`) or the total grows more than 5 % in 7 days (`weekly_growth_percent`, `window_days`);
+* whether this file records each upstream-owned file the pull request starts to change (a file that equals upstream's at the base).
+
+A new upstream-owned file needs a record in this file, in the same pull request, as a `### Area` section with these lines:
+
+```
+### <area>
+- Files: `crates/x/src/y.rs`, ...
+- Upstream approach: what upstream does (or that it does nothing) and how it was checked
+- Fork approach: what the fork does instead
+- Decision: keep, drop when upstream does X, or offer nothing (upstream is an input)
+- Reason: why the fork needs it
+- Evidence: the issue, measurement, test or run that shows the need
+```
+
+The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
+
+## Older table
+
 | Fork-only change | Why | Upstream change that makes it unnecessary |
 |---|---|---|
 | `engine-platform` answers in `fork_platform.rs`: file times of FindFirstFile, known folders, memory status, data folder; hooks in `files.rs`, `process.rs`, `dsound.rs`, `lib.rs`, `host/save_out.rs`, `host/lib.rs` | The game runs on Linux; upstream answers these only on Windows | Upstream implementing the same calls off Windows (it does not as of the 38-commit sync of 2026-11-15) |

@@ -32,7 +32,7 @@ have new ids: ignore it, `scripts/fork/verify-sync.sh` is the real check.
 
 ## How it runs
 
-`.github/workflows/fork-sync.yml` runs daily and by hand. It first fast-forwards `main` from upstream with GitHub's own sync, then runs `scripts/fork/replay-upstream.sh --push`,
+`.github/workflows/fork-sync.yml` runs weekly (Mondays 05:00 UTC) and by hand; there is only ever one `sync/upstream` pull request, which each run refreshes. The run summary opens with how many upstream commits the fork is behind and the files and lines they change, by crate (`sync_report.py behind`). It first fast-forwards `main` from upstream with GitHub's own sync, then runs `scripts/fork/replay-upstream.sh --push`,
 which reads `main`, and opens (or refreshes) the pull request `sync/upstream` into `fork`, and turns on auto-merge by **rebase** once
 `Pipeline Complete` passes. Rebase, not squash: squash would put 30 commits into one message and
 release-please would see one `chore`. The repository ruleset allows both squash (people) and rebase (the
