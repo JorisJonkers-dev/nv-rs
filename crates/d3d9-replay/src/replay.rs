@@ -85,6 +85,10 @@ pub trait Target: Backend {
     fn gpu_ns(&mut self) -> Option<Vec<f64>> {
         None
     }
+    /// What the target did that is not a cost (what it left out, what it made).
+    fn notes(&self) -> String {
+        String::new()
+    }
 }
 
 /// One frame's measurement.

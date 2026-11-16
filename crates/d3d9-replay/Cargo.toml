@@ -12,6 +12,10 @@ d3d9-stream = { path = "../d3d9-stream" }
 d3d9-wgpu = { path = "../d3d9-wgpu" }
 # The container's compression (pure Rust backend, miniz_oxide).
 flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
+# The raw Vulkan prototype (`vulkan.rs`): ash as wgpu-hal uses it, the loader found at run time.
+ash = { version = "=0.38.0", default-features = false, features = ["loaded", "std"] }
+# The converter's WGSL to SPIR-V for it: the version wgpu 30.0.1 uses, pinned (ADR-0007).
+naga = { version = "=30.0.1", features = ["wgsl-in", "spv-out"] }
 # wgpu's state types, which `d3d9_wgpu::state` converts the game's render states to.
 wgpu = { version = "=30.0.1", default-features = false, features = ["std"] }
 

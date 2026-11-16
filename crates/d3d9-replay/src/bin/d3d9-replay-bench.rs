@@ -6,8 +6,8 @@
 //!                                                     a window of a recording as a container
 //! d3d9-replay-bench synth OUT [--frames N] [--draws N] [--textures N] [--size WxH]
 //!                                                     a made-up scene as a container
-//! d3d9-replay-bench run   FILE [--backend null|wgpu|all] [--size WxH] [--warmup N]
-//!                         [--passes N] [--runs N] [--split] [--gpu]
+//! d3d9-replay-bench run   FILE [--backend null|wgpu|vulkan|all] [--size WxH] [--warmup N]
+//!                         [--passes N] [--runs N] [--max-seconds N] [--pin CPU] [--split] [--gpu]
 //! ```
 //!
 //! Measurement runs go through `nv-rs-dev replay run`, which takes the bench lock.
@@ -115,6 +115,45 @@ fn info(path: &Path) -> Result<(), String> {
             }
             _ => {}
         }
+    }
+    // The targets and the textures' formats, so a window's shape is known before it is replayed.
+    let mut made: std::collections::BTreeMap<String, usize> = Default::default();
+    for c in &cmds {
+        let key = match c {
+            Cmd::CreateSurface {
+                width,
+                height,
+                format,
+                multisample,
+                depth,
+                ..
+            } => {
+                format!(
+                    "surface {width}x{height} fmt {format:#x} ms {multisample}{}",
+                    if *depth { " depth" } else { "" }
+                )
+            }
+            Cmd::CreateTexture {
+                width,
+                height,
+                format,
+                usage,
+                levels,
+                ..
+            } if usage & 3 != 0 => {
+                format!(
+                    "target texture {width}x{height} fmt {format:#x} levels {}",
+                    levels.len() / 4
+                )
+            }
+            Cmd::CreateTexture { format, .. } => format!("texture fmt {format:#x}"),
+            Cmd::CreateCubeTexture { format, .. } => format!("cube fmt {format:#x}"),
+            _ => continue,
+        };
+        *made.entry(key).or_default() += 1;
+    }
+    for (k, n) in &made {
+        println!("  made: {k} x{n}");
     }
     println!("frames: {}", per_frame.len());
     if let Some(s) = size_of(&cmds) {
@@ -226,8 +265,9 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     let replay = Replay::parse(&bytes, setup)?;
     let back = size_of(&replay.cmds[..replay.setup.max(1)]).unwrap_or((0, 0));
+    let all = matches!(flag(args, "--backend").as_deref(), None | Some("all"));
     let backends: Vec<String> = match flag(args, "--backend").as_deref() {
-        None | Some("all") => vec!["null".into(), "wgpu".into()],
+        None | Some("all") => vec!["null".into(), "wgpu".into(), "vulkan".into()],
         Some(b) => b.split(',').map(str::to_string).collect(),
     };
     let o = Options {
@@ -251,15 +291,40 @@ fn run(args: &[String]) -> Result<(), String> {
         // Read when the device is made (d3d9-wgpu's `open`).
         std::env::set_var("NV_REPLAY_GPU_TIMING", "1");
     }
+    // Bounded: a backend's runs stop once `--max-seconds` (default 20) have gone on it.
+    let budget = std::time::Duration::from_secs(number(args, "--max-seconds", 20)? as u64);
+    if let Some(cpu) = flag(args, "--pin") {
+        pin(cpu.parse().map_err(|_| "--pin CPU".to_string())?);
+    }
     for name in &backends {
+        let began = std::time::Instant::now();
         for r in 1..=runs {
+            if r > 1 && began.elapsed() > budget {
+                println!("{name}: stopped after {} runs (--max-seconds)", r - 1);
+                break;
+            }
             let mut target: Box<dyn Target> = match name.as_str() {
                 "null" => Box::new(null::Null::new()),
                 "wgpu" => Box::new(WgpuTarget::new(has(args, "--gpu").then_some(total_frames))),
-                other => return Err(format!("unknown backend {other} (null, wgpu)")),
+                "vulkan" => match d3d9_replay::vulkan::VulkanTarget::new(
+                    has(args, "--gpu").then_some(total_frames),
+                ) {
+                    Ok(t) => Box::new(t),
+                    // With every backend asked for, a machine without Vulkan skips this one.
+                    Err(e) if all => {
+                        println!("vulkan: skipped ({e})");
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                },
+                other => return Err(format!("unknown backend {other} (null, wgpu, vulkan)")),
             };
             let res = replay::run(target.as_mut(), &replay, o)?;
             report(&res, r);
+            let notes = target.notes();
+            if !notes.is_empty() {
+                println!("  notes: {notes}");
+            }
             if has(args, "--split") {
                 let s = replay::split(target.as_mut(), &replay, overhead);
                 print_split(name, &s);
@@ -267,6 +332,19 @@ fn run(args: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Pins the calling thread, and the threads it makes after, to one CPU (Linux).
+fn pin(cpu: usize) {
+    #[cfg(target_os = "linux")]
+    // SAFETY: a zeroed cpu_set_t with one bit set, for the calling thread.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        libc::CPU_SET(cpu, &mut set);
+        libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = cpu;
 }
 
 fn ms(ns: &[f64]) -> Vec<f64> {
