@@ -1,0 +1,5 @@
+3 hitches (3.0/min), slow windows 0
+  file_io        x2     70 ms
+  loading        x1     41 ms
+worst 1 of 1 recorded:
+  41 ms at f4401 (31s): loading, trigger cell.change 12 ms before, ReadFile

@@ -1,0 +1,10 @@
+{"ts": "2026-11-16T08:40:19.005Z", "level": "info", "target": "host", "message": "logging: JSON lines to /home/someone/.local/state/nv-rs/logs/nv-rs-1794818419-998250.jsonl", "fields": {}, "frame": null, "thread": "main"}
+{"ts": "2026-11-16T08:40:19.090Z", "level": "info", "target": "host", "message": "Preset fixes: uncapped frame rate, high-frame-rate landing", "fields": {}, "frame": null, "thread": "main"}
+{"ts": "2026-11-16T08:40:19.120Z", "level": "info", "target": "d3d9", "message": "NV_D3D9 wgpu: the game's device on AMD Radeon RX 7900 XTX (RADV NAVI31) (Vulkan)", "fields": {}, "frame": null, "thread": "main"}
+{"ts": "2026-11-16T08:40:23.000Z", "level": "debug", "target": "d3d9", "message": "NV_D3D9 wgpu: present 300: 7.0 ms", "fields": {}, "frame": 300, "thread": "main"}
+{"ts": "2026-11-16T08:40:28.000Z", "level": "warn", "target": "window", "message": "NV_D3D9 wgpu: the window's surface was lost: made again", "fields": {}, "frame": 640, "thread": "main"}
+{"ts": "2026-11-16T08:40:50.000Z", "level": "warn", "target": "window", "message": "NV_D3D9 wgpu: the window's surface was lost: made again", "fields": {}, "frame": 4400, "thread": "main"}
+{"ts": "2026-11-16T08:41:04.000Z", "level": "warn", "target": "files", "message": "FindFirstFileA(Data\\Meshes): not listed, using the host folder", "fields": {}, "frame": 6900, "thread": "main"}
+{"ts": "2026-11-16T08:41:09.000Z", "level": "info", "target": "status", "message": "Game's movement: main 7200 frames; running; 0 untranslated addresses reached.", "fields": {}, "frame": 7200, "thread": "main"}
+{"ts": "2026-11-16T08:41:18.000Z", "level": "info", "target": "host", "message": "Game's main returned 0 in frame 8600", "fields": {}, "frame": 8600, "thread": "main"}
+{"ts": "2026-11-16T08:40:50.010Z", "level": "warn", "target": "hitch", "kind": "hitch", "hitch": {"frame_idx": 4401, "wall_ms": 41.0, "cause": "loading", "trigger": "cell.change 12 ms before", "frame": {"idx": 4401, "end_ms": 31010, "wall_ms": 41.0}, "samples": {"n": 12, "calls": [{"call": "ReadFile", "n": 9}]}}, "frame": 4401, "thread": "main"}

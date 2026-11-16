@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# nv-rs-logs: what happened in a run, in a few lines (same as `nv-rs-dev logs`; docs/fork/LOGS.md).
+#   nv-rs-logs [--run ID|latest|latest-bad] [--errors|--hitches|--tail N|--grep PAT|--around FRAME|MSms] [--json] [--bundle [FILE]]
+#   nv-rs-logs --diff A B
+# Install next to nv-rs-dev: ln -s <worktree>/scripts/fork/local/nv-rs-logs ~/.local/bin/nv-rs-logs
+set -uo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+exec python3 -I "$HERE/../logs.py" "$@"

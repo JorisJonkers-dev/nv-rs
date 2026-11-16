@@ -1,0 +1,16 @@
+1794818419-998250  ->  1794900000-4242
+                       A         B    change
+fps                143.4     109.9     -33.5
+p99 ms               8.1        31     +22.9
+1% low fps           123        32       -91
+hitches/min            3       122      +119
+hitches                3        41       +38
+loading s            6.5         5      -1.5
+errors                 0        13       +13
+warnings               3         2        -1
+soft stops             0        12       +12
+peak heap_mb        1650      1700       +50
+peak rss_mb         3890      4400      +510
+peak vram_mb        6100      7900     +1800
+flags: new hitches_per_min_high, p99_over_20ms, soft_stops, errors, stopped; gone -
+regressions: fps: 143.4 -> 109.9; p99 ms: 8.1 -> 31; 1% low fps: 123 -> 32; hitches/min: 3 -> 122; errors: 0 -> 13; soft stops: 0 -> 12; peak rss_mb: 3890 -> 4400; peak vram_mb: 6100 -> 7900; new flag hitches_per_min_high; new flag p99_over_20ms; new flag soft_stops; new flag errors; new flag stopped

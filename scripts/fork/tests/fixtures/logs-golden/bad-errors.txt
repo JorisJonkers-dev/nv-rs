@@ -1,0 +1,5 @@
+  stop [platform] IDirect3DQuery9::GetData(0x4) is not provided (in 0044fb20 00401000 0040a1c0) at f2210; addresses 0044fb20 00401000 0040a1c0
+  error 12x stop: soft stop: IDirectSoundBuffer::Lock: flags 0x10 (the game gets the failure result and goes on) [1]  f900..f1340
+  error stop: Game's main stopped in frame 2210: IDirect3DQuery9::GetData(0x4) is not provided (in 0044fb20 00401000 0040a1c0)  f2210
+  warn  files: FindFirstFileA(C:\Users\someone\Games\Fallout New Vegas\Data\x.esp): not found  f1500
+  warn  sound: sound: the output device /home/someone/.config/pulse cannot be opened: Connection refused  f20
