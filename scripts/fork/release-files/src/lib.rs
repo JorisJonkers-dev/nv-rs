@@ -57,7 +57,7 @@ fn engine() -> Engine {
     // image reads zero, and every function the wrap table lists is a stand-in that returns 0, so
     // a new patch upstream adds needs nothing here. Only the command tables are read afterwards.
     e.map(0x0040_0000, 0x00f0_0000);
-    for entry in engine_core::extend::WRAPS {
+    for entry in engine_core::extend::all_wraps() {
         if !e.is_registered(entry.addr) {
             e.register(entry.addr, |_, _| Ret::default());
         }
