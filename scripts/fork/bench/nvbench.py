@@ -48,9 +48,10 @@ def analyze_dir(run_dir, plan=None, run=None, settings=None):
     missing = parse.count_missing(read(run_dir / "missing.tsv"))
     stops = parse.count_stops(read(run_dir / "missing.stops.tsv"))
     metrics = parse.summarize(rows, log, samples, missing, stops)
-    hitches = load_hitches(run_dir)
-    if hitches:
-        metrics["hitches"] = hitches
+    recorder = load_hitches(run_dir)
+    if recorder:
+        # The hitch recorder's own summary; metrics["hitches"] is the frame log's count.
+        metrics["recorder"] = recorder
     checks = verdict_checks(metrics, plan, (run or {}).get("wall_s"))
     series_t = [r["t"] for r in samples]
     out = {
@@ -119,7 +120,7 @@ def verdict_checks(m, plan, run_wall=None):
             f"game time / wall time {ck['ratio']:.2f} at {fps:.0f} fps (a frame-rate-dependent game would be off at high fps)")
     if ck.get("settled") is not None and ck.get("play_s", 0) >= 5:
         add("the player landed (height settled)", ck["settled"], f"fell {ck['fall']:.0f} units from the top")
-    h = m.get("hitches")
+    h = m.get("recorder")
     if h is not None:
         # A run whose hitches pass the recorder's flag level is marked: a stutter is a failure of the run (the level
         # is NV_HITCH_FLAG_PER_MIN, 3 a minute by default; the flags are the recorder's own).
