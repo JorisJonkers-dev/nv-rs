@@ -18,7 +18,7 @@ game folder and run only locally; CI runs the parsing, report and compare code a
 | `nv-rs-dev bench compare <baseline> <candidate> [--threshold key=pct]` | Regression check; exit status 1 on a regression |
 | `nv-rs-dev bench analyze <viewer.log> [--frames F] [--samples S]` | Parses an existing log |
 
-Options of `run`: `--windowed --yes-windowed` (a real window; refused without both), `--threads real|stepped`,
+Options of `run`: `--nested headless|window` (the real window path, see "Real window path" below), `--windowed --yes-windowed` (the viewer's own window on your compositor; refused without both), `--threads real|stepped`,
 `--preset fixes|vanilla`, `--resolution WxH`, `--sound silent|out|none`, `--vram-limit-pct N`, `--mem 12G`, `--scale F`
 (shorten or lengthen a scenario), `--keys` and `--mouse` (extra scripted input, `NV_MOVE_KEYS` syntax), `--shots DIR[,ms]`
 (debugging: the game's frames saved for you to look at, never commit them).
@@ -48,13 +48,51 @@ using the thresholds below; see [LOCAL.md](LOCAL.md#matrix-runs). `--json` gives
 
 - `capped` (default): 144 frames a second limit, mailbox present: pacing and 1% lows. `uncapped`: no limit,
   `NV_PRESENT=immediate`: peak fps (offscreen, the swap chain does not exist, so it measures the work).
-- Offscreen (`NV_D3D9_OFFSCREEN=1`) by default: no window, no compositor involved. Sound runs but the speakers get
-  silence (`NV_SOUND=out` with a hidden window); the game's voice lines and movies need that clock.
+- Offscreen (`NV_D3D9_OFFSCREEN=1`) by default: no window, no compositor involved. Sound runs on the game's clock into
+  the null sink (`NV_SOUND=out`, `NV_SOUND_BACKEND=null`), so the speakers get nothing. The game's voice lines and movies
+  need that clock: with `NV_D3D9_HIDDEN=1` (which mutes the device, and was the bench's way until 2026-11-16) Doc
+  Mitchell's opening lines never ended and the opening stalled at his second line, which was taken for an engine fault.
+  With the null sink Doc's dialogue runs on its own to the name box and the face menu (mirror) draws its head.
 - The watchdog samples VRAM and GTT every second and stops the viewer (SIGTERM, then SIGKILL) at `--vram-limit-pct`
   (default 70, or `NV_VRAM_LIMIT_PCT`). The viewer also runs in a memory-capped systemd scope (`--mem`, default 12G), with
   no CPU quota or nice level, which would distort the numbers.
 - Thresholds of `compare` (percent worse, with a noise floor): fps 5, 1% low 10, p99 10, max 50, RSS 10, VRAM 10, GTT 10,
   skipped draws 20; wgpu errors, stops and untranslated addresses regress on any increase. `--threshold fps=3` changes one.
+
+## Real window path (`--nested`)
+
+`--nested headless` starts sway on wlroots' headless backend (own Wayland socket, one output of `--resolution`, no
+Xwayland, memory-capped scope) and runs the game in it as a normal borderless window: a real Wayland surface, a real
+wgpu swap chain with Mailbox present, real window focus and pointer lock, 2560x1440 if you ask for it. Your session
+(GNOME) is never involved, nothing appears on your screen, no focus is taken, and the watchdog (`--vram-limit-pct`,
+use 50 for window runs) and the memory scope stay on. Needs `sway` (`nix shell nixpkgs#sway`, or `NV_BENCH_SWAY=path`).
+The runner also borrows the Nix store's Wayland, xkbcommon, Vulkan and pulse-simple libraries as `nv-rs-run` does;
+without them a windowed run fell back to off screen silently (the log line "the real window could not be made").
+
+`--nested window` shows the nested compositor as one window in your session (`--yes-windowed`; the compositor is a
+client of yours, and a covered or minimised window stops frame callbacks, so fps and pacing numbers are not valid
+there). `--windowed --yes-windowed` is the viewer's own window on your compositor (`NV_D3D9_BACKGROUND=1`: behind the
+others, not activated). Which gives valid numbers: only `--nested headless` (the nested output always has a frame
+callback) for fps and pacing; offscreen for work and stability without a swap chain; the other two only for stability, with
+the card's memory watchdog at 50%.
+
+Measured 2026-11-16 (RX 7900 XTX, `newgame` and `chargen`, capped, 2560x1440, build of the day), offscreen against nested:
+
+| | offscreen | nested headless |
+| --- | --- | --- |
+| play-screen fps, newgame | 119 | 119 |
+| VRAM peak, chargen (MiB) | 1618 | 1837 |
+| GTT peak, chargen (MiB) | 201 | 179 |
+| wgpu errors, skipped draws | 0, 0 | 0, 0 |
+| swap chain configured | none (no swap chain) | 2 (0 refused) |
+| screens reached, face menu drawn | yes | yes |
+
+VRAM and GTT were flat after the load in every run (a few MiB a minute); nothing grew without bound, so the GPU
+out-of-memory that once took gdm down did not reproduce in either path with today's build. The owner's own windowed run
+of 2026-11-16 07:34 on GNOME (`~/.local/state/nv-rs/logs/run-*.log.gpumem`) also stayed under 2.2 GiB VRAM and 340 MiB GTT
+with 0 wgpu errors; there the swap chain was configured 24 times in three minutes (the nested one twice): the compositor
+reconfigures it (monitor 1920x1080 at 144 Hz, window 2560x1440). What to capture if it happens again: the run's `.gpumem`
+file, `NV_LOG=game=debug`, the "swap chain configured N times" line, and `dmesg` for `amdgpu` lines.
 
 ## Scenarios
 
@@ -65,7 +103,29 @@ using the thresholds below; see [LOCAL.md](LOCAL.md#matrix-runs). `--json` gives
 | `chargen` | `newgame`, then the opening quest's name and sex choices (stages set by console), to the face menu. Capped mode only | works to the face menu (see below) |
 | `probe` | Debugging: `PROBE="getstage 104c1c;key:enter;wait:2;mouse:10:5:1"` runs console commands and key, mouse and wait steps in the first room | a tool |
 
-Planned: `goodsprings`, `novac`, `strip`, `soak` (a long looped walk watching memory growth), each its own change.
+| `chargen` | `newgame` then the opening quest's name and sex by console stage commands, to the face menu | works |
+| `goodsprings`, `novac`, `strip` | Without a save: finish the opening quest by its last stage, teleport by a placed reference's form id, dismiss the packs' message boxes, a fixed walk loop (`--scale` sets the laps) | teleport works, walking blocked (below) |
+| `combat` | In Goodsprings: three hostile geckos placed by form id, pistol and ammo added and equipped, a click script | as above, firing not verified |
+| `soak` | Goodsprings, Novac, the Strip, Freeside in turn, repeated (20 min at scale 1) | as above, later teleports untested |
+
+Form ids used (base game, numbers only): quest `104C1C` (stage 200 is the end), markers `1658B7` Goodsprings, `8D0A3`
+Novac, `16ACB9` the Strip, `13A669` Freeside, creature `168D0B`, pistol `E3778`, ammo `8ED03`. Found by scanning
+FalloutNV.esm for editor ids; the ids are not game data.
+
+What works (2026-11-16): `setstage 104c1c 200` frees the player and ends Doc's lines; `player.moveto 1658B7` loads the
+Goodsprings exterior (it renders; the old `CreateQuery(9)` stop does not appear any more); the downloadable packs'
+message boxes then come one after another (`menu` screen; Enter dismisses; the first one closes the console, so no
+console key follows). Goodsprings exterior ran at about 105 fps (capped, 2560x1440) with 0 wgpu errors and VRAM 2.4 GiB.
+
+What blocks: after the teleport the scripted `W` and the mouse do not move or turn the player (path 0 units, the same
+view after minutes, offscreen and nested alike), so the "moved N units" verdicts fail honestly. `enableplayercontrols`,
+`player.setrestrained 0` and `player.setav paralysis 0` did not change it. Unknown: whether the opening's quest script
+holds the controls (finishing it by stage may skip what gives them back), or the scripted keys do not reach the
+player's controls in play. A prepared save (another worker is on save writing) would answer which; a real-input run in
+the nested window (`wtype`/`wlrctl` events into it) would answer the other. An open flake: about one run in ten stops
+at frame 6001 (the intro movie skip) with `WaitForSingleObject ... semaphore count 0` in stepped threads.
+
+Planned: the same scenarios once a save or the controls are solved; their route lengths and the fps numbers then stand.
 
 ### How the input is driven, and its limits
 
@@ -109,7 +169,7 @@ main-frame clock because it is pressed during a load. A step that waits for a na
 
 ### What the engine lacks for outdoors
 
-- A console teleport to the town (`coc goodsprings`) stops the game in the first outdoor frames with
+- (Not reproduced on 2026-11-16: `player.moveto` by form id loads the exterior.) A console teleport to the town (`coc goodsprings`) stopped the game in the first outdoor frames with
   `IDirect3DDevice9::CreateQuery(9) is not in the machine table` (the adapter table has no query lines on this machine;
   `d3d9-capture device queries` is a Windows tool). Until that is solved on Linux, scenarios that go outdoors will report
   that stop, which is what the verdict is for.

@@ -253,6 +253,49 @@ class ScenarioTests(unittest.TestCase):
                     int(f.lstrip("p")), int(k, 16), int(h)
 
 
+class NestedAndWorldTests(unittest.TestCase):
+    OPTS = ScenarioTests.OPTS
+
+    def test_sound_is_the_games_clock_into_the_null_sink_in_both_paths(self):
+        plan = scenarios.build("boot", self.OPTS)
+        for windowed in (False, True):
+            env = plan.env(dict(self.OPTS, windowed=windowed))
+            self.assertEqual((env["NV_SOUND"], env["NV_SOUND_BACKEND"]), ("out", "null"))
+            self.assertNotIn("NV_D3D9_HIDDEN", env)  # a hidden window mutes the device and Doc's lines never end
+
+    def test_sway_config_and_resolution(self):
+        import nested
+        self.assertEqual(nested.parse_resolution("2560x1440"), (2560, 1440))
+        conf = nested.sway_config(2560, 1440)
+        self.assertIn("output * mode 2560x1440@60Hz", conf)
+        self.assertIn("xwayland disable", conf)
+        with self.assertRaises(ValueError):
+            nested.parse_resolution("wide")
+
+    def test_world_scenarios_teleport_by_form_id_and_scale_by_laps(self):
+        for name in ("goodsprings", "novac", "strip", "combat", "soak"):
+            plan = scenarios.build(name, self.OPTS)
+            self.assertTrue(plan.capped_only and plan.self_scaled, name)
+            self.assertGreater(plan.end_frame, scenarios.LOADING_FRAMES)
+        self.assertEqual(scenarios.laps({"scale": 0.1}), 1)
+        self.assertEqual(scenarios.laps({}), 3)
+        self.assertEqual(scenarios.laps({"scale": 2}), 6)
+        long, short = (scenarios.build("goodsprings", dict(self.OPTS, scale=s)) for s in (1.0, 0.34))
+        self.assertGreater(long.end_frame, short.end_frame)
+
+    def test_teleport_types_the_marker_id_and_dismisses_boxes(self):
+        sc = scenarios.Script(fps=100.0)
+        scenarios.teleport(sc, "novac", boxes=2)
+        keys = [k for _, k, _ in sc.keys]
+        self.assertEqual(keys.count(scenarios.DIK["enter"]), 3)  # the command and the two boxes
+        self.assertIn(scenarios.DIK["d"], keys)  # "8D0A3" is typed
+        self.assertNotIn(scenarios.DIK["grave"], keys)  # a console key after the boxes would reopen it
+
+    def test_runner_borrows_nothing_when_the_system_has_the_libraries(self):
+        import runner
+        self.assertIsInstance(runner.borrowed_libs({}), dict)
+
+
 class CliTests(unittest.TestCase):
     def test_analyze_directory_and_windowed_refusal(self):
         with tempfile.TemporaryDirectory() as d:

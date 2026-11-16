@@ -17,6 +17,7 @@ import threading
 import time
 from pathlib import Path
 
+import nested
 import parse
 
 HOME = Path.home()
@@ -164,6 +165,24 @@ def memory_cap_prefix(limit):
     return []
 
 
+def borrowed_libs(env):
+    """What nv-rs-run does: the viewer dlopens Wayland, xkbcommon, Vulkan and pulse-simple; where the system has none
+    (NixOS), take the Nix store's copies. Without them a windowed run silently falls back to off screen."""
+    out = {}
+    have = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True).stdout if shutil.which("ldconfig") else ""
+    if "libwayland-client" not in have:
+        dirs = []
+        for pat in ("*-wayland-1.*/lib", "*-libxkbcommon-*/lib", "*-vulkan-loader-*/lib"):
+            dirs += [d for d in sorted(glob.glob(f"/nix/store/{pat}")) if "-dev/" not in d and "-bin/" not in d][-1:]
+        if dirs:
+            out["LD_LIBRARY_PATH"] = ":".join(dirs + ([env["LD_LIBRARY_PATH"]] if env.get("LD_LIBRARY_PATH") else []))
+    if not env.get("NV_PULSE_SIMPLE") and "libpulse-simple" not in have:
+        found = sorted(glob.glob("/nix/store/*-libpulseaudio-*/lib/libpulse-simple.so.0"))
+        if found:
+            out["NV_PULSE_SIMPLE"] = found[-1]
+    return out
+
+
 def launch(plan, opts, run_dir):
     """Run the viewer under `plan` (scenarios.Plan) and `opts` (a dict); returns run.json's content."""
     run_dir = Path(run_dir)
@@ -180,13 +199,25 @@ def launch(plan, opts, run_dir):
             "RUST_LOG": env.get("RUST_LOG", "info"),
         }
     )
+    env.update(borrowed_libs(env))
+    comp = None
+    if opts.get("nested"):
+        sway = nested.find_sway()
+        if not sway:
+            raise SystemExit("no sway on PATH (nix shell nixpkgs#sway, or NV_BENCH_SWAY): needed by --nested")
+        comp = nested.Nested(sway, run_dir, opts["resolution"], opts["nested"])
+        if not comp.start():
+            comp.stop()
+            raise SystemExit(f"the nested compositor did not start: see {run_dir}/compositor.log")
+        env.update(comp.env())
+        env.pop("DISPLAY", None)
     cmd = memory_cap_prefix(opts.get("mem")) + [opts["viewer"], opts["game"], "--movement-missing", str(missing)]
     gpu = find_gpu()
     started = time.time()
     with open(log, "w") as lf:
         lf.write(f"# nv-rs bench {plan.name} {time.strftime('%Y%m%dT%H%M%S')}\n")
         lf.write(f"# keys: {env.get('NV_MOVE_KEYS', '')}\n# mouse: {env.get('NV_MOVE_MOUSE', '')}\n")
-        lf.write(f"# mode: {opts['mode']}, window: {'on screen' if opts['windowed'] else 'offscreen'}\n")
+        lf.write(f"# mode: {opts['mode']}, window: {'on screen' if opts['windowed'] else 'offscreen'}, nested: {opts.get('nested') or 'no'}\n")
         lf.flush()
         proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, env=env, cwd=run_dir)
         wd = Watchdog(proc.pid, run_dir / "samples.tsv", opts["vram_limit_pct"], gpu)
@@ -221,6 +252,8 @@ def launch(plan, opts, run_dir):
         if wd.killed:
             lf.write(f"# GPU memory watchdog: {wd.killed}: stopped the game\n")
         lf.write(f"# exit status: {rc}\n")
+    if comp:
+        comp.stop()
     return {
         "scenario": plan.name,
         "ended_by": reason or "viewer exited",

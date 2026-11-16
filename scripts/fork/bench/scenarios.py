@@ -47,6 +47,7 @@ class Plan:
     fps: float = 60.0
     capped_only: bool = False  # frame-count timed: only valid with the frame limit (the game's UI runs on time)
     extra_env: dict = field(default_factory=dict)
+    self_scaled: bool = False  # the scenario applied --scale itself (by its laps)
 
     def env(self, opts):
         e = {
@@ -63,9 +64,11 @@ class Plan:
             e["NV_D3D9_BACKGROUND"] = "1"
         else:
             e["NV_D3D9_OFFSCREEN"] = "1"
-            if e["NV_SOUND"] == "silent":
-                # the game's sound clock runs (voice lines end, so dialogue goes on) and the speakers get silence
-                e["NV_SOUND"], e["NV_D3D9_HIDDEN"] = "out", "1"
+        if e["NV_SOUND"] == "silent":
+            # The mixer runs on the game's clock into the null sink: voice lines end, so Doc's dialogue goes on and the
+            # speakers get nothing. (NV_D3D9_HIDDEN=1 muted the device instead and the opening stalled at Doc's
+            # second line: found 2026-11-16, docs/fork/BENCH.md.)
+            e["NV_SOUND"], e["NV_SOUND_BACKEND"] = "out", "null"
         if opts.get("shots"):
             e["NV_SHOT_WGPU"] = opts["shots"]
         if opts.get("threads"):
@@ -303,6 +306,126 @@ def probe(opts):
     p.checks = []
     return p
 
+# ---------------------------------------------------------------------------------------------
+# Into the world without a save. Form ids of the base game (FalloutNV.esm; numbers only, no data): the opening quest
+# VCG01 finished by its last stage (the game frees the player and ends Doc's lines), then a console `player.moveto`
+# to a placed reference, which also loads the exterior. Checked 2026-11-16 with the nested window and offscreen.
+PLACES = {
+    "goodsprings": ("1658B7", "GoodspringsArrivalMarker"),
+    "novac": ("8D0A3", "NovacCOCMarkerREF"),
+    "strip": ("16ACB9", "VStripNPCPortToNorthMarker"),
+    "freeside": ("13A669", "FreesideFastTravelMarker"),
+}
+QUEST_DONE_STAGE = 200
+HOSTILE = "168D0B"  # VSpawnSpecialTier1GeckoSmallRoachHunter: a small gecko, hostile on sight
+PISTOL, AMMO_9MM = "E3778", "8ED03"  # WeapNV9mmPistol, Ammo9mm
+ARRIVE_S = 8.0  # play seconds the exterior takes to load and settle after a teleport (the console is shut after)
+
+
+def walk(sc, seconds, turn=0, sprint=False):
+    """Walk forward for `seconds`, turning by `turn` mouse counts per frame over the first second (a fixed route)."""
+    keys = ("w", "lshift") if sprint else ("w",)
+    t0 = sc.t
+    for k in keys:
+        sc.keys.append((sc.frame(), DIK[k], max(1, sc.frame(sc.t + seconds) - sc.frame())))
+    if turn:
+        sc.mouse.append((sc.frame(), turn, 0, max(1, sc.frame(sc.t + 1.0) - sc.frame()), 0))
+    sc.t = t0 + seconds
+    return sc
+
+
+def teleport(sc, place, boxes=24):
+    """The console is open and ready: move the player to a place, wait for the load, then dismiss the downloadable
+    packs' message boxes that arrive with the first exterior. The first box shuts the console itself (a console key
+    after them opens it again and the script is lost), so no console key follows."""
+    sc.type(f"player.moveto {PLACES[place][0]}").press("enter", 0.25, ARRIVE_S)
+    for _ in range(boxes):
+        sc.press("enter", 0.25, 1.0)
+    return sc
+
+
+def into_world(opts, place, name, description):
+    """A plan that finishes the opening quest and teleports to `place`; returns (plan, script positioned after it)."""
+    p = Plan(name, description, fps=opts["fps"], capped_only=True)
+    opening(p)
+    sc = Script(fps=opts["fps"], t=PLAY_END / opts["fps"] + 2.0)
+    sc.console(f"setstage {OPENING_QUEST} {QUEST_DONE_STAGE}", settle=2.0, close=False)
+    sc.type("enableplayercontrols").press("enter", 0.25, 1.5)  # the opening disabled them
+    teleport(sc, place)
+    return p, sc
+
+
+def finish(p, sc, checks):
+    p.keys += on_play_clock(sc.keys)
+    p.mouse += on_play_clock(sc.mouse)
+    p.end_frame = LOADING_FRAMES + sc.frame() + 300
+    p.self_scaled = True
+    p.checks = [reached_screen("loading"), reached_screen("play"), player_placed()] + checks
+    return p
+
+
+ROUTE_TOWN = [(10, 0), (4, 14), (10, 0), (4, 14), (10, 0), (4, 14), (10, 0), (4, 14)]  # (seconds forward, turn): a loop
+
+
+def laps(opts, n=3):
+    """Laps of a route: `n`, shortened or lengthened by --scale (the key script cannot be cut short, so the length is
+    chosen when the plan is built)."""
+    return max(1, round(n * (opts.get("scale") or 1.0)))
+
+
+def route(sc, legs, scale=1.0):
+    for secs, turn in legs:
+        walk(sc, secs * scale, turn)
+    return sc
+
+
+def goodsprings(opts):
+    p, sc = into_world(opts, "goodsprings", "goodsprings", "Finish the opening by its quest stage, teleport to Goodsprings, walk a fixed loop of the town for 2 min")
+    for _ in range(laps(opts)):
+        route(sc, ROUTE_TOWN)
+    return finish(p, sc, [moved_at_least(500 * laps(opts)), play_seconds_at_least(40 * laps(opts))])
+
+
+def novac(opts):
+    p, sc = into_world(opts, "novac", "novac", "Teleport to Novac (a town of many actors and objects), walk a fixed loop for 2 min")
+    for _ in range(laps(opts)):
+        route(sc, ROUTE_TOWN)
+    return finish(p, sc, [moved_at_least(500 * laps(opts)), play_seconds_at_least(40 * laps(opts))])
+
+
+def strip(opts):
+    p, sc = into_world(opts, "strip", "strip", "Teleport to the Strip (the heaviest exterior), walk a fixed loop for 2 min")
+    for _ in range(laps(opts)):
+        route(sc, ROUTE_TOWN)
+    return finish(p, sc, [moved_at_least(500 * laps(opts)), play_seconds_at_least(40 * laps(opts))])
+
+
+def combat(opts):
+    """Gunfire: three hostile geckos placed at the player, a pistol and ammo, 40 s of aiming around and firing."""
+    p, sc = into_world(opts, "goodsprings", "combat", "In Goodsprings: spawn hostile creatures, give and equip a pistol, turn and fire for 40 s")
+    sc.press("grave", 0.25, 1.0)
+    for cmd in (f"player.additem {AMMO_9MM} 300", f"player.additem {PISTOL} 1", f"player.equipitem {PISTOL}", f"player.placeatme {HOSTILE} 3"):
+        sc.type(cmd).press("enter", 0.25, 1.5)
+    sc.press("grave", 0.25, 2.0)
+    for _ in range(10):  # a burst of shots, a turn
+        for _ in range(8):
+            sc.click(0.15, 0.35)
+        sc.look(12, 0, 0.8)
+    return finish(p, sc, [play_seconds_at_least(30)])
+
+
+def soak(opts):
+    """Long: four regions in turn, walking in each, looped; memory and GPU growth are the numbers (20 min; --scale)."""
+    p, sc = into_world(opts, "goodsprings", "soak", "Goodsprings, Novac, the Strip, Freeside in turn, walking each, repeated for 20 min")
+    places = ["novac", "strip", "freeside", "goodsprings"]
+    for lap in range(laps(opts, 4)):
+        for place in places:
+            for _ in range(2):
+                route(sc, ROUTE_TOWN)
+            sc.press("grave", 0.25, 0.8)
+            teleport(sc, place, boxes=3)
+    return finish(p, sc, [moved_at_least(2000), play_seconds_at_least(600)])
+
 
 def build(name, opts):
     if name not in SCENARIOS:
@@ -310,4 +433,7 @@ def build(name, opts):
     return SCENARIOS[name](opts)
 
 
-SCENARIOS = {"boot": boot, "newgame": newgame, "chargen": chargen, "probe": probe}
+SCENARIOS = {
+    "boot": boot, "newgame": newgame, "chargen": chargen, "probe": probe,
+    "goodsprings": goodsprings, "novac": novac, "strip": strip, "combat": combat, "soak": soak,
+}
