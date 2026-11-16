@@ -1,0 +1,9 @@
+# Fork-only. The budget of the divergence report (scripts/fork/divergence_report.py, docs/fork/DIVERGENCE.md,
+# "Process"). A pull request that passes a limit gets a warning in the sticky comment "Divergence from upstream"; nothing
+# here fails a check. Upstream-owned code is every file outside .fork/overlay-paths, the fork-only crates and the workflows.
+# Changed lines (added plus removed) of upstream-owned files in one pull request.
+pr_changed_lines = 300
+# Growth of the total divergence (changed lines of upstream-owned files against the commit upstream was last
+# replayed to) over the window, in percent.
+weekly_growth_percent = 5.0
+window_days = 7

@@ -9,8 +9,10 @@
 name: Upstream Sync
 
 on:
+  # Weekly, Mondays 05:00 UTC (docs/fork/KEEPING-IN-SYNC.md). There is only ever ONE sync/upstream pull request: a run
+  # refreshes the branch and the open pull request instead of opening another.
   schedule:
-    - cron: '17 4 * * *'
+    - cron: '0 5 * * 1'
   workflow_dispatch:
 
 concurrency:
@@ -60,6 +62,11 @@ jobs:
       # never replace the scripts that hold the API key and the token in their environment.
       - name: Copy the fork scripts
         run: cp -r scripts/fork "$RUNNER_TEMP/fork-scripts"
+
+      - name: Summary of what upstream changed since the last replay
+        run: |
+          git fetch --quiet --no-tags origin main
+          python3 -I "$RUNNER_TEMP/fork-scripts/sync_report.py" behind --mirror origin/main | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Replay upstream
         id: replay

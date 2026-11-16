@@ -46,6 +46,37 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(files["crates/a.rs"][1], 3)
 
 
+class GateTests(unittest.TestCase):
+    MEASURED = {"crates/fork-log/src/a.rs": {1: 1, 2: 0, 3: 2, 4: 1}, "crates/esm/src/b.rs": {1: 0}}
+    RANGES = {"crates/fork-log/src/a.rs": {1, 2, 3, 9}, "crates/esm/src/b.rs": {1}}
+
+    def test_only_fork_owned_crates_count(self):
+        total, miss, value, per = cr.gate_eval(self.MEASURED, self.RANGES, {"fork-log"}, 70.0)
+        self.assertEqual((total, miss), (3, 1))
+        self.assertAlmostEqual(value, 66.666, places=2)
+        self.assertEqual(list(per), ["fork-log"])
+
+    def test_nothing_to_gate(self):
+        self.assertIsNone(cr.gate_eval(self.MEASURED, {"crates/esm/src/b.rs": {1}}, {"fork-log"}, 70.0)[2])
+
+    def test_enforced_only_with_switch_and_nightly_baseline(self):
+        result = cr.gate_eval(self.MEASURED, self.RANGES, {"fork-log"}, 70.0)
+        nightly, own = {"the last nightly run, run 1"}, {"the base commit abc, measured in this run"}
+        cfg = {"enforce": True, "min_changed_line_coverage": 70.0}
+        self.assertEqual(cr.render_gate(cfg, ["fork-log"], nightly, result)[1:], ("below", True))
+        self.assertEqual(cr.render_gate(cfg, ["fork-log"], own, result)[1:], ("below", False))
+        off = dict(cfg, enforce=False)
+        self.assertFalse(cr.render_gate(off, ["fork-log"], nightly, result)[2])
+
+    def test_fork_owned_crates_are_derived(self):
+        d = tempfile.mkdtemp()
+        (Path(d) / ".fork").mkdir()
+        (Path(d) / ".fork/overlay-paths").write_text("crates/fork-log/\ncrates/x/src/f.rs\n.fork/\n")
+        (Path(d) / ".fork/components.toml").write_text('[[component]]\nname="w"\npurpose="A layer. Fork-owned"\ncrates=["fork-window"]\n'
+                                                        '[[component]]\nname="c"\npurpose="Core"\ncrates=["engine-core"]\n')
+        self.assertEqual(cr.fork_owned_crates(d), ["fork-log", "fork-window"])
+
+
 class FormatTests(unittest.TestCase):
     def test_spans(self):
         self.assertEqual(cr.spans({1, 2, 3, 7, 9, 10}), "1-3,7,9-10")

@@ -6,6 +6,8 @@
   sync_report.py close [--run-url URL]     close that issue, if there is one
                                            (a repository with Issues disabled: the report goes to the job's step summary
                                            with a ::warning::, and the command exits 0 so a green sync stays green)
+  sync_report.py behind [--mirror REF]     markdown: how many upstream commits the fork is behind (the replay point to REF,
+                                           default origin/main) and the files and lines they change, by crate
   sync_report.py summary --dropped-file F  markdown list of the changes the replay left out (the fork owns those paths)
 
 The stop file is written by replay-upstream.sh (reason=, commit=, subject=); without one the failure is "other" (or
@@ -212,14 +214,55 @@ def close_issue(run_url):
         warn(f"the tracking issue could not be closed ({(e.stderr or '').strip()[:200]}).")
 
 
+def replay_point(ref="HEAD", mirror="origin/main"):
+    """The upstream commit the fork was last replayed to: the newest Upstream-Commit trailer, else the merge base."""
+    text = git("log", "-1", "--format=%B", "--grep=^Upstream-Commit: [0-9a-f]\\{40\\}$", ref, check=False).stdout
+    found = [l.split(": ", 1)[1].strip() for l in text.splitlines() if l.startswith("Upstream-Commit: ")]
+    return found[-1] if found else git("merge-base", ref, mirror).stdout.strip()
+
+
+def by_crate(numstat):
+    """{group: [files, lines]} from `git diff --numstat` text; crates/<name>/ by name, the rest as "other"."""
+    out = {}
+    for line in numstat.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        a, d, path = parts
+        seg = path.split("/")
+        key = seg[1] if seg[0] == "crates" and len(seg) > 2 else ("viewer" if seg[0] == "viewer" else "other")
+        row = out.setdefault(key, [0, 0])
+        row[0] += 1
+        row[1] += 1 if a == "-" else int(a) + int(d)
+    return out
+
+
+def behind(mirror="origin/main"):
+    last = replay_point(mirror=mirror)
+    count = git("rev-list", "--count", f"{last}..{mirror}").stdout.strip()
+    stats = by_crate(git("diff", "--numstat", last, mirror).stdout)
+    lines = [f"### Upstream: {count} commits behind", "", f"Replayed to `{last[:10]}`, upstream copy at `{mirror}`.", ""]
+    if stats:
+        lines += ["| Crate | Files | Lines changed |", "| --- | ---: | ---: |"]
+        lines += [f"| {k} | {v[0]} | {v[1]} |" for k, v in sorted(stats.items(), key=lambda kv: -kv[1][1])]
+        lines.append(f"| **total** | **{sum(v[0] for v in stats.values())}** | **{sum(v[1] for v in stats.values())}** |")
+    else:
+        lines.append("Nothing to replay.")
+    return "\n".join(lines) + "\n"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["body", "open", "close", "summary"])
+    ap.add_argument("cmd", choices=["body", "open", "close", "summary", "behind"])
+    ap.add_argument("--mirror", default="origin/main")
     ap.add_argument("--stop-file")
     ap.add_argument("--dropped-file")
     ap.add_argument("--detail-file")
     ap.add_argument("--run-url", default="")
     a = ap.parse_args(argv)
+    if a.cmd == "behind":
+        sys.stdout.write(behind(a.mirror))
+        return 0
     if a.cmd == "summary":
         print(summary(a.dropped_file))
         return 0

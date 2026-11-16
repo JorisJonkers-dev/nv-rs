@@ -4,6 +4,9 @@
   coverage_report.py plan --event EVENT [--base SHA --head SHA]
       JSON for the workflow matrix: the Linux components to measure. Uses scripts/fork/components.py (the same
       affected selection as the build), keeps the ones cargo-llvm-cov can measure on a plain runner.
+  coverage_report.py gate --dir DIR --plan plan.json --base SHA --head SHA [--out gate.md]
+      Changed-line coverage of the fork-owned crates against the minimum of .fork/coverage-gate.toml. Exit 1 only
+      when `enforce = true`, a nightly baseline exists and the coverage is below the minimum; otherwise it informs.
   coverage_report.py report --dir DIR --plan plan.json --base SHA --head SHA --out comment.md [--json summary.json]
       Reads DIR/cov-<component>/{lcov.info,base.info,baseline.txt} and renders the comment: totals for the pull
       request against the base, a table per component, the changed files and the changed lines no test ran.
@@ -16,6 +19,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARKER = "<!-- fork-coverage -->"
@@ -151,10 +155,85 @@ def load_plan(path, directory):
     return {"include": [], "reason": "no plan was recorded for this run, so nothing was measured"}
 
 
-def report(args):
-    plan_doc = load_plan(args.plan, args.dir)
-    ranges = changed_ranges(args.base, args.head)
-    all_changed = changed_files(args.base, args.head)
+def fork_owned_crates(root="."):
+    """Crates only the fork has: directories named in .fork/overlay-paths (crates/<name>/), and the crates of a
+    component whose purpose says "Fork-owned" (.fork/components.toml), plus `extra_crates` of coverage-gate.toml."""
+    crates = set()
+    try:
+        with open(os.path.join(root, ".fork/overlay-paths"), encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(r"^crates/([^/\s#]+)/\s*(#.*)?$", line.strip())
+                if m:
+                    crates.add(m.group(1))
+    except OSError:
+        pass
+    try:
+        with open(os.path.join(root, ".fork/components.toml"), "rb") as fh:
+            for comp in tomllib.load(fh).get("component", []):
+                if "fork-owned" in comp.get("purpose", "").lower():
+                    crates.update(comp.get("crates", []))
+    except OSError:
+        pass
+    crates.update(load_gate_config(root).get("extra_crates", []))
+    return sorted(crates)
+
+
+def load_gate_config(root="."):
+    cfg = {"enforce": False, "min_changed_line_coverage": 70.0, "extra_crates": []}
+    try:
+        with open(os.path.join(root, ".fork/coverage-gate.toml"), "rb") as fh:
+            cfg.update(tomllib.load(fh))
+    except (OSError, tomllib.TOMLDecodeError):
+        pass
+    return cfg
+
+
+def gate_eval(measured, ranges, crates, minimum):
+    """(executable changed lines, uncovered ones, percent or None, per-crate rows) over the fork-owned crates."""
+    per = {}
+    for f, nums in ranges.items():
+        m = re.match(r"^crates/([^/]+)/", f)
+        lines = measured.get(f)
+        if not m or m.group(1) not in crates or lines is None:
+            continue
+        ex = [n for n in nums if n in lines]
+        row = per.setdefault(m.group(1), [0, 0])
+        row[0] += len(ex)
+        row[1] += sum(1 for n in ex if lines[n] == 0)
+    total = sum(r[0] for r in per.values())
+    miss = sum(r[1] for r in per.values())
+    value = 100.0 * (total - miss) / total if total else None
+    return total, miss, value, per
+
+
+def has_nightly_baseline(baselines):
+    return any(b.startswith("the last nightly") for b in baselines)
+
+
+def render_gate(cfg, crates, baselines, result):
+    total, miss, value, per = result
+    minimum = cfg["min_changed_line_coverage"]
+    baseline = has_nightly_baseline(baselines)
+    enforcing = bool(cfg["enforce"]) and baseline
+    out = ["### Fork-owned crates: changed-line coverage", ""]
+    if value is None:
+        out.append("No executable changed line in a measured fork-owned crate: nothing to gate.")
+        status = "none"
+    else:
+        ok = value >= minimum
+        status = "pass" if ok else "below"
+        out.append(f"{value:.1f}% of {total} executable changed lines covered ({miss} uncovered), minimum {minimum:.0f}%: "
+                   f"**{'ok' if ok else 'below the minimum'}**.")
+        out += ["", "| Crate | Changed lines | Uncovered |", "| --- | ---: | ---: |"]
+        out += [f"| {c} | {r[0]} | {r[1]} |" for c, r in sorted(per.items())]
+    mode = ("enforced" if enforcing else
+            "informational: `enforce = false` in .fork/coverage-gate.toml" if not cfg["enforce"] else
+            "informational: no nightly baseline artifact yet")
+    out += ["", f"Mode: {mode}. Fork-owned crates: {', '.join(crates) or 'none'}. Upstream-owned code is report-only."]
+    return "\n".join(out) + "\n", status, enforcing
+
+
+def merge_dir(directory, plan_doc, ranges):
     rows, merged_pr, merged_base, missing = [], {}, {}, []
     baselines = set()
     for item in plan_doc["include"]:
@@ -176,6 +255,28 @@ def report(args):
                     d[n] = max(d.get(n, 0), h)
         unc = sum(1 for f, lines in pr.items() for n in ranges.get(f, ()) if n in lines and lines[n] == 0)
         rows.append((comp, totals(pr), totals(base) if base is not None else None, unc))
+    return rows, merged_pr, merged_base, missing, baselines
+
+
+def gate(args):
+    plan_doc = load_plan(args.plan, args.dir)
+    ranges = changed_ranges(args.base, args.head)
+    _, merged_pr, _, _, baselines = merge_dir(args.dir, plan_doc, ranges)
+    cfg, crates = load_gate_config(), fork_owned_crates()
+    text, status, enforcing = render_gate(cfg, crates, baselines, gate_eval(merged_pr, ranges, set(crates), cfg["min_changed_line_coverage"]))
+    sys.stdout.write(text)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    if enforcing and status == "below":
+        sys.exit("coverage-gate: changed-line coverage of the fork-owned crates is below the minimum")
+
+
+def report(args):
+    plan_doc = load_plan(args.plan, args.dir)
+    ranges = changed_ranges(args.base, args.head)
+    all_changed = changed_files(args.base, args.head)
+    rows, merged_pr, merged_base, missing, baselines = merge_dir(args.dir, plan_doc, ranges)
 
     p_hit, p_found = totals(merged_pr)
     b_hit, b_found = totals(merged_base)
@@ -230,6 +331,9 @@ def report(args):
     if others:
         out += ["", f"{len(others)} changed Rust file(s) are in no measured component (not affected, Windows only, "
                     "or too slow to measure here): not counted."]
+    if rows:
+        cfg, crates = load_gate_config(), fork_owned_crates()
+        out += [""] + render_gate(cfg, crates, baselines, gate_eval(merged_pr, ranges, set(crates), cfg["min_changed_line_coverage"]))[0].splitlines()
     note = "; ".join(sorted(baselines)) or "no baseline"
     out += ["", f"Base: {note}. Artifact: `cov-*` (lcov) of this run. Details: docs/fork/COVERAGE.md."]
     text = "\n".join(out) + "\n"
@@ -256,8 +360,12 @@ def main():
     r.add_argument("--head", required=True)
     r.add_argument("--out", required=True)
     r.add_argument("--json")
+    g = sub.add_parser("gate")
+    for name in ("dir", "plan", "base", "head"):
+        g.add_argument(f"--{name}", required=True)
+    g.add_argument("--out")
     a = ap.parse_args()
-    {"plan": plan, "report": report}[a.cmd](a)
+    {"plan": plan, "report": report, "gate": gate}[a.cmd](a)
 
 
 if __name__ == "__main__":

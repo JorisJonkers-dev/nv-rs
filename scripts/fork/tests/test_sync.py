@@ -306,5 +306,11 @@ class CapabilitiesDiff(unittest.TestCase):
         self.assertEqual(capabilities_diff.diff(self.doc(["A"], 1), self.doc(["A"], 1)), "")
 
 
+class BehindTests(unittest.TestCase):
+    def test_numstat_by_crate(self):
+        out = sync_report.by_crate("3\t1\tcrates/esm/src/a.rs\n2\t0\tcrates/esm/b.rs\n-\t-\tcrates/bsa/x.bin\n1\t1\tCargo.toml\n5\t5\tviewer/src/main.rs\n")
+        self.assertEqual(out, {"esm": [2, 6], "bsa": [1, 1], "other": [1, 2], "viewer": [1, 10]})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -65,3 +65,7 @@ The rust-cache is saved only on `fork` pushes (`save-if`), keyed per component a
 | typed draw | 638 |
 | typed geometry and pathing | 574 |
 | Clippy | 466 |
+
+## Runs that are not in Pipeline Complete
+
+The coverage run (`fork-coverage.yml`, with its `coverage-gate` job) and the divergence report (`fork-divergence.yml`) run next to the pipeline and cost no pipeline time. The divergence report is one cheap job (a checkout and git diffs, about a minute) and posts one comment. The upstream sync runs once a week instead of every day (fewer runs of the replay, the capabilities build and the pipeline on `sync/upstream`).
