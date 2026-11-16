@@ -1,0 +1,13 @@
+run 1794818419-998250  OK: 143 fps, p99 8.1 ms, 3 hitches (3.0/min)
+  ended exit; 1m 00s (52s play, 6s loading), 8600 frames
+  143.4 fps, p99 8.1 ms, 1% low 123 fps, 0.1% low 90 fps, max 41 ms
+  hitches 3 (3.0/min), slow windows 0: file_io x2 (70 ms), loading x1 (41 ms)
+  errors 0, warnings 3, soft stops 0; flags: none; peaks rss_mb 3890, heap_mb 1650, vram_mb 6100
+  nv-rs 0.4.0 (optimised); gpu AMD Radeon RX 7900 XTX (RADV NAVI31); driver radv Mesa 26.0.1; resolution 2560x1440; session wayland; os linux; threads stepped
+stops: none
+errors and warnings (2 kinds)
+  warn  2x window: NV_D3D9 wgpu: the window's surface was lost: made again  f640..f4400
+  warn  files: FindFirstFileA(Data\Meshes): not listed, using the host folder  f6900
+worst hitches
+  41 ms at f4401 (31s): loading, trigger cell.change 12 ms before, ReadFile
+files: nv-rs-1794818419-998250.log; nv-rs-1794818419-998250.jsonl; run-summary-1794818419-998250.json

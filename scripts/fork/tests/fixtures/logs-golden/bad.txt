@@ -1,0 +1,20 @@
+run 1794900000-4242  FAILED: 110 fps, p99 31.0 ms, 41 hitches (122.0/min)
+  ended stop; 20s (14s play, 5s loading), 2210 frames
+  109.9 fps, p99 31.0 ms, 1% low 32 fps, 0.1% low 5 fps, max 220 ms
+  hitches 41 (122.0/min), slow windows 1: shader_compile x30 (1900 ms), loading x11 (800 ms)
+  errors 13, warnings 2, soft stops 12; flags: hitches_per_min_high, p99_over_20ms, soft_stops, errors, stopped; peaks rss_mb 4400, heap_mb 1700, vram_mb 7900
+  nv-rs 0.4.0 (optimised); gpu AMD Radeon RX 7900 XTX (RADV NAVI31); driver radv Mesa 26.0.1; resolution 2560x1440; session wayland; os linux; threads stepped
+stops
+  stop [platform] IDirect3DQuery9::GetData(0x4) is not provided (in 0044fb20 00401000 0040a1c0) at f2210; addresses 0044fb20 00401000 0040a1c0
+errors and warnings (3 kinds)
+  error 12x stop: soft stop: IDirectSoundBuffer::Lock: flags 0x10 (the game gets the failure result and goes on) [1]  f900..f1340
+  warn  files: FindFirstFileA(C:\Users\someone\Games\Fallout New Vegas\Data\x.esp): not found  f1500
+  warn  sound: sound: the output device /home/someone/.config/pulse cannot be opened: Connection refused  f20
+worst hitches
+  220 ms at f1200 (12s): shader_compile, trigger cell.change 5 ms before, CreateVertexShader
+last lines before the end
+  2026-11-17T07:20:19.994Z info d3d9: draw 4
+  2026-11-17T07:20:19.995Z info d3d9: draw 5
+  2026-11-17T07:20:19.996Z info d3d9: draw 6
+  2026-11-17T07:20:19.997Z info d3d9: draw 7
+files: nv-rs-1794900000-4242.log; nv-rs-1794900000-4242.jsonl; run-summary-1794900000-4242.json

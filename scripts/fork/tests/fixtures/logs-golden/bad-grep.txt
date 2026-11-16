@@ -1,0 +1,5 @@
+07:20:05.000 ERROR stop f900: soft stop: IDirectSoundBuffer::Lock: flags 0x10 (the game gets the failure result and goes on) [1]
+07:20:05.700 ERROR stop f940: soft stop: IDirectSoundBuffer::Lock: flags 0x11 (the game gets the failure result and goes on) [2]
+07:20:06.400 ERROR stop f980: soft stop: IDirectSoundBuffer::Lock: flags 0x12 (the game gets the failure result and goes on) [3]
+07:20:07.100 ERROR stop f1020: soft stop: IDirectSoundBuffer::Lock: flags 0x13 (the game gets the failure result and goes on) [4]
+12 matching lines, the first 4
