@@ -27,6 +27,7 @@ engine-platform
 engine-speedtree
 engine-typed
 esm
+fork-log
 fork-memlog
 fork-presence
 fork-window

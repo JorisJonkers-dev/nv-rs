@@ -220,6 +220,8 @@ pub fn end_process(code: i32) -> ! {
     // What the start screen's capture still holds reaches the console and the log first.
     d3d9_wgpu::loading::finish_output();
     engine_core::profile::stop();
+    // The log's summary and the JSON file's last flush (docs/fork/LOGGING.md).
+    fork_log::finish();
     std::process::exit(code)
 }
 

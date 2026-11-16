@@ -101,6 +101,13 @@ requires = []
 runs_on = "both"
 
 [[component]]
+name = "log"
+purpose = "Logging: levels and targets, text on stderr, JSON lines in a file, a panic and stop reporter, the soft-stop policy NV_STOP_POLICY (docs/fork/LOGGING.md). Fork-owned"
+crates = ["fork-log"]
+requires = []
+runs_on = "both"
+
+[[component]]
 name = "rendering"
 purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), and the shader compiler seam off Windows (cache and libvkd3d-shader)"
 crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader"]
@@ -112,7 +119,7 @@ windows = "required"
 name = "platform"
 purpose = "The Windows platform layer: window, Direct3D 9 and D3DX entry points, DirectInput, DirectSound, DirectShow, files, loader and process"
 crates = ["engine-platform"]
-requires = ["core", "formats", "rendering"]
+requires = ["core", "formats", "rendering", "log"]
 runs_on = "both"
 # The Windows entry points are cfg(windows) code that only Windows can test; the Linux job runs the rest, among it the
 # shader compiler seam's tests against a recent libvkd3d-shader (docs/fork/CI-NIX.md).
@@ -122,7 +129,7 @@ windows = "required"
 name = "integration"
 purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
 crates = ["engine", "host", "play-patch", "nv-viewer"]
-requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log"]
 runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not

@@ -1334,6 +1334,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "fork-log"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "mp3"
     },
     {
@@ -1497,6 +1502,12 @@
   {
    "dependencies": [],
    "features": [],
+   "manifest_path": "/ws/crates/fork-log/Cargo.toml",
+   "name": "fork-log"
+  },
+  {
+   "dependencies": [],
+   "features": [],
    "manifest_path": "/ws/crates/fork-memlog/Cargo.toml",
    "name": "fork-memlog"
   },
@@ -1563,6 +1574,11 @@
      "features": [],
      "kind": null,
      "name": "esm"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
     },
     {
      "features": [],
@@ -1725,6 +1741,11 @@
   },
   {
    "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
+    },
     {
      "features": [],
      "kind": null,
