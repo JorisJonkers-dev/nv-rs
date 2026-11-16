@@ -61,6 +61,8 @@ def markdown(summary):
     mem = m.get("memory") or {}
     out = [f"# Bench run: {summary['scenario']}", ""]
     out.append(f"Verdict: **{'PASS' if v['ok'] else 'FAIL'}**  ")
+    if summary["run"].get("noisy"):
+        out.append(f"NOISY: {summary['run'].get('other_viewers_max')} other nv-viewer process(es) ran during this run, so its frame times are not valid.  ")
     out.append(
         f"Mode {summary['settings'].get('mode')}, {summary['settings'].get('window')}, "
         f"build {summary['settings'].get('build')}, wall {fmt(m['wall_s'])} s, ended by {summary['run']['ended_by']}."
@@ -193,6 +195,9 @@ def compare_markdown(a, b, rows, ok):
     out += ["| Metric | Baseline | Candidate | Change | Verdict |", "| --- | --- | --- | --- | --- |"]
     for key, label, va, vb, ch, verdict in rows:
         out.append(f"| {label} | {fmt(va, 2)} | {fmt(vb, 2)} | {'n/a' if ch is None else f'{ch:+.1f}%'} | {verdict} |")
+    for label, x in (("baseline", a), ("candidate", b)):
+        if x["run"].get("noisy"):
+            out.append(f"\nNOISY: the {label} ran with other nv-viewer processes on the machine; its timing rows are not valid.")
     if a["scenario"] != b["scenario"]:
         out.append("\nWarning: the two runs are of different scenarios.")
     if a["settings"].get("mode") != b["settings"].get("mode"):

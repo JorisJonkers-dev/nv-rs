@@ -4,6 +4,7 @@ Synthetic fixtures only: no game, no build, no GPU. Run: python3 -I -m unittest 
 """
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,7 @@ sys.path.insert(0, str(BENCH))
 
 import nvbench  # noqa: E402
 import parse  # noqa: E402
+import lock  # noqa: E402
 import report  # noqa: E402
 import scenarios  # noqa: E402
 
@@ -294,6 +296,45 @@ class NestedAndWorldTests(unittest.TestCase):
     def test_runner_borrows_nothing_when_the_system_has_the_libraries(self):
         import runner
         self.assertIsInstance(runner.borrowed_libs({}), dict)
+
+
+class LockTests(unittest.TestCase):
+    def test_second_holder_waits_then_times_out_and_names_the_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "bench.lock"
+            said = []
+            first = lock.BenchLock(path, out=said.append)
+            self.assertTrue(first.acquire())
+            second = lock.BenchLock(path, wait_timeout=0.3, out=said.append, poll=0.05)
+            self.assertFalse(second.acquire())
+            self.assertTrue(any(m.startswith("waiting for bench lock held by pid ") for m in said), said)
+            self.assertEqual(second.read_holder()["pid"], os.getpid())
+            first.release()
+            third = lock.BenchLock(path, wait_timeout=0.3, out=said.append, poll=0.05)
+            self.assertTrue(third.acquire())
+            third.release()
+
+    def test_describe_and_other_viewers(self):
+        self.assertIn("pid 7 (bench run goodsprings), 5 s ago", lock.describe({"pid": 7, "cmd": "bench run goodsprings", "start": 95}, now=100))
+        self.assertEqual(lock.describe({}), "pid ?")
+        with tempfile.TemporaryDirectory() as d:
+            for pid, comm, ppid in ((10, "nv-viewer", 1), (11, "nv-viewer", 5), (12, "python3", 1), (13, "nv-viewer", 1)):
+                p = Path(d) / str(pid)
+                p.mkdir()
+                (p / "comm").write_text(comm + "\n")
+                (p / "stat").write_text(f"{pid} ({comm}) S {ppid} 0 0\n")
+            self.assertEqual(lock.other_viewers([], d), 3)
+            self.assertEqual(lock.other_viewers([10], d), 1 + 1)  # 13 and none of 10; 11 is a child of 5, not of 10
+            self.assertEqual(lock.other_viewers([5], d), 2)  # 11 is a child of an own pid
+
+    def test_noisy_runs_are_marked_in_report_and_compare(self):
+        a = make_summary()
+        b = make_summary()
+        b["run"] = dict(b["run"], noisy=True, other_viewers_max=2)
+        self.assertIn("NOISY: 2 other nv-viewer", report.markdown(b))
+        self.assertNotIn("NOISY", report.markdown(a))
+        rows, ok = report.compare(a, b)
+        self.assertIn("NOISY: the candidate", report.compare_markdown(a, b, rows, ok))
 
 
 class CliTests(unittest.TestCase):

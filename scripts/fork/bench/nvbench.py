@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import lock  # noqa: E402
 import parse  # noqa: E402
 import report  # noqa: E402
 import runner  # noqa: E402
@@ -86,6 +87,21 @@ def cmd_list(_a):
 
 
 def cmd_run(a):
+    """Runs one scenario holding the machine-wide bench lock (--no-lock for debugging runs that make no numbers)."""
+    if a.no_lock:
+        print("bench: no lock (--no-lock): the numbers of this run are not valid if anything else runs", file=sys.stderr)
+        return run_scenario(a)
+    bl = lock.BenchLock(wait_timeout=a.wait_timeout, out=lambda m: print(m, file=sys.stderr, flush=True))
+    if not bl.acquire():
+        print(f"bench: the lock was not free within {a.wait_timeout} s: held by {lock.describe(bl.read_holder())}", file=sys.stderr)
+        return 3
+    try:
+        return run_scenario(a)
+    finally:
+        bl.release()
+
+
+def run_scenario(a):
     if a.nested:
         a.windowed = True
         if a.nested == "window" and not a.yes_windowed:
@@ -235,6 +251,8 @@ def main(argv=None):
     r.add_argument("--windowed", action="store_true", help="draw in a real window on your display (needs --yes-windowed)")
     r.add_argument("--yes-windowed", action="store_true")
     r.add_argument("--nested", choices=["headless", "window"], help="real window path in a nested sway: headless (own output, no session involved; valid fps and stability) or window (shown inside your session; can be covered). Implies a windowed run; no --yes-windowed needed for headless")
+    r.add_argument("--no-lock", action="store_true", help="do not take the machine-wide bench lock (a debugging run that gives no numbers)")
+    r.add_argument("--wait-timeout", type=float, default=None, help="give up (exit 3) when the bench lock is not free after this many seconds (default: wait)")
     r.add_argument("--viewer")
     r.add_argument("--game")
     r.add_argument("--preset", choices=["fixes", "vanilla"], default="fixes")
