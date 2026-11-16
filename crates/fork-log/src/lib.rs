@@ -14,6 +14,7 @@
 //! game data: callers pass names of calls and counts, never file contents.
 
 mod filter;
+pub mod game;
 mod sink;
 pub mod stop;
 
@@ -49,10 +50,11 @@ fn config() -> &'static Config {
     static CONFIG: OnceLock<Config> = OnceLock::new();
     CONFIG.get_or_init(|| {
         let var = |n: &str| std::env::var(n).ok().filter(|v| !v.trim().is_empty());
+        // The `game` trace (game.rs) is for the file unless asked for: `NV_LOG=game=debug`.
         let text = Filter::parse(
             &var("NV_LOG")
                 .or_else(|| var("RUST_LOG"))
-                .unwrap_or_default(),
+                .unwrap_or_else(|| "info,game=off".to_string()),
             Level::Info,
         );
         let json = Filter::parse(&var("NV_LOG_JSON_FILTER").unwrap_or_default(), Level::Debug);
@@ -72,7 +74,7 @@ pub fn set_frame(frame: u64) {
     FRAME.store(frame, Ordering::Relaxed);
 }
 
-fn frame() -> Option<u64> {
+pub(crate) fn frame() -> Option<u64> {
     Some(FRAME.load(Ordering::Relaxed)).filter(|f| *f != NO_FRAME)
 }
 
@@ -423,6 +425,15 @@ pub fn summary() -> String {
         WARNINGS.load(Ordering::Relaxed),
         soft_stops()
     );
+    let seen = game::counts();
+    if !seen.is_empty() {
+        let list: Vec<String> = seen
+            .iter()
+            .take(8)
+            .map(|(c, n)| format!("{c} x{n}"))
+            .collect();
+        let _ = write!(s, "; game events: {}", list.join(", "));
+    }
     let calls = stop::soft_stop_calls();
     if !calls.is_empty() {
         let list: Vec<String> = calls

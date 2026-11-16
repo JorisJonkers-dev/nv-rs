@@ -56,6 +56,27 @@ Final records (`"event"` set) carry `reason`, `frame`, `thread`, counts of `soft
 
 No game data goes into a record: only names of calls, counts, paths of the machine's own files and the engine's messages.
 
+## The `game` event trace
+
+For diagnosing a run from its log (the loading-screen bug): every event is on target `game`, with the main frame and a monotonic
+millisecond clock (`[f123 +4567ms] movie.open: ...`; JSON fields `kind`, `ms`, `frame`). It is in the JSON file always, and on the
+screen with `NV_LOG=game=debug` (or `game=info`). Repeating kinds are throttled (the first five, then every thousandth) and their
+counts are in the exit summary.
+
+| Kind | When |
+| --- | --- |
+| `movie.open`, `movie.start`, `movie.frame`, `movie.pause`, `movie.close` | Bink: name, size, frame count, rate, sound; close says whether it played to its end or was closed early (skipped) |
+| `input.key`, `input.mouse` | a change of state that reaches the game's DirectInput: Escape, Enter, Space and keypad Enter at info, other keys throttled |
+| `audio.create`, `audio.play`, `audio.stop`, `audio.volume`, `audio.stream.play`, `audio.stream.stop`, `audio.stream.volume` | DirectSound buffers (id = the buffer's guest address) and the movie/music streams |
+| `gpu.texture.create`, `gpu.texture.destroy`, `gpu.surface.create`, `gpu.render_target` | textures and surfaces at screen scale (512x384 or more) and every render target |
+| `draw.fixed_quad` | a draw without shaders (the movie quad): viewport, target size, texture size and format |
+| `present.source`, `present` | which surface the present shows, when it changes; each present throttled |
+| `loading.begin`, `loading.end` | the start's loading screen (the d3d9 layer's own) |
+
+Not yet traced: the game's menus (the menu stack, main, loading and pause menus), which are the game's own translated code and have
+no intercepted seam, the cause of a music stop beyond "the game stopped it", the kind of load (new game, save, cell), and cell or
+world loads. Those need hooks in the engine crates; the trace is ready for them (`fork_log::game_info!("menu.open", ...)`).
+
 ## Soft stops
 
 A stop is classified by its reason (`fork_log::classify`). `untranslated` and `memory` always halt: the port itself is wrong and

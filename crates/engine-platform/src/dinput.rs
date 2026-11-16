@@ -660,6 +660,22 @@ pub fn key(e: &mut Engine, code: u8, down: bool) {
         return;
     }
     input.keys[code as usize] = down;
+    {
+        // Escape, Enter, Space and the keypad Enter are what skip movies and screens: information.
+        let name = match code {
+            0x01 => "Escape",
+            0x1c => "Enter",
+            0x39 => "Space",
+            0x9c => "KeypadEnter",
+            _ => "",
+        };
+        let state = if down { "down" } else { "up" };
+        if name.is_empty() {
+            fork_log::game_often!("input.key", "scan code {code:#04x} {state}");
+        } else {
+            fork_log::game_info!("input.key", "{name} ({code:#04x}) {state} reaches the game");
+        }
+    }
     if down {
         if input.async_pressed.len() < KEYBOARD_KEYS as usize {
             input.async_pressed.resize(KEYBOARD_KEYS as usize, false);
@@ -732,6 +748,13 @@ pub fn mouse_move(e: &mut Engine, dx: i32, dy: i32, wheel: i32) {
 
 /// A mouse button (0..8) going down or up.
 pub fn mouse_button(e: &mut Engine, button: usize, down: bool) {
+    if state!(e).input.mouse_buttons[button] != down {
+        fork_log::game_info!(
+            "input.mouse",
+            "button {button} {} reaches the game",
+            if down { "down" } else { "up" }
+        );
+    }
     state!(e).input.mouse_buttons[button] = down;
 }
 

@@ -1764,6 +1764,10 @@ pub fn play_stream_fed(
 fn play_voice(e: &mut Engine, key: u32, mut voice: Voice, rate: u32, from: usize) {
     // A stream is its own DirectSound device, mixed in a stream of its own ([`Voices::split`]).
     voice.stream = true;
+    fork_log::game_info!(
+        "audio.stream.play",
+        "stream {key:08x} at {rate} Hz from sample {from}"
+    );
     let Some(device) = state!(e).sound.mix.as_ref().map(|m| m.rate) else {
         return;
     };
@@ -1785,6 +1789,7 @@ fn play_voice(e: &mut Engine, key: u32, mut voice: Voice, rate: u32, from: usize
 
 /// Sets the volume (hundredths of a decibel, -10000..0) of a stream from [`play_stream`].
 pub fn stream_volume(e: &mut Engine, key: u32, volume: i32) {
+    fork_log::game_often!("audio.stream.volume", "stream {key:08x} to {volume}");
     with_voice(e, key, |m, at| {
         if let Some(v) = m.all.get_mut(&at) {
             v.volume = volume;
@@ -1822,6 +1827,10 @@ pub fn pause_stream(e: &mut Engine, key: u32, paused: bool) {
 
 /// Ends a stream from [`play_stream`].
 pub fn stop_stream(e: &mut Engine, key: u32) {
+    fork_log::game_info!(
+        "audio.stream.stop",
+        "stream {key:08x}: stopped by the game or its movie closing"
+    );
     with_voice(e, key, |m, at| {
         m.all.remove(&at);
         m.playing.retain(|&p| p != at);
@@ -2234,6 +2243,15 @@ fn create_sound_buffer(e: &mut Engine, this: Ptr, desc: Ptr, out: Ptr, outer: u3
     let flags = e.mem.u32(d + 4);
     let size = e.mem.u32(d + 8);
     let format = e.mem.u32(d + 0x10);
+    fork_log::game_debug!(
+        "audio.create",
+        "sound buffer: flags {flags:#x}, {size} bytes{}",
+        if flags & DSBCAPS_PRIMARYBUFFER != 0 {
+            " (the primary buffer)"
+        } else {
+            ""
+        }
+    );
     let mut buffer = if flags & DSBCAPS_PRIMARYBUFFER != 0 {
         assert!(
             flags & !(DSBCAPS_PRIMARYBUFFER | DSBCAPS_CTRL3D | DSBCAPS_CTRLVOLUME) == 0
@@ -2732,6 +2750,7 @@ fn set_volume(e: &mut Engine, this: Ptr, v: i32) -> u32 {
         b.flags & DSBCAPS_CTRLVOLUME != 0,
         "SetVolume without DSBCAPS_CTRLVOLUME is not provided"
     );
+    fork_log::game_often!("audio.volume", "buffer {:08x} to {v}", this.addr());
     buffer(e, this).volume = v;
     with_voice(e, this.addr(), |m, at| {
         if let Some(voice) = m.all.get_mut(&at) {
@@ -3478,6 +3497,12 @@ fn play(e: &mut Engine, this: Ptr, reserved: u32, priority: u32, flags: u32) -> 
         "IDirectSoundBuffer::Play({reserved:#x}, {priority:#x}, {flags:#x}) is not provided"
     );
     let looping = flags & DSBPLAY_LOOPING != 0;
+    fork_log::game_info!(
+        "audio.play",
+        "buffer {:08x} ({} bytes), looping={looping}",
+        this.addr(),
+        b.bytes
+    );
     tick(e);
     let now = e.clock_now_us();
     let _ = cursors_at(e, this, now);
@@ -3570,6 +3595,11 @@ fn play(e: &mut Engine, this: Ptr, reserved: u32, priority: u32, flags: u32) -> 
 fn stop(e: &mut Engine, this: Ptr) -> u32 {
     let b = secondary(e, this, "Stop");
     if matches!(b.play, Play::Playing { .. }) {
+        fork_log::game_info!(
+            "audio.stop",
+            "buffer {:08x}: the game stopped it",
+            this.addr()
+        );
         note(e, &format!("Stop {:08x}", this.addr()));
     }
     tick(e);
