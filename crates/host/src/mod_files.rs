@@ -123,15 +123,14 @@ pub fn folder(data: &Path) -> Option<PathBuf> {
     // Fork (docs/fork/LINUX.md): the native build keeps its saves in the port's own Documents
     // when NV_SAVE_OUT is unset, so mods' files go beside them there.
     #[cfg(not(windows))]
-    let decision = native_folder_from(
+    let native = native_folder_from(
         mod_out.clone(),
         save_out_dir.clone(),
         &game,
         save_out::known_folders().first().map(PathBuf::as_path),
     );
-    #[cfg(windows)]
-    let decision = None;
-    let decision = decision.unwrap_or_else(|| {
+    #[cfg(not(windows))]
+    let decision = native.unwrap_or_else(|| {
         folder_from(
             mod_out,
             save_out_dir,
@@ -140,6 +139,14 @@ pub fn folder(data: &Path) -> Option<PathBuf> {
             &save_out::known_folders(),
         )
     });
+    #[cfg(windows)]
+    let decision = folder_from(
+        mod_out,
+        save_out_dir,
+        &game,
+        profile.as_deref(),
+        &save_out::known_folders(),
+    );
     println!("{}", decision.line);
     decision.folder
 }
