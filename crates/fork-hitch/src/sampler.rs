@@ -269,15 +269,17 @@ pub fn file_class(path: &[u8]) -> (u32, u32) {
     (ext, hash)
 }
 
+/// The published call and the samples are globals: every test that touches them takes a turn,
+/// also the recorder's tests in lib.rs (`report_hitch` takes the samples).
 #[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-
-    /// The published state is one global: the tests take turns.
+pub(crate) fn turn() -> std::sync::MutexGuard<'static, ()> {
     static TURN: Mutex<()> = Mutex::new(());
-    pub(crate) fn turn() -> std::sync::MutexGuard<'static, ()> {
-        TURN.lock().unwrap_or_else(|p| p.into_inner())
-    }
+    TURN.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn a_published_call_reads_back_whole() {

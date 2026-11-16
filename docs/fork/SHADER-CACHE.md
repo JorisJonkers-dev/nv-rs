@@ -72,8 +72,9 @@ and made on every core with their pipeline libraries (a precompile makes the unl
 the game's warm start leaves to the driver's cache); the driver cache and list are written. It is incremental by
 construction: a hash the store and the driver cache hold costs a lookup. It ends with the counts and the cache summary.
 Shaders that mods add at run time through render injectors reach the device the same way and are cached on their first
-run; the pass covers what the game loader finds in packages. `nvmod run --warm` (nvmod-rs) is a thin caller of the
-viewer flag with the load order's Data roots.
+run; the pass covers what the game loader finds in packages. Launching with a warm-up is the Toolbox's job
+(`raul run`, the Toolbox's ADR-0007): it is a thin caller of the viewer flag with the load order's Data roots; until
+then `nvmod run --warm` (nvmod-rs) does the same.
 
 Measured on the vanilla install (16 packages, 15,791 shaders, 1,809 distinct bytecodes), RX 7900 XTX, 16 cores:
 

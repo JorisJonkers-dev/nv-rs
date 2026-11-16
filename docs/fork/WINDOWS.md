@@ -71,8 +71,9 @@ real installation is for the owner's PC.
 Unchanged. `capabilities.json`, `release-manifest.json` and the schemas are the release build's files, published next to the
 package (flat, with `SHA256SUMS`, as the Linux artefact does) and also inside the ZIP under `release-files\`. The manifest's
 `installation_check.command` is `nv-viewer`; in the ZIP and the installed copy that program is `app\FalloutNV.exe`, the same
-bytes (the package job compares the installed one with the built one). nvmod's `install-nv-rs` keeps consuming the
-`windows-x64` programs artefact's `nv-viewer.exe` and the manifest; neither moved.
+bytes (the package job compares the installed one with the built one). The installing side (the Toolbox, and until its
+tool supply lands nvmod's `install-nv-rs`) keeps consuming the `windows-x64` programs artefact's `nv-viewer.exe` and the
+manifest; neither moved.
 
 ## SmartScreen and antivirus (unsigned)
 
