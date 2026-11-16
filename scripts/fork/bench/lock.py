@@ -40,14 +40,40 @@ class BenchLock:
         except (OSError, ValueError):
             return {}
 
+    def queue_dir(self):
+        return self.path.with_name(self.path.name + ".queue")
+
+    def ticket_first(self, mine):
+        """Whether `mine` is the oldest ticket of a waiter that is still alive (tickets of dead waiters are removed)."""
+        qd = self.queue_dir()
+        names = sorted(p.name for p in qd.iterdir())
+        for n in names:
+            if n == mine:
+                return True
+            try:
+                pid = int(n.split("-")[1])
+                os.kill(pid, 0)
+                return False  # an older waiter is alive
+            except (ValueError, IndexError, ProcessLookupError):
+                (qd / n).unlink(missing_ok=True)
+            except PermissionError:
+                return False
+        return True
+
     def acquire(self):
-        """True when held; False when the wait timed out. Prints who holds it every 30 s."""
+        """True when held; False when the wait timed out. Waiters take the lock in the order they came (a ticket
+        file each; a waiter that died loses its place), and print who holds it every 30 s."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.queue_dir().mkdir(exist_ok=True)
+        ticket = f"{time.time_ns():020d}-{os.getpid()}"
+        (self.queue_dir() / ticket).write_text("")
         self.fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o644)
         start = time.monotonic()
         said = None
         while True:
             try:
+                if not self.ticket_first(ticket):
+                    raise OSError("not first in the queue")
                 fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except OSError:
@@ -55,11 +81,13 @@ class BenchLock:
                 if self.timeout is not None and waited >= self.timeout:
                     os.close(self.fd)
                     self.fd = None
+                    (self.queue_dir() / ticket).unlink(missing_ok=True)
                     return False
                 if said is None or waited - said >= 30:
                     self.out(f"waiting for bench lock held by {describe(self.read_holder())} (waited {int(waited)} s)")
                     said = waited
                 time.sleep(self.poll)
+        (self.queue_dir() / ticket).unlink(missing_ok=True)
         os.ftruncate(self.fd, 0)
         os.write(self.fd, json.dumps({"pid": os.getpid(), "cmd": " ".join(sys.argv[1:4]), "start": time.time()}).encode())
         return True
