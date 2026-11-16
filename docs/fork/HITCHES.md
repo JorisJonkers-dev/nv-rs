@@ -3,8 +3,8 @@
 A flight recorder that is on by default in real play. When a frame is far over the usual one it writes one line to the JSON
 log that says what the frame was spent on, what led up to it and which function was running; at the end of every run it
 writes a small summary file with flags, so a stutter can be traced after the fact and a bad run is noticed without anyone
-pointing at it. Fork-owned (`crates/fork-hitch`, std only apart from `fork-log`); the hot path is relaxed atomic adds and
-one store per frame, nothing allocates there.
+pointing at it. Fork-owned (`crates/fork-hitch`, std only apart from `fork-log`); the hot path is a coarse clock word, a few
+relaxed stores and adds, nothing allocates there (see "Overhead").
 
 ## Switches
 
@@ -54,8 +54,9 @@ trace's `menu.loading` and `load.thread`, or `slow:<Win32 call>` for a platform 
 
 ### The sampler
 
-The main thread publishes, at each platform call, which call it is in, the chain of guest functions that made it and the class of
-its argument (a file's extension and a hash of its name, never a path). A sampler thread reads it every 2 ms while the frame in
+The main thread publishes, at each platform call, which call it is in, the guest function that made it (the whole chain of up to
+eight once the frame is over its budget, see "Overhead") and the class of its argument (a file's extension and a hash of its name,
+never a path). A sampler thread reads it every 2 ms while the frame in
 progress is older than twice the threshold (older than about three typical frames in `detail`), and the record carries a
 histogram: the platform calls the thread was in, with the nearest guest caller, and the hottest guest function addresses.
 A frame stuck in the game's own code makes no platform call: its samples say so (`in_guest`) and the chain is that of the last
@@ -127,9 +128,11 @@ With `NV_PROFILE=1` the sampler names the running guest functions of a thread st
 
 ## Overhead
 
-Measured 2026-11-16 on the optimised build (`play-opt`) of this branch: `nv-rs-dev bench run newgame` (start-up, new
-game, 20 s in the first room) in the nested headless window at 2560x1440, unlimited frame rate, real threads, `NV_PERF`
-on, machine-wide bench lock, no other viewer (no run flagged noisy). `NV_HITCH=off` and the default (`on`) alternated,
+### The first measurement
+
+Measured 2026-11-16 on the optimised build (`play-opt`) of this branch before the cost cuts below: `nv-rs-dev bench run newgame`
+(start-up, new game, 20 s in the first room) in the nested headless window at 2560x1440, unlimited frame rate, real threads,
+`NV_PERF` on, machine-wide bench lock, no other viewer (no run flagged noisy). `NV_HITCH=off` and the default (`on`) alternated,
 four runs each; play-screen frames only.
 
 | Run | `NV_HITCH=off` fps | p99 ms | 1% low | process CPU % | `on` fps | p99 ms | 1% low | process CPU % |
@@ -140,9 +143,62 @@ four runs each; play-screen frames only.
 | 4 | 243.7 | 8.8 | 86 | 80.7 | 213.0 | 12.8 | 63 | 84.9 |
 | Median | 233.6 | 9.4 | 82 | 80.0 | 214.1 | 11.5 | 69 | 81.6 |
 
-The recorder costs about 0.39 ms a frame at this frame rate (4.28 ms against 4.67 ms mean frame time from the medians:
-about 8% of the fps, well over the 1% target); the four `on` runs agree closely (213 to 217 fps), the `off` runs spread
-more (the third used a third more CPU than the others for the same work and is the low one). p99 and 1% low are worse
-with the recorder in three of four pairs. The likely costs, to take next: `enter_call` (two clock reads and about 14
-relaxed stores on every outermost main-thread platform call) and the `Instant::now` pairs of the per-span timing; a
-clock read only when the sampler is armed, or a coarse clock, are the options.
+That was about 0.39 ms a frame (4.28 ms against 4.67 ms mean frame time from the medians), about 8% of the fps against a 1%
+target.
+
+### Where it went
+
+The call rate, from the recorder's own counters in the hitch records of those runs: a play frame in the first room makes about
+10,100 outermost platform calls on the main thread and about 840 draws. Every such call cost two precise clock reads (`Instant::now`,
+about 23 ns each here) and about fourteen stores, so the platform-call bookkeeping alone was about 0.7 ms a frame on a quiet core.
+Spans elsewhere (files, textures, buffers, the sound tick, sync waits) paid the same clock pair, at far lower rates.
+
+### What changed
+
+- **A coarse clock.** The hot paths no longer read the precise clock. They read one word: the time that the sampler thread stores
+  every millisecond (and each frame end stores). A span is the coarse time that passed during it. For a call shorter than a tick
+  that is zero or one tick, as often as the call is long, so the frame's sum is an unbiased estimate: what a 1 ms sampling profiler
+  would give, about 2 ms of error on a 30 ms frame, enough to name the cause. A slow call (2 ms or more) is still seen to the
+  millisecond.
+- **Armed timing for a slow frame.** Bit 0 of the same word is set while the frame in progress is over its budget (twice the
+  typical frame, at least 8 ms). Then spans and platform calls read the precise clock and publish the whole guest chain, so a hitch
+  is timed and attributed exactly from that point on; a call that began before keeps its function, its innermost caller and a coarse
+  start.
+- **Fewer stores.** An unarmed call publishes the function, the innermost caller and the start (no chain copy); the argument class
+  is one word; the call count is the sampler's sequence word, which each call moves on anyway; the main thread's platform time is a
+  single-writer load and store instead of a locked add; the outermost-call test reads the published slot instead of a thread-local
+  flag.
+- `NV_HITCH=off` stays one relaxed load and a branch on every path. The file name class (an FNV hash of the last name component)
+  is computed only in `CreateFile`, a few times a play frame.
+
+### Micro-benchmark
+
+`cargo bench -p fork-hitch --bench hot_path` (std only, no harness; `NV_HITCH=off` for the switched-off path) times each hot path
+over 5 million iterations, best of five, in nanoseconds a call. Same machine, same capped build both times; "before" is the
+branch's previous commit with the same benchmark file.
+
+| Path | before, `on` | after, `on` | `off` |
+| --- | --- | --- | --- |
+| `enter_call` and its drop (main thread) | 73.5 | 4.7 | 2.8 |
+| `span` with a count (texture create) | 47.3 | 5.7 | 0.7 |
+| `span_main` (sound tick, sync wait) | 47.5 | 1.6 | 0.7 |
+| `add` (a draw) | 1.7 | 2.1 | 0.4 |
+| `note_holder` | 0.5 | 0.5 | 0.2 |
+
+The `off` column is mostly the benchmark loop's own call and argument passing. Against it the recorder now adds about 1.9 ns a
+platform call (was about 70 ns): about 19 us for the 10,100 calls of a play frame, 0.45% of a 4.28 ms frame, against about 0.7 ms
+before.
+
+### The second measurement
+
+Not made yet: the A/B of this build (`NV_HITCH=off` against the default, alternating, four runs each, the same scenario) is the
+check of the 1% target in the game. Commands:
+
+```sh
+cd ~/Projects/JorisJonkers-dev/worktrees/nv-rs/hitch
+export NV_DEV_TARGET=~/.cache/nv-rs/target-hitchovh   # the play-opt build of this branch
+for i in 1 2 3 4; do
+  NV_HITCH=off nv-rs-dev bench run newgame --threads real
+  nv-rs-dev bench run newgame --threads real
+done
+```

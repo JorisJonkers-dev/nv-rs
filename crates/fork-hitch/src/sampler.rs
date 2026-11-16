@@ -16,24 +16,24 @@ use std::sync::{Mutex, OnceLock};
 /// How many guest functions of the chain a platform call publishes (innermost last).
 pub const CHAIN: usize = 8;
 
-/// The published state of the main thread's platform call. `seq` is odd while it is written.
+/// The published state of the main thread's platform call. `seq` is odd while it is written and
+/// grows by two a call, so it is also the count of the main thread's platform calls.
 struct CallState {
-    seq: AtomicU32,
+    seq: AtomicU64,
     slot: AtomicU32,
     depth: AtomicU32,
     since_ns: AtomicU64,
-    ext: AtomicU32,
-    hash: AtomicU32,
+    /// The argument class: the extension in the low word, the name hash in the high one.
+    arg: AtomicU64,
     chain: [AtomicU32; CHAIN],
 }
 
 static CALL: CallState = CallState {
-    seq: AtomicU32::new(0),
+    seq: AtomicU64::new(0),
     slot: AtomicU32::new(0),
     depth: AtomicU32::new(0),
     since_ns: AtomicU64::new(0),
-    ext: AtomicU32::new(0),
-    hash: AtomicU32::new(0),
+    arg: AtomicU64::new(0),
     chain: [const { AtomicU32::new(0) }; CHAIN],
 };
 
@@ -50,11 +50,40 @@ pub(crate) fn publish_enter(slot: u32, stack: &[u32], now_ns: u64) {
         CALL.chain[i].store(*a, Ordering::Relaxed);
     }
     CALL.depth.store(take as u32, Ordering::Relaxed);
-    CALL.ext.store(0, Ordering::Relaxed);
-    CALL.hash.store(0, Ordering::Relaxed);
+    CALL.arg.store(0, Ordering::Relaxed);
     CALL.since_ns.store(now_ns, Ordering::Relaxed);
     CALL.slot.store(slot, Ordering::Relaxed);
     CALL.seq.store(seq.wrapping_add(2) & !1, Ordering::Release);
+}
+
+/// [`publish_enter`] for a frame that is not over its budget: the innermost caller only (the
+/// chain's copy is about half the cost of a call's bookkeeping). A slow call that began then
+/// still names its function and caller; calls made after the frame passed its budget publish
+/// the whole chain.
+#[inline]
+pub(crate) fn publish_enter_brief(slot: u32, stack: &[u32], now_ns: u64) {
+    let seq = CALL.seq.load(Ordering::Relaxed);
+    CALL.seq.store(seq.wrapping_add(1) | 1, Ordering::Release);
+    let top = stack.len().checked_sub(2).map_or(0, |i| stack[i]);
+    CALL.chain[0].store(top, Ordering::Relaxed);
+    CALL.depth.store(u32::from(top != 0), Ordering::Relaxed);
+    CALL.arg.store(0, Ordering::Relaxed);
+    CALL.since_ns.store(now_ns, Ordering::Relaxed);
+    CALL.slot.store(slot, Ordering::Relaxed);
+    CALL.seq.store(seq.wrapping_add(2) & !1, Ordering::Release);
+}
+
+/// How many platform calls the main thread has made (published ones).
+#[inline]
+pub(crate) fn calls() -> u64 {
+    CALL.seq.load(Ordering::Relaxed) / 2
+}
+
+/// Whether the main thread is inside a published platform call (only it writes the slot, so
+/// this is exact on the main thread).
+#[inline]
+pub(crate) fn in_call() -> bool {
+    CALL.slot.load(Ordering::Relaxed) != 0
 }
 
 /// The main thread left its platform call.
@@ -67,8 +96,8 @@ pub(crate) fn publish_leave() {
 /// a hash of the file's name.
 #[inline]
 pub(crate) fn publish_arg(ext: u32, hash: u32) {
-    CALL.ext.store(ext, Ordering::Relaxed);
-    CALL.hash.store(hash, Ordering::Relaxed);
+    CALL.arg
+        .store(u64::from(ext) | u64::from(hash) << 32, Ordering::Relaxed);
 }
 
 /// A consistent copy of the published state, or None between calls.
@@ -94,11 +123,12 @@ pub(crate) fn read_call() -> Option<Seen> {
         for (c, s) in chain.iter_mut().zip(&CALL.chain) {
             *c = s.load(Ordering::Relaxed);
         }
+        let arg = CALL.arg.load(Ordering::Relaxed);
         let seen = Seen {
             slot,
             since_ns: CALL.since_ns.load(Ordering::Relaxed),
-            ext: CALL.ext.load(Ordering::Relaxed),
-            hash: CALL.hash.load(Ordering::Relaxed),
+            ext: arg as u32,
+            hash: (arg >> 32) as u32,
             depth: (CALL.depth.load(Ordering::Relaxed) as usize).min(CHAIN),
             chain,
         };
@@ -240,12 +270,12 @@ pub fn file_class(path: &[u8]) -> (u32, u32) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// The published state is one global: the tests take turns.
     static TURN: Mutex<()> = Mutex::new(());
-    fn turn() -> std::sync::MutexGuard<'static, ()> {
+    pub(crate) fn turn() -> std::sync::MutexGuard<'static, ()> {
         TURN.lock().unwrap_or_else(|p| p.into_inner())
     }
 

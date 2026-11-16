@@ -120,7 +120,6 @@ pub enum Role {
 }
 
 thread_local! {
-    static IN_CALL: Cell<bool> = const { Cell::new(false) };
     static ROLE: Cell<Role> = const { Cell::new(Role::Other) };
 }
 
@@ -146,6 +145,47 @@ pub fn now_ns() -> u64 {
     start().elapsed().as_nanos() as u64
 }
 
+// ----- the coarse clock -----
+//
+// A precise clock read costs about 23 ns here, and the main thread makes about 10,000 platform
+// calls a play frame: two reads a call were 0.4 ms a frame. The hot paths read this word
+// instead: the time (nanoseconds since start, bit 0 clear) that the sampler thread stores every
+// millisecond and each frame end stores, with bit 0 set while the frame in progress is already
+// over its budget ("armed"). An armed stamp reads the precise clock, so a slow frame is timed
+// exactly from that point on; before it, a span is the coarse time that passed during it. That
+// is an unbiased estimate (a tick lands inside a short call as often as the call is long), and
+// over the thousands of calls of a frame it is the sum a 1 ms sampling profiler would give.
+
+/// The coarse time and the armed bit.
+static CLOCK: AtomicU64 = AtomicU64::new(0);
+
+/// Stores the coarse time now, armed or not.
+fn tick_clock(armed: bool) {
+    CLOCK.store((now_ns() & !1) | u64::from(armed), Ordering::Relaxed);
+}
+
+/// A start stamp: the coarse time, or (armed) the precise time with bit 0 set.
+#[inline]
+fn stamp() -> u64 {
+    let c = CLOCK.load(Ordering::Relaxed);
+    if c & 1 == 0 {
+        c
+    } else {
+        now_ns() | 1
+    }
+}
+
+/// Nanoseconds since the start stamp `s`, by the clock it was taken with.
+#[inline]
+fn since(s: u64) -> u64 {
+    let end = if s & 1 == 0 {
+        CLOCK.load(Ordering::Relaxed) & !1
+    } else {
+        now_ns()
+    };
+    end.saturating_sub(s & !1)
+}
+
 // ----- the hot path: counters -----
 
 /// Adds `v` (nanoseconds, a count or bytes) to a counter.
@@ -159,7 +199,7 @@ pub fn add(c: Counter, v: u64) {
 /// A timed span: its elapsed time goes to `ns` (and one to `n`, when given) when it drops.
 #[must_use]
 pub struct Span {
-    start: Option<Instant>,
+    start: Option<u64>,
     ns: Counter,
     n: Option<Counter>,
 }
@@ -168,7 +208,7 @@ pub struct Span {
 #[inline]
 pub fn span(ns: Counter, n: Option<Counter>) -> Span {
     Span {
-        start: enabled().then(Instant::now),
+        start: enabled().then(stamp),
         ns,
         n,
     }
@@ -178,7 +218,7 @@ impl Drop for Span {
     #[inline]
     fn drop(&mut self) {
         if let Some(t) = self.start {
-            counters::add(self.ns, t.elapsed().as_nanos() as u64);
+            counters::add(self.ns, since(t));
             if let Some(n) = self.n {
                 counters::add(n, 1);
             }
@@ -196,7 +236,7 @@ pub fn span_split(main: Counter, other: Counter) -> Span {
 #[inline]
 pub fn span_main(ns: Counter) -> Span {
     Span {
-        start: (enabled() && role() == Role::Main).then(Instant::now),
+        start: (enabled() && role() == Role::Main).then(stamp),
         ns,
         n: None,
     }
@@ -243,22 +283,27 @@ pub fn lock_wait(device: bool, ns: u64) {
 /// the main thread's platform time; a long one is an event.
 #[must_use]
 pub struct CallGuard {
-    start: Option<(Instant, u32)>,
+    start: Option<(u64, u32)>,
 }
 
 #[inline]
 pub fn enter_call(slot: u32, stack: &[u32]) -> CallGuard {
-    if !enabled() || role() != Role::Main {
+    if !enabled() {
         return CallGuard { start: None };
     }
-    // A platform call that runs game code that makes another: only the outermost counts.
-    if IN_CALL.with(|d| d.replace(true)) {
+    // Only the main thread's outermost call counts (a platform call that runs game code can
+    // make another); the published slot says whether one is in progress.
+    if role() != Role::Main || sampler::in_call() {
         return CallGuard { start: None };
     }
-    let now = Instant::now();
-    sampler::publish_enter(slot, stack, now_ns());
+    let s = stamp();
+    if s & 1 == 0 {
+        sampler::publish_enter_brief(slot, stack, s);
+    } else {
+        sampler::publish_enter(slot, stack, s & !1);
+    }
     CallGuard {
-        start: Some((now, slot)),
+        start: Some((s, slot)),
     }
 }
 
@@ -266,11 +311,10 @@ impl Drop for CallGuard {
     #[inline]
     fn drop(&mut self) {
         if let Some((t, slot)) = self.start {
-            let ns = t.elapsed().as_nanos() as u64;
-            IN_CALL.with(|d| d.set(false));
+            let ns = since(t);
             sampler::publish_leave();
-            counters::add(Counter::PlatformNs, ns);
-            counters::add(Counter::PlatformCalls, 1);
+            // Only the thread with Role::Main gets here.
+            counters::add_single_writer(Counter::PlatformNs, ns);
             if ns >= SLOW_CALL_NS {
                 counters::add(Counter::SlowCalls, 1);
                 event(&format!("slow:{}", import_name(slot)), ns / 1000);
@@ -528,12 +572,15 @@ pub fn init_with(cfg: Config) {
         .spawn(move || sampler_loop(detail, after_ms));
 }
 
-/// The sampler thread: idle while the frame in progress is young, sampling every 2 ms once it
-/// is older than the limit.
+/// The sampler thread: every millisecond it moves the coarse clock on (armed once the frame in
+/// progress is over its budget), and it samples every 2 ms once the frame is older than the
+/// limit.
 fn sampler_loop(detail: bool, after_ms: f64) {
+    let mut last_sample = 0u64;
     loop {
         let began = FRAME_START_NS.load(Ordering::Relaxed);
-        let mut wait = Duration::from_millis(4);
+        let wait = Duration::from_millis(1);
+        let mut armed = false;
         let sig = signals::pending();
         if sig != 0 {
             write_summary(&format!("signal:{}", signals::name(sig)));
@@ -552,11 +599,15 @@ fn sampler_loop(detail: bool, after_ms: f64) {
             } else {
                 after_ms
             };
-            if age_ms >= after {
+            // The hot paths read the precise clock once the frame is over its budget: twice
+            // the typical frame, at least 8 ms.
+            armed = age_ms >= (median_ms() * 2.0).clamp(8.0, after_ms.max(8.0));
+            if age_ms >= after && now.saturating_sub(last_sample) >= 2_000_000 {
                 sampler::sample(epoch, now);
-                wait = Duration::from_millis(2);
+                last_sample = now;
             }
         }
+        tick_clock(armed);
         std::thread::sleep(wait);
     }
 }
@@ -581,6 +632,8 @@ pub fn frame_end(ctx: &Context) {
     };
     let finished_epoch = FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
     FRAME_START_NS.store(now, Ordering::Relaxed);
+    // A new frame: the coarse clock moves on and is not armed.
+    CLOCK.store(now & !1, Ordering::Relaxed);
     let Some(last) = rec.last_end_ns.replace(now) else {
         rec.last_counters = counters::read();
         rec.last_usage = sys::usage();
@@ -1199,13 +1252,51 @@ mod tests {
     fn spans_and_adds_land_in_the_counters() {
         let before = counters::read()[Counter::Draws as usize];
         add(Counter::Draws, 5);
+        // The coarse clock: a span is the ticked time that passed during it.
+        let ns0 = counters::read()[Counter::PipelineNs as usize];
+        tick_clock(false);
         {
             let _s = span(Counter::PipelineNs, Some(Counter::PipelineN));
             std::thread::sleep(Duration::from_millis(2));
+            tick_clock(false);
         }
         let after = counters::read();
         assert!(after[Counter::Draws as usize] >= before + 5);
-        assert!(after[Counter::PipelineNs as usize] >= 2_000_000);
+        assert!(after[Counter::PipelineNs as usize] - ns0 >= 2_000_000);
         assert!(after[Counter::PipelineN as usize] >= 1);
+        // Armed (the frame is over its budget): the precise clock, with no tick needed.
+        tick_clock(true);
+        {
+            let _s = span(Counter::ShaderNs, None);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        tick_clock(false);
+        assert!(counters::read()[Counter::ShaderNs as usize] >= 2_000_000);
+        // Untimed between ticks: a span with no tick inside it is zero (the estimate's other half).
+        let ns1 = counters::read()[Counter::BufferNs as usize];
+        drop(span(Counter::BufferNs, None));
+        assert_eq!(counters::read()[Counter::BufferNs as usize], ns1);
+    }
+
+    #[test]
+    fn the_main_threads_outermost_call_is_counted_once() {
+        let _turn = sampler::tests::turn();
+        let calls = counters::read()[Counter::PlatformCalls as usize];
+        std::thread::spawn(|| {
+            set_role(Role::Main);
+            let outer = enter_call(0x10, &[1, 2, 0x10]);
+            assert!(sampler::in_call());
+            let inner = enter_call(0x20, &[1, 2, 3, 0x20]);
+            drop(inner);
+            assert!(
+                sampler::in_call(),
+                "the inner call leaves the outer one published"
+            );
+            drop(outer);
+            assert!(!sampler::in_call());
+        })
+        .join()
+        .unwrap();
+        assert_eq!(counters::read()[Counter::PlatformCalls as usize], calls + 1);
     }
 }
