@@ -12,10 +12,8 @@ crates/engine-core/src/units/crt.rs  # FSTCW's read through the thread block is 
 crates/engine-platform/Cargo.toml  # d3d9-wgpu as a dependency on every target (was Windows only); libloading off Windows (the sound output, fork_sound.rs); the fork-log dependency
 crates/engine-platform/src/d3d9device.rs  # the argument-word trait is built on Windows only (reserved area: no call site touched)
 crates/engine-platform/src/d3d9resource.rs  # its import of that trait is Windows only (reserved area: no call site touched)
-crates/engine-platform/src/d3dx.rs  # an unused binding off Windows
 crates/engine-platform/src/files.rs  # five changed lines: `mod files_host;` and its re-export (the Linux path code is in the overlay file files_host.rs), `real_path` answers `files_host::host_path` (the Windows code is `windows_real_path`, unchanged); a search pattern's first two letters rule out a short name; `find_fields` for the file times of FindFirstFileA on Unix, the Windows-only ignores removed
 crates/host/src/cell_offsets.rs  # asks files::host_path for the plugin's path (the Unix mapping of a game path)
-crates/d3d9-wgpu/src/loading.rs  # the output capture's pipe list is built on Windows only
 # Linux build, found by verify-sync.sh in the Pipeline: each is a small cfg-gated change.
 # Platform answers off Windows (docs/fork/LINUX.md): one hook each, the Windows arms untouched.
 crates/engine-platform/src/lib.rs  # the modules of the fork-owned platform answers and machine tables; `pub mod d3dxshader;` and the six shader imports registered from it, both cfg(not(windows)) (docs/fork/LINUX.md, shader compiler); `pub mod fork_sound;`, cfg(not(windows)) (sound output); the exit summary and the JSON log flush in `end_process` (fork_log::finish)
