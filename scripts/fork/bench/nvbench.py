@@ -86,6 +86,12 @@ def cmd_list(_a):
 
 
 def cmd_run(a):
+    if a.nested:
+        a.windowed = True
+        if a.nested == "window" and not a.yes_windowed:
+            print("--nested window shows a window in your session: needs --yes-windowed", file=sys.stderr)
+            return 2
+        a.yes_windowed = a.yes_windowed or a.nested == "headless"
     if a.windowed and not a.yes_windowed:
         print("refusing to run windowed without --yes-windowed (the window opens on your display; offscreen is the default)", file=sys.stderr)
         return 2
@@ -101,7 +107,7 @@ def cmd_run(a):
     opts = {
         "mode": a.mode, "windowed": a.windowed, "viewer": viewer, "game": game, "preset": a.preset, "threads": a.threads,
         "resolution": a.resolution, "sound": a.sound, "mem": a.mem, "fps": fps, "timeout_s": a.timeout,
-        "vram_limit_pct": a.vram_limit_pct, "shots": a.shots,
+        "vram_limit_pct": a.vram_limit_pct, "shots": a.shots, "nested": a.nested, "scale": a.scale,
     }
     plan = scenarios.build(a.scenario, opts)
     if plan.capped_only and a.mode != "capped" and not a.force:
@@ -115,11 +121,11 @@ def cmd_run(a):
         plan.end_frame = a.frames
     if a.seconds:
         plan.wall_after_first_s = a.seconds
-    if a.scale:
+    if a.scale and not plan.self_scaled:
         plan.end_frame = int(plan.end_frame * a.scale)
         plan.wall_after_first_s *= a.scale
     run_dir = runner.run_dir_for(plan.name)
-    print(f"bench {plan.name} ({a.mode}, {'windowed' if a.windowed else 'offscreen'}, VRAM limit {a.vram_limit_pct}%) -> {run_dir}")
+    print(f"bench {plan.name} ({a.mode}, {('nested ' + a.nested) if a.nested else ('windowed' if a.windowed else 'offscreen')}, VRAM limit {a.vram_limit_pct}%) -> {run_dir}")
     run = runner.launch(plan, opts, run_dir)
     build = ""
     try:
@@ -127,7 +133,7 @@ def cmd_run(a):
     except OSError:
         pass
     settings = {
-        "mode": a.mode, "window": "windowed" if a.windowed else "offscreen", "preset": a.preset, "threads": a.threads or "default",
+        "mode": a.mode, "window": ("nested " + a.nested) if a.nested else ("windowed" if a.windowed else "offscreen"), "preset": a.preset, "threads": a.threads or "default",
         "resolution": a.resolution, "build": build or Path(viewer).name, "viewer_mtime": int(Path(viewer).stat().st_mtime),
         "vram_limit_pct": a.vram_limit_pct, "ref_fps": fps,
     }
@@ -228,6 +234,7 @@ def main(argv=None):
     r.add_argument("--mode", choices=["capped", "uncapped"], default="capped", help="capped: 144 Hz limit, mailbox present (pacing, 1%% lows); uncapped: no limit, immediate present (peak fps)")
     r.add_argument("--windowed", action="store_true", help="draw in a real window on your display (needs --yes-windowed)")
     r.add_argument("--yes-windowed", action="store_true")
+    r.add_argument("--nested", choices=["headless", "window"], help="real window path in a nested sway: headless (own output, no session involved; valid fps and stability) or window (shown inside your session; can be covered). Implies a windowed run; no --yes-windowed needed for headless")
     r.add_argument("--viewer")
     r.add_argument("--game")
     r.add_argument("--preset", choices=["fixes", "vanilla"], default="fixes")
