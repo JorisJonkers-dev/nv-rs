@@ -39,6 +39,7 @@ scripts/fork/
 version.txt
 crates/engine-platform/src/files/files_host.rs
 crates/fork-log/
+crates/d3d9-replay/
 # Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.
 crates/engine-core/src/exe.rs
 crates/engine-core/src/units/crt/cvt.rs
@@ -55,3 +56,4 @@ crates/host/src/native_inflate.rs
 crates/nvse/src/commands/math.rs
 crates/d3d9-wgpu/src/budget.rs
 crates/d3d9-wgpu/src/fixed.rs
+crates/d3d9-wgpu/src/gputime.rs

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fork-only. Counts the d3d9-wgpu GPU tests that ran against those that skipped, from the log of a Linux component job.
 
-The GPU tests (crates/d3d9-wgpu/tests/frame.rs, ops.rs) print "no GPU adapter: ... skipped" and pass when no adapter can
+The GPU tests (crates/d3d9-wgpu/tests/frame.rs, ops.rs, crates/d3d9-replay/tests/replay_gpu.rs) print "no GPU adapter: ... skipped" and pass when no adapter can
 be opened. This reads the log of `cargo test` run with RUST_TEST_NOCAPTURE=1 (so those lines are in it), prints the
 executed and skipped counts as a Markdown table, and exits 1 when any test skipped or no GPU test binary ran.
 
@@ -12,7 +12,7 @@ import sys
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
-GPU_BINARIES = ("frame", "ops")
+GPU_BINARIES = ("frame", "ops", "replay_gpu")
 RUNNING = re.compile(r"^\s*Running (?:unittests )?(?:tests/(\w+)\.rs|(\S+)) ")
 RESULT = re.compile(r"^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored")
 SKIP = re.compile(r"no GPU adapter: .*skipped")

@@ -7,6 +7,7 @@
 #   nv-rs-dev hitches <run.jsonl>   ranked hitch causes, triggers, worst frames and a timeline from a JSON log (docs/fork/HITCHES.md)
 #   nv-rs-dev runs [--last N] [--flagged] [--json] | show <id|latest>   recent real runs from their run summaries, with flags and trend
 #   nv-rs-dev logs [--run ID|latest|latest-bad] [--errors|--hitches|--tail N|--grep PAT|--around FRAME] [--diff A B] [--json] [--bundle]   what happened in a run (docs/fork/LOGS.md; also nv-rs-logs)
+#   nv-rs-dev replay <build|run|info|pack|synth|streams> ...   the replay-bench of a recorded Direct3D 9 stream, under the bench lock (docs/fork/REPLAY.md)
 #   nv-rs-dev test <crate> [args]  cargo test -p <crate>
 #   nv-rs-dev affected [base]    the crates and components a diff reaches (default base origin/fork), as the pull request's CI selects them
 #   nv-rs-dev ci-lite [base]     fmt, clippy of the changed crates and the Linux test jobs of the affected components, as CI would run them
@@ -37,6 +38,12 @@ case "$cmd" in
     unset NV_SOUND   # the runner decides the sound (default: silent)
     export NV_BENCH_VIEWER="${NV_BENCH_VIEWER:-$(dev_viewer)}" NV_BENCH_GAME="${NV_BENCH_GAME:-$GAME}"
     exec python3 -I "$HERE/../bench/nvbench.py" "$@" ;;
+  replay)
+    # The replay-bench (docs/fork/REPLAY.md): `build` makes the release binary; the rest is d3d9replay.py, which takes
+    # the bench lock for a measurement (`run`). Needs a Vulkan loader like the viewer does (dev_env's fallbacks).
+    if [ "${1:-}" = build ]; then dev_cargo build --release -p d3d9-replay --bin d3d9-replay-bench; exit $?; fi
+    dev_env
+    exec python3 -I "$HERE/../bench/d3d9replay.py" "$@" ;;
   test)
     [ $# -ge 1 ] || { echo "usage: nv-rs-dev test <crate> [cargo test args]" >&2; exit 2; }
     c="$1"; shift; dev_cargo test -p "$c" "$@" ;;

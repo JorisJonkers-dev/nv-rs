@@ -3,6 +3,7 @@
 # The Pipeline's Linux jobs run exactly these (clippy and tests in one job each, 60 minutes). `engine` is left out: its 17 typed_* test binaries take about 2 hours on a runner; it passes (docs/fork/LINUX.md). Add a crate only after the probe workflow showed it passing.
 bink
 bsa
+d3d9-replay
 d3d9-stream
 d3d9-wgpu
 d3dx-shader
