@@ -127,9 +127,22 @@ With `NV_PROFILE=1` the sampler names the running guest functions of a thread st
 
 ## Overhead
 
-Measured with `nv-rs-dev bench run newgame --threads real` on the optimised build (`play-opt`), `NV_HITCH=off` against the default, machine-wide bench lock:
+Measured 2026-11-16 on the optimised build (`play-opt`) of this branch: `nv-rs-dev bench run newgame` (start-up, new
+game, 20 s in the first room) in the nested headless window at 2560x1440, unlimited frame rate, real threads, `NV_PERF`
+on, machine-wide bench lock, no other viewer (no run flagged noisy). `NV_HITCH=off` and the default (`on`) alternated,
+four runs each; play-screen frames only.
 
-Not measured yet. The first default-mode run of `newgame --threads real` on `play-opt` (2026-11-16) gave 102.7 fps and p99 19.8 ms on the play screen
-with the recorder on, but the machine was shared (other viewers ran, `noisy_machine` set) and there is no `NV_HITCH=off` run beside it, so it says nothing about overhead.
-The measurement to make: alternate `NV_HITCH=off nv-rs-dev bench run newgame --threads real` and the same without the variable, at least three of each, and
-compare fps, p99 and the process CPU of the `samples.tsv`; the target is under 1% of frame time.
+| Run | `NV_HITCH=off` fps | p99 ms | 1% low | process CPU % | `on` fps | p99 ms | 1% low | process CPU % |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 229.3 | 10.0 | 79 | 79.0 | 214.5 | 10.5 | 74 | 80.2 |
+| 2 | 238.0 | 10.7 | 67 | 79.2 | 213.7 | 12.6 | 64 | 80.6 |
+| 3 | 203.0 | 8.0 | 88 | 106.8 | 216.9 | 9.8 | 80 | 82.6 |
+| 4 | 243.7 | 8.8 | 86 | 80.7 | 213.0 | 12.8 | 63 | 84.9 |
+| Median | 233.6 | 9.4 | 82 | 80.0 | 214.1 | 11.5 | 69 | 81.6 |
+
+The recorder costs about 0.39 ms a frame at this frame rate (4.28 ms against 4.67 ms mean frame time from the medians:
+about 8% of the fps, well over the 1% target); the four `on` runs agree closely (213 to 217 fps), the `off` runs spread
+more (the third used a third more CPU than the others for the same work and is the low one). p99 and 1% low are worse
+with the recorder in three of four pairs. The likely costs, to take next: `enter_call` (two clock reads and about 14
+relaxed stores on every outermost main-thread platform call) and the `Instant::now` pairs of the per-span timing; a
+clock read only when the sampler is armed, or a coarse clock, are the options.
