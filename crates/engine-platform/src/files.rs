@@ -20,7 +20,7 @@ use crate::{Engine, Ptr};
 use std::collections::BTreeMap;
 
 mod files_host;
-pub use files_host::host_path;
+pub use files_host::{host_path, host_path_in};
 
 /// `GENERIC_READ` and `GENERIC_WRITE` (the access mask's top bits).
 pub const GENERIC_READ: u32 = 0x8000_0000;
@@ -639,12 +639,6 @@ fn ntfs_key(units: &[u16]) -> Vec<u16> {
                 .unwrap_or(u),
         })
         .collect()
-}
-
-/// The host path of `path`, a path as the game's ANSI calls carry it ([`real_path`]): for the
-/// mod files folder ([`super::mod_files`]), which keeps a mod's names as the game passes them.
-pub fn host_path(path: &[u8]) -> std::path::PathBuf {
-    real_path(path)
 }
 
 /// Whether the full path `path` is a directory, as `GetFileAttributesA` answers: one the game

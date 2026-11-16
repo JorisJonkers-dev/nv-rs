@@ -177,6 +177,52 @@ mod tests {
     use super::*;
     use std::ffi::OsStr;
 
+    /// Mods' own files on a Unix host (upstream's `mod_files` tests use Windows paths with
+    /// `std::fs`, so they run on Windows only): the game's folder as the native build gives it
+    /// (`Z:` and backslashes), a read from the game's Data, a write kept in the port's folder
+    /// whatever the case of the name's parts there, and the game's file never written.
+    #[cfg(unix)]
+    #[test]
+    fn mod_files_on_a_unix_host_read_the_game_and_keep_writes_in_the_ports_folder() {
+        use engine_core::mod_files as seam;
+        let root = std::env::temp_dir().join(format!("nv-fork-mod-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (game, kept) = (root.join("game"), root.join("kept"));
+        std::fs::create_dir_all(game.join("Data/Config")).unwrap();
+        std::fs::write(
+            game.join("Data/Config/Mod.ini"),
+            b"[List]\r\nMaxWidth=350\r\n",
+        )
+        .unwrap();
+        let mut e = crate::Engine::new();
+        e.kernel.current_directory = format!("Z:{}", game.display())
+            .replace('/', "\\")
+            .into_bytes();
+        let name = br"Data\Config\Mod.ini";
+        assert_eq!(
+            seam::profile_string(&e, name, b"List", b"MaxWidth").as_deref(),
+            Some(&b"350"[..])
+        );
+        // The port's folder holds the name's folders in another case.
+        std::fs::create_dir_all(kept.join("data/config")).unwrap();
+        crate::mod_files::set_folder(&mut e, Some(kept.clone()));
+        seam::write_profile_string(&mut e, name, b"List", b"MaxWidth", b"100").unwrap();
+        assert_eq!(
+            std::fs::read(kept.join("data/config/Mod.ini")).unwrap(),
+            b"[List]\r\nMaxWidth=100\r\n"
+        );
+        assert!(!kept.join("Data").exists());
+        assert_eq!(
+            std::fs::read(game.join("Data/Config/Mod.ini")).unwrap(),
+            b"[List]\r\nMaxWidth=350\r\n"
+        );
+        assert_eq!(
+            seam::profile_string(&e, name, b"List", b"MaxWidth").as_deref(),
+            Some(&b"100"[..])
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn filetime_counts_100_ns_ticks_from_1601() {
         assert_eq!(filetime(0, 0), 116_444_736_000_000_000);

@@ -192,7 +192,12 @@ mod tests {
         let decision = native_folder_from(None, None, game, Some(documents)).expect("a decision");
         assert_eq!(
             decision.folder.as_deref(),
-            Some(documents.join("My Games/FalloutNV").join(BESIDE_SAVES).as_path())
+            Some(
+                documents
+                    .join("My Games/FalloutNV")
+                    .join(BESIDE_SAVES)
+                    .as_path()
+            )
         );
         assert!(decision.line.contains("are kept in"), "{}", decision.line);
         let empty = Some(PathBuf::new());
@@ -200,10 +205,19 @@ mod tests {
         assert!(native_folder_from(Some("/x".into()), None, game, Some(documents)).is_none());
         assert!(native_folder_from(None, Some("/s/Saves".into()), game, Some(documents)).is_none());
         assert!(native_folder_from(None, None, game, None).is_none());
-        let inside = native_folder_from(None, None, Path::new("/data/nv-rs/userdata"), Some(documents))
-            .expect("a decision");
+        let inside = native_folder_from(
+            None,
+            None,
+            Path::new("/data/nv-rs/userdata"),
+            Some(documents),
+        )
+        .expect("a decision");
         assert_eq!(inside.folder, None);
-        assert!(inside.line.contains("inside the game's folder"), "{}", inside.line);
+        assert!(
+            inside.line.contains("inside the game's folder"),
+            "{}",
+            inside.line
+        );
     }
 
     use super::*;

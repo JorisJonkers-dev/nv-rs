@@ -5,3 +5,19 @@ files::tests_kept_files  # the scratch files are named with Windows paths and op
 files::tests_code_pages  # three tests fail on Linux, first run of the platform component there (nv-linux #205)
 files::tests_player_files::a_read_only_open_reads_the_players_file_in_place  # nv-linux #205
 tests::every_import_is_answered_by_one_function  # nv-linux #205
+# Mods' own files (slaterain/nv-rs#629): these tests make their scratch folders with Windows paths through std::fs; the
+# Unix path is tested by fork_platform::tests::mod_files_on_a_unix_host_read_the_game_and_keep_writes_in_the_ports_folder.
+ini::tests::the_games_profile_import_does_not_read_mod_files
+mod_files::tests::a_failed_folder_write_is_a_failure
+mod_files::tests::a_refused_name_reads_nothing
+mod_files::tests::a_write_into_an_empty_port_folder_makes_its_folders
+mod_files::tests::mcms_set_mod_ini_sequence
+mod_files::tests::reads_prefer_the_ports_folder_and_writes_never_reach_the_game
+mod_files::tests::the_seam_takes_the_kernel_lock
+mod_files::tests::without_a_folder_nothing_touches_the_disk
+# The host's folder for mods' own files (slaterain/nv-rs#629): Windows paths as Path values; the native build's folder is
+# tested by mod_files::tests::the_native_build_keeps_mod_files_beside_its_own_saves.
+mod_files::tests::folder_from_answers_none_for_refused_folders
+mod_files::tests::the_folder_is_named_or_beside_the_saves
+mod_files::tests::the_game_folder_is_datas_parent
+mod_files::tests::the_players_folders_and_the_game_folder_are_refused

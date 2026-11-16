@@ -156,7 +156,9 @@ fn parent_of(rel: &[u8]) -> Option<&[u8]> {
 
 /// The folder's copy of a relative name.
 fn kept_path(folder: &Path, rel: &[u8]) -> PathBuf {
-    folder.join(files::host_path(rel))
+    // Fork: the name's parts found without regard to case inside the folder off Windows
+    // (files_host.rs); on Windows the same join as upstream's.
+    files::host_path_in(folder, rel)
 }
 
 /// A host file call's failure as Windows' code (`ERROR_ACCESS_DENIED` when it gives none).

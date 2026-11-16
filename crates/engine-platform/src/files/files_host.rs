@@ -17,6 +17,22 @@ pub fn host_path(path: &[u8]) -> std::path::PathBuf {
     }
 }
 
+/// The host's path for `rel`, a name relative to the host folder `folder` as the game's ANSI calls
+/// carry it (the mod files folder keeps a mod's names as the game passes them): Windows: the
+/// folder joined with the name as it is; elsewhere each part of the name is found in its directory
+/// without regard to case, starting in `folder` ([`unix_path`]'s rules).
+pub fn host_path_in(folder: &std::path::Path, rel: &[u8]) -> std::path::PathBuf {
+    let ansi = super::windows_real_path(rel);
+    #[cfg(unix)]
+    {
+        unix_path_in(folder, &ansi.to_string_lossy())
+    }
+    #[cfg(not(unix))]
+    {
+        folder.join(ansi)
+    }
+}
+
 /// A game path (`Z:\home\me\Data\Fallout.esm`; names are not case-sensitive, the separator is a
 /// backslash) as a path of a Unix host: `Z:` is the host's root, as Wine's is, so a name under it
 /// is the same name with `/` for `\`; a name without a drive letter keeps its place (the
@@ -26,13 +42,20 @@ pub fn host_path(path: &[u8]) -> std::path::PathBuf {
 /// finds `Data/Fallout.esm`; a part with no match stays as written (a file to be made).
 #[cfg(unix)]
 fn unix_path(text: &str) -> std::path::PathBuf {
-    use std::path::{Component, Path, PathBuf};
+    unix_path_in(std::path::Path::new(""), text)
+}
+
+/// [`unix_path`] of a name relative to the host folder `base` (the empty path: the current
+/// directory): the lookup without regard to case starts in `base`.
+#[cfg(unix)]
+fn unix_path_in(base: &std::path::Path, text: &str) -> std::path::PathBuf {
+    use std::path::{Component, Path};
     let slashed = text.replace('\\', "/");
     let rest = match slashed.as_bytes() {
         [d, b':', ..] if d.eq_ignore_ascii_case(&b'z') => &slashed[2..],
         _ => &slashed[..],
     };
-    let mut found = PathBuf::new();
+    let mut found = base.to_path_buf();
     for part in Path::new(rest).components() {
         let Component::Normal(name) = part else {
             found.push(part.as_os_str());
@@ -111,6 +134,20 @@ mod tests_unix_paths {
         let found = host_path(asked.as_bytes());
         assert_eq!(found, dir.join("Data").join("Fallout.esm"));
         assert!(found.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_name_in_a_folder_is_found_without_regard_to_case_from_that_folder() {
+        let dir = scratch("in");
+        assert_eq!(
+            host_path_in(&dir, b"DATA\\fallout.ESM"),
+            dir.join("Data").join("Fallout.esm")
+        );
+        assert_eq!(
+            host_path_in(&dir, b"Config\\New.ini"),
+            dir.join("Config").join("New.ini")
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
