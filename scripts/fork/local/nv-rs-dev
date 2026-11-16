@@ -25,6 +25,11 @@ case "$cmd" in
   bench)
     # Scripted playthrough runs and their reports (docs/fork/BENCH.md). The run environment is dev_env's;
     # sound is off unless NV_SOUND is set.
+    # Numbers are measured on the optimised build (`nv-rs-dev build --opt`, profile play-opt: 135.5 fps and a 1% low of 67
+    # on play became 143.4 and 82 in the first room), unless NV_DEV_PROFILE or NV_BENCH_VIEWER says otherwise.
+    # shellcheck disable=SC2034  # read by dev_viewer in lib.sh
+    DEV_PROFILE="${NV_DEV_PROFILE:-play-opt}"
+    [ -x "$(dev_viewer)" ] || [ -n "${NV_BENCH_VIEWER:-}" ] || { echo "no $(dev_viewer): run 'nv-rs-dev build --opt' first (or NV_DEV_PROFILE=play)" >&2; exit 2; }
     NV_SOUND="${NV_SOUND:-none}"; dev_env
     unset NV_SOUND   # the runner decides the sound (default: silent)
     export NV_BENCH_VIEWER="${NV_BENCH_VIEWER:-$(dev_viewer)}" NV_BENCH_GAME="${NV_BENCH_GAME:-$GAME}"

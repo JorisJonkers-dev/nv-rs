@@ -21,7 +21,9 @@ dev_viewer() { echo "$DEV_TARGET/$DEV_PROFILE/nv-viewer"; }
 dev_build() {
   local t0=$SECONDS rc kind=warm args=() a
   for a in "$@"; do
-    if [ "$a" = --clean ]; then kind=cold; else args+=("$a"); fi
+    if [ "$a" = --clean ]; then kind=cold
+    elif [ "$a" = --opt ]; then DEV_PROFILE=play-opt   # the fully optimised build the numbers are measured on
+    else args+=("$a"); fi
   done
   if [ "$kind" = cold ]; then
     # A reproducible cold build in its own fresh target dir (the shared one may be in use by another worker, so it is
