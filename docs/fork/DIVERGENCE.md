@@ -50,7 +50,7 @@ The older table below stays and counts as a reason only ("table row only" in the
 
 | Fork-only change | Why | Upstream change that makes it unnecessary |
 |---|---|---|
-| `engine-platform` answers in `fork_platform.rs`: file times of FindFirstFile, known folders, memory status, data folder; hooks in `files.rs`, `process.rs`, `dsound.rs`, `lib.rs`, `host/save_out.rs`, `host/lib.rs` | The game runs on Linux; upstream answers these only on Windows | Upstream implementing the same calls off Windows (it does not as of the 38-commit sync of 2026-11-15) |
+| `engine-platform` answers in `fork_platform.rs`: file times of FindFirstFile, known folders, memory status, data folder; hooks in `files.rs`, `process.rs`, `dsound.rs`, `lib.rs`, `host/save_out.rs` (and its `NV_SAVE_OUT` check, which takes a path from `/` off Windows), `host/lib.rs` | The game runs on Linux; upstream answers these only on Windows | Upstream implementing the same calls off Windows (it does not as of the 38-commit sync of 2026-11-15) |
 | `engine-platform/src/fork_sound.rs`, hooks in `sound_out.rs`, `dsound.rs`, `lib.rs`, `Cargo.toml` | The game's sound output off Windows: libpulse-simple (PipeWire and PulseAudio) or a null sink behind the mixer's `sound_out` seam; upstream's output is WASAPI only (checked 2026-11-15: no audio work on `slaterain/nv-rs` main) | Upstream giving `sound_out` a non-Windows device |
 | `engine-platform/src/files/files_host.rs`, `files.rs` (`mod files_host`), `host/cell_offsets.rs` | Game paths (backslashes) map to Linux paths | A path layer in upstream |
 | `engine-platform/Cargo.toml`, `d3d9device.rs`, `d3d9resource.rs` | Native Linux build: cfg gates and d3d9-wgpu on every target | Upstream building these on Linux |
