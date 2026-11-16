@@ -391,6 +391,28 @@ fn sync_parent(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// `path`, or the file of its folder whose name is the same without regard to (ASCII) case.
+fn existing_name(path: &Path) -> PathBuf {
+    if path.exists() {
+        return path.to_path_buf();
+    }
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return path.to_path_buf();
+    };
+    let name = name.to_string_lossy();
+    std::fs::read_dir(parent)
+        .ok()
+        .and_then(|entries| {
+            entries.filter_map(Result::ok).find(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&name)
+            })
+        })
+        .map_or_else(|| path.to_path_buf(), |entry| entry.path())
+}
+
 /// Does `job`'s disk work: the log line when there is one (`Ok`), or the line saying why a
 /// write failed (`Err`).
 pub fn run(job: &Job) -> Result<Option<String>, String> {
@@ -426,7 +448,10 @@ pub fn run(job: &Job) -> Result<Option<String>, String> {
             }
         }
         Job::Remove { target, name } => {
-            let removed = target.is_file() && std::fs::remove_file(target).is_ok();
+            // The run keeps a deleted save under its lower-case key, so on a host whose names
+            // keep their case the file is found without regard to it.
+            let found = existing_name(target);
+            let removed = found.is_file() && std::fs::remove_file(&found).is_ok();
             Ok(removed.then(|| format!("NV_SAVE_OUT: copied {name} (deleted)")))
         }
     }

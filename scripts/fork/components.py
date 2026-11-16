@@ -314,7 +314,10 @@ class Model:
         # os, label, informational
         targets = [("windows-latest", "Windows", False)]
         if c["runs_on"] == "both":
-            if linux_ready and c.get("windows") != "required":
+            if c.get("linux") == "required":
+                # A component of Linux-only tests (cfg(unix)): a required Linux job, no Windows job.
+                targets = [("ubuntu-latest", "Linux", False)]
+            elif linux_ready and c.get("windows") != "required":
                 targets = [("ubuntu-latest", "Linux", False)]
             else:
                 targets.append(("ubuntu-latest", "Linux, informational", not linux_ready))

@@ -802,7 +802,35 @@ pub fn copy_file_a(e: &mut Engine, source: Ptr, target: Ptr, fail_if_exists: u32
     state!(e).disk.deleted.remove(&k);
     state!(e).disk.entries.remove(&k);
     state!(e).disk.changed(&k);
-    state!(e).disk.files.insert(k, data);
+    // Off Windows the copy has an entry of its own (a new file: made now, the source's last write
+    // as Windows' copy keeps it), so a search that lists it does not stop the run; its times were
+    // not measured on Windows, where the stop stays.
+    #[cfg(not(windows))]
+    {
+        let now = file_clock(e);
+        let written = entry_of(e, &from).map_or(now, |source| source.written);
+        let short = short_name(e, &to);
+        let size = data.len() as u64;
+        state!(e).disk.changed(&k);
+        state!(e).disk.files.insert(k.clone(), data);
+        state!(e).disk.entries.insert(
+            k.clone(),
+            Entry {
+                name: last_part(&to),
+                short,
+                attributes: FILE_ATTRIBUTE_ARCHIVE,
+                size,
+                created: now,
+                accessed: now,
+                written,
+            },
+        );
+    }
+    #[cfg(windows)]
+    {
+        state!(e).disk.changed(&k);
+        state!(e).disk.files.insert(k.clone(), data);
+    }
     e.kernel.last_error = ERROR_SUCCESS;
     1
 }

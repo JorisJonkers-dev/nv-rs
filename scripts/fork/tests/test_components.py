@@ -211,6 +211,10 @@ class Matrix(unittest.TestCase):
         m = model(self.cfg(windows="required"), self.META, linux_ok=["a", "b"])
         self.assertEqual([(e["os"], e["informational"]) for e in m.entries("low")], [("windows-latest", False), ("ubuntu-latest", False)])
 
+    def test_linux_required_is_a_required_linux_job_and_no_windows_job(self):
+        m = model(self.cfg(linux="required"), self.META)
+        self.assertEqual([(e["os"], e["informational"]) for e in m.entries("low")], [("ubuntu-latest", False)])
+
     def test_a_partly_listed_component_stays_windows_with_an_informational_twin(self):
         m = model(self.cfg(), self.META, linux_ok=["a"])
         self.assertEqual([(e["os"], e["informational"]) for e in m.entries("low")], [("windows-latest", False), ("ubuntu-latest", True)])

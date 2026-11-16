@@ -4,6 +4,7 @@
 # .github/workflows/fork-build.yml. The crate layout and every Cargo.toml are upstream's: this map is the only
 # place the fork says what belongs together. docs/fork/CI.md explains how to read and change it.
 #
+# linux: "required" on a component without crates (commands only) makes its Linux job required and drops its Windows job.
 # runs_on: "windows" (upstream's gate is Windows) or "both": the same tests also run on Linux. A "both"
 #   component gets a Linux twin that is informational (it may fail without failing the run) until every crate
 #   of the component is listed in .fork/linux-ok.txt; then the component runs on Linux only and the Windows job
@@ -177,6 +178,23 @@ requires = []
 runs_on = "both"
 # It reads the whole repository, so any change can break it.
 pr = "always"
+
+# The native build's saves, end to end: the game's file calls on `Z:` paths, the copy-out into the port's own Saves folder and a
+# new run reading it back, with the failure cases (docs/fork/LINUX.md). Linux only: the test is cfg(unix), and `host` is also in
+# the `integration` component, which builds on Windows. `linux = "required"`: a required Linux job and no Windows job.
+[[component]]
+name = "native-saves"
+purpose = "Saving on Linux end to end without game data: the game's save calls through the engine's file layer, the copy-out landing the files with sync and rename, the folder listed and read back by a new run, and the write failures that must be logged, never stop the game"
+crates = []
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog"]
+runs_on = "both"
+linux = "required"
+pr = "affected"
+paths = ["crates/host/tests/linux_saves.rs", "crates/host/src/save_out.rs", "crates/engine-platform/src/files.rs", "crates/engine-platform/src/files/"]
+commands = [
+  "cargo test --locked -p host --test linux_saves",
+  "cargo test --locked -p engine-platform --lib files::",
+]
 
 # Separate workspaces (their own Cargo.toml and target): not workspace members, so no crate list.
 [[component]]
