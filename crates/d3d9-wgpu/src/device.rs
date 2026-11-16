@@ -1043,6 +1043,8 @@ impl Device {
         }
         let info = adapter.get_info();
         let adapter_name = format!("{} ({:?})", info.name, info.backend);
+        fork_hitch::set_meta("gpu", &adapter_name);
+        fork_hitch::set_meta("driver", &format!("{} {}", info.driver, info.driver_info));
         let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("registers"),
             entries: &[0, 1, 2, 3].map(|binding| wgpu::BindGroupLayoutEntry {

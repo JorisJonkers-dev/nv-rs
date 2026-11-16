@@ -258,6 +258,78 @@ pub fn flush() {
     }
 }
 
+/// Writes one structured record of `kind` to the JSON file only: `body` is already-rendered JSON
+/// members (`"hitch":{...}`) put after the `kind`, before the frame and thread. The recorders
+/// that keep their own state (the hitch flight recorder, docs/fork/HITCHES.md) use it.
+pub fn json_record(level: Level, target: &str, kind: &str, body: &str) {
+    let mut o = String::with_capacity(96 + body.len());
+    o.push_str("{\"ts\":");
+    sink::json_str(&mut o, &sink::timestamp(SystemTime::now()));
+    let _ = write!(o, ",\"level\":\"{}\",\"target\":", level.name());
+    sink::json_str(&mut o, target);
+    o.push_str(",\"kind\":");
+    sink::json_str(&mut o, kind);
+    if !body.is_empty() {
+        o.push(',');
+        o.push_str(body);
+    }
+    o.push_str(",\"frame\":");
+    match frame() {
+        Some(f) => {
+            let _ = write!(o, "{f}");
+        }
+        None => o.push_str("null"),
+    }
+    o.push_str(",\"thread\":");
+    sink::json_str(&mut o, &thread_name());
+    o.push('}');
+    write_json(&o, level <= Level::Warn);
+}
+
+/// Appends `s` to `out` as a JSON string (quoted, escaped).
+pub fn json_string(out: &mut String, s: &str) {
+    sink::json_str(out, s);
+}
+
+/// Registers a function run when the run ends, with how it ends (`exit`, `stop`, `panic`): a
+/// recorder's last summary. It may run more than once (a stop, then the exit), so it must
+/// tolerate that. At most eight.
+pub fn on_finish(f: fn(&str)) {
+    let mut hooks = FINISH_HOOKS.lock().unwrap_or_else(|p| p.into_inner());
+    if hooks.len() < 8 {
+        hooks.push(f);
+    }
+}
+
+static FINISH_HOOKS: Mutex<Vec<fn(&str)>> = Mutex::new(Vec::new());
+
+/// Runs the registered end-of-run functions with `how`.
+pub fn run_finish_hooks(how: &str) {
+    let hooks: Vec<fn(&str)> = FINISH_HOOKS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    for hook in hooks {
+        hook(how);
+    }
+}
+
+/// The folder the logs of this run go in: the JSON file's, else the automatic folder.
+pub fn log_dir() -> Option<PathBuf> {
+    if let Some(p) = json_path() {
+        return p.parent().map(PathBuf::from);
+    }
+    sink::state_dir(&|n| std::env::var(n).ok())
+}
+
+/// How many errors and warnings were logged so far.
+pub fn counts() -> (u64, u64) {
+    (
+        ERRORS.load(Ordering::Relaxed),
+        WARNINGS.load(Ordering::Relaxed),
+    )
+}
+
 /// The path of the JSON file, when one is open.
 pub fn json_path() -> Option<PathBuf> {
     FILE.lock()
@@ -389,6 +461,7 @@ pub fn report_stop(why: &str) {
         }
         o.push(']');
     });
+    run_finish_hooks("stop");
 }
 
 /// A panic hook that writes the same final record for a panic outside the game's own stops (the
@@ -412,6 +485,7 @@ pub fn install_panic_hook() {
                 o.push_str(",\"location\":");
                 sink::json_str(o, &place);
             });
+            run_finish_hooks("panic");
             before(info);
         }));
     });
@@ -452,6 +526,7 @@ pub fn summary() -> String {
 /// What to do as the process ends: the summary line (a warning when anything failed), a final
 /// record in the JSON file, and the flush.
 pub fn finish() {
+    run_finish_hooks("exit");
     let level = if soft_stops() > 0 || ERRORS.load(Ordering::Relaxed) > 0 {
         Level::Warn
     } else {

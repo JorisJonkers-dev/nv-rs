@@ -23,8 +23,23 @@ pub fn ms() -> u64 {
     start().elapsed().as_millis() as u64
 }
 
+static OBSERVER: OnceLock<fn(&str)> = OnceLock::new();
+
+/// Registers the function every game event's kind is passed to, before any filter: the hitch
+/// flight recorder's trigger context (docs/fork/HITCHES.md). Set once; a later call is ignored.
+pub fn set_observer(f: fn(&str)) {
+    let _ = OBSERVER.set(f);
+}
+
+fn observe(kind: &str) {
+    if let Some(f) = OBSERVER.get() {
+        f(kind);
+    }
+}
+
 /// One event: `kind` is a dotted name (`menu.open`, `movie.skip`), `args` its detail.
 pub fn event(level: Level, kind: &str, args: fmt::Arguments<'_>) {
+    observe(kind);
     if !crate::enabled(level, "game") {
         return;
     }
@@ -54,6 +69,8 @@ pub fn throttled(level: Level, key: &str, args: fmt::Arguments<'_>) {
     };
     if n <= 5 || n % 1000 == 0 {
         event(level, key, format_args!("{args} (#{n})"));
+    } else {
+        observe(key);
     }
 }
 
