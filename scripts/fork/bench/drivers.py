@@ -70,6 +70,14 @@ def phase(d, name, what):
     d.note(f"phase {name} {what} frame={frame} t={d.clock() - d.t0:.2f}")
 
 
+def clear_box(d):
+    """Before a walk of the measured script: a box that came during the sweeps (the packs' boxes come one after another
+    in the first exterior, a few seconds apart) is dismissed, so the walk walks."""
+    if d.screen() != "play":
+        d.note("a box came during the measured script: dismissed before the walk")
+        d.settle_play(quiet=0.3, timeout=20)
+
+
 def measured(d, opts):
     """The measured script of a location: about 18 s of camera sweeps and a short walk, the same everywhere."""
     k = opts.get("scale") or 1.0
@@ -79,11 +87,13 @@ def measured(d, opts):
     d.look(0, 8, 2.4 * k)  # down through level (as far below as it went above)
     d.look(0, -8, 1.2 * k)  # level again
     place = getattr(d, "place", "place")
+    clear_box(d)
     phase(d, place + ".walk1", "start")
     d.walk(3.0 * k)  # forward
     phase(d, place + ".walk1", "end")
     d.hold(("a",), 1.0 * k)  # strafe left
     d.hold(("d",), 1.0 * k)  # and right
+    clear_box(d)
     phase(d, place + ".walk2", "start")
     d.walk(3.0 * k, turn=14.0)  # forward, turning in its first second: the heading of its last seconds is a new one
     phase(d, place + ".walk2", "end")
@@ -93,6 +103,15 @@ def warm(d, seconds=3.0):
     """The place's warm-up: the play screen held `seconds` with no box (a pack's box can come a few seconds after the
     load; one that came during the measured script would leave it measuring a menu)."""
     d.settle_play(quiet=seconds, timeout=30)
+
+
+def warm_first_exterior(d, within=6.5):
+    """The warm-up of the session's first exterior: one more of the packs' boxes comes there about 5 s after the load
+    (2026-11-16: 4.9 to 5.0 s in four quick runs), after a 3 s warm-up was over. So the box is waited for, up to
+    `within` s, and dismissed, then the play screen held 1 s."""
+    d.until(lambda: d.screen() != "play", within, every=0.1, what="the first exterior's late box")
+    d.settle_play(quiet=1.0, timeout=30)
+
 
 
 def free_player(d):
@@ -108,8 +127,8 @@ def free_player(d):
         return True
     d.console_open()
     for stage in (50, 55):
-        d.console_line(f"setstage {OPENING_QUEST} {stage}", 0.6)
-    d.console_line(f"set {OPENING_QUEST_NAME}.bRunTimer to 0", 0.6)
+        d.console_line(f"setstage {OPENING_QUEST} {stage}", 0.4)
+    d.console_line(f"set {OPENING_QUEST_NAME}.bRunTimer to 0", 0.4)
     d.freed = True
     return d.console_close(quiet=0.5)
 
@@ -172,6 +191,23 @@ def at_marker(d, marker, quiet=0.5, tries=2):
     return False
 
 
+def sneak_check(d, place, seconds=0.8):
+    """Whether the real Ctrl key makes the player sneak, read from the walking speed: a step forward standing
+    (`<place>.stand`) and back, Ctrl, the same step forward sneaking (`<place>.sneak`) and back, Ctrl again to stand
+    up. Sneaking is slower, so parse.sneak_ratios compares the two forward paths. Each step goes back over the ground
+    just walked, so the second one meets nothing the first did not."""
+    for stance in ("stand", "sneak"):
+        if stance == "sneak":
+            d.tap("ctrl", 0.1)
+            d.wait(0.6)
+        phase(d, f"{place}.{stance}", "start")
+        d.hold(("w",), seconds)
+        phase(d, f"{place}.{stance}", "end")
+        d.hold(("s",), seconds)
+    d.tap("ctrl", 0.1)
+    d.wait(0.6)
+
+
 PLACES_Q = {
     "doc_house": lambda d, o: at_doc_house(d, o),
     "goodsprings": lambda d, o: at_marker(d, "1658B7"),
@@ -180,23 +216,35 @@ PLACES_Q = {
 }
 
 
-def visit(d, opts, name):
+def visit(d, opts, name, sneak=False):
     d.place = name
     phase(d, name, "start")
     if not PLACES_Q[name](d, opts):
         d.note(f"{name}: not reached")
     d.visited = (getattr(d, "visited", None) or []) + [name]
     phase(d, name + ".warm", "start")
-    warm(d)
+    if name != "doc_house" and not getattr(d, "outside", False):
+        d.outside = True
+        warm_first_exterior(d)
+    else:
+        warm(d)
     ensure_walks(d)
     phase(d, name + ".warm", "end")
+    if sneak:
+        # Stage 55 gives movement and looking back but not sneaking: the opening's stage 0 turned sneaking off with the
+        # rest, and the opening turns it back on only later. Without this line Ctrl reaches the game and nothing happens.
+        d.console_open()
+        d.console_line("enableplayercontrols", 0.4)
+        d.console_close(quiet=0.5)
+        warm(d, 6.0)  # the packs' boxes come one after another in the first exterior: none during the check
+        sneak_check(d, name)
     phase(d, name + ".measured", "start")
     measured(d, opts)
     phase(d, name + ".measured", "end")
     phase(d, name, "end")
 
 
-def session(places, measure=1.0, quiet=6.0, brisk=False):
+def session(places, measure=1.0, quiet=6.0, brisk=False, sneak_at=()):
     """One viewer session: start-up, the new game's first room, then each place in turn by a console teleport.
     `measure` scales each place's measured script (the quick suite shortens it to fit its 120 s), `quiet` is how long
     the first room's play screen must hold before the places start."""
@@ -211,7 +259,7 @@ def session(places, measure=1.0, quiet=6.0, brisk=False):
         for name in places:
             if not d.alive():
                 return
-            visit(d, opts, name)
+            visit(d, opts, name, sneak=name in sneak_at)
 
     return run
 
@@ -254,6 +302,7 @@ DRIVERS = {
     "goodsprings": session(["doc_house", "goodsprings"][1:]),
     "strip": session(["strip"]),
     "novac": session(["novac"]),
+    "sneak": session(["goodsprings"], sneak_at=("goodsprings",)),
     "quick": session(["doc_house", "goodsprings", "strip"], measure=0.5, quiet=3.0, brisk=True),
     "combat": combat,
     "soak": soak,

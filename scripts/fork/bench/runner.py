@@ -119,6 +119,15 @@ class Watchdog:
                     break
 
 
+def gone(pid):
+    """Whether a process has ended: no /proc entry, or a zombie (our own child that has not been waited for yet keeps
+    its entry until then, so a check for the entry alone waited out the whole grace time of every run)."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] in ("Z", "X")
+    except (OSError, IndexError):
+        return True
+
+
 def terminate(pid, grace=5):
     try:
         os.kill(pid, signal.SIGTERM)
@@ -126,9 +135,9 @@ def terminate(pid, grace=5):
         return
     end = time.monotonic() + grace
     while time.monotonic() < end:
-        if proc_stat(pid) is None:
+        if gone(pid):
             return
-        time.sleep(0.2)
+        time.sleep(0.1)
     try:
         os.kill(pid, signal.SIGKILL)
     except OSError:

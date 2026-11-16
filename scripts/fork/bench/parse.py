@@ -169,6 +169,7 @@ RE_BUSY = re.compile(r"NV_PERF: thread busy over [\d.]+ s, [\d.]+ cores in all: 
 
 
 RE_PHASE = re.compile(r"# driver: phase (\S+) (start|end) frame=(\d+) t=([\d.]+)")
+RE_LOG_FRAME = re.compile(r"^\[f(\d+) ")
 
 
 def parse_log(text):
@@ -192,6 +193,7 @@ def parse_log(text):
         "phases": [],  # (name, start|end, frame, seconds since the run began) from the driver's notes
         "busiest_thread_pct": [],  # NV_PERF's report: the busiest thread's CPU share, one per report
         "phase_busy_pct": {},  # phase name -> the busiest-thread shares of the reports logged while it was open
+        "ctrl_down_frames": [],  # the frames where a real Ctrl press reached the game (input.key lines)
     }
     open_phases = set()
     for line in text.splitlines():
@@ -200,6 +202,10 @@ def parse_log(text):
             if m:
                 out["phases"].append((m.group(1), m.group(2), int(m.group(3)), float(m.group(4))))
                 (open_phases.add if m.group(2) == "start" else open_phases.discard)(m.group(1))
+            continue
+        if "input.key: LeftControl (0x1d) down reaches the game" in line:
+            m = RE_LOG_FRAME.match(line)
+            out["ctrl_down_frames"].append(int(m.group(1)) if m else None)
             continue
         if "NV_PERF: thread busy" in line:
             m = RE_BUSY.search(line)
@@ -345,7 +351,7 @@ def phase_stats(rows, phases, busy=None):
 def heading_changes(rows, phases):
     """Per place of a driven run: the angle in degrees between the direction walked in `<place>.walk1` and the direction of
     the last 1.5 s of `<place>.walk2` (the view turned in between, so the walk goes another way): the camera turned
-    if it is well over 0. None when either leg moved less than 30 units. Pure."""
+    if it is well over 0. None when either leg moved less than 30 units (the player did not walk there). Pure."""
     import math
     spans = {}
     for name, kind, frame, t in phases:
@@ -371,6 +377,42 @@ def heading_changes(rows, phases):
         if a and b:
             ang = abs(math.degrees(math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1])))
             out[place] = round(ang, 1)
+        else:
+            out[place] = None
+    return out
+
+
+def reach_units(rows, f0, f1, lag_s=0.6):
+    """How far the player got from where it stood at frame `f0`, over the play frames from `f0` to `lag_s` seconds past
+    frame `f1` (x and y only). The game answers a key some frames after the driver's note, so the window runs on past
+    the end of the step; the farthest point is taken, before the step back returns the player."""
+    rs = [r for r in rows if r["frame"] >= f0 and r["screen"] == "play"]
+    end = next((r["t"] for r in rs if r["frame"] >= f1), None)
+    if end is not None:
+        rs = [r for r in rs if r["t"] <= end + lag_s]
+    if not rs:
+        return 0.0
+    x0, y0 = rs[0]["pos"][0], rs[0]["pos"][1]
+    return max(((r["pos"][0] - x0) ** 2 + (r["pos"][1] - y0) ** 2) ** 0.5 for r in rs)
+
+
+def sneak_ratios(rows, phases, ctrl_frames=()):
+    """Per place of a driven run with a sneak check: how far the same step forward went standing (`<place>.stand`) and
+    sneaking (`<place>.sneak`), their ratio (sneaking is slower: well under 1 when Ctrl made the player sneak), and
+    whether a real Ctrl press reached the game between the two. The ratio is None when the standing step moved under
+    30 units. Pure."""
+    spans = {}
+    for name, kind, frame, _t in phases:
+        spans.setdefault(name, {})[kind] = frame
+    out = {}
+    for name in [n for n in spans if n.endswith(".stand")]:
+        place = name[:-6]
+        a, b = spans[name], spans.get(place + ".sneak", {})
+        if "start" not in a or "end" not in a or "start" not in b or "end" not in b:
+            continue
+        stand, sneak = reach_units(rows, a["start"], a["end"]), reach_units(rows, b["start"], b["end"])
+        ctrl = any(f is not None and a["end"] <= f <= b["start"] for f in ctrl_frames)
+        out[place] = {"stand": round(stand, 1), "sneak": round(sneak, 1), "ratio": round(sneak / stand, 2) if stand >= 30 else None, "ctrl": ctrl}
     return out
 
 
@@ -448,6 +490,7 @@ def summarize(frame_rows, log, samples, missing=(0, 0), stops=0):
         "hitches": hitches(frame_rows),
         "phases": phase_stats(frame_rows, log["phases"], log.get("phase_busy_pct")),
         "heading_change_deg": heading_changes(frame_rows, log["phases"]),
+        "sneak": sneak_ratios(frame_rows, log["phases"], log.get("ctrl_down_frames") or ()),
         "main_busy_pct": round(sum(log["busiest_thread_pct"]) / len(log["busiest_thread_pct"]), 1) if log["busiest_thread_pct"] else None,
         "untranslated_addresses": missing[0],
         "untranslated_hits": missing[1],

@@ -549,6 +549,54 @@ class QuickSuiteTests(unittest.TestCase):
         deg = parse.heading_changes(rows, parse.parse_log(self.LOG)["phases"])
         self.assertAlmostEqual(deg["goodsprings"], 90.0, delta=1)
 
+    def test_a_place_where_the_player_did_not_walk_fails_the_turn_check(self):
+        rows = parse.parse_frame_log(frame_log(n=7000, dt_us=10000, slow_every=0, walk=False))
+        for r in rows:
+            r["screen"] = "play"
+        deg = parse.heading_changes(rows, parse.parse_log(self.LOG)["phases"])
+        self.assertEqual(deg, {"goodsprings": None})
+        checks = nvbench.verdict_checks(dict(make_summary()["metrics"], heading_change_deg=deg), None)
+        turned = [c for c in checks if c["name"] == "the camera turned (goodsprings)"]
+        self.assertEqual([c["ok"] for c in turned], [False])
+
+    SNEAK_LOG = """# driver: phase goodsprings.stand start frame=100 t=1.00
+# driver: phase goodsprings.stand end frame=200 t=2.00
+[f250 +2500ms] input.key: LeftControl (0x1d) down reaches the game
+[f251 +2510ms] input.key: LeftControl (0x1d) up reaches the game
+# driver: phase goodsprings.sneak start frame=300 t=3.00
+# driver: phase goodsprings.sneak end frame=400 t=4.00
+"""
+
+    def sneak_rows(self, sneak_speed):
+        rows = parse.parse_frame_log(frame_log(n=500, dt_us=10000, slow_every=0, walk=False))
+        x = 0.0
+        for r in rows:
+            r["screen"] = "play"
+            f = r["frame"]
+            x += 3.0 if 100 <= f <= 200 else (3.0 * sneak_speed if 300 <= f <= 400 else 0.0)
+            r["pos"][:2] = [x, 0.0]
+        return rows
+
+    def test_sneak_check_compares_the_same_steps_standing_and_sneaking(self):
+        log = parse.parse_log(self.SNEAK_LOG)
+        self.assertEqual(log["ctrl_down_frames"], [250])
+        sn = parse.sneak_ratios(self.sneak_rows(0.5), log["phases"], log["ctrl_down_frames"])
+        self.assertEqual(sn["goodsprings"]["ratio"], 0.5)
+        self.assertTrue(sn["goodsprings"]["ctrl"])
+        m = make_summary()["metrics"]
+        ok = [c for c in nvbench.verdict_checks(dict(m, sneak=sn), None) if c["name"].startswith("Ctrl made")]
+        self.assertEqual([c["ok"] for c in ok], [True])
+        # The same speed sneaking (Ctrl did nothing), or no Ctrl reaching the game: the check fails.
+        same = parse.sneak_ratios(self.sneak_rows(1.0), log["phases"], log["ctrl_down_frames"])
+        no_ctrl = parse.sneak_ratios(self.sneak_rows(0.5), log["phases"], [])
+        for sn in (same, no_ctrl):
+            bad = [c for c in nvbench.verdict_checks(dict(m, sneak=sn), None) if c["name"].startswith("Ctrl made")]
+            self.assertEqual([c["ok"] for c in bad], [False])
+        # Standing steps that did not move give no ratio, and fail too.
+        still = [dict(r, pos=[0.0, 0.0, 0.0]) for r in self.sneak_rows(0.0)]
+        still = parse.sneak_ratios(still, log["phases"], [250])
+        self.assertIsNone(still["goodsprings"]["ratio"])
+
     def test_too_long_and_budget_check(self):
         s = make_summary()
         s["settings"]["budget_s"] = 120.0
@@ -659,6 +707,78 @@ class DriverTests(unittest.TestCase):
         d.console_line = console_line_off
         self.assertFalse(drivers.ensure_walks(d, tries=1))
         self.assertEqual(lines, ["player.removescriptpackage"])
+
+    def test_sneak_check_taps_ctrl_between_the_standing_and_the_sneaking_steps(self):
+        import driver
+        import drivers
+
+        class Proc:
+            def poll(self):
+                return None
+
+        class Vi:
+            keys = []
+
+            def tap(self, key, hold):
+                self.keys.append("tap " + key)
+
+            def hold(self, keys, seconds):
+                self.keys.append("+".join(keys))
+
+        clock = [0.0]
+        d = driver.Driver(Vi(), "/nonexistent", Proc(), clock=lambda: clock[0], sleep=lambda s: clock.__setitem__(0, clock[0] + s))
+        notes = []
+        d.note = notes.append
+        drivers.sneak_check(d, "goodsprings")
+        self.assertEqual(Vi.keys, ["w", "s", "tap ctrl", "w", "s", "tap ctrl"])
+        self.assertEqual([n.split(" frame=")[0] for n in notes], [
+            "phase goodsprings.stand start", "phase goodsprings.stand end", "phase goodsprings.sneak start", "phase goodsprings.sneak end"])
+
+    def test_a_box_during_the_sweeps_is_dismissed_before_each_walk(self):
+        import driver
+        import drivers
+
+        class Proc:
+            def poll(self):
+                return None
+
+        class Vi:
+            keys = []
+
+            def tap(self, key, hold):
+                self.keys.append("tap " + key)
+
+            def hold(self, keys, seconds):
+                self.keys.append("+".join(keys))
+
+            def move(self, dx, dy):
+                pass
+
+        clock = [0.0]
+        d = driver.Driver(Vi(), "/nonexistent", Proc(), clock=lambda: clock[0], sleep=lambda s: clock.__setitem__(0, clock[0] + s))
+        screens = iter(["menu"] * 3)  # a box when the first walk is due, gone after the first Enter
+        d.screen = lambda: next(screens, "play")
+        notes = []
+        d.note = notes.append
+        drivers.measured(d, {"scale": 0.5})
+        self.assertIn("a box came during the measured script: dismissed before the walk", notes)
+        self.assertLess(Vi.keys.index("tap enter"), Vi.keys.index("w"))
+        # The first exterior's late box: waited for, then dismissed.
+        Vi.keys.clear()
+        screens = iter(["play"] * 20 + ["menu"] * 3)
+        drivers.warm_first_exterior(d)
+        self.assertEqual(Vi.keys[:1], ["tap enter"])
+
+    def test_terminate_does_not_wait_out_the_grace_for_a_child_that_has_ended(self):
+        import subprocess
+        import time
+        import runner
+        p = subprocess.Popen(["sleep", "30"])
+        t0 = time.monotonic()
+        runner.terminate(p.pid, grace=5)
+        self.assertLess(time.monotonic() - t0, 2.0)  # a zombie until waited for: ended all the same
+        self.assertEqual(p.wait(), -15)
+        self.assertTrue(runner.gone(p.pid))
 
     def test_driver_waits_on_the_screen_and_taps_while_it_waits(self):
         import driver
