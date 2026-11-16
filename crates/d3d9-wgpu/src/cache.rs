@@ -352,7 +352,9 @@ impl PipelineCacheFile {
         remove_other_builds(dir, &adapter, &name);
         let removed = evict_blobs(dir, &format!("{name}.bin"), max_bytes());
         if removed > 0 {
-            eprintln!("NV_D3D9 wgpu: pipeline cache folder over its cap: {removed} cache file(s) of other adapters removed");
+            // A one-time fact of housekeeping: in the log files, not on a quiet terminal (docs/fork/LOGGING.md).
+            fork_log::info!(target: "d3d9",
+                "NV_D3D9 wgpu: pipeline cache folder over its cap: {removed} cache file(s) of other adapters removed");
         }
         // A folder that cannot be made (a read-only place, a path that is no folder) means no
         // cache, with one line: never a failed start. A relative path is taken from the working
