@@ -59,3 +59,6 @@ crates/engine-core/src/mem.rs  # Mem::heap_stats and HeapStats, read-only (no al
 crates/d3d9-wgpu/src/device.rs  # posts the layer's counters to memstats every 30 presents; log lines go through fork_log with a level and the target d3d9 (docs/fork/LOGGING.md); `game` trace events (gpu.*, draw.fixed_quad, present.*, loading.*)
 crates/d3d9-wgpu/build.rs  # a second fingerprint, of src/sm, for the converted-shader cache stamp (docs/fork/SHADER-CACHE.md)
 crates/host/src/topic_index.rs  # the one-time topic index report is an info line of fork-log (a file line, not stderr)
+# NV_FPS_LIMIT (docs/fork/LINUX.md): the plain name for the play frame limit; NV_FRAME_LIMIT is unchanged and wins.
+crates/host/src/fixes.rs  # Choice reads NV_FPS_LIMIT as the play frame limit (iFrameLimit) before NV_FRAME_LIMIT, which wins when both are set; a test of it
+docs/PLAYTESTING.md  # the settings table names NV_FPS_LIMIT beside NV_FRAME_LIMIT

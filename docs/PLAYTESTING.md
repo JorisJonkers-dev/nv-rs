@@ -124,7 +124,7 @@ and the host's tests check one against the other. The fix lines are written with
 | Variable (Fallout.ini key; settings.ini line) | What it does | Default |
 | --- | --- | --- |
 | `NV_PRESET=fixes` or `vanilla` (`sPreset`; `Preset=`) | What differs from the original program: the fixes set, or the original's behaviour exactly | `fixes` |
-| `NV_FRAME_LIMIT=n` (`iFrameLimit`; `FrameLimit=`) | Frames a second at most in play (0: none) | none under `fixes`; the original's own pacing under `vanilla` |
+| `NV_FPS_LIMIT=n` or `NV_FRAME_LIMIT=n` (`iFrameLimit`; `FrameLimit=`) | Frames a second at most in play (0: none) | none under `fixes`; the original's own pacing under `vanilla` |
 | `NV_MENU_FRAME_LIMIT=n` (`iMenuFrameLimit`; `MenuFrameLimit=`) | Frames a second at most in menus (0: none) | 120 |
 | `NV_SHOW_FPS=1` or `0` (`bShowFrameRate`; `NV_SHOW_FPS=`; Settings.cmd's frame rate counter) | The frame-rate counter in the window's top-right corner from the start: frames a second over about half a second and the slowest frame of about the last second. F11 in the game shows or hides it either way; while wgpu draws, the key is the counter's and never reaches the game (on the real Direct3D 9 it is the game's). Drawn by wgpu into the window's frame after its capture, so never in an F12 report or an `NV_SHOT` capture; the real Direct3D 9 has none (`crates/d3d9-wgpu/src/frame_rate.rs`) | off (hidden until F11) |
 | `NV_THREADS=stepped` (`bSteppedThreads=1`; `NV_THREADS=`; Settings.cmd's threads option) | The game's threads one at a time (the fallback, and the reference mode) instead of side by side on their own cores | side by side in play; a scripted or measured run is stepped whatever the default |

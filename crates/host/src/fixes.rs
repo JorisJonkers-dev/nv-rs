@@ -643,7 +643,7 @@ impl Choice {
 
     /// The choice from the run's `Fallout.ini` ([`crate::game_ini::path`], its `[nv-rs ...]`
     /// sections), the settings file ([`settings_file`], the fallback until it is migrated) and the
-    /// environment, which wins: `NV_PRESET=vanilla|fixes`, `NV_FRAME_LIMIT=n`,
+    /// environment, which wins: `NV_PRESET=vanilla|fixes`, `NV_FPS_LIMIT=n` (or `NV_FRAME_LIMIT=n`),
     /// `NV_MENU_FRAME_LIMIT=n`, `NV_THREADS`, `NV_RENDER_THREAD`, `NV_BORDERLESS` and each
     /// [`Fix::env`]. A settings file or variable it can't read stops the start with a message, so
     /// a misspelt pin never runs the wrong game; a `Fallout.ini` value it can't use leaves the
@@ -809,7 +809,10 @@ impl Choice {
                     choice.preset = parse_preset(value, "settings.ini's Preset")?;
                 }
             } else if key.eq_ignore_ascii_case("FrameLimit") {
-                if env("NV_FRAME_LIMIT").is_some() || ini.frame_limit.is_some() {
+                if env("NV_FRAME_LIMIT").is_some()
+                    || env("NV_FPS_LIMIT").is_some()
+                    || ini.frame_limit.is_some()
+                {
                     continue;
                 }
                 choice.frame_limit = parse_limit(value, "settings.ini's FrameLimit")?;
@@ -838,6 +841,11 @@ impl Choice {
         }
         if let Some(on) = ini.render_thread {
             choice.render_thread = on;
+        }
+        // `NV_FPS_LIMIT=N` (0: unlimited, the default) is the plain name for the play frame limit;
+        // `NV_FRAME_LIMIT` is the same setting (`iFrameLimit`) and wins when both are set.
+        if let Some(value) = env("NV_FPS_LIMIT") {
+            choice.frame_limit = parse_limit(&value, "NV_FPS_LIMIT")?;
         }
         if let Some(value) = env("NV_FRAME_LIMIT") {
             choice.frame_limit = parse_limit(&value, "NV_FRAME_LIMIT")?;
@@ -1146,6 +1154,25 @@ mod tests {
         .unwrap();
         assert_eq!(choice.preset, Preset::Vanilla);
         assert_eq!(choice.frame_limit, 60);
+    }
+
+    /// `NV_FPS_LIMIT=N` is the play frame limit (0: unlimited, the default); `NV_FRAME_LIMIT` is the same
+    /// setting and wins when both are set; either beats the settings file.
+    #[test]
+    fn nv_fps_limit_sets_the_play_frame_limit() {
+        assert_eq!(Choice::from_parts(None, no_env).unwrap().frame_limit, 0);
+        let c = Choice::from_parts(None, env_of(&[("NV_FPS_LIMIT", "90")])).unwrap();
+        assert_eq!(c.frame_limit, 90);
+        let c = Choice::from_parts(
+            None,
+            env_of(&[("NV_FPS_LIMIT", "90"), ("NV_FRAME_LIMIT", "60")]),
+        )
+        .unwrap();
+        assert_eq!(c.frame_limit, 60);
+        let c =
+            Choice::from_parts(Some("FrameLimit=30"), env_of(&[("NV_FPS_LIMIT", "90")])).unwrap();
+        assert_eq!(c.frame_limit, 90);
+        assert!(Choice::from_parts(None, env_of(&[("NV_FPS_LIMIT", "fast")])).is_err());
     }
 
     /// `#` and `;` lines don't count, and neither does anything else the settings file holds.
