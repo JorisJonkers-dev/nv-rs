@@ -4,7 +4,11 @@ seconds and converted to frames at the scenario's reference frame rate (the fram
 """
 from dataclasses import dataclass, field
 
+from drivers import DRIVERS
+
 # DirectInput key codes
+MENU_LIMIT = "120"
+
 DIK = {
     "esc": 0x01, "enter": 0x1C, "space": 0x39, "tab": 0x0F, "backspace": 0x0E, "lshift": 0x2A, "lctrl": 0x1D,
     "up": 0xC8, "down": 0xD0, "left": 0xCB, "right": 0xCD, "grave": 0x29,
@@ -47,6 +51,11 @@ class Plan:
     fps: float = 60.0
     capped_only: bool = False  # frame-count timed: only valid with the frame limit (the game's UI runs on time)
     extra_env: dict = field(default_factory=dict)
+    real: list = field(default_factory=list)  # real input steps (inject.py), sent in the nested window after the teleport
+    real_after_x: float = -60000.0  # the teleport is done once the player's x is below this (Goodsprings is at -67856)
+    real_settle_frames: int = 1200  # and the play screen has held this many frames
+    budget_s: float = 0.0  # a wall-time budget for the whole run; over it the verdict is TOO_LONG
+    drive: object = None  # a drivers.py function: the scenario as a closed-loop wall-clock program (driver.py)
     self_scaled: bool = False  # the scenario applied --scale itself (by its laps)
 
     def env(self, opts):
@@ -56,10 +65,14 @@ class Plan:
             "NV_SOUND": opts.get("sound") or "silent",
             "NV_RESOLUTION": opts["resolution"],
         }
-        if opts["mode"] == "uncapped":
-            e.update(NV_FRAME_LIMIT="0", NV_MENU_FRAME_LIMIT="0", NV_PRESENT="immediate", NV_D3D9_PRESENT="immediate")
-        else:
-            e.update(NV_FRAME_LIMIT="144", NV_MENU_FRAME_LIMIT="144", NV_PRESENT="mailbox")
+        # The menu limit stays: the game's menus run on time and drop keys when they run at thousands of frames a second.
+        if opts["mode"] in ("peak", "uncapped"):
+            e.update(NV_FRAME_LIMIT="0", NV_MENU_FRAME_LIMIT=MENU_LIMIT, NV_PRESENT="immediate", NV_D3D9_PRESENT="immediate")
+        elif opts["mode"] == "capped":
+            cap = str(int(opts.get("cap") or 144))
+            e.update(NV_FRAME_LIMIT=cap, NV_FPS_LIMIT=cap, NV_MENU_FRAME_LIMIT=cap, NV_PRESENT="mailbox")
+        else:  # unlimited, as real play is
+            e.update(NV_FRAME_LIMIT="0", NV_FPS_LIMIT="0", NV_MENU_FRAME_LIMIT=MENU_LIMIT, NV_PRESENT="mailbox")
         if opts["windowed"]:
             e["NV_D3D9_BACKGROUND"] = "1"
         else:
@@ -69,10 +82,17 @@ class Plan:
             # speakers get nothing. (NV_D3D9_HIDDEN=1 muted the device instead and the opening stalled at Doc's
             # second line: found 2026-11-16, docs/fork/BENCH.md.)
             e["NV_SOUND"], e["NV_SOUND_BACKEND"] = "out", "null"
+        if opts.get("perf"):
+            e["NV_PERF"] = "1"
         if opts.get("shots"):
             e["NV_SHOT_WGPU"] = opts["shots"]
-        if opts.get("threads"):
-            e["NV_THREADS"] = opts["threads"]
+        # Real threads are the default: stepped ran about half the frame rate (70 against 135-143 fps) and is not how the
+        # game is played; --threads stepped asks for it.
+        e["NV_THREADS"] = opts.get("threads") or "real"
+        if self.real:
+            # a scripted run shuts the window's keyboard and mouse out unless asked (player_move.rs); the mouse comes in
+            # after the last scripted key is released
+            e["NV_MOVE_REAL_INPUT"] = "1"
         e.update(self.extra_env)
         if self.keys:
             e["NV_MOVE_KEYS"] = ",".join(f"{f}:{d:X}:{h}" for f, d, h in sorted(self.keys, key=_order))
@@ -349,8 +369,12 @@ def into_world(opts, place, name, description):
     p = Plan(name, description, fps=opts["fps"], capped_only=True)
     opening(p)
     sc = Script(fps=opts["fps"], t=PLAY_END / opts["fps"] + 2.0)
-    sc.console(f"setstage {OPENING_QUEST} {QUEST_DONE_STAGE}", settle=2.0, close=False)
-    sc.type("enableplayercontrols").press("enter", 0.25, 1.5)  # the opening disabled them
+    # The quest's stage 50 removes the sitting animation's script package and stage 55 gives the player movement and
+    # looking back (stage 0 took them: DisablePlayerControls 1 1 1 1 0 0 1; read from the quest's result scripts);
+    # a jump straight to the last stage leaves the player seated in the animated camera, unable to walk or turn.
+    sc.console(f"setstage {OPENING_QUEST} 50", settle=1.5, close=False)
+    for stage in (55, QUEST_DONE_STAGE):
+        sc.type(f"setstage {OPENING_QUEST} {stage}").press("enter", 0.25, 1.5)
     teleport(sc, place)
     return p, sc
 
@@ -426,14 +450,56 @@ def soak(opts):
             teleport(sc, place, boxes=3)
     return finish(p, sc, [moved_at_least(2000), play_seconds_at_least(600)])
 
+def realwalk(opts):
+    """Real keyboard and pointer events (nested window only, inject.py) after the teleport: walk, turn, Ctrl (sneak)."""
+    p, sc = into_world(opts, "goodsprings", "realwalk", "Goodsprings, then real events into the window: walk, turn, walk, Ctrl taps")
+    p = finish(p, sc, [moved_at_least(300)])
+    p.real = [
+        ("wait", 2.0), ("hold", ("w",), 6.0), ("move", 12, 0, 60, 0.01), ("hold", ("w",), 6.0),
+        ("tap", "ctrl"), ("wait", 1.0), ("hold", ("ctrl",), 1.0), ("wait", 1.0), ("hold", ("w",), 4.0),
+    ]
+    p.extra_env["NV_LOG"] = "game=info"
+    p.end_frame += p.real_settle_frames + int(40 * opts["fps"])
+    return p
+
+
+# The world scenarios of the benchmark: one viewer session each, start-up and the new game's first room at the front,
+# then ~25 s a place (3 s warm-up, ~18 s measured: camera sweeps and a short walk). Budget: 120 s of wall time for the
+# whole run (`quick` is all places in one session), checked by the verdict as TOO_LONG.
+BUDGET_S = 120.0
+WORLD = {
+    "doc_house": (("doc_house",), "Doc Mitchell's house: start-up to the first room, then a camera sweep and a short walk"),
+    "goodsprings": (("goodsprings",), "Goodsprings: start-up, then a console teleport and a camera sweep and a short walk"),
+    "strip": (("strip",), "The Strip: start-up, then a console teleport and a camera sweep and a short walk"),
+    "novac": (("novac",), "Novac: start-up, then a console teleport and a camera sweep and a short walk"),
+    "quick": (("doc_house", "goodsprings", "strip"), "The quick suite in one session: Doc's house, Goodsprings, the Strip, under 120 s in all"),
+}
+
+
+def world_plan(name, opts):
+    places, desc = WORLD[name]
+    n = len(places)
+    p = Plan(name, desc, fps=opts.get("fps", 60.0))
+    p.checks = [reached_screen("loading"), reached_screen("play"), player_placed(), moved_at_least(150 * n), play_seconds_at_least(14 * n)]
+    p.drive, p.self_scaled, p.budget_s = DRIVERS[name], True, BUDGET_S
+    return p
+
 
 def build(name, opts):
     if name not in SCENARIOS:
         raise SystemExit(f"unknown scenario {name!r}; known: {', '.join(sorted(SCENARIOS))}")
-    return SCENARIOS[name](opts)
+    if name in WORLD and not opts.get("legacy"):
+        return world_plan(name, opts)
+    p = SCENARIOS[name](opts)
+    if name in DRIVERS and not opts.get("legacy"):
+        # the same description and verdicts, but driven in seconds and by the game's screen: valid at any frame rate
+        p.keys, p.mouse, p.real, p.end_frame, p.capped_only, p.self_scaled = [], [], [], 0, False, True
+        p.drive = DRIVERS[name]
+    return p
 
 
 SCENARIOS = {
     "boot": boot, "newgame": newgame, "chargen": chargen, "probe": probe,
-    "goodsprings": goodsprings, "novac": novac, "strip": strip, "combat": combat, "soak": soak,
+    "goodsprings": goodsprings, "novac": novac, "strip": strip, "combat": combat, "soak": soak, "realwalk": realwalk,
+    "doc_house": lambda opts: world_plan("doc_house", opts), "quick": lambda opts: world_plan("quick", opts),
 }

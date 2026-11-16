@@ -19,10 +19,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import drivers  # noqa: E402
 import lock  # noqa: E402
 import parse  # noqa: E402
 import report  # noqa: E402
 import replay  # noqa: E402
+import suite  # noqa: E402
 import runner  # noqa: E402
 import scenarios  # noqa: E402
 import watch  # noqa: E402
@@ -46,9 +48,9 @@ def analyze_dir(run_dir, plan=None, run=None, settings=None):
     missing = parse.count_missing(read(run_dir / "missing.tsv"))
     stops = parse.count_stops(read(run_dir / "missing.stops.tsv"))
     metrics = parse.summarize(rows, log, samples, missing, stops)
-    checks = verdict_checks(metrics, plan)
+    checks = verdict_checks(metrics, plan, (run or {}).get("wall_s"))
     series_t = [r["t"] for r in samples]
-    return {
+    out = {
         "name": run_dir.name,
         "scenario": (run or {}).get("scenario") or run_dir.name.rsplit("-", 1)[0],
         "settings": settings or {},
@@ -62,9 +64,11 @@ def analyze_dir(run_dir, plan=None, run=None, settings=None):
             "gtt": [r["gtt_mib"] for r in samples],
         },
     }
+    out["headline"] = suite.headline(out)  # for `nv-rs-dev runs` and logs: the numbers first, in the summary itself
+    return out
 
 
-def verdict_checks(m, plan):
+def verdict_checks(m, plan, run_wall=None):
     c = []
 
     def add(name, ok, detail=""):
@@ -78,6 +82,17 @@ def verdict_checks(m, plan):
     add("GPU memory watchdog quiet", not m["watchdog"], m["watchdog"] or "")
     # The harness stops the game with SIGTERM at the end of a scenario: 143, 124 and a clean 0 are ends.
     add("viewer exit status", m["exit_status"] in (0, 124, 143, -15, None), f"exit {m['exit_status']}")
+    for place, deg in (m.get("heading_change_deg") or {}).items():
+        add(f"the camera turned ({place})", deg >= 15.0, f"the walk's heading changed {deg:.0f} degrees after the view was turned")
+    if plan and plan.budget_s and run_wall is not None:
+        add("within the wall-time budget (TOO_LONG)", run_wall <= plan.budget_s, f"{run_wall:.0f} s of {plan.budget_s:.0f} s, start-up and loading included")
+    ck = m.get("clock") or {}
+    if ck.get("ratio") is not None and ck.get("play_s", 0) >= 5:
+        fps = (m.get("frame_time_play") or {}).get("fps") or 0
+        add("game time keeps wall time", 0.85 <= ck["ratio"] <= 1.15,
+            f"game time / wall time {ck['ratio']:.2f} at {fps:.0f} fps (a frame-rate-dependent game would be off at high fps)")
+    if ck.get("settled") is not None and ck.get("play_s", 0) >= 5:
+        add("the player landed (height settled)", ck["settled"], f"fell {ck['fall']:.0f} units from the top")
     for name, fn in (plan.checks if plan else []):
         ok, detail = fn(m)
         add(name, ok, detail)
@@ -92,6 +107,12 @@ def cmd_list(_a):
 
 def refuse(a):
     """Exit status when the window options are refused (checked before the lock is taken), else 0."""
+    if a.cap:
+        a.mode = "capped"
+    if a.legacy and a.mode == "unlimited":
+        a.mode = "capped"
+    if a.scenario in drivers.DRIVERS and not a.legacy and not a.nested and not a.windowed:
+        a.nested = "headless"  # the driver needs a window to send real input into; the session is never involved
     if a.nested:
         a.windowed = True
         if a.nested == "window" and not a.yes_windowed:
@@ -131,11 +152,12 @@ def run_scenario(a):
     if not Path(game).is_dir():
         print(f"no game folder at {game}", file=sys.stderr)
         return 2
-    fps = a.ref_fps or (144.0 if a.mode == "capped" else 60.0)
+    fps = a.ref_fps or float(a.cap or (144 if a.mode == "capped" else 60))
     opts = {
         "mode": a.mode, "windowed": a.windowed, "viewer": viewer, "game": game, "preset": a.preset, "threads": a.threads,
         "resolution": a.resolution, "sound": a.sound, "mem": a.mem, "fps": fps, "timeout_s": a.timeout,
         "vram_limit_pct": a.vram_limit_pct, "shots": a.shots, "nested": a.nested, "record": a.record, "record_fps": a.record_fps, "record_format": a.record_format, "scale": a.scale,
+        "cap": a.cap, "legacy": a.legacy, "perf": a.perf,
     }
     plan = scenarios.build(a.scenario, opts)
     if plan.capped_only and a.mode != "capped" and not a.force:
@@ -163,8 +185,9 @@ def run_scenario(a):
     settings = {
         "mode": a.mode, "window": ("nested " + a.nested) if a.nested else ("windowed" if a.windowed else "offscreen"), "preset": a.preset, "threads": a.threads or "default",
         "resolution": a.resolution, "build": build or Path(viewer).name, "viewer_mtime": int(Path(viewer).stat().st_mtime),
-        "vram_limit_pct": a.vram_limit_pct, "ref_fps": fps,
+        "vram_limit_pct": a.vram_limit_pct, "ref_fps": fps, "cap": a.cap,
         "watched": watch.was_watched(run_dir), "recorded": (run_dir / "record.json").exists(),
+        "limiters": suite.limiters_in(plan.env(opts)), "budget_s": plan.budget_s or None,
     }
     summary = analyze_dir(run_dir, plan, run, settings)
     write_reports(run_dir, summary)
@@ -203,7 +226,11 @@ def resolve(p):
     q = Path(p)
     if q.exists():
         return q
-    runs = sorted((d for d in runner.STATE.glob("*-*T*") if d.is_dir()), key=lambda d: d.name.rsplit("-", 1)[1])
+    if p in ("suite", "latest:suite"):
+        suites = sorted(d for d in runner.STATE.glob("suite-*T*") if d.is_dir())
+        if suites:
+            return suites[-1]
+    runs = sorted((d for d in runner.STATE.glob("*-*T*") if d.is_dir() and not d.name.startswith("suite-") and (d / "summary.json").exists()), key=lambda d: d.name.rsplit("-", 1)[1])
     if p.startswith("latest"):
         want = p.split(":", 1)[1] if ":" in p else None
         runs = [d for d in runs if want is None or d.name.rsplit("-", 1)[0] == want]
@@ -214,8 +241,58 @@ def resolve(p):
     raise SystemExit(f"no such run: {p}")
 
 
+def cmd_suite(a):
+    """Runs the scenarios in turn (each holds the bench lock on its own), writes suite-<time>/ with suite.json and a
+    combined report, and prints the headline table with the change against the previous suite and the baseline."""
+    if a.quick:
+        a.scenarios = "quick"
+    names = [n.strip() for n in a.scenarios.split(",") if n.strip()]
+    unknown = [n for n in names if n not in scenarios.SCENARIOS]
+    if unknown:
+        print(f"unknown scenarios: {', '.join(unknown)}", file=sys.stderr)
+        return 2
+    a.perf = True
+    name = suite.new_suite_name()
+    out = runner.STATE / name
+    out.mkdir(parents=True, exist_ok=True)
+    rows, failed = [], []
+    for sc in names:
+        b = argparse.Namespace(**vars(a))
+        b.scenario = sc
+        status = cmd_run(b)
+        if status in (2, 3):
+            failed.append(sc)
+            continue
+        try:
+            d = resolve(f"latest:{sc}")
+            summary = load_summary(d)
+        except SystemExit:
+            failed.append(sc)
+            continue
+        rows.append(suite.headline(summary))
+        rows.extend(suite.phase_rows(summary))
+    prev = suite.previous_suite(runner.STATE, name)
+    base_name = a.baseline or "default"
+    base = suite.load_baseline(runner.STATE, base_name)
+    settings = {"mode": a.mode, "cap": a.cap, "resolution": a.resolution}
+    md = suite.suite_markdown(name, rows, prev, base, a.baseline or ("default" if base else None), settings)
+    (out / "suite.json").write_text(json.dumps({"name": name, "settings": settings, "rows": rows, "failed": failed}, indent=1))
+    (out / "report.md").write_text(md)
+    if a.save_baseline:
+        suite.save_baseline(runner.STATE, a.save_baseline, rows)
+    print(md)
+    if failed:
+        print(f"not run: {', '.join(failed)}", file=sys.stderr)
+    print(f"suite: {out}")
+    return 0 if rows and not failed and all(r["checks_ok"] and not r.get("too_long") for r in rows) else 1
+
+
 def cmd_report(a):
-    s = load_summary(resolve(a.run))
+    d = resolve(a.run)
+    if Path(d).is_dir() and (Path(d) / "suite.json").exists():
+        print((Path(d) / "report.md").read_text())
+        return 0
+    s = load_summary(d)
     print(report.markdown(s))
     return 0
 
@@ -254,13 +331,11 @@ def cmd_analyze(a):
     return 0 if summary["verdict"]["ok"] else 1
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(prog="nv-rs-dev bench", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("list").set_defaults(fn=cmd_list)
-    r = sub.add_parser("run")
-    r.add_argument("scenario")
-    r.add_argument("--mode", choices=["capped", "uncapped"], default="capped", help="capped: 144 Hz limit, mailbox present (pacing, 1%% lows); uncapped: no limit, immediate present (peak fps)")
+def run_args(r):
+    """The options of `run`, shared with `suite`."""
+    r.add_argument("--mode", choices=["unlimited", "capped", "peak"], default="unlimited", help="unlimited (default, as real play): no play limit, menu limit 120, Mailbox; capped: --cap N (default 144), Mailbox (pacing, 1%% lows); peak: Immediate present (peak fps)")
+    r.add_argument("--cap", type=int, help="a play frame limit of N frames a second for pacing tests (implies --mode capped)")
+    r.add_argument("--legacy", action="store_true", help="the frame-counted scripts (NV_MOVE_KEYS) offscreen at 144 frames a second instead of the wall-clock driver in the nested window")
     r.add_argument("--windowed", action="store_true", help="draw in a real window on your display (needs --yes-windowed)")
     r.add_argument("--yes-windowed", action="store_true")
     r.add_argument("--nested", choices=["headless", "window"], help="real window path in a nested sway: headless (own output, no session involved; valid fps and stability) or window (shown inside your session; can be covered). Implies a windowed run; no --yes-windowed needed for headless")
@@ -286,7 +361,25 @@ def main(argv=None):
     r.add_argument("--force", action="store_true", help="run a capped-only scenario uncapped")
     r.add_argument("--mouse", help="extra NV_MOVE_MOUSE items FRAME:DX:DY:HOLD[:BUTTONS],...")
     r.add_argument("--keys", help="extra NV_MOVE_KEYS items FRAME:DIKHEX:HOLD,...")
+
+    r.add_argument("--perf", action="store_true", help="NV_PERF=1: the busiest thread's CPU share (the suite sets it)")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="nv-rs-dev bench", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list").set_defaults(fn=cmd_list)
+    r = sub.add_parser("run")
+    r.add_argument("scenario")
+    run_args(r)
     r.set_defaults(fn=cmd_run)
+    su = sub.add_parser("suite", help="scenarios back to back, one headline table")
+    su.add_argument("--quick", action="store_true", help="the quick suite: Doc's house, Goodsprings and the Strip in one viewer session, 120 s in all (TOO_LONG over that)")
+    su.add_argument("--scenarios", default="doc_house,goodsprings,strip", help="comma separated (soak is 20 minutes and is not in the default)")
+    su.add_argument("--save-baseline", metavar="NAME", help="store this suite's headline rows as a baseline")
+    su.add_argument("--baseline", metavar="NAME", help="compare with a stored baseline (default: the baseline named 'default' if there is one)")
+    run_args(su)
+    su.set_defaults(fn=cmd_suite)
     p = sub.add_parser("report")
     p.add_argument("run")
     p.set_defaults(fn=cmd_report)
