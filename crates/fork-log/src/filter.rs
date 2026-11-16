@@ -83,6 +83,23 @@ impl Filter {
         f
     }
 
+    /// The filter that shows whatever either shows (per target, the more verbose of the two).
+    pub fn union(&self, other: &Filter) -> Filter {
+        let mut f = Filter {
+            default: self.default.max(other.default),
+            directives: Vec::new(),
+        };
+        for (t, m) in self.directives.iter().chain(&other.directives) {
+            match f.directives.iter_mut().find(|(x, _)| x == t) {
+                Some((_, old)) => *old = (*old).max(*m),
+                None => f.directives.push((t.clone(), *m)),
+            }
+        }
+        f.directives
+            .sort_by_key(|(t, _)| std::cmp::Reverse(t.len()));
+        f
+    }
+
     fn max_for(&self, target: &str) -> Max {
         for (t, max) in &self.directives {
             if target == t
@@ -133,6 +150,17 @@ mod tests {
         assert!(!f.allows(Level::Debug, "files"));
         assert!(f.allows(Level::Trace, "window"));
         assert!(Filter::parse("off", Level::Info).loosest() == 0);
+    }
+
+    #[test]
+    fn union_shows_what_either_shows() {
+        let a = Filter::parse("warn,d3d9=debug", Level::Info);
+        let b = Filter::parse("info,d3d9=warn,game=trace", Level::Info);
+        let u = a.union(&b);
+        assert!(u.allows(Level::Debug, "d3d9"));
+        assert!(u.allows(Level::Info, "files"));
+        assert!(u.allows(Level::Trace, "game"));
+        assert!(!u.allows(Level::Debug, "files"));
     }
 
     #[test]

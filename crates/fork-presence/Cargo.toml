@@ -7,6 +7,9 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[dependencies]
+fork-log = { path = "../fork-log" }
+
 [features]
 # The Discord client side. Off, `start` is inert. macOS is added to the target list below later.
 default = ["discord"]

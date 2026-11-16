@@ -7073,7 +7073,7 @@ fn open(
             // A device the driver took away (out of memory in a submission, a reset), not one the
             // layer destroyed itself: the run cannot go on (`device_lost`).
             if reason != wgpu::DeviceLostReason::Destroyed {
-                fork_log::error!(target: "d3d9", "NV_D3D9 wgpu: the graphics device was lost ({reason:?}): {message}");
+                fork_log::fatal!(target: "d3d9", "NV_D3D9 wgpu: the graphics device was lost ({reason:?}): {message}");
                 GONE.store(true, Ordering::Release);
             }
         });

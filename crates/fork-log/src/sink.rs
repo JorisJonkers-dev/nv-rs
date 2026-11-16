@@ -118,23 +118,48 @@ impl JsonFile {
     }
 }
 
-/// Removes all but the newest `keep` automatic logs (`nv-rs-*.jsonl*`) of `dir`.
+/// The run a log file belongs to: `nv-rs-<unix>-<pid>` of `nv-rs-<unix>-<pid>.jsonl`, `.log`,
+/// `.jsonl.1`, `.hitches.csv` and so on.
+fn run_stem(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix("nv-rs-")?;
+    let (unix, after) = rest.split_once('-')?;
+    let pid_len = after.chars().take_while(char::is_ascii_digit).count();
+    if unix.is_empty() || !unix.bytes().all(|b| b.is_ascii_digit()) || pid_len == 0 {
+        return None;
+    }
+    let ext = &after[pid_len..];
+    (ext.starts_with(".jsonl") || ext.starts_with(".log") || ext.starts_with(".hitches"))
+        .then(|| &name[..6 + unix.len() + 1 + pid_len])
+}
+
+/// Removes all but the newest `keep` runs' automatic logs (`nv-rs-*.jsonl*`, `.log*` and the
+/// hitch CSV of a run go together) of `dir`.
 pub fn prune(dir: &Path, keep: usize) {
     let Ok(read) = std::fs::read_dir(dir) else {
         return;
     };
-    let mut files: Vec<(SystemTime, PathBuf)> = read
-        .filter_map(Result::ok)
-        .filter(|e| {
-            let n = e.file_name();
-            let n = n.to_string_lossy();
-            n.starts_with("nv-rs-") && n.contains(".jsonl")
-        })
-        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
-        .collect();
-    files.sort_by_key(|a| std::cmp::Reverse(a.0));
-    for (_, p) in files.into_iter().skip(keep) {
-        let _ = std::fs::remove_file(p);
+    let mut runs: std::collections::HashMap<String, (SystemTime, Vec<PathBuf>)> =
+        std::collections::HashMap::new();
+    for e in read.filter_map(Result::ok) {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(stem) = run_stem(&name) else {
+            continue;
+        };
+        let Some(modified) = e.metadata().ok().and_then(|m| m.modified().ok()) else {
+            continue;
+        };
+        let entry = runs
+            .entry(stem.to_string())
+            .or_insert((SystemTime::UNIX_EPOCH, Vec::new()));
+        entry.0 = entry.0.max(modified);
+        entry.1.push(e.path());
+    }
+    let mut runs: Vec<_> = runs.into_values().collect();
+    runs.sort_by_key(|r| std::cmp::Reverse(r.0));
+    for (_, files) in runs.into_iter().skip(keep) {
+        for p in files {
+            let _ = std::fs::remove_file(p);
+        }
     }
 }
 
@@ -219,6 +244,41 @@ mod tests {
         let t = UNIX_EPOCH + Duration::from_millis(1_700_000_000_123);
         assert_eq!(timestamp(t), "2023-11-14T22:13:20.123Z");
         assert_eq!(timestamp(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn run_stems_group_a_runs_files() {
+        assert_eq!(run_stem("nv-rs-17-9.jsonl"), Some("nv-rs-17-9"));
+        assert_eq!(run_stem("nv-rs-17-9.log.1"), Some("nv-rs-17-9"));
+        assert_eq!(run_stem("nv-rs-17-9.hitches.csv"), Some("nv-rs-17-9"));
+        assert_eq!(run_stem("run-summary-17-9.json"), None);
+        assert_eq!(run_stem("nv-rs-x-9.log"), None);
+    }
+
+    #[test]
+    fn prune_keeps_the_newest_runs_whole() {
+        let dir = std::env::temp_dir().join(format!("fork-log-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (i, n) in ["nv-rs-1-1", "nv-rs-2-1", "nv-rs-3-1"].iter().enumerate() {
+            for ext in [".jsonl", ".log"] {
+                let p = dir.join(format!("{n}{ext}"));
+                std::fs::write(&p, "x").unwrap();
+                let t = SystemTime::now() - std::time::Duration::from_secs(100 - i as u64 * 10);
+                std::fs::File::options()
+                    .write(true)
+                    .open(&p)
+                    .unwrap()
+                    .set_modified(t)
+                    .unwrap();
+            }
+        }
+        std::fs::write(dir.join("run-summary-1-1.json"), "{}").unwrap();
+        prune(&dir, 2);
+        assert!(!dir.join("nv-rs-1-1.jsonl").exists() && !dir.join("nv-rs-1-1.log").exists());
+        assert!(dir.join("nv-rs-2-1.log").exists() && dir.join("nv-rs-3-1.jsonl").exists());
+        assert!(dir.join("run-summary-1-1.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -11,6 +11,7 @@ publish = false
 # Pinned with d3d9-wgpu (ADR-0007): the surface is made on the instance the device layer opens.
 wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan"] }
 raw-window-handle = "=0.6.2"
+fork-log = { path = "../fork-log" }
 
 # X11 and Wayland (Wayland's libraries are loaded at run time: one binary runs on both sessions).
 # macOS and others slot in as another module under `platform/`.

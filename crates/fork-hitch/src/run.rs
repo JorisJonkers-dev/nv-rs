@@ -130,6 +130,84 @@ pub fn verdict(i: &Input<'_>, flags: &[&str]) -> String {
     v
 }
 
+/// A duration as `14m 32s` or `45s`.
+fn span(secs: f64) -> String {
+    let s = secs.round() as u64;
+    if s >= 3600 {
+        format!("{}h {:02}m", s / 3600, s % 3600 / 60)
+    } else if s >= 60 {
+        format!("{}m {:02}s", s / 60, s % 60)
+    } else {
+        format!("{s}s")
+    }
+}
+
+/// The lines the terminal shows when the run ends (quiet mode's final summary): the verdict,
+/// the frame numbers, the hitches with the worst three, the peaks and the counts with the
+/// flags, and where the log and the summary file are.
+pub fn final_lines(i: &Input<'_>, log: &str, summary: &str) -> Vec<String> {
+    let s = i.stats;
+    let fl = flags(i);
+    let p99 = s.percentile_ms(0.99);
+    let p999 = s.percentile_ms(0.999);
+    let low = |p: f64| if p > 0.0 { 1000.0 / p } else { 0.0 };
+    let mut out = vec![format!("run {}: {}", i.ended, verdict(i, &fl))];
+    out.push(format!(
+        "  {:.1} fps, p99 {p99:.1} ms, 1% low {:.0} fps, 0.1% low {:.0} fps; {} frames, play {}, loading {}",
+        s.fps(),
+        low(p99),
+        low(p999),
+        s.frames,
+        span(s.play_ns as f64 / 1e9),
+        span(s.loading_ns as f64 / 1e9)
+    ));
+    let mut h = format!("  hitches {} ({:.1}/min)", s.hitches, s.per_minute());
+    let worst: Vec<String> = s
+        .worst
+        .iter()
+        .take(3)
+        .map(|w| {
+            format!(
+                "{:.0} ms f{} {} ({})",
+                w.wall_ms,
+                w.frame,
+                w.cause.name(),
+                w.trigger
+            )
+        })
+        .collect();
+    if !worst.is_empty() {
+        h.push_str(&format!("; worst {}", worst.join(", ")));
+    }
+    out.push(h);
+    let peaks: Vec<String> = i
+        .peaks
+        .iter()
+        .map(|(k, v)| match k.strip_suffix("_mb") {
+            Some(name) => format!("{name} {v} MB"),
+            None => format!("{k} {v}"),
+        })
+        .collect();
+    out.push(format!(
+        "  peaks {}; soft stops {}, errors {}, warnings {}; flags {}",
+        if peaks.is_empty() {
+            "-".to_string()
+        } else {
+            peaks.join(", ")
+        },
+        i.soft_stops,
+        i.errors,
+        i.warnings,
+        if fl.is_empty() {
+            "none".to_string()
+        } else {
+            fl.join(", ")
+        }
+    ));
+    out.push(format!("  log {log}; summary {summary} (nv-rs-dev logs)"));
+    out
+}
+
 fn q(o: &mut String, s: &str) {
     fork_log::json_string(o, s);
 }
@@ -407,6 +485,40 @@ mod tests {
         ] {
             assert!(text.contains(key), "{key} in {text}");
         }
+    }
+
+    #[test]
+    fn the_final_lines_say_the_verdict_the_numbers_and_the_paths() {
+        let mut s = steady(60, 7);
+        for (n, ms) in [(30, 41.0), (9, 90.0), (50, 33.0), (70, 20.0)] {
+            s.hitch(Worst {
+                top: vec![],
+                frame: n,
+                end_ms: 5000 + n,
+                wall_ms: ms,
+                cause: Cause::Loading,
+                trigger: "cell.change 12 ms before".into(),
+            });
+        }
+        let mut p = BTreeMap::new();
+        p.insert("rss_mb".to_string(), 4096);
+        let m = BTreeMap::new();
+        let t = defaults();
+        let lines = final_lines(
+            &input(&s, &m, &p, &t, "exit"),
+            "/l/a.jsonl",
+            "/l/run-summary.json",
+        );
+        assert_eq!(lines.len(), 5, "{lines:#?}");
+        assert!(lines[0].starts_with("run exit: "), "{}", lines[0]);
+        assert!(lines[1].contains("1% low") && lines[1].contains("0.1% low"));
+        assert!(lines[2].contains("worst 90 ms f9 loading (cell.change 12 ms before), 41 ms f30"));
+        assert_eq!(lines[2].matches(" ms f").count(), 3);
+        assert!(lines[3].contains("peaks rss 4096 MB") && lines[3].contains("flags"));
+        assert!(lines[4].contains("/l/a.jsonl") && lines[4].contains("/l/run-summary.json"));
+        assert_eq!(span(45.0), "45s");
+        assert_eq!(span(872.0), "14m 32s");
+        assert_eq!(span(7260.0), "2h 01m");
     }
 
     #[test]

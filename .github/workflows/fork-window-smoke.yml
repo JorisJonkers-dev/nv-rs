@@ -57,6 +57,8 @@ jobs:
         env:
           WINIT_UNIX_BACKEND: x11
           NV_WINDOW_SMOKE: '1'
+          # The check reads an info line, which a quiet terminal keeps in the files.
+          NV_LOG_TERM: normal
         run: |
           xvfb-run -a -s '-screen 0 1280x720x24' cargo test --locked -p engine-platform --lib a_guest_program_draws_to_a_window -- --nocapture 2>&1 | tee guest.txt
           grep -q 'test result: ok. 1 passed' guest.txt

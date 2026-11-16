@@ -84,14 +84,14 @@ windows = "required"
 name = "window-layer"
 purpose = "The window layer off Windows: a winit window thread for X11 and Wayland, the handle registry, the wgpu surface and DirectInput-shaped input (docs/fork/LINUX.md). Fork-owned; Windows keeps engine-platform's window thread"
 crates = ["fork-window"]
-requires = []
+requires = ["log"]
 runs_on = "both"
 
 [[component]]
 name = "presence"
 purpose = "Discord Rich Presence: a background thread shows the running game on the player's Discord (docs/fork/DISCORD.md). Fork-owned"
 crates = ["fork-presence"]
-requires = []
+requires = ["log"]
 runs_on = "both"
 
 [[component]]

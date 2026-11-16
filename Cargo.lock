@@ -848,12 +848,14 @@ name = "fork-presence"
 version = "0.1.0"
 dependencies = [
  "discord-rich-presence",
+ "fork-log",
 ]
 
 [[package]]
 name = "fork-window"
 version = "0.1.0"
 dependencies = [
+ "fork-log",
  "raw-window-handle",
  "wayland-client",
  "wayland-protocols",

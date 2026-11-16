@@ -128,7 +128,7 @@ fn start_with(version: &str, get: impl Fn(&str) -> Option<String>) -> Option<Pre
     let id = match decide(get) {
         Ok(id) => id,
         Err(off) => {
-            eprintln!("info: Discord presence is off: {}", off.reason());
+            fork_log::info!(target: "host", "Discord presence is off: {}", off.reason());
             return None;
         }
     };
@@ -193,7 +193,7 @@ fn spawn(id: String, version: &str) -> Option<Presence> {
 
 #[cfg(not(all(feature = "discord", any(windows, target_os = "linux"))))]
 fn spawn(_id: String, _version: &str) -> Option<Presence> {
-    eprintln!("info: Discord presence is off: {}", Off::NotBuilt.reason());
+    fork_log::info!(target: "host", "Discord presence is off: {}", Off::NotBuilt.reason());
     None
 }
 
