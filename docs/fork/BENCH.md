@@ -163,6 +163,7 @@ is the default for these scenarios (`--legacy` runs the old frame-counted `NV_MO
 | --- | --- |
 | `quick` | **The quick suite, one viewer session, 120 s in all (`TOO_LONG` over that, start-up and loading included):** start-up (shorter fixed waits), the new game's first room, then Doc's house, Goodsprings and the Strip in turn by console teleports, each place's measured script at half length (about 10 s) |
 | `doc_house`, `goodsprings`, `strip`, `novac` | Each the same for one place (start-up, new game, then the place): ~3 s warm-up, ~18 s measured |
+| `sneak` | Goodsprings, then the sneak check: a step forward standing, real Ctrl, the same step sneaking; fails when sneaking is not slower (see "Ctrl and sneak") |
 | `newgame` | Start-up movies skipped, menu, New, the intro movie skipped, the pack boxes, the first room, 20 s there |
 | `boot` | The start-up movies skipped, 40 s on the main menu |
 | `combat` | Goodsprings, three hostile geckos by form id, a pistol and ammo added and equipped, clicks and turns |
@@ -176,7 +177,8 @@ worldspace or cell in FalloutNV.esm or the DLC masters), so there is no `goodnei
 
 Verdicts: the stability checks; `reached the loading and play screens`; `player moved 150 units a place`; `the camera
 turned (<place>)` (the walk's heading changed by 15 degrees or more between the first forward leg and the last seconds of
-the turning one, read from the player's position: the view turned in between); `game time keeps wall time` (game seconds
+the turning one, read from the player's position: the view turned in between; it fails when either leg moved under 30
+units, so a place where the player did not walk fails it); `game time keeps wall time` (game seconds
 over wall seconds 0.85 to 1.15, which fails if the game depends on the frame rate: 500+ fps must not change what the game
 does); `the player landed` (height settled); `within the wall-time budget (TOO_LONG)`; and **CAPPED** when the fps is not
 a headline (above). Each measured stretch is a phase in the log (`# driver: phase NAME start|end frame=N t=S`), and a
@@ -200,48 +202,70 @@ Why `NV_MOVE_KEYS` real input needed `NV_MOVE_REAL_INPUT=1`: a run with a key or
 and mouse out (`real_input_reaches_game`, `crates/host/src/player_move.rs`), so real events never arrived until the
 drivers stopped using scripts altogether.
 
-### Known issue: the player sometimes stops answering movement and the mouse
+### Fixed: the player stopped answering movement and the mouse (nv-rs#324)
 
-In some quick runs (2026-11-16: 2 of 6, 1 of the 3 in the results below) the player walks and the view turns in
-every place; in the others both stop a few seconds after the opening's stages (the player path
-stays under 50 units, `player moved` fails), while the console keeps taking typed text. Seen in that state with
-`GetPlayerControlsDisabled`: movement and looking enabled, the player not restrained, speed multiplier 100, carrying
-nothing changes nothing. The failing runs had a pack's box dismissed in Doc's house before the first walk; the working
-ones did not. The keys reach the game's DirectInput keyboard (the console types; `input.key` lines), so the cause is
-past the input path; it is not found yet. A run where the player did not move is not valid for the walking part of the
-measured script; its fps is the view standing at the place, sweeping.
+Until 2026-11-16 the player stood still in most quick runs a few seconds after the opening's stages were set, while
+the console kept taking typed text. The cause was not in the input path. The opening runs on its own clock: its quest
+script steps the early stages on a timer, and the end of the opening's first spoken line sets stage 5, which puts the
+sitting script package back on the player and starts the timer to stage 7, which adds it again. When that line ended
+after the bench had set stages 50 and 55, which depended on how long the start-up took, the package held the player
+again: movement and looking enabled, the player not restrained, the keys reaching the game, and nothing moving.
+`player.removescriptpackage` freed it; `enableplayercontrols`, `setrestrained 0` and the like did not.
+
+What the driver does now (`drivers.py`):
+
+- `free_player` also runs `set VCG01.bRunTimer to 0`, which stops the opening's timer chain.
+- `ensure_walks`, after each place's warm-up, takes a 0.4 s step forward, else back. If neither moves the player, it
+  runs `player.removescriptpackage` and tries again. In Doc's house it fired in each of the five runs below.
+- The frame-log tail drops a line the viewer has not finished writing. Cut after the position, its screen read as an
+  empty string, "not play", and the driver tapped Enter and Down into play: the stray keys of the failing runs.
+- The first exterior's warm-up waits for one more of the packs' boxes, which comes about 5 s after the load (4.9 to
+  5.0 s in four runs), after a 3 s warm-up was already over. A box that still comes during the sweeps of the measured
+  script is dismissed before each walk, so the walk walks.
+- The runner no longer waits out the viewer's 5 s grace at the end of every run: the viewer, ended by SIGTERM, stayed a
+  zombie until waited for, and the check took that for a live process.
+
+Two things tried and dropped: a 1.5 s first-room settle instead of 3 s (in both runs with it the player never walked,
+even after the package was taken off; the cause was not looked into) and Down before each Enter on the boxes (a box
+then stayed for minutes). The start-up keeps its 3 s.
 
 ### Results: the quick suite, 2026-11-16
 
 `nv-rs-dev bench suite --quick --resolution 2560x1440 --vram-limit-pct 50 --nested headless` (the suite turns on
-`NV_PERF`), `play-opt` build of `fork` at the time, unlimited (no frame limiter; menus 120), real threads, RX 7900 XTX,
-16-core machine with no other viewer running (no run flagged noisy). Three runs; the table gives the median of the three
-for each number (each run's own numbers in brackets). fps, p99 and 1% low are of the play-screen frames of each place's
-measured script (about 10 s: the yaw and pitch sweeps, the walks); "busy" is the busiest thread's CPU share over the
-`NV_PERF` reports logged during that script, as milliseconds of a mean frame. The run's total wall time, start-up and
-loading included, was 113, 111 and 121 s (budget 120 s: the third was `TOO_LONG`, its Goodsprings warm-up waited on
-boxes).
+`NV_PERF`), `play-opt` build of `fork` of the day, unlimited (no frame limiter; menus 120), real threads, RX 7900 XTX,
+16-core machine with no other viewer running (no run flagged noisy). Five runs in a row, all `PASS`: the player walked
+and the view turned at every place in each (paths 3699 to 3805 units; heading changes 33 to 69 degrees in Doc's house,
+68 to 80 in Goodsprings, 76 to 92 on the Strip). Total wall time, start-up and loading included: 113.0, 112.5, 106.0,
+113.0 and 113.5 s (budget 120 s). The table gives the median of the five (each run's own numbers in brackets). fps,
+p99 and 1% low are of the play-screen frames of each place's measured script (about 10 s: the yaw and pitch sweeps,
+the walks); "busy" is the busiest thread's CPU share over the `NV_PERF` reports logged during that script, as
+milliseconds of a mean frame.
 
 | Place | avg fps | p99 ms | 1% low fps | busiest thread ms/frame |
 | --- | --- | --- | --- | --- |
-| Doc Mitchell's house | 193 (193, 190, 222) | 6.9 (6.9, 15.4, 6.4) | 127 (127, 52, 129) | 5.1 (5.1, 5.1, 4.4) |
-| Goodsprings | 137 (146, 137, 131) | 14.7 (8.7, 14.7, 27.1) | 68 (72, 68, 30) | 2.2 (2.0, 2.2, 7.1) |
-| The Strip | 166 (166, 167, 156) | 8.0 (8.0, 7.9, 13.5) | 103 (108, 103, 71) | 5.4 (5.4, 4.6, 6.3) |
-| Whole session, play screen | 207 (202, 207, 208) | 11.6 (8.2, 11.6, 12.4) | 65 (94, 65, 56) | 3.2 (3.2, 2.9, 3.3) |
+| Doc Mitchell's house | 246 (246, 243, 248, 246, 244) | 5.9 (5.6, 6.1, 5.9, 5.7, 6.3) | 153 (156, 149, 153, 159, 141) | 3.8 (3.6, 3.6, 3.8, 4.0, 3.8) |
+| Goodsprings | 157 (158, 155, 177, 157, 155) | 8.2 (8.2, 8.2, 7.8, 8.1, 8.2) | 107 (107, 104, 109, 112, 105) | 4.5 (4.5, 4.6, 4.5, 4.5, 3.7) |
+| The Strip | 167 (169, 168, 167, 166, 167) | 9.9 (9.9, 9.9, 9.7, 9.9, 9.9) | 94 (95, 90, 94, 94, 94) | 5.9 (5.8, 5.9, 5.9, 5.9, 5.9) |
+| Whole session, play screen | 209 (212, 209, 208, 211, 207) | 8.7 (8.9, 8.7, 8.7, 8.6, 9.0) | 92 (92, 92, 91, 93, 92) | 3.3 (3.2, 3.3, 3.3, 3.3, 3.2) |
 
-The player walked and the view turned in the third run only (path 2353 units; heading changes 44 and 77 degrees in
-Doc's house and on the Strip); in the other two the view stood still at each place (see the known issue above), so their
-place numbers are of a standing view. The fps of the places differ little between the walking run and the others; the
-1% low and p99 move more from run to run than between the places. The baseline `quick-20261116` (under
-`~/.local/state/nv-rs/bench/baselines/`, local) holds the first run's rows; `bench suite --quick --baseline
-quick-20261116` compares with it.
+The earlier table of the day (three runs, two with a standing player) is replaced: its place numbers were mostly of a
+view standing still. The run-to-run spread is now small (Strip fps 166 to 169, p99 9.7 to 9.9 ms). The baseline
+`quick-20261116` (under `~/.local/state/nv-rs/bench/baselines/`, local) still holds the older first run.
 
 ### Ctrl and sneak
 
 Real `Ctrl` taps and holds reach the game in the nested window (`input.key: LeftControl (0x1d) down reaches the game`,
-then `up`, in the log with `NV_LOG=game=info`), so the reported "Ctrl does nothing on GNOME" is not the game dropping the key
-once it is delivered by the compositor to the window; whether `GetSneaking` toggles needs the player free (stage 55) and is
-read off the screen (the sneak indicator) with `--shots`.
+then `up`, in the log), so the reported "Ctrl does nothing on GNOME" is not the game dropping the key once the
+compositor delivers it to the window. The `sneak` scenario checks the rest: in Goodsprings, a 0.8 s step forward
+standing and back, a real Ctrl tap, the same step sneaking and back, Ctrl again. Sneaking is slower, so the verdict
+`Ctrl made the player sneak` passes when Ctrl reached the game between the two steps and the sneaking step got at most
+0.8 times as far as the standing one (the farthest point from where the step began, read from the frame log).
+
+Result, 2026-11-16: the standing step went 270 units, the sneaking one 153 (ratio 0.57): **pass**. The scenario first
+failed, rightly: Ctrl reached the game and the player did not sneak (ratio 1.01, no sneak indicator on screen). The
+opening's stage 0 turns sneaking off with the other controls and stage 55 gives back movement and looking only; the
+opening turns sneaking back on later. So the scenario runs `enableplayercontrols` before the check, as a player who has
+finished the opening has. A new game stopped before the end of the opening cannot sneak: that is the game's own rule.
 
 ### Notes on the old scripts
 

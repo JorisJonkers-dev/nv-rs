@@ -95,6 +95,11 @@ def load_hitches(run_dir):
     return None
 
 
+# Sneaking walks slower than standing: the sneak check passes when the steps sneaking cover at most this share of the
+# path of the same steps standing.
+SNEAK_RATIO_MAX = 0.8
+
+
 def verdict_checks(m, plan, run_wall=None):
     c = []
 
@@ -110,7 +115,15 @@ def verdict_checks(m, plan, run_wall=None):
     # The harness stops the game with SIGTERM at the end of a scenario: 143, 124 and a clean 0 are ends.
     add("viewer exit status", m["exit_status"] in (0, 124, 143, -15, None), f"exit {m['exit_status']}")
     for place, deg in (m.get("heading_change_deg") or {}).items():
-        add(f"the camera turned ({place})", deg >= 15.0, f"the walk's heading changed {deg:.0f} degrees after the view was turned")
+        if deg is None:
+            add(f"the camera turned ({place})", False, "a walk there moved under 30 units: the player did not walk")
+        else:
+            add(f"the camera turned ({place})", deg >= 15.0, f"the walk's heading changed {deg:.0f} degrees after the view was turned")
+    for place, sn in (m.get("sneak") or {}).items():
+        ok = bool(sn["ctrl"] and sn["ratio"] is not None and sn["ratio"] <= SNEAK_RATIO_MAX)
+        detail = (f"Ctrl {'reached' if sn['ctrl'] else 'did not reach'} the game; the same steps went {sn['stand']:.0f} units "
+                  f"standing and {sn['sneak']:.0f} sneaking" + (f" (ratio {sn['ratio']:.2f}, want {SNEAK_RATIO_MAX} or less)" if sn["ratio"] is not None else ""))
+        add(f"Ctrl made the player sneak ({place})", ok, detail)
     if plan and plan.budget_s and run_wall is not None:
         add("within the wall-time budget (TOO_LONG)", run_wall <= plan.budget_s, f"{run_wall:.0f} s of {plan.budget_s:.0f} s, start-up and loading included")
     ck = m.get("clock") or {}

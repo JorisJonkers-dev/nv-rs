@@ -13,9 +13,14 @@ SCREEN_COL, PX, PY, PZ, FDELTA = 8, 5, 6, 7, 2
 
 
 def parse_tail(text):
-    """Rows (frame, screen, x, y, z, fdelta) from the tail of a frame log; the first partial line is dropped."""
+    """Rows (frame, screen, x, y, z, fdelta) from the tail of a frame log. The first line is dropped (the tail starts
+    inside it), and so is a last line the viewer has not finished writing: cut after a column, its screen would read
+    as an empty string, not "play", and a closed loop waiting for the play screen would tap keys into the game."""
+    lines = text.split("\n")[1:]
+    if lines:
+        lines.pop()  # the text after the last newline: empty, or a line still being written
     rows = []
-    for line in text.splitlines()[1:]:
+    for line in lines:
         p = line.split("\t")
         if len(p) > SCREEN_COL and p[0].isdigit():
             try:
@@ -103,7 +108,7 @@ class Driver:
 
         return self.until(ok, timeout, every=0.1, what=f"the end of the {name} screen")
 
-    def settle_play(self, quiet=6.0, timeout=180.0, tap=("enter", "down", "enter"), tap_every=0.75, console_after=6.0):
+    def settle_play(self, quiet=6.0, timeout=180.0, tap=("enter", "down", "enter"), tap_every=0.5, console_after=6.0):
         """Dismiss message boxes with the keys of `tap` in turn until the play screen has held `quiet` seconds without a
         box. A box's button takes Enter only once it has the keyboard focus, which an arrow key gives it (a box that came
         while the mouse moved has none), hence a Down between the Enters. Not for the start-up: in the pause menu Down
@@ -168,20 +173,22 @@ class Driver:
             self.look(turn, 0, 1.0)
         t.join()
 
-    def type(self, text, gap=0.025):
+    def type(self, text, gap=0.025, hold=0.04):
+        """Text into the console. Each key is held `hold` s and followed by `gap` s (shorter, 0.03 and 0.015, lost
+        characters of the quest stage lines now and then)."""
         for ch in text:
             if ch == " ":
-                self.vi.tap("space", 0.04)
+                self.vi.tap("space", hold)
             elif ch.isupper():
-                self.vi.hold(("shift", ch.lower()), 0.05)
+                self.vi.hold(("shift", ch.lower()), hold + 0.01)
             elif ch == "_":
-                self.vi.hold(("shift", "minus"), 0.05)
+                self.vi.hold(("shift", "minus"), hold + 0.01)
             elif ch == ".":
-                self.vi.tap("period", 0.04)
+                self.vi.tap("period", hold)
             elif ch == "-":
-                self.vi.tap("minus", 0.04)
+                self.vi.tap("minus", hold)
             else:
-                self.vi.tap(ch, 0.04)
+                self.vi.tap(ch, hold)
             self.sleep(gap)
 
     def ensure_play(self, timeout=20.0):
@@ -206,7 +213,7 @@ class Driver:
         the console did (the downloadable packs' boxes come after the opening and with the first exterior)."""
         if self.screen() == "menu":
             self.tap("grave", 0.15)
-            self.until_screen("play", 2.0)
+            self.until_screen("play", 1.0)
         return self.settle_play(quiet=quiet, timeout=timeout)
 
     def console_line(self, text, settle=1.0):

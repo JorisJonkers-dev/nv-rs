@@ -98,9 +98,6 @@ impl Disk {
     }
 }
 
-#[cfg(not(windows))]
-mod short_names;
-
 /// A file's directory entry as `FindFirstFileA` describes it, for a file the game made or
 /// changed in this run: what the file system keeps in the directory and publishes when a handle
 /// that wrote is closed (measured: `build43-scratch/measure/findfile-changed/findfile-2026-11-03.txt`).
@@ -1172,13 +1169,6 @@ pub fn find_first_file_a(e: &mut Engine, name: Ptr, data: Ptr) -> u32 {
     if let Err(code) = write_find_data(e, data, &meta, &stored, &shown) {
         return fail(e, code);
     }
-    // A file on the host has its 8.3 name from its directory's table, as a search lists it.
-    #[cfg(not(windows))]
-    if !meta.is_dir() {
-        let short = host_short(&real);
-        e.mem.write(data.addr() + 0x130, short.as_bytes());
-        e.mem.set_u8(data.addr() + 0x130 + short.len() as u32, 0);
-    }
     e.kernel
         .insert(KernelObject::FindFile(Opaque::new(Search::default())))
 }
@@ -1298,13 +1288,9 @@ fn write_names(e: &mut Engine, d: u32, name: &[u8], short: &[u8]) -> Result<(), 
 /// makes it ([`short_name`]) stops the run.
 fn write_entry(e: &mut Engine, data: Ptr, entry: &Entry, shown: &str) -> Result<(), u32> {
     let _ = shown;
-    // A short name that was not made when the entry was (it is only held as `None` on Windows,
-    // where ntdll's names for a long extension differ from NTFS's) is made now: nothing a game
-    // lists may stop it for a short name.
+    // Off Windows the host keeps no short names (as a volume without 8.3 names): empty.
     #[cfg(not(windows))]
-    let on_demand = entry_short(&entry.name);
-    #[cfg(not(windows))]
-    let short = entry.short.as_ref().unwrap_or(&on_demand);
+    let short = entry.short.as_deref().unwrap_or("");
     #[cfg(windows)]
     let Some(short) = &entry.short
     else {
@@ -1543,6 +1529,11 @@ fn short_extension(name: &str) -> Option<String> {
 fn search_finds(pattern: &[u8], name: &str, shown: &str) -> bool {
     if wild_match(pattern, &ansi_bytes(name)) {
         return true;
+    }
+    // Off Windows the host keeps no 8.3 short names, as a Windows volume with their generation
+    // off: only the long name is matched.
+    if cfg!(not(windows)) {
+        return false;
     }
     if name == "." || name == ".." {
         return false;
@@ -2002,7 +1993,6 @@ fn listing(directory: &std::path::Path, pattern: &[u8], shown: &str) -> Result<V
         .iter()
         .map(|entry| host_name_text(&entry.file_name()))
         .collect();
-    let shorts = short_names::assign(&all);
     let mut found: Vec<Found> = Vec::new();
     for special in [".", ".."] {
         if search_finds(pattern, special, shown) {
@@ -2020,7 +2010,7 @@ fn listing(directory: &std::path::Path, pattern: &[u8], shown: &str) -> Result<V
             found.push(Found::Disk {
                 path: entry.path(),
                 directory: entry.file_type().is_ok_and(|t| t.is_dir()),
-                short: shorts.get(&name).cloned().unwrap_or_default(),
+                short: String::new(),
                 name,
                 listed: None,
             });
@@ -2059,7 +2049,7 @@ fn player_entry(path: &[u8]) -> Option<Entry> {
             crate::fork_platform::find_fields(&meta, &shown);
         Some(Entry {
             name: real.file_name().map(host_name_text)?,
-            short: Some(host_short(&real)),
+            short: Some(String::new()),
             attributes,
             size: meta.len(),
             created,
@@ -2067,35 +2057,6 @@ fn player_entry(path: &[u8]) -> Option<Entry> {
             written,
         })
     }
-}
-
-/// The short name of a name with nothing else known about its directory: empty for a name that
-/// needs none, else the first `~N` name ([`short_names::generate`]).
-#[cfg(not(windows))]
-fn entry_short(name: &str) -> String {
-    short_names::generate(name, &std::collections::HashSet::new()).unwrap_or_default()
-}
-
-/// The 8.3 short name of the host file `real`, from its directory's table ([`short_names::assign`]:
-/// the same on every run for the same directory); empty for a name that needs none. The table is
-/// made from the directory as it is when asked, so a file made or renamed since is in it.
-#[cfg(not(windows))]
-fn host_short(real: &std::path::Path) -> String {
-    let (Some(parent), Some(name)) = (real.parent(), real.file_name()) else {
-        return String::new();
-    };
-    let name = host_name_text(name);
-    let all: Vec<String> = std::fs::read_dir(parent)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .map(|entry| host_name_text(&entry.file_name()))
-                .collect()
-        })
-        .unwrap_or_default();
-    short_names::assign(&all)
-        .remove(&name)
-        .unwrap_or_else(|| entry_short(&name))
 }
 
 /// The 8.3 short name the file system gives the name of the full path `path` when it enters its
@@ -2128,50 +2089,10 @@ fn short_name(e: &Engine, path: &[u8]) -> Option<String> {
     }
     #[cfg(not(windows))]
     {
-        // The host keeps no short names: made as NTFS makes them ([`short_names`]), against
-        // the names the directory holds now.
-        let taken = match last_separator(path) {
-            Some(cut) => names_in(e, &path[..cut]),
-            None => std::collections::HashSet::new(),
-        };
-        Some(short_names::generate(&name, &taken).unwrap_or_else(|| entry_short(&name)))
+        // The host keeps no short names, as a Windows volume with their generation off.
+        let _ = e;
+        Some(String::new())
     }
-}
-
-/// Every long and short name the directory at the full path `directory` holds now, upper case,
-/// elsewhere than on Windows: the host's entries the game did not delete or take into the run
-/// with the short names [`short_names::assign`] gives them, and the run's files there.
-#[cfg(not(windows))]
-fn names_in(e: &Engine, directory: &[u8]) -> std::collections::HashSet<String> {
-    let folder = key(directory);
-    let disk = &state_ref!(e).disk;
-    let mut taken = std::collections::HashSet::new();
-    let mut add = |name: &str, short: &str| {
-        taken.insert(name.to_ascii_uppercase());
-        if !short.is_empty() {
-            taken.insert(short.to_ascii_uppercase());
-        }
-    };
-    let mut host: Vec<String> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(real_path(directory)) {
-        for entry in entries.filter_map(Result::ok) {
-            let name = host_name_text(&entry.file_name());
-            let k = key(&[folder.as_slice(), b"\\", &ansi_bytes(&name)].concat());
-            if !disk.deleted.contains(&k) && !disk.files.contains_key(&k) {
-                host.push(name);
-            }
-        }
-    }
-    let shorts = short_names::assign(&host);
-    for name in &host {
-        add(name, shorts.get(name).map_or("", String::as_str));
-    }
-    for (k, entry) in &disk.entries {
-        if in_folder(k, &folder) && disk.files.contains_key(k) {
-            add(&entry.name, entry.short.as_deref().unwrap_or(""));
-        }
-    }
-    taken
 }
 
 /// Every long and short name the directory at the full path `directory` holds now, upper case:
@@ -3569,6 +3490,10 @@ mod tests_player_files {
     /// A file of the player's opened for reading only is read where the reads ask, not copied:
     /// the crate's own manifest stands in for one.
     #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "8.3 short names: the host keeps none off Windows"
+    )]
     fn searches_match_and_order_as_measured() {
         // The measured directory (findfile-2026-10-23.txt) by its names.
         let names = [
@@ -3625,6 +3550,40 @@ mod tests_player_files {
         assert_eq!(short_extension("d.esmx").as_deref(), Some("ESM"));
         assert_eq!(short_extension("A.esm"), None);
         assert_eq!(short_extension("c.esm.bak").as_deref(), Some("BAK"));
+    }
+
+    /// Off Windows the host keeps no 8.3 short names, as a Windows volume with their generation
+    /// off: a pattern finds a name by its long name only, and never stops for a short name.
+    #[cfg(not(windows))]
+    #[test]
+    fn off_windows_a_search_matches_the_long_name_only() {
+        let spaced = ["Abcdefgh Extra Files.bsa", "Abcdefg More Files.bsa"];
+        for name in spaced {
+            assert!(
+                short_extension(name).is_some(),
+                "{name} would need a short name"
+            );
+        }
+        let found = |pattern: &[u8]| -> Vec<&str> {
+            spaced
+                .iter()
+                .copied()
+                .filter(|n| search_finds(pattern, n, "test"))
+                .collect()
+        };
+        // An 8- and a 7-character prefix that the long names do not start with.
+        assert!(found(b"Abcdefgz*.bsa").is_empty());
+        assert!(found(b"Abcdefz*.bsa").is_empty());
+        // `~` patterns and short-name-only matches find nothing.
+        assert!(found(b"ABCDEF~1*.bsa").is_empty());
+        assert!(found(b"ABCDEF~1.BSA").is_empty());
+        assert!(found(b"Ab*.bs").is_empty());
+        assert!(!search_finds(b"*.esm", "d.esmx", "test"));
+        // The long names still match.
+        assert_eq!(found(b"Abcdefgh*.bsa"), ["Abcdefgh Extra Files.bsa"]);
+        assert_eq!(found(b"Abcdefg*.bsa"), spaced);
+        assert_eq!(found(b"*.bsa"), spaced);
+        assert!(search_finds(b"*", ".", "test") && !search_finds(b"*.bsa", "..", "test"));
     }
 
     #[test]
@@ -4466,12 +4425,12 @@ mod tests_changed_directories {
     }
 
     /// The game's save flow elsewhere than on Windows: a save with a long name made in this run
-    /// is found by its exact name with an NTFS-like 8.3 name (it stopped the run before), a second
-    /// save with the same prefix gets `~2`, and a search of an untouched folder gives the files
-    /// already there their short names, the same on every search.
+    /// is found by its exact name (it stopped the run before), as is a second save with the same
+    /// prefix, and a search of an untouched folder finds the files already there, the same on
+    /// every search. The host keeps no 8.3 names, so every short name is empty.
     #[cfg(not(windows))]
     #[test]
-    fn saves_made_in_this_run_and_found_on_disk_have_short_names() {
+    fn saves_made_in_this_run_and_found_on_disk_have_no_short_names() {
         let dir = scratch(
             "shortsave",
             &[("Save 2   Courier  Old save  00 01 00.fos", 7)],
@@ -4483,11 +4442,12 @@ mod tests_changed_directories {
         save(&mut e, &dir, b, &[0x10]);
         let one = listed(&mut e, &format!("{dir}\\{a}.fos"));
         assert_eq!(one.len(), 1);
-        assert_eq!(one[0].1, "SAVE1C~1.FOS");
+        assert_eq!(one[0].1, "");
         let two = listed(&mut e, &format!("{dir}\\{b}.fos"));
-        assert_eq!(two[0].1, "SAVE1C~2.FOS");
+        assert_eq!(two.len(), 1);
+        assert_eq!(two[0].1, "");
         assert!(one[0].4 > 0 && one[0].6 >= one[0].4, "times are set");
-        // A fresh run over the untouched folder: the file on disk has its short name too.
+        // A fresh run over the untouched folder: the file on disk has no short name either.
         let dir2 = scratch(
             "shortdisk",
             &[("Save 2   Courier  Old save  00 01 00.fos", 7)],
@@ -4497,10 +4457,10 @@ mod tests_changed_directories {
             &mut e,
             &format!("{dir2}\\Save 2   Courier  Old save  00 01 00.fos"),
         );
-        assert_eq!(old[0].1, "SAVE2C~1.FOS");
+        assert_eq!(old[0].1, "");
         let all = listed(&mut e, &format!("{dir2}\\*.fos"));
         assert_eq!(all.len(), 1);
-        assert_eq!(all[0].1, "SAVE2C~1.FOS");
+        assert_eq!(all[0].1, "");
         assert_eq!(listed(&mut e, &format!("{dir2}\\*.fos")), all);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&dir2);
@@ -4522,11 +4482,11 @@ mod tests_changed_directories {
         save(&mut e, &z, a, &[0x10]);
         let one = listed(&mut e, &format!("{z}\\{a}.fos"));
         assert_eq!(one.len(), 1);
-        // An entry whose short name was never made is listed with one made now, not a stop.
+        // An entry whose short name was never made is listed with an empty one, not a stop.
         let k = key(format!("{z}\\{a}.fos").as_bytes());
         state!(e).disk.entries.get_mut(&k).unwrap().short = None;
         let one = listed(&mut e, &format!("{z}\\{a}.fos"));
-        assert_eq!(one[0].1, "SAVE1C~1.FOS");
+        assert_eq!(one[0].1, "");
         for i in 0..12 {
             let n = format!("Save {i}   Courier  Doc Mitchell s House  00 03 {i:02}");
             save(&mut e, &z, &n, &[0x10]);
@@ -4558,7 +4518,7 @@ mod tests_changed_directories {
             &mut e,
             &format!("{dir}\\Save 2   Courier  Other  00 01 01.fos"),
         );
-        assert_eq!(on_disk[0].1, "SAVE2C~1.FOS");
+        assert_eq!(on_disk[0].1, "");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
