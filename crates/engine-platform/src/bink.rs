@@ -187,10 +187,17 @@ pub fn open_direct_sound(_e: &mut Engine, param: u32) -> u32 {
 pub fn open(e: &mut Engine, name: Ptr, flags: u32) -> u32 {
     let text = e.mem.cstr(name.addr());
     let shown = String::from_utf8_lossy(&text).into_owned();
-    assert!(
-        flags & !(BINKPRELOADALL | BINKNOTHREADEDIO) == 0,
-        "BinkOpen({shown:?}, {flags:#x}): these flags are not provided"
-    );
+    if flags & !(BINKPRELOADALL | BINKNOTHREADEDIO) != 0 {
+        // The documented failure is a null handle: the game skips the movie.
+        if fork_log::soft_stop(
+            "video",
+            "BinkOpen",
+            format_args!("flags {flags:#x} are not provided"),
+        ) {
+            return 0;
+        }
+        panic!("BinkOpen({shown:?}, {flags:#x}): these flags are not provided");
+    }
     let path = super::files::full_path(e, &text);
     let Some(data) = super::files::read_whole(e, &path) else {
         return 0;
@@ -198,8 +205,31 @@ pub fn open(e: &mut Engine, name: Ptr, flags: u32) -> u32 {
     engine_id(e);
     let sound = e.mem.u32(STATE_PAGE + SOUND_SYSTEM) == 1;
     let (handle_fields, decoder, track) = {
-        let movie = ::bink::Movie::parse(&data)
-            .unwrap_or_else(|err| panic!("BinkOpen({shown:?}): {err:?} is not provided"));
+        let movie = match ::bink::Movie::parse(&data) {
+            Ok(movie) => movie,
+            Err(err) => {
+                if fork_log::soft_stop(
+                    "video",
+                    "BinkOpen",
+                    format_args!("a file the decoder cannot read: {err:?}"),
+                ) {
+                    return 0;
+                }
+                panic!("BinkOpen({shown:?}): {err:?} is not provided");
+            }
+        };
+        if !(movie.revision == b'i' && movie.video_flags == 0)
+            && fork_log::soft_stop(
+                "video",
+                "BinkOpen",
+                format_args!(
+                    "revision {:?} with video flags {:#x} is not provided",
+                    movie.revision as char, movie.video_flags
+                ),
+            )
+        {
+            return 0;
+        }
         let track = if sound && !movie.audio.is_empty() {
             Some(sound_track(&movie, &shown))
         } else {
@@ -663,7 +693,28 @@ mod tests {
     #[should_panic(expected = "these flags are not provided")]
     fn other_open_flags_stop() {
         let (mut e, name) = engine(movie_bytes(64, 48, 1, &zeros));
-        open(&mut e, name, 0x4000);
+        fork_log::stop::with_policy(fork_log::stop::Policy::Halt, || {
+            open(&mut e, name, 0x4000);
+        });
+    }
+
+    #[test]
+    fn other_open_flags_fail_softly_as_the_dll_does_for_a_movie_it_cannot_open() {
+        let (mut e, name) = engine(movie_bytes(64, 48, 1, &zeros));
+        let before = fork_log::soft_stops();
+        let handle = fork_log::stop::with_policy(fork_log::stop::Policy::Soft, || {
+            open(&mut e, name, 0x4000)
+        });
+        assert_eq!(handle, 0);
+        assert!(fork_log::soft_stops() > before);
+    }
+
+    #[test]
+    fn a_file_the_decoder_cannot_read_fails_softly() {
+        let (mut e, name) = engine(b"BIKi not a movie at all, short".to_vec());
+        let handle =
+            fork_log::stop::with_policy(fork_log::stop::Policy::Soft, || open(&mut e, name, 0));
+        assert_eq!(handle, 0);
     }
 
     #[test]

@@ -123,7 +123,7 @@ fn reconfigures_after(why: NoFrame) -> bool {
 fn log_display(mode: wgpu::PresentMode) {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| match fork_window::display() {
-        Some(d) => eprintln!(
+        Some(d) => fork_log::info!(target: "window",
             "NV_D3D9 display: monitor {} {}x{} {} Hz ({}), present {mode:?}",
             d.index,
             d.monitor.width,
@@ -131,7 +131,9 @@ fn log_display(mode: wgpu::PresentMode) {
             d.refresh_hz(),
             d.why
         ),
-        None => eprintln!("NV_D3D9 display: no monitor known, present {mode:?}"),
+        None => {
+            fork_log::info!(target: "window", "NV_D3D9 display: no monitor known, present {mode:?}")
+        }
     });
 }
 
@@ -330,7 +332,7 @@ impl Window {
             return Err("the window's surface offers this adapter no format".into());
         }
         if area.is_none() || minimised(hwnd) {
-            eprintln!(
+            fork_log::info!(target: "window",
                 "NV_D3D9 wgpu: the window is minimised or has no area: its swap chain is made at its first frame with one"
             );
             return Ok(w);
@@ -343,7 +345,7 @@ impl Window {
                     w.config.width, w.config.height, w.config.present_mode
                 ));
             }
-            eprintln!(
+            fork_log::warn!(target: "window",
                 "NV_D3D9 wgpu: the window's swap chain was refused once, then taken: {first}"
             );
             // The first refusal in play is logged again.
@@ -442,7 +444,7 @@ impl Window {
                 self.rest.shown();
                 self.paced = None;
                 if self.skipped > 0 {
-                    eprintln!(
+                    fork_log::info!(target: "window",
                         "NV_D3D9 wgpu: frames shown again in the window ({} not shown; the last because {})",
                         self.skipped,
                         self.last_why.map_or("", NoFrame::says)
@@ -453,7 +455,7 @@ impl Window {
             }
             Err(why) => {
                 if self.skipped == 0 {
-                    eprintln!(
+                    fork_log::warn!(target: "window",
                         "NV_D3D9 wgpu: frames not shown from the window's frame {}: {} (the game goes on)",
                         self.asked,
                         why.says()
@@ -560,7 +562,7 @@ impl Window {
             // area for a frame until it is a real size again.
             if self.tiny_said != Some((width, height)) {
                 self.tiny_said = Some((width, height));
-                eprintln!(
+                fork_log::warn!(target: "window",
                     "NV_D3D9 wgpu: stop: the window's client area is {width}x{height}, under {MIN_SIDE}x{MIN_SIDE}: no frame is made for it (the swap chain stays {}x{})",
                     self.config.width, self.config.height
                 );
@@ -573,7 +575,7 @@ impl Window {
             self.config.height = height;
             if let Err(e) = self.configure(device) {
                 if self.refused == 1 {
-                    eprintln!(
+                    fork_log::warn!(target: "window",
                         "NV_D3D9 wgpu: the window's swap chain ({}x{}, {:?}) was refused: {e}",
                         self.config.width, self.config.height, self.config.present_mode
                     );
@@ -611,7 +613,7 @@ impl Window {
         if !self.choose() {
             return Err(NoFrame::Lost);
         }
-        eprintln!("NV_D3D9 wgpu: the window's surface was lost: made again");
+        fork_log::warn!(target: "window", "NV_D3D9 wgpu: the window's surface was lost: made again");
         self.fit(device, true)
     }
 }

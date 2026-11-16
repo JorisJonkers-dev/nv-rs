@@ -168,7 +168,7 @@ fn choose_layout(choice: LayoutChoice, probe: impl FnOnce() -> Option<Vec<i32>>)
             Some(map) => {
                 let (layout, exact) = layout_of_map(&map);
                 if !exact {
-                    eprintln!(
+                    fork_log::warn!(target: "sound",
                         "sound: the sink's channel map {map:?} is not a layout the mixer provides; \
                          using {} channels (mask {:#x}) and the server remixes",
                         layout.channels, layout.mask
@@ -212,7 +212,7 @@ pub fn start(
         Backend::Null => Ok(start_null(source, layout)),
         Backend::Pulse => start_pulse(source, layout),
         Backend::Auto => start_pulse(source.clone(), layout).or_else(|why| {
-            eprintln!(
+            fork_log::warn!(target: "sound",
                 "sound: no sound server answered ({why:?}); the mix is made and dropped \
                  (NV_SOUND_BACKEND=null does this on purpose)"
             );
@@ -317,7 +317,7 @@ fn run(
         while reported < underruns {
             reported += 1;
             if reported == 1 {
-                eprintln!(
+                fork_log::warn!(target: "sound",
                     "sound: the sound server reported an underrun on this stream (later ones are \
                      counted, not logged here)"
                 );
@@ -329,7 +329,7 @@ fn run(
         if !sink.write(&chunk) {
             if !lost {
                 lost = true;
-                eprintln!(
+                fork_log::warn!(target: "sound",
                     "sound: the sound server stopped taking frames; this stream is not heard"
                 );
             }

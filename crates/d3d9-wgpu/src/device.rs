@@ -419,7 +419,7 @@ impl ListFile {
         };
         if let Err(e) = cache::write_replacing(&self.file, text.as_bytes()) {
             self.failed.store(true, Ordering::Relaxed);
-            eprintln!(
+            fork_log::warn!(target: "d3d9",
                 "NV_D3D9 wgpu: pipeline list {}: not written: {e}: none written this run",
                 self.file.display()
             );
@@ -462,7 +462,7 @@ impl Listed {
             Ok(text) => list.merge(&text),
             Err(_) => (0, 0),
         };
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9 wgpu: pipeline list: {} entries ({shipped} shipped, {local} more from {}; {} lines not read)",
             list.entries.len(),
             file.display(),
@@ -944,7 +944,7 @@ impl Device {
                     // The window on this API failed: the next API is tried. A card on this API
                     // that cannot take the window counts as failed (no software adapter then).
                     Err(e) => {
-                        eprintln!("NV_D3D9 wgpu: {backends:?}: {e}");
+                        fork_log::warn!(target: "d3d9", "NV_D3D9 wgpu: {backends:?}: {e}");
                         if has_card(&instance, backends) {
                             failed.push(format!("{backends:?}"));
                         }
@@ -960,7 +960,7 @@ impl Device {
                 apply_limit_buckets: false,
             })) else {
                 if surface.is_some() && has_card(&instance, backends) {
-                    eprintln!("NV_D3D9 wgpu: {backends:?}: no adapter can show the game's window");
+                    fork_log::warn!(target: "d3d9", "NV_D3D9 wgpu: {backends:?}: no adapter can show the game's window");
                     failed.push(format!("{backends:?}"));
                 }
                 continue;
@@ -980,7 +980,7 @@ impl Device {
                     break;
                 }
                 Err(e) => {
-                    eprintln!("NV_D3D9 wgpu: {backends:?}: {e}");
+                    fork_log::warn!(target: "d3d9", "NV_D3D9 wgpu: {backends:?}: {e}");
                     failed.push(format!("{backends:?}"));
                 }
             }
@@ -993,7 +993,7 @@ impl Device {
                 match open(instance, surface, adapter, window, pp, copies) {
                     Ok(o) => opened = Some(o),
                     Err(e) => {
-                        eprintln!("NV_D3D9 wgpu: {backends:?}: {e}");
+                        fork_log::warn!(target: "d3d9", "NV_D3D9 wgpu: {backends:?}: {e}");
                         failed.push(format!("{backends:?}"));
                     }
                 }
@@ -1033,7 +1033,7 @@ impl Device {
             let errors = errors.clone();
             device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
                 if errors.fetch_add(1, Ordering::Relaxed) < 20 {
-                    eprintln!("NV_D3D9 wgpu: {e}");
+                    fork_log::warn!(target: "d3d9", "NV_D3D9 wgpu: {e}");
                 }
             }));
         }
@@ -1268,7 +1268,7 @@ impl Device {
             (None, Output::Window) => "with no window".to_string(),
             (None, Output::Offscreen) => "offscreen".to_string(),
         };
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9 wgpu: the game's device on {} ({}x{}, format {}, {shown})",
             d.adapter_name, pp.width, pp.height, pp.format,
         );
@@ -1289,7 +1289,7 @@ impl Device {
     fn warn(&mut self, what: impl Into<String>) {
         let what = what.into();
         if self.warned.insert(what.clone()) {
-            eprintln!("NV_D3D9 wgpu: {what}");
+            fork_log::warn!(target: "d3d9", "NV_D3D9 wgpu: {what}");
         }
     }
 
@@ -1309,7 +1309,7 @@ impl Device {
                 budget::Refusal::Size => "a side past the largest the layer makes",
                 budget::Refusal::Budget => "the layer's video-memory budget is used up",
             };
-            eprintln!(
+            fork_log::warn!(target: "d3d9",
                 "NV_D3D9 wgpu: stop: a {what} of {width}x{height} ({:.1} MB) is refused: {reason}; {} (refusal {n})",
                 bytes as f64 / 1_048_576.0,
                 self.budget.report()
@@ -1329,7 +1329,7 @@ impl Device {
             pp.format
         };
         self.back_buffers = back_buffers.to_vec();
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9 wgpu: back buffers {}x{} format {format:#x} ({} of them, depth {})",
             pp.width,
             pp.height,
@@ -1678,7 +1678,7 @@ impl Device {
             // Two bytecodes, one hash: the list's entries with it are never prepared (a
             // draw still finds its own pipeline by the exact key).
             if self.collided.insert(stable) {
-                eprintln!("NV_D3D9 wgpu: two shaders share the bytecode hash {stable:016x}: its listed pipelines are not prepared");
+                fork_log::warn!(target: "d3d9", "NV_D3D9 wgpu: two shaders share the bytecode hash {stable:016x}: its listed pipelines are not prepared");
             }
         }
         match sm::parse(tokens) {
@@ -4258,7 +4258,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         }
         self.made.work += started.elapsed();
         let left = l.done.iter().filter(|&&d| d == 0).count();
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9 wgpu: made ahead: {made} pipelines and {modules} shader modules in {:.0} ms (modules {:.0} ms) on {threads} threads, {refused} refused; {left} listed not yet possible (present {})",
             started.elapsed().as_secs_f64() * 1000.0,
             modules_took.as_secs_f64() * 1000.0,
@@ -4388,7 +4388,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         self.shots = shots;
         self.made.work += started.elapsed();
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9 wgpu: the start: {waiting} shader modules, {libraries} with their pipeline library ({}), {:.0} ms on {cores} cores (threads' time: converting {:.0} ms, modules {:.0} ms, libraries {:.0} ms)",
             if self.warm_start {
                 "the pipeline cache warm: the listed shaders'"
@@ -4631,7 +4631,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             } else {
                 String::new()
             };
-            eprintln!(
+            fork_log::debug!(target: "d3d9",
                 "NV_D3D9 wgpu: {n} shader modules made ahead on the module threads{libraries} ({:.0} ms of their time; present {})",
                 t.as_secs_f64() * 1000.0,
                 self.presents
@@ -5025,7 +5025,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         }
         let took = started.elapsed();
         if self.list.is_some() && took.as_secs_f64() > 0.001 {
-            eprintln!(
+            fork_log::debug!(target: "d3d9",
                 "NV_D3D9 wgpu: a pipeline made on first use: {:.1} ms (shaders {:016x} {:016x}, present {})",
                 took.as_secs_f64() * 1000.0,
                 vs.stable,
@@ -6050,7 +6050,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             .as_mut()
             .and_then(|s| s.over(&self.device, self.presents))
         {
-            eprintln!("NV_D3D9 wgpu: the start's loading screen ended: {why}");
+            fork_log::info!(target: "d3d9", "NV_D3D9 wgpu: the start's loading screen ended: {why}");
             if let (Some(s), true) = (self.start.take(), why.starts_with("the game's first")) {
                 if let Some(f) = &s.record {
                     let _ = std::fs::write(
@@ -6233,7 +6233,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             if let (Some(s), true) = (&self.shots, pixels.len() == (width * height * 4) as usize) {
                 let path = s.dir.join(format!("wgpu-window-{frame:06}.bmp"));
                 if let Err(e) = std::fs::write(&path, shot::bmp(width, height, &pixels)) {
-                    eprintln!("NV_SHOT wgpu: {} not written: {e}", path.display());
+                    fork_log::warn!(target: "d3d9", "NV_SHOT wgpu: {} not written: {e}", path.display());
                 }
             }
         }
@@ -6248,7 +6248,9 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                         pixels.extend_from_slice(r);
                     }
                 }
-                Err(e) => eprintln!("NV_SHOT wgpu: frame {frame} not read back: {e}"),
+                Err(e) => {
+                    fork_log::warn!(target: "d3d9", "NV_SHOT wgpu: frame {frame} not read back: {e}")
+                }
             }
             buffer.unmap();
             if format.wgpu == wgpu::TextureFormat::Rgba8Unorm {
@@ -6259,7 +6261,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             if let (Some(s), true) = (&self.shots, pixels.len() == (width * height * 4) as usize) {
                 let path = s.path(frame);
                 if let Err(e) = std::fs::write(&path, shot::bmp(width, height, &pixels)) {
-                    eprintln!("NV_SHOT wgpu: {} not written: {e}", path.display());
+                    fork_log::warn!(target: "d3d9", "NV_SHOT wgpu: {} not written: {e}", path.display());
                 }
             }
         }
@@ -6285,7 +6287,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         if self.presents % 600 == 1 {
             // The bytes kept for read-backs (`ReadSurface`), printed for their memory cost.
             let kept: usize = self.kept.values().map(Vec::len).sum();
-            eprintln!(
+            fork_log::debug!(target: "d3d9",
                 "NV_D3D9 wgpu: present {frame}: {} draws, {} skipped, {} pipelines, {} bind groups, {} wgpu errors, {:.1} MB kept for read-backs ({} levels){}",
                 self.draws,
                 self.skipped,
@@ -6310,7 +6312,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                         r.total_reserved_bytes as f64 / 1_048_576.0
                     )
                 });
-            eprintln!(
+            fork_log::debug!(target: "d3d9",
                 "NV_D3D9 wgpu: present {frame}: {}{alloc}; {} target copies, {} count targets",
                 self.budget.report(),
                 self.target_copies.len(),
@@ -6327,7 +6329,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     fn report_made(&mut self) {
         let m = std::mem::take(&mut self.made);
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
-        eprintln!(
+        fork_log::debug!(target: "d3d9",
             "NV_D3D9 wgpu: made since the last report: {} pipelines ({} shader modules) in {:.0} ms on the draws that needed them (of it converting {:.0}, modules {:.0}, pipelines {:.0}); the longest pipeline {:.0} ms, {} pipelines over 16 ms; the longest time between two presents here {:.0} ms",
             m.pipelines,
             m.modules,
@@ -6339,7 +6341,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             m.over_16ms,
             ms(m.longest_frame)
         );
-        eprintln!(
+        fork_log::debug!(target: "d3d9",
             "NV_D3D9 wgpu: pipeline work since the last report: at most {:.1} ms in one present (present {}), {} presents over 20 ms, {} pipelines made on draws over 1 ms; {} shaders the game created after its start",
             ms(m.worst_work),
             m.worst_at,
@@ -6348,7 +6350,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             m.late_shaders
         );
         if let Some(line) = self.pipeline_library_report() {
-            eprintln!("NV_D3D9 wgpu: {line}");
+            fork_log::debug!(target: "d3d9", "NV_D3D9 wgpu: {line}");
         }
     }
 
@@ -6952,7 +6954,7 @@ fn open(
             // A device the driver took away (out of memory in a submission, a reset), not one the
             // layer destroyed itself: the run cannot go on (`device_lost`).
             if reason != wgpu::DeviceLostReason::Destroyed {
-                eprintln!("NV_D3D9 wgpu: the graphics device was lost ({reason:?}): {message}");
+                fork_log::error!(target: "d3d9", "NV_D3D9 wgpu: the graphics device was lost ({reason:?}): {message}");
                 GONE.store(true, Ordering::Release);
             }
         });
@@ -7568,13 +7570,13 @@ fn show_on(
     p: &loading::Progress,
 ) {
     match p.done {
-        Some(done) => eprintln!(
+        Some(done) => fork_log::debug!(target: "d3d9",
             "NV_D3D9 wgpu: {}: {} ({:.0}%)",
             p.title,
             p.status,
             done.clamp(0.0, 1.0) * 100.0
         ),
-        None => eprintln!("NV_D3D9 wgpu: {}: {}", p.title, p.status),
+        None => fork_log::debug!(target: "d3d9", "NV_D3D9 wgpu: {}: {}", p.title, p.status),
     }
     let Some(window) = surface else {
         return;
@@ -7661,7 +7663,7 @@ fn capture(
     buffer.unmap();
     if pixels.len() == (width * height * 4) as usize {
         if let Err(e) = std::fs::write(path, shot::bmp(width, height, &pixels)) {
-            eprintln!("NV_SHOT wgpu: {} not written: {e}", path.display());
+            fork_log::warn!(target: "d3d9", "NV_SHOT wgpu: {} not written: {e}", path.display());
         }
     }
 }
@@ -8112,7 +8114,7 @@ impl Drop for Submitter {
         }
         let why = self.failed.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(why) = why {
-            eprintln!("NV_D3D9 wgpu: the queue thread failed after the last submit: {why}");
+            fork_log::error!(target: "d3d9", "NV_D3D9 wgpu: the queue thread failed after the last submit: {why}");
         }
     }
 }

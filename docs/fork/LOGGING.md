@@ -76,4 +76,22 @@ panic!("IDirect3DQuery9::Issue({flags:#x}) is not provided");
 The exit summary (`Log summary: N errors, M warnings, K soft stops (calls...)`) is printed by `engine_platform::end_process`, with a
 last record in the JSON file.
 
-Sites that use it: see `git grep soft_stop`. A site is converted only when the game's own code checks that call's result.
+Sites that use it (`git grep soft_stop`), each with the failure the call documents:
+
+| Call | Result when soft |
+| --- | --- |
+| `BinkOpen` (flags, a file the decoder cannot read, an unmeasured revision) | `0`, no movie |
+| `IDirect3DQuery9::Issue` (other flags), `GetData` of an occlusion query without `NV_D3D9=real` | `D3DERR_INVALIDCALL` |
+| `DirectSoundCreate8` (a device GUID or outer object) | `DSERR_INVALIDPARAM`, a null object |
+| `IDirectSoundBuffer::Lock` (other flags) | `DSERR_INVALIDPARAM` |
+
+A site is converted only when the game's own code checks that call's result. `IDirect3D9::CreateDevice` stays a halt: the game cannot
+run without a device, and the stop names why. The file layer (`FindFirstFileA`, short names, directory listings) is converted by
+the change that fixes it, with the same helper. `fork_log::stop::with_policy` forces a policy on one thread for tests.
+
+## Converted and not yet
+
+Converted to levels: the window layer (`window`), `d3d9-wgpu`'s device (`d3d9`: per-present reports and pipeline timings are
+`debug`; one-time facts `info`; refusals `warn`; device loss `error`), the host's start-up lines, and the runtime messages of
+sound. Not yet: the remaining `eprintln!` of the platform layer's Direct3D recorder and `d3dx`, the thread dump of
+`engine-core` on a stop, and `loading.rs`; they still reach stderr as text and not the JSON file.

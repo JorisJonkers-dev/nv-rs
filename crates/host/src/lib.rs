@@ -137,9 +137,9 @@ impl Host {
         // UI Organizer, when its row is on: after JIP, as xNVSE loads ui_organizer.dll after
         // jip_nvse.dll (`crates/uio`).
         uio::install(&mut engine);
-        eprintln!("{}", choice.describe());
+        fork_log::info!(target: "host", "{}", choice.describe());
         if let Some(note) = &choice.ini_note {
-            eprintln!("{note}");
+            fork_log::info!(target: "host", "{note}");
         }
         // The game's clock (`GetTickCount`, `timeGetTime`, `QueryPerformanceCounter`) runs with
         // the real time from here on, `Sleep` moving it on too (`Engine::clock_now_ms`).
@@ -148,7 +148,7 @@ impl Host {
         let repeatable = repeatable_frames()?;
         if let Some(frames) = repeatable {
             engine.start_repeatable_clock();
-            eprintln!(
+            fork_log::info!(target: "host",
                 "NV_REPEATABLE: a repeatable run of {frames} main frames: virtual clock, stepped threads, \
                  fixed wall clock and process id, queries waited for, window handles left out of NV_D3D9_RECORD"
             );
@@ -237,13 +237,13 @@ impl Host {
             std::env::var("NV_D3D9_HIDDEN").ok().as_deref() == Some("1"),
         ) {
             SoundChoice::None => {}
-            SoundChoice::Off => eprintln!("sound off: the window is hidden"),
+            SoundChoice::Off => fork_log::info!(target: "sound", "sound off: the window is hidden"),
             SoundChoice::Out {
                 device_paced,
                 muted,
             } => {
                 if muted {
-                    eprintln!(
+                    fork_log::info!(target: "sound",
                         "sound off: the window is hidden (NV_SOUND_RECORD records the mix; the speakers get silence)"
                     );
                     engine_platform::sound_out::mute_device();
@@ -271,19 +271,19 @@ impl Host {
             .find(|v| std::env::var_os(v).is_some());
             match stepped_only {
                 Some(v) => {
-                    eprintln!("NV_THREADS=real: {v} needs stepped threads (they run stepped)")
+                    fork_log::warn!(target: "host", "NV_THREADS=real: {v} needs stepped threads (they run stepped)")
                 }
                 None => match engine::real_threads::start(&mut engine) {
                     Ok(()) => {
-                        eprintln!("threads: real (NV_THREADS=stepped runs them one at a time)")
+                        fork_log::info!(target: "host", "threads: real (NV_THREADS=stepped runs them one at a time)")
                     }
-                    Err(why) => eprintln!("{why}"),
+                    Err(why) => fork_log::warn!(target: "host", "{why}"),
                 },
             }
         }
         // Either way the log says how the threads run (an F12 report carries it).
         if engine.real.is_none() {
-            eprintln!("threads: stepped (NV_THREADS=real runs them side by side)");
+            fork_log::info!(target: "host", "threads: stepped (NV_THREADS=real runs them side by side)");
         }
         start_crt_heap(&mut engine, &mut movement);
         start_crt_threads(&mut engine, &mut movement);
@@ -297,7 +297,7 @@ impl Host {
         // null for the code that reads it later: a strict run names each one on stderr.
         if !movement.probe {
             for line in static_init.skip_lines(&engine::static_init::table()) {
-                eprintln!("static initializer skipped: {line}");
+                fork_log::debug!(target: "loader", "static initializer skipped: {line}");
             }
         }
         let ni_init = if engine.is_translated(WIN_MAIN) {
@@ -384,9 +384,9 @@ impl Host {
         // The saves the run wrote, all on disk before the process ends (`NV_SAVE_OUT`).
         save_out::finish(&self.engine);
         if let Some(line) = engine::typed::dual_line(&self.engine) {
-            eprintln!("{line}");
+            fork_log::info!(target: "host", "{line}");
         }
-        eprintln!("NV_REPEATABLE: {frames} main frames run; the run ends");
+        fork_log::info!(target: "host", "NV_REPEATABLE: {frames} main frames run; the run ends");
         true
     }
 }
@@ -478,13 +478,15 @@ pub fn wgpu_cache_path() -> Option<PathBuf> {
 #[cfg(not(windows))]
 pub fn write_linux_adapter_table() -> Option<String> {
     let profile = engine_platform::fork_tables::machine_profile()
-        .map_err(|why| eprintln!("the Linux machine profile is not usable: {why}"))
+        .map_err(
+            |why| fork_log::warn!(target: "host", "the Linux machine profile is not usable: {why}"),
+        )
         .ok()?;
     let text = engine_platform::fork_tables::adapter_table(&profile);
     if let Some(path) = adapter_table_path() {
         let _ = path.parent().map(std::fs::create_dir_all);
         if let Err(why) = std::fs::write(&path, &text) {
-            eprintln!(
+            fork_log::warn!(target: "host",
                 "the adapter table could not be written to {}: {why}",
                 path.display()
             );
