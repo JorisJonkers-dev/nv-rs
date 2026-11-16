@@ -1538,8 +1538,9 @@ fn short_extension(name: &str) -> Option<String> {
 /// `c.esm.bak`; `?.esm` does not find `a b.esm`, `ABE286~1.ESM`). A short name is its
 /// extension ([`short_extension`]), then a base of at least three characters (`X~1`) whose
 /// first two characters are the long name's first two other than a space or a dot, upper case (the
-/// rest may be a hash Windows makes: `D6104~1`). A pattern the known parts cannot decide stops the
-/// run as not provided.
+/// rest may be a hash Windows makes: `D6104~1`), at most 8 characters with its `~` among the first
+/// 7, so a pattern whose literal start has 8 characters and no `~` finds no short name. A pattern
+/// the known parts cannot decide stops the run as not provided.
 fn search_finds(pattern: &[u8], name: &str, shown: &str) -> bool {
     if wild_match(pattern, &ansi_bytes(name)) {
         return true;
@@ -1573,6 +1574,9 @@ fn search_finds(pattern: &[u8], name: &str, shown: &str) -> bool {
         .map(|b| b.to_ascii_uppercase())
         .collect();
     if literal.iter().zip(&known).any(|(a, b)| a != b) {
+        return false;
+    }
+    if literal.len() >= 8 && !literal.contains(&b'~') {
         return false;
     }
     if !base_pattern.contains(&b'*') && base_pattern.len() < 3 {
@@ -3607,6 +3611,28 @@ mod tests_player_files {
         assert_eq!(short_extension("d.esmx").as_deref(), Some("ESM"));
         assert_eq!(short_extension("A.esm"), None);
         assert_eq!(short_extension("c.esm.bak").as_deref(), Some("BAK"));
+    }
+
+    #[test]
+    fn a_long_literal_start_rules_out_a_short_name() {
+        // A long name with spaces has a short name (`ABCDEF~1.BSA` or a hashed one).
+        let name = "Abcdefzz Extra Files.bsa";
+        assert!(short_extension(name).is_some());
+        // 8 or more literal characters without `~`: no short name can match.
+        assert!(!search_finds(b"Abcdefgh*.bsa", name, "test"));
+        assert!(!search_finds(b"ABCDEFGHIJ*.bsa", name, "test"));
+        // The long name still matches where it does.
+        assert!(search_finds(b"Abcdefzz*.bsa", name, "test"));
+        // The first two letters still rule a short name out.
+        assert!(!search_finds(b"Xy*.bsa", name, "test"));
+        assert!(!search_finds(b"Xyzzyxyz~1*.bsa", name, "test"));
+        // A `~` in the literal start, or fewer than 8 characters: undecided, the plain stop.
+        let stops = |pattern: &'static [u8]| {
+            std::panic::catch_unwind(|| search_finds(pattern, name, "test")).is_err()
+        };
+        assert!(stops(b"ABCDEF~1*.bsa"));
+        assert!(stops(b"Abcdefg*.bsa"));
+        assert!(stops(b"Abcdef?h*.bsa"));
     }
 
     #[test]

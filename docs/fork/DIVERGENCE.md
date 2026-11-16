@@ -30,6 +30,14 @@ A new upstream-owned file needs a record in this file, in the same pull request,
 
 The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
 
+### Short-name matching in FindFirstFileA
+- Files: `crates/engine-platform/src/files.rs` (`search_finds`)
+- Upstream approach: upstream rules out a short name by the pattern's first letter only and stops the run on any other pattern that could match a short name it does not know (checked on `origin/main`, 2026-11-16)
+- Fork approach: a pattern's first two letters rule out a short name, and so does a literal start of 8 or more characters without `~` (a short-name base has at most 8 characters, with its `~` among the first 7); a pattern neither rule decides still stops the run
+- Decision: drop when upstream decides these patterns itself
+- Reason: a search such as `<name>*.bsa` in a folder that holds an archive whose long name has spaces stopped the game in its first frame
+- Evidence: JorisJonkers-dev/nv-rs#331; the test `a_long_literal_start_rules_out_a_short_name`
+
 ## Older table
 
 | Fork-only change | Why | Upstream change that makes it unnecessary |
