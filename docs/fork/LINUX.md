@@ -29,7 +29,7 @@ touched.
 
 Not changed, on purpose: the sound output is as the native Linux plan describes it (the shader compiler: see "Shader compiler off Windows" below).
 
-## Platform answers off Windows (stage 2 of `docs/research/nv-rs-linux-playable.md` in nv-linux)
+## Platform answers off Windows
 
 The game's first calls on Linux no longer stop the run. The code is fork-owned and additive:
 `crates/engine-platform/src/fork_platform.rs` (in
@@ -50,7 +50,7 @@ that needs one still stops no run. Tests: `fork_platform::tests` and `unix_tests
 through `FindFirstFileA`, the `/proc/meminfo` parser on fixtures, the paths under a fake `XDG_DATA_HOME`) and
 the clock start is upstream's (`engine::tests`).
 
-## Machine tables of a Linux machine (nv-linux#179)
+## Machine tables of a Linux machine (#182)
 
 Nothing captures the adapter table on Linux, so `engine_platform::fork_tables` writes it. Decision (owner, by time to a
 working game): a shared reference profile, not a per-machine capture. The default is the owner's card, an AMD Radeon
@@ -70,7 +70,7 @@ Sound: see "Sound output" below. Without `NV_SOUND=out` (or `device`) and withou
 
 Not yet known: what the game does on the AMD path with this table (stop lines and counts); that needs the owner's run.
 
-## Sound output (nv-linux#149)
+## Sound output (#171)
 
 The mixer (DirectSound's mixing, the resamplers, 3D placement) is platform-independent; only the device was
 WASAPI. `engine-platform/src/fork_sound.rs` is the device off Windows, behind the same `sound_out::start` and
@@ -81,13 +81,13 @@ WASAPI. `engine-platform/src/fork_sound.rs` is the device off Windows, behind th
   it). Nothing is linked, so no build prerequisite. Under PipeWire the library talks to `pipewire-pulse`; under
   PulseAudio to the server. Prerequisite at run time: Arch `libpulse`, Debian and Ubuntu `libpulse0`, Fedora
   `pulseaudio-libs`.
-- **Layout** (nv-linux#216): `fork_sound::mix()` probes the default sink's channel map once (`pa_context_get_server_info`,
+- **Layout**: `fork_sound::mix()` probes the default sink's channel map once (`pa_context_get_server_info`,
   then `pa_context_get_sink_info_by_name`), converts it to a WAVE speaker mask and returns it, so `device_mix()` and
   `GetSpeakerConfig` follow it: stereo 0x3, quad 0x33, 5.1 0x3F (side 5.1 0x60F), 7.1 0x63F, mono 0x4. A map that is not
   exactly one of these falls back to the nearest layout whose speakers the sink has (else stereo) with one stderr line,
   and the server remixes the rest. No server: stereo. `NV_SOUND_LAYOUT=auto|stereo|5.1|7.1` overrides (`5.1` keeps a
   side-5.1 sink's side speakers); `auto` is the default. The probe is made once per process.
-- **Stream** (nv-linux#217): opened with `pa_stream_new` and an explicit `pa_channel_map` in WAVE order (FL FR FC LFE
+- **Stream** (#221): opened with `pa_stream_new` and an explicit `pa_channel_map` in WAVE order (FL FR FC LFE
   BL BR SL SR, only the mask's bits), 32-bit float at 48000 Hz, 80 ms of latency (`PA_STREAM_ADJUST_LATENCY`); the
   server resamples and remaps by position. The underflow callback counts underruns and the output thread calls
   `Source::starved(count)`; one stderr line per stream says the first happened.
@@ -103,10 +103,10 @@ WASAPI. `engine-platform/src/fork_sound.rs` is the device off Windows, behind th
   fork_sound -- --ignored` plays 0.4 s of a quiet tone on the session's default sink, and 0.4 s on each channel of its
   layout in turn (logging the sink's reported map; `NV_SOUND_LAYOUT=7.1` opens an eight-channel stream). If libpulse is not on the loader path set `NV_PULSE`.
 
-Open: the layout is not re-probed when the default sink changes mid-game (nv-linux#218), the 3D path has not been listened to in a play run, and the launcher does not
+Open: the layout is not re-probed when the default sink changes mid-game (#222), the 3D path has not been listened to in a play run, and the launcher does not
 set `NV_SOUND=out` yet.
 
-## Shader compiler off Windows (nv-linux#178, #197, #200)
+## Shader compiler off Windows (#181)
 
 The six D3DX shader imports (`D3DXCompileShader`, `D3DXGetShaderConstantTable`, `D3DXGetVertexShaderProfile`,
 `D3DXGetPixelShaderProfile`, `D3DXCreateBuffer`, `D3DXAssembleShader`) are registered on every target. On Windows they
@@ -135,7 +135,7 @@ recorded entry is served), and `ID3DXConstantTable`'s reading slots (`GetDesc`, 
 `GetBufferPointer` and `GetBufferSize`, the `CTAB`, answer); both stop the run with a message that says so. The profile
 calls answer `vs_3_0` and `ps_3_0`, the model's caps.
 
-Licence check (nv-linux#200): upstream `COPYING` of vkd3d (the source of the checked build, vkd3d-shader 1.19) is the GNU
+Licence check: upstream `COPYING` of vkd3d (the source of the checked build, vkd3d-shader 1.19) is the GNU
 Lesser General Public License, "either version 2.1 of the License, or (at your option) any later version", and the source
 headers of `libs/vkd3d-shader` say the same. LGPL-2.1-or-later may be used with a GPL-3.0-or-later program; the fork only
 `dlopen`s the library, links nothing and carries none of its code or binaries. `libloading` (ISC) was already in the
@@ -279,7 +279,7 @@ The `rendering` component's Linux job installs Mesa's software Vulkan driver (`m
 `crates/d3d9-wgpu/tests/frame.rs` and `ops.rs` print "no GPU adapter ... skipped" and pass when no adapter opens, so
 `scripts/fork/gpu_gate.py` reads the log, writes the executed and skipped counts to the job summary and fails the job when
 any of them skipped. The driver version is printed in the summary. `window.rs` is Windows only. Replaying a synthetic
-recording with `d3d9-replay` against a stored frame hash is not done yet (tracked in nv-linux).
+recording with `d3d9-replay` against a stored frame hash is not done yet.
 
 ## Window and input (stage 4): `crates/fork-window`
 
@@ -307,10 +307,10 @@ file upstream owns (both in `.fork/allowed-divergence`).
   `d3d9real::held_keys` and `take_input` (the same calls the Windows build makes in `host/player_move.rs`). A close request
   runs the exit hooks and ends the process, as `WM_CLOSE` does. The swap chain follows the window's size. Without a display
   the run stays off screen. The Xvfb smoke also runs `a_guest_program_draws_to_a_window` (`NV_WINDOW_SMOKE=1`).
-- Not done (nv-linux issues): Wayland pointer lock and cursor hold, title and `SetWindowPos` changes after the window is
-  made, gamepads, IME, exclusive full screen.
+- Not done: Wayland pointer lock and cursor hold (#213), title and `SetWindowPos` changes (#214) after the window is
+  made, gamepads (#216), IME (#217), exclusive full screen (#218).
 
-## Direct3D 9 off Windows (nv-linux#181, stage 3a)
+## Direct3D 9 off Windows (#196, stage 3a)
 
 The recorder of `d3d9real.rs` (the game's Direct3D 9 calls recorded as `d3d9_stream::Cmd`) is built on every target. What is
 Windows only in that file (the real `d3d9.dll` forwarding, the window thread and its input, the F12 shot, `NV_FACE_CHECK`)
@@ -325,7 +325,7 @@ Test: `d3d9real::fork::tests::a_guest_program_draws_a_frame_through_the_recorder
 (a cleared corner and the triangle's centre). The Nix CI shell sets `NV_REQUIRE_GPU=1`, so the test fails there when no adapter
 opens; elsewhere it skips with a line. It runs in the `platform` job (engine-platform, inside the `ci` shell).
 
-Not done (3b, the owner's session, nv-linux issues): no run of the game with `NV_D3D9=wgpu NV_REPEATABLE=<frames>`, `GetRenderTargetData` and the read-backs are
+Not done (3b, on a developer machine): no run of the game with `NV_D3D9=wgpu NV_REPEATABLE=<frames>`, `GetRenderTargetData` and the read-backs are
 tested only through the recorder's calls here, and the real-device fallbacks stay Windows only.
 
 ### Display match
