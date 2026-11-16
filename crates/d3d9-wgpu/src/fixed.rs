@@ -49,17 +49,17 @@ pub(crate) fn vertex_shader(diffuse: bool) -> Vec<u32> {
         0x8000_0000,
         0x900F_0000,
         0x0200_001F,
-        0x8005_0000,
+        0x8000_0005,
         0x900F_0001,
     ];
     if diffuse {
-        t.extend([0x0200_001F, 0x800A_0000, 0x900F_0002]);
+        t.extend([0x0200_001F, 0x8000_000A, 0x900F_0002]);
     }
     // dcl_position o0, dcl_texcoord0 o1 (and dcl_color0 o2).
     t.extend([0x0200_001F, 0x8000_0000, 0xE00F_0000]);
-    t.extend([0x0200_001F, 0x8005_0000, 0xE00F_0001]);
+    t.extend([0x0200_001F, 0x8000_0005, 0xE00F_0001]);
     if diffuse {
-        t.extend([0x0200_001F, 0x800A_0000, 0xE00F_0002]);
+        t.extend([0x0200_001F, 0x8000_000A, 0xE00F_0002]);
     }
     t.extend([
         // mad o0.xy, v0, c0, c1
@@ -96,11 +96,11 @@ pub(crate) fn pixel_shader(diffuse: bool) -> Vec<u32> {
         0xFFFF_0300,
         // dcl_texcoord0 v0 (and dcl_color0 v1), dcl_2d s0.
         0x0200_001F,
-        0x8005_0000,
+        0x8000_0005,
         0x900F_0000,
     ];
     if diffuse {
-        t.extend([0x0200_001F, 0x800A_0000, 0x900F_0001]);
+        t.extend([0x0200_001F, 0x8000_000A, 0x900F_0001]);
     }
     t.extend([
         0x0200_001F,
@@ -164,6 +164,19 @@ mod tests {
             let psig = wgsl::signature(&ps);
             assert_eq!(vsig.inputs.len(), 2 + usize::from(diffuse));
             assert_eq!(psig.inputs.len(), 1 + usize::from(diffuse));
+            // The texture coordinates are TEXCOORD0 (usage 5, index 0), the colour COLOR0 (usage 10).
+            let usages = |s: &wgsl::Signature| {
+                s.inputs
+                    .iter()
+                    .map(|(_, m)| (m.usage, m.index))
+                    .collect::<Vec<_>>()
+            };
+            let mut want = vec![(0, 0), (5, 0)];
+            if diffuse {
+                want.push((10, 0));
+            }
+            assert_eq!(usages(&vsig), want);
+            assert_eq!(usages(&psig), want[1..]);
         }
     }
 }
