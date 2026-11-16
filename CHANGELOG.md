@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.4.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.3.0...v0.4.0) (2026-11-16)
+
+
+### Features
+
+* **bench:** a machine-wide lock for bench runs, and runs that shared the machine are marked noisy ([#101](https://github.com/JorisJonkers-dev/nv-rs/issues/101)) ([133b81d](https://github.com/JorisJonkers-dev/nv-rs/commit/133b81d2c4d226cf2bf419cf1f2c8d1c3c45e049))
+* **bench:** chargen scenario and a play-frame script clock ([#81](https://github.com/JorisJonkers-dev/nv-rs/issues/81)) ([42b195d](https://github.com/JorisJonkers-dev/nv-rs/commit/42b195d3ee402ec15fe651211f931ba1e94b10ee))
+* **bench:** nested headless window path, the game's sound clock into a null sink, and world scenarios ([#99](https://github.com/JorisJonkers-dev/nv-rs/issues/99)) ([d2d0ef3](https://github.com/JorisJonkers-dev/nv-rs/commit/d2d0ef3ead28a3befc9b460d9a6d792a10e74e09))
+* **d3d9-wgpu:** NV_PERF, a per-frame CPU timeline of the backend with a spike report ([#97](https://github.com/JorisJonkers-dev/nv-rs/issues/97)) ([55bd979](https://github.com/JorisJonkers-dev/nv-rs/commit/55bd979aa19ae69c77e5c419b3cf3cae6932c878))
+* **dev:** local build, run, smoke, test and check loop ([#68](https://github.com/JorisJonkers-dev/nv-rs/issues/68)) ([527f766](https://github.com/JorisJonkers-dev/nv-rs/commit/527f766ff86e69b2fdd23a4f875c97887c359b74))
+* **dev:** nv-rs-dev affected and ci-lite run CI's crate selection locally ([#75](https://github.com/JorisJonkers-dev/nv-rs/issues/75)) ([80ff2be](https://github.com/JorisJonkers-dev/nv-rs/commit/80ff2beeda5b9bf1b439312362e4730feb0f69a3))
+* **dev:** nv-rs-dev bench, scripted playthrough runs with frame-time, memory and stability reports ([#79](https://github.com/JorisJonkers-dev/nv-rs/issues/79)) ([0c5cb9d](https://github.com/JorisJonkers-dev/nv-rs/commit/0c5cb9da614e3dd162659c071103e501c3a9ccee))
+* **dev:** nv-rs-dev build --opt, and bench runs the optimised play-opt build by default ([#98](https://github.com/JorisJonkers-dev/nv-rs/issues/98)) ([223d88d](https://github.com/JorisJonkers-dev/nv-rs/commit/223d88d624fcbbf4fa58c27aeda1b74268a3b4ad))
+* **dev:** nv-rs-dev matrix, compare and clean, and a timed cold build ([#94](https://github.com/JorisJonkers-dev/nv-rs/issues/94)) ([717730a](https://github.com/JorisJonkers-dev/nv-rs/commit/717730a3c4baa19a256a40265a94fadb5959f486))
+* **fork:** desktop-hint.sh names the focused output per compositor for NV_MONITOR ([#72](https://github.com/JorisJonkers-dev/nv-rs/issues/72)) ([fc531b9](https://github.com/JorisJonkers-dev/nv-rs/commit/fc531b9e0845e6f3c669aee47e49b0005cbe181f))
+* **fork:** NV_MEMLOG memory timeline of guest heap, host RSS and GPU counters ([#70](https://github.com/JorisJonkers-dev/nv-rs/issues/70)) ([c8c8165](https://github.com/JorisJonkers-dev/nv-rs/commit/c8c8165970f9213505d2c681718988d36d5875eb))
+* **host:** keep saves in the port's own Saves folder on Linux, synced to disk ([#90](https://github.com/JorisJonkers-dev/nv-rs/issues/90)) ([afa09e1](https://github.com/JorisJonkers-dev/nv-rs/commit/afa09e1219e0c2a43613afd673523f7f7202d347))
+* **linux:** the game's sound output on PipeWire and PulseAudio, with a null sink fallback ([#55](https://github.com/JorisJonkers-dev/nv-rs/issues/55)) ([acd99da](https://github.com/JorisJonkers-dev/nv-rs/commit/acd99da4e7adb0edd96eaa3dc7b6b1ef440d82d7))
+* **linux:** the game's window and rendering match the display it started on ([#57](https://github.com/JorisJonkers-dev/nv-rs/issues/57)) ([289baac](https://github.com/JorisJonkers-dev/nv-rs/commit/289baac843a7a55a09e5de970042d8ac91eec727))
+* **linux:** the game's window is a real window and its keys, mouse and close reach the game ([#53](https://github.com/JorisJonkers-dev/nv-rs/issues/53)) ([250d03c](https://github.com/JorisJonkers-dev/nv-rs/commit/250d03c2a4c1a9321695526718d3372128298aa0))
+* **log:** fork-log crate with levels, a JSON-lines file, stop and panic records and the soft-stop policy ([#84](https://github.com/JorisJonkers-dev/nv-rs/issues/84)) ([9a7bb60](https://github.com/JorisJonkers-dev/nv-rs/commit/9a7bb60fd4dab310573f7f77c1dda88eafb3d51e))
+* **log:** game event trace for movies, input, audio, render targets, presents and the loading screen ([#88](https://github.com/JorisJonkers-dev/nv-rs/issues/88)) ([2ae74f7](https://github.com/JorisJonkers-dev/nv-rs/commit/2ae74f788e68c5b778dcd2f74d5831582ea47fd3))
+* **log:** levels for the window, d3d9, sound and host messages; soft stops for BinkOpen, queries and DirectSound ([#87](https://github.com/JorisJonkers-dev/nv-rs/issues/87)) ([865b9d8](https://github.com/JorisJonkers-dev/nv-rs/commit/865b9d8336f97289b5849acf5bdcf7ca4c8aa334))
+* **sound:** multichannel layout probe, explicit channel map and underrun reports ([#64](https://github.com/JorisJonkers-dev/nv-rs/issues/64)) ([832d2ea](https://github.com/JorisJonkers-dev/nv-rs/commit/832d2eaf4cde4ddacfab844a028d9d561c1f338e))
+* **viewer:** Discord Rich Presence behind a default feature ([#59](https://github.com/JorisJonkers-dev/nv-rs/issues/59)) ([308d8b4](https://github.com/JorisJonkers-dev/nv-rs/commit/308d8b4cdf007b261a326951934e5c4de78094ca))
+* **window:** idle inhibit, a close that always works, window report; DESKTOPS.md ([#76](https://github.com/JorisJonkers-dev/nv-rs/issues/76)) ([f6e3608](https://github.com/JorisJonkers-dev/nv-rs/commit/f6e3608968739f114260fca1a76ad29c8676c15d))
+
+
+### Bug Fixes
+
+* **coverage:** a missing plan artifact means nothing to measure, not a crash ([#95](https://github.com/JorisJonkers-dev/nv-rs/issues/95)) ([4d2ac5b](https://github.com/JorisJonkers-dev/nv-rs/commit/4d2ac5b2b4dfee613ca6cd3f23432784298c1958))
+* **d3d9-wgpu:** a video-memory budget, a size clamp and memory reports so a runaway game stops before the driver runs out of memory ([#77](https://github.com/JorisJonkers-dev/nv-rs/issues/77)) ([dd79358](https://github.com/JorisJonkers-dev/nv-rs/commit/dd79358c620ef17f42b10b4a3c7be49ab170154f))
+* **d3d9-wgpu:** draw the pre-transformed quad the Bink movie player uses without shaders ([#62](https://github.com/JorisJonkers-dev/nv-rs/issues/62)) ([77409ed](https://github.com/JorisJonkers-dev/nv-rs/commit/77409edd70868b77e00877c22b737a2810368a6e))
+* **d3d9-wgpu:** movie tiles drew one flat colour (wrong usage bits in the built-in shaders) ([#89](https://github.com/JorisJonkers-dev/nv-rs/issues/89)) ([b138485](https://github.com/JorisJonkers-dev/nv-rs/commit/b138485df13dc0e62d2acc03cc94604533783d49))
+* **d3d9:** machine table lines for event and occlusion queries on Linux ([#80](https://github.com/JorisJonkers-dev/nv-rs/issues/80)) ([4260a42](https://github.com/JorisJonkers-dev/nv-rs/commit/4260a42f2dde34db806555efa889c37137b4c801))
+* **fork:** add the uio crate to the release-files lock file ([#58](https://github.com/JorisJonkers-dev/nv-rs/issues/58)) ([61692b6](https://github.com/JorisJonkers-dev/nv-rs/commit/61692b678fd5f6c4d665afe1cfcbc6fc5f2ecace))
+* **linux:** alt-tab back redraws, skipped frames do not grow the queue, a lost device ends the run ([#61](https://github.com/JorisJonkers-dev/nv-rs/issues/61)) ([f7ab726](https://github.com/JorisJonkers-dev/nv-rs/commit/f7ab7263186bfa27be69ddbc148fb44ed1bad0ea))
+* **linux:** first-run settings, Z: folders and host path mapping so the game gets past frame 0 ([#51](https://github.com/JorisJonkers-dev/nv-rs/issues/51)) ([a5f7044](https://github.com/JorisJonkers-dev/nv-rs/commit/a5f70443705bb2d0517303259b236384d49c4a38))
+* **linux:** hold the pointer in the window and scale its motion to the game's screen ([#56](https://github.com/JorisJonkers-dev/nv-rs/issues/56)) ([8e2d619](https://github.com/JorisJonkers-dev/nv-rs/commit/8e2d619d0c9455ee4a8aecdc38518a8a2b630cf2))
+* **linux:** one event loop for the monitor query and the window; NV_RESOLUTION ([#66](https://github.com/JorisJonkers-dev/nv-rs/issues/66)) ([fff7507](https://github.com/JorisJonkers-dev/nv-rs/commit/fff75070701c7e28cb8417a78b9cfdfcd927253f))
+* **linux:** the compositor places the game's window on the current output (Wayland) ([#69](https://github.com/JorisJonkers-dev/nv-rs/issues/69)) ([584935a](https://github.com/JorisJonkers-dev/nv-rs/commit/584935aba281856c80ef06d0f2e165619f5ba863))
+* **linux:** the game's folder is a Z: path so relative Windows paths resolve ([#54](https://github.com/JorisJonkers-dev/nv-rs/issues/54)) ([895e5ab](https://github.com/JorisJonkers-dev/nv-rs/commit/895e5abbab834f5a2410941cf9739831a5ec10c8))
+* **linux:** the generated device caps take textures of any size ([#67](https://github.com/JorisJonkers-dev/nv-rs/issues/67)) ([ef774a0](https://github.com/JorisJonkers-dev/nv-rs/commit/ef774a0c5689db873956b3660ebf49e52af02138))
+* **platform:** never stop a file call for a missing 8.3 short name ([#85](https://github.com/JorisJonkers-dev/nv-rs/issues/85)) ([970425a](https://github.com/JorisJonkers-dev/nv-rs/commit/970425a48bdc5d1e5567f92853d4889be5e410ea))
+* **platform:** NTFS-like 8.3 short names for saves on Linux ([#71](https://github.com/JorisJonkers-dev/nv-rs/issues/71)) ([52604c6](https://github.com/JorisJonkers-dev/nv-rs/commit/52604c64c354bd80acb89f0930c7c5101b964eaf))
+* **platform:** soft stops for the file calls that halted the game ([#93](https://github.com/JorisJonkers-dev/nv-rs/issues/93)) ([a9901f5](https://github.com/JorisJonkers-dev/nv-rs/commit/a9901f53e02bf97778e65642c81f3dce761256ee))
+* **release-files:** stand in for the game patches' wraps too ([#82](https://github.com/JorisJonkers-dev/nv-rs/issues/82)) ([52a7396](https://github.com/JorisJonkers-dev/nv-rs/commit/52a73969e3703aec0c2557dd145ded31d464ea6c))
+* **window:** a key tap shorter than a frame reaches the game; modifier keys are logged ([#96](https://github.com/JorisJonkers-dev/nv-rs/issues/96)) ([84be097](https://github.com/JorisJonkers-dev/nv-rs/commit/84be0972bd99566bba0701d76ce211bbda99c85e))
+
+
+### Performance Improvements
+
+* **ci:** shard the typed shader family across three jobs ([#73](https://github.com/JorisJonkers-dev/nv-rs/issues/73)) ([902c818](https://github.com/JorisJonkers-dev/nv-rs/commit/902c818c352ef18e314d1bca701696d044892969))
+
 ## [0.3.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.2.0...v0.3.0) (2026-11-15)
 
 
