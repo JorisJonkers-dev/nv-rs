@@ -1,0 +1,188 @@
+# Fork-only (JorisJonkers-dev/nv-rs). Line coverage of the engine components a pull request reaches, as one sticky
+# comment: this pull request against the base, the delta, a table per component and the changed lines no test ran
+# (docs/fork/COVERAGE.md). It is NOT part of Pipeline Complete and not a required check: it reports and never blocks.
+# The same affected selection as the build (scripts/fork/components.py), Linux only, cargo-llvm-cov, one job per
+# component. The nightly run (and a manual run) measures every Linux component and stores the result as the baseline
+# the pull requests compare with; with no baseline yet a job measures the base commit itself.
+# The comment job is the only one with a write permission; it runs no repository code (it posts a file the report job
+# rendered), and a pull request from a fork gets no comment (its token cannot write); its report is in the run summary.
+name: Coverage
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+  schedule:
+    - cron: '47 3 * * *'
+
+concurrency:
+  group: coverage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: always
+  CARGO_TERM_PROGRESS_WHEN: never
+  LLVM_COV_VERSION: 0.9.1
+
+jobs:
+  plan:
+    name: Plan coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_jobs: ${{ steps.plan.outputs.has_jobs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/fork/coverage_report.py plan --event "$EVENT" --base "$BASE" --head "$HEAD" >plan.json
+          echo "matrix=$(jq -c '{include: .include}' plan.json)" >>"$GITHUB_OUTPUT"
+          echo "has_jobs=$(jq '.include | length > 0' plan.json)" >>"$GITHUB_OUTPUT"
+          { echo "### Components to measure"; echo; echo "Reason: $(jq -r .reason plan.json)"; echo; jq -r '.include[] | "- \(.component): `\(.args)`"' plan.json; } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-plan
+          path: plan.json
+          retention-days: 7
+
+  measure:
+    name: ${{ matrix.name }}
+    needs: plan
+    if: ${{ needs.plan.outputs.has_jobs == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # A failing component must not turn the run red: the report names what was not measured.
+    continue-on-error: true
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      COMPONENT: ${{ matrix.component }}
+      ARGS: ${{ matrix.args }}
+      GH_TOKEN: ${{ github.token }}
+      IGNORE: '(^|/)tests/|_tests?\.rs$'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: rustup toolchain install && rustup component add llvm-tools
+      # Only the crates.io dependencies (and the installed cargo-llvm-cov) are restored; saved by the nightly run.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          shared-key: cov-${{ matrix.cache }}-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - name: Install cargo-llvm-cov
+        run: command -v cargo-llvm-cov >/dev/null && [ "$(cargo llvm-cov --version | cut -d' ' -f2)" = "$LLVM_COV_VERSION" ] || cargo install --locked "cargo-llvm-cov@$LLVM_COV_VERSION"
+
+      - name: Measure this commit
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # shellcheck disable=SC2086
+          cargo llvm-cov --locked --no-fail-fast --lcov --output-path out/lcov.info --ignore-filename-regex "$IGNORE" $ARGS 2>&1 | tail -n 40
+          cargo llvm-cov report --summary-only --ignore-filename-regex "$IGNORE" | tail -n 3 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The baseline: the last nightly (or manual) run's lcov of this component; with none, the base commit measured here.
+      - name: Baseline
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          run="$(gh run list -R "$REPO" --workflow fork-coverage.yml --branch fork --status success --limit 20 --json databaseId,event \
+            --jq '[.[] | select(.event != "pull_request")][0].databaseId // empty' || true)"
+          if [ -n "$run" ] && gh run download "$run" -R "$REPO" -n "cov-$COMPONENT" -D baseline 2>/dev/null && [ -f baseline/lcov.info ]; then
+            cp baseline/lcov.info out/base.info
+            echo "the last nightly run, run $run" >out/baseline.txt
+          else
+            echo "no baseline run yet: measuring the base commit"
+            git worktree add --detach ../base "$BASE"
+            # shellcheck disable=SC2086
+            (cd ../base && cargo llvm-cov --locked --no-fail-fast --lcov --output-path "$GITHUB_WORKSPACE/out/base.info" --ignore-filename-regex "$IGNORE" $ARGS 2>&1 | tail -n 5) || true
+            echo "the base commit ${BASE:0:10}, measured in this run" >out/baseline.txt
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: cov-${{ matrix.component }}
+          path: out
+          if-no-files-found: ignore
+          retention-days: 30
+
+  report:
+    name: Coverage report
+    needs: [plan, measure]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+      - name: Render the comment
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/fork/coverage_report.py report --dir artifacts --plan artifacts/coverage-plan/plan.json \
+            --base "$BASE" --head "$HEAD" --out comment.md --json summary.json >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-comment
+          path: |
+            comment.md
+            summary.json
+          retention-days: 30
+
+  comment:
+    name: Coverage comment
+    needs: report
+    # A pull request from a fork has a read-only token; it still gets the run summary.
+    if: ${{ !cancelled() && needs.report.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-comment
+      - name: Comment on the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          existing="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- fork-coverage -->"))][0].id // empty')"
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$existing" -F body=@comment.md >/dev/null
+          else
+            gh api --method POST "repos/$REPO/issues/$PR/comments" -F body=@comment.md >/dev/null
+          fi
