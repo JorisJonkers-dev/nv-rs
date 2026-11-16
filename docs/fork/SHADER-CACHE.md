@@ -47,6 +47,29 @@ the adapter), so a driver update is one cold start, not a crash. Layer (c) is pe
 - Counters (hits, misses, stored, damaged, evicted, bytes, I/O time) are logged at the end of the run:
   `NV_D3D9 wgpu: shader cache <root>: N hits, M misses (P% hit), ...`.
 
+## Precompiling a load order
+
+`nv-viewer DATA --precompile-shaders [--shader-root PATH]...` (or `d3d9-precompile [--shader-cache DIR] [--pipelines DIR]
+ROOT...`) fills layers (a) and (b) for a load order without starting the game. Roots are Data folders (or shader package
+files), lowest priority first; the Data folder comes first, each `--shader-root` after it. Packages are found as the game
+finds them (`Shaders/*.sdp`, any case); a package of the same name in a later root replaces the earlier one, as a mod's
+loose file does. The shaders of the surviving packages are deduplicated by content, created on an offscreen device,
+and made on every core with their pipeline libraries (a precompile makes the unlisted shaders' libraries too, which
+the game's warm start leaves to the driver's cache); the driver cache and list are written. It is incremental by
+construction: a hash the store and the driver cache hold costs a lookup. It ends with the counts and the cache summary.
+Shaders that mods add at run time through render injectors reach the device the same way and are cached on their first
+run; the pass covers what the game loader finds in packages. `nvmod run --warm` (nvmod-rs) is a thin caller of the
+viewer flag with the load order's Data roots.
+
+Measured on the vanilla install (16 packages, 15,791 shaders, 1,809 distinct bytecodes), RX 7900 XTX, 16 cores:
+
+| Run | Time | Store hits / misses |
+| --- | --- | --- |
+| empty caches | 2.51 s | 0 / 1809 |
+| again | 0.64 s | 1809 / 0 |
+| a mod root replacing package 002 with 20 shaders, 3 of them changed | 0.64 s | 1797 / 3 (3 stored) |
+| the same mod root again | 0.63 s | 1800 / 0 |
+
 ## Measured
 
 `nv-rs-dev bench run newgame --nested headless --resolution 1920x1080`, RX 7900 XTX (RADV), 16 cores, the vanilla

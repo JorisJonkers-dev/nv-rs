@@ -29,6 +29,7 @@ pub mod identity;
 pub mod loading;
 pub mod memstats;
 mod perf;
+pub mod precompile;
 mod prepare;
 pub mod shader_cache;
 pub mod shot;
