@@ -19,9 +19,6 @@ use super::d3d9device::{
     buffer_store, device_add_ref, device_release, forwarded, guid, iid_is, in_scene,
     wait_for_present, Store, IID_IUNKNOWN,
 };
-// What the `forwarded!` calls hand the real side, which only Windows has.
-#[cfg(windows)]
-use super::d3d9device::Word;
 use crate::{Engine, Ptr};
 use std::collections::HashMap;
 
