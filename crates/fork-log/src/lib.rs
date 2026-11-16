@@ -428,7 +428,10 @@ pub fn final_summary(lines: &[String]) {
         return;
     }
     clear_status();
-    print_header();
+    // A run that never got to name its GPU has no header worth printing.
+    if fact_value("gpu").is_some() {
+        print_header();
+    }
     for l in lines {
         headline(format_args!("{l}"));
     }

@@ -60,3 +60,4 @@ viewer/Cargo.toml  # the fork-presence, fork-memlog, fork-log, d3d9-wgpu and eng
 crates/engine-core/src/mem.rs  # Mem::heap_stats and HeapStats, read-only (no allocation path touched)
 crates/d3d9-wgpu/src/device.rs  # posts the layer's counters to memstats every 30 presents; log lines go through fork_log with a level and the target d3d9 (docs/fork/LOGGING.md); `game` trace events (gpu.*, draw.fixed_quad, present.*, loading.*)
 crates/d3d9-wgpu/build.rs  # a second fingerprint, of src/sm, for the converted-shader cache stamp (docs/fork/SHADER-CACHE.md)
+crates/host/src/topic_index.rs  # the one-time topic index report is an info line of fork-log (a file line, not stderr)
