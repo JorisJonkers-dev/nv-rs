@@ -6,6 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 description = "The core of the engine crates: the game's memory model, Engine, the exe mapping, the static tables, the CRT units and the core of the platform layer (ADR-0006)"
 
+[dependencies]
+# The hitch flight recorder's counters (docs/fork/HITCHES.md): relaxed atomics, nothing else.
+fork-hitch = { path = "../fork-hitch" }
+
 [features]
 # Test support that other engine crates' unit tests use (the form-constructor
 # checker `units::crt::ctor_test`, and for `engine-platform` the addresses and helpers of

@@ -576,6 +576,7 @@ impl Engine {
                 self.platform_calls.insert(i.slot);
                 self.kernel.import_names.insert(i.slot, import);
                 crate::profile::name_import(i.slot, &i.dll, &i.name);
+                fork_hitch::name_import(i.slot, import);
                 n += 1;
             }
         }

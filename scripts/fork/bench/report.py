@@ -109,6 +109,15 @@ def markdown(summary):
     ck = m.get("clock") or {}
     if ck.get("ratio") is not None:
         out += ["", "## Game clock", "", f"Game time / wall time {ck['ratio']:.3f} over {ck['play_s']} s of play; walking speed {ck['speed']} units/s; fell {ck['fall']} units, landed: {ck['settled']}; longest stand-still after moving {ck['stuck_s']} s."]
+    hi = m.get("recorder")
+    if hi:
+        out += ["", "## Hitches", "", f"{hi['count']} hitches ({hi['per_min']} a minute), {hi['slow_windows']} slow windows, p99 {hi['p99_ms']} ms. {hi['verdict']}"]
+        if hi["by_cause"]:
+            out.append("By cause: " + ", ".join(f"{k} x{v['n']} ({v['ms']} ms)" for k, v in hi["by_cause"].items()))
+        if hi["over_pct"]:
+            out.append("Frames over: " + ", ".join(f"{k} ms {v}%" for k, v in hi["over_pct"].items()))
+        for w in hi["worst"]:
+            out.append(f"- worst {w['wall_ms']} ms at frame {w['frame']}: {w['cause']}, trigger {w['trigger']}, top {', '.join(w.get('top', [])) or '-'}")
     out += ["", "## Counters", ""]
     out.append(
         f"wgpu errors {m['wgpu_errors']}, skipped draws {m['skipped_draws']} of {m['draws']}, stops {m['stops']}, "

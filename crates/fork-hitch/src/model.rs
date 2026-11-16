@@ -164,7 +164,8 @@ pub fn classify(r: &Rec, loading: bool) -> Verdict {
     let wait = g(Counter::WaitNs);
     let kernel = g(Counter::KernelWaitNs);
     let device = g(Counter::DeviceWaitNs);
-    let render = g(Counter::RenderWaitNs);
+    let join = g(Counter::RenderWaitNs) + g(Counter::SyncWaitNs);
+    let render = join + wait;
     let gpu = g(Counter::GpuWaitNs);
     let platform = g(Counter::PlatformNs);
     let named_in_platform = file + sound + wait + kernel + device;
@@ -177,7 +178,7 @@ pub fn classify(r: &Rec, loading: bool) -> Verdict {
     let shader = g(Counter::ShaderNs);
     let texture = g(Counter::TextureNs) + g(Counter::BufferNs);
     // What no counter covers is the game's own code (and the host's work around it).
-    let residual = wall.saturating_sub(platform.saturating_add(render).saturating_add(gpu));
+    let residual = wall.saturating_sub(platform.saturating_add(join).saturating_add(gpu));
     let mut buckets: Vec<(Cause, u64)> = vec![
         (Cause::FileIo, file),
         (Cause::PipelineCreate, pipeline),
@@ -330,6 +331,8 @@ pub struct Stats {
     /// bucket holding everything slower.
     pub hist: Vec<u32>,
     pub slow_windows: u64,
+    /// Hitches whose cause is a loading screen: expected, so left out of the rate.
+    pub loading_hitches: u64,
 }
 
 pub const BUCKET_US: u64 = 100;
@@ -350,6 +353,7 @@ impl Default for Stats {
             max_ns: 0,
             hist: vec![0; BUCKETS],
             slow_windows: 0,
+            loading_hitches: 0,
         }
     }
 }
@@ -381,6 +385,9 @@ impl Stats {
 
     pub fn hitch(&mut self, w: Worst) {
         self.hitches += 1;
+        if w.cause == Cause::Loading {
+            self.loading_hitches += 1;
+        }
         let i = Cause::ALL.iter().position(|c| *c == w.cause).unwrap_or(10);
         self.by_cause[i].0 += 1;
         self.by_cause[i].1 += (w.wall_ms * 1000.0) as u64;
@@ -419,13 +426,13 @@ impl Stats {
         }
     }
 
-    /// Hitches a minute over `minutes` of play.
+    /// Hitches a minute of the measured frames, loading-screen hitches left out.
     pub fn per_minute(&self) -> f64 {
         let minutes = self.total_wall_ns as f64 / 6e10;
         if minutes <= 0.0 {
             0.0
         } else {
-            self.hitches as f64 / minutes
+            self.hitches.saturating_sub(self.loading_hitches) as f64 / minutes
         }
     }
 
@@ -594,5 +601,25 @@ mod tests {
         assert!(text.contains("hitches: 7 in 6 frames"), "{text}");
         assert!(text.contains("file_io x4"), "{text}");
         assert!(text.contains("worst: 200.0 ms at frame 3"), "{text}");
+    }
+
+    #[test]
+    fn loading_hitches_are_counted_but_not_in_the_rate() {
+        let mut s = Stats::default();
+        for _ in 0..600 {
+            s.frame(100_000_000, Screen::Play); // one minute
+        }
+        for cause in [Cause::Loading, Cause::Loading, Cause::FileIo] {
+            s.hitch(Worst {
+                top: Vec::new(),
+                frame: 1,
+                end_ms: 1,
+                wall_ms: 90.0,
+                cause,
+                trigger: "none".into(),
+            });
+        }
+        assert_eq!(s.hitches, 3);
+        assert!((s.per_minute() - 1.0).abs() < 0.01, "{}", s.per_minute());
     }
 }

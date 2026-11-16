@@ -37,6 +37,7 @@ counters! {
     DeviceWaitNs "device_wait" Ns,
     WaitNs "object_wait" Ns,
     RenderWaitNs "render_wait" Ns,
+    SyncWaitNs "sync_wait" Ns,
     FileNs "file" Ns,
     SoundNs "sound" Ns,
     // Files, every thread.
@@ -83,12 +84,23 @@ pub(crate) fn add(c: Counter, v: u64) {
     VALUES[c as usize].fetch_add(v, Ordering::Relaxed);
 }
 
+/// [`add`] for a counter that only one thread ever writes (the main thread's platform time and
+/// call count): a plain load and store, without the locked add's cost of about 2 ns. A second
+/// writer would lose updates, never corrupt one.
+#[inline]
+pub(crate) fn add_single_writer(c: Counter, v: u64) {
+    let a = &VALUES[c as usize];
+    a.store(a.load(Ordering::Relaxed).wrapping_add(v), Ordering::Relaxed);
+}
+
 /// All values now.
 pub(crate) fn read() -> [u64; N] {
     let mut out = [0; N];
     for (o, v) in out.iter_mut().zip(&VALUES) {
         *o = v.load(Ordering::Relaxed);
     }
+    // The call count is the sampler's sequence word, which each call moves on anyway.
+    out[Counter::PlatformCalls as usize] += crate::sampler::calls();
     out
 }
 

@@ -9,3 +9,7 @@ publish = false
 
 [dependencies]
 fork-log = { path = "../fork-log" }
+
+[[bench]]
+name = "hot_path"
+harness = false

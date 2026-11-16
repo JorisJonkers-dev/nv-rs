@@ -297,6 +297,20 @@ pub fn on() -> bool {
     ON.load(Relaxed)
 }
 
+/// The shadow stack of the game's main thread (innermost last) for the hitch sampler; empty
+/// while another game thread holds the engine. Racy by design: each word is an atomic load.
+fn shadow_for_hitch(out: &mut [u32]) -> usize {
+    if GAME_THREAD.load(Relaxed) != 1 {
+        return 0;
+    }
+    let depth = (DEPTH.load(Relaxed) as usize).min(MAX_DEPTH);
+    let take = depth.min(out.len());
+    for (o, s) in out.iter_mut().zip(&STACK[depth - take..depth]) {
+        *o = s.load(Relaxed);
+    }
+    take
+}
+
 /// Reads `NV_PROFILE` once (each `Engine::new` asks; only the first reads it).
 pub fn init_from_env() {
     static READ: OnceLock<()> = OnceLock::new();
@@ -305,6 +319,10 @@ pub fn init_from_env() {
         ON.store(wanted, Relaxed);
         COUNT_THREADS.store(wanted && thread_calls_file().is_some(), Relaxed);
         UNDER_ON.store(wanted && !under_roots().is_empty(), Relaxed);
+        if wanted {
+            // The hitch sampler names the running guest functions from the shadow stack.
+            fork_hitch::set_stack_source(shadow_for_hitch);
+        }
     });
 }
 

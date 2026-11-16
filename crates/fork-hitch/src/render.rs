@@ -187,6 +187,13 @@ fn samples_json(o: &mut String, s: &Samples, name_of: &dyn Fn(u32) -> String) {
         }
         o.push('}');
     }
+    o.push_str("],\"last_call_chain\":[");
+    for (i, a) in s.last_chain.iter().enumerate() {
+        if i > 0 {
+            o.push(',');
+        }
+        let _ = write!(o, "\"{a:08x}\"");
+    }
     o.push_str("],\"hot\":[");
     let mut hot: Vec<_> = s.hot.iter().collect();
     hot.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
@@ -223,6 +230,9 @@ pub fn hitch_line(h: &Hitch<'_>) -> String {
                 ", in the game's code for {}/{} samples",
                 s.in_guest, s.n
             );
+            if let Some(a) = s.hot.keys().next().or(s.last_chain.last()) {
+                let _ = write!(line, " (after {a:08x})");
+            }
         }
     }
     line

@@ -1595,6 +1595,10 @@ impl Device {
         pool: u32,
     ) {
         let _perf = crate::perf::span(crate::perf::Cat::Create);
+        let _hitch = fork_hitch::span(
+            fork_hitch::Counter::TextureNs,
+            Some(fork_hitch::Counter::TextureN),
+        );
         self.keep_levels(texture, levels, pool);
         self.st.bound.forget(texture);
         let count = if cube {
@@ -1685,6 +1689,10 @@ impl Device {
 
     pub(crate) fn create_buffer(&mut self, buffer: Handle, index: bool, length: u32, format: u32) {
         let _perf = crate::perf::span(crate::perf::Cat::Create);
+        let _hitch = fork_hitch::span(
+            fork_hitch::Counter::BufferNs,
+            Some(fork_hitch::Counter::BufferN),
+        );
         self.st.bound.forget(buffer);
         let size = u64::from(length.max(4).div_ceil(4) * 4);
         let charge = match self.budget.take(1, 1, size) {
@@ -1920,6 +1928,7 @@ impl Device {
         let pool = Arc::clone(&s.pool);
         s.send(Box::new(move |queue: &wgpu::Queue| {
             let _perf = crate::perf::span(crate::perf::Cat::QueueSubmit);
+            let _hitch = fork_hitch::span(fork_hitch::Counter::QueueNs, None);
             let delay = SUBMIT_DELAY_FOR_TESTS.load(Ordering::Relaxed);
             if delay > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(u64::from(delay)));
@@ -1961,6 +1970,7 @@ impl Device {
     /// window, a screen that submits by itself, the end); its failure, if one, said here.
     pub(crate) fn sync(&self) {
         let _perf = crate::perf::span(crate::perf::Cat::Sync);
+        let _hitch = fork_hitch::span(fork_hitch::Counter::GpuWaitNs, None);
         if let Some(s) = &self.submitter {
             s.sync();
         }
@@ -1968,6 +1978,7 @@ impl Device {
 
     pub(crate) fn upload_surface(&mut self, surface: Handle, data: &[u8]) {
         let _perf = crate::perf::span(crate::perf::Cat::Upload);
+        let _hitch = fork_hitch::span(fork_hitch::Counter::TextureNs, None);
         // The stream carries whole levels (`UploadSurface`, checked when read); one shorter all
         // the same changes only the bytes it carries, so the rest still reads back.
         if self.kept.contains_key(&surface) {
@@ -2043,6 +2054,7 @@ impl Device {
         data: &d3d9_stream::Data<'_>,
     ) {
         let _perf = crate::perf::span(crate::perf::Cat::Upload);
+        let _hitch = fork_hitch::span(fork_hitch::Counter::BufferNs, None);
         let Some(Obj::Buffer(b, shadow)) = self.objects.get_mut(&buffer) else {
             return;
         };
@@ -5122,7 +5134,17 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         self.made_on_draws += 1;
         let started = std::time::Instant::now();
         let (vkey, pkey, tasks) = self.module_tasks(key, vs, ps, inputs);
-        self.make_modules(tasks, 1, true, &mut |_| {});
+        {
+            let _hitch = fork_hitch::span(
+                fork_hitch::Counter::ShaderNs,
+                Some(fork_hitch::Counter::ShaderN),
+            );
+            self.make_modules(tasks, 1, true, &mut |_| {});
+        }
+        let _hitch = fork_hitch::span(
+            fork_hitch::Counter::PipelineNs,
+            Some(fork_hitch::Counter::PipelineN),
+        );
         let job = self.pipeline_job(key, ps, &vkey, &pkey, attributes, topology, samplers)?;
         let t = std::time::Instant::now();
         let made = build_pipeline(
@@ -5802,6 +5824,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// (`size` of them, rows packed); none for another level or another size.
     pub(crate) fn read_surface(&self, surface: Handle, size: u32) -> Option<Vec<u8>> {
         let _perf = crate::perf::span(crate::perf::Cat::ReadBack);
+        let _hitch = fork_hitch::span(fork_hitch::Counter::GpuWaitNs, None);
         self.kept
             .get(&surface)
             .filter(|b| b.len() == size as usize)
@@ -5888,6 +5911,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         pitch: u32,
     ) -> Option<d3d9_stream::Rows> {
         let _perf = crate::perf::span(crate::perf::Cat::ReadBack);
+        let _hitch = fork_hitch::span(fork_hitch::Counter::GpuWaitNs, None);
         let src = self.surface_of(source)?;
         let read = if src.samples > 1 {
             // Direct3D 9 refuses a multisampled source (D3DERR_INVALIDCALL, as documented and
@@ -6147,6 +6171,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     pub(crate) fn present(&mut self, frame: u32) {
         self.perf.frame_end();
         let _perf = crate::perf::span(crate::perf::Cat::Present);
+        fork_hitch::add(fork_hitch::Counter::Presents, 1);
         let now = std::time::Instant::now();
         if let Some(t) = self.last_present {
             self.made.longest_frame = self.made.longest_frame.max(now - t);

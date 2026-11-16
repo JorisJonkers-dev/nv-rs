@@ -2301,6 +2301,13 @@ pub fn create_file_a(
     _template: u32,
 ) -> u32 {
     let name = full_path(e, &e.mem.cstr(path.addr()));
+    // The hitch recorder: file time, and the call's argument class (extension and a hash only).
+    let _file = fork_hitch::span_split(
+        fork_hitch::Counter::FileNs,
+        fork_hitch::Counter::FileOtherNs,
+    );
+    fork_hitch::add(fork_hitch::Counter::FileOps, 1);
+    fork_hitch::note_file(&name);
     // A name whose last part holds a character no file name can (`?`, `*`, `<`, `>`, `|`, `"`:
     // the `?` a search answers for a character the code page cannot hold, say) opens nothing:
     // `ERROR_INVALID_NAME` (measured, `measure/xnvse-rest/findfile-ansi-2026-11-14.txt`: the
@@ -2584,6 +2591,11 @@ pub fn write_file(
         overlapped == 0,
         "WriteFile: overlapped writes are not provided"
     );
+    let _file = fork_hitch::span_split(
+        fork_hitch::Counter::FileNs,
+        fork_hitch::Counter::FileOtherNs,
+    );
+    fork_hitch::add(fork_hitch::Counter::FileOps, 1);
     if written.addr() != 0 {
         e.mem.set_u32(written.addr(), 0);
     }
@@ -2644,6 +2656,10 @@ pub fn read_file(
         overlapped == 0,
         "ReadFile: overlapped reads are not provided"
     );
+    let _file = fork_hitch::span_split(
+        fork_hitch::Counter::FileNs,
+        fork_hitch::Counter::FileOtherNs,
+    );
     if read.addr() != 0 {
         e.mem.set_u32(read.addr(), 0);
     }
@@ -2667,6 +2683,8 @@ pub fn read_file(
     };
     e.mem.write(buffer.addr(), &bytes);
     let got = bytes.len() as u32;
+    fork_hitch::add(fork_hitch::Counter::FileReads, 1);
+    fork_hitch::add(fork_hitch::Counter::FileBytes, u64::from(got));
     if let Some(file) = open_file(e, handle) {
         file.position = position + u64::from(got);
     }
