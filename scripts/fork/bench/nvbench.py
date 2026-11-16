@@ -83,6 +83,8 @@ def load_hitches(run_dir):
         h = r.get("hitches", {})
         return {
             "count": h.get("count", 0),
+            "in_play": h.get("in_play", h.get("count", 0)),
+            "loads": h.get("loads", {"n": 0, "ms": 0}),
             "per_min": h.get("per_min", 0),
             "slow_windows": h.get("slow_windows", 0),
             "by_cause": h.get("by_cause", {}),
@@ -138,7 +140,9 @@ def verdict_checks(m, plan, run_wall=None):
         # A run whose hitches pass the recorder's flag level is marked: a stutter is a failure of the run (the level
         # is NV_HITCH_FLAG_PER_MIN, 3 a minute by default; the flags are the recorder's own).
         bad = [f for f in h["flags"] if f in ("hitches_per_min_high", "p99_over_20ms", "slow_windows")]
-        add("no hitch flags", not bad, f"{h['count']} hitches ({h['per_min']}/min)" + (f": {', '.join(bad)}" if bad else ""))
+        loads = h.get("loads") or {"n": 0, "ms": 0}
+        add("no hitch flags", not bad, f"{h.get('in_play', h['count'])} hitches in play ({h['per_min']}/min), {loads['n']} slow frames of loads ({loads['ms']} ms)"
+            + (f": {', '.join(bad)}" if bad else ""))
     for name, fn in (plan.checks if plan else []):
         ok, detail = fn(m)
         add(name, ok, detail)

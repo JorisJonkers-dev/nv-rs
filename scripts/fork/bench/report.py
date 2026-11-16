@@ -111,7 +111,9 @@ def markdown(summary):
         out += ["", "## Game clock", "", f"Game time / wall time {ck['ratio']:.3f} over {ck['play_s']} s of play; walking speed {ck['speed']} units/s; fell {ck['fall']} units, landed: {ck['settled']}; longest stand-still after moving {ck['stuck_s']} s."]
     hi = m.get("recorder")
     if hi:
-        out += ["", "## Hitches", "", f"{hi['count']} hitches ({hi['per_min']} a minute), {hi['slow_windows']} slow windows, p99 {hi['p99_ms']} ms. {hi['verdict']}"]
+        loads = hi.get("loads") or {"n": 0, "ms": 0}
+        out += ["", "## Hitches", "", f"{hi.get('in_play', hi['count'])} hitches in play ({hi['per_min']} a minute), {loads['n']} slow frames of loads ({loads['ms']} ms), "
+                f"{hi['slow_windows']} slow windows, p99 {hi['p99_ms']} ms. {hi['verdict']}"]
         if hi["by_cause"]:
             out.append("By cause: " + ", ".join(f"{k} x{v['n']} ({v['ms']} ms)" for k, v in hi["by_cause"].items()))
         if hi["over_pct"]:

@@ -331,8 +331,10 @@ pub struct Stats {
     /// bucket holding everything slower.
     pub hist: Vec<u32>,
     pub slow_windows: u64,
-    /// Hitches whose cause is a loading screen: expected, so left out of the rate.
+    /// Hitches that belong to a load (a loading screen, or a world change with none): load time,
+    /// not stutter, so left out of the rate, and their wall time kept as its own number.
     pub loading_hitches: u64,
+    pub loading_hitch_ns: u64,
 }
 
 pub const BUCKET_US: u64 = 100;
@@ -354,6 +356,7 @@ impl Default for Stats {
             hist: vec![0; BUCKETS],
             slow_windows: 0,
             loading_hitches: 0,
+            loading_hitch_ns: 0,
         }
     }
 }
@@ -387,6 +390,7 @@ impl Stats {
         self.hitches += 1;
         if w.cause == Cause::Loading {
             self.loading_hitches += 1;
+            self.loading_hitch_ns += (w.wall_ms * 1e6) as u64;
         }
         let i = Cause::ALL.iter().position(|c| *c == w.cause).unwrap_or(10);
         self.by_cause[i].0 += 1;
@@ -426,13 +430,18 @@ impl Stats {
         }
     }
 
-    /// Hitches a minute of the measured frames, loading-screen hitches left out.
+    /// Hitches in steady play: those that do not belong to a load.
+    pub fn play_hitches(&self) -> u64 {
+        self.hitches.saturating_sub(self.loading_hitches)
+    }
+
+    /// Hitches a minute of the measured frames, the hitches of loads left out.
     pub fn per_minute(&self) -> f64 {
         let minutes = self.total_wall_ns as f64 / 6e10;
         if minutes <= 0.0 {
             0.0
         } else {
-            self.hitches.saturating_sub(self.loading_hitches) as f64 / minutes
+            self.play_hitches() as f64 / minutes
         }
     }
 
@@ -456,6 +465,13 @@ impl Stats {
             head.push_str(&format!(" {l} ms {:.2}%,", pct(n)));
         }
         out.push(head.trim_end_matches(',').to_string());
+        if self.loading_hitches > 0 {
+            out.push(format!(
+                "loads: {} slow frames, {} ms (not in the rate)",
+                self.loading_hitches,
+                self.loading_hitch_ns / 1_000_000
+            ));
+        }
         let mut causes: Vec<String> = Cause::ALL
             .iter()
             .zip(self.by_cause)
@@ -620,6 +636,11 @@ mod tests {
             });
         }
         assert_eq!(s.hitches, 3);
+        assert_eq!((s.play_hitches(), s.loading_hitch_ns), (1, 180_000_000));
         assert!((s.per_minute() - 1.0).abs() < 0.01, "{}", s.per_minute());
+        assert!(s
+            .lines()
+            .iter()
+            .any(|l| l == "loads: 2 slow frames, 180 ms (not in the rate)"));
     }
 }

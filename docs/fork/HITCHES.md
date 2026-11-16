@@ -42,7 +42,7 @@ trace's `menu.loading` and `load.thread`, or `slow:<Win32 call>` for a platform 
 
 | Cause | Chosen when |
 | --- | --- |
-| `loading` | the screen is a loading screen, or a loading event is in the preceding 500 ms |
+| `loading` | the screen is a loading screen, or a load event is in the preceding 500 ms: a loading kind of the game trace, or `world.change` (a change of worldspace, which a console teleport makes with no loading screen). A `cell.change` inside a worldspace, as when walking across a cell border, is play |
 | `gc/alloc` | 10 000 page faults (about 40 MiB of fresh pages) or 32 MiB of resident growth in the frame, and the faults cost a fifth of it |
 | `file_io` | file calls on the main thread hold a third of the frame |
 | `pipeline_create`, `shader_compile` | pipeline or shader-module creation holds a third |
@@ -75,7 +75,8 @@ At the end of every run, `run-summary-<unix>-<pid>.json` is written **in the fol
 (`exit`, `stop`, `panic`, `signal:TERM`/`INT`/`HUP`, or `running`), `log` (the JSON log's file name), `meta` (version, build time,
 profile, GPU, driver, session, resolution), `duration_s`, `play_s`, `loading_s`, `frames` (frames that are not loading), `frame_ms`
 (`avg`, `p50`, `p95`, `p99`, `max`, `fps`, `low1_fps` = 1000/p99, `low01_fps`), `over_pct` (percent over 16.7, 33.4, 50, 100 ms),
-`hitches` (`count`, `per_min`, `slow_windows`, `by_cause`), `worst` (five: `frame`, `run_ms`, `wall_ms`, `cause`, `trigger`, `top`: the
+`hitches` (`count`: all slow frames; `in_play`: those that are not a load; `per_min`: `in_play` a minute; `slow_windows`;
+`loads`: `n` and `ms`, the slow frames of loads and their wall time; `by_cause`), `worst` (five: `frame`, `run_ms`, `wall_ms`, `cause`, `trigger`, `top`: the
 sampler's call and hot guest addresses), `peaks` (`rss_mb`, `heap_mb`, `vram_mb`, `gtt_mb`), `soft_stops`, `errors`, `warnings`,
 `other_viewers`, `flags`, `verdict`.
 
@@ -83,7 +84,9 @@ The file is written on a clean exit, on a stop, in the panic hook, on SIGTERM, S
 signal would have ended it), and every 30 seconds with `"ended":"running"`, so a SIGKILL or a power cut leaves the last one.
 `nv-rs-dev runs` marks a `running` summary whose process is gone as `unclean_exit`.
 
-Flags: `hitches_per_min_high`, `p99_over_20ms` (the level is `NV_HITCH_FLAG_P99_MS`), `fps_below_target`, `loading_over_limit`,
+Flags: `hitches_per_min_high` (only hitches in steady play count: the slow frames of a load, with or without a loading screen,
+are load time, reported under `hitches.loads` and never in the rate; a loading screen's frames are also in `loading_s` and
+`loading_over_limit`), `p99_over_20ms` (the level is `NV_HITCH_FLAG_P99_MS`), `fps_below_target`, `loading_over_limit`,
 `slow_windows`, `soft_stops`, `errors`, `stopped` (a stop or a panic), `killed` (a signal), `unclean_exit`, `noisy_machine` (another
 `nv-viewer` process ran, Linux). Rates are not judged before 20 s of frames. `verdict` is one line: `OK: 143 fps, p99 7.1 ms, 0 hitches
 (0.0/min)`, or `FLAGGED:`/`FAILED:` with the flags and the worst hitch.

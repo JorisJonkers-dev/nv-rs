@@ -884,6 +884,15 @@ class CliTests(unittest.TestCase):
             self.assertIn("5.5/min", check["detail"])
             self.assertIn("## Hitches", report.markdown(s))
             self.assertIn("file_io x9", report.markdown(s))
+            # A run whose slow frames are loads: shown as load time, and no flag.
+            loads = dict(summary, flags=["killed"], hitches={"count": 4, "in_play": 1, "per_min": 0.5, "slow_windows": 0,
+                                                             "loads": {"n": 3, "ms": 4500}, "by_cause": {"loading": {"n": 3, "ms": 4500}}})
+            (run / "run-summary-1-2.json").write_text(json.dumps(loads))
+            s = nvbench.analyze_dir(run)
+            check = [c for c in s["verdict"]["checks"] if c["name"] == "no hitch flags"][0]
+            self.assertTrue(check["ok"])
+            self.assertIn("1 hitches in play (0.5/min), 3 slow frames of loads (4500 ms)", check["detail"])
+            self.assertIn("3 slow frames of loads (4500 ms)", report.markdown(s))
 
 
 if __name__ == "__main__":

@@ -711,17 +711,26 @@ fn hot_names(s: Option<&sampler::Samples>) -> Vec<String> {
     out
 }
 
+/// Whether a slow frame belongs to a load: a loading screen, or a load event in the moments
+/// before it. A change of worldspace (`world.change`) is a load even with no loading screen, as
+/// a console teleport's is; a cell change inside a worldspace (walking across a cell border) is
+/// play.
+fn in_load<'a>(screen: Screen, kinds: impl IntoIterator<Item = &'a str>) -> bool {
+    screen == Screen::Loading
+        || kinds.into_iter().any(|k| {
+            k.starts_with("loading.")
+                || k.starts_with("load.")
+                || k == "menu.loading"
+                || k == "world.change"
+        })
+}
+
 /// A frame over the limit: classify it, collect its context, write the record.
 #[cold]
 fn report_hitch(rec: &mut Recorder, r: &Rec, median: u64, epoch: u64) {
     let now = r.end_ms * 1_000_000;
     let events = recent_events(now_ns(), CONTEXT_MS);
-    let loading = r.ctx.screen == Screen::Loading
-        || events.iter().any(|e| {
-            e.kind.starts_with("loading.")
-                || e.kind.starts_with("load.")
-                || e.kind == "menu.loading"
-        });
+    let loading = in_load(r.ctx.screen, events.iter().map(|e| e.kind.as_str()));
     let verdict = classify(r, loading);
     // The trigger: the newest event of the context, with its age; a slow call names itself.
     let trigger = events.last().map_or_else(
@@ -1244,6 +1253,50 @@ mod tests {
             report_hitch(&mut rec, &r, 7_000_000, 0);
         }
         assert!(rec.burst_records > BURST_RECORDS);
+    }
+
+    /// A console teleport: a 1.5 s frame of the game's own code right after `world.change`, with
+    /// no loading screen, is a load; the same frame with no load event is a stall in play.
+    #[test]
+    fn a_teleports_load_is_load_time_and_a_stall_in_play_is_a_hitch() {
+        let _ring = ring_lock();
+        let _turn = sampler::turn();
+        let mut rec = Recorder::new(cfg(&[("NV_HITCH_SUMMARY_SECS", "0")]));
+        let mut r = Rec {
+            idx: 300,
+            end_ms: 9000,
+            wall_ns: 1_500_000_000,
+            ..Rec::default()
+        };
+        r.ctx.screen = Screen::Play;
+        rec.stats.frame(r.wall_ns, Screen::Play);
+        event("world.change", 1);
+        report_hitch(&mut rec, &r, 7_000_000, 0);
+        assert_eq!(rec.stats.worst[0].cause, Cause::Loading);
+        assert_eq!(
+            (rec.stats.loading_hitches, rec.stats.play_hitches()),
+            (1, 0)
+        );
+        // Past the event's context: the same frame is a stall in play.
+        let later = Rec {
+            end_ms: 20_000,
+            ..r
+        };
+        std::thread::sleep(std::time::Duration::from_millis(CONTEXT_MS + 50));
+        report_hitch(&mut rec, &later, 7_000_000, 0);
+        assert_eq!((rec.stats.hitches, rec.stats.loading_hitches), (2, 1));
+        assert_eq!(rec.stats.play_hitches(), 1);
+    }
+
+    #[test]
+    fn a_world_change_is_a_load_and_a_cell_border_is_play() {
+        assert!(in_load(Screen::Loading, []));
+        assert!(in_load(Screen::Play, ["screen.menu", "world.change"]));
+        assert!(in_load(Screen::Menu, ["loading.begin"]));
+        assert!(in_load(Screen::Play, ["load.cell"]));
+        assert!(in_load(Screen::Menu, ["menu.loading"]));
+        assert!(!in_load(Screen::Play, ["cell.change", "gpu.render_target"]));
+        assert!(!in_load(Screen::Play, []));
     }
 
     #[test]

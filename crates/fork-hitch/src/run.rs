@@ -275,10 +275,13 @@ pub fn build(i: &Input<'_>) -> String {
     }
     let _ = write!(
         o,
-        "}},\"hitches\":{{\"count\":{},\"per_min\":{:.2},\"slow_windows\":{},\"by_cause\":{{",
+        "}},\"hitches\":{{\"count\":{},\"in_play\":{},\"per_min\":{:.2},\"slow_windows\":{},\"loads\":{{\"n\":{},\"ms\":{}}},\"by_cause\":{{",
         s.hitches,
+        s.play_hitches(),
         s.per_minute(),
-        s.slow_windows
+        s.slow_windows,
+        s.loading_hitches,
+        s.loading_hitch_ns / 1_000_000
     );
     let mut first = true;
     for (c, (n, us)) in Cause::ALL.iter().zip(s.by_cause) {
@@ -451,6 +454,35 @@ mod tests {
         );
     }
 
+    /// Ten slow frames in a minute: a world's loads (a console teleport's included) are load
+    /// time and raise no flag; the same frames in steady play do.
+    #[test]
+    fn loads_are_not_flagged_and_stalls_in_play_are() {
+        let hitches = |cause| {
+            let mut s = steady(60, 7);
+            for k in 0..10 {
+                s.hitch(Worst {
+                    top: Vec::new(),
+                    frame: k,
+                    end_ms: k * 1000,
+                    wall_ms: 1500.0,
+                    cause,
+                    trigger: "world.change 0 ms before".into(),
+                });
+            }
+            s
+        };
+        let (m, p, t) = (BTreeMap::new(), BTreeMap::new(), defaults());
+        let loads = hitches(Cause::Loading);
+        let f = flags(&input(&loads, &m, &p, &t, "exit"));
+        assert!(!f.contains(&"hitches_per_min_high"), "{f:?}");
+        let text = build(&input(&loads, &m, &p, &t, "exit"));
+        assert!(text.contains("\"loads\":{\"n\":10,\"ms\":15000}"), "{text}");
+        let stalls = hitches(Cause::GameLogic);
+        let f = flags(&input(&stalls, &m, &p, &t, "exit"));
+        assert!(f.contains(&"hitches_per_min_high"), "{f:?}");
+    }
+
     #[test]
     fn the_summary_is_one_line_of_json_with_the_documented_keys() {
         let mut s = steady(60, 7);
@@ -477,6 +509,8 @@ mod tests {
             "\"low1_fps\"",
             "\"over_pct\":{\"16.7\"",
             "\"by_cause\":{\"loading\":{\"n\":1",
+            "\"in_play\":0",
+            "\"loads\":{\"n\":1,\"ms\":90}",
             "\"top\":[\"0040abcd\"]",
             "\"peaks\":{\"rss_mb\":4096}",
             "\"gpu\":\"test \\\"gpu\\\"\"",
