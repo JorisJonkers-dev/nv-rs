@@ -109,10 +109,17 @@ requires = []
 runs_on = "both"
 
 [[component]]
+name = "hitch"
+purpose = "The hitch flight recorder: a per-frame ring, hitch detection with cause and trigger, a sampler for a stuck frame, the per-run summary file (docs/fork/HITCHES.md). Fork-owned"
+crates = ["fork-hitch"]
+requires = ["log"]
+runs_on = "both"
+
+[[component]]
 name = "rendering"
 purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), and the shader compiler seam off Windows (cache and libvkd3d-shader)"
 crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader"]
-requires = ["formats", "window-layer", "log"]
+requires = ["formats", "window-layer", "log", "hitch"]
 runs_on = "both"
 windows = "required"
 
@@ -130,7 +137,7 @@ windows = "required"
 name = "integration"
 purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
 crates = ["engine", "host", "play-patch", "nv-viewer"]
-requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch"]
 runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not
@@ -193,7 +200,7 @@ pr = "always"
 name = "native-saves"
 purpose = "Saving on Linux end to end without game data: the game's save calls through the engine's file layer, the copy-out landing the files with sync and rename, the folder listed and read back by a new run, and the write failures that must be logged, never stop the game"
 crates = []
-requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "hitch"]
 runs_on = "both"
 linux = "required"
 pr = "affected"

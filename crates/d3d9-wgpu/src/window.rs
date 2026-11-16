@@ -400,6 +400,10 @@ impl Window {
         ]
         .map(|filter| device.push_error_scope(filter));
         self.surface.configure(device, &self.config);
+        fork_hitch::set_meta(
+            "resolution",
+            &format!("{}x{}", self.config.width, self.config.height),
+        );
         let mut refused = None;
         for scope in scopes.into_iter().rev() {
             if let Some(e) = crate::device::block_on(scope.pop()) {

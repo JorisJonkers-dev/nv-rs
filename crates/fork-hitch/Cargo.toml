@@ -1,0 +1,11 @@
+[package]
+name = "fork-hitch"
+version = "0.1.0"
+description = "Fork-owned hitch flight recorder: a per-frame ring, hitch detection with a cause and a trigger, a sampler for the frame that is stuck (docs/fork/HITCHES.md)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+fork-log = { path = "../fork-log" }

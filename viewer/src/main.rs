@@ -137,6 +137,9 @@ fn main() {
     }
     // Logging (docs/fork/LOGGING.md): the JSON file and the panic hook, before anything logs.
     fork_log::init();
+    // The hitch flight recorder and the run summary (docs/fork/HITCHES.md).
+    fork_hitch::init();
+    set_run_meta();
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let args = match parse(&raw) {
         Ok(Some(args)) => args,
@@ -241,6 +244,7 @@ fn main() {
             Duration::from_secs_f64(s.max(0.0))
         });
     let mut trace = host::fork_trace::Trace::default();
+    let mut last_ctx = fork_hitch::Context::default();
     loop {
         fork_log::set_frame(game.movement.main_frames);
         game.set_keys_down(&[]);
@@ -259,6 +263,18 @@ fn main() {
             host::end_process(0);
         }
         trace.sample(&game.engine);
+        let ctx = hitch_context(&game.engine);
+        if ctx.cell != last_ctx.cell {
+            fork_hitch::event("cell.change", u64::from(ctx.cell));
+        }
+        if ctx.world != last_ctx.world {
+            fork_hitch::event("world.change", u64::from(ctx.world));
+        }
+        if ctx.screen != last_ctx.screen {
+            fork_hitch::event(&format!("screen.{}", ctx.screen.name()), 0);
+        }
+        last_ctx = ctx;
+        fork_hitch::frame_end(&ctx);
         if let Some(log) = &mut frame_log {
             log.record(&mut game.engine);
         }
@@ -271,6 +287,9 @@ fn main() {
                     memlog_line(m, now, frames, game.engine.mem.heap_stats())
                 );
             }
+        }
+        if frames % 300 == 0 {
+            hitch_peaks(game.engine.mem.heap_stats());
         }
         if !status_every.is_zero() && last.map_or(true, |at| at.elapsed() >= status_every) {
             last = Some(Instant::now());
@@ -293,6 +312,79 @@ fn main() {
         game.movement.summary()
     );
     host::end_process(1);
+}
+
+/// What the run summary says about the build and the session (no paths, no game data).
+fn set_run_meta() {
+    fork_hitch::set_meta("version", env!("CARGO_PKG_VERSION"));
+    fork_hitch::set_meta(
+        "profile",
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "optimised"
+        },
+    );
+    let built = std::env::current_exe()
+        .and_then(|p| std::fs::metadata(p)?.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs());
+    fork_hitch::set_meta("built_unix", &built.to_string());
+    fork_hitch::set_meta("os", std::env::consts::OS);
+    let session = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        "wayland"
+    } else if std::env::var_os("DISPLAY").is_some() {
+        "x11"
+    } else {
+        "none"
+    };
+    fork_hitch::set_meta("session", session);
+    fork_hitch::set_meta(
+        "desktop",
+        &std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
+    );
+}
+
+/// What the recorder records of the game's state each frame: the screen, the player's cell and
+/// world space (form ids) and position, read from guest memory (a few loads).
+fn hitch_context(e: &engine_core::Engine) -> fork_hitch::Context {
+    const PLAYER: u32 = 0x011d_ea3c;
+    let player = e.mem.u32(PLAYER);
+    let (mut cell, mut world, mut pos) = (0, 0, [0.0; 3]);
+    if player != 0 {
+        pos = [0x30, 0x34, 0x38].map(|o| e.mem.f32(player + o));
+        let c = e.mem.u32(player + 0x40);
+        if c != 0 {
+            cell = e.mem.u32(c + 0x0c);
+            let w = e.mem.u32(c + 0xc0);
+            if w != 0 {
+                world = e.mem.u32(w + 0x0c);
+            }
+        }
+    }
+    let screen = match host::uncap::screen(e) {
+        host::uncap::Screen::Play => fork_hitch::Screen::Play,
+        host::uncap::Screen::Menu => fork_hitch::Screen::Menu,
+        host::uncap::Screen::Loading => fork_hitch::Screen::Loading,
+    };
+    fork_hitch::Context {
+        cell,
+        world,
+        pos,
+        screen,
+    }
+}
+
+/// The run summary's memory peaks (MiB): the process, the guest heap, the card (Linux).
+fn hitch_peaks(h: engine_core::HeapStats) {
+    let host = fork_memlog::host_now();
+    fork_hitch::peak("rss_mb", host.rss_peak.max(host.rss) >> 20);
+    fork_hitch::peak("heap_mb", h.used >> 20);
+    if let Some(c) = fork_memlog::card_now() {
+        fork_hitch::peak("vram_mb", c.vram_used >> 20);
+        fork_hitch::peak("gtt_mb", c.gtt_used >> 20);
+    }
 }
 
 /// One `NV_MEMLOG` line: the heap's counters, the host process and the GPU layer's, read now.

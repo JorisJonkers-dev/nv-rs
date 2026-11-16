@@ -10,6 +10,8 @@ publish = false
 [dependencies]
 # Logging: levels, a JSON file, soft stops (docs/fork/LOGGING.md).
 fork-log = { path = "../crates/fork-log" }
+# The hitch flight recorder (docs/fork/HITCHES.md).
+fork-hitch = { path = "../crates/fork-hitch" }
 # The game's own translated code (crates/engine), started on the player's FalloutNV.exe.
 host = { path = "../crates/host" }
 
