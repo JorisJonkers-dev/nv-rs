@@ -8,7 +8,7 @@
 
 STREAM is a path or the name of a stream in the streams folder (`doc-room` is `doc-room.nvrs` there). The streams are
 recordings of the game (`NV_D3D9_RECORD`, cut by `pack`): private, they stay on this machine and never go into a
-repository. A run waits for the bench lock like `bench run` does (`--wait-timeout SECONDS` gives up with status 3,
+repository. A run waits for the bench lock like `bench run` does (a run is stopped after 300 s; `--wait-timeout SECONDS` gives up with status 3,
 `--no-lock` skips it for a run that gives no numbers); the lock holder is named in the waiting message. If another
 nv-viewer ran during the measurement the line `NOISY` is printed.
 """
@@ -45,7 +45,7 @@ def listing(streams=STREAMS):
     return sorted(p for p in streams.glob("*.nvrs")) if streams.is_dir() else []
 
 
-def run_locked(argv, wait_timeout=None, use_lock=True, exe=None, other=lock.other_viewers, out=print):
+def run_locked(argv, wait_timeout=None, use_lock=True, exe=None, other=lock.other_viewers, out=print, timeout=300):
     """Runs the binary with `argv` under the bench lock; the exit status."""
     held = lock.BenchLock(wait_timeout=wait_timeout, out=out)
     if use_lock and not held.acquire():
@@ -62,7 +62,11 @@ def run_locked(argv, wait_timeout=None, use_lock=True, exe=None, other=lock.othe
         t = threading.Thread(target=watch, daemon=True)
         t.start()
         noisy["n"] = other()
-        rc = subprocess.call([str(exe or binary()), *argv])
+        try:
+            rc = subprocess.call([str(exe or binary()), *argv], timeout=timeout)
+        except subprocess.TimeoutExpired:
+            out(f"the run was stopped after {timeout} s")
+            rc = 124
         stop.set()
         if noisy["n"]:
             out(f"NOISY: {noisy['n']} other nv-viewer process(es) ran during the measurement")

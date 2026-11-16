@@ -7,7 +7,7 @@
 //! d3d9-replay-bench synth OUT [--frames N] [--draws N] [--textures N] [--size WxH]
 //!                                                     a made-up scene as a container
 //! d3d9-replay-bench run   FILE [--backend null|wgpu|vulkan|all] [--size WxH] [--warmup N]
-//!                         [--passes N] [--runs N] [--split] [--gpu]
+//!                         [--passes N] [--runs N] [--max-seconds N] [--pin CPU] [--split] [--gpu]
 //! ```
 //!
 //! Measurement runs go through `nv-rs-dev replay run`, which takes the bench lock.
@@ -291,8 +291,18 @@ fn run(args: &[String]) -> Result<(), String> {
         // Read when the device is made (d3d9-wgpu's `open`).
         std::env::set_var("NV_REPLAY_GPU_TIMING", "1");
     }
+    // Bounded: a backend's runs stop once `--max-seconds` (default 20) have gone on it.
+    let budget = std::time::Duration::from_secs(number(args, "--max-seconds", 20)? as u64);
+    if let Some(cpu) = flag(args, "--pin") {
+        pin(cpu.parse().map_err(|_| "--pin CPU".to_string())?);
+    }
     for name in &backends {
+        let began = std::time::Instant::now();
         for r in 1..=runs {
+            if r > 1 && began.elapsed() > budget {
+                println!("{name}: stopped after {} runs (--max-seconds)", r - 1);
+                break;
+            }
             let mut target: Box<dyn Target> = match name.as_str() {
                 "null" => Box::new(null::Null::new()),
                 "wgpu" => Box::new(WgpuTarget::new(has(args, "--gpu").then_some(total_frames))),
@@ -322,6 +332,19 @@ fn run(args: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Pins the calling thread, and the threads it makes after, to one CPU (Linux).
+fn pin(cpu: usize) {
+    #[cfg(target_os = "linux")]
+    // SAFETY: a zeroed cpu_set_t with one bit set, for the calling thread.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        libc::CPU_SET(cpu, &mut set);
+        libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = cpu;
 }
 
 fn ms(ns: &[f64]) -> Vec<f64> {
