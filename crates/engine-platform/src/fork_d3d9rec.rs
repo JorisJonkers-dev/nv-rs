@@ -130,7 +130,8 @@ pub(super) fn make_stream(e: &mut Engine, which: Backends) -> Stream {
         eprintln!("NV_D3D9={name}: there is no real Direct3D 9 here: wgpu draws instead");
     }
     let wanted_thread = real(e).render_thread;
-    let wgpu_cache = real(e).wgpu_cache.clone();
+    let (shader_settings, wgpu_cache) =
+        d3d9_wgpu::shader_cache::plan(real(e).wgpu_cache.clone(), !cfg!(test));
     // To the game's window when windows are real ones (the stream is made at `Direct3DCreate9`,
     // before the window is known; a device with no real window stays off screen).
     let output = if windows_wanted() {
@@ -139,7 +140,7 @@ pub(super) fn make_stream(e: &mut Engine, which: Backends) -> Stream {
         d3d9_wgpu::Output::Offscreen
     };
     let backend = |answers: Option<std::sync::Arc<d3d9_wgpu::QueryAnswers>>| {
-        let b = d3d9_wgpu::WgpuBackend::new(output);
+        let b = d3d9_wgpu::WgpuBackend::new(output).with_shader_cache(shader_settings.as_ref());
         let b = match wgpu_cache.clone() {
             Some(dir) => b.with_cache_dir(dir),
             None => b,

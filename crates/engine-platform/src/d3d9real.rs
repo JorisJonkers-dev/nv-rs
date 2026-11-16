@@ -1217,8 +1217,9 @@ fn backend_of(
     warm: bool,
     wgpu_cache: Option<std::path::PathBuf>,
 ) -> Box<dyn d3d9_stream::Backend> {
+    let (shader_settings, wgpu_cache) = d3d9_wgpu::shader_cache::plan(wgpu_cache, true);
     let wgpu = |output| {
-        let b = d3d9_wgpu::WgpuBackend::new(output);
+        let b = d3d9_wgpu::WgpuBackend::new(output).with_shader_cache(shader_settings.as_ref());
         match wgpu_cache.clone() {
             Some(dir) => b.with_cache_dir(dir),
             None => b,
