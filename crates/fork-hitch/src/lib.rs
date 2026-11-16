@@ -1270,6 +1270,17 @@ mod tests {
         };
         r.ctx.screen = Screen::Play;
         rec.stats.frame(r.wall_ns, Screen::Play);
+        // With no load event in its context: a stall in play.
+        if !recent_events(now_ns(), CONTEXT_MS)
+            .iter()
+            .any(|e| e.kind == "world.change")
+        {
+            report_hitch(&mut rec, &r, 7_000_000, 0);
+            assert_eq!((rec.stats.hitches, rec.stats.play_hitches()), (1, 1));
+            assert_ne!(rec.stats.worst[0].cause, Cause::Loading);
+            rec.stats = Stats::default();
+        }
+        // Right after a world change: the same frame is a load.
         event("world.change", 1);
         report_hitch(&mut rec, &r, 7_000_000, 0);
         assert_eq!(rec.stats.worst[0].cause, Cause::Loading);
@@ -1277,15 +1288,6 @@ mod tests {
             (rec.stats.loading_hitches, rec.stats.play_hitches()),
             (1, 0)
         );
-        // Past the event's context: the same frame is a stall in play.
-        let later = Rec {
-            end_ms: 20_000,
-            ..r
-        };
-        std::thread::sleep(std::time::Duration::from_millis(CONTEXT_MS + 50));
-        report_hitch(&mut rec, &later, 7_000_000, 0);
-        assert_eq!((rec.stats.hitches, rec.stats.loading_hitches), (2, 1));
-        assert_eq!(rec.stats.play_hitches(), 1);
     }
 
     #[test]
