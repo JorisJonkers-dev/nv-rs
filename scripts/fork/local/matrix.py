@@ -219,13 +219,19 @@ def build_ref(repo, label, sha, spec):
     return {"status": "built", "seconds": secs}, exe, wt
 
 
+def failure_detail(text):
+    """The lines that say what failed (test names, errors), not the tail of the noise."""
+    keys = [ln.strip() for ln in text.splitlines() if re.search(r"\bFAILED\b|^error(\[|:)|panicked at|# ci-lite: FAILED", ln.strip())]
+    return " | ".join(dict.fromkeys(keys))[-400:] or text.strip()[-300:]
+
+
 def test_ref(wt, base_sha):
     """The affected components' Linux tests (nv-rs-dev ci-lite) against the baseline commit."""
     t0 = time.time()
     env = dev_env(NV_DEV_REPO=wt, NV_DEV_TARGET=TARGET)
     r = subprocess.run([DEV, "ci-lite", base_sha or "origin/fork"], env=env, text=True, capture_output=True)
     return {"status": "pass" if r.returncode == 0 else "fail", "seconds": round(time.time() - t0, 1),
-            "detail": "" if r.returncode == 0 else (r.stdout + r.stderr).strip()[-300:]}
+            "detail": "" if r.returncode == 0 else failure_detail(r.stdout + "\n" + r.stderr)}
 
 
 def bench_help():

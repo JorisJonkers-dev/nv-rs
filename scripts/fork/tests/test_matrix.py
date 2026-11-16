@@ -89,6 +89,15 @@ class Env(unittest.TestCase):
         return rc, buf.getvalue()
 
 
+class DetailTests(unittest.TestCase):
+    def test_failure_detail_keeps_the_failing_lines(self):
+        text = "noise\ntest engine::a ... ok\ntest engine::b ... FAILED\nmore noise " * 50 + "\nerror: test failed, to rerun pass `-p x`\ntail noise"
+        d = matrix.failure_detail(text)
+        self.assertIn("engine::b ... FAILED", d)
+        self.assertIn("error: test failed", d)
+        self.assertNotIn("tail noise", d)
+
+
 class SpecTests(Env):
     def test_spec_file_and_flags(self):
         p = self.tmp / "s.toml"
