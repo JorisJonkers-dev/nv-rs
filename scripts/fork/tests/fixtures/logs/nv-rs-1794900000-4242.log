@@ -13,5 +13,5 @@
 2026-11-17T07:20:11.300Z ERROR stop f1260: soft stop: IDirectSoundBuffer::Lock: flags 0x19 (the game gets the failure result and goes on) [10]
 2026-11-17T07:20:12.000Z ERROR stop f1300: soft stop: IDirectSoundBuffer::Lock: flags 0x1a (the game gets the failure result and goes on) [11]
 2026-11-17T07:20:12.700Z ERROR stop f1340: soft stop: IDirectSoundBuffer::Lock: flags 0x1b (the game gets the failure result and goes on) [12]
-2026-11-17T07:20:14.000Z WARN  files f1500: FindFirstFileA(C:\Users\someone\Games\Fallout New Vegas\Data\x.esp): not found
+2026-11-17T07:20:14.000Z WARN  files f1500: FindFirstFileA(%USERPROFILE%\Games\Fallout New Vegas\Data\x.esp): not found
 2026-11-17T07:20:20.000Z ERROR stop f2210: Game's main stopped in frame 2210: IDirect3DQuery9::GetData(0x4) is not provided (in 0044fb20 00401000 0040a1c0)
