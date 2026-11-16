@@ -109,6 +109,19 @@ pub(crate) fn read_call() -> Option<Seen> {
     None
 }
 
+/// The chain of the last platform call the main thread made, whether it is still in it or not:
+/// for a thread stuck in the game's own code it names where the game last came from.
+pub(crate) fn stale_chain() -> ([u32; CHAIN], usize) {
+    let mut chain = [0; CHAIN];
+    for (c, s) in chain.iter_mut().zip(&CALL.chain) {
+        *c = s.load(Ordering::Relaxed);
+    }
+    (
+        chain,
+        (CALL.depth.load(Ordering::Relaxed) as usize).min(CHAIN),
+    )
+}
+
 /// A source of the running guest chain (the profiler's shadow stack): copies up to `out.len()`
 /// addresses, innermost last, and says how many.
 pub type StackSource = fn(&mut [u32]) -> usize;
@@ -130,6 +143,8 @@ pub struct Samples {
     pub calls: HashMap<(u32, u32, u32, u32), u32>,
     /// Guest function address -> samples it was on the chain of.
     pub hot: HashMap<u32, u32>,
+    /// The last platform call's chain at the latest in-game sample (innermost last).
+    pub last_chain: Vec<u32>,
     /// The longest a platform call had run at a sample, nanoseconds.
     pub longest_call_ns: u64,
 }
@@ -170,6 +185,8 @@ pub(crate) fn sample(epoch: u64, now_ns: u64) {
         }
         None => {
             s.in_guest += 1;
+            let (chain, depth) = stale_chain();
+            s.last_chain = chain[..depth].to_vec();
             for a in &guest[..guest_n] {
                 *s.hot.entry(*a).or_default() += 1;
             }

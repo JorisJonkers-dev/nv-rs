@@ -645,6 +645,16 @@ fn hot_names(s: Option<&sampler::Samples>) -> Vec<String> {
     let mut hot: Vec<_> = s.hot.iter().collect();
     hot.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
     out.extend(hot.into_iter().take(3).map(|(a, _)| format!("{a:08x}")));
+    if out.is_empty() && s.in_guest > 0 {
+        // Stuck in the game's own code: where it last came from.
+        out.extend(
+            s.last_chain
+                .iter()
+                .rev()
+                .take(3)
+                .map(|a| format!("after:{a:08x}")),
+        );
+    }
     out
 }
 
