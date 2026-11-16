@@ -21,6 +21,7 @@ list entry and the row below. Keep both lists as small as possible.
 | `crates/fork-presence` (new), `viewer/src/main.rs` (two hooks), `viewer/Cargo.toml`, `Cargo.toml`, `Cargo.lock` | Discord Rich Presence while the game runs (docs/fork/DISCORD.md); upstream has none (checked 2026-11-15) | Upstream adding presence |
 | `d3d9-wgpu/src/fixed.rs` (new), hooks in `device.rs`, `lib.rs`, a test in `tests/frame.rs` | A draw with no shaders of pre-transformed vertices (`D3DFVF_XYZRHW`, TEX1, DIFFUSE), which the Bink movie player uses for every frame, was skipped: the screen stayed blank during a movie | Upstream providing the fixed-function path |
 | `d3d9-wgpu/src/budget.rs` (new), hooks in `device.rs`, `lib.rs`, `window.rs`, a test in `tests/frame.rs` | A budget for the video memory the layer makes (`NV_GPU_BUDGET_MB`, default 80 % of the first DRM card's VRAM): a texture or buffer past it, or a texture side over 16384, is refused with a `stop:` line, and a window client area under 16 pixels a side gets no swap chain; the amdgpu driver ran out of memory once and took the compositor with it | The game goes on without the object; no upstream equivalent |
+| `host/src/fixes.rs`, `docs/PLAYTESTING.md`: `NV_FPS_LIMIT` | A plain name for the play frame limit (`iFrameLimit`, 0: unlimited) that the Linux docs use; `NV_FRAME_LIMIT` is unchanged and wins when both are set | Upstream naming the variable itself |
 | `README.md` | Fork banner | None; fork-owned text |
 
 ## Redundancy check after the second sync of 2026-11-15
