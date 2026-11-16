@@ -211,7 +211,13 @@ mod tests {
             std::fs::read(kept.join("data/config/Mod.ini")).unwrap(),
             b"[List]\r\nMaxWidth=100\r\n"
         );
-        assert!(!kept.join("Data").exists());
+        // No second folder in the game's case (read from the listing: a case-insensitive file
+        // system answers `exists` for either case).
+        let names: Vec<_> = std::fs::read_dir(&kept)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["data"]);
         assert_eq!(
             std::fs::read(game.join("Data/Config/Mod.ini")).unwrap(),
             b"[List]\r\nMaxWidth=350\r\n"
