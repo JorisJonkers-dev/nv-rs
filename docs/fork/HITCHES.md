@@ -191,14 +191,30 @@ before.
 
 ### The second measurement
 
-Not made yet: the A/B of this build (`NV_HITCH=off` against the default, alternating, four runs each, the same scenario) is the
-check of the 1% target in the game. Commands:
+Measured 2026-11-16 on the `play-opt` build of this branch with the cost cuts above, merged with `fork` of the day:
+`nv-rs-dev bench run newgame --threads real --nested headless --resolution 2560x1440 --vram-limit-pct 50 --perf`, the same
+scenario and settings as the first measurement. `NV_HITCH=off` and the default (`on`) alternated, four runs each, under the
+bench lock; no run flagged noisy, every verdict a pass. Play-screen frames only.
+
+| Run | `NV_HITCH=off` fps | p99 ms | 1% low | process CPU % | `on` fps | p99 ms | 1% low | process CPU % |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 232.1 | 9.8 | 84 | 81.3 | 249.7 | 7.6 | 106 | 84.7 |
+| 2 | 247.3 | 7.2 | 110 | 75.1 | 251.8 | 7.4 | 109 | 80.1 |
+| 3 | 254.5 | 7.2 | 110 | 85.8 | 255.6 | 7.2 | 111 | 77.6 |
+| 4 | 256.7 | 7.0 | 114 | 90.9 | 253.8 | 7.2 | 111 | 83.0 |
+| Median | 250.9 | 7.2 | 110 | 83.6 | 252.8 | 7.3 | 110 | 81.5 |
+
+With the recorder on, the median fps is 0.8% higher than with it off, the median p99 0.06 ms (0.8%) higher, and the
+median 1% low the same. The difference is inside the run-to-run spread (the off runs alone span 232 to 257 fps), so the
+recorder's cost is under the 1% target. The first measurement's 8% is gone.
+
+To repeat it:
 
 ```sh
 cd ~/Projects/JorisJonkers-dev/worktrees/nv-rs/hitch
 export NV_DEV_TARGET=~/.cache/nv-rs/target-hitchovh   # the play-opt build of this branch
 for i in 1 2 3 4; do
-  NV_HITCH=off nv-rs-dev bench run newgame --threads real
-  nv-rs-dev bench run newgame --threads real
+  NV_HITCH=off nv-rs-dev bench run newgame --threads real --nested headless --resolution 2560x1440 --perf
+  nv-rs-dev bench run newgame --threads real --nested headless --resolution 2560x1440 --perf
 done
 ```
