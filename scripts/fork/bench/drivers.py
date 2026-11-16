@@ -3,6 +3,7 @@ rate (docs/fork/BENCH.md). Each takes a Driver and an options dict (`scale` shor
 
 # Form ids of the base game (numbers only; scenarios.PLACES and friends hold the same).
 OPENING_QUEST = "104c1c"
+OPENING_QUEST_NAME = "VCG01"  # its editor id, for its script's variables
 STAGES_FREE = (50, 55, 200)  # 50 removes the sitting package, 55 gives movement and looking back, 200 ends the quest
 ROUTE_TOWN = [(10.0, 0.0), (4.0, 14.0)] * 4  # (seconds forward, turn counts per 10 ms in the first second): a loop
 
@@ -96,14 +97,48 @@ def warm(d, seconds=3.0):
 
 def free_player(d):
     """The quest stages that give the player movement and looking back (once per session), then play again with the
-    boxes the stages bring dismissed."""
+    boxes the stages bring dismissed.
+
+    The opening runs on its own clock too: its quest script steps the early stages on a timer, and the end of the
+    doctor's first spoken line sets stage 5, which puts the sitting package back on the player (and starts the timer to
+    stage 7, which does it again). When that line ends after these stages, which depends on how long the start-up took,
+    the player is held by the package again a few seconds later: movement and looking enabled, but nothing moves. So the
+    timer is stopped here, and `ensure_walks` takes a package that came back off before each measured script."""
     if getattr(d, "freed", False):
         return True
     d.console_open()
     for stage in (50, 55):
         d.console_line(f"setstage {OPENING_QUEST} {stage}", 0.6)
+    d.console_line(f"set {OPENING_QUEST_NAME}.bRunTimer to 0", 0.6)
     d.freed = True
     return d.console_close(quiet=0.5)
+
+
+def walks(d, keys=("w", "s"), seconds=0.4, units=5.0):
+    """Whether a short step moves the player (forward, else back: a wall in front stops one of them only)."""
+    for key in keys:
+        before = d.position()
+        d.hold((key,), seconds)
+        d.wait(0.2)
+        if moved(before, d.position(), units):
+            return True
+    return False
+
+
+def ensure_walks(d, tries=2):
+    """Closed loop: the player answers the movement keys, or the opening's package that came back (free_player) is
+    taken off by the console and the step tried again. False (and a note) when it still does not walk."""
+    for attempt in range(tries + 1):
+        if walks(d):
+            return True
+        if attempt == tries:
+            break
+        d.note("the player does not walk: the opening's package is taken off again")
+        d.console_open()
+        d.console_line("player.removescriptpackage", 0.6)
+        d.console_close(quiet=0.5)
+    d.note("the player still does not walk")
+    return False
 
 
 def at_doc_house(d, opts):
@@ -153,6 +188,7 @@ def visit(d, opts, name):
     d.visited = (getattr(d, "visited", None) or []) + [name]
     phase(d, name + ".warm", "start")
     warm(d)
+    ensure_walks(d)
     phase(d, name + ".warm", "end")
     phase(d, name + ".measured", "start")
     measured(d, opts)

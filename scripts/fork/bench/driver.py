@@ -13,9 +13,14 @@ SCREEN_COL, PX, PY, PZ, FDELTA = 8, 5, 6, 7, 2
 
 
 def parse_tail(text):
-    """Rows (frame, screen, x, y, z, fdelta) from the tail of a frame log; the first partial line is dropped."""
+    """Rows (frame, screen, x, y, z, fdelta) from the tail of a frame log. The first line is dropped (the tail starts
+    inside it), and so is a last line the viewer has not finished writing: cut after a column, its screen would read
+    as an empty string, not "play", and a closed loop waiting for the play screen would tap keys into the game."""
+    lines = text.split("\n")[1:]
+    if lines:
+        lines.pop()  # the text after the last newline: empty, or a line still being written
     rows = []
-    for line in text.splitlines()[1:]:
+    for line in lines:
         p = line.split("\t")
         if len(p) > SCREEN_COL and p[0].isdigit():
             try:

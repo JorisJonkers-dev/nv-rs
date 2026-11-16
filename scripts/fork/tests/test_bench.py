@@ -604,6 +604,61 @@ class DriverTests(unittest.TestCase):
         import driver
         text = "7\t1\t0.01\t0\t0\t1.5\t2.5\t3.5\tmenu\n8\t1\t0.01\t0\t0\t1.5\t2.5\t3.5\tplay\n9\t1\t0.0"
         self.assertEqual([(r[0], r[1]) for r in driver.parse_tail(text)], [(8, "play")])
+        # A last line cut right after the position: its screen is not an empty string (a closed loop would read it as
+        # "not play" and tap keys into the game).
+        cut = text[: text.rindex("\n") + 1] + "9\t1\t0.01\t0\t0\t1.5\t2.5\t3.5\t"
+        self.assertEqual([r[1] for r in driver.parse_tail(cut)], ["play"])
+        self.assertEqual(driver.parse_tail(cut + "pl"), driver.parse_tail(cut))
+
+    def test_ensure_walks_takes_the_opening_package_off_when_the_player_does_not_move(self):
+        import driver
+        import drivers
+
+        class Proc:
+            def poll(self):
+                return None
+
+        class Vi:
+            def __init__(self):
+                self.keys, self.held = [], False
+
+            def tap(self, key, hold):
+                self.keys.append(key)
+
+            def hold(self, keys, seconds):
+                self.keys.append("+".join(keys))
+                if not self.held:  # the package holds the player until the console took it off
+                    return
+                pos[0] += 60.0
+
+        clock, pos = [0.0], [0.0]
+        vi = Vi()
+        d = driver.Driver(vi, "/nonexistent", Proc(), clock=lambda: clock[0], sleep=lambda s: clock.__setitem__(0, clock[0] + s))
+        d.position = lambda: (pos[0], 0.0, 0.0)
+        d.screen = lambda: "play"
+        lines = []
+
+        def console_line(text, settle=1.0):
+            lines.append(text)
+            if text == "player.removescriptpackage":
+                vi.held = True
+            return True
+
+        d.console_open = lambda tries=3: True
+        d.console_close = lambda quiet=2.0, timeout=30.0: True
+        d.console_line = console_line
+        self.assertTrue(drivers.ensure_walks(d))
+        self.assertEqual(lines, ["player.removescriptpackage"])
+        self.assertEqual(vi.keys, ["w", "s", "w"])
+        # A player that walks is left alone; one that never does is reported.
+        lines.clear()
+        self.assertTrue(drivers.ensure_walks(d))
+        self.assertEqual(lines, [])
+        vi.held = False
+        console_line_off = lambda text, settle=1.0: lines.append(text) or True
+        d.console_line = console_line_off
+        self.assertFalse(drivers.ensure_walks(d, tries=1))
+        self.assertEqual(lines, ["player.removescriptpackage"])
 
     def test_driver_waits_on_the_screen_and_taps_while_it_waits(self):
         import driver
