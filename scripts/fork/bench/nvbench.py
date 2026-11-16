@@ -86,8 +86,25 @@ def cmd_list(_a):
         print(f"{name:12} {probe.description}")
 
 
+def refuse(a):
+    """Exit status when the window options are refused (checked before the lock is taken), else 0."""
+    if a.nested:
+        a.windowed = True
+        if a.nested == "window" and not a.yes_windowed:
+            print("--nested window shows a window in your session: needs --yes-windowed", file=sys.stderr)
+            return 2
+        a.yes_windowed = a.yes_windowed or a.nested == "headless"
+    if a.windowed and not a.yes_windowed:
+        print("refusing to run windowed without --yes-windowed (the window opens on your display; offscreen is the default)", file=sys.stderr)
+        return 2
+    return 0
+
+
 def cmd_run(a):
     """Runs one scenario holding the machine-wide bench lock (--no-lock for debugging runs that make no numbers)."""
+    refused = refuse(a)
+    if refused:
+        return refused
     if a.no_lock:
         print("bench: no lock (--no-lock): the numbers of this run are not valid if anything else runs", file=sys.stderr)
         return run_scenario(a)
@@ -102,15 +119,6 @@ def cmd_run(a):
 
 
 def run_scenario(a):
-    if a.nested:
-        a.windowed = True
-        if a.nested == "window" and not a.yes_windowed:
-            print("--nested window shows a window in your session: needs --yes-windowed", file=sys.stderr)
-            return 2
-        a.yes_windowed = a.yes_windowed or a.nested == "headless"
-    if a.windowed and not a.yes_windowed:
-        print("refusing to run windowed without --yes-windowed (the window opens on your display; offscreen is the default)", file=sys.stderr)
-        return 2
     viewer = a.viewer or os.environ.get("NV_BENCH_VIEWER") or str(Path.home() / ".cache/nv-rs/target/play/nv-viewer")
     game = a.game or os.environ.get("NV_BENCH_GAME") or str(GAME_DEFAULT)
     if not os.access(viewer, os.X_OK):

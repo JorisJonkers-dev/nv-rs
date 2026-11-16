@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -313,6 +314,44 @@ class LockTests(unittest.TestCase):
             third = lock.BenchLock(path, wait_timeout=0.3, out=said.append, poll=0.05)
             self.assertTrue(third.acquire())
             third.release()
+
+    def test_waiters_are_served_in_the_order_they_came(self):
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "bench.lock"
+            first = lock.BenchLock(path, out=lambda m: None)
+            self.assertTrue(first.acquire())
+            order, locks = [], []
+
+            def waiter(i):
+                b = lock.BenchLock(path, wait_timeout=10, out=lambda m: None, poll=0.02)
+                locks.append(b)
+                if b.acquire():
+                    order.append(i)
+                    time.sleep(0.05)
+                    b.release()
+
+            threads = []
+            for i in range(4):
+                t = threading.Thread(target=waiter, args=(i,))
+                t.start()
+                threads.append(t)
+                time.sleep(0.15)  # distinct tickets, in order
+            first.release()
+            for t in threads:
+                t.join()
+            self.assertEqual(order, [0, 1, 2, 3])
+            self.assertEqual(list((Path(d) / "bench.lock.queue").iterdir()), [])
+
+    def test_a_dead_waiter_loses_its_place(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "bench.lock"
+            q = Path(d) / "bench.lock.queue"
+            q.mkdir()
+            (q / f"{1:020d}-999999999").write_text("")  # no such process
+            b = lock.BenchLock(path, wait_timeout=2, out=lambda m: None, poll=0.02)
+            self.assertTrue(b.acquire())
+            b.release()
 
     def test_describe_and_other_viewers(self):
         self.assertIn("pid 7 (bench run goodsprings), 5 s ago", lock.describe({"pid": 7, "cmd": "bench run goodsprings", "start": 95}, now=100))

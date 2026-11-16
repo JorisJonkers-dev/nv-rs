@@ -48,7 +48,8 @@ using the thresholds below; see [LOCAL.md](LOCAL.md#matrix-runs). `--json` gives
 
 Frame times are only valid when nothing else loads the CPU and the card, so `nv-rs-dev bench run` takes a machine-wide
 exclusive lock (a flock on `~/.cache/nv-rs/bench.lock`, `NV_BENCH_LOCK` changes it) for the whole run, the nested
-compositor session included, and releases it when the run ends however it ends. A second run prints
+compositor session included, and releases it when the run ends however it ends. Waiters take it in the order they came (a ticket file each in `bench.lock.queue/`; a waiter that died loses its place), so
+no run is starved by newer ones. A second run prints
 `waiting for bench lock held by pid N (bench run X), S s ago` every 30 s and waits; `--wait-timeout SECONDS` gives up
 with exit status 3. `--no-lock` skips it for a debugging run that gives no numbers. `nv-rs-dev matrix` and `compare` run
 their benchmarks through `bench run`, so they take the same lock one cell at a time.
