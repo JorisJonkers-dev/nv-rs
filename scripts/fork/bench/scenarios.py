@@ -188,6 +188,14 @@ def moved_at_least(units):
     return (f"player moved {units}+ units", check)
 
 
+def sneak_checked():
+    """The sneak check ran (its verdict is nvbench's "Ctrl made the player sneak")."""
+    def check(m):
+        return bool(m.get("sneak")), "the standing and sneaking steps were taken" if m.get("sneak") else "no sneak check in the log"
+
+    return ("the sneak check ran", check)
+
+
 def frames_at_least(n):
     def check(m):
         return m["frames"] >= n, f"{m['frames']} frames (want {n})"
@@ -472,6 +480,7 @@ WORLD = {
     "goodsprings": (("goodsprings",), "Goodsprings: start-up, then a console teleport and a camera sweep and a short walk"),
     "strip": (("strip",), "The Strip: start-up, then a console teleport and a camera sweep and a short walk"),
     "novac": (("novac",), "Novac: start-up, then a console teleport and a camera sweep and a short walk"),
+    "sneak": (("goodsprings",), "Goodsprings: start-up, a console teleport, then the sneak check (real Ctrl) and the measured script"),
     "quick": (("doc_house", "goodsprings", "strip"), "The quick suite in one session: Doc's house, Goodsprings, the Strip, under 120 s in all"),
 }
 
@@ -481,6 +490,8 @@ def world_plan(name, opts):
     n = len(places)
     p = Plan(name, desc, fps=opts.get("fps", 60.0))
     p.checks = [reached_screen("loading"), reached_screen("play"), player_placed(), moved_at_least(150 * n), play_seconds_at_least(14 * n)]
+    if name == "sneak":
+        p.checks.append(sneak_checked())
     p.drive, p.self_scaled, p.budget_s = DRIVERS[name], True, BUDGET_S
     return p
 
@@ -502,4 +513,5 @@ SCENARIOS = {
     "boot": boot, "newgame": newgame, "chargen": chargen, "probe": probe,
     "goodsprings": goodsprings, "novac": novac, "strip": strip, "combat": combat, "soak": soak, "realwalk": realwalk,
     "doc_house": lambda opts: world_plan("doc_house", opts), "quick": lambda opts: world_plan("quick", opts),
+    "sneak": lambda opts: world_plan("sneak", opts),
 }
