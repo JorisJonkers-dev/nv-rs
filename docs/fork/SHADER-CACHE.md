@@ -50,7 +50,7 @@ the adapter), so a driver update is one cold start, not a crash. Layer (c) is pe
 ## Measured
 
 `nv-rs-dev bench run newgame --nested headless --resolution 1920x1080`, RX 7900 XTX (RADV), 16 cores, the vanilla
-game, 765 shaders; runs the bench did not mark noisy. Start numbers are the viewer log's `the start:` line.
+game, 765 shaders; the first row's run was marked noisy by the bench (another viewer overlapped), the others were not. Start numbers are the viewer log's `the start:` line.
 
 | Run | Start (wall, 16 cores) | Threads: converting / modules / libraries | First picture | Play 1% low |
 | --- | --- | --- | --- | --- |

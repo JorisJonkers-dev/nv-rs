@@ -244,7 +244,7 @@ impl ShaderCache {
                     .and_then(|m| m.modified())
                     .ok()
                     .and_then(|t| t.elapsed().ok())
-                    .is_none_or(|age| age.as_secs() > TOUCH_AFTER_SECS);
+                    .map_or(true, |age| age.as_secs() > TOUCH_AFTER_SECS);
                 if stale {
                     if let Ok(f) = std::fs::File::options().write(true).open(&path) {
                         let _ = f.set_modified(std::time::SystemTime::now());
