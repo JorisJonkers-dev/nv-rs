@@ -19,9 +19,25 @@ dev_cargo() {
 dev_viewer() { echo "$DEV_TARGET/$DEV_PROFILE/nv-viewer"; }
 
 dev_build() {
-  local t0=$SECONDS rc
-  dev_cargo build --profile "$DEV_PROFILE" -p nv-viewer --bin nv-viewer "$@"; rc=$?
-  echo "# nv-rs-dev build: rc=$rc, $((SECONDS - t0)) s, $(dev_viewer)"
+  local t0=$SECONDS rc kind=warm args=() a
+  for a in "$@"; do
+    if [ "$a" = --clean ]; then kind=cold; else args+=("$a"); fi
+  done
+  if [ "$kind" = cold ]; then
+    # A reproducible cold build in its own fresh target dir (the shared one may be in use by another worker, so it is
+    # never emptied here; `nv-rs-dev clean` removes the cold dir), with no compiler cache in the way.
+    DEV_TARGET="$DEV_TARGET-cold"
+    case "$DEV_TARGET" in
+      "$HOME"/.cache/nv-rs/*|"$HOME"/.local/*|/tmp/*) rm -rf "$DEV_TARGET";;
+      *) echo "refusing --clean: $DEV_TARGET is outside the loop's cache folders" >&2; return 2;;
+    esac
+    export RUSTC_WRAPPER=
+  fi
+  dev_cargo build --profile "$DEV_PROFILE" -p nv-viewer --bin nv-viewer "${args[@]}"; rc=$?
+  echo "# nv-rs-dev build: rc=$rc, $kind, $((SECONDS - t0)) s, $(dev_viewer)"
+  mkdir -p "$HOME/.local/state/nv-rs"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$(cd "$DEV_REPO" && git rev-parse --short HEAD 2>/dev/null)" "$kind" "$((SECONDS - t0))" "$rc" \
+    >> "$HOME/.local/state/nv-rs/build-times.tsv"
   return $rc
 }
 

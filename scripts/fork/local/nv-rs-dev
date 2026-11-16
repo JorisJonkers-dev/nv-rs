@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # nv-rs-dev: the local build-and-test loop (docs/fork/LOCAL.md).
-#   nv-rs-dev build              build only nv-viewer (profile "play") into a shared target dir
+#   nv-rs-dev build [--clean]    build only nv-viewer (profile "play") into a shared target dir; --clean: empty it first (cold build, timed)
 #   nv-rs-dev run [args]         run that build against the Steam game folder, log under ~/.local/state/nv-rs/logs
 #   nv-rs-dev smoke [--seconds N] [--shot]   run N seconds (default 60), stop it, print a PASS/FAIL checklist
 #   nv-rs-dev bench <run|list|report|compare|analyze> ...   scripted playthrough and benchmark runs (docs/fork/BENCH.md)
 #   nv-rs-dev test <crate> [args]  cargo test -p <crate>
 #   nv-rs-dev affected [base]    the crates and components a diff reaches (default base origin/fork), as the pull request's CI selects them
 #   nv-rs-dev ci-lite [base]     fmt, clippy of the changed crates and the Linux test jobs of the affected components, as CI would run them
+#   nv-rs-dev matrix [spec.toml] [--ref R ...] ...   build, test and benchmark many refs, configs and hosts; one comparison report
+#   nv-rs-dev compare <baseline-ref> <candidate-ref>  a two-ref matrix
+#   nv-rs-dev clean [--all]      remove this loop's own caches and matrix worktrees (sizes first)
 #   nv-rs-dev check [crate...]   fmt + clippy for the given crates (default: those changed against origin/fork)
 # Env: NV_DEV_TARGET (default ~/.cache/nv-rs/target), NV_DEV_MEM (default 12G), NV_DEV_PROFILE (default play),
 #      NV_DEV_REPO (default: the git worktree you are in), NV_GAME.
@@ -29,8 +32,9 @@ case "$cmd" in
   test)
     [ $# -ge 1 ] || { echo "usage: nv-rs-dev test <crate> [cargo test args]" >&2; exit 2; }
     c="$1"; shift; dev_cargo test -p "$c" "$@" ;;
+  matrix|compare|clean) exec python3 -I "$HERE/matrix.py" "$cmd" "$@" ;;
   check) dev_check "$@" ;;
   affected) dev_affected "$@" ;;
   ci-lite) dev_ci_lite "$@" ;;
-  *) sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,16p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac
