@@ -53,6 +53,8 @@ crates/engine-platform/src/sound_out.rs  # the non-Windows arms of `start` and `
 # Logging and soft stops (docs/fork/LOGGING.md, crates/fork-log): the init call, the frame number and the status switch in the viewer; the stop's log line and report in player_move; the dependency and the exit summary in engine-platform.
 crates/engine-platform/src/bink.rs  # soft stops of BinkOpen (null handle) and `game` trace events (movie.*)
 crates/engine-platform/src/dinput.rs  # `game` trace events for key and mouse changes (input.*)
+crates/engine-platform/src/d3d9backend.rs  # the real runtime's messages go through fork_log with a level and the target d3d9 (warn, info; fatal for a refused Direct3DCreate9 or CreateDevice), so they follow the terminal policy (docs/fork/LOGGING.md)
+crates/engine-platform/src/d3dx.rs  # the D3DX texture source and not-translated messages go through fork_log (target d3d9, info and warn)
 # Discord Rich Presence (docs/fork/DISCORD.md, crates/fork-presence).
 viewer/src/main.rs  # starts presence before main's frames and marks the first frame; the NV_MEMLOG line in main's loop; fork_log::init, the frame number and the status line (NV_STATUS_SECS)
 viewer/Cargo.toml  # the fork-presence, fork-memlog, fork-log, d3d9-wgpu and engine-core dependencies
