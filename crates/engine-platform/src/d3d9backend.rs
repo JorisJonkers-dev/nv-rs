@@ -583,7 +583,7 @@ impl RealBackend {
             return;
         }
         let Some(t) = warm_tools(d) else {
-            eprintln!("NV_D3D9=real: the shader warm-up could not make its target: off");
+            fork_log::warn!(target: "d3d9", "NV_D3D9=real: the shader warm-up could not make its target: off");
             self.warm = None;
             return;
         };
@@ -680,7 +680,7 @@ impl RealBackend {
         if let Some(w) = self.warm.as_mut() {
             w.spent += start.elapsed();
             if finished {
-                eprintln!(
+                fork_log::info!(target: "d3d9",
                     "NV_D3D9=real: shader warm-up: {} shaders drawn with ahead of the game ({} refused) in {:.0} ms over {} presents",
                     w.done,
                     w.failed,
@@ -696,7 +696,7 @@ impl RealBackend {
             .as_ref()
             .is_some_and(|t0| ours.contains(&t0.as_raw()))
         {
-            eprintln!(
+            fork_log::warn!(target: "d3d9",
                 "NV_D3D9=real: the shader warm-up could not bind the game's target {:#x} again: the warm-up is off; set NV_SHADER_WARM=0 if frames look wrong",
                 b.targets[0]
             );
@@ -723,7 +723,7 @@ impl RealBackend {
     #[inline(never)]
     fn differs(&mut self, call: &'static str, model: u32, real: u32) {
         if self.logged.insert((call, model, real)) {
-            eprintln!(
+            fork_log::warn!(target: "d3d9",
                 "NV_D3D9=real: {call}: the model answers {model:#010x}, the real runtime {real:#010x}"
             );
         }
@@ -860,7 +860,7 @@ impl RealBackend {
             match unsafe { Direct3DCreate9(32) } {
                 Some(d3d) => self.d3d = Some(d3d),
                 None => {
-                    eprintln!("NV_D3D9=real: Direct3DCreate9 answered null");
+                    fork_log::fatal!(target: "d3d9", "NV_D3D9=real: Direct3DCreate9 answered null");
                     return none;
                 }
             }
@@ -879,7 +879,7 @@ impl RealBackend {
             )
         };
         let Some(real) = out.filter(|_| r.is_ok()) else {
-            eprintln!(
+            fork_log::fatal!(target: "d3d9",
                 "NV_D3D9=real: CreateDevice answered {:#010x}: nothing is forwarded",
                 hr(r)
             );
@@ -887,7 +887,7 @@ impl RealBackend {
         };
         self.implicit_surfaces(&real, back_buffers, depth_stencil);
         self.insert(device, Object::Device(real.clone()));
-        eprintln!(
+        fork_log::info!(target: "d3d9",
             "NV_D3D9=real: the game's device is on the real window ({}x{}, format {}, behaviour {behavior:#x})",
             present.first().copied().unwrap_or(0),
             present.get(1).copied().unwrap_or(0),

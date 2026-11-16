@@ -2893,7 +2893,7 @@ fn reset(e: &mut Engine, this: Ptr, present: Ptr) -> u32 {
     if device!(e).device_objects.draw.device.is_some() && !super::d3d9draw::drawing_thread() {
         static NOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if !NOTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            eprintln!(
+            fork_log::warn!(target: "d3d9",
                 "NV_DRAW_THREAD: IDirect3DDevice9::Reset while a drawing cut is open: joined first"
             );
         }
