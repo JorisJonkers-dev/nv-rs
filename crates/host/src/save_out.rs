@@ -416,6 +416,8 @@ fn existing_name(path: &Path) -> PathBuf {
 /// Does `job`'s disk work: the log line when there is one (`Ok`), or the line saying why a
 /// write failed (`Err`).
 pub fn run(job: &Job) -> Result<Option<String>, String> {
+    // The hitch recorder's trigger context: a save is being written.
+    fork_hitch::event("save.write", 0);
     match job {
         Job::Write {
             dir,

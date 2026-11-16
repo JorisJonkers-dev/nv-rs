@@ -48,6 +48,9 @@ def analyze_dir(run_dir, plan=None, run=None, settings=None):
     missing = parse.count_missing(read(run_dir / "missing.tsv"))
     stops = parse.count_stops(read(run_dir / "missing.stops.tsv"))
     metrics = parse.summarize(rows, log, samples, missing, stops)
+    hitches = load_hitches(run_dir)
+    if hitches:
+        metrics["hitches"] = hitches
     checks = verdict_checks(metrics, plan, (run or {}).get("wall_s"))
     series_t = [r["t"] for r in samples]
     out = {
@@ -66,6 +69,29 @@ def analyze_dir(run_dir, plan=None, run=None, settings=None):
     }
     out["headline"] = suite.headline(out)  # for `nv-rs-dev runs` and logs: the numbers first, in the summary itself
     return out
+
+
+def load_hitches(run_dir):
+    """The hitch recorder's run summary (`run-summary-*.json`, docs/fork/HITCHES.md) of a run directory, reduced to
+    what the report and the verdict use; None when the build had no recorder or the run left none."""
+    for p in sorted(Path(run_dir).glob("run-summary-*.json")):
+        try:
+            r = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        h = r.get("hitches", {})
+        return {
+            "count": h.get("count", 0),
+            "per_min": h.get("per_min", 0),
+            "slow_windows": h.get("slow_windows", 0),
+            "by_cause": h.get("by_cause", {}),
+            "over_pct": r.get("over_pct", {}),
+            "worst": r.get("worst", [])[:5],
+            "flags": r.get("flags", []),
+            "verdict": r.get("verdict", ""),
+            "p99_ms": r.get("frame_ms", {}).get("p99", 0),
+        }
+    return None
 
 
 def verdict_checks(m, plan, run_wall=None):
@@ -93,6 +119,12 @@ def verdict_checks(m, plan, run_wall=None):
             f"game time / wall time {ck['ratio']:.2f} at {fps:.0f} fps (a frame-rate-dependent game would be off at high fps)")
     if ck.get("settled") is not None and ck.get("play_s", 0) >= 5:
         add("the player landed (height settled)", ck["settled"], f"fell {ck['fall']:.0f} units from the top")
+    h = m.get("hitches")
+    if h is not None:
+        # A run whose hitches pass the recorder's flag level is marked: a stutter is a failure of the run (the level
+        # is NV_HITCH_FLAG_PER_MIN, 3 a minute by default; the flags are the recorder's own).
+        bad = [f for f in h["flags"] if f in ("hitches_per_min_high", "p99_over_20ms", "slow_windows")]
+        add("no hitch flags", not bad, f"{h['count']} hitches ({h['per_min']}/min)" + (f": {', '.join(bad)}" if bad else ""))
     for name, fn in (plan.checks if plan else []):
         ok, detail = fn(m)
         add(name, ok, detail)

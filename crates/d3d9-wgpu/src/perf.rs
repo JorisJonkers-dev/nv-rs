@@ -88,6 +88,10 @@ pub(crate) struct Span {
 /// Starts a span of `cat` (nothing when `NV_PERF` is off).
 #[inline]
 pub(crate) fn span(cat: Cat) -> Span {
+    if cat == Cat::Draw {
+        // The hitch recorder counts draws always; the timing is NV_PERF's.
+        fork_hitch::add(fork_hitch::Counter::Draws, 1);
+    }
     if !enabled() {
         return Span { cat, start: None };
     }

@@ -470,6 +470,7 @@ dependencies = [
 name = "engine-core"
 version = "0.1.0"
 dependencies = [
+ "fork-hitch",
  "windows 0.58.0",
 ]
 
@@ -774,6 +775,7 @@ dependencies = [
  "d3dx-shader",
  "d3dx-tex",
  "engine-core",
+ "fork-hitch",
  "fork-log",
  "fork-window",
  "libloading",
@@ -1038,6 +1040,7 @@ dependencies = [
  "engine-core",
  "engine-platform",
  "esm",
+ "fork-hitch",
  "fork-log",
  "jg",
  "jip",

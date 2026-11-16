@@ -264,6 +264,8 @@ def launch(plan, opts, run_dir):
             "NV_FRAME_LOG": str(frames),
             "NV_HITCH_CSV": env.get("NV_HITCH_CSV", str(run_dir / "hitches.csv")),
             "NV_MEMLOG": env.get("NV_MEMLOG", "1"),
+            # The JSON log, the hitch records and the run summary go in the run directory (docs/fork/HITCHES.md).
+            "NV_LOG_JSON": env.get("NV_LOG_JSON", str(run_dir / "nv-rs.jsonl")),
             "RUST_BACKTRACE": "1",
             "RUST_LOG": env.get("RUST_LOG", "info"),
         }

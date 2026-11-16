@@ -1275,6 +1275,7 @@ pub fn start_main_thread(start: u32, words: Vec<u32>) -> MainThread {
             // SAFETY: see `Baton`.
             let e = unsafe { &mut *engine };
             crate::profile::holding(MAIN_THREAD_ID);
+            fork_hitch::set_role(fork_hitch::Role::Main);
             load_fpu(e);
             // Real threads: main runs game code (counted for the barrier) until it ends.
             if let Some(r) = &e.real {

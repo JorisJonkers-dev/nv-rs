@@ -378,6 +378,7 @@ fn finish_posted(e: &mut Engine, at: u32) {
         }
     }
     let wait_ns = start.elapsed().as_nanos() as u64;
+    fork_hitch::add(fork_hitch::Counter::RenderWaitNs, wait_ns);
     with_run(id, |r| {
         match r.by_point.iter_mut().find(|j| j.at == at) {
             Some(j) => j.waits.add(wait_ns),

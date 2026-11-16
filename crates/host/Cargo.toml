@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 # Logging: levels, a JSON file, soft stops (docs/fork/LOGGING.md).
 fork-log = { path = "../fork-log" }
+fork-hitch = { path = "../fork-hitch" }
 engine = { path = "../engine" }
 # The platform layer (the window, Direct3D 9, DirectInput, DirectSound, files): the host drives
 # its input, sound output and adapter table.

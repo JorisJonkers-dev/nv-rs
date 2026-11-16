@@ -26,7 +26,7 @@ unassigned = "fail"
 name = "core"
 purpose = "The engine's foundation: the game's memory model, the Engine, the exe mapping, the CRT, the typed re-implementations above the core, and the frame model"
 crates = ["engine-core", "engine-typed", "frame-model"]
-requires = []
+requires = ["hitch"]
 runs_on = "both"
 windows = "required"
 
@@ -127,7 +127,7 @@ windows = "required"
 name = "platform"
 purpose = "The Windows platform layer: window, Direct3D 9 and D3DX entry points, DirectInput, DirectSound, DirectShow, files, loader and process"
 crates = ["engine-platform"]
-requires = ["core", "formats", "rendering", "log"]
+requires = ["core", "formats", "rendering", "log", "hitch"]
 runs_on = "both"
 # The Windows entry points are cfg(windows) code that only Windows can test; the Linux job runs the rest, among it the
 # shader compiler seam's tests against a recent libvkd3d-shader (docs/fork/CI-NIX.md).

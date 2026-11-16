@@ -37,6 +37,7 @@ counters! {
     DeviceWaitNs "device_wait" Ns,
     WaitNs "object_wait" Ns,
     RenderWaitNs "render_wait" Ns,
+    SyncWaitNs "sync_wait" Ns,
     FileNs "file" Ns,
     SoundNs "sound" Ns,
     // Files, every thread.

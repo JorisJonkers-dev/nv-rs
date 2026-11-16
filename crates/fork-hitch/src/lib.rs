@@ -120,6 +120,7 @@ pub enum Role {
 }
 
 thread_local! {
+    static IN_CALL: Cell<bool> = const { Cell::new(false) };
     static ROLE: Cell<Role> = const { Cell::new(Role::Other) };
 }
 
@@ -191,6 +192,50 @@ pub fn span_split(main: Counter, other: Counter) -> Span {
     span(if role() == Role::Main { main } else { other }, None)
 }
 
+/// A span of the main thread's time only (inert on any other thread).
+#[inline]
+pub fn span_main(ns: Counter) -> Span {
+    Span {
+        start: (enabled() && role() == Role::Main).then(Instant::now),
+        ns,
+        n: None,
+    }
+}
+
+static HOLDER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The platform function (import slot) the holder of the kernel lock is in: stored at each
+/// locked call, read when another thread has to wait.
+#[inline]
+pub fn note_holder(slot: u32) {
+    if enabled() {
+        HOLDER.store(slot, Ordering::Relaxed);
+    }
+}
+
+/// A thread waited `ns` for a lock (`device`: the device lock, else the kernel lock). The main
+/// thread's wait is its own time; any other thread's is counted apart. A main wait over a
+/// millisecond is an event naming the call the holder was in.
+pub fn lock_wait(device: bool, ns: u64) {
+    if !enabled() {
+        return;
+    }
+    if role() == Role::Main {
+        if device {
+            counters::add(Counter::DeviceWaitNs, ns);
+        } else {
+            counters::add(Counter::KernelWaitNs, ns);
+            counters::add(Counter::KernelWaits, 1);
+            if ns >= 1_000_000 {
+                let holder = import_name(HOLDER.load(Ordering::Relaxed));
+                event(&format!("lock:{holder}"), ns / 1000);
+            }
+        }
+    } else if !device {
+        counters::add(Counter::OtherKernelWaitNs, ns);
+    }
+}
+
 // ----- platform calls (the main thread) -----
 
 /// The main thread inside platform function `slot` (its import slot address), made from the
@@ -206,6 +251,10 @@ pub fn enter_call(slot: u32, stack: &[u32]) -> CallGuard {
     if !enabled() || role() != Role::Main {
         return CallGuard { start: None };
     }
+    // A platform call that runs game code that makes another: only the outermost counts.
+    if IN_CALL.with(|d| d.replace(true)) {
+        return CallGuard { start: None };
+    }
     let now = Instant::now();
     sampler::publish_enter(slot, stack, now_ns());
     CallGuard {
@@ -218,6 +267,7 @@ impl Drop for CallGuard {
     fn drop(&mut self) {
         if let Some((t, slot)) = self.start {
             let ns = t.elapsed().as_nanos() as u64;
+            IN_CALL.with(|d| d.set(false));
             sampler::publish_leave();
             counters::add(Counter::PlatformNs, ns);
             counters::add(Counter::PlatformCalls, 1);

@@ -164,7 +164,8 @@ pub fn classify(r: &Rec, loading: bool) -> Verdict {
     let wait = g(Counter::WaitNs);
     let kernel = g(Counter::KernelWaitNs);
     let device = g(Counter::DeviceWaitNs);
-    let render = g(Counter::RenderWaitNs);
+    let join = g(Counter::RenderWaitNs) + g(Counter::SyncWaitNs);
+    let render = join + wait;
     let gpu = g(Counter::GpuWaitNs);
     let platform = g(Counter::PlatformNs);
     let named_in_platform = file + sound + wait + kernel + device;
@@ -177,7 +178,7 @@ pub fn classify(r: &Rec, loading: bool) -> Verdict {
     let shader = g(Counter::ShaderNs);
     let texture = g(Counter::TextureNs) + g(Counter::BufferNs);
     // What no counter covers is the game's own code (and the host's work around it).
-    let residual = wall.saturating_sub(platform.saturating_add(render).saturating_add(gpu));
+    let residual = wall.saturating_sub(platform.saturating_add(join).saturating_add(gpu));
     let mut buckets: Vec<(Cause, u64)> = vec![
         (Cause::FileIo, file),
         (Cause::PipelineCreate, pipeline),

@@ -104,9 +104,29 @@ The run's `run-summary-*.json` and the JSON log it names (`log` in the summary),
 roughly when (minutes into the run) and where in the game. Both hold numbers, ids and call names only: no asset names (a file is its
 extension and a hash), no paths, no game data.
 
-## Status
+## What feeds the counters, and what does not
 
-The recorder, the frame ring, the classification, the sampler, the run summary, slow windows and the tools are in. The counters the
-frame breakdown is made of are fed from the places that know them (platform calls, locks, file reads, the wgpu backend's spans);
-until a counter's site is wired it reads zero and a frame's time falls to `game_logic` or `unknown`. Overhead is measured with
-`nv-rs-dev bench run` with `NV_HITCH=off` against the default, see the bench section when it lands.
+| Counter | Fed from |
+| --- | --- |
+| `platform`, `platform_calls`, `slow_calls` | every platform call the main thread makes under the kernel or the device lock (`real_threads::locked_call`, `device_call`); a platform call that runs game code that calls another counts once |
+| `kernel_wait`, `device_wait`, `kernel_wait_other_threads` | the contended path of the kernel and device locks only (an uncontended lock costs nothing); a main wait over 1 ms is an event `lock:<call the holder was in>` |
+| `object_wait`, `sync_wait`, `render_wait` | the kernel-lock wait for objects, the lock-free event and semaphore waits, and the main thread's join with the drawing thread |
+| `file`, `file_other_threads`, `file_reads`, `file_bytes`, `file_ops` | `CreateFile`, `ReadFile`, `WriteFile` of the platform layer |
+| `sound` | the mixer's per-frame tick on the main thread |
+| `draws` | each draw recorded by the wgpu backend (a count; the timing stays `NV_PERF`'s) |
+| `pipeline`, `shader`, `texture`, `buffer`, `presents`, `gpu_wait`, `queue_thread` | spans of the wgpu backend: pipeline made on a draw, shader modules made for it, texture and buffer creation and upload, `Present`, read-backs and waits for the queue thread, the queue thread's submit |
+
+Events (trigger context): `cell.change`, `world.change`, `screen.play|menu|loading` (the viewer reads them from guest memory), the game
+trace's loading kinds (`menu.loading`, `load.thread`, `loading.begin|end`, `movie.open|close`), `save.write` (a save file written),
+`slow:<call>` and `lock:<call>`. **Not available:** quest stages, combat start and door activation. The port intercepts none of those
+functions (the same limit LOGGING.md states for the menus); a door shows as `cell.change` with a loading screen, and a quest stage or a
+combat start needs a patch row in `engine-core`'s extend hooks, which is an `engine-core` change of its own.
+
+With `NV_PROFILE=1` the sampler names the running guest functions of a thread stuck in the game's own code from the profiler's shadow stack
+(the profiler's own cost applies). Without it, a stall in the game's code shows `in_guest` samples and the chain of the last platform call.
+
+## Overhead
+
+Measured with `nv-rs-dev bench run newgame --threads real` on the optimised build (`play-opt`), `NV_HITCH=off` against the default, machine-wide bench lock:
+
+OVERHEAD_TABLE
