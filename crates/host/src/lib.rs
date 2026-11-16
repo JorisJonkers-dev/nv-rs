@@ -182,6 +182,9 @@ impl Host {
         if let Some(note) = &choice.ini_note {
             fork_log::info!(target: "host", "{note}");
         }
+        if let Some(note) = fixes::play_run_taken_as_test(choice, |name| std::env::var(name).ok()) {
+            fork_log::info!(target: "host", "{note}");
+        }
         // The game's clock (`GetTickCount`, `timeGetTime`, `QueryPerformanceCounter`) runs with
         // the real time from here on, `Sleep` moving it on too (`Engine::clock_now_ms`).
         // `NV_REPEATABLE=FRAMES` (a test mode, [`repeatable_frames`]): a virtual clock instead, the
