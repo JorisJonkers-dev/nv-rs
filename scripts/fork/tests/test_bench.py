@@ -722,6 +722,24 @@ class DriverTests(unittest.TestCase):
         d.position = lambda: (next(drift), 0.0, 0.0)
         self.assertFalse(drivers.walks(d))
 
+    def test_free_player_takes_the_opening_package_off_in_the_same_console_once(self):
+        import drivers
+
+        class D:
+            pass
+
+        d, lines, consoles = D(), [], []
+        d.console_open = lambda tries=3: consoles.append("open") or True
+        d.console_close = lambda quiet=2.0, timeout=30.0: consoles.append("close") or True
+        d.console_line = lambda text, settle=1.0: lines.append(text) or True
+        self.assertTrue(drivers.free_player(d))
+        self.assertEqual(consoles, ["open", "close"])
+        self.assertEqual(lines[-1], "player.removescriptpackage")
+        self.assertEqual(lines[:2], [f"setstage {drivers.OPENING_QUEST} 50", f"setstage {drivers.OPENING_QUEST} 55"])
+        # once a session
+        self.assertTrue(drivers.free_player(d))
+        self.assertEqual(consoles, ["open", "close"])
+
     def test_sneak_check_taps_ctrl_between_the_standing_and_the_sneaking_steps(self):
         import driver
         import drivers

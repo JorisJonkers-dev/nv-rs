@@ -401,6 +401,28 @@ impl Stats {
         self.worst.truncate(5);
     }
 
+    /// A hitch already counted in play (frame `frame`, `wall_ms`, `cause`) turns out to belong to
+    /// a load (a screen switch that came right after it): it moves to the loads, and to the
+    /// `loading` cause.
+    pub fn to_load(&mut self, frame: u64, wall_ms: f64, cause: Cause) {
+        if cause == Cause::Loading {
+            return;
+        }
+        self.loading_hitches += 1;
+        self.loading_hitch_ns += (wall_ms * 1e6) as u64;
+        let at = |c: Cause| Cause::ALL.iter().position(|x| *x == c).unwrap_or(10);
+        let us = (wall_ms * 1000.0) as u64;
+        let from = &mut self.by_cause[at(cause)];
+        from.0 = from.0.saturating_sub(1);
+        from.1 = from.1.saturating_sub(us);
+        let to = &mut self.by_cause[at(Cause::Loading)];
+        to.0 += 1;
+        to.1 += us;
+        if let Some(w) = self.worst.iter_mut().find(|w| w.frame == frame) {
+            w.cause = Cause::Loading;
+        }
+    }
+
     /// The frame time (ms) at quantile `q` (0.99), from the buckets: its upper edge.
     pub fn percentile_ms(&self, q: f64) -> f64 {
         if self.frames == 0 {

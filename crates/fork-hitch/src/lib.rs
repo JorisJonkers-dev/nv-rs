@@ -405,6 +405,17 @@ pub fn event(kind: &str, arg: u64) {
         len -= 1;
     }
     buf[..len].copy_from_slice(&kind.as_bytes()[..len]);
+    // A repeat of the newest event (the renderer notes `gpu.render_target` hundreds of times a
+    // frame) moves that entry's time on instead of taking a new one: otherwise a burst of
+    // repeats fills the ring in a fraction of the context and pushes out the screen changes and
+    // loads before it.
+    if r.filled > 0 {
+        let newest = &mut r.ev[(i + EVENTS - 1) % EVENTS];
+        if newest.arg == arg && newest.kind[..usize::from(newest.len)] == buf[..len] {
+            newest.ns = ns;
+            return;
+        }
+    }
     r.ev[i] = Ev {
         ns,
         len: len as u8,
@@ -487,6 +498,13 @@ struct Recorder {
     csv: Option<std::fs::File>,
     csv_tried: bool,
     next_window_ms: u64,
+    /// What the screen showed at the last frame, and when it last switched between play and a
+    /// menu (milliseconds, as `Rec::end_ms`).
+    screen: Screen,
+    switch_ms: Option<u64>,
+    /// The hitches counted in play in the last [`CONTEXT_MS`]: frame, end, wall time, cause. A
+    /// switch that comes right after one of them makes it load time.
+    recent_play: Vec<(u64, u64, f64, Cause)>,
 }
 
 static RECORDER: Mutex<Option<Recorder>> = Mutex::new(None);
@@ -517,6 +535,28 @@ impl Recorder {
             csv: None,
             csv_tried: false,
             next_window_ms: WINDOW_MS,
+            screen: Screen::Unknown,
+            switch_ms: None,
+            recent_play: Vec::new(),
+        }
+    }
+
+    /// What the screen shows at the frame ending at `end_ms`; a switch between play and a menu
+    /// is remembered ([`is_switch`]), and the hitches in play of the [`CONTEXT_MS`] before it
+    /// become load time: the game builds the menu (or drops it) in the frames before the screen
+    /// word changes as well as after.
+    fn note_screen(&mut self, screen: Screen, end_ms: u64) {
+        if screen != self.screen {
+            if is_switch(self.screen, screen) {
+                self.switch_ms = Some(end_ms);
+                for (frame, _, wall_ms, cause) in std::mem::take(&mut self.recent_play)
+                    .into_iter()
+                    .filter(|h| end_ms.saturating_sub(h.1) <= CONTEXT_MS)
+                {
+                    self.stats.to_load(frame, wall_ms, cause);
+                }
+            }
+            self.screen = screen;
         }
     }
 
@@ -663,6 +703,7 @@ pub fn frame_end(ctx: &Context) {
     let median = rec.median.get();
     let limit = limit_ns(median, rec.cfg.threshold_ms, rec.cfg.factor);
     let hitch = rec.median.is_warm() && wall > limit;
+    rec.note_screen(ctx.screen, r.end_ms);
     rec.stats.frame(wall, ctx.screen);
     if hitch {
         report_hitch(rec, &r, median, finished_epoch);
@@ -725,12 +766,30 @@ fn in_load<'a>(screen: Screen, kinds: impl IntoIterator<Item = &'a str>) -> bool
         })
 }
 
+/// Whether the screen going from `from` to `to` is a switch between play and a menu (a dialogue,
+/// the inventory, a message box, the console, character creation): the game builds or drops the
+/// menu's screen in those frames, as it builds a cell in a load.
+fn is_switch(from: Screen, to: Screen) -> bool {
+    matches!(
+        (from, to),
+        (Screen::Play, Screen::Menu) | (Screen::Menu, Screen::Play)
+    )
+}
+
+/// Whether a frame ending at `end_ms` belongs to a switch between play and a menu that happened
+/// at `switch_ms`: in the switch's frame or the [`CONTEXT_MS`] after it.
+fn in_switch(switch_ms: Option<u64>, end_ms: u64) -> bool {
+    switch_ms.is_some_and(|s| end_ms >= s && end_ms - s <= CONTEXT_MS)
+}
+
 /// A frame over the limit: classify it, collect its context, write the record.
 #[cold]
 fn report_hitch(rec: &mut Recorder, r: &Rec, median: u64, epoch: u64) {
     let now = r.end_ms * 1_000_000;
     let events = recent_events(now_ns(), CONTEXT_MS);
-    let loading = in_load(r.ctx.screen, events.iter().map(|e| e.kind.as_str()));
+    // A switch between play and a menu is load time, as a cell's load is.
+    let loading = in_load(r.ctx.screen, events.iter().map(|e| e.kind.as_str()))
+        || in_switch(rec.switch_ms, r.end_ms);
     let verdict = classify(r, loading);
     // The trigger: the newest event of the context, with its age; a slow call names itself.
     let trigger = events.last().map_or_else(
@@ -762,6 +821,13 @@ fn report_hitch(rec: &mut Recorder, r: &Rec, median: u64, epoch: u64) {
         cause: verdict.cause,
         trigger: trigger.clone(),
     });
+    if verdict.cause != Cause::Loading {
+        let end = r.end_ms;
+        rec.recent_play
+            .retain(|h| end.saturating_sub(h.1) <= CONTEXT_MS);
+        rec.recent_play
+            .push((r.idx, r.end_ms, r.wall_ms(), verdict.cause));
+    }
     let name = |slot: u32| import_name(slot);
     let h = render::Hitch {
         rec: r,
@@ -1298,6 +1364,103 @@ mod tests {
         assert!(in_load(Screen::Menu, ["menu.loading"]));
         assert!(!in_load(Screen::Play, ["cell.change", "gpu.render_target"]));
         assert!(!in_load(Screen::Play, []));
+    }
+
+    /// The opening's menus: a 345 ms frame in the switch from play to a menu, and a 27 ms one
+    /// just after the switch back, are load time; the same frame a second into steady play is a
+    /// hitch in play.
+    #[test]
+    fn a_switch_between_play_and_a_menu_is_load_time() {
+        let _ring = ring_lock();
+        let _turn = sampler::turn();
+        let mut rec = Recorder::new(cfg(&[("NV_HITCH_SUMMARY_SECS", "0")]));
+        let slow = |end_ms, screen| {
+            let mut r = Rec {
+                idx: end_ms,
+                end_ms,
+                wall_ns: 30_000_000,
+                ..Rec::default()
+            };
+            r.ctx.screen = screen;
+            r
+        };
+        rec.note_screen(Screen::Play, 1000);
+        assert_eq!(rec.switch_ms, None);
+        // Play to a menu, slow in the switch's own frame.
+        rec.note_screen(Screen::Menu, 2000);
+        report_hitch(&mut rec, &slow(2000, Screen::Menu), 7_000_000, 0);
+        // Back to play, slow 300 ms later.
+        rec.note_screen(Screen::Play, 2500);
+        report_hitch(&mut rec, &slow(2800, Screen::Play), 7_000_000, 0);
+        assert_eq!(
+            (rec.stats.loading_hitches, rec.stats.play_hitches()),
+            (2, 0)
+        );
+        // A second after the switch: play.
+        report_hitch(&mut rec, &slow(3600, Screen::Play), 7_000_000, 0);
+        assert_eq!(
+            (rec.stats.loading_hitches, rec.stats.play_hitches()),
+            (2, 1)
+        );
+        // A slow frame 300 ms before the next switch to a menu: counted in play at first, then
+        // moved to the loads when the switch comes; the one 1.1 s before it stays in play.
+        report_hitch(&mut rec, &slow(4500, Screen::Play), 7_000_000, 0);
+        assert_eq!(
+            (rec.stats.loading_hitches, rec.stats.play_hitches()),
+            (2, 2)
+        );
+        rec.note_screen(Screen::Menu, 4800);
+        assert_eq!(
+            (rec.stats.loading_hitches, rec.stats.play_hitches()),
+            (3, 1)
+        );
+        assert_eq!(rec.stats.loading_hitch_ns, 90_000_000);
+        let loading = Cause::ALL
+            .iter()
+            .position(|c| *c == Cause::Loading)
+            .unwrap();
+        assert_eq!(rec.stats.by_cause[loading].0, 3);
+        assert_eq!(
+            rec.stats.by_cause.iter().map(|c| c.0).sum::<u64>(),
+            rec.stats.hitches
+        );
+    }
+
+    #[test]
+    fn only_play_and_menu_switch() {
+        assert!(is_switch(Screen::Play, Screen::Menu));
+        assert!(is_switch(Screen::Menu, Screen::Play));
+        assert!(!is_switch(Screen::Unknown, Screen::Play));
+        assert!(!is_switch(Screen::Loading, Screen::Play));
+        assert!(!is_switch(Screen::Play, Screen::Play));
+        assert!(in_switch(Some(1000), 1000));
+        assert!(in_switch(Some(1000), 1500));
+        assert!(!in_switch(Some(1000), 1501));
+        assert!(!in_switch(Some(1000), 999));
+        assert!(!in_switch(None, 1000));
+    }
+
+    /// The renderer notes a render target hundreds of times a frame: the repeats take one entry,
+    /// so a screen change a moment before them stays in the context.
+    #[test]
+    fn repeats_of_the_newest_event_keep_older_events_in_the_context() {
+        let _ring = ring_lock();
+        let _turn = sampler::turn();
+        event("screen.menu", 0);
+        for _ in 0..(EVENTS * 4) {
+            event("gpu.render_target", 0);
+        }
+        event("gpu.render_target", 7);
+        let seen = recent_events(now_ns(), CONTEXT_MS);
+        let kinds: Vec<_> = seen.iter().map(|e| (e.kind.as_str(), e.arg)).collect();
+        assert_eq!(
+            kinds,
+            [
+                ("screen.menu", 0),
+                ("gpu.render_target", 0),
+                ("gpu.render_target", 7)
+            ]
+        );
     }
 
     #[test]
