@@ -10,20 +10,24 @@
 //! - `sm`: shader bytecode read, listed and converted to WGSL (`sm::wgsl`).
 //! - `format`: `D3DFORMAT` to wgpu formats.
 //! - `state`: render and sampler states to wgpu states.
+//! - `ffp`: the fixed-function pipeline for draws without shaders (FVF layouts, pre-transformed
+//!   vertices, the texture stages), as shader bytecode the converter takes.
 //! - `device`: resources, passes, pipelines, draws and `Present`.
 //! - `window`: the game's window: the swap chain at the window's size, minimised, sized or lost.
 //! - `shot`: `NV_SHOT` captures numbered like the forwarding layer's.
 //! - `scene_light`: the new lighting (port-added, off by default): ambient occlusion on the finished
 //!   scene.
+//! - `sun_shadow`: sun shadows (port-added, off by default): cascaded shadow maps from the game's
+//!   own opaque draws, shown by a full-screen step.
 
 mod ahead;
 mod answers;
 mod budget;
 mod cache;
 pub mod device;
+mod ffp;
 #[cfg(test)]
 mod fingerprint;
-mod fixed;
 pub mod format;
 pub mod frame_rate;
 mod fxhash;
@@ -39,6 +43,7 @@ pub mod shader_cache;
 pub mod shot;
 pub mod sm;
 pub mod state;
+pub mod sun_shadow;
 mod window;
 
 /// Writes every live wgpu device's pipeline cache and pipeline list now, when they changed: for
@@ -52,6 +57,8 @@ pub use answers::{Answer, QueryAnswers};
 use d3d9_stream::{Backend, Cmd, Data, Handle, Reply};
 pub use device::{device_lost, hardware_adapter, Output};
 pub use window::window_changed;
+#[cfg(not(windows))]
+pub use window::{register_window, GameWindow};
 
 /// The Direct3D 9 calls carried out on wgpu.
 pub struct WgpuBackend {
@@ -214,7 +221,6 @@ impl Backend for WgpuBackend {
             }
             Cmd::SetRenderTarget { index, surface, .. } => d.set_render_target(index, surface),
             Cmd::SetDepthStencilSurface { surface, .. } => d.set_depth_stencil(surface),
-            Cmd::SetFvf { fvf, .. } => d.set_fvf(fvf),
             Cmd::SetViewport { viewport, .. } => d.set_viewport(viewport),
             Cmd::SetScissorRect { rect, .. } => d.set_scissor(rect),
             Cmd::SetRenderState { state, value, .. } => d.set_render_state(state, value),
@@ -228,6 +234,10 @@ impl Backend for WgpuBackend {
                 sampler, texture, ..
             } => d.set_texture(sampler, texture),
             Cmd::SetVertexDeclaration { declaration, .. } => d.set_declaration(declaration),
+            Cmd::SetFvf { fvf, .. } => d.set_fvf(fvf),
+            Cmd::SetTextureStageState {
+                stage, kind, value, ..
+            } => d.set_stage_state(stage, kind, value),
             Cmd::SetShader { pixel, shader, .. } => d.set_shader(pixel, shader),
             Cmd::SetConstants {
                 kind,
@@ -379,12 +389,23 @@ impl Backend for WgpuBackend {
             Cmd::SetTransform { state, matrix, .. } if state == scene_light::STATE => {
                 d.scene_light(&matrix.to_words());
             }
-            // Fixed-function state and the rest: the game's shaders do not read them; a draw
-            // without shaders is skipped and printed by the device. (`SetGammaRamp` changes
-            // nothing in a window, which is how the game runs.)
+            // The sun shadows' frame, recorded just after the new lighting's ([`sun_shadow`]).
+            Cmd::SetTransform { state, matrix, .. } if state == sun_shadow::STATE => {
+                d.sun_shadows(&matrix.to_words());
+            }
+            // The sun shadows' camera and frame at the scene's clear, for this frame's lit draws.
+            Cmd::SetTransform { state, matrix, .. } if state == sun_shadow::VIEW_STATE => {
+                d.sun_begin_view(&matrix.to_words());
+            }
+            Cmd::SetTransform { state, matrix, .. } if state == sun_shadow::BEGIN_STATE => {
+                d.sun_lookup(&matrix.to_words());
+            }
+            // The fixed-function vertex pipeline's state (transforms, materials, lights): no draw
+            // of the game uses it (the fixed-function draws, `ffp`, are pre-transformed), and a
+            // draw of untransformed vertices without a vertex shader is skipped and printed by
+            // the device. (`SetGammaRamp` changes nothing in a window, which is how the game runs.)
             Cmd::SetTransform { .. }
             | Cmd::SetGammaRamp { .. }
-            | Cmd::SetTextureStageState { .. }
             | Cmd::SetMaterial { .. }
             | Cmd::SetLight { .. }
             | Cmd::LightEnable { .. }

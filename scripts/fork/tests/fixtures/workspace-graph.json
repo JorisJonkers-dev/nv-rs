@@ -20,10 +20,22 @@
    "name": "bsa"
   },
   {
-   "dependencies": [],
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "qos"
+    }
+   ],
    "features": [],
    "manifest_path": "/ws/crates/d3d9-stream/Cargo.toml",
    "name": "d3d9-stream"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/qos/Cargo.toml",
+   "name": "qos"
   },
   {
    "dependencies": [
@@ -63,6 +75,11 @@
      "features": [],
      "kind": null,
      "name": "fork-window"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "qos"
     }
    ],
    "features": [],
@@ -159,6 +176,11 @@
      "features": [],
      "kind": null,
      "name": "fork-hitch"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "qos"
     }
    ],
    "features": [
@@ -1406,6 +1428,11 @@
      "features": [],
      "kind": null,
      "name": "fork-hitch"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "qos"
     }
    ],
    "features": [],
@@ -1697,11 +1724,27 @@
      "features": [],
      "kind": null,
      "name": "fork-hitch"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "qos"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "game-folders"
     }
    ],
    "features": [],
    "manifest_path": "/ws/crates/host/Cargo.toml",
    "name": "host"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/game-folders/Cargo.toml",
+   "name": "game-folders"
   },
   {
    "dependencies": [
@@ -1878,6 +1921,11 @@
      "features": [],
      "kind": null,
      "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "game-folders"
     }
    ],
    "features": [],

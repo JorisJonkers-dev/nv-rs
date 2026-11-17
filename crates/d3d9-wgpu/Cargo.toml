@@ -11,6 +11,7 @@ publish = false
 # Logging: levels, a JSON file (docs/fork/LOGGING.md).
 fork-log = { path = "../fork-log" }
 fork-hitch = { path = "../fork-hitch" }
+qos = { path = "../qos" }
 d3d9-stream = { path = "../d3d9-stream" }
 # The icon's 256-pixel logo is a PNG: its zlib stream read with the plugin reader's decoder.
 esm = { path = "../esm" }

@@ -1656,7 +1656,7 @@ impl crate::Host {
         self.join();
         let script = key_script();
         let (all, play) = (self.movement.main_frames, self.movement.script_frames);
-        // The real game window's keyboard (`NV_D3D9=real`, Windows) holds keys too, unless a
+        // The real game window's keyboard (a backend drawing it, every system) holds keys too, unless a
         // script drives the run ([`real_input_reaches_game`]).
         let window_keys = if real_input_reaches_game() {
             engine_platform::d3d9real::held_keys()
@@ -1677,7 +1677,7 @@ impl crate::Host {
     /// (`dinput::mouse_move`) and the buttons down (`dinput::mouse_button`).
     pub fn mouse(&mut self, motion: [i32; 3], buttons: [bool; 8]) {
         self.join();
-        // The real game window's mouse (`NV_D3D9=real`, Windows) moves and clicks too.
+        // The real game window's mouse (a backend drawing it, every system) moves and clicks too.
         let (motion, buttons) = {
             let w = engine_platform::d3d9real::take_input();
             let mut b = buttons;

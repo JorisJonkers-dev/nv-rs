@@ -55,6 +55,7 @@ pub mod jip_fn_ref_map;
 pub mod jip_fn_script;
 pub mod jip_fn_script_vars;
 pub mod jip_fn_sound;
+pub mod jip_fn_string;
 pub mod jip_fn_texture_set;
 pub mod jip_fn_ui;
 pub mod jip_fn_utility;
@@ -162,6 +163,7 @@ pub const ALL: &[Handlers] = &[
     jip_fn_quest::COMMANDS,
     jip_fn_ref_map::COMMANDS,
     jip_fn_sound::COMMANDS,
+    jip_fn_string::COMMANDS,
     jip_fn_texture_set::COMMANDS,
     jip_fn_ui::COMMANDS,
     jip_fn_utility::COMMANDS,
@@ -207,6 +209,8 @@ pub const ALL: &[Handlers] = &[
     jip_fn_misc_ref_havok_w::COMMANDS,
     jip_fn_extra_data::COMMANDS,
     crate::game_patches::gp::COMMANDS,
+    crate::game_patches::gc::formulas::COMMANDS,
+    crate::game_patches::gx::COMMANDS,
 ];
 
 /// How many of JIP's commands have a handler.
@@ -760,6 +764,7 @@ mod tests {
             "jip_fn_quest",
             "jip_fn_ref_map",
             "jip_fn_sound",
+            "jip_fn_string",
             "jip_fn_texture_set",
             "jip_fn_ui",
             "jip_fn_utility",
@@ -806,6 +811,10 @@ mod tests {
             "jip_fn_misc_ref",
             // game_patches::gp::COMMANDS (its commands are in this file).
             "jip_fn_miscellaneous",
+            // game_patches::gc::formulas::COMMANDS (likewise).
+            "jip_fn_miscellaneous",
+            // game_patches::gx::COMMANDS (`ToggleMouseMovement`, built with H20).
+            "jip_fn_input",
         ];
         assert_eq!(files.len(), ALL.len(), "one file per command list");
         let mut seen = std::collections::HashSet::new();
@@ -871,8 +880,8 @@ mod tests {
             nvse::table::guest_text(&e, e.mem.u32(record)),
             b"GetClimateSunTexture"
         );
-        // ForceClimate waits for JIP's hook: no handler.
-        assert_eq!(execute(&e, 0x28d8), 0);
+        // SetLightTraitNumeric is not built: no handler.
+        assert_eq!(execute(&e, 0x2643), 0);
     }
 
     /// Answering "not installed" (players' state until step 3.10), every opcode built here is as

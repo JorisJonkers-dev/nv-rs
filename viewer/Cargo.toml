@@ -22,3 +22,7 @@ fork-presence = { path = "../crates/fork-presence" }
 fork-memlog = { path = "../crates/fork-memlog" }
 d3d9-wgpu = { path = "../crates/d3d9-wgpu" }
 engine-core = { path = "../crates/engine-core" }
+
+# Linux and macOS: `--find`, the game and saves folders `play.sh` offers.
+[target.'cfg(not(windows))'.dependencies]
+game-folders = { path = "../crates/game-folders" }

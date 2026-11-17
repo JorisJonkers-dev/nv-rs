@@ -490,6 +490,24 @@ fn border(e: &mut Engine, style: u32, menu: u32, ex_style: u32) -> [i32; 4] {
     }
 }
 
+/// The frame the game adds to the client area it wants before it places its window `handle`: the
+/// renderer's start (exe 0x004da951) calls `AdjustWindowRect` with the window's style
+/// (`GetWindowLongA(GWL_STYLE)`, the record's) and, as `bMenu`, its class's menu name
+/// (`GetClassLongA(GCL_MENUNAME)`), then `SetWindowPos` with the grown rectangle. `None` when the
+/// window is unknown or the table has no border for that style.
+// Fork: off Windows the fork's window layer does not read it (upstream's winit layer does).
+#[allow(dead_code)]
+pub(crate) fn game_frame(e: &mut Engine, handle: u32) -> Option<[i32; 4]> {
+    let w = window(e, handle)?.clone();
+    let menu = state!(e)
+        .windows
+        .classes
+        .iter()
+        .find(|c| c.atom == w.class)
+        .map_or(0, |c| c.menu_name);
+    super::d3d9::window_border(e, w.style, u32::from(menu != 0), 0)
+}
+
 // Platform: replaces USER32.DLL AdjustWindowRectEx (import)
 /// `AdjustWindowRectEx(rect, style, menu, ex style)`: the rectangle grown by the window border
 /// Windows adds for that style (captured, [`border`]); true.
@@ -882,6 +900,43 @@ mod tests {
         state!(e).windows.queue.push_back([7, 0x12, 0, 0, 0, 0, 0]);
         assert_eq!(peek_message_a(&mut e, Ptr::new(msg), 0, 0, 0, 1), 1);
         assert_eq!(e.mem.u32(msg + 4), 0x12);
+    }
+
+    /// The frame the game's renderer adds before it places its window (exe 0x004da951): the
+    /// table's `AdjustWindowRect` border for the window's own style, its class's menu (the game's
+    /// class has none) and no extended style, never one of another key; none for a window that
+    /// is not there.
+    #[test]
+    fn the_game_frame_is_the_tables_border_for_the_windows_style() {
+        let mut e = Engine::new();
+        crate::d3d9::load_adapter_table(
+            &mut e,
+            "AdjustWindowRectEx\t10000000 0 0\t1\tfffffff8 ffffffe1 8 8\n\
+             AdjustWindowRectEx\t10000000 1 0\t1\tfffffff8 ffffffce 8 8\n\
+             AdjustWindowRectEx\t10000000 0 200\t1\tfffffff6 ffffffdf a a\n\
+             AdjustWindowRectEx\t0 0 0\t1\t0 0 0 0\n",
+        );
+        let name = e.mem.alloc(32);
+        e.mem.set_cstr(name, b"Fallout: New Vegas");
+        let class = e.mem.alloc(40);
+        for at in (0..40).step_by(4) {
+            e.mem.set_u32(class + at, 0);
+        }
+        e.mem.set_u32(class + 36, name);
+        assert_eq!(register_class_a(&mut e, Ptr::new(class)), FIRST_ATOM);
+        state!(e).windows.windows.insert(
+            0x10,
+            Window {
+                class: FIRST_ATOM,
+                title: Vec::new(),
+                style: 0x1000_0000,
+                ex_style: 0,
+                parent: 0,
+                rect: [0, 0, 336, 279],
+            },
+        );
+        assert_eq!(game_frame(&mut e, 0x10), Some([-8, -31, 8, 8]));
+        assert_eq!(game_frame(&mut e, 0x99), None);
     }
 
     #[test]

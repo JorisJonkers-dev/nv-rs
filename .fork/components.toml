@@ -26,7 +26,7 @@ unassigned = "fail"
 name = "core"
 purpose = "The engine's foundation: the game's memory model, the Engine, the exe mapping, the CRT, the typed re-implementations above the core, and the frame model"
 crates = ["engine-core", "engine-typed", "frame-model"]
-requires = ["hitch"]
+requires = ["hitch", "qos"]
 runs_on = "both"
 windows = "required"
 
@@ -116,10 +116,24 @@ requires = ["log"]
 runs_on = "both"
 
 [[component]]
+name = "qos"
+purpose = "Windows' quality-of-service hint: the game's threads told they are not background work (NV_NOT_BACKGROUND, bNotBackground); nothing off Windows"
+crates = ["qos"]
+requires = []
+runs_on = "both"
+
+[[component]]
+name = "game-folders"
+purpose = "Off Windows: the game's installs (Steam, Heroic, Lutris), the Proton and Wine saves, the player's folders nv-rs never writes into and nv-rs's own folder, as plain functions over a home folder (nv-viewer --find, the save guard)"
+crates = ["game-folders"]
+requires = []
+runs_on = "both"
+
+[[component]]
 name = "rendering"
 purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), the shader compiler seam off Windows (cache and libvkd3d-shader), and the fork-owned replay-bench that times a recorded stream through a null, the wgpu and a raw Vulkan backend (docs/fork/REPLAY.md)"
 crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader", "d3d9-replay"]
-requires = ["formats", "window-layer", "log", "hitch"]
+requires = ["formats", "window-layer", "log", "hitch", "qos"]
 runs_on = "both"
 windows = "required"
 
@@ -127,7 +141,7 @@ windows = "required"
 name = "platform"
 purpose = "The Windows platform layer: window, Direct3D 9 and D3DX entry points, DirectInput, DirectSound, DirectShow, files, loader and process"
 crates = ["engine-platform"]
-requires = ["core", "formats", "rendering", "log", "hitch"]
+requires = ["core", "formats", "rendering", "log", "hitch", "qos"]
 runs_on = "both"
 # The Windows entry points are cfg(windows) code that only Windows can test; the Linux job runs the rest, among it the
 # shader compiler seam's tests against a recent libvkd3d-shader (docs/fork/CI-NIX.md).
@@ -137,7 +151,7 @@ windows = "required"
 name = "integration"
 purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
 crates = ["engine", "host", "play-patch", "nv-viewer"]
-requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders"]
 runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not

@@ -2860,21 +2860,24 @@ fn a_warm_start_makes_only_the_listed_shaders_libraries() {
         let _ = std::fs::remove_dir_all(&dir);
         return;
     };
-    // Cold: every shader's library at the start: the four and the stand-ins (two vertex shaders
-    // for the two pixel shaders' varyings, one pixel shader).
+    // Cold: every shader's library at the start: the four, the shipped list's two fixed-function
+    // shaders (the intro movie's, made at every start: `ffp`) and the stand-ins (two vertex
+    // shaders for the two pixel shaders' varyings, one pixel shader).
     assert!(note.starts_with("none yet"), "{note}");
-    assert_eq!((waited, start, end), (4, (4, 3), (4, 3)), "cold");
+    assert_eq!((waited, start, end), (6, (6, 4), (6, 4)), "cold");
     let (note, waited, start, end) = run(true).expect("the second run");
     // Warm: the listed pair's libraries and their stand-ins' only (the other pair's modules
-    // are still made ahead); its draw makes the other pair's two.
+    // are still made ahead); its draw makes the other pair's two. The shipped list's
+    // fixed-function pair is listed too: two vertex libraries (its vertex shader and a stand-in)
+    // and one pixel library more throughout.
     assert!(note.ends_with("KB read"), "{note}");
-    assert_eq!(waited, 4, "every module waited for");
+    assert_eq!(waited, 6, "every module waited for");
     assert_eq!(
         start,
-        (2, 2),
-        "warm: the listed pair's and their stand-ins'"
+        (2 + 2, 2 + 1),
+        "warm: the listed pairs' and their stand-ins'"
     );
-    assert_eq!(end, (3, 3), "the other pair's on its first draw");
+    assert_eq!(end, (3 + 2, 3 + 1), "the other pair's on its first draw");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3992,86 +3995,6 @@ fn a_failure_on_the_queue_thread_is_raised_on_the_render_thread() {
     assert_eq!(g.b.device().map(|d| d.wgpu_errors()), Some(0));
 }
 
-/// A screen quad of pre-transformed vertices (`D3DFVF_XYZRHW | D3DFVF_TEX1`) drawn with no
-/// shaders, as the Bink movie player draws a movie frame, shows its texture at the pixels the
-/// vertices name: x to the right, y down from the top (an 8 by 8 target, a red 1 by 1 texture).
-#[test]
-fn a_quad_of_pre_transformed_vertices_without_shaders_draws_its_texture_at_its_pixels() {
-    let Some(mut g) = Gpu::new(8, 1) else { return };
-    for pixel in [false, true] {
-        g.run(Cmd::SetShader {
-            device: DEVICE,
-            pixel,
-            shader: 0,
-        });
-    }
-    const TEX: u32 = 0x1620;
-    let levels = words(&[TEX + 1]);
-    g.run(Cmd::CreateTexture {
-        device: DEVICE,
-        texture: TEX,
-        levels: Data::Bytes(&levels),
-        width: 1,
-        height: 1,
-        usage: 0,
-        format: A8R8G8B8,
-        pool: 1,
-    });
-    g.run(Cmd::UploadSurface {
-        surface: TEX + 1,
-        row: 4,
-        rows: 1,
-        data: Data::Bytes(&[0, 0, 255, 255]),
-    });
-    g.run(Cmd::SetTexture {
-        device: DEVICE,
-        sampler: 0,
-        texture: TEX,
-    });
-    g.state(ZENABLE, 0);
-    g.state(CULLMODE, 1);
-    g.run(Cmd::SetFvf {
-        device: DEVICE,
-        fvf: 0x104,
-    });
-    g.clear(1, 0, 1.0);
-    // Pixels x 1 to 5 and y 4 to 7, as a strip: x, y, z, rhw, u, v.
-    let quad = floats(&[
-        1.0, 4.0, 0.0, 1.0, 0.0, 0.0, //
-        5.0, 4.0, 0.0, 1.0, 1.0, 0.0, //
-        1.0, 7.0, 0.0, 1.0, 0.0, 1.0, //
-        5.0, 7.0, 0.0, 1.0, 1.0, 1.0,
-    ]);
-    g.run(Cmd::UploadBuffer {
-        buffer: VB,
-        offset: 0,
-        flags: 0,
-        data: Data::Bytes(&quad),
-    });
-    g.run(Cmd::SetStreamSource {
-        device: DEVICE,
-        stream: 0,
-        buffer: VB,
-        offset: 0,
-        stride: 24,
-    });
-    g.run(Cmd::DrawPrimitive {
-        device: DEVICE,
-        kind: 5,
-        start: 0,
-        count: 2,
-    });
-    let reds = g.reds();
-    let at = |x: usize, y: usize| reds[y * 8 + x];
-    assert_eq!(at(3, 5), 255, "inside the quad");
-    assert_eq!(at(2, 5), 255, "inside the quad");
-    assert_eq!(at(3, 1), 0, "above the quad (y is down from the top)");
-    assert_eq!(at(6, 5), 0, "right of the quad");
-    assert_eq!(at(0, 5), 0, "left of the quad");
-    assert_eq!(at(3, 3), 0, "above the quad's top edge");
-    assert_eq!(g.b.device().expect("the device").wgpu_errors(), 0);
-}
-
 /// A game that makes render targets without end, or one of an absurd size, is stopped by the
 /// layer's budget (`NV_GPU_BUDGET_MB`) with a refusal, not by the driver running out of memory:
 /// the bytes of dropped textures are given back, an over-sized texture is refused whatever the
@@ -4126,77 +4049,419 @@ fn a_texture_leak_and_an_absurd_texture_stop_at_the_gpu_budget() {
     assert_eq!(d.wgpu_errors(), 0);
 }
 
-/// The same quad over the whole 8 by 8 target with a texture of two texels, red then black: the
-/// texture coordinates are read, so the left half is red and the right half black.
-#[test]
-fn a_quad_of_pre_transformed_vertices_without_shaders_maps_its_texture_coordinates() {
-    let Some(mut g) = Gpu::new(8, 1) else { return };
-    for pixel in [false, true] {
-        g.run(Cmd::SetShader {
+// The fixed-function draws: the intro movie's tiles (exe 00ec0280, 00ec0460, 00ebff30).
+
+/// `D3DFMT_X8R8G8B8`, `D3DUSAGE_DYNAMIC`, `D3DFVF_XYZRHW | D3DFVF_TEX1`.
+const X8R8G8B8: u32 = 22;
+const DYNAMIC: u32 = 0x200;
+const XYZRHW_TEX1: u32 = 0x104;
+
+impl Gpu {
+    fn stage_state(&mut self, stage: u32, kind: u32, value: u32) {
+        self.run(Cmd::SetTextureStageState {
             device: DEVICE,
-            pixel,
-            shader: 0,
+            stage,
+            kind,
+            value,
         });
     }
-    const TEX: u32 = 0x1640;
-    let levels = words(&[TEX + 1]);
-    g.run(Cmd::CreateTexture {
+
+    fn sampler_state(&mut self, sampler: u32, kind: u32, value: u32) {
+        self.run(Cmd::SetSamplerState {
+            device: DEVICE,
+            sampler,
+            kind,
+            value,
+        });
+    }
+
+    /// No vertex or pixel shader bound: the fixed-function pipeline draws.
+    fn no_shaders(&mut self) {
+        for pixel in [false, true] {
+            self.run(Cmd::SetShader {
+                device: DEVICE,
+                pixel,
+                shader: 0,
+            });
+        }
+    }
+
+    /// A `width` by `height` X8R8G8B8 texture as the movie makes its tiles (dynamic, default
+    /// pool) at handle `texture`, holding `bgrx` (rows packed), bound to sampler 0.
+    fn movie_texture(&mut self, texture: u32, width: u32, height: u32, bgrx: &[u8]) {
+        let levels = words(&[texture + 1]);
+        self.run(Cmd::CreateTexture {
+            device: DEVICE,
+            texture,
+            levels: Data::Bytes(&levels),
+            width,
+            height,
+            usage: DYNAMIC,
+            format: X8R8G8B8,
+            pool: 0,
+        });
+        self.run(Cmd::UploadSurface {
+            surface: texture + 1,
+            row: 4 * width,
+            rows: height,
+            data: Data::Bytes(bgrx),
+        });
+        self.run(Cmd::SetTexture {
+            device: DEVICE,
+            sampler: 0,
+            texture,
+        });
+    }
+
+    /// The movie's draw state (00ec0460, then 00ebff30's render states): alpha blending off;
+    /// stage 0 alpha SELECTARG1, colour argument 1 TEXTURE, alpha argument 1 TEXTURE, colour
+    /// MODULATE (argument 2 CURRENT: the diffuse, white without one); linear min, mag and mip
+    /// filters, clamped U and V; depth test and writes off, every colour channel written.
+    fn movie_state(&mut self) {
+        self.state(27, 0);
+        for (state, value) in [(4, 2), (2, 2), (5, 2), (1, 4)] {
+            self.stage_state(0, state, value);
+        }
+        for (state, value) in [(6, 2), (5, 2), (7, 2), (1, 3), (2, 3)] {
+            self.sampler_state(0, state, value);
+        }
+        self.state(ZENABLE, 0);
+        self.state(ZWRITEENABLE, 0);
+        self.state(168, 0xF);
+    }
+
+    /// One movie tile (00ec0280): a strip of four pre-transformed vertices from (x, y) to
+    /// (x + w, y + h), texture coordinates 0 to 1, 24 bytes each, drawn with SetFVF(XYZRHW |
+    /// TEX1) and DrawPrimitiveUP.
+    fn movie_quad(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        let mut v = Vec::new();
+        for (px, py, u, t) in [
+            (x, y, 0.0, 0.0),
+            (x, y + h, 0.0, 1.0),
+            (x + w, y, 1.0, 0.0),
+            (x + w, y + h, 1.0, 1.0),
+        ] {
+            v.extend(floats(&[px, py, 0.0, 1.0, u, t]));
+        }
+        self.run(Cmd::SetFvf {
+            device: DEVICE,
+            fvf: XYZRHW_TEX1,
+        });
+        self.run(Cmd::DrawPrimitiveUp {
+            device: DEVICE,
+            kind: 5,
+            count: 2,
+            stride: 24,
+            vertices: Data::Bytes(&v),
+        });
+    }
+}
+
+/// A texture whose texel (x, y) has red 16 x, green 16 y, blue 0x80 and an alpha byte of 0 (an
+/// X8 format's: read as opaque).
+fn ramp(width: u32, height: u32) -> Vec<u8> {
+    let mut b = Vec::new();
+    for y in 0..height {
+        for x in 0..width {
+            b.extend_from_slice(&[0x80, (16 * y) as u8, (16 * x) as u8, 0]);
+        }
+    }
+    b
+}
+
+/// What Direct3D 9 shows of [`ramp`] drawn as a quad of exactly its size from whole pixel
+/// coordinates with linear filtering: pixel n's centre is at screen n, which is texture
+/// coordinate n / size, half-way between texels n - 1 and n (Microsoft's "Directly Mapping Texels
+/// to Pixels"): 16 n - 8, and 0 for the first (clamped addressing repeats texel 0).
+fn ramp_seen(n: u32) -> u8 {
+    (16 * n).saturating_sub(8) as u8
+}
+
+fn near(a: u8, b: u8) -> bool {
+    a.abs_diff(b) <= 1
+}
+
+/// The intro movie's tile draw, call for call as the game makes it (no shaders, SetFVF(XYZRHW
+/// | TEX1), DrawPrimitiveUP), shows the uploaded texels where Direct3D 9 puts them: every pixel
+/// the half-texel blend of its two texels, blue 0x80, opaque. (The backend skipped every draw
+/// without shaders: the movie played to a black screen on Vulkan.)
+#[test]
+fn the_movies_fixed_function_tile_shows_its_texels_where_direct3d_9_does() {
+    let Some(mut g) = Gpu::new(16, 1) else { return };
+    g.movie_texture(0x1700, 16, 16, &ramp(16, 16));
+    g.no_shaders();
+    g.movie_state();
+    g.clear(1, 0xFF00_0000, 1.0);
+    g.movie_quad(0.0, 0.0, 16.0, 16.0);
+    let px = g.pixels();
+    for y in 0..16u32 {
+        for x in 0..16u32 {
+            let p = px[(16 * y + x) as usize];
+            assert!(
+                near(p[2], ramp_seen(x))
+                    && near(p[1], ramp_seen(y))
+                    && near(p[0], 0x80)
+                    && p[3] == 255,
+                "pixel ({x}, {y}): {p:?}, want red {} green {} blue 128 alpha 255",
+                ramp_seen(x),
+                ramp_seen(y)
+            );
+        }
+    }
+    let d = g.b.device().expect("the device");
+    assert_eq!(d.wgpu_errors(), 0);
+}
+
+/// The movie's letterbox: a viewport inside the target (x 4, y 2, 8 by 8, as `Movie::Update`
+/// sets one) and a tile at the same pixels. Pre-transformed positions are the target's pixels
+/// whatever the viewport, so the tile lands at (4, 2) as on Direct3D 9; nothing outside it is
+/// drawn.
+#[test]
+fn a_pre_transformed_tile_lands_on_its_own_pixels_inside_a_smaller_viewport() {
+    let Some(mut g) = Gpu::new(16, 1) else { return };
+    g.movie_texture(0x1710, 8, 8, &ramp(8, 8));
+    g.no_shaders();
+    g.movie_state();
+    g.clear(1, 0xFF00_0000, 1.0);
+    g.viewport(4, 2, 8, 8, 0.0, 1.0);
+    g.movie_quad(4.0, 2.0, 8.0, 8.0);
+    let px = g.pixels();
+    for y in 0..16u32 {
+        for x in 0..16u32 {
+            let p = px[(16 * y + x) as usize];
+            if (4..12).contains(&x) && (2..10).contains(&y) {
+                let (u, v) = (x - 4, y - 2);
+                assert!(
+                    near(p[2], ramp_seen(u)) && near(p[1], ramp_seen(v)) && near(p[0], 0x80),
+                    "pixel ({x}, {y}): {p:?}"
+                );
+            } else {
+                assert_eq!(p, [0, 0, 0, 255], "pixel ({x}, {y}) is outside the tile");
+            }
+        }
+    }
+}
+
+/// Two texture stages and a vertex colour, by `D3DTEXTUREOP`'s formulas: stage 0 MODULATE
+/// (texture, diffuse) for the colour and SELECTARG2 (the diffuse's alpha); stage 1 ADD (current,
+/// texture factor) for the colour and SELECTARG1 (current) for the alpha; each stage's result
+/// clamped to 1. Texel (R 255, G 128, B 0), diffuse 0x80FF8040, factor 0x00102030: red 255 + 16
+/// clamped, green 128 * 128 / 255 + 32, blue 0 + 48, alpha 128.
+#[test]
+fn texture_stages_combine_as_d3dtextureop_says() {
+    let Some(mut g) = Gpu::new(4, 1) else { return };
+    g.movie_texture(0x1720, 1, 1, &[0, 128, 255, 0]);
+    g.no_shaders();
+    g.state(27, 0);
+    g.state(ZENABLE, 0);
+    const TFACTOR: u32 = 60;
+    g.state(TFACTOR, 0x0010_2030);
+    // D3DTSS_COLOROP 1, COLORARG1 2, COLORARG2 3, ALPHAOP 4, ALPHAARG1 5, ALPHAARG2 6; D3DTA
+    // DIFFUSE 0, CURRENT 1, TEXTURE 2, TFACTOR 3.
+    for (stage, state, value) in [
+        (0, 1, 4),
+        (0, 2, 2),
+        (0, 3, 0),
+        (0, 4, 3),
+        (0, 6, 0),
+        (1, 1, 7),
+        (1, 2, 1),
+        (1, 3, 3),
+        (1, 4, 2),
+        (1, 5, 1),
+    ] {
+        g.stage_state(stage, state, value);
+    }
+    // XYZRHW | DIFFUSE | TEX1, 28 bytes: a quad over the 4 by 4 target.
+    let mut v = Vec::new();
+    for (x, y) in [(0.0f32, 0.0f32), (0.0, 4.0), (4.0, 0.0), (4.0, 4.0)] {
+        v.extend(floats(&[x, y, 0.5, 1.0]));
+        v.extend(0x80FF_8040u32.to_le_bytes());
+        v.extend(floats(&[0.5, 0.5]));
+    }
+    g.clear(1, 0, 1.0);
+    g.run(Cmd::SetFvf {
         device: DEVICE,
-        texture: TEX,
-        levels: Data::Bytes(&levels),
-        width: 2,
-        height: 1,
-        usage: 0,
-        format: A8R8G8B8,
-        pool: 1,
+        fvf: 0x144,
     });
-    g.run(Cmd::UploadSurface {
-        surface: TEX + 1,
-        row: 8,
-        rows: 1,
-        data: Data::Bytes(&[0, 0, 255, 255, 0, 0, 0, 255]),
+    g.run(Cmd::DrawPrimitiveUp {
+        device: DEVICE,
+        kind: 5,
+        count: 2,
+        stride: 28,
+        vertices: Data::Bytes(&v),
+    });
+    for p in g.pixels() {
+        assert!(
+            p[2] == 255 && near(p[1], 96) && near(p[0], 48) && near(p[3], 128),
+            "{p:?}: want B 48, G 96, R 255, A 128"
+        );
+    }
+}
+
+/// The movie's fixed-function shaders and pipeline are made before play like the game's: the
+/// first run makes its pipeline on the tile's draw and lists it with the shaders' bytecode (`f1`
+/// lines: the game creates no such shader); the next run makes the shaders at its start and the
+/// pipeline at its first `Present`, so the tile's draw makes none, with the same pixels.
+#[test]
+fn the_movies_pipeline_is_made_before_its_first_frame_from_the_second_start() {
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("ffp-list-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let run = |cache: &std::path::Path| -> Option<(Vec<u8>, u64)> {
+        let mut g = Gpu::with_cache(16, 1, Some(cache.to_path_buf()))?;
+        g.run(Cmd::Present {
+            device: DEVICE,
+            source: None,
+            dest: None,
+            window: 0,
+            dirty: false,
+            model: 0,
+            frame: 1,
+        });
+        g.movie_texture(0x1740, 16, 16, &ramp(16, 16));
+        g.no_shaders();
+        g.movie_state();
+        g.clear(1, 0xFF00_0000, 1.0);
+        g.movie_quad(0.0, 0.0, 16.0, 16.0);
+        let reds = g.reds();
+        let made = g.b.device().expect("the device").pipelines_made_on_draws();
+        Some((reds, made))
+    };
+    let Some((first, made_first)) = run(&dir) else {
+        return;
+    };
+    assert_eq!(
+        made_first, 1,
+        "the first run makes the tile's pipeline on its draw"
+    );
+    let list = std::fs::read_to_string(dir.join("pipelines.txt")).expect("the list written");
+    assert!(
+        list.lines().filter(|l| l.starts_with("f1 ")).count() >= 2,
+        "the fixed-function vertex and pixel shaders listed"
+    );
+    let (second, made_second) = run(&dir).unwrap();
+    assert_eq!(second, first, "the same pixels");
+    assert_eq!(made_second, 0, "no pipeline made on the tile's draw");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `Reset` returns the texture stage states to Direct3D 9's defaults (stage 0: MODULATE the
+/// texture by the diffuse, SELECTARG1 its alpha): a stage 0 set to SELECTARG2 (the diffuse, white
+/// here) before the Reset draws the tile's texels after it.
+#[test]
+fn reset_returns_the_texture_stages_to_their_defaults() {
+    let Some(mut g) = Gpu::new(4, 1) else { return };
+    g.movie_texture(0x1750, 1, 1, &[0x40, 0x80, 0xC0, 0]);
+    g.no_shaders();
+    g.movie_state();
+    g.stage_state(0, 1, 3);
+    g.clear(1, 0, 1.0);
+    g.movie_quad(0.0, 0.0, 4.0, 4.0);
+    assert!(
+        g.pixels().iter().all(|p| *p == [255, 255, 255, 255]),
+        "SELECTARG2: the diffuse, white: {:?}",
+        g.pixels()
+    );
+    let present = words(&[4, 4, A8R8G8B8, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0]);
+    g.run(Cmd::Reset {
+        device: DEVICE,
+        window: 0,
+        present: Data::Bytes(&present),
+        back_buffers: Data::Bytes(&words(&[BACK])),
+        depth_stencil: 0,
+    });
+    // Everything the draw needs again, but the stage states.
+    g.run(Cmd::SetRenderTarget {
+        device: DEVICE,
+        index: 0,
+        surface: RT,
     });
     g.run(Cmd::SetTexture {
         device: DEVICE,
         sampler: 0,
-        texture: TEX,
+        texture: 0x1750,
     });
     g.state(ZENABLE, 0);
     g.state(CULLMODE, 1);
-    g.run(Cmd::SetFvf {
-        device: DEVICE,
-        fvf: 0x104,
-    });
     g.clear(1, 0, 1.0);
-    // Pixels x 1 to 5 and y 4 to 7, as a strip: x, y, z, rhw, u, v.
-    let quad = floats(&[
-        0.0, 0.0, 0.0, 1.0, 0.0, 0.0, //
-        8.0, 0.0, 0.0, 1.0, 1.0, 0.0, //
-        0.0, 8.0, 0.0, 1.0, 0.0, 1.0, //
-        8.0, 8.0, 0.0, 1.0, 1.0, 1.0,
-    ]);
-    g.run(Cmd::UploadBuffer {
-        buffer: VB,
-        offset: 0,
-        flags: 0,
-        data: Data::Bytes(&quad),
-    });
-    g.run(Cmd::SetStreamSource {
+    g.movie_quad(0.0, 0.0, 4.0, 4.0);
+    assert!(
+        g.pixels().iter().all(|p| *p == [0x40, 0x80, 0xC0, 255]),
+        "the default stages: the texel: {:?}",
+        g.pixels()
+    );
+}
+
+/// A shader draw after the movie's tile reads the constants the game set before the tile: the
+/// game's renderer sends only constants that changed, so the first shader draw after the movie
+/// can read registers set long before it. The fixed-function shaders' own constants must not
+/// stand in for them (the stage's block is written again on leaving fixed function).
+#[test]
+fn a_shader_draw_after_the_tile_reads_the_constants_set_before_it() {
+    let Some(mut g) = Gpu::new(4, 1) else { return };
+    g.colour([0.0, 1.0, 0.0, 1.0]);
+    g.clear(3, 0, 1.0);
+    g.cover(0.5);
+    assert!(g.pixels().iter().all(|p| *p == [0, 255, 0, 255]), "green");
+    g.movie_texture(0x1760, 1, 1, &[0, 0, 255, 0]);
+    g.no_shaders();
+    g.movie_state();
+    // No read-back between the tile and the shader draw: one batch, so the draw's register
+    // blocks follow the tile's in the same ring (a read-back starts a new one, which writes every
+    // block again and would hide a stale one).
+    g.movie_quad(0.0, 0.0, 4.0, 4.0);
+    for (pixel, shader) in [(false, VS), (true, PS)] {
+        g.run(Cmd::SetShader {
+            device: DEVICE,
+            pixel,
+            shader,
+        });
+    }
+    g.run(Cmd::SetVertexDeclaration {
         device: DEVICE,
-        stream: 0,
-        buffer: VB,
-        offset: 0,
-        stride: 24,
+        declaration: DECL,
     });
-    g.run(Cmd::DrawPrimitive {
+    // No constant set again: c0 is still the green set before the tile.
+    g.cover(0.5);
+    assert!(
+        g.pixels().iter().all(|p| *p == [0, 255, 0, 255]),
+        "green from the constant set before the tile: {:?}",
+        g.pixels()
+    );
+}
+
+/// A vertex declaration set after an FVF replaces it, and the same declaration set again after
+/// the FVF is the layout again (the game's 00ec0280 saves the declaration, sets its FVF and sets
+/// the declaration back): the shader draw after the movie's tile draws with its own layout.
+#[test]
+fn a_declaration_set_again_after_an_fvf_is_the_layout_again() {
+    let Some(mut g) = Gpu::new(4, 1) else { return };
+    g.movie_texture(0x1730, 1, 1, &[0, 0, 255, 0]);
+    g.no_shaders();
+    g.movie_state();
+    g.clear(1, 0, 1.0);
+    g.movie_quad(0.0, 0.0, 4.0, 4.0);
+    assert!(g.pixels().iter().all(|p| p[2] == 255), "the tile drew red");
+    for (pixel, shader) in [(false, VS), (true, PS)] {
+        g.run(Cmd::SetShader {
+            device: DEVICE,
+            pixel,
+            shader,
+        });
+    }
+    g.run(Cmd::SetVertexDeclaration {
         device: DEVICE,
-        kind: 5,
-        start: 0,
-        count: 2,
+        declaration: DECL,
     });
-    let reds = g.reds();
-    let at = |x: usize, y: usize| reds[y * 8 + x];
-    assert_eq!(at(1, 4), 255, "the left half shows the first texel");
-    assert_eq!(at(6, 4), 0, "the right half shows the second texel");
-    assert_eq!(g.b.device().expect("the device").wgpu_errors(), 0);
+    g.colour([0.0, 1.0, 0.0, 1.0]);
+    g.cover(0.5);
+    assert!(
+        g.pixels().iter().all(|p| *p == [0, 255, 0, 255]),
+        "the shader draw covered the target in green: {:?}",
+        g.pixels()
+    );
+    let d = g.b.device().expect("the device");
+    assert_eq!(d.wgpu_errors(), 0);
 }

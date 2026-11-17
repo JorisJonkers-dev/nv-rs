@@ -404,19 +404,6 @@ impl Default for Engine {
     }
 }
 
-/// The game's (Windows) form of a host folder: `/` is `\`, and a Unix path, which has no drive
-/// letter, goes under `Z:`, the host's root as the game sees it (as Wine's is; `files::host_path`
-/// maps it back). Without the drive, `GetFullPathNameA` of a relative name had no full path to
-/// make and stopped the run. A folder that has a drive (Windows hosts) is only turned.
-pub fn game_folder(host: &str) -> String {
-    let turned = host.replace('/', "\\");
-    if turned.starts_with('\\') && !turned.starts_with("\\\\") {
-        format!("Z:{turned}")
-    } else {
-        turned
-    }
-}
-
 impl Engine {
     /// Empty memory, every translated unit registered: this crate's
     /// (`units::crt`, `units::platform`) and those of the engine crates the
@@ -546,8 +533,24 @@ impl Engine {
         e.register_imports(&crate::exe::imports(&file)?);
         // The process starts in the executable's folder (where Steam starts
         // the game): `GetCurrentDirectoryA` reports it.
+        // Off Windows, as the game names this system's folders: on drive Z:.
         if let Some(folder) = exe.parent() {
-            e.kernel.current_directory = game_folder(&folder.to_string_lossy()).into_bytes();
+            #[cfg(windows)]
+            let folder = folder.to_string_lossy().replace('/', "\\");
+            // Made absolute first: drive Z:'s names all start at `/`. A folder whose names a
+            // Windows path cannot hold is refused (`exe::game_view_refused`).
+            #[cfg(not(windows))]
+            let folder = {
+                let host = std::env::current_dir()
+                    .map_err(|err| format!("{}: {err}", folder.display()))?
+                    .join(folder);
+                let host = host.to_string_lossy();
+                if let Some(why) = crate::exe::game_view_refused(&host) {
+                    return Err(why);
+                }
+                crate::exe::game_view(&host)
+            };
+            e.kernel.current_directory = folder.into_bytes();
         }
         Ok(e)
     }
@@ -1620,13 +1623,6 @@ fn tick_count_of(sec: i64, nsec: i64) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_unix_game_folder_goes_under_the_z_drive() {
-        assert_eq!(game_folder("/home/me/FNV"), r"Z:\home\me\FNV");
-        assert_eq!(game_folder("C:/Games/FNV"), r"C:\Games\FNV");
-        assert_eq!(game_folder(r"\\server\share"), r"\\server\share");
-    }
 
     /// Engines copy one template table: what one registers, replaces or drops is its own, and the next
     /// engine starts from the translations again.
