@@ -1,5 +1,77 @@
 # Changelog
 
+## [0.5.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.4.0...v0.5.0) (2026-11-17)
+
+
+### Features
+
+* **bench:** a memory guard on every run: host and GPU caps, a session check and a halt ([#341](https://github.com/JorisJonkers-dev/nv-rs/issues/341)) ([66955c1](https://github.com/JorisJonkers-dev/nv-rs/commit/66955c1006d6e9cca3e19d4893437c8cceff8ce9))
+* **bench:** unlimited by default, wall-clock real-input drivers, the quick suite and a headline suite table ([#184](https://github.com/JorisJonkers-dev/nv-rs/issues/184)) ([438736d](https://github.com/JorisJonkers-dev/nv-rs/commit/438736d8921dd2538e0fbdc0c69644e0af937ba8))
+* **bench:** watch a running nested session, record it, and replay it with a frame-time timeline ([#116](https://github.com/JorisJonkers-dev/nv-rs/issues/116)) ([ecad7dc](https://github.com/JorisJonkers-dev/nv-rs/commit/ecad7dcde513476ae09f017b93883ccfa4445f4c))
+* **ci:** weekly upstream sync, a warn-only divergence report and a changed-line coverage gate ([#117](https://github.com/JorisJonkers-dev/nv-rs/issues/117)) ([3b2bf65](https://github.com/JorisJonkers-dev/nv-rs/commit/3b2bf6579e60efaa198e12a57ef81e21fb4f0e8b))
+* **d3d9-replay:** a throwaway raw Vulkan prototype of the draw path for the replay-bench ([#185](https://github.com/JorisJonkers-dev/nv-rs/issues/185)) ([49ce914](https://github.com/JorisJonkers-dev/nv-rs/commit/49ce914819b0a6cdc4a2b25f8a7ae63548f09314))
+* **d3d9-replay:** replay-bench of the recorded Direct3D 9 stream with a null floor and the wgpu backend ([#109](https://github.com/JorisJonkers-dev/nv-rs/issues/109)) ([34d3ee4](https://github.com/JorisJonkers-dev/nv-rs/commit/34d3ee4c868742dc540dc50509e10d0f60289218))
+* **d3d9-wgpu:** a content-addressed shader cache, and the pipeline cache and list kept on Linux by default ([#104](https://github.com/JorisJonkers-dev/nv-rs/issues/104)) ([6273d73](https://github.com/JorisJonkers-dev/nv-rs/commit/6273d73e1c420e2fb11b67ab7d49b1550350c562))
+* **d3d9-wgpu:** ambient occlusion on Vulkan, off by default (slaterain/nv-rs[#661](https://github.com/JorisJonkers-dev/nv-rs/issues/661)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **d3d9-wgpu:** NV_PERF reports the busy share of every thread of the process ([#100](https://github.com/JorisJonkers-dev/nv-rs/issues/100)) ([4657e92](https://github.com/JorisJonkers-dev/nv-rs/commit/4657e928a2de63331a7d78922cc3c49f22bf8d9c))
+* **d3d9-wgpu:** NV_PIPELINE_CACHE_MAX_MB caps the pipeline folder and the recorded pipeline list ([#115](https://github.com/JorisJonkers-dev/nv-rs/issues/115)) ([3e1fe89](https://github.com/JorisJonkers-dev/nv-rs/commit/3e1fe89004c26bb6a617c962298bc411017292de))
+* **d3d9-wgpu:** precompile the shaders of a load order into the caches ([#106](https://github.com/JorisJonkers-dev/nv-rs/issues/106)) ([aed8afd](https://github.com/JorisJonkers-dev/nv-rs/commit/aed8afdcb09ce024afbea92cc50290e0cb514ba2))
+* **dev:** nv-rs-dev logs, a short report of a run from its logs ([#110](https://github.com/JorisJonkers-dev/nv-rs/issues/110)) ([56c980d](https://github.com/JorisJonkers-dev/nv-rs/commit/56c980ddfbfa35bea65e63b65313a920c5c77709))
+* **engine-platform:** the Direct3D 9 layer builds on every system and the Win32 window moves into its own file (slaterain/nv-rs[#635](https://github.com/JorisJonkers-dev/nv-rs/issues/635)) ([63aacd4](https://github.com/JorisJonkers-dev/nv-rs/commit/63aacd483990cb45945651221e968dd638da1518))
+* **engine-platform:** the log says where the game's window went, and when a play run runs as a test (slaterain/nv-rs[#627](https://github.com/JorisJonkers-dev/nv-rs/issues/627)) ([8e90f73](https://github.com/JorisJonkers-dev/nv-rs/commit/8e90f73dbe4b0696cf988b981e7ff5f04ba9ab93))
+* **engine-platform:** the machine's answers off Windows from what the system reports (slaterain/nv-rs[#645](https://github.com/JorisJonkers-dev/nv-rs/issues/645)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **engine-typed:** the geometry family on by default after its gate (slaterain/nv-rs[#654](https://github.com/JorisJonkers-dev/nv-rs/issues/654)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **extenders:** a mod settings menu's plugin built in, off by default (slaterain/nv-rs[#644](https://github.com/JorisJonkers-dev/nv-rs/issues/644)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **extenders:** five more built-in extender commands, package C3 (1003 of 1,118) (slaterain/nv-rs[#646](https://github.com/JorisJonkers-dev/nv-rs/issues/646)) ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **extenders:** mods can read and keep their own settings files (1,005 of 1,118) (slaterain/nv-rs[#642](https://github.com/JorisJonkers-dev/nv-rs/issues/642)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **extenders:** the built-in extender plugin's "installed" answer becomes a run-time switch, off by default (slaterain/nv-rs[#628](https://github.com/JorisJonkers-dev/nv-rs/issues/628)) ([8e90f73](https://github.com/JorisJonkers-dev/nv-rs/commit/8e90f73dbe4b0696cf988b981e7ff5f04ba9ab93))
+* **extenders:** the built-in extender's ar_Cat command (1,002 of 1,118) (slaterain/nv-rs[#650](https://github.com/JorisJonkers-dev/nv-rs/issues/650)) ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **extenders:** the built-in extender's own extra data on references and inventory stacks (997 of 1,118) (slaterain/nv-rs[#619](https://github.com/JorisJonkers-dev/nv-rs/issues/619)) ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **extenders:** the built-in UI Organizer carries its own list of the UI mods it knows (slaterain/nv-rs[#655](https://github.com/JorisJonkers-dev/nv-rs/issues/655)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **extenders:** three more built-in extender commands, package C2c (998 of 1,118) (slaterain/nv-rs[#641](https://github.com/JorisJonkers-dev/nv-rs/issues/641)) ([63aacd4](https://github.com/JorisJonkers-dev/nv-rs/commit/63aacd483990cb45945651221e968dd638da1518))
+* **extenders:** UI Organizer says in the log what it read, added and left out (slaterain/nv-rs[#638](https://github.com/JorisJonkers-dev/nv-rs/issues/638)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **fallout-gameplay:** five more of the built-in extender's game patches (group GD, part 3) (slaterain/nv-rs[#624](https://github.com/JorisJonkers-dev/nv-rs/issues/624)) ([8e90f73](https://github.com/JorisJonkers-dev/nv-rs/commit/8e90f73dbe4b0696cf988b981e7ff5f04ba9ab93))
+* **fallout-gameplay:** the built-in extender's corner messages up to 515 characters, group GA part 3 (slaterain/nv-rs[#625](https://github.com/JorisJonkers-dev/nv-rs/issues/625)) ([63aacd4](https://github.com/JorisJonkers-dev/nv-rs/commit/63aacd483990cb45945651221e968dd638da1518))
+* **fallout-gameplay:** the built-in extender's game patches, group GA part 4 (slaterain/nv-rs[#656](https://github.com/JorisJonkers-dev/nv-rs/issues/656)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **fallout-gameplay:** the built-in extender's game patches, group GB part 2 (slaterain/nv-rs[#623](https://github.com/JorisJonkers-dev/nv-rs/issues/623)) ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **fallout-gameplay:** the built-in extender's game patches, group GD part 4 (slaterain/nv-rs[#648](https://github.com/JorisJonkers-dev/nv-rs/issues/648)) ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **fallout-gameplay:** the built-in extender's game patches, group GF part 1 (slaterain/nv-rs[#622](https://github.com/JorisJonkers-dev/nv-rs/issues/622)) ([63aacd4](https://github.com/JorisJonkers-dev/nv-rs/commit/63aacd483990cb45945651221e968dd638da1518))
+* **fallout-gameplay:** the built-in extender's game patches, group GF part 2 (slaterain/nv-rs[#649](https://github.com/JorisJonkers-dev/nv-rs/issues/649)) ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **fallout-gameplay:** the built-in extender's game patches, group GS part 4 (slaterain/nv-rs[#636](https://github.com/JorisJonkers-dev/nv-rs/issues/636)) ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **fallout-gameplay:** the built-in extender's hit damage and ammo scripts on impact, group GC part 3 (slaterain/nv-rs[#621](https://github.com/JorisJonkers-dev/nv-rs/issues/621)) ([63aacd4](https://github.com/JorisJonkers-dev/nv-rs/commit/63aacd483990cb45945651221e968dd638da1518))
+* **hitch:** a flight recorder for hitches in real play, a per-run summary with flags, and nv-rs-dev hitches and runs ([#105](https://github.com/JorisJonkers-dev/nv-rs/issues/105)) ([9b6505f](https://github.com/JorisJonkers-dev/nv-rs/commit/9b6505f447bb60c9999631ba999910dea079adde))
+* **hitch:** feed the recorder from platform calls, locks, files, sound and the wgpu backend; bench reports hitches ([#112](https://github.com/JorisJonkers-dev/nv-rs/issues/112)) ([7224600](https://github.com/JorisJonkers-dev/nv-rs/commit/7224600eacb503edfd320c06a55a7945fb6a11a0))
+* **host:** NV_FPS_LIMIT, the plain name for the play frame limit; docs say play is unlimited by default ([#107](https://github.com/JorisJonkers-dev/nv-rs/issues/107)) ([1475126](https://github.com/JorisJonkers-dev/nv-rs/commit/1475126609771044eedc69c21989eee031b0a26d))
+* **host:** script extenders' own settings files kept between sessions beside the saves (slaterain/nv-rs[#629](https://github.com/JorisJonkers-dev/nv-rs/issues/629)) ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **host:** the play build compiles on Linux and macOS; starting the game on macOS is refused with a clear message ([e80e8b1](https://github.com/JorisJonkers-dev/nv-rs/commit/e80e8b12e4730c5545419af1f00de4ecff217a4c))
+* **log:** a quiet terminal by default, a plain-text log beside the JSON log, NV_LOG_TERM ([#108](https://github.com/JorisJonkers-dev/nv-rs/issues/108)) ([d5b9186](https://github.com/JorisJonkers-dev/nv-rs/commit/d5b91861aecb85e99a86cec98ae152d1dd166664))
+* **log:** the Direct3D layer's and D3DX's messages follow the terminal policy ([#113](https://github.com/JorisJonkers-dev/nv-rs/issues/113)) ([11ceae4](https://github.com/JorisJonkers-dev/nv-rs/commit/11ceae49436f3144310029b595e2544ba1fe3c49))
+
+
+### Bug Fixes
+
+* **bench:** a step counts as walking only past 30 units, and the first room checks again before its walks ([#338](https://github.com/JorisJonkers-dev/nv-rs/issues/338)) ([9bd462d](https://github.com/JorisJonkers-dev/nv-rs/commit/9bd462d771b25d3be5991325ab37e863ff5b447f))
+* **bench:** free the player from the opening's package, keep the quick suite under 120 s, and add a sneak check ([#325](https://github.com/JorisJonkers-dev/nv-rs/issues/325)) ([8b3649d](https://github.com/JorisJonkers-dev/nv-rs/commit/8b3649d2371a65743fe9bc9d8c5c5a3a87f20b55))
+* **bench:** lock waiters are served in the order they came, and bad window options are refused before waiting ([#111](https://github.com/JorisJonkers-dev/nv-rs/issues/111)) ([67b5d96](https://github.com/JorisJonkers-dev/nv-rs/commit/67b5d9676c3eb6c4b0a24f8576792e66d966dc3f))
+* **bench:** quick suite start: no second warm-up in the first room, a walk a box stopped is made again ([#347](https://github.com/JorisJonkers-dev/nv-rs/issues/347)) ([b4266c6](https://github.com/JorisJonkers-dev/nv-rs/commit/b4266c6141eeec5298ee8aeaf8941f32f351c383))
+* **d3d9-wgpu:** log the pipeline cache eviction through fork_log ([#316](https://github.com/JorisJonkers-dev/nv-rs/issues/316)) ([09f4211](https://github.com/JorisJonkers-dev/nv-rs/commit/09f4211024b832e661c8766e88d3f5d852509dd8))
+* **dev:** the logs tool's fixtures write %USERPROFILE% instead of a user-profile path ([#186](https://github.com/JorisJonkers-dev/nv-rs/issues/186)) ([311b645](https://github.com/JorisJonkers-dev/nv-rs/commit/311b64589bb9bab34a57e9e0408f776fdc72d8ed))
+* **engine-platform:** keep no 8.3 short names off Windows ([#332](https://github.com/JorisJonkers-dev/nv-rs/issues/332)) ([4ee9b1f](https://github.com/JorisJonkers-dev/nv-rs/commit/4ee9b1fbaa06561d5a68ca91601b7323c6e1f76c))
+* **engine-platform:** keep the argument-word trait on every target after the replay of [#617](https://github.com/JorisJonkers-dev/nv-rs/issues/617) ([7ca8070](https://github.com/JorisJonkers-dev/nv-rs/commit/7ca8070fcacbd79e4dded16b6f8be3e786e74eee))
+* **engine-platform:** mods' own files found without regard to case in the port's folder off Windows ([acbf8df](https://github.com/JorisJonkers-dev/nv-rs/commit/acbf8df7d739847fbad6bd870a1bd8abc0812652))
+* **fallout-gameplay:** with the built-in extender, new characters and creatures start without leftover flags (slaterain/nv-rs[#662](https://github.com/JorisJonkers-dev/nv-rs/issues/662)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **hitch:** loads are load time, not hitches; only steady play counts toward the rate ([#339](https://github.com/JorisJonkers-dev/nv-rs/issues/339)) ([c91dbf9](https://github.com/JorisJonkers-dev/nv-rs/commit/c91dbf9805f3eb00a4099a1031f5571701cc05b7))
+* **hitch:** screen switches are load time, the event ring keeps them, and the quick suite starts sooner ([#345](https://github.com/JorisJonkers-dev/nv-rs/issues/345)) ([2723e0e](https://github.com/JorisJonkers-dev/nv-rs/commit/2723e0e2672870dc7ae493da169636934d78647c))
+* **host:** NV_SAVE_OUT takes a folder off Windows ([#335](https://github.com/JorisJonkers-dev/nv-rs/issues/335)) ([34f3d44](https://github.com/JorisJonkers-dev/nv-rs/commit/34f3d442d0185efb847374078d2869325055073a))
+* **host:** the machine table answers without a usable profile, and the kept table is the whole one ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **package:** the research folder's name counts only as a path in the package check (slaterain/nv-rs[#658](https://github.com/JorisJonkers-dev/nv-rs/issues/658)) ([b5ba0c8](https://github.com/JorisJonkers-dev/nv-rs/commit/b5ba0c835deffbb23b07975ba1fd201858503d38))
+* **platform:** keep the game's Settings menu choices between starts ([#346](https://github.com/JorisJonkers-dev/nv-rs/issues/346)) ([121ead1](https://github.com/JorisJonkers-dev/nv-rs/commit/121ead1e3b57ad889d0919e41504c2e9384f66a8))
+
+
+### Performance Improvements
+
+* **engine-platform:** ReadFile reads the host file outside the kernel lock ([#102](https://github.com/JorisJonkers-dev/nv-rs/issues/102)) ([01a4224](https://github.com/JorisJonkers-dev/nv-rs/commit/01a422480f6cabfc86f3814c1889491846c43c72))
+
 ## [0.4.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.3.0...v0.4.0) (2026-11-16)
 
 
