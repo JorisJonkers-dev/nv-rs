@@ -39,6 +39,10 @@ libloading = "0.8"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }
 
+# Upstream's winit window layer (d3d9real/winit_window.rs) and its winit, raw-window-handle and
+# xkbcommon-dl are not built here: off Windows the fork's window layer (fork_d3d9rec.rs, fork-window
+# above) makes the game's window (docs/fork/DIVERGENCE.md, "Direct3D 9 window layer off Windows").
+#
 # Sound on the speakers off Windows (sound_out.rs, `mod device`): the default output device through
 # ALSA (PipeWire's and PulseAudio's ALSA plugins among them) on Linux, CoreAudio on macOS. The
 # mixer is the port's own on every system; only the device differs. No cpal features: its

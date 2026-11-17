@@ -7574,12 +7574,17 @@ pub(crate) fn surface_for(
     fork_window::surface_for(instance, window)
 }
 
+/// Elsewhere (macOS): the surface of the window the window layer made known as `window`
+/// (`crate::window::register_window`).
 #[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
 pub(crate) fn surface_for(
-    _instance: &wgpu::Instance,
-    _window: isize,
+    instance: &wgpu::Instance,
+    window: isize,
 ) -> Result<wgpu::Surface<'static>, String> {
-    Err("windows of other platforms come with the window layer's port".into())
+    let w = crate::window::registered(window).ok_or("no window made known by the window layer")?;
+    instance
+        .create_surface(wgpu::SurfaceTarget::from(w))
+        .map_err(|e| format!("create_surface: {e}"))
 }
 
 /// A pipeline and the layouts of its two sampler groups (the pixel shader's, the vertex
