@@ -107,6 +107,7 @@ pub mod fork_platform;
 #[cfg(not(windows))]
 pub mod fork_sound;
 pub mod fork_tables;
+pub mod host_paths;
 pub mod ini;
 pub mod library;
 pub mod machine_table;
