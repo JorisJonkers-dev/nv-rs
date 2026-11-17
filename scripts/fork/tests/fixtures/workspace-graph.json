@@ -1657,6 +1657,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "mcm"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "nvse"
     },
     {
@@ -1731,6 +1736,30 @@
    "features": [],
    "manifest_path": "/ws/crates/jip/Cargo.toml",
    "name": "jip"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/mcm/Cargo.toml",
+   "name": "mcm"
   },
   {
    "dependencies": [],

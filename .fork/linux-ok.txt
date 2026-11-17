@@ -37,6 +37,7 @@ fos
 frame-model
 host
 jip
+mcm
 mp3
 nvinspect
 nvse
