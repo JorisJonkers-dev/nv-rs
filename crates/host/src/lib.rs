@@ -282,13 +282,12 @@ impl Host {
         // take (the ambient occlusion's contact shadows follow it too); off, the sun disc's place,
         // as before.
         // Fork: both on every target, as the native build draws with wgpu on Vulkan.
-        let reader: fn(
-            &engine_platform::Engine,
-        ) -> Option<engine_platform::d3d9real::SceneView> = if choice.sun_shadows {
-            scene_light::read_lit
-        } else {
-            scene_light::read
-        };
+        let reader: fn(&engine_platform::Engine) -> Option<engine_platform::d3d9real::SceneView> =
+            if choice.sun_shadows {
+                scene_light::read_lit
+            } else {
+                scene_light::read
+            };
         if choice.ambient_occlusion {
             engine_platform::d3d9real::want_scene_light(reader, choice.ambient_occlusion_strength);
             fork_log::info!(target: "host",

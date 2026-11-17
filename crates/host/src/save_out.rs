@@ -699,7 +699,10 @@ pub fn jobs(e: &Engine, watch: &mut Watch, dir: Option<&Path>, prefs: Option<&Pa
 /// The file `path`'s data on disk (`fsync`), so the rename that follows never publishes a file
 /// whose data is still only in the cache.
 fn sync_file(path: &Path) -> std::io::Result<()> {
-    std::fs::OpenOptions::new().write(true).open(path)?.sync_all()
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)?
+        .sync_all()
 }
 
 /// The folder of `path` synced, so a rename in it survives a crash (Unix; Windows has no such
