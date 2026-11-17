@@ -35,6 +35,7 @@ fork-presence
 fork-window
 fos
 frame-model
+game-folders
 host
 jip
 mcm
@@ -43,4 +44,5 @@ nvinspect
 nvse
 nv-viewer
 play-patch
+qos
 vorbis
