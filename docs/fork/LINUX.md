@@ -23,7 +23,7 @@ touched.
 | 2 | The start screen's output capture (`Pipe`, `CAPTURED`) is built on Windows only | `crates/d3d9-wgpu/src/loading.rs` | dead code warnings off Windows (the capture is `cfg(windows)`) | no | yes | none |
 | 3 | The argument-word trait `Word` and its import are built on Windows only | `d3d9device.rs`, `d3d9resource.rs` | used only inside `#[cfg(windows)]` code of the `forwarded!` macro; an unused warning off Windows | touches the files, not a call site | yes, but wait for the seam: the files are being retuned | none |
 | 4 | An unused binding off Windows, a warning-only attribute and a test constant used only by Windows tests | `d3dx.rs`, `files.rs` (two attributes) | warnings (the Linux clippy job is `-D warnings`) | no | yes | none |
-| 5 | `files::host_path` maps a game path: on Windows the path as it is, on Unix `Z:` is the host root (as Wine's), `\` separates, names match without regard to case in their directory; other drive letters have no mapping and are not found | `files/files_host.rs` (new, overlay), two lines in `files.rs` (`mod files_host;` and `pub use files_host::host_path;`), `host/src/cell_offsets.rs` (uses it) | the game's paths are Windows paths; three `host` tests failed on Linux for this reason. The code was in `files.rs` (+149 lines in a file upstream changes often, which stopped the replay of upstream `f97accc25bb4`); it is now in a file upstream does not have, and `files.rs` keeps four lines | no | no (the fork does not offer changes upstream) | none: `host_path` returns upstream's `real_path` unchanged on Windows, and a test of it runs there |
+| 5 | a game path maps to this system's path: since slaterain/nv-rs#633 upstream's `host_paths.rs` (drive `Z:` is the root, as Wine's; `\` separates; names found without case, twin folders as one; listings with this system's times). The fork keeps only `files::host_path_in`: a name relative to a host folder (the mod files folder) found without case | `files/files_host.rs` (overlay, `host_path_in` only), two lines in `files.rs` (`mod files_host;` and `pub use files_host::host_path_in;`) | the fork's own `host_path`, `engine::game_folder` and the `cell_offsets.rs` hook are retired in favour of upstream's | no | no (the fork does not offer changes upstream) | none: on Windows `host_path_in` joins the folder with upstream's `host_path` |
 | 6 | Tests that can only pass on Windows: `nvse`'s bit-for-bit math comparison is `#[cfg_attr(not(windows), ignore = "reason")]` (tan and tanh use the host's libm; the game's differ in the last bit: `dTan90`, `dTanh30`); the five `files` tests that need Windows file times or Windows paths are skipped on Linux by name in `.fork/linux-skip.txt`, applied by `scripts/fork/run-component.sh` | `nvse/src/commands/math.rs`, `.fork/linux-skip.txt` | honest failures off Windows, with no attribute in `files.rs` | no | no | none |
 | 7 | The probe workflow and its summary script | `.github/workflows/linux-probe.yml`, `scripts/fork/linux_test_summary.py` | CI loop without starting the Windows jobs | fork only | no | none |
 
@@ -78,8 +78,10 @@ Not yet known: what the game does on the AMD path with this table (stop lines an
 ## Sound output (#171)
 
 The mixer (DirectSound's mixing, the resamplers, 3D placement) is platform-independent; only the device was
-WASAPI. `engine-platform/src/fork_sound.rs` is the device off Windows, behind the same `sound_out::start` and
-`device_mix` seam; the Windows code is unchanged.
+WASAPI. `engine-platform/src/fork_sound.rs` is the device on Linux, behind the same `sound_out::start` and
+`device_mix` seam; the Windows code is unchanged. Upstream's own device off Windows (cpal, slaterain/nv-rs#637) is built for
+macOS only here: on Linux it links ALSA's `libasound.so.2`, which the program would then need to start at all, and it has
+no null sink.
 
 - **Pulse** (the default): libpulse (threaded main loop, context, stream API) loaded with `dlopen` (`libpulse.so.0`,
   or the file `NV_PULSE` names; when only `NV_PULSE_SIMPLE` is set, as the Nix package does, the `libpulse.so.0` beside
@@ -218,9 +220,8 @@ game files (`NV_EXE`, `NV_DATA`) or Windows.
 | `crates/engine-core/src/engine.rs` | per-thread template of a test engine | no: it changes the body of `Engine::new_untyped` |
 | `crates/engine-core/src/typed/diff.rs` | second control word only when the first read it | no: it is the harness's run loop |
 | `crates/engine-core/src/x87.rs`, `units/crt.rs` | test builds note a read of the control word | no: a line inside each read function |
-| `crates/engine-platform/Cargo.toml` | `d3d9-wgpu` on every target | no, a manifest line has no hook |
-| `d3d9device.rs`, `d3d9resource.rs`, `d3dx.rs` | a `cfg` on a trait, its import and a binding | no: attributes on upstream's items |
-| `crates/host/src/cell_offsets.rs` | calls `files::host_path` | no: one call in the function that builds the path |
+| `crates/engine-platform/Cargo.toml` | fork-window and libloading off Windows, cpal on macOS only, no winit | no, a manifest line has no hook |
+| `d3dx.rs` | a binding | no: attributes on upstream's items |
 | `crates/nvse/src/commands/math.rs` | `ignore` off Windows | yes, by a skip filter as for `files.rs` (`.fork/linux-skip.txt`); not done yet |
 | `crates/d3d9-wgpu/src/loading.rs` | pipe list built on Windows only | no: attributes on upstream's items |
 
@@ -321,8 +322,9 @@ file upstream owns (both in `.fork/allowed-divergence`).
 The recorder of `d3d9real.rs` (the game's Direct3D 9 calls recorded as `d3d9_stream::Cmd`) is built on every target. Upstream
 split the file (slaterain/nv-rs#635): the Win32 window, its messages and raw input are in `d3d9real/win32.rs` (Windows only),
 and the real `d3d9.dll` forwarding carries `#[cfg(windows)]`. Off Windows the fork's `fork_d3d9rec.rs` is the window layer in
-place of upstream's `d3d9real/elsewhere.rs`, which refuses a window. The recorder's call sites in `d3d9device.rs`, `d3d9resource.rs`, `d3d9query.rs`, `d3d9draw.rs`
-and `d3d9.rs` lost theirs, so the diff of every moved arm is the removed attribute line and nothing else. The Linux additions
+place of upstream's winit layer (`d3d9real/winit_window.rs`, slaterain/nv-rs#640), which this build does not compile: it has
+no off-screen mode for CI, tests and the replay-bench. The recorder's call sites in `d3d9device.rs`, `d3d9resource.rs`,
+`d3d9query.rs`, `d3d9draw.rs` and `d3d9.rs` are built on every target by upstream too since that commit. The Linux additions
 are in the fork-owned `fork_d3d9rec.rs`: `make_stream` gives the stream the wgpu backend in `Output::Offscreen` (no window;
 `NV_D3D9=real` or `real,wgpu` also draw on wgpu, with a line saying so), with the render thread, the occlusion answers and
 `NV_D3D9_RECORD` as on Windows. Without a backend (`NV_D3D9` unset) nothing is recorded, as before.
