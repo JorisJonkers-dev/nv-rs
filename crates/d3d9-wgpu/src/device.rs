@@ -10,7 +10,7 @@
 use crate::answers::QueryAnswers;
 use crate::budget;
 use crate::cache;
-use crate::fixed;
+use crate::ffp;
 use crate::format::{self, d3dfmt, Format};
 use crate::frame_rate;
 use crate::fxhash::Map;
@@ -196,6 +196,11 @@ struct State {
     /// ... and their headers, everything but the float constants, need making again
     /// ([`Device::write_blocks`]): set with `dirty` by every change but a float constant's.
     header_dirty: [bool; 2],
+    /// The texture stage states (`SetTextureStageState`), for draws without a pixel shader
+    /// ([`ffp`]).
+    tss: Box<[[u32; ffp::STAGE_STATES]; ffp::STAGES]>,
+    /// The FVF code the vertex layout came from (`SetFVF`), None after a declaration.
+    fvf: Option<u32>,
     /// The handles the bindings were last set from ([`Bound`]).
     bound: Bound,
 }
@@ -458,8 +463,10 @@ pub fn save_lists_now() {
 /// four recordings of the game's Direct3D 9 calls (the intro and the main menu; Save 138's load
 /// and Doc Mitchell's house; the race menu; the Goodsprings street and a full turn there, at 4x
 /// antialiasing) replayed into this backend on Vulkan, each with an empty folder, their lists
-/// joined in that order, each entry once. It holds no game file's bytes: hashes of the game's
-/// shaders, format numbers and render-state values.
+/// joined in that order, each entry once; then the intro movie's fixed-function shaders and
+/// pipeline ([`ffp`]: a real Direct3D 9 run into the movie, replayed so on 2026-11-17). It holds
+/// no game file's bytes: hashes of the game's shaders, format numbers, render-state values and the
+/// fixed-function shaders' bytecode, which this backend writes.
 const SHIPPED_LIST: &str = include_str!("../data/pipelines.txt");
 
 impl Listed {
@@ -479,7 +486,12 @@ impl Listed {
             file.display(),
             s1 + s2
         );
-        let lines: Vec<String> = list.entries.iter().map(prepare::Entry::line).collect();
+        let lines: Vec<String> = list
+            .shaders
+            .iter()
+            .map(|t| prepare::shader_line(t))
+            .chain(list.entries.iter().map(prepare::Entry::line))
+            .collect();
         let shared = Arc::new(ListFile {
             file,
             shipped: shipped_entries,
@@ -525,6 +537,23 @@ impl Listed {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(line);
+    }
+
+    /// A fixed-function shader listed (made at present `presents`), unless it is already.
+    fn add_shader(&mut self, tokens: &[u32], presents: u64) {
+        if !self.list.add_shader(tokens.to_vec()) {
+            return;
+        }
+        if !self.dirty {
+            self.first_added_at = presents;
+        }
+        self.dirty = true;
+        self.added_at = presents;
+        self.shared
+            .lines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(prepare::shader_line(tokens));
     }
 
     /// Writes the list 300 presents after the last new entry (or every 3600 while they keep
@@ -612,6 +641,10 @@ const ATOC: u32 = u32::from_le_bytes(*b"ATOC");
 /// `D3DRS_CLIPPING` and `D3DRS_ADAPTIVETESS_Y`.
 const RS_CLIPPING: usize = 136;
 const RS_ADAPTIVETESS_Y: usize = 181;
+/// `D3DRS_SPECULARENABLE` and `D3DRS_TEXTUREFACTOR`, read by the fixed-function pixel shader
+/// ([`ffp`]).
+const RS_SPECULARENABLE: usize = 29;
+const RS_TEXTUREFACTOR: usize = 60;
 /// The occlusion counts' slots: a ring (a query's count is read long before its slot comes round
 /// again).
 const COUNT_SLOTS: u32 = 4096;
@@ -732,12 +765,17 @@ pub struct Device {
     /// The shaders by bytecode hash; the hashes two bytecodes share; the declarations by their
     /// elements ([`Device::create_shader`], [`Device::decl_of`]).
     shader_bytecode: Map<u64, Vec<Arc<Shader>>>,
+    /// The fixed-function shaders made so far ([`ffp`]), by what they do: a vertex shader for
+    /// each pre-transformed layout, a pixel shader for each set of texture stages (None: one the
+    /// converter refused, printed once).
+    ffp_vs: Map<ffp::VertexKey, Option<Arc<Shader>>>,
+    ffp_ps: Map<ffp::PixelKey, Option<Arc<Shader>>>,
+    /// The float constants of the stage whose shader is a fixed-function one (the vertex
+    /// shader's viewport, the pixel shader's texture factor: [`ffp::vertex_constants`],
+    /// [`ffp::pixel_constants`]), which its register block carries instead of the game's.
+    ffp_f: [Option<Vec<u8>>; 2],
     collided: HashSet<u64>,
     decls_by_elements: Map<Vec<Element>, Arc<Decl>>,
-    /// The FVF a draw without shaders reads ([`fixed`]); cleared by a vertex declaration.
-    fvf: Option<u32>,
-    /// The shaders of the provided fixed-function draws, by whether the vertices have a diffuse colour.
-    fixed_shaders: [Option<(Arc<Shader>, Arc<Shader>)>; 2],
     /// The pipelines to make before play ([`prepare`]): the list, which of its entries are made
     /// (or tried), whether a new shader or sample count may have made more of them ready, the
     /// local list's file and whether it has entries it has not written. None without a cache folder.
@@ -1165,6 +1203,8 @@ impl Device {
                 clip: [[0; 4]; wgsl::CLIP_PLANES],
                 dirty: [true; 2],
                 header_dirty: [true; 2],
+                tss: Box::new(ffp::default_stage_states()),
+                fvf: None,
                 bound: Bound::default(),
             },
             encoder: None,
@@ -1216,10 +1256,11 @@ impl Device {
             loading: None,
             start: None,
             shader_bytecode: Map::default(),
+            ffp_vs: Map::default(),
+            ffp_ps: Map::default(),
+            ffp_f: [None, None],
             collided: HashSet::new(),
             decls_by_elements: Map::default(),
-            fvf: None,
-            fixed_shaders: [None, None],
             list,
             sample_mask: 1 << 1,
             listed_new: false,
@@ -1282,6 +1323,16 @@ impl Device {
             "a device made to panic (tests)"
         );
         d.make_back_buffers(pp, back_buffers, depth);
+        // The fixed-function shaders the list keeps ([`ffp`]), made now as the game's are when it
+        // creates them, so the listed pipelines naming them are made before play.
+        let listed_ffp = d
+            .list
+            .as_ref()
+            .map(|l| l.list.shaders.clone())
+            .unwrap_or_default();
+        for tokens in listed_ffp {
+            d.shader_of(&tokens, false);
+        }
         // Lost while the rest was made: refused as well (the platform's Direct3D 9 draws).
         if lost.load(Ordering::Acquire) {
             return Err("the device was lost while it was made".into());
@@ -1742,14 +1793,22 @@ impl Device {
 
     pub(crate) fn create_shader(&mut self, shader: Handle, tokens: &[u32]) {
         self.st.bound.forget(shader);
+        if let Some(s) = self.shader_of(tokens, true) {
+            self.objects.insert(shader, Obj::Shader(s));
+        }
+    }
+
+    /// The shader object of `tokens`, made when it is new (its modules queued, listed
+    /// pipelines naming it then prepared); None for bytecode the converter cannot read
+    /// (printed). `game`: the game created it (one created after the start is counted late);
+    /// otherwise a fixed-function shader ([`ffp`]).
+    fn shader_of(&mut self, tokens: &[u32], game: bool) -> Option<Arc<Shader>> {
         // One shader object for one bytecode: a shader made again (another handle, the same
         // tokens) shares its modules and pipelines, and the list ([`prepare`]) finds it by hash.
         let stable = prepare::bytecode_hash(tokens);
         if let Some(same) = self.shader_bytecode.get(&stable) {
             if let Some(s) = same.iter().find(|s| s.tokens[..] == tokens[..]) {
-                let s = s.clone();
-                self.objects.insert(shader, Obj::Shader(s));
-                return;
+                return Some(s.clone());
             }
             // Two bytecodes, one hash: the list's entries with it are never prepared (a
             // draw still finds its own pipeline by the exact key).
@@ -1778,15 +1837,18 @@ impl Device {
                     .entry(stable)
                     .or_default()
                     .push(s.clone());
-                self.objects.insert(shader, Obj::Shader(s.clone()));
                 self.listed_new = true;
                 self.queue_modules(&s);
-                if self.start_done {
+                if game && self.start_done {
                     self.made.late_shaders += 1;
                     self.late_shaders += 1;
                 }
+                Some(s)
             }
-            Err(e) => self.warn(format!("a shader the converter cannot read: {e}")),
+            Err(e) => {
+                self.warn(format!("a shader the converter cannot read: {e}"));
+                None
+            }
         }
     }
 
@@ -2310,58 +2372,52 @@ impl Device {
         }
     }
 
-    /// `SetFVF`: the layout of a draw without shaders ([`fixed`]). A provided FVF also becomes
-    /// the vertex declaration, as Direct3D 9's does; another is only remembered.
-    pub(crate) fn set_fvf(&mut self, fvf: u32) {
-        if fvf == 0 {
-            return;
-        }
-        self.fvf = Some(fvf);
-        self.st.bound.declaration = UNKNOWN;
-        if let Some(diffuse) = fixed::supported(fvf) {
-            let elements = fixed::elements(diffuse)
-                .into_iter()
-                .map(|(stream, offset, ty, usage, index)| Element {
-                    stream,
-                    offset,
-                    ty,
-                    usage,
-                    index,
-                })
-                .collect();
-            self.st.decl = Some(self.decl_of(elements));
-        }
-    }
-
-    /// The shaders of a fixed-function draw of the FVF now set, made once; none when the FVF is
-    /// not provided.
-    fn fixed_function(&mut self) -> Option<(Arc<Shader>, Arc<Shader>)> {
-        let diffuse = fixed::supported(self.fvf?)?;
-        let k = usize::from(diffuse);
-        if self.fixed_shaders[k].is_none() {
-            let (vh, ph) = (UNKNOWN - 1 - 2 * k as Handle, UNKNOWN - 2 - 2 * k as Handle);
-            self.create_shader(vh, &fixed::vertex_shader(diffuse));
-            self.create_shader(ph, &fixed::pixel_shader(diffuse));
-            let (Some(Obj::Shader(v)), Some(Obj::Shader(p))) =
-                (self.objects.get(&vh), self.objects.get(&ph))
-            else {
-                return None;
-            };
-            self.fixed_shaders[k] = Some((v.clone(), p.clone()));
-        }
-        self.fixed_shaders[k].clone()
-    }
-
     pub(crate) fn set_declaration(&mut self, declaration: Handle) {
         if self.st.bound.declaration == declaration {
             return;
         }
         self.st.bound.declaration = declaration;
-        self.fvf = None;
+        self.st.fvf = None;
         self.st.decl = match self.objects.get(&declaration) {
             Some(Obj::Decl(d)) => Some(d.clone()),
             _ => None,
         };
+    }
+
+    /// `SetFVF(fvf)`: the vertex layout becomes the one the code describes (Direct3D 9 replaces
+    /// the declaration with it, and a later `SetVertexDeclaration` replaces it again: the
+    /// binding is forgotten, so setting the same declaration again sets it). A code without a
+    /// position (0 included) leaves no layout, and a draw without one is skipped.
+    pub(crate) fn set_fvf(&mut self, fvf: u32) {
+        self.st.bound.declaration = UNKNOWN;
+        self.st.fvf = Some(fvf);
+        self.st.decl = ffp::fvf_elements(fvf).map(|elements| {
+            self.decl_of(
+                elements
+                    .into_iter()
+                    .map(|(offset, ty, usage, index)| Element {
+                        stream: 0,
+                        offset,
+                        ty,
+                        usage,
+                        index,
+                    })
+                    .collect(),
+            )
+        });
+    }
+
+    /// `SetTextureStageState(stage, state, value)`: kept for draws without a pixel shader
+    /// ([`ffp`]); stages past the eighth and unknown states are not kept.
+    pub(crate) fn set_stage_state(&mut self, stage: u32, state: u32, value: u32) {
+        if let Some(s) = self
+            .st
+            .tss
+            .get_mut(stage as usize)
+            .and_then(|s| s.get_mut(state as usize))
+        {
+            *s = value;
+        }
     }
 
     /// `Set*ShaderConstant*` (`kind`: vertex float, int, bool, then the same for the pixel stage)
@@ -3547,8 +3603,11 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             if vs_head {
                 // The planes `D3DRS_CLIPPLANEENABLE` turns on (all off without `D3DRS_CLIPPING`);
                 // a plane that is off is zero, which keeps everything.
+                // Not for a fixed-function vertex shader: its vertices are pre-transformed, and
+                // the fixed-function pipeline takes the planes in world space (`SetClipPlane`),
+                // which such vertices never pass through.
                 let mut clip = [[0u32; 4]; wgsl::CLIP_PLANES];
-                if st.rs[RS_CLIPPING] != 0 {
+                if st.rs[RS_CLIPPING] != 0 && self.ffp_f[0].is_none() {
                     for (k, plane) in clip.iter_mut().enumerate() {
                         if st.rs[rs::CLIPPLANEENABLE] & (1 << k) != 0 {
                             *plane = st.clip[k];
@@ -3565,7 +3624,11 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             if fresh || vs_head {
                 self.blocks[0] = write_block(&mut self.ring, &self.headers[0], &[]);
             }
-            let f = &self.st.vsf[..16 * fregs[0] as usize];
+            // A fixed-function shader's constants are its own ([`Device::ffp_constants`]).
+            let f = match &self.ffp_f[0] {
+                Some(f) => &f[..16 * fregs[0] as usize],
+                None => &self.st.vsf[..16 * fregs[0] as usize],
+            };
             self.blocks[2] = write_block(&mut self.ring, &[], f);
             self.block_centre = centre;
             self.block_fregs[0] = fregs[0];
@@ -3597,7 +3660,10 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             if fresh || ps_head {
                 self.blocks[1] = write_block(&mut self.ring, &self.headers[1], &[]);
             }
-            let f = &self.st.psf[..16 * fregs[1] as usize];
+            let f = match &self.ffp_f[1] {
+                Some(f) => &f[..16 * fregs[1] as usize],
+                None => &self.st.psf[..16 * fregs[1] as usize],
+            };
             self.blocks[3] = write_block(&mut self.ring, &[], f);
             self.block_fregs[1] = fregs[1];
         }
@@ -3610,6 +3676,130 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         self.st.dirty = [false; 2];
     }
 
+    /// A draw's two shaders and whether each is a fixed-function one ([`ffp`]): the game's, or
+    /// for a stage without one the fixed-function shader of the layout (pre-transformed
+    /// vertices) and of the texture stages. None for a draw the fixed-function shaders do not
+    /// cover, printed once for each layout or stage setting.
+    fn draw_shaders(&mut self, decl: &Decl) -> Option<(Arc<Shader>, Arc<Shader>, bool, bool)> {
+        let (vs, ffp_vs) = match self.st.vs.clone() {
+            Some(vs) => {
+                // The game's vertex shader with a layout from SetFVF: Direct3D 9 draws so, and so
+                // does this; said once a code, so a log shows where the game does it (the
+                // movie's FVF draws without shaders).
+                if let Some(fvf) = self.st.fvf {
+                    self.warn(format!(
+                        "a draw with a vertex shader and the vertex layout of FVF {fvf:#x} (drawn)"
+                    ));
+                }
+                (vs, false)
+            }
+            None => {
+                let elements = decl.elements.iter().map(|e| (e.usage, e.index));
+                let Some(key) = ffp::VertexKey::of(elements) else {
+                    let layout: Vec<String> = decl
+                        .elements
+                        .iter()
+                        .map(|e| format!("usage {} index {} type {}", e.usage, e.index, e.ty))
+                        .collect();
+                    self.warn(format!(
+                        "a draw of untransformed vertices without a vertex shader (the \
+                         fixed-function transform and lighting are not provided; layout: {}): \
+                         skipped",
+                        layout.join(", ")
+                    ));
+                    return None;
+                };
+                (self.ffp_vertex(key)?, true)
+            }
+        };
+        let (ps, ffp_ps) = match self.st.ps.clone() {
+            Some(ps) => (ps, false),
+            None => (self.ffp_pixel()?, true),
+        };
+        Some((vs, ps, ffp_vs, ffp_ps))
+    }
+
+    /// The fixed-function vertex shader of a pre-transformed layout, made once.
+    fn ffp_vertex(&mut self, key: ffp::VertexKey) -> Option<Arc<Shader>> {
+        if let Some(s) = self.ffp_vs.get(&key) {
+            return s.clone();
+        }
+        let s = self.ffp_shader(&ffp::vertex_tokens(key));
+        self.ffp_vs.insert(key, s.clone());
+        s
+    }
+
+    /// The fixed-function pixel shader of the texture stages as they are set, made once.
+    fn ffp_pixel(&mut self) -> Option<Arc<Shader>> {
+        let st = &self.st;
+        let key = ffp::PixelKey::of(
+            &st.tss,
+            |n| st.textures[n].as_ref().is_some_and(|t| t.cube),
+            st.rs[RS_SPECULARENABLE] != 0,
+        );
+        let key = match key {
+            Ok(key) => key,
+            Err(why) => {
+                self.warn(format!(
+                    "a draw without a pixel shader whose texture stages are not provided ({why}): \
+                     skipped"
+                ));
+                return None;
+            }
+        };
+        if let Some(s) = self.ffp_ps.get(&key) {
+            return s.clone();
+        }
+        let s = self.ffp_shader(&ffp::pixel_tokens(&key));
+        self.ffp_ps.insert(key, s.clone());
+        s
+    }
+
+    /// A fixed-function shader's object, listed (its bytecode in the pipeline list, so the next
+    /// start makes it, and the listed pipelines that name it, before play).
+    fn ffp_shader(&mut self, tokens: &[u32]) -> Option<Arc<Shader>> {
+        let s = self.shader_of(tokens, false)?;
+        let presents = self.presents;
+        if let Some(l) = &mut self.list {
+            l.add_shader(tokens, presents);
+        }
+        Some(s)
+    }
+
+    /// The register blocks of the next draw carry the fixed-function shaders' constants for the
+    /// stages that have one: `vertex` the draw's viewport (x, y, width, height, depth range),
+    /// `pixel` whether the pixel shader is one. A change marks the stage's block for writing.
+    fn ffp_constants(&mut self, vertex: Option<[f32; 6]>, pixel: bool) {
+        let bytes = |regs: &[[f32; 4]]| -> Vec<u8> {
+            let mut b = vec![0u8; 16 * wgsl::FLOAT_CONSTANTS as usize];
+            for (d, v) in b.chunks_exact_mut(4).zip(regs.iter().flatten()) {
+                d.copy_from_slice(&v.to_le_bytes());
+            }
+            b
+        };
+        let new = [
+            vertex.map(|v| bytes(&ffp::vertex_constants(v))),
+            pixel.then(|| {
+                bytes(&ffp::pixel_constants(
+                    self.st.rs[RS_TEXTUREFACTOR],
+                    &self.st.tss,
+                ))
+            }),
+        ];
+        for (k, new) in new.into_iter().enumerate() {
+            if self.ffp_f[k] == new {
+                continue;
+            }
+            // Into or out of a fixed-function shader: the header too (the clip planes).
+            if self.ffp_f[k].is_some() != new.is_some() {
+                self.st.touch(k);
+            } else {
+                self.st.dirty[k] = true;
+            }
+            self.ffp_f[k] = new;
+        }
+    }
+
     fn sampler(&mut self, key: SamplerKey) -> wgpu::Sampler {
         if let Some(s) = self.samplers.get(&key) {
             return s.clone();
@@ -3619,7 +3809,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         s
     }
 
-    /// A draw. Without both shaders it is a provided fixed-function draw ([`fixed`]) or skipped.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw(
         &mut self,
@@ -3631,54 +3820,24 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         up: Option<(&[u8], u32)>,
     ) {
         let _perf = crate::perf::span(crate::perf::Cat::Draw);
-        if self.st.vs.is_some() && self.st.ps.is_some() {
-            return self.draw_with(kind, indexed, base_vertex, start, count, up, None);
-        }
-        // The vertex constants the draw's own shader reads are the game's: put back after.
-        let ff = self.fixed_function();
-        let saved: [u8; 32] = self.st.vsf[..32].try_into().expect("two registers");
-        self.draw_with(kind, indexed, base_vertex, start, count, up, ff);
-        if self.st.vsf[..32] != saved {
-            self.st.vsf[..32].copy_from_slice(&saved);
-            self.st.touch(0);
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn draw_with(
-        &mut self,
-        kind: u32,
-        indexed: bool,
-        base_vertex: i32,
-        start: u32,
-        count: u32,
-        up: Option<(&[u8], u32)>,
-        fixed: Option<(Arc<Shader>, Arc<Shader>)>,
-    ) {
         // Listed pipelines whose shaders are now made, also when the game draws before its first
         // `Present` (its first frame).
         if self.listed_new {
             self.prepare_listed();
         }
-        let (Some(vs), Some(ps)) = (
-            fixed
-                .as_ref()
-                .map_or_else(|| self.st.vs.clone(), |f| Some(f.0.clone())),
-            fixed
-                .as_ref()
-                .map_or_else(|| self.st.ps.clone(), |f| Some(f.1.clone())),
-        ) else {
-            self.warn("a draw without both shaders (fixed function is not provided): skipped");
-            self.skipped += 1;
-            return;
-        };
         let Some(topology) = Self::topology(kind) else {
             self.warn(format!("primitive type {kind} is not provided: skipped"));
             self.skipped += 1;
             return;
         };
         let Some(decl) = self.st.decl.clone() else {
-            self.warn("a draw without a vertex declaration (FVF is not provided): skipped");
+            self.warn("a draw without a vertex declaration or FVF: skipped");
+            self.skipped += 1;
+            return;
+        };
+        // The game's shaders, or for a stage without one the fixed-function shader of the state
+        // ([`ffp`]); a fixed-function draw it does not cover is skipped (printed once a layout).
+        let Some((vs, ps, ffp_vs, ffp_ps)) = self.draw_shaders(&decl) else {
             self.skipped += 1;
             return;
         };
@@ -3877,9 +4036,9 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         let vy = v.y.min(th.saturating_sub(1));
         let vw = v.w.min(tw - vx).max(1);
         let vh = v.h.min(th - vy).max(1);
-        // Direct3D 9's pixel centres: each vertex shader moves its position half a pixel right
-        // and down, by this viewport's size (the converter's module documentation).
-        if fixed.is_some() {
+        // Fork: the `game` trace event of a draw through the fixed-function vertex shader (the
+        // movie's tiles; docs/fork/LOGGING.md).
+        if ffp_vs {
             let tex = self.st.textures[0].as_ref();
             fork_log::game_often!(
                 "draw.fixed_quad",
@@ -3889,13 +4048,23 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                     |t| format!("{}x{} {:?}", t.width, t.height, t.format.wgpu)
                 )
             );
-            // The fixed-function vertex shader maps pixel positions to the viewport ([`fixed`]).
-            let c = fixed::constants(vw as f32, vh as f32);
-            for (k, v) in c.iter().enumerate() {
-                self.st.vsf[4 * k..4 * k + 4].copy_from_slice(&v.to_le_bytes());
-            }
-            self.st.touch(0);
         }
+        // A fixed-function stage's constants: the vertex shader's from this viewport (the pass's
+        // depth range below), the pixel shader's from the states.
+        let depth_range = [v.min_z.clamp(0.0, 1.0), v.max_z.clamp(0.0, 1.0)];
+        self.ffp_constants(
+            ffp_vs.then_some([
+                vx as f32,
+                vy as f32,
+                vw as f32,
+                vh as f32,
+                depth_range[0],
+                depth_range[1],
+            ]),
+            ffp_ps,
+        );
+        // Direct3D 9's pixel centres: each vertex shader moves its position half a pixel right
+        // and down, by this viewport's size (the converter's module documentation).
         self.write_blocks([1.0 / vw as f32, -1.0 / vh as f32], [vs.fregs, ps.fregs]);
         self.begin_pass(None);
         let scissor = if self.st.rs[rs::SCISSORTESTENABLE] != 0 {
@@ -3998,8 +4167,8 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             vy as f32,
             vw as f32,
             vh as f32,
-            v.min_z.clamp(0.0, 1.0),
-            v.max_z.clamp(0.0, 1.0),
+            depth_range[0],
+            depth_range[1],
         ]
         .map(f32::to_bits);
         let b = &mut self.binds;
@@ -6962,6 +7131,8 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         st.ds = None;
         st.rs = state::default_render_states(pp.auto_depth);
         *st.samplers = [state::default_sampler_states(); 20];
+        *st.tss = ffp::default_stage_states();
+        st.fvf = None;
         st.textures = Default::default();
         st.vs = None;
         st.ps = None;
@@ -6978,6 +7149,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         st.dirty = [true; 2];
         st.header_dirty = [true; 2];
         st.bound = Bound::default();
+        self.ffp_f = [None, None];
         self.counting = None;
         self.groups.clear();
         self.depth_parts.clear();
