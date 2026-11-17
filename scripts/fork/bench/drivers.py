@@ -133,6 +133,10 @@ def free_player(d):
     for stage in (50, 55):
         d.console_line(f"setstage {OPENING_QUEST} {stage}", 0.4)
     d.console_line(f"set {OPENING_QUEST_NAME}.bRunTimer to 0", 0.4)
+    # The sitting package is on the player by now in every run (stage 5 put it back before these stages), so it is
+    # taken off here, in the same console, rather than by `ensure_walks` after a failed step and a second console
+    # (about 6 s of the quick suite's 120).
+    d.console_line("player.removescriptpackage", 0.4)
     d.freed = True
     return d.console_close(quiet=0.5)
 

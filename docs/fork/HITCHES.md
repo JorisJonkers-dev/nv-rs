@@ -31,7 +31,9 @@ nothing feeds yet read zero (see "Status").
 
 One line in the JSON log, `"kind":"hitch"`, level `warn`, with a `hitch` object: `frame_idx`, `wall_ms`, `median_ms`, `cause`,
 `buckets` (the time in each cause bucket, ms), `trigger`, `frame` (the full breakdown above), `before` (the five frames before),
-`events` (everything noted in the preceding 500 ms with its age) and `samples` when the sampler had any. More than twelve records
+`events` (everything noted in the preceding 500 ms with its age; a repeat of the newest event, such as the renderer's
+`gpu.render_target` many times a frame, moves that entry's age on instead of taking a new one, so a burst of repeats does not push
+the screen changes and loads before it out of the 256-entry ring) and `samples` when the sampler had any. More than twelve records
 in ten seconds (a loading screen is one long hitch, not a hundred) are written `"brief":true` without `before` and `samples`; they
 are still counted. A hitch over twice the threshold is also an info line on the terminal.
 
@@ -42,7 +44,7 @@ trace's `menu.loading` and `load.thread`, or `slow:<Win32 call>` for a platform 
 
 | Cause | Chosen when |
 | --- | --- |
-| `loading` | the screen is a loading screen, or a load event is in the preceding 500 ms: a loading kind of the game trace, or `world.change` (a change of worldspace, which a console teleport makes with no loading screen). A `cell.change` inside a worldspace, as when walking across a cell border, is play |
+| `loading` | the screen is a loading screen, or a load event is in the preceding 500 ms: a loading kind of the game trace, or `world.change` (a change of worldspace, which a console teleport makes with no loading screen). A switch between play and a menu (a dialogue, a message box, the console, character creation) is load time too: a slow frame in the 500 ms after the screen switched, or in the 500 ms before it (such a frame is first counted in play and moved to the loads when the switch comes; its record keeps the cause it had then). A `cell.change` inside a worldspace, as when walking across a cell border, is play |
 | `gc/alloc` | 10 000 page faults (about 40 MiB of fresh pages) or 32 MiB of resident growth in the frame, and the faults cost a fifth of it |
 | `file_io` | file calls on the main thread hold a third of the frame |
 | `pipeline_create`, `shader_compile` | pipeline or shader-module creation holds a third |
@@ -85,11 +87,20 @@ signal would have ended it), and every 30 seconds with `"ended":"running"`, so a
 `nv-rs-dev runs` marks a `running` summary whose process is gone as `unclean_exit`.
 
 Flags: `hitches_per_min_high` (only hitches in steady play count: the slow frames of a load, with or without a loading screen,
-are load time, reported under `hitches.loads` and never in the rate; a loading screen's frames are also in `loading_s` and
+and those of a switch between play and a menu, are load time, reported under `hitches.loads` and never in the rate; a loading screen's frames are also in `loading_s` and
 `loading_over_limit`), `p99_over_20ms` (the level is `NV_HITCH_FLAG_P99_MS`), `fps_below_target`, `loading_over_limit`,
 `slow_windows`, `soft_stops`, `errors`, `stopped` (a stop or a panic), `killed` (a signal), `unclean_exit`, `noisy_machine` (another
 `nv-viewer` process ran, Linux). Rates are not judged before 20 s of frames. `verdict` is one line: `OK: 143 fps, p99 7.1 ms, 0 hitches
 (0.0/min)`, or `FLAGGED:`/`FAILED:` with the flags and the worst hitch.
+
+### Slow file reads in the first run after a build
+
+The 0.5.0 Release test's first quick suite after a fresh build had three `file_io` hitches in play, 29 to 31 ms each, two of them a
+dozen seconds after a cell load: one `ReadFile` on the main thread of 15.8 ms each time (`slow:ReadFile` with 15,821 to 15,846 us,
+11 to 12 reads of 20 to 30 KB in the frame). The four runs after it on the same build, and a run with `NV_HITCH=detail`, showed
+such a read once at most, and never as a hitch. They come from the first run's cold start (its first movie and its first load were also 0.6 to 1 s
+slower), not from a steady cost of the read path, so they are not fixed here. The quick suite's first run after a build can
+therefore show one to three of them; a run that shows them in a later, warm run is worth a ticket.
 
 ## Reading the logs
 
