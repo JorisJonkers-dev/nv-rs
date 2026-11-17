@@ -92,15 +92,31 @@ def measured(d, opts):
         # The opening's package can come back after the warm-up's check (the end of its first line sets it again):
         # checked once more right before the walks.
         ensure_walks(d)
-    phase(d, place + ".walk1", "start")
-    d.walk(3.0 * k)  # forward
-    phase(d, place + ".walk1", "end")
+    measured_walk(d, place + ".walk1", 3.0 * k)  # forward
     d.hold(("a",), 1.0 * k)  # strafe left
     d.hold(("d",), 1.0 * k)  # and right
-    clear_box(d)
-    phase(d, place + ".walk2", "start")
-    d.walk(3.0 * k, turn=14.0)  # forward, turning in its first second: the heading of its last seconds is a new one
-    phase(d, place + ".walk2", "end")
+    # forward, turning in its first second: the heading of its last seconds is a new one
+    measured_walk(d, place + ".walk2", 3.0 * k, turn=14.0)
+
+
+def measured_walk(d, name, seconds, turn=None):
+    """One walk of the measured script between its phase marks. A pack's box that comes up during the walk stops the
+    player (2026-11-17: in the first town, late in the first walk), so the box is dismissed and the walk made once more
+    with new marks; the parser takes the last marks of a name."""
+    for attempt in range(2):
+        clear_box(d)
+        phase(d, name, "start")
+        if turn is None:
+            d.walk(seconds)
+        else:
+            d.walk(seconds, turn=turn)
+        phase(d, name, "end")
+        if d.screen() == "play":
+            return
+        if attempt == 0:
+            d.note(f"a box came during {name}: dismissed and the walk made again")
+        else:
+            d.note(f"a box came during {name} again: the walk is left as it is")
 
 
 def warm(d, seconds=3.0):
@@ -133,10 +149,6 @@ def free_player(d):
     for stage in (50, 55):
         d.console_line(f"setstage {OPENING_QUEST} {stage}", 0.4)
     d.console_line(f"set {OPENING_QUEST_NAME}.bRunTimer to 0", 0.4)
-    # The sitting package is on the player by now in every run (stage 5 put it back before these stages), so it is
-    # taken off here, in the same console, rather than by `ensure_walks` after a failed step and a second console
-    # (about 6 s of the quick suite's 120).
-    d.console_line("player.removescriptpackage", 0.4)
     d.freed = True
     return d.console_close(quiet=0.5)
 
@@ -236,6 +248,10 @@ def visit(d, opts, name, sneak=False):
     if name != "doc_house" and not getattr(d, "outside", False):
         d.outside = True
         warm_first_exterior(d)
+    elif name == "doc_house" and opts.get("brisk"):
+        # The quick suite: the first room's play screen has just held its `quiet` seconds at the end of the start-up,
+        # and the console that freed the player held it again; a second warm-up there only costs the 120 s budget.
+        pass
     else:
         warm(d)
     ensure_walks(d)
@@ -260,7 +276,7 @@ def session(places, measure=1.0, quiet=6.0, brisk=False, sneak_at=()):
     the first room's play screen must hold before the places start."""
 
     def run(d, opts):
-        opts = dict(opts, scale=(opts.get("scale") or 1.0) * measure)
+        opts = dict(opts, scale=(opts.get("scale") or 1.0) * measure, brisk=brisk)
         phase(d, "startup", "start")
         ok = start_new_game(d, hold_first_room=0.0, quiet=quiet, brisk=brisk)
         phase(d, "startup", "end")

@@ -722,23 +722,45 @@ class DriverTests(unittest.TestCase):
         d.position = lambda: (next(drift), 0.0, 0.0)
         self.assertFalse(drivers.walks(d))
 
-    def test_free_player_takes_the_opening_package_off_in_the_same_console_once(self):
+    def test_a_measured_walk_is_made_again_when_a_box_stopped_it(self):
         import drivers
 
         class D:
             pass
 
-        d, lines, consoles = D(), [], []
-        d.console_open = lambda tries=3: consoles.append("open") or True
-        d.console_close = lambda quiet=2.0, timeout=30.0: consoles.append("close") or True
-        d.console_line = lambda text, settle=1.0: lines.append(text) or True
-        self.assertTrue(drivers.free_player(d))
-        self.assertEqual(consoles, ["open", "close"])
-        self.assertEqual(lines[-1], "player.removescriptpackage")
-        self.assertEqual(lines[:2], [f"setstage {drivers.OPENING_QUEST} 50", f"setstage {drivers.OPENING_QUEST} 55"])
-        # once a session
-        self.assertTrue(drivers.free_player(d))
-        self.assertEqual(consoles, ["open", "close"])
+        d, log, screens = D(), [], iter(["play", "menu", "menu", "play"])
+        d.screen = lambda: next(screens)
+        d.settle_play = lambda quiet=0.3, timeout=20: log.append("dismissed") or True
+        d.walk = lambda seconds, turn=None: log.append(("walk", seconds, turn))
+        d.note = lambda text: log.append(text)
+        d.tail = lambda n=0: [(7,)]
+        d.clock = lambda: 0.0
+        d.t0 = 0.0
+        drivers.measured_walk(d, "town.walk1", 1.5)
+        walks = [x for x in log if isinstance(x, tuple)]
+        self.assertEqual(walks, [("walk", 1.5, None), ("walk", 1.5, None)])
+        self.assertIn("a box came during town.walk1: dismissed and the walk made again", log)
+        self.assertEqual(sum(1 for x in log if isinstance(x, str) and "phase town.walk1 start" in x), 2)
+        # a walk is made twice at most
+        log.clear()
+        d.screen = lambda: "menu"
+        drivers.measured_walk(d, "town.walk1", 1.5)
+        self.assertEqual(len([x for x in log if isinstance(x, tuple)]), 2)
+        self.assertIn("a box came during town.walk1 again: the walk is left as it is", log)
+        # the parser takes a walk's last marks: the walk made again, not the one a box stopped
+        import parse
+        rows = [{"frame": f, "t": f / 10.0, "screen": "play", "pos": (0.0, y, 0.0)} for f, y in
+                [(10, 0.0), (19, 5.0), (30, 5.0), (40, 105.0), (50, 105.0), (60, 105.0), (70, 205.0)]]
+        rows += [{"frame": 80, "t": 8.0, "screen": "play", "pos": (100.0, 205.0, 0.0)}]
+        phases = [("town.walk1", "start", 10, 1.0), ("town.walk1", "end", 19, 1.9),
+                  ("town.walk1", "start", 30, 3.0), ("town.walk1", "end", 40, 4.0),
+                  ("town.walk2", "start", 70, 7.0), ("town.walk2", "end", 80, 8.0)]
+        self.assertEqual(parse.heading_changes(rows, phases), {"town": 90.0})
+        # a walk with no box is made once
+        log.clear()
+        d.screen = lambda: "play"
+        drivers.measured_walk(d, "town.walk2", 1.5, turn=14.0)
+        self.assertEqual([x for x in log if isinstance(x, tuple)], [("walk", 1.5, 14.0)])
 
     def test_sneak_check_taps_ctrl_between_the_standing_and_the_sneaking_steps(self):
         import driver
