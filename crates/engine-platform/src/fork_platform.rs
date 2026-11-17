@@ -2,7 +2,7 @@
 //! machine that Windows answers and a Unix machine answers differently.
 //!
 //! Every function here is built on every target so its tests run everywhere, but the hooks in the
-//! upstream-owned files call them only under `cfg(unix)` (`files.rs`, `process.rs`), except
+//! upstream-owned files call them only under `cfg(unix)` (`files.rs`), except
 //! [`data_dir`], whose Windows arm is the `%LOCALAPPDATA%` lookup the call sites made before.
 //! Nothing on Windows takes another path than it took.
 //!
@@ -11,7 +11,6 @@
 //!   birth time is the file system's (`statx` with `STATX_BTIME`, as the standard library asks
 //!   for it); on a file system that keeps none, [`creation`] answers the older of the last write
 //!   and the last status change, the oldest time the file system recorded.
-//! - Memory: [`parse_meminfo`] reads `/proc/meminfo` for `GlobalMemoryStatus(Ex)`.
 //! - Folders: [`data_dir`] is where the tables go (`$XDG_DATA_HOME/nv-rs`), and [`userdata_dir`]
 //!   is the player's Documents, AppData and Local AppData as the game sees them.
 
@@ -76,50 +75,6 @@ pub fn find_fields(meta: &std::fs::Metadata, shown: &str) -> (u32, u64, u64, u64
     let created = creation(meta.created().ok().map(system_filetime), written, changed);
     let attributes = if meta.is_dir() { DIRECTORY } else { ARCHIVE };
     (attributes, created, accessed, written)
-}
-
-/// The memory `GlobalMemoryStatus(Ex)` report, from `/proc/meminfo`'s text: `MemTotal` and
-/// `MemAvailable` (`MemFree` on a kernel that gives no `MemAvailable`) for the physical memory,
-/// those plus `SwapTotal` and `SwapFree` for the page file (Windows' commit limit and what is
-/// left of it), and the load as the percentage of physical memory in use. The lines are in kB.
-/// `None` when `MemTotal` is missing or 0.
-pub fn parse_meminfo(text: &str) -> Option<Meminfo> {
-    let field = |name: &str| -> Option<u64> {
-        text.lines().find_map(|line| {
-            let rest = line.strip_prefix(name)?.strip_prefix(':')?;
-            let kb: u64 = rest.trim().strip_suffix("kB")?.trim().parse().ok()?;
-            Some(kb.saturating_mul(1024))
-        })
-    };
-    let total = field("MemTotal").filter(|&t| t > 0)?;
-    let available = field("MemAvailable")
-        .or_else(|| field("MemFree"))
-        .unwrap_or(0)
-        .min(total);
-    let swap_total = field("SwapTotal").unwrap_or(0);
-    let swap_free = field("SwapFree").unwrap_or(0).min(swap_total);
-    Some(Meminfo {
-        load: ((total - available) * 100 / total) as u32,
-        total_phys: total,
-        avail_phys: available,
-        total_page_file: total + swap_total,
-        avail_page_file: available + swap_free,
-    })
-}
-
-/// What [`parse_meminfo`] reads (bytes; `load` is a percentage).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Meminfo {
-    pub load: u32,
-    pub total_phys: u64,
-    pub avail_phys: u64,
-    pub total_page_file: u64,
-    pub avail_page_file: u64,
-}
-
-/// The machine's memory now (`/proc/meminfo`); `None` where there is no such file.
-pub fn machine_meminfo() -> Option<Meminfo> {
-    parse_meminfo(&std::fs::read_to_string("/proc/meminfo").ok()?)
 }
 
 /// The XDG data folder: `$XDG_DATA_HOME` when it is set to an absolute path (the specification
@@ -259,41 +214,6 @@ mod tests {
         assert_eq!(creation(Some(7), 5, 3), 7);
         assert_eq!(creation(None, 5, 3), 3);
         assert_eq!(creation(None, 2, 3), 2);
-    }
-
-    const MEMINFO: &str = "MemTotal:       16384000 kB\n\
-MemFree:         1024000 kB\n\
-MemAvailable:    4096000 kB\n\
-Buffers:          100000 kB\n\
-SwapTotal:       8192000 kB\n\
-SwapFree:        6144000 kB\n\
-HugePages_Total:       0\n";
-
-    #[test]
-    fn meminfo_gives_the_machines_memory_in_bytes() {
-        let m = parse_meminfo(MEMINFO).unwrap();
-        assert_eq!(m.total_phys, 16_384_000 * 1024);
-        assert_eq!(m.avail_phys, 4_096_000 * 1024);
-        assert_eq!(m.total_page_file, (16_384_000 + 8_192_000) * 1024);
-        assert_eq!(m.avail_page_file, (4_096_000 + 6_144_000) * 1024);
-        assert_eq!(m.load, 75);
-    }
-
-    #[test]
-    fn meminfo_falls_back_to_free_memory_and_no_swap() {
-        let m = parse_meminfo("MemTotal: 1000 kB\nMemFree: 250 kB\n").unwrap();
-        assert_eq!(m.avail_phys, 250 * 1024);
-        assert_eq!(m.total_page_file, 1000 * 1024);
-        assert_eq!(m.avail_page_file, 250 * 1024);
-        assert_eq!(m.load, 75);
-    }
-
-    #[test]
-    fn meminfo_without_a_total_is_no_answer() {
-        assert_eq!(parse_meminfo(""), None);
-        assert_eq!(parse_meminfo("MemTotal: 0 kB\n"), None);
-        assert_eq!(parse_meminfo("MemFree: 5 kB\n"), None);
-        assert_eq!(parse_meminfo("MemTotal: lots kB\n"), None);
     }
 
     #[test]

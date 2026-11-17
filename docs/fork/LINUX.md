@@ -39,7 +39,7 @@ Windows jobs run the same tests as before (the four `files` tests that were `ign
 | Question | Windows | Linux |
 | --- | --- | --- |
 | File times of `FindFirstFileA` / `FindNextFileA` (`files.rs`, `write_find_data`) | the host's own search | the file's own metadata as `FILETIME`: last write, last access, and the birth time from `statx` (`STATX_BTIME`, through the standard library); on a file system that keeps no birth time, the older of the last write and the last status change. Attributes: directory, else archive (as `GetFileAttributesA` answers). A time the file system cannot give stops the run naming the file |
-| `GlobalMemoryStatus(Ex)` (`process.rs`) | `GlobalMemoryStatusEx` | `/proc/meminfo`: `MemTotal`, `MemAvailable` (`MemFree` without it), swap added for the page file; no `/proc` means no answer, as before |
+| `GlobalMemoryStatus(Ex)` (`process.rs`) | `GlobalMemoryStatusEx` | upstream's `machine_table::this_memory` (slaterain/nv-rs#645): `/proc/meminfo` on Linux, `sysctl` on macOS; the fork's own parser is retired |
 | Real clock's start (`Engine::start_real_clock`) | `GetTickCount` | upstream's `host_tick_count`: the machine's uptime in ms from `CLOCK_BOOTTIME`, wrapped to 32 bits as `GetTickCount` wraps |
 | Table paths (`dsound.tsv`, `d3d9_adapter.tsv`, `d3dx-cache`) | `%LOCALAPPDATA%\nv-rs` | `$XDG_DATA_HOME/nv-rs` (an absolute path), else `~/.local/share/nv-rs`; the `NV_*` overrides are unchanged |
 | First-run settings (`fork_tables::seed_settings`) | the launcher makes `Fallout.ini` and `FalloutPrefs.ini` | `<userdata>/Documents/My Games/FalloutNV`: `Fallout.ini` from the installation's `Fallout_default.ini`, `FalloutPrefs.ini` with `[Display] sD3DDevice` = the adapter's name; files that exist are never touched; the table's folders are `Z:\...` game paths and every file call goes through `files::host_path` |
@@ -47,7 +47,7 @@ Windows jobs run the same tests as before (the four `files` tests that were `ign
 
 Code pages beyond ASCII and 1252 are not provided: a name's other characters become `?` (see `code_page`); a name
 that needs one still stops no run. Tests: `fork_platform::tests` and `unix_tests` (synthetic files with chosen times
-through `FindFirstFileA`, the `/proc/meminfo` parser on fixtures, the paths under a fake `XDG_DATA_HOME`) and
+through `FindFirstFileA`, the paths under a fake `XDG_DATA_HOME`) and
 the clock start is upstream's (`engine::tests`).
 
 ## Machine tables of a Linux machine (#182)
@@ -58,11 +58,16 @@ RX 7900 XTX on RADV (`1002:744c`, D3D9 driver `aticfx32.dll`, the file the game 
 name, vendor id and device id come from wgpu's adapter info (`d3d9_wgpu::identity`) and the driver file from the vendor;
 a software adapter (lavapipe) keeps the reference card. The capabilities and format answers are one Shader Model 3 set
 written from the Direct3D 9 structures, the same for every vendor; no Windows capture is copied. Folders are under
-`userdata_dir()`, the time zone is UTC. Without `d3d9_adapter.tsv` the host writes the generated table where that file
-belongs (git-ignored); an existing file wins, so a capture still overrides everything.
+`userdata_dir()`, where the native build's saves are. The rest of the machine is upstream's machine table
+(`engine_platform::machine_table`, slaterain/nv-rs#645): the time zone from the zone file, the memory, the real `CPUID`,
+the code pages and Windows' fixed answers (window styles and borders, the Windows directory), no NVIDIA library. The run's
+table is the machine table followed by the fork's adapter table, made afresh each run; a later line of the same question
+wins, so the fork's folders replace the machine table's. The fork's part is also written where `d3d9_adapter.tsv`
+belongs (git-ignored), for reading; `NV_D3D9_ADAPTER=FILE` names a whole table instead (a test's or a capture).
 
 Another machine: `linux_profile.txt` in the data folder (or `NV_LINUX_PROFILE`), `key = value` lines: `name`,
-`vendor_id`, `device_id` (hex), `driver`, `bias_minutes`, `userdata`, and `mode = WxH@Hz` (first is current). Display
+`vendor_id`, `device_id` (hex), `driver`, `userdata`, and `mode = WxH@Hz` (first is current); an older file's
+`bias_minutes` is taken and ignored. Display
 modes are the reference list unless the file gives them; the current monitor is not read (no window exists at this stage).
 
 Sound: see "Sound output" below. Without `NV_SOUND=out` (or `device`) and without `dsound.tsv`, the table is
