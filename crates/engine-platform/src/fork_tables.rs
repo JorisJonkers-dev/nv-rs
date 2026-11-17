@@ -3,8 +3,10 @@
 //! On Windows the player captures the adapter table with `scripts/d3d9-capture`; nothing there
 //! runs on Linux. This module writes the same table (the format `super::d3d9::Adapter::parse`
 //! reads) from what a Linux machine can say: the card's identity as wgpu reports it
-//! ([`d3d9_wgpu::identity`]), a list of display modes, the folders under the XDG user data
-//! folder and the time zone bias.
+//! ([`d3d9_wgpu::identity`]), a list of display modes and the folders under the XDG user data
+//! folder. The rest of the machine (processor, time zone, code pages, Windows' fixed answers) is
+//! upstream's machine table (`super::machine_table`, slaterain/nv-rs#645), which the host puts
+//! before this one.
 //!
 //! The answers are a shared reference profile, not a capture. The default is the owner's card (an
 //! AMD Radeon RX 7900 XTX on RADV, [`Profile::radv_reference`]); the identity wgpu reports
@@ -24,8 +26,6 @@ const NOT_AVAILABLE: u32 = 0x8876_086a;
 /// The rate the mixer runs at off Windows (`fork_sound::MIX_RATE`).
 pub const MIX_RATE: u32 = 48_000;
 const DSERR_NODRIVER: u32 = 0x8878_0078;
-/// `ERROR_MOD_NOT_FOUND`: what `LoadLibraryA("nvapi.dll")` leaves on a machine without NVIDIA's.
-const ERROR_MOD_NOT_FOUND: u32 = 0x7e;
 
 /// The sound table that makes the game run silent: `DirectSoundCreate8` fails with
 /// `DSERR_NODRIVER`, as on a machine with no sound device, and nothing else is asked.
@@ -88,8 +88,6 @@ pub struct Profile {
     pub driver: String,
     /// Display modes (width, height, refresh rate); the first is the current one.
     pub modes: Vec<(u32, u32, u32)>,
-    /// `TIME_ZONE_INFORMATION.Bias`: minutes west of UTC, no daylight rules.
-    pub bias_minutes: i32,
     /// The user data folder the game's folders are under (`<root>/Documents`,
     /// `<root>/AppData/Roaming`, `<root>/AppData/Local`).
     pub userdata: String,
@@ -126,7 +124,6 @@ impl Profile {
                 (800, 600, 60),
                 (640, 480, 60),
             ],
-            bias_minutes: 0,
             userdata: userdata.into(),
         }
     }
@@ -146,8 +143,9 @@ impl Profile {
     }
 
     /// Applies a profile file: `key = value` lines, `#` comments. Keys: `name`, `vendor_id` and
-    /// `device_id` (hex), `driver`, `bias_minutes`, `userdata`, and `mode = WxH@Hz` (each one
-    /// adds a mode; the first listed is current and the reference modes are dropped).
+    /// `device_id` (hex), `driver`, `userdata`, and `mode = WxH@Hz` (each one adds a mode; the
+    /// first listed is current and the reference modes are dropped). `bias_minutes` is taken and
+    /// ignored (the time zone is the system's).
     pub fn parse(mut self, text: &str) -> Result<Profile, String> {
         let mut modes = Vec::new();
         for line in text
@@ -169,9 +167,12 @@ impl Profile {
                 "device_id" => self.device_id = hex(value)?,
                 "driver" => self.driver = value.into(),
                 "userdata" => self.userdata = value.into(),
+                // Read before the machine table had the system's time zone (slaterain/nv-rs#645):
+                // still taken, so an older file is not refused, and no longer used.
                 "bias_minutes" => {
-                    self.bias_minutes =
-                        value.parse().map_err(|_| format!("not a number: {line}"))?
+                    value
+                        .parse::<i32>()
+                        .map_err(|_| format!("not a number: {line}"))?;
                 }
                 "mode" => {
                     let bad = || format!("a mode is WxH@Hz: {line}");
@@ -680,62 +681,6 @@ fn metric(index: u32, current: (u32, u32, u32)) -> u32 {
     }
 }
 
-fn windows_lines(o: &mut String) {
-    for (requested, parent) in [(0x1000_0000u32, 0u32), (0x5000_0000, 1)] {
-        // A window made with `requested` reads back with the visible and, for the child, the child bit.
-        writeln!(
-            o,
-            "CreateWindowStyle\t{requested:x} {parent:x}\t{requested:x}\t0\t0"
-        )
-        .unwrap();
-    }
-    const STYLES: &[u32] = &[
-        0,
-        0x1000_0000,
-        0x5000_0000,
-        0x8000_0000,
-        0x9000_0000,
-        0x00cf_0000,
-        0x10cf_0000,
-        0x00c0_0000,
-        0x10c0_0000,
-        0x14c0_0000,
-        0x16c0_0000,
-        0x04c0_0000,
-        0x06c0_0000,
-        0x00ca_0000,
-        0x10ca_0000,
-    ];
-    for &style in STYLES {
-        for menu in [0i32, 1] {
-            for ex in [0u32, 0x100, 0x40000] {
-                // The border of a frame: caption 0x00c00000 (23 + 1), sizing 0x40000 (4+1), dialog
-                // frame 0x400000 (3), thin 0x800000 (1), and a menu bar (20).
-                let (mut l, mut t, mut r, mut b) = (0i32, 0i32, 0i32, 0i32);
-                if style & 0x00c0_0000 == 0x00c0_0000 {
-                    t -= 23;
-                    let edge = if style & 0x0004_0000 != 0 { 4 } else { 1 };
-                    (l, r, b, t) = (l - edge - 1, r + edge + 1, b + edge + 1, t - edge - 1);
-                } else if style & 0x0080_0000 != 0 {
-                    (l, t, r, b) = (-1, -1, 1, 1);
-                }
-                if menu == 1 && style & 0x00c0_0000 == 0x00c0_0000 {
-                    t -= 20;
-                }
-                if ex & 0x100 != 0 {
-                    (l, t, r, b) = (l - 2, t - 2, r + 2, b + 2);
-                }
-                writeln!(
-                    o,
-                    "AdjustWindowRectEx\t{style:x} {menu:x} {ex:x}\t1\t{:x} {:x} {:x} {:x}",
-                    l as u32, t as u32, r as u32, b as u32
-                )
-                .unwrap();
-            }
-        }
-    }
-}
-
 /// `D3DQUERYTYPE` event and occlusion, the two the game makes (the retail HAL takes both).
 const QUERY_EVENT: u32 = 8;
 const QUERY_OCCLUSION: u32 = 9;
@@ -754,33 +699,23 @@ fn query_lines(o: &mut String) {
     }
 }
 
-/// The adapter table of the machine `p` describes, as `Adapter::parse` reads it.
+/// The adapter table of the machine `p` describes, as `Adapter::parse` reads it: the graphics card,
+/// its Direct3D answers, the display (modes, devices, metrics), the queries and the game's folders.
+/// What the rest of the machine answers (the processor, the time zone, the code pages, the Windows
+/// directory, window styles and borders, no NVIDIA library) is upstream's machine table
+/// (`super::machine_table`), which the host puts before this one.
 pub fn adapter_table(p: &Profile) -> String {
     let cur = p.modes.first().copied().unwrap_or((1920, 1080, 60));
     let mut o = String::new();
-    // The processor: the ID flag test, and CPUID leaves 0 and 1 with SSE2 set (EDX bit 26).
-    writeln!(o, "CpuIdFlagTest\t\t200000").unwrap();
-    writeln!(o, "Cpuid\t0\t10 68747541 444d4163 69746e65").unwrap();
-    writeln!(o, "Cpuid\t1\ta20f10 800 7ed8320b 178bfbff").unwrap();
-    // No NVIDIA library on this machine.
-    writeln!(o, "NvApiLoad\t\t0\t{ERROR_MOD_NOT_FOUND:x}").unwrap();
     for index in (0..=0x5fu32).chain(0x1000..=0x1003).chain(0x2000..=0x2003) {
         writeln!(o, "GetSystemMetrics\t{index:x}\t{:x}", metric(index, cur)).unwrap();
     }
-    windows_lines(&mut o);
     query_lines(&mut o);
-    // Folders: the Windows directory and CSIDL personal, appdata, local appdata, common appdata,
-    // common documents, under the user data folder.
+    // Folders: CSIDL personal, appdata, local appdata, common appdata, common documents, under the
+    // user data folder (where the native build's saves are; they replace the machine table's).
     // The game's paths are Windows paths: `Z:` is the host's root (`files::host_path`, as Wine's),
     // so the folders are `Z:\home\...`; a path with `/` is no full path to the game's file layer.
     let u = format!("Z:{}", p.userdata.trim_end_matches('/').replace('/', "\\"));
-    writeln!(
-        o,
-        "GetWindowsDirectoryA\t\t{:x}\t{}",
-        "C:\\Windows".len(),
-        path_hex("C:\\Windows")
-    )
-    .unwrap();
     for (csidl, path) in [
         (0x05u32, format!("{u}\\Documents")),
         (0x1a, format!("{u}\\AppData\\Roaming")),
@@ -789,31 +724,6 @@ pub fn adapter_table(p: &Profile) -> String {
         (0x2e, format!("{u}\\Documents\\Common")),
     ] {
         writeln!(o, "SHGetFolderPathA\t{csidl:x} 0\t0\t{}", path_hex(&path)).unwrap();
-    }
-    // Time zone: no daylight rules; the standard name is empty. Bias in minutes west of UTC.
-    let mut tz = vec![0u8; 172];
-    put(&mut tz, 0, p.bias_minutes as u32);
-    writeln!(o, "GetTimeZoneInformation\t\t0\t{}", hex(&tz)).unwrap();
-    writeln!(
-        o,
-        "GetTimeZoneInformationForYear\t{:x} {:x}\t1\t{}",
-        1601,
-        30827,
-        hex(&tz)
-    )
-    .unwrap();
-    // Code pages.
-    writeln!(o, "GetACP\t\t4e4\nGetOEMCP\t\t1b5").unwrap();
-    for page in [0x4e4u32, 0x1b5, 0xfde9] {
-        let mut info = [0u8; 20];
-        put(&mut info, 0, if page == 0xfde9 { 4 } else { 1 });
-        info[4] = 0x3f;
-        writeln!(
-            o,
-            "IsValidCodePage\t{page:x}\t1\nGetCPInfo\t{page:x}\t1\t{}",
-            hex(&info)
-        )
-        .unwrap();
     }
     // Display devices: one attached primary device named after the card.
     for index in 0..2u32 {
@@ -1225,6 +1135,71 @@ mod tests {
         );
     }
 
+    /// The run's table off Windows (`host::adapter_table_text`): upstream's machine table, then this
+    /// one. This table leaves the processor, time zone, code pages, Windows directory, window
+    /// styles and NVIDIA lines to the machine table, and its folders come last, so the game's
+    /// Documents is the fork's user data folder, where the native build's saves are.
+    #[test]
+    fn the_machine_table_answers_the_system_and_the_adapter_table_the_card_and_folders() {
+        let fork = adapter_table(&reference());
+        for question in [
+            "Cpuid\t",
+            "CpuIdFlagTest\t",
+            "GetTimeZoneInformation\t",
+            "GetTimeZoneInformationForYear\t",
+            "GetACP\t",
+            "IsValidCodePage\t",
+            "GetWindowsDirectoryA\t",
+            "AdjustWindowRectEx\t",
+            "CreateWindowStyle\t",
+            "NvApiLoad\t",
+        ] {
+            assert!(!fork.lines().any(|l| l.starts_with(question)), "{question}");
+        }
+        let inputs = crate::machine_table::Inputs {
+            zone: crate::machine_table::parse_posix_tz("UTC0")
+                .map(crate::machine_table::Zone::from_rule),
+            now: 1_800_000_000,
+            processor: crate::machine_table::fixed_processor(),
+            own_folder: Ok(std::path::PathBuf::from("/upstream/nv-rs")),
+        };
+        let (machine, problems) = crate::machine_table::write_table(&inputs);
+        assert!(problems.is_empty(), "{problems:?}");
+        let table = format!("{machine}{fork}");
+        // What the fork no longer writes, the machine table answers.
+        for question in [
+            "Cpuid\t0\t",
+            "Cpuid\t1\t",
+            "CpuIdFlagTest\t",
+            "GetTimeZoneInformation\t",
+            "GetTimeZoneInformationForYear\t",
+            "GetACP\t",
+            "GetOEMCP\t",
+            "IsValidCodePage\t",
+            "GetCPInfo\t",
+            "GetWindowsDirectoryA\t",
+            "AdjustWindowRectEx\t",
+            "CreateWindowStyle\t",
+            "NvApiLoad\t",
+        ] {
+            assert!(
+                machine.lines().any(|l| l.starts_with(question)),
+                "{question}"
+            );
+        }
+        let documents = table
+            .lines()
+            .rev()
+            .find(|l| l.starts_with("SHGetFolderPathA\t5 0\t"))
+            .and_then(|l| l.rsplit('\t').next())
+            .expect("a Documents line");
+        let userdata = format!("Z:{}\\Documents", reference().userdata.replace('/', "\\"));
+        assert_eq!(documents, hex(userdata.as_bytes()));
+        let mut e = Engine::new();
+        crate::d3d9::load_adapter_table(&mut e, &table);
+        assert!(crate::d3d9::has_adapter_table(&mut e));
+    }
+
     /// The table says event and occlusion queries are taken and the rest are not available, so the
     /// first outdoor frame's `CreateQuery(9)` no longer stops the run.
     #[test]
@@ -1307,7 +1282,9 @@ mod tests {
             .unwrap();
         assert_eq!(p.name, "Radeon X");
         assert_eq!(p.modes, vec![(2560, 1440, 144), (1920, 1080, 60)]);
-        assert_eq!(p.bias_minutes, -60);
+        assert!(reference().parse("bias_minutes = soon").is_err());
+        // An older file's bias is taken and changes nothing.
+        assert_eq!(reference().parse("bias_minutes = -60"), Ok(reference()));
         assert!(reference().parse("colour = red").is_err());
         let t = adapter_table(&p);
         assert!(t.contains(&format!(

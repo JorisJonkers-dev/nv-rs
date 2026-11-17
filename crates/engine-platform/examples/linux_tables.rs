@@ -5,8 +5,17 @@ fn main() {
     {
         use engine_platform::fork_tables as t;
         match std::env::args().nth(1).as_deref() {
+            // The whole table a run makes: upstream's machine table, then the fork's adapter table.
             Some("adapter") => match t::machine_profile() {
-                Ok(p) => print!("{}", t::adapter_table(&p)),
+                Ok(p) => {
+                    let own = engine_platform::fork_platform::data_dir()
+                        .ok_or_else(|| "no data folder".to_string());
+                    let (machine, problems) = engine_platform::machine_table::this_machine(own);
+                    for line in problems {
+                        eprintln!("{line}");
+                    }
+                    print!("{machine}{}", t::adapter_table(&p))
+                }
                 Err(why) => {
                     eprintln!("the profile file is not usable: {why}");
                     std::process::exit(1);

@@ -49,24 +49,16 @@ The older table below stays and counts as a reason only ("table row only" in the
 ### Mods' own files on the native build
 - Files: `crates/host/src/mod_files.rs`, `crates/engine-platform/src/mod_files.rs`, `crates/engine-platform/src/files.rs`, `files/files_host.rs` and `fork_platform.rs` (fork-owned)
 - Upstream approach: since slaterain/nv-rs#629, mods' own files are kept in `NV_MOD_FILES_OUT`, else beside `NV_SAVE_OUT`'s folder; with neither there is none and their settings last for the session only. Any folder inside Documents or AppData is refused.
-- Fork approach: off Windows the native build keeps its saves in the port's own Documents when `NV_SAVE_OUT` is unset (`save_out::native_saves_dir`), so with neither variable set mods' files go beside those saves (`<documents>/My Games/FalloutNV/nv-rs mod files`). That Documents is the port's, so only the game-folder and path checks apply. A set variable goes through upstream's rules unchanged. The folder's copy of a name is found without regard to case inside the folder off Windows (`files_host::host_path_in`), as Windows finds it; upstream's own `files::host_path` gives way to the fork's re-export of the same function. Upstream's `mod_files` tests make Windows paths with `std::fs`, so they are in `.fork/linux-skip.txt`, and a fork test covers the Unix path.
+- Fork approach: off Windows the native build keeps its saves in the port's own Documents when `NV_SAVE_OUT` is unset (`save_out::native_saves_dir`), so with neither variable set mods' files go beside those saves (`<documents>/My Games/FalloutNV/nv-rs mod files`). That Documents is the port's, so only the game-folder and path checks apply. A set variable goes through upstream's rules unchanged. The folder's copy of a name is found without regard to case inside the folder off Windows (`files_host::host_path_in`), as Windows finds it; upstream's own `files::host_path` gives way to the fork's re-export of the same function. Upstream marks its Windows-path `mod_files` tests Windows only (slaterain/nv-rs#660), and a fork test covers the Unix path.
 - Decision: keep until upstream gives the native build a default folder.
 - Reason: the Linux play path starts without `NV_SAVE_OUT`, and mods' settings must last between sessions there as on the launcher's Windows path.
 - Evidence: `mod_files::tests::the_native_build_keeps_mod_files_beside_its_own_saves` (host) and `fork_platform::tests::mod_files_on_a_unix_host_read_the_game_and_keep_writes_in_the_ports_folder` (engine-platform).
-
-### A test of the extender's group GF patches
-- Files: `crates/jip/src/game_patches/gf_tests.rs`
-- Upstream approach: `deferred_start_through_the_listener_puts_group_gfs_part_in` (slaterain/nv-rs#649) drives the extender's deferred start in a world without a data handler; slaterain/nv-rs#636, merged beside it, made the deferred start look a plugin up there, so on upstream's `main` the test stops on a read of unmapped memory at `0x011C3F2C`.
-- Fork approach: the test maps an empty data handler before the deferred start; the code under test is unchanged.
-- Decision: drop when upstream fixes the test.
-- Reason: the scripting component's required jobs run this test.
-- Evidence: the extender crate's tests fail on that test at upstream's 955f0dc0 and passes with the change.
 
 ## Older table
 
 | Fork-only change | Why | Upstream change that makes it unnecessary |
 |---|---|---|
-| `engine-platform` answers in `fork_platform.rs`: file times of FindFirstFile, known folders, memory status, data folder; hooks in `files.rs`, `process.rs`, `dsound.rs`, `lib.rs`, `host/save_out.rs` (and its `NV_SAVE_OUT` check, which takes a path from `/` off Windows), `host/lib.rs` | The game runs on Linux; upstream answers these only on Windows | Upstream implementing the same calls off Windows (it does not as of the 38-commit sync of 2026-11-15) |
+| `engine-platform` answers in `fork_platform.rs`: file times of FindFirstFile, known folders, data folder (memory status is upstream's `machine_table` since slaterain/nv-rs#645); hooks in `files.rs`, `dsound.rs`, `lib.rs`, `host/save_out.rs` (and its `NV_SAVE_OUT` check, which takes a path from `/` off Windows), `host/lib.rs` | The game runs on Linux; upstream answers these only on Windows | Upstream implementing the same calls off Windows (it does not as of the 38-commit sync of 2026-11-15) |
 | `engine-platform/src/fork_sound.rs`, hooks in `sound_out.rs`, `dsound.rs`, `lib.rs`, `Cargo.toml` | The game's sound output off Windows: libpulse-simple (PipeWire and PulseAudio) or a null sink behind the mixer's `sound_out` seam; upstream's output is WASAPI only (checked 2026-11-15: no audio work on `slaterain/nv-rs` main) | Upstream giving `sound_out` a non-Windows device |
 | `engine-platform/src/files/files_host.rs`, `files.rs` (`mod files_host`), `host/cell_offsets.rs` | Game paths (backslashes) map to Linux paths | A path layer in upstream |
 | `engine-platform/Cargo.toml`, `d3d9device.rs`, `d3d9resource.rs` | Native Linux build: cfg gates and d3d9-wgpu on every target | Upstream building these on Linux |

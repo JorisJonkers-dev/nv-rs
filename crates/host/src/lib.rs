@@ -35,6 +35,8 @@ pub mod patch_data;
 pub mod phys_blend;
 pub mod player_move;
 pub mod save_out;
+// Fork: on every target (the new lighting is drawn by wgpu, which the native build uses).
+pub mod scene_light;
 #[cfg(test)]
 mod start_up_tests;
 pub mod thread_races;
@@ -107,6 +109,9 @@ pub(crate) fn install_rows_and_extenders(engine: &mut Engine, choice: &fixes::Ch
     // `crates/showoff`).
     jg::install(engine);
     showoff::install(engine);
+    // The Mod Configuration Menu's plugin, when its row is on: xNVSE loads MCM.dll after
+    // jip_nvse.dll and before ui_organizer.dll (`crates/mcm`).
+    mcm::install(engine);
     // UI Organizer, when its row is on: after JIP, as xNVSE loads ui_organizer.dll after
     // jip_nvse.dll (`crates/uio`).
     uio::install(engine);
@@ -259,6 +264,14 @@ impl Host {
         // F11 in the game shows or hides it either way.
         #[cfg(windows)]
         engine_platform::d3d9real::want_frame_rate(choice.show_frame_rate);
+        // The new lighting (`fixes::Choice::ambient_occlusion`: `NV_AO`; else, in a launcher's play
+        // run, Fallout.ini's `[nv-rs Display] bAmbientOcclusion`; off by default). Off: nothing is
+        // installed, read or recorded.
+        // Fork: on every target, as the native build draws with wgpu on Vulkan.
+        if choice.ambient_occlusion {
+            engine_platform::d3d9real::want_scene_light(scene_light::read);
+            fork_log::info!(target: "host", "nv-rs: new lighting on (ambient occlusion; Vulkan only)");
+        }
         // Who draws (`fixes::Choice::renderer`: in a launcher's play run, Fallout.ini's
         // `[nv-rs Display] sRenderer`, Vulkan by default); `NV_D3D9`, when it names a backend,
         // decides instead. A test or script without `NV_D3D9` makes no choice: nothing draws.
@@ -525,6 +538,64 @@ pub fn adapter_table_path() -> Option<PathBuf> {
         .or_else(|| engine_platform::fork_platform::data_dir().map(|d| d.join("d3d9_adapter.tsv")))
 }
 
+/// The machine table's text. On Windows the file at [`adapter_table_path`], when it can be read.
+#[cfg(windows)]
+pub fn adapter_table_text() -> Option<String> {
+    std::fs::read_to_string(adapter_table_path()?).ok()
+}
+
+/// The machine table's text. On Linux and macOS the file `NV_D3D9_ADAPTER` names when it is set
+/// (a test's table), else the table of this machine, made once per run: upstream's machine table
+/// (`engine_platform::machine_table`: the time zone, memory, processor, code pages, Windows' fixed
+/// answers, no NVIDIA library), then the fork's adapter table ([`write_linux_adapter_table`]: the
+/// graphics card, its Direct3D answers, the display modes and metrics, and the game's Documents
+/// and AppData in the fork's own folder, `fork_platform::known_folders`, where the native build's
+/// saves are). The table is read line by line and a later line of the same question wins, so the
+/// fork's folders replace the machine table's. What could not be answered is said in the log.
+#[cfg(not(windows))]
+pub fn adapter_table_text() -> Option<String> {
+    if let Some(path) = std::env::var_os("NV_D3D9_ADAPTER") {
+        return std::fs::read_to_string(path).ok();
+    }
+    static TABLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        let (mut table, problems) = engine_platform::machine_table::this_machine(own_folder());
+        for line in problems {
+            fork_log::warn!(target: "host", "{line}");
+        }
+        // Without a usable profile (its line is in the log) the machine table still answers.
+        if let Some(adapter) = write_linux_adapter_table() {
+            table.push_str(&adapter);
+        }
+        keep_table(&table);
+        table
+    });
+    Some(table.clone())
+}
+
+/// nv-rs's own folder on Linux and macOS (its saves, settings and the game's Documents and
+/// AppData): Linux `$XDG_DATA_HOME/nv-rs` (a full path only), else `~/.local/share/nv-rs`; macOS
+/// `~/Library/Application Support/nv-rs`. The same rule as `game_folders::own_folder` (#630), which
+/// takes this place when it is merged.
+#[cfg(not(windows))]
+pub fn own_folder() -> Result<PathBuf, String> {
+    let full = |name: &str| {
+        std::env::var_os(name)
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    };
+    let home = full("HOME").ok_or("HOME is not set to a full path")?;
+    if cfg!(target_os = "macos") {
+        return Ok(home
+            .join("Library")
+            .join("Application Support")
+            .join("nv-rs"));
+    }
+    Ok(full("XDG_DATA_HOME")
+        .unwrap_or_else(|| home.join(".local").join("share"))
+        .join("nv-rs"))
+}
+
 /// Where the player's D3DX texture cache is: `NV_D3DX_CACHE`, else
 /// `%LOCALAPPDATA%\nv-rs\d3dx-cache` (made on this machine by `scripts/d3dx-texture-capture`
 /// from the player's own textures; it stays local).
@@ -557,8 +628,8 @@ pub fn wgpu_cache_path() -> Option<PathBuf> {
     std::env::var_os("NV_WGPU_CACHE").map(PathBuf::from)
 }
 
-/// The adapter table of this Linux machine, written to [`adapter_table_path`] (the file stays local
-/// and git-ignored); the text even where the file can't be written. A bad profile file is named.
+/// The fork's adapter table of this Linux machine (`fork_tables::adapter_table`: the card, its
+/// Direct3D answers, the display and the game's folders). A bad profile file is named.
 #[cfg(not(windows))]
 pub fn write_linux_adapter_table() -> Option<String> {
     let profile = engine_platform::fork_tables::machine_profile()
@@ -566,33 +637,29 @@ pub fn write_linux_adapter_table() -> Option<String> {
             |why| fork_log::warn!(target: "host", "the Linux machine profile is not usable: {why}"),
         )
         .ok()?;
-    let text = engine_platform::fork_tables::adapter_table(&profile);
+    Some(engine_platform::fork_tables::adapter_table(&profile))
+}
+
+/// The run's whole table, written to [`adapter_table_path`] for reading (the file stays local and
+/// git-ignored; `NV_D3D9_ADAPTER` naming it gives a later run the same table).
+#[cfg(not(windows))]
+fn keep_table(text: &str) {
     if let Some(path) = adapter_table_path() {
         let _ = path.parent().map(std::fs::create_dir_all);
-        if let Err(why) = std::fs::write(&path, &text) {
+        if let Err(why) = std::fs::write(&path, text) {
             fork_log::warn!(target: "host",
                 "the adapter table could not be written to {}: {why}",
                 path.display()
             );
         }
     }
-    Some(text)
 }
 
 /// Gives the Direct3D 9 layer the player's adapter table ([`adapter_table_path`]) before the
 /// renderer's start-up asks about the adapter. Without the file nothing is loaded: the first
 /// Direct3D 9 query stops that stage and its message says how to capture the table.
 fn load_adapter_table(e: &mut Engine) {
-    #[allow(unused_mut)]
-    let mut text = adapter_table_path().and_then(|p| std::fs::read_to_string(p).ok());
-    // Off Windows no capture tool exists: without a file, the table is made from this machine
-    // (wgpu's adapter and the reference profile) and kept where the file belongs (`fork_tables`).
-    #[cfg(not(windows))]
-    if text.is_none() || std::env::var_os("NV_D3D9_ADAPTER").is_none() {
-        // The table is generated here, not captured: made afresh each run unless a file is named.
-        text = write_linux_adapter_table().or(text);
-    }
-    if let Some(text) = text {
+    if let Some(text) = adapter_table_text() {
         engine_platform::d3d9::load_adapter_table(e, &text);
     }
     if let Some(dir) = texture_cache_path() {

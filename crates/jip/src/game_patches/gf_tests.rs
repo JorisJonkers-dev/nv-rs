@@ -1,5 +1,5 @@
 //! Group GF's game patches: G39 and G40 (JIP's own: the NPC skeleton model), G07, G16, G20, G83
-//! (fixes); part 2: G110, G57, G130, D01 (fixes).
+//! (fixes); part 2: G110, G57, G130, D01 (fixes); G48 (JIP's own: setting a form's type).
 
 use super::*;
 use crate::test_support::engine;
@@ -229,6 +229,97 @@ fn every_handler_is_at_its_row() {
     }
 }
 
+// ---- G48: TESForm::SetFormType ----
+
+/// A form whose bytes `+4`..`+7` and the word at `+0x104` are pre-filled (what reused memory
+/// can hold).
+const G48_FORM: u32 = 0x0539_0000;
+
+/// `004f15a0` called by address with `word` on the pre-filled form: the bytes `+4`..`+7`, the word
+/// at `+0x104`, the byte past it and `EAX`.
+fn g48_set(e: &mut Engine, word: u32) -> ([u8; 4], u32, u8, u32) {
+    if !e.mem.is_mapped(G48_FORM) {
+        e.map(G48_FORM, 0x1000);
+    }
+    e.mem.set_u32(G48_FORM + 4, 0xa5a5_a5a5);
+    e.mem.set_u32(G48_FORM + 0x104, 0x5a5a_5a5a);
+    e.mem.set_u8(G48_FORM + 0x108, 0x77);
+    let eax = e.call(SET_FORM_TYPE.addr(), &[G48_FORM, word]).eax;
+    let b = |i: u32| e.mem.u8(G48_FORM + 4 + i);
+    (
+        [b(0), b(1), b(2), b(3)],
+        e.mem.u32(G48_FORM + 0x104),
+        e.mem.u8(G48_FORM + 0x108),
+        eax,
+    )
+}
+
+/// G48 with JIP not installed (the row on or off): the exe's `004f15a0`, only the type byte is
+/// stored and the form answered; the flag bytes and `+0x104` keep what they held, for an actor
+/// type too.
+#[test]
+fn g48_not_installed_keeps_the_exes_byte_store() {
+    for row in [false, true] {
+        let mut e = world_as(false);
+        super::super::set_row(&mut e, row);
+        assert!(e.wraps_at(SET_FORM_TYPE.addr()).is_empty());
+        for kind in [0x3bu32, 0x3c, 0x2a] {
+            assert_eq!(
+                g48_set(&mut e, kind),
+                ([kind as u8, 0xa5, 0xa5, 0xa5], 0x5a5a_5a5a, 0x77, G48_FORM),
+                "{kind:02x} row {row}"
+            );
+        }
+    }
+}
+
+/// G48 with JIP installed (the row off, on, and on with an optional switch: JIP's own, in every
+/// preset): the type stored as a whole word (JIP's flag bytes `+5`..`+7` cleared); for a
+/// character (0x3B) or a creature (0x3C) the word at `+0x104` cleared too, nothing past it; any
+/// other type (the neighbours 0x3A and 0x3D, an NPC base 0x2A) leaves `+0x104` alone. Only the
+/// stack word's low byte counts. `EAX` is the type, as JIP's bytes leave it.
+#[test]
+fn g48_installed_clears_jips_flag_bytes() {
+    use engine_core::extend::jip_patches;
+    for (row, switch) in [
+        (false, 0),
+        (true, 0),
+        (true, jip_patches::FO3_WPN_DEGRADATION),
+    ] {
+        let mut e = world_as(true);
+        // The row on: the word's bit and the group's fixes (what the row puts in; the row
+        // itself reads the player's jip_nvse.ini through the platform).
+        if row {
+            e.jip_patches_or(jip_patches::FIXES | switch);
+            install_fixes(&mut e);
+        }
+        assert_eq!(e.wraps_at(SET_FORM_TYPE.addr()), [Owner::Jip]);
+        for kind in [0x3bu32, 0x3c] {
+            assert_eq!(
+                g48_set(&mut e, kind),
+                ([kind as u8, 0, 0, 0], 0, 0x77, kind),
+                "{kind:02x} row {row}"
+            );
+        }
+        for kind in [0x3au32, 0x3d, 0x2a] {
+            assert_eq!(
+                g48_set(&mut e, kind),
+                ([kind as u8, 0, 0, 0], 0x5a5a_5a5a, 0x77, kind),
+                "{kind:02x} row {row}"
+            );
+        }
+        assert_eq!(
+            g48_set(&mut e, 0x1234_563b),
+            ([0x3b, 0, 0, 0], 0, 0x77, 0x3b),
+            "the low byte only"
+        );
+        assert_eq!(
+            g48_set(&mut e, 0x0000_3b2a),
+            ([0x2a, 0, 0, 0], 0x5a5a_5a5a, 0x77, 0x2a),
+            "the low byte only"
+        );
+    }
+}
 // ---- part 2: G110, G57, G130, D01 ----
 
 const PART2: u32 = 0x0538_0000;
@@ -467,6 +558,10 @@ fn d01_slot_written_at_the_deferred_start_with_the_fixes() {
     }
 }
 
+/// The game's data handler pointer (`0x11C3F2C`) and a handler with no files loaded (zeroed).
+const GAME_DATA_HANDLER: u32 = 0x011c_3f2c;
+const NO_FILES_HANDLER: u32 = 0x053a_0000;
+
 /// JIP's deferred start through the co-save listener (xNVSE's `DEFERRED_INIT` message, as the
 /// game sends it): with the fixes' bit, D01's slot holds the routine and a G130 name read before
 /// answers 0 after; without the bit, the slot keeps `0x484B60` and the name still answers 1.
@@ -487,18 +582,18 @@ fn deferred_start_through_the_listener_puts_group_gfs_part_in() {
         (jip_patches::INSTALLED, MARK_AS_MODIFIED, 1),
     ] {
         let mut e = d01_world();
-        // Fork: the deferred start also runs group GS's script patch (slaterain/nv-rs#636, merged
-        // beside this one), which looks its plugin up in the data handler: give the world a
-        // handler with no files loaded, so that patch finds nothing.
-        if !e.mem.is_mapped(0x011c_3f2c) {
-            e.map(0x011c_3000, 0x1000);
-            e.mem.set_u32(0x011c_3f2c, 0x011c_3000);
-        }
         find_stand_ins(&mut e);
         read_override_archives(&mut e);
         assert_eq!(g130_answer(&mut e, b"DATA\\Foo.bsa"), Some(1));
         e.set_jip_patches(word);
         e.ext::<crate::Jip>().pos_marker.marker = 1;
+        // The listener runs the other groups' deferred parts too: group GS's (D07) looks a
+        // plugin up through the game's data handler, here one with no files loaded.
+        if !e.mem.is_mapped(GAME_DATA_HANDLER) {
+            e.map(GAME_DATA_HANDLER & !0xfff, 0x1000);
+        }
+        e.map(NO_FILES_HANDLER, 0x1000);
+        e.mem.set_u32(GAME_DATA_HANDLER, NO_FILES_HANDLER);
         crate::cosave::listen(&mut e, &message);
         assert_eq!(e.mem.u32(REFR_VTABLE + 0x48), slot, "{word:08x}");
         assert_eq!(
