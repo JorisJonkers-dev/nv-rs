@@ -802,6 +802,28 @@ pub fn write_whole(e: &mut Engine, path: &[u8], bytes: Vec<u8>) {
     }
 }
 
+/// The first `max` bytes of [`read_whole_or_error`]'s file, with its answers; only those bytes
+/// are read from the disk (`fread` of at most `max`).
+pub fn read_head_or_error(e: &Engine, path: &[u8], max: usize) -> Result<Vec<u8>, u32> {
+    let k = key(path);
+    if let Some(data) = state_ref!(e).disk.files.get(&k) {
+        return Ok(data[..data.len().min(max)].to_vec());
+    }
+    if state_ref!(e).disk.deleted.contains(&k) {
+        return Err(ERROR_FILE_NOT_FOUND);
+    }
+    read_head_of(&real_path(path), max).map_err(|err| host_error(&err))
+}
+
+/// The first `max` bytes of the host file `path` (a folder fails, as `std::fs::read` does).
+pub fn read_head_of(path: &std::path::Path, max: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.take(max as u64).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 /// `ERROR_SHARING_VIOLATION`, `ERROR_READ_FAULT` and `ERROR_MORE_DATA` (winerror.h).
 pub const ERROR_SHARING_VIOLATION: u32 = 32;
 pub const ERROR_READ_FAULT: u32 = 30;
