@@ -1549,7 +1549,10 @@ mod tests {
             let job = write(&own, "x.fos", b"nv-rs's copy");
             assert_eq!(
                 run_checked(&job, &check),
-                Ok(Some("NV_SAVE_OUT: copied x.fos".to_string()))
+                Ok(Some(format!(
+                    "NV_SAVE_OUT: copied x.fos to {}",
+                    own.join("x.fos").display()
+                )))
             );
             std::fs::remove_dir_all(&own).unwrap();
             std::os::unix::fs::symlink(&players, &own).unwrap();
@@ -1574,7 +1577,10 @@ mod tests {
             let check = |p: &Path| game_folders::refused(p, &never);
             assert_eq!(
                 run_checked(&write(&own, "y.fos", b"the copy"), &check),
-                Ok(Some("NV_SAVE_OUT: copied y.fos".to_string()))
+                Ok(Some(format!(
+                    "NV_SAVE_OUT: copied y.fos to {}",
+                    own.join("y.fos").display()
+                )))
             );
             assert_eq!(std::fs::read(&victim).unwrap(), b"not nv-rs's");
             assert_eq!(std::fs::read(own.join("y.fos")).unwrap(), b"the copy");
@@ -1681,7 +1687,10 @@ mod tests {
             std::fs::create_dir_all(&own).unwrap();
             assert_eq!(
                 run(&write(&own, "first.fos", b"kept")),
-                Ok(Some("NV_SAVE_OUT: copied first.fos".to_string()))
+                Ok(Some(format!(
+                    "NV_SAVE_OUT: copied first.fos to {}",
+                    own.join("first.fos").display()
+                )))
             );
             assert_eq!(std::fs::read(own.join("first.fos")).unwrap(), b"kept");
             std::fs::remove_dir_all(&own).unwrap();
@@ -1792,7 +1801,10 @@ mod tests {
             let mut watch = Watch::default();
             assert_eq!(
                 super::look(&e, &mut watch, Some(&dir), None),
-                ["NV_SAVE_OUT: copied Save 3 X.fos".to_string()]
+                [format!(
+                    "NV_SAVE_OUT: copied Save 3 X.fos to {}",
+                    dir.join("Save 3 X.fos").display()
+                )]
             );
             // Another file differing only in case (not the one written): left alone.
             std::fs::write(dir.join("SAVE 3 X.FOS"), b"another").unwrap();
