@@ -62,7 +62,7 @@ written from the Direct3D 9 structures, the same for every vendor; no Windows ca
 (`engine_platform::machine_table`, slaterain/nv-rs#645): the time zone from the zone file, the memory, the real `CPUID`,
 the code pages and Windows' fixed answers (window styles and borders, the Windows directory), no NVIDIA library. The run's
 table is the machine table followed by the fork's adapter table, made afresh each run; a later line of the same question
-wins, so the fork's folders replace the machine table's. The fork's part is also written where `d3d9_adapter.tsv`
+wins, so the fork's folders replace the machine table's. The whole table is also written where `d3d9_adapter.tsv`
 belongs (git-ignored), for reading; `NV_D3D9_ADAPTER=FILE` names a whole table instead (a test's or a capture).
 
 Another machine: `linux_profile.txt` in the data folder (or `NV_LINUX_PROFILE`), `key = value` lines: `name`,

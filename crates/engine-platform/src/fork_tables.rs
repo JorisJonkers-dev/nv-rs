@@ -1166,6 +1166,27 @@ mod tests {
         let (machine, problems) = crate::machine_table::write_table(&inputs);
         assert!(problems.is_empty(), "{problems:?}");
         let table = format!("{machine}{fork}");
+        // What the fork no longer writes, the machine table answers.
+        for question in [
+            "Cpuid\t0\t",
+            "Cpuid\t1\t",
+            "CpuIdFlagTest\t",
+            "GetTimeZoneInformation\t",
+            "GetTimeZoneInformationForYear\t",
+            "GetACP\t",
+            "GetOEMCP\t",
+            "IsValidCodePage\t",
+            "GetCPInfo\t",
+            "GetWindowsDirectoryA\t",
+            "AdjustWindowRectEx\t",
+            "CreateWindowStyle\t",
+            "NvApiLoad\t",
+        ] {
+            assert!(
+                machine.lines().any(|l| l.starts_with(question)),
+                "{question}"
+            );
+        }
         let documents = table
             .lines()
             .rev()
@@ -1262,6 +1283,8 @@ mod tests {
         assert_eq!(p.name, "Radeon X");
         assert_eq!(p.modes, vec![(2560, 1440, 144), (1920, 1080, 60)]);
         assert!(reference().parse("bias_minutes = soon").is_err());
+        // An older file's bias is taken and changes nothing.
+        assert_eq!(reference().parse("bias_minutes = -60"), Ok(reference()));
         assert!(reference().parse("colour = red").is_err());
         let t = adapter_table(&p);
         assert!(t.contains(&format!(

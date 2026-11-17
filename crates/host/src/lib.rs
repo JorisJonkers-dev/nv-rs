@@ -557,17 +557,20 @@ pub fn adapter_table_text() -> Option<String> {
     if let Some(path) = std::env::var_os("NV_D3D9_ADAPTER") {
         return std::fs::read_to_string(path).ok();
     }
-    static TABLE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    TABLE
-        .get_or_init(|| {
-            let (mut table, problems) = engine_platform::machine_table::this_machine(own_folder());
-            for line in problems {
-                fork_log::warn!(target: "host", "{line}");
-            }
-            table.push_str(&write_linux_adapter_table()?);
-            Some(table)
-        })
-        .clone()
+    static TABLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        let (mut table, problems) = engine_platform::machine_table::this_machine(own_folder());
+        for line in problems {
+            fork_log::warn!(target: "host", "{line}");
+        }
+        // Without a usable profile (its line is in the log) the machine table still answers.
+        if let Some(adapter) = write_linux_adapter_table() {
+            table.push_str(&adapter);
+        }
+        keep_table(&table);
+        table
+    });
+    Some(table.clone())
 }
 
 /// nv-rs's own folder on Linux and macOS (its saves, settings and the game's Documents and
@@ -625,8 +628,8 @@ pub fn wgpu_cache_path() -> Option<PathBuf> {
     std::env::var_os("NV_WGPU_CACHE").map(PathBuf::from)
 }
 
-/// The adapter table of this Linux machine, written to [`adapter_table_path`] (the file stays local
-/// and git-ignored); the text even where the file can't be written. A bad profile file is named.
+/// The fork's adapter table of this Linux machine (`fork_tables::adapter_table`: the card, its
+/// Direct3D answers, the display and the game's folders). A bad profile file is named.
 #[cfg(not(windows))]
 pub fn write_linux_adapter_table() -> Option<String> {
     let profile = engine_platform::fork_tables::machine_profile()
@@ -634,17 +637,22 @@ pub fn write_linux_adapter_table() -> Option<String> {
             |why| fork_log::warn!(target: "host", "the Linux machine profile is not usable: {why}"),
         )
         .ok()?;
-    let text = engine_platform::fork_tables::adapter_table(&profile);
+    Some(engine_platform::fork_tables::adapter_table(&profile))
+}
+
+/// The run's whole table, written to [`adapter_table_path`] for reading (the file stays local and
+/// git-ignored; `NV_D3D9_ADAPTER` naming it gives a later run the same table).
+#[cfg(not(windows))]
+fn keep_table(text: &str) {
     if let Some(path) = adapter_table_path() {
         let _ = path.parent().map(std::fs::create_dir_all);
-        if let Err(why) = std::fs::write(&path, &text) {
+        if let Err(why) = std::fs::write(&path, text) {
             fork_log::warn!(target: "host",
                 "the adapter table could not be written to {}: {why}",
                 path.display()
             );
         }
     }
-    Some(text)
 }
 
 /// Gives the Direct3D 9 layer the player's adapter table ([`adapter_table_path`]) before the
