@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.6.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.5.0...v0.6.0) (2026-11-17)
+
+
+### Features
+
+* **d3d9-wgpu:** new lighting: ambient occlusion in third person too, a little stronger (0.7), fAmbientOcclusionStrength (slaterain/nv-rs[#669](https://github.com/JorisJonkers-dev/nv-rs/issues/669)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **d3d9-wgpu:** sun shadows on Vulkan, off by default: real shadows inside the game's lighting, following the game's sun light (slaterain/nv-rs[#668](https://github.com/JorisJonkers-dev/nv-rs/issues/668)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **d3d9-wgpu:** Vulkan: the intro movie shows its picture (draws without shaders through fixed-function shaders) (slaterain/nv-rs[#666](https://github.com/JorisJonkers-dev/nv-rs/issues/666)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **distribution:** Linux and macOS preview: the start script, the READ MEs and the packaging script (slaterain/nv-rs[#631](https://github.com/JorisJonkers-dev/nv-rs/issues/631)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **engine-platform:** Linux and macOS: the game's paths on drive Z: (Wine's way), names found without case, file listings with their times (slaterain/nv-rs[#633](https://github.com/JorisJonkers-dev/nv-rs/issues/633)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **engine-platform:** sound on the speakers on macOS through cpal (slaterain/nv-rs[#637](https://github.com/JorisJonkers-dev/nv-rs/issues/637)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **engine-platform:** the distortion effect on Linux and macOS from the DLL's 32 constants; Windows still measures and checks them (slaterain/nv-rs[#639](https://github.com/JorisJonkers-dev/nv-rs/issues/639)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **engine-platform:** the game's window, its picture and mouse and keyboard through winit off Windows (slaterain/nv-rs[#640](https://github.com/JorisJonkers-dev/nv-rs/issues/640)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **extenders:** mods can keep arrays, texts and logs in files (6; 1,011 of 1,118) (slaterain/nv-rs[#643](https://github.com/JorisJonkers-dev/nv-rs/issues/643)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **fallout-gameplay:** the built-in extender's combat formulas: weapon and armour condition, armour wear cap, no-movement combat (GC part 4) (slaterain/nv-rs[#653](https://github.com/JorisJonkers-dev/nv-rs/issues/653)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **fallout-gameplay:** the built-in extender's game patches GB part 3: crafting value, weight and ammo effects, barter tab title and vendor caps, quantity mouse wheel (slaterain/nv-rs[#679](https://github.com/JorisJonkers-dev/nv-rs/issues/679)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **fallout-gameplay:** with the built-in extender, door stealing by the door's own rules, SetScale clamped not rounded, weapon node cleared, clouds after leaving a building, water lookup (GH2 part 3) (slaterain/nv-rs[#680](https://github.com/JorisJonkers-dev/nv-rs/issues/680)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **fallout-gameplay:** with the built-in extender, immobile creatures stay up, fixed bodies follow their objects, rumble setting, jump height, mouse movement switch, sneak collision shape (GX) (slaterain/nv-rs[#671](https://github.com/JorisJonkers-dev/nv-rs/issues/671)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **fallout-gameplay:** with the built-in extender, sound pitch settings, shuffled region music, .ogg folder sounds, FalloutCustom.ini (GW part 3) (slaterain/nv-rs[#676](https://github.com/JorisJonkers-dev/nv-rs/issues/676)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **fallout-gameplay:** with the built-in extender, sun glare texture, high-noon light, wind speed setting, silenced shots for everyone, acoustic space fix, forced climate (GW part 1) (slaterain/nv-rs[#673](https://github.com/JorisJonkers-dev/nv-rs/issues/673)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **fallout-gameplay:** with the built-in extender, the game's corner messages last the default message time, mods' keep theirs (GA part 6, G09) (slaterain/nv-rs[#670](https://github.com/JorisJonkers-dev/nv-rs/issues/670)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **fallout-gameplay:** with the built-in extender, V.A.T.S. shows the damage threshold its hit damage used (GA part 5, G121) (slaterain/nv-rs[#667](https://github.com/JorisJonkers-dev/nv-rs/issues/667)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **host:** Linux and macOS: finding the game and the Proton saves; the save guard works there (slaterain/nv-rs[#630](https://github.com/JorisJonkers-dev/nv-rs/issues/630)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+* **host:** Windows is told the game is not background work (on by default; bNotBackground=0 turns it off) (slaterain/nv-rs[#663](https://github.com/JorisJonkers-dev/nv-rs/issues/663)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+
+
+### Bug Fixes
+
+* **fallout-gameplay:** with the built-in extender, GameDaysPassed no longer drifts (GW part 2, O5 bGameDaysPassedFix) (slaterain/nv-rs[#674](https://github.com/JorisJonkers-dev/nv-rs/issues/674)) ([201d396](https://github.com/JorisJonkers-dev/nv-rs/commit/201d396a138638aa439a7ba76bdcdb1081901a0f))
+
 ## [0.5.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.4.0...v0.5.0) (2026-11-17)
 
 
