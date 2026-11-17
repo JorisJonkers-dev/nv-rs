@@ -35,6 +35,8 @@ pub mod patch_data;
 pub mod phys_blend;
 pub mod player_move;
 pub mod save_out;
+// Fork: on every target (the new lighting is drawn by wgpu, which the native build uses).
+pub mod scene_light;
 #[cfg(test)]
 mod start_up_tests;
 pub mod thread_races;
@@ -262,6 +264,14 @@ impl Host {
         // F11 in the game shows or hides it either way.
         #[cfg(windows)]
         engine_platform::d3d9real::want_frame_rate(choice.show_frame_rate);
+        // The new lighting (`fixes::Choice::ambient_occlusion`: `NV_AO`; else, in a launcher's play
+        // run, Fallout.ini's `[nv-rs Display] bAmbientOcclusion`; off by default). Off: nothing is
+        // installed, read or recorded.
+        // Fork: on every target, as the native build draws with wgpu on Vulkan.
+        if choice.ambient_occlusion {
+            engine_platform::d3d9real::want_scene_light(scene_light::read);
+            fork_log::info!(target: "host", "nv-rs: new lighting on (ambient occlusion; Vulkan only)");
+        }
         // Who draws (`fixes::Choice::renderer`: in a launcher's play run, Fallout.ini's
         // `[nv-rs Display] sRenderer`, Vulkan by default); `NV_D3D9`, when it names a backend,
         // decides instead. A test or script without `NV_D3D9` makes no choice: nothing draws.
