@@ -152,7 +152,7 @@ impl Host {
     /// [`Host::start`] with the [`fixes::Choice`] the player's settings give, bound before the
     /// game's first frame.
     pub fn start_with(data: &Path, choice: &fixes::Choice) -> Result<Host, String> {
-        let exe = engine::exe::installed_exe(data);
+        let exe = game_exe(data);
         if !exe.is_file() {
             return Err(format!(
                 "{}: not found. nv-rs reads the game's own FalloutNV.exe (version \
@@ -163,6 +163,9 @@ impl Host {
         // macOS: the program builds there, but the game does not run yet. Linux runs it (fork: LINUX.md).
         #[cfg(not(any(windows, target_os = "linux")))]
         not_provided_here()?;
+        // Off Windows the save guard's look at the player's folders starts now, off the frames
+        // (nothing on Windows).
+        save_out::prepare(data);
         let mut engine = Box::new(Engine::with_exe(&exe)?);
         // A first run on Linux has no settings: make them where the launcher would (fork_tables).
         #[cfg(not(windows))]
@@ -515,11 +518,27 @@ fn not_provided_on(x86_64: bool, apple: bool) -> Result<(), String> {
     Err(why)
 }
 
+/// The installation's `FalloutNV.exe` beside the `Data` folder `data`
+/// ([`engine::exe::installed_exe`]). Off Windows its name is matched without case by the game's
+/// own path rule (`engine_platform::host_paths::stored_name`: the exact name when there, else the
+/// first that differs only in case), as the finder and play.sh take a `Data` folder in any case:
+/// a copy whose exe was lower-cased (`falloutnv.exe`) is found.
+pub fn game_exe(data: &Path) -> PathBuf {
+    let exe = engine::exe::installed_exe(data);
+    #[cfg(not(windows))]
+    if let (Some(name), Some(folder)) =
+        (engine_platform::host_paths::stored_name(&exe), exe.parent())
+    {
+        return folder.join(name);
+    }
+    exe
+}
+
 /// What `nv-viewer --check` reports for the installation whose `Data` folder is `data`, without
 /// starting anything: an error when its `FalloutNV.exe` is missing or is not 1.4.0.525
 /// ([`engine::exe::verify`]), else a line for each thing that decides how the run will go.
 pub fn check_installation(data: &Path) -> Result<Vec<String>, String> {
-    let exe = engine::exe::installed_exe(data);
+    let exe = game_exe(data);
     if !exe.is_file() {
         return Err(format!("{}: not found", exe.display()));
     }
