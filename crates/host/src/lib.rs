@@ -525,6 +525,61 @@ pub fn adapter_table_path() -> Option<PathBuf> {
         .or_else(|| engine_platform::fork_platform::data_dir().map(|d| d.join("d3d9_adapter.tsv")))
 }
 
+/// The machine table's text. On Windows the file at [`adapter_table_path`], when it can be read.
+#[cfg(windows)]
+pub fn adapter_table_text() -> Option<String> {
+    std::fs::read_to_string(adapter_table_path()?).ok()
+}
+
+/// The machine table's text. On Linux and macOS the file `NV_D3D9_ADAPTER` names when it is set
+/// (a test's table), else the table of this machine, made once per run: upstream's machine table
+/// (`engine_platform::machine_table`: the time zone, memory, processor, code pages, Windows' fixed
+/// answers, no NVIDIA library), then the fork's adapter table ([`write_linux_adapter_table`]: the
+/// graphics card, its Direct3D answers, the display modes and metrics, and the game's Documents
+/// and AppData in the fork's own folder, `fork_platform::known_folders`, where the native build's
+/// saves are). The table is read line by line and a later line of the same question wins, so the
+/// fork's folders replace the machine table's. What could not be answered is said in the log.
+#[cfg(not(windows))]
+pub fn adapter_table_text() -> Option<String> {
+    if let Some(path) = std::env::var_os("NV_D3D9_ADAPTER") {
+        return std::fs::read_to_string(path).ok();
+    }
+    static TABLE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    TABLE
+        .get_or_init(|| {
+            let (mut table, problems) = engine_platform::machine_table::this_machine(own_folder());
+            for line in problems {
+                fork_log::warn!(target: "host", "{line}");
+            }
+            table.push_str(&write_linux_adapter_table()?);
+            Some(table)
+        })
+        .clone()
+}
+
+/// nv-rs's own folder on Linux and macOS (its saves, settings and the game's Documents and
+/// AppData): Linux `$XDG_DATA_HOME/nv-rs` (a full path only), else `~/.local/share/nv-rs`; macOS
+/// `~/Library/Application Support/nv-rs`. The same rule as `game_folders::own_folder` (#630), which
+/// takes this place when it is merged.
+#[cfg(not(windows))]
+pub fn own_folder() -> Result<PathBuf, String> {
+    let full = |name: &str| {
+        std::env::var_os(name)
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    };
+    let home = full("HOME").ok_or("HOME is not set to a full path")?;
+    if cfg!(target_os = "macos") {
+        return Ok(home
+            .join("Library")
+            .join("Application Support")
+            .join("nv-rs"));
+    }
+    Ok(full("XDG_DATA_HOME")
+        .unwrap_or_else(|| home.join(".local").join("share"))
+        .join("nv-rs"))
+}
+
 /// Where the player's D3DX texture cache is: `NV_D3DX_CACHE`, else
 /// `%LOCALAPPDATA%\nv-rs\d3dx-cache` (made on this machine by `scripts/d3dx-texture-capture`
 /// from the player's own textures; it stays local).
@@ -583,16 +638,7 @@ pub fn write_linux_adapter_table() -> Option<String> {
 /// renderer's start-up asks about the adapter. Without the file nothing is loaded: the first
 /// Direct3D 9 query stops that stage and its message says how to capture the table.
 fn load_adapter_table(e: &mut Engine) {
-    #[allow(unused_mut)]
-    let mut text = adapter_table_path().and_then(|p| std::fs::read_to_string(p).ok());
-    // Off Windows no capture tool exists: without a file, the table is made from this machine
-    // (wgpu's adapter and the reference profile) and kept where the file belongs (`fork_tables`).
-    #[cfg(not(windows))]
-    if text.is_none() || std::env::var_os("NV_D3D9_ADAPTER").is_none() {
-        // The table is generated here, not captured: made afresh each run unless a file is named.
-        text = write_linux_adapter_table().or(text);
-    }
-    if let Some(text) = text {
+    if let Some(text) = adapter_table_text() {
         engine_platform::d3d9::load_adapter_table(e, &text);
     }
     if let Some(dir) = texture_cache_path() {
