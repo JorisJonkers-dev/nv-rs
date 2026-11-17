@@ -10,6 +10,7 @@ rust-version.workspace = true
 # Logging: levels, a JSON file, soft stops (docs/fork/LOGGING.md).
 fork-log = { path = "../fork-log" }
 fork-hitch = { path = "../fork-hitch" }
+qos = { path = "../qos" }
 engine = { path = "../engine" }
 # The one reader of the game's profile rules (`mod_files::ini_value`) for nv-rs's own keys in
 # Fallout.ini (`game_ini::value`).

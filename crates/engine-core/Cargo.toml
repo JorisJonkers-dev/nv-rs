@@ -9,6 +9,8 @@ description = "The core of the engine crates: the game's memory model, Engine, t
 [dependencies]
 # The hitch flight recorder's counters (docs/fork/HITCHES.md): relaxed atomics, nothing else.
 fork-hitch = { path = "../fork-hitch" }
+# The threads it starts tell Windows they are not background work when NV_NOT_BACKGROUND=1 (crates/qos).
+qos = { path = "../qos" }
 
 [features]
 # Test support that other engine crates' unit tests use (the form-constructor
