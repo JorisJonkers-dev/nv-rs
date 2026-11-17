@@ -273,16 +273,30 @@ impl Host {
         // run, Fallout.ini's `[nv-rs Display] bAmbientOcclusion`; off by default), at its strength
         // (`fAmbientOcclusionStrength`, `NV_AO_STRENGTH`). Off: nothing is installed, read or
         // recorded.
-        // Fork: on every target, as the native build draws with wgpu on Vulkan.
+        // One reader for both: with the sun shadows on, the sun is the sun light the lit shaders
+        // take (the ambient occlusion's contact shadows follow it too); off, the sun disc's place,
+        // as before.
+        // Fork: both on every target, as the native build draws with wgpu on Vulkan.
+        let reader: fn(
+            &engine_platform::Engine,
+        ) -> Option<engine_platform::d3d9real::SceneView> = if choice.sun_shadows {
+            scene_light::read_lit
+        } else {
+            scene_light::read
+        };
         if choice.ambient_occlusion {
-            engine_platform::d3d9real::want_scene_light(
-                scene_light::read,
-                choice.ambient_occlusion_strength,
-            );
+            engine_platform::d3d9real::want_scene_light(reader, choice.ambient_occlusion_strength);
             fork_log::info!(target: "host",
                 "nv-rs: new lighting on (ambient occlusion at strength {}; Vulkan only)",
                 choice.ambient_occlusion_strength
             );
+        }
+        // The sun shadows (`fixes::Choice::sun_shadows`: `NV_SUN_SHADOWS`; else, in a launcher's play
+        // run, Fallout.ini's `[nv-rs Display] bSunShadows`; off by default). Off: nothing is
+        // installed, read or recorded.
+        if choice.sun_shadows {
+            engine_platform::d3d9real::want_sun_shadows(reader);
+            fork_log::info!(target: "host", "nv-rs: sun shadows on (Vulkan only; in the game's lighting, or the engineers' overlay with NV_SUN_SHADOWS=debug)");
         }
         // Who draws (`fixes::Choice::renderer`: in a launcher's play run, Fallout.ini's
         // `[nv-rs Display] sRenderer`, Vulkan by default); `NV_D3D9`, when it names a backend,
