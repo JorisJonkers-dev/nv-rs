@@ -1,7 +1,8 @@
 # The one Rust compiler every build uses: this machine, agents and CI (2026-11-04: CI's "stable"
 # moved to 1.99.1 while builds here were on 1.98.1, and an assembler change failed CI only).
-# Move it on in a PR of its own.
+# Move it on in a PR of its own. Fork: 1.100.0 (upstream pins 1.99.1), so the registry cooldown of
+# .cargo/config.toml is in force (docs/fork/DIVERGENCE.md, "Toolchain").
 [toolchain]
-channel = "1.99.1"
+channel = "1.100.0"
 profile = "minimal"
 components = ["rustfmt", "clippy"]

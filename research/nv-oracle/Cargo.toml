@@ -8,7 +8,7 @@ members = ["nv-oracle-core", "nv-win", "nv-call", "nv-call-engine", "nv-probe", 
 [workspace.package]
 edition = "2021"
 license = "GPL-3.0-or-later"
-rust-version = "1.82"
+rust-version = "1.100"
 version = "0.1.0"
 
 # The probe runs inside another program: a panic must never unwind into it.
