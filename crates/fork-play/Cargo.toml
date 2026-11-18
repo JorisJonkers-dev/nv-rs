@@ -1,0 +1,30 @@
+[package]
+name = "fork-play"
+version = "0.1.0"
+description = "Fork-owned play-mode entry point of the engine for a program that links it (raul): the viewer's own loop behind `play_main`, the stop file and the exit codes"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+# The viewer's loop (viewer/src/main.rs) is included by `#[path]`, so it compiles under THIS list:
+# every dependency of nv-viewer must be here too, under the same section. The test `drift` in
+# src/drift.rs fails when one is missing.
+[dependencies]
+fork-log = { path = "../fork-log" }
+fork-hitch = { path = "../fork-hitch" }
+host = { path = "../host" }
+fork-presence = { path = "../fork-presence" }
+fork-memlog = { path = "../fork-memlog" }
+d3d9-wgpu = { path = "../d3d9-wgpu" }
+engine-core = { path = "../engine-core" }
+
+[target.'cfg(not(windows))'.dependencies]
+game-folders = { path = "../game-folders" }
+mod-install = { path = "../mod-install" }
+engine-platform = { path = "../engine-platform" }
+
+# Runs the entry point as a child process of its own (a `play_main` never returns).
+[[test]]
+name = "child"
+harness = false

@@ -1757,6 +1757,63 @@
     {
      "features": [],
      "kind": null,
+     "name": "d3d9-wgpu"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-hitch"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-memlog"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-presence"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "host"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-platform"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "game-folders"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "mod-install"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/fork-play/Cargo.toml",
+   "name": "fork-play"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
      "name": "fork-log"
     },
     {

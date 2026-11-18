@@ -997,6 +997,22 @@ name = "fork-memlog"
 version = "0.1.0"
 
 [[package]]
+name = "fork-play"
+version = "0.1.0"
+dependencies = [
+ "d3d9-wgpu",
+ "engine-core",
+ "engine-platform",
+ "fork-hitch",
+ "fork-log",
+ "fork-memlog",
+ "fork-presence",
+ "game-folders",
+ "host",
+ "mod-install",
+]
+
+[[package]]
 name = "fork-presence"
 version = "0.1.0"
 dependencies = [

@@ -144,6 +144,13 @@ requires = ["formats", "game-profile", "game-folders"]
 runs_on = "both"
 
 [[component]]
+name = "play"
+purpose = "The play-mode entry point of the engine for a program that links it (the Toolbox's raul): the viewer's loop behind play_main, the stop file, the exit codes, and the guard that the viewer's dependencies are this crate's too. Fork-owned. Builds the whole engine closure"
+crates = ["fork-play"]
+requires = ["integration", "core", "rendering", "platform", "presence", "memlog", "log", "hitch", "game-folders", "mod-install"]
+runs_on = "both"
+
+[[component]]
 name = "fomod"
 purpose = "FOMOD mod installers read (ModuleConfig.xml, info.xml) and the player's choices turned into the files to copy into Data; no archives, no window, no game data"
 crates = ["fomod"]
