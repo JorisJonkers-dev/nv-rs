@@ -120,6 +120,13 @@ pub fn window_titled(_e: &mut Engine, _handle: u32, _title: &[u8]) {}
 /// `SetWindowPos`: the real window keeps the size it was made with: the borderless window covers the chosen monitor and the swap chain follows it (docs/fork/LINUX.md, "Display match").
 pub fn window_moved(_e: &mut Engine, _handle: u32, _rect: [i32; 4], _flags: u32) {}
 
+/// `d3d9real::run_on_main_thread` (macOS's viewer): fork-window needs no main thread, so `game`
+/// runs here and the process ends when it returns.
+pub fn run_on_main_thread(game: Box<dyn FnOnce() + Send>) -> ! {
+    game();
+    crate::end_process(0)
+}
+
 /// The monitors for upstream's display part of the machine table (`machine_table::this_display`):
 /// the one fork-window chose (`fork_window::display`), at its current mode. The host does not ask
 /// for that part (the fork's adapter table answers the display), so this is for other callers.
