@@ -839,7 +839,8 @@ fn load_adapter_table(e: &mut Engine, data: &Path) -> Result<(), String> {
         // (the fork's adapter table holds the display and the card), in the fork's Documents
         // (`fork_platform::known_folders`), after `fork_tables::seed_machine_settings` made what a
         // run needs: upstream's steps then add nv-rs's sections and the pending choices to
-        // Fallout.ini and leave a FalloutPrefs.ini the fork made as it is.
+        // Fallout.ini and set only the play lines (sD3DDevice, [nv-rs] bWindowSizeChecked) in a
+        // FalloutPrefs.ini the fork made.
         #[cfg(not(windows))]
         if fixes::is_play_run(|name| std::env::var(name).ok()) {
             let documents = engine_platform::fork_platform::known_folders()

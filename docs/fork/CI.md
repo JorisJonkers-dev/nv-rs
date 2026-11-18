@@ -19,8 +19,10 @@ checks it against `cargo metadata` and turns it into the job matrix of [`fork-bu
 | 0 | `repo-checks` | 1 | what must never be committed (`nvinspect`); runs on every pull request that builds | both |
 | 0 | `launcher-and-ledger` | 0 (own workspaces) | Play.exe with Settings.cmd, the typed-marker ledger | Windows |
 | 1 | `engine-base` | 4 | Gamebryo, Havok, SpeedTree, the Bethesda units | both |
-| 1 | `rendering` | 2 | the Direct3D 9 call stream and the wgpu backend | Windows (and a Linux twin) |
-| 1 | `scripting` | 2 | xNVSE and JIP LN NVSE commands | both, Windows required (the `tan` and `tanh` cases of the recorded math results) |
+| 0 | `game-profile` | 1 | nv-rs's sections of Fallout.ini and the play lines of FalloutPrefs.ini (Play.exe and the first start off Windows) | both |
+| 0 | `fomod` | 1 | FOMOD installers read and the files they plan | both |
+| 1 | `rendering` | 4 | the Direct3D 9 call stream and the wgpu backend, the shader compiler seam, the replay-bench | Windows (and a Linux twin) |
+| 1 | `scripting` | 6 | xNVSE and JIP LN NVSE commands, and the other built-in plugins | both, Windows required (the `tan` and `tanh` cases of the recorded math results) |
 | 2 | `fallout-world` | 4 | forms, cells, land, sky, FaceGen | both |
 | 2 | `platform` | 1 | window, Direct3D 9 / D3DX entry points, input, sound, loader | Windows |
 | 3 | `fallout-gameplay` | 4 | scripts, quests, magic, pathfinding, AI | both |

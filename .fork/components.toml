@@ -232,7 +232,7 @@ requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay
 runs_on = "both"
 linux = "required"
 pr = "affected"
-paths = ["crates/host/tests/linux_saves.rs", "crates/host/src/save_out.rs", "crates/engine-platform/src/files.rs", "crates/engine-platform/src/files/"]
+paths = ["crates/host/tests/linux_saves.rs", "crates/host/src/save_out.rs", "crates/engine-platform/src/files.rs"]
 commands = [
   "cargo test --locked -p host --test linux_saves",
   "cargo test --locked -p engine-platform --lib files::",

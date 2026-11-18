@@ -36,7 +36,6 @@ mise.toml
 release-please-config.json
 renovate.json
 scripts/fork/
-version.txt
 crates/fork-log/
 crates/d3d9-replay/
 crates/fork-hitch/
