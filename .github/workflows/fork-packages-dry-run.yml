@@ -1,0 +1,51 @@
+# Fork-only. The pull request dry run of the OCI package step of fork-release-build.yml (`packages`): it lays out the Linux
+# archive the same way, from a stand-in nv-viewer (no second slow build), and prints what would be pushed. Nothing is pushed.
+name: Packages Dry Run
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fork-release-build.yml'
+      - '.github/workflows/fork-packages-dry-run.yml'
+      - 'packaging/linux/**'
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: Build one archive and print what would be pushed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERSION: 0.0.0-dry-run
+      OUT: packages
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build the Linux archive
+        run: |
+          set -euo pipefail
+          printf '#!/bin/sh\necho stand-in\n' > nv-viewer
+          chmod +x nv-viewer
+          packaging/linux/package.sh ./nv-viewer "$VERSION" dist
+          mkdir -p "$OUT" unpack
+          tar -xzf dist/nv-rs-linux-x86_64-dev.tar.gz -C unpack
+          cp LICENSE "unpack/nv-rs-${VERSION}-linux-x86_64/"
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='2000-01-01 00:00Z' -C unpack \
+            -czf "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" "nv-rs-${VERSION}-linux-x86_64"
+          tar -tzf "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" | grep -q 'LICENSE$'
+
+      - name: Print what would be pushed
+        run: |
+          set -euo pipefail
+          archive="$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          {
+            echo "## OCI package dry run"
+            echo
+            echo "Would push ghcr.io/jorisjonkers-dev/nv-rs:${VERSION}-x86_64-unknown-linux-gnu"
+            echo "Archive $(basename "$archive"), SHA-256 $(sha256sum "$archive" | awk '{print $1}')"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
