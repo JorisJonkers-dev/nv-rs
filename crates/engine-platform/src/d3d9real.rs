@@ -1236,9 +1236,7 @@ pub fn device_created(
     // in): the real Direct3D 9 instead, as when wgpu finds no graphics card (`direct3d_created`),
     // so the player still gets a picture. The device is the backend's first object: nothing was
     // made on wgpu that the real one lacks.
-    #[cfg(windows)]
     let failed = matches!(reply, Some(Reply::Device { created: false, .. }));
-    #[cfg(windows)]
     if failed
         && backends() == Some(Backends::Wgpu)
         && !DRAWING_REAL.load(std::sync::atomic::Ordering::Relaxed)

@@ -1112,6 +1112,7 @@ mod tests {
             now: 1_800_000_000,
             processor: crate::machine_table::fixed_processor(),
             own_folder: Ok(std::path::PathBuf::from("/upstream/nv-rs")),
+            code_page: 1252,
         };
         let (machine, problems) = crate::machine_table::write_table(&inputs);
         assert!(problems.is_empty(), "{problems:?}");
