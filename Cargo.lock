@@ -715,6 +715,7 @@ dependencies = [
  "engine-gamebryo",
  "engine-havok",
  "engine-speedtree",
+ "jip",
 ]
 
 [[package]]
