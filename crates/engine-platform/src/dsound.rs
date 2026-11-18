@@ -648,7 +648,6 @@ pub fn fixed_table(device: bool) -> String {
     )
 }
 
-
 /// The DirectSound 8 `DS3DLISTENER` state: the settings in effect, and those set with
 /// `DS3D_DEFERRED` that wait for `CommitDeferredSettings` (each setting on its own, as the
 /// DLL's deferred copy with its dirty flags).

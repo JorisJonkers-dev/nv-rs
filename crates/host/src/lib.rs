@@ -842,7 +842,9 @@ fn load_adapter_table(e: &mut Engine, data: &Path) -> Result<(), String> {
         // Fallout.ini and leave a FalloutPrefs.ini the fork made as it is.
         #[cfg(not(windows))]
         if fixes::is_play_run(|name| std::env::var(name).ok()) {
-            let documents = engine_platform::fork_platform::known_folders().into_iter().next();
+            let documents = engine_platform::fork_platform::known_folders()
+                .into_iter()
+                .next();
             match (documents, data.parent()) {
                 (Some(documents), Some(game)) => {
                     first_profile::first_start(&documents, game, &text)?;
@@ -1261,6 +1263,8 @@ mod tests {
     /// own (play.sh says it needs no report); any other error with 1.
     #[cfg(not(windows))]
     #[test]
+    // Fork: clippy -D warnings on Linux (the Ok arm's check is a constant there).
+    #[allow(clippy::assertions_on_constants)]
     fn the_expected_stop_off_windows_has_its_own_status() {
         let dir = scratch_installation("status");
         // The right exe (a version check that passes), as the start makes the stop: where a stop

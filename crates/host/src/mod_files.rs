@@ -166,9 +166,7 @@ pub fn folder(data: &Path) -> Option<PathBuf> {
         &game,
         save_out::known_folders().first().map(PathBuf::as_path),
     )
-    .unwrap_or_else(|| {
-        folder_from_with(mod_out, save_out_dir, &game, save_out::refused_to_write)
-    );
+    .unwrap_or_else(|| folder_from_with(mod_out, save_out_dir, &game, save_out::refused_to_write));
     println!("{}", decision.line);
     decision.folder
 }
