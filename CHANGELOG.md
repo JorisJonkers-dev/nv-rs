@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.8.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.7.0...v0.8.0) (2026-11-18)
+
+
+### Features
+
+* **d3d9-wgpu:** sun shadows: characters cast (player in third person, people, creatures, bodies), one shadow each (slaterain/nv-rs[#726](https://github.com/JorisJonkers-dev/nv-rs/issues/726)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **engine-platform:** mods' files: list a folder the way the seam reads files (slaterain/nv-rs[#732](https://github.com/JorisJonkers-dev/nv-rs/issues/732)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **mod-archive:** mods' archives opened by the port itself: zip and 7z, on every system (slaterain/nv-rs[#722](https://github.com/JorisJonkers-dev/nv-rs/issues/722)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **mod-install:** prepares installed mods: their own folders and the game folder for mods, the same on every system (slaterain/nv-rs[#725](https://github.com/JorisJonkers-dev/nv-rs/issues/725)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** companion wheel switch, gun wobble, first-person slots, RemoveMe's refresh, CastImmediate (slaterain/nv-rs[#736](https://github.com/JorisJonkers-dev/nv-rs/issues/736)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** GetCalculatedWeaponDamage (slaterain/nv-rs[#756](https://github.com/JorisJonkers-dev/nv-rs/issues/756)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** GetFilesInFolder and GetFoldersInFolder through the mods' files seam (slaterain/nv-rs[#751](https://github.com/JorisJonkers-dev/nv-rs/issues/751)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** hit effects switch, item lists refreshed, and the bits and state its game patches read (9 commands) (slaterain/nv-rs[#729](https://github.com/JorisJonkers-dev/nv-rs/issues/729)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** inserted nodes and attached models on biped parts and add-ons; InsertNode and AttachModel registered (slaterain/nv-rs[#752](https://github.com/JorisJonkers-dev/nv-rs/issues/752)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** interface tiles and lines on models, texture swaps, the light at a point, character controllers reloaded (6 commands) (slaterain/nv-rs[#733](https://github.com/JorisJonkers-dev/nv-rs/issues/733)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** its game patch switches asked and changed in the game, and its set of marker forms (3 commands) (slaterain/nv-rs[#741](https://github.com/JorisJonkers-dev/nv-rs/issues/741)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** message boxes with a callback script (MessageBoxExAlt); SetFontFile built for G129 (slaterain/nv-rs[#731](https://github.com/JorisJonkers-dev/nv-rs/issues/731)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** ModelHasBlock, ReloadEquippedModels and RefreshAnimData; InsertNode and AttachModel built for the extender's model hooks (slaterain/nv-rs[#734](https://github.com/JorisJonkers-dev/nv-rs/issues/734)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** perks lists and removal, MoveAwayFrom, TravelToRef, excluded combat actions (slaterain/nv-rs[#748](https://github.com/JorisJonkers-dev/nv-rs/issues/748)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** RunScriptSnippet, RunBatchScript and Console on the script runner (slaterain/nv-rs[#743](https://github.com/JorisJonkers-dev/nv-rs/issues/743)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** SynchronizePosition and the HUD cursor (H13, H02), each registered with its patch (slaterain/nv-rs[#742](https://github.com/JorisJonkers-dev/nv-rs/issues/742)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** the built-in extender's script runner lists its folder through the mods' files seam (slaterain/nv-rs[#747](https://github.com/JorisJonkers-dev/nv-rs/issues/747)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** the built-in extender's script runner: mods' script files run at their moments (slaterain/nv-rs[#727](https://github.com/JorisJonkers-dev/nv-rs/issues/727)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** the muzzle flash patch FireWeaponEx makes on first use; FireWeaponEx registered (slaterain/nv-rs[#753](https://github.com/JorisJonkers-dev/nv-rs/issues/753)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** the task queue's tag 0x2B as the extender's queued command call, FireWeaponEx built for H01 (slaterain/nv-rs[#740](https://github.com/JorisJonkers-dev/nv-rs/issues/740)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **stewie:** a built-in tweaks plugin: its framework (each fix a row with its own off key) and its first crash fix (slaterain/nv-rs[#745](https://github.com/JorisJonkers-dev/nv-rs/issues/745)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **viewer:** play with mods on Linux and macOS: play.sh --mods (slaterain/nv-rs[#744](https://github.com/JorisJonkers-dev/nv-rs/issues/744)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+
+
+### Bug Fixes
+
+* **nvse:** AttachLine's and SwapTextureEx's game calls take the words the exe's functions take (slaterain/nv-rs[#746](https://github.com/JorisJonkers-dev/nv-rs/issues/746)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+* **nvse:** the extender's ini from the port's folder first; teammate perks after a load; the killer cleared (slaterain/nv-rs[#728](https://github.com/JorisJonkers-dev/nv-rs/issues/728)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+
+
+### Performance Improvements
+
+* **engine-fallout-cell:** shorter hitch when cells unload: the clean-up for references that go away runs as native code (slaterain/nv-rs[#735](https://github.com/JorisJonkers-dev/nv-rs/issues/735)) ([e1b524d](https://github.com/JorisJonkers-dev/nv-rs/commit/e1b524dbfa5e7bfb37a25658ee51315df51f4131))
+
 ## [0.7.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.6.0...v0.7.0) (2026-11-18)
 
 
