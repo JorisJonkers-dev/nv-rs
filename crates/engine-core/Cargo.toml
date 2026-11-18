@@ -18,6 +18,9 @@ qos = { path = "../qos" }
 # `units::crt::stdio::test_support` and `units::platform::test_support`); they enable it as a
 # dev-dependency.
 test-support = []
+# The x87 extended-register helpers in software (x87/soft.rs) on an x86-64 host too, so that this
+# PC's tests run the path Apple silicon and ARM Linux use and compare it with the FPU. Tests only.
+soft-x87 = []
 
 # Win32_System_Memory: the guest memory's 4 GB host reservation (mem.rs, VirtualAlloc and
 # VirtualFree). The platform layer's Windows APIs are the `engine-platform` crate's.
