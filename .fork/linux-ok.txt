@@ -41,10 +41,12 @@ game-profile
 host
 jip
 mcm
+mod-install
 mp3
 nvinspect
 nvse
 nv-viewer
 play-patch
 qos
+stewie
 vorbis

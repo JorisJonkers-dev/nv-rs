@@ -915,6 +915,13 @@
      "features": [],
      "kind": "dev",
      "name": "engine-fallout-unplaced-b"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "jip"
     }
    ],
    "features": [],
@@ -1868,6 +1875,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "stewie"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "uio"
     },
     {
@@ -1976,6 +1988,35 @@
    "name": "mcm"
   },
   {
+   "dependencies": [
+    {
+     "kind": null,
+     "name": "sevenz-rust2"
+    },
+    {
+     "kind": null,
+     "name": "unicode-normalization"
+    },
+    {
+     "kind": null,
+     "name": "zip"
+    },
+    {
+     "kind": "dev",
+     "name": "sevenz-rust2"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/mod-archive/Cargo.toml",
+   "name": "mod-archive"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/mod-install/Cargo.toml",
+   "name": "mod-install"
+  },
+  {
    "dependencies": [],
    "features": [],
    "manifest_path": "/ws/crates/mp3/Cargo.toml",
@@ -2059,6 +2100,23 @@
      "features": [],
      "kind": null,
      "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/stewie/Cargo.toml",
+   "name": "stewie"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
     },
     {
      "features": [
@@ -2118,7 +2176,17 @@
     {
      "features": [],
      "kind": null,
+     "name": "engine-platform"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "game-folders"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "mod-install"
     }
    ],
    "features": [],
