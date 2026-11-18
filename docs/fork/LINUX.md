@@ -23,7 +23,7 @@ touched.
 | 2 | The start screen's output capture (`Pipe`, `CAPTURED`) is built on Windows only | `crates/d3d9-wgpu/src/loading.rs` | dead code warnings off Windows (the capture is `cfg(windows)`) | no | yes | none |
 | 3 | The argument-word trait `Word` and its import are built on Windows only | `d3d9device.rs`, `d3d9resource.rs` | used only inside `#[cfg(windows)]` code of the `forwarded!` macro; an unused warning off Windows | touches the files, not a call site | yes, but wait for the seam: the files are being retuned | none |
 | 4 | An unused binding off Windows, a warning-only attribute and a test constant used only by Windows tests | `d3dx.rs`, `files.rs` (two attributes) | warnings (the Linux clippy job is `-D warnings`) | no | yes | none |
-| 5 | a game path maps to this system's path: since slaterain/nv-rs#633 upstream's `host_paths.rs` (drive `Z:` is the root, as Wine's; `\` separates; names found without case, twin folders as one; listings with this system's times). The fork keeps only `files::host_path_in`: a name relative to a host folder (the mod files folder) found without case | `files/files_host.rs` (overlay, `host_path_in` only), two lines in `files.rs` (`mod files_host;` and `pub use files_host::host_path_in;`) | the fork's own `host_path`, `engine::game_folder` and the `cell_offsets.rs` hook are retired in favour of upstream's | no | no (the fork does not offer changes upstream) | none: on Windows `host_path_in` joins the folder with upstream's `host_path` |
+| 5 | a game path maps to this system's path: since slaterain/nv-rs#633 upstream's `host_paths.rs` (drive `Z:` is the root, as Wine's; `\` separates; names found without case, twin folders as one; listings with this system's times). A name relative to a host folder (the mod files folder) is upstream's `host_paths::host_path_under` since slaterain/nv-rs#697 | none (the fork's `files/files_host.rs` was removed in the sync to 1b438957) | the fork's own `host_path`, `engine::game_folder`, the `cell_offsets.rs` hook and `host_path_in` are retired in favour of upstream's | no | no (the fork does not offer changes upstream) | none |
 | 6 | Tests that can only pass on Windows: `nvse`'s bit-for-bit math comparison is `#[cfg_attr(not(windows), ignore = "reason")]` (tan and tanh use the host's libm; the game's differ in the last bit: `dTan90`, `dTanh30`); the five `files` tests that need Windows file times or Windows paths are skipped on Linux by name in `.fork/linux-skip.txt`, applied by `scripts/fork/run-component.sh` | `nvse/src/commands/math.rs`, `.fork/linux-skip.txt` | honest failures off Windows, with no attribute in `files.rs` | no | no | none |
 | 7 | The probe workflow and its summary script | `.github/workflows/linux-probe.yml`, `scripts/fork/linux_test_summary.py` | CI loop without starting the Windows jobs | fork only | no | none |
 
@@ -71,7 +71,8 @@ Another machine: `linux_profile.txt` in the data folder (or `NV_LINUX_PROFILE`),
 modes are the reference list unless the file gives them; the current monitor is not read (no window exists at this stage).
 
 Sound: see "Sound output" below. Without `NV_SOUND=out` (or `device`) and without `dsound.tsv`, the table is
-`fork_tables::no_device_sound_table()`: `DirectSoundCreate8` fails with `DSERR_NODRIVER`, so the game runs silent.
+upstream's fixed table without a device (`dsound::fixed_table(false)`): `DirectSoundCreate8` fails with `DSERR_NODRIVER`,
+so the game runs silent.
 
 Not yet known: what the game does on the AMD path with this table (stop lines and counts); that needs the owner's run.
 
@@ -104,8 +105,8 @@ no null sink.
   (the game is then silent); `null` is always Null.
 - Output stays opt-in as on Windows: `NV_SOUND=out` (the game's pace) or `NV_SOUND=device` (the device's pace), and
   `NV_SOUND_RECORD` and the hidden-window mute work as before. With output asked for and no `dsound.tsv`, the sound
-  table is `fork_tables::reference_sound_table()`: one default device with a software-only `DSCAPS`, written from
-  the DirectSound headers (not captured), so `DirectSoundCreate8` succeeds. A `dsound.tsv` in the data folder wins.
+  table is upstream's fixed table (`dsound::fixed_table(true)`, captured on Windows 11: a software device, the
+  distortion effect's answers), so `DirectSoundCreate8` succeeds. A `dsound.tsv` in the data folder wins.
 - Tests: `fork_sound` unit tests run on the null sink (no device, no game data). `cargo test -p engine-platform
   fork_sound -- --ignored` plays 0.4 s of a quiet tone on the session's default sink, and 0.4 s on each channel of its
   layout in turn (logging the sink's reported map; `NV_SOUND_LAYOUT=7.1` opens an eight-channel stream). If libpulse is not on the loader path set `NV_PULSE`.
@@ -220,7 +221,7 @@ game files (`NV_EXE`, `NV_DATA`) or Windows.
 | `crates/engine-core/src/engine.rs` | per-thread template of a test engine | no: it changes the body of `Engine::new_untyped` |
 | `crates/engine-core/src/typed/diff.rs` | second control word only when the first read it | no: it is the harness's run loop |
 | `crates/engine-core/src/x87.rs`, `units/crt.rs` | test builds note a read of the control word | no: a line inside each read function |
-| `crates/engine-platform/Cargo.toml` | fork-window and libloading off Windows, cpal on macOS only, no winit | no, a manifest line has no hook |
+| `crates/engine-platform/Cargo.toml` | fork-window and libloading off Windows, cpal on macOS only, no winit, xkbcommon-dl or raw-window-metal | no, a manifest line has no hook |
 | `d3dx.rs` | a binding | no: attributes on upstream's items |
 | `crates/nvse/src/commands/math.rs` | `ignore` off Windows | yes, by a skip filter as for `files.rs` (`.fork/linux-skip.txt`); not done yet |
 | `crates/d3d9-wgpu/src/loading.rs` | pipe list built on Windows only | no: attributes on upstream's items |
