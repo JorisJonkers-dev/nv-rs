@@ -274,7 +274,11 @@ class Affected(unittest.TestCase):
             self.assertEqual(self.reached([f])[1], {"repo-checks", "release-files"}, f)
 
     def test_a_leaf_crate_reaches_few_components(self):
-        self.assertEqual(self.reached(["crates/jip/src/lib.rs"])[1], {"scripting", "integration", "repo-checks", "release-files"})
+        # The fallout crates' tests link the built-in extenders (engine-fallout-ai, -cell, -env and -script have jip as a
+        # dev-dependency with test-support, which the stored graph lacked until it was made by `components.py fixture`), so
+        # a change to jip reaches fallout-world and fallout-gameplay too; nothing below them (core, formats, platform).
+        self.assertEqual(self.reached(["crates/jip/src/lib.rs"])[1],
+                         {"scripting", "fallout-world", "fallout-gameplay", "integration", "repo-checks", "release-files"})
 
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])

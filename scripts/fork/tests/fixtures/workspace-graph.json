@@ -22,72 +22,9 @@
   {
    "dependencies": [
     {
-     "features": [],
      "kind": null,
-     "name": "qos"
-    }
-   ],
-   "features": [],
-   "manifest_path": "/ws/crates/d3d9-stream/Cargo.toml",
-   "name": "d3d9-stream"
-  },
-  {
-   "dependencies": [],
-   "features": [],
-   "manifest_path": "/ws/crates/qos/Cargo.toml",
-   "name": "qos"
-  },
-  {
-   "dependencies": [
-    {
-     "features": [],
-     "kind": null,
-     "name": "d3d9-stream"
+     "name": "ash"
     },
-    {
-     "features": [],
-     "kind": null,
-     "name": "esm"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "fork-log"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "fork-hitch"
-    },
-    {
-     "kind": null,
-     "name": "naga"
-    },
-    {
-     "kind": null,
-     "name": "raw-window-handle"
-    },
-    {
-     "kind": null,
-     "name": "wgpu"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "fork-window"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "qos"
-    }
-   ],
-   "features": [],
-   "manifest_path": "/ws/crates/d3d9-wgpu/Cargo.toml",
-   "name": "d3d9-wgpu"
-  },
-  {
-   "dependencies": [
     {
      "features": [],
      "kind": null,
@@ -104,7 +41,7 @@
     },
     {
      "kind": null,
-     "name": "libc"
+     "name": "naga"
     },
     {
      "kind": null,
@@ -112,11 +49,7 @@
     },
     {
      "kind": null,
-     "name": "ash"
-    },
-    {
-     "kind": null,
-     "name": "naga"
+     "name": "libc"
     }
    ],
    "features": [],
@@ -127,16 +60,87 @@
    "dependencies": [
     {
      "features": [],
+     "kind": null,
+     "name": "qos"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/d3d9-stream/Cargo.toml",
+   "name": "d3d9-stream"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "d3d9-stream"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "esm"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-hitch"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
+    },
+    {
+     "kind": null,
+     "name": "naga"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "qos"
+    },
+    {
+     "kind": null,
+     "name": "raw-window-handle"
+    },
+    {
+     "kind": null,
+     "name": "wgpu"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-window"
+    },
+    {
+     "kind": "dev",
+     "name": "objc2-quartz-core"
+    },
+    {
+     "kind": "dev",
+     "name": "raw-window-metal"
+    },
+    {
+     "kind": "dev",
+     "name": "winit"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/d3d9-wgpu/Cargo.toml",
+   "name": "d3d9-wgpu"
+  },
+  {
+   "dependencies": [
+    {
+     "kind": null,
+     "name": "libloading"
+    },
+    {
+     "features": [],
      "kind": "dev",
      "name": "d3d9-wgpu"
     }
    ],
-   "features": [],
-   "manifest_path": "/ws/crates/d3dx-shader/Cargo.toml",
-   "name": "d3dx-shader"
-  },
-  {
-   "dependencies": [],
    "features": [],
    "manifest_path": "/ws/crates/d3dx-shader/Cargo.toml",
    "name": "d3dx-shader"
@@ -160,6 +164,18 @@
      "features": [],
      "kind": null,
      "name": "engine-gamebryo"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "uio"
     }
    ],
    "features": [],
@@ -169,10 +185,6 @@
   {
    "dependencies": [
     {
-     "kind": null,
-     "name": "windows"
-    },
-    {
      "features": [],
      "kind": null,
      "name": "fork-hitch"
@@ -181,9 +193,14 @@
      "features": [],
      "kind": null,
      "name": "qos"
+    },
+    {
+     "kind": null,
+     "name": "windows"
     }
    ],
    "features": [
+    "soft-x87",
     "test-support"
    ],
    "manifest_path": "/ws/crates/engine-core/Cargo.toml",
@@ -282,6 +299,20 @@
      "features": [],
      "kind": "dev",
      "name": "frame-model"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "jip"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
     }
    ],
    "features": [],
@@ -381,6 +412,20 @@
      "features": [],
      "kind": "dev",
      "name": "frame-model"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "jip"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
     }
    ],
    "features": [],
@@ -475,6 +520,20 @@
      "features": [],
      "kind": "dev",
      "name": "engine-fallout-unplaced-b"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "jip"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
     }
    ],
    "features": [],
@@ -1143,6 +1202,20 @@
      "features": [],
      "kind": "dev",
      "name": "engine-fallout-unplaced-b"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "jip"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
     }
    ],
    "features": [],
@@ -1343,6 +1416,13 @@
      "features": [],
      "kind": null,
      "name": "engine-core"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
     }
    ],
    "features": [],
@@ -1399,11 +1479,9 @@
      "name": "engine-core"
     },
     {
-     "features": [
-      "test-support"
-     ],
-     "kind": "dev",
-     "name": "engine-core"
+     "features": [],
+     "kind": null,
+     "name": "fork-hitch"
     },
     {
      "features": [],
@@ -1418,21 +1496,41 @@
     {
      "features": [],
      "kind": null,
+     "name": "qos"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "vorbis"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-window"
+    },
+    {
+     "kind": null,
+     "name": "libloading"
+    },
+    {
+     "kind": null,
+     "name": "cpal"
     },
     {
      "kind": null,
      "name": "windows"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "fork-hitch"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "qos"
     }
    ],
    "features": [],
@@ -1584,6 +1682,12 @@
    "name": "esm"
   },
   {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/fomod/Cargo.toml",
+   "name": "fomod"
+  },
+  {
    "dependencies": [
     {
      "features": [],
@@ -1610,6 +1714,11 @@
   {
    "dependencies": [
     {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
+    },
+    {
      "kind": null,
      "name": "discord-rich-presence"
     }
@@ -1624,12 +1733,25 @@
   {
    "dependencies": [
     {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
+    },
+    {
      "kind": null,
      "name": "raw-window-handle"
     },
     {
      "kind": null,
      "name": "wgpu"
+    },
+    {
+     "kind": null,
+     "name": "wayland-client"
+    },
+    {
+     "kind": null,
+     "name": "wayland-protocols"
     },
     {
      "kind": null,
@@ -1655,11 +1777,33 @@
    "name": "frame-model"
   },
   {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/game-folders/Cargo.toml",
+   "name": "game-folders"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/game-profile/Cargo.toml",
+   "name": "game-profile"
+  },
+  {
    "dependencies": [
     {
      "features": [],
      "kind": null,
+     "name": "d3d9-wgpu"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "engine"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
     },
     {
      "features": [],
@@ -1674,7 +1818,22 @@
     {
      "features": [],
      "kind": null,
+     "name": "fork-hitch"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "fork-log"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "game-profile"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "jg"
     },
     {
      "features": [],
@@ -1699,17 +1858,17 @@
     {
      "features": [],
      "kind": null,
-     "name": "uio"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "jg"
+     "name": "qos"
     },
     {
      "features": [],
      "kind": null,
      "name": "showoff"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "uio"
     },
     {
      "kind": null,
@@ -1721,14 +1880,11 @@
      "name": "bsa"
     },
     {
-     "features": [],
-     "kind": null,
-     "name": "fork-hitch"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "qos"
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
     },
     {
      "features": [],
@@ -1739,12 +1895,6 @@
    "features": [],
    "manifest_path": "/ws/crates/host/Cargo.toml",
    "name": "host"
-  },
-  {
-   "dependencies": [],
-   "features": [],
-   "manifest_path": "/ws/crates/game-folders/Cargo.toml",
-   "name": "game-folders"
   },
   {
    "dependencies": [
@@ -1774,9 +1924,30 @@
      "features": [],
      "kind": null,
      "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "uio"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
     }
    ],
-   "features": [],
+   "features": [
+    "test-support"
+   ],
    "manifest_path": "/ws/crates/jip/Cargo.toml",
    "name": "jip"
   },
@@ -1824,12 +1995,21 @@
      "name": "engine-core"
     },
     {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    },
+    {
      "features": [],
      "kind": "dev",
      "name": "esm"
     }
    ],
-   "features": [],
+   "features": [
+    "test-support"
+   ],
    "manifest_path": "/ws/crates/nvse/Cargo.toml",
    "name": "nvse"
   },
@@ -1844,6 +2024,12 @@
    "features": [],
    "manifest_path": "/ws/crates/play-patch/Cargo.toml",
    "name": "play-patch"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/qos/Cargo.toml",
+   "name": "qos"
   },
   {
    "dependencies": [
@@ -1873,6 +2059,13 @@
      "features": [],
      "kind": null,
      "name": "nvse"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
     }
    ],
    "features": [],
@@ -1890,7 +2083,12 @@
     {
      "features": [],
      "kind": null,
-     "name": "fork-log"
+     "name": "d3d9-wgpu"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
     },
     {
      "features": [],
@@ -1900,12 +2098,7 @@
     {
      "features": [],
      "kind": null,
-     "name": "host"
-    },
-    {
-     "features": [],
-     "kind": null,
-     "name": "fork-presence"
+     "name": "fork-log"
     },
     {
      "features": [],
@@ -1915,12 +2108,12 @@
     {
      "features": [],
      "kind": null,
-     "name": "d3d9-wgpu"
+     "name": "fork-presence"
     },
     {
      "features": [],
      "kind": null,
-     "name": "engine-core"
+     "name": "host"
     },
     {
      "features": [],

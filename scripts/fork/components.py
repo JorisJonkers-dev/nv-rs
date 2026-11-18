@@ -430,6 +430,56 @@ def cmd_graph(model, a):
               f"| ~{est:.0f} s | {t:.0f} | {c['runs_on']} |")
 
 
+FIXTURE_NOTE = ("cargo metadata --no-deps of the workspace, reduced to what scripts/fork/components.py reads (name, manifest, "
+                "features, dependencies: workspace ones with kind and the features they switch on, external ones by name and "
+                "kind only). Refresh: see docs/fork/CI.md.")
+
+
+def reduce_metadata(meta):
+    """`cargo metadata --no-deps` reduced to the stored workspace graph (scripts/fork/tests/fixtures/workspace-graph.json):
+    the root as /ws, the packages in manifest order, their feature names, and their dependencies in cargo's order (a
+    workspace crate's with kind and features, an external one's with kind only)."""
+    root = meta["workspace_root"].rstrip("/")
+    names = {p["name"] for p in meta["packages"]}
+    packages = []
+    for p in meta["packages"]:
+        deps = []
+        for d in p["dependencies"]:
+            if d["name"] in names and d.get("path"):
+                deps.append({"features": list(d.get("features", [])), "kind": d.get("kind"), "name": d["name"]})
+            else:
+                deps.append({"kind": d.get("kind"), "name": d["name"]})
+        manifest = p["manifest_path"]
+        if manifest.startswith(root + "/"):
+            manifest = "/ws/" + manifest[len(root) + 1:]
+        packages.append({"dependencies": deps, "features": sorted(p.get("features", {})), "manifest_path": manifest,
+                         "name": p["name"]})
+    packages.sort(key=lambda p: p["manifest_path"])
+    return {"_note": FIXTURE_NOTE, "packages": packages, "workspace_root": "/ws"}
+
+
+def cmd_fixture(a, path="scripts/fork/tests/fixtures/workspace-graph.json"):
+    """Writes the stored workspace graph from the live metadata (--write), or fails when it differs (the default)."""
+    if a.metadata:
+        with open(a.metadata, encoding="utf-8") as fh:
+            meta = json.load(fh)
+    else:
+        meta = json.loads(sh("cargo", "metadata", "--format-version", "1", "--no-deps", "--locked"))
+    text = json.dumps(reduce_metadata(meta), indent=1, sort_keys=True) + "\n"
+    if a.write:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        print(f"wrote {path}")
+        return
+    with open(path, encoding="utf-8") as fh:
+        stored = fh.read()
+    if stored != text:
+        print(f"::error title=components::{path} differs from the workspace: run `python3 -I scripts/fork/components.py fixture --write`",
+              file=sys.stderr)
+        sys.exit(1)
+    print(f"ok: {path} equals the workspace")
+
+
 def cmd_affected(model, a):
     """What the change against --base (default origin/fork), plus uncommitted work, reaches: the selection a pull request's CI makes."""
     if a.files_from:
@@ -458,7 +508,7 @@ def cmd_affected(model, a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected"])
+    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected", "fixture"])
     ap.add_argument("--toml", default=".fork/components.toml")
     ap.add_argument("--metadata", help="a saved `cargo metadata --no-deps` instead of running cargo")
     ap.add_argument("--timings")
@@ -469,7 +519,11 @@ def main():
     ap.add_argument("--os", default="ubuntu-latest", help="affected: the runner OS whose commands --commands prints")
     ap.add_argument("--commands", action="store_true", help="affected: print the test commands of the affected jobs of --os (one per line)")
     ap.add_argument("--crates", action="store_true", help="affected: print only the changed crates (one per line)")
+    ap.add_argument("--write", action="store_true", help="fixture: write the stored workspace graph instead of checking it")
     a = ap.parse_args()
+    if a.cmd == "fixture":
+        cmd_fixture(a)
+        return
     model = load(a.toml, a.metadata)
     model.check()
     for w in model.warnings:

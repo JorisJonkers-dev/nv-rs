@@ -125,9 +125,10 @@ part of the pipeline.
 | the run summary | `scripts/fork/pipeline_summary.py` |
 | tests of all of the above (`task scripts`) | `scripts/fork/tests/` (a stored graph of the workspace: `fixtures/workspace-graph.json`) |
 
-Refresh the stored graph after upstream changes the workspace: run `cargo metadata --format-version 1 --no-deps --locked`, reduce it as the
-fixture's `_note` says (workspace dependencies keep `kind` and `features`, external ones only name and kind) and replace the file.
-The pipeline's own check uses the live metadata, so a stale fixture cannot hide a new crate there.
+Refresh the stored graph after upstream changes the workspace: `python3 -I scripts/fork/components.py fixture --write` (the live
+`cargo metadata --no-deps`, reduced as the fixture's `_note` says: workspace dependencies keep `kind` and `features`, external ones
+only name and kind). The Plan job runs `components.py fixture`, which fails when the stored graph differs from the workspace, and
+its own check uses the live metadata, so a stale fixture cannot hide a new crate there.
 
 ## What upstream could change (not done here: upstream's files)
 
