@@ -130,6 +130,20 @@ requires = []
 runs_on = "both"
 
 [[component]]
+name = "game-profile"
+purpose = "nv-rs's own sections in the game's Fallout.ini and the play lines of FalloutPrefs.ini, shared by Play.exe (Windows, scripts/launcher) and the host's first start off Windows"
+crates = ["game-profile"]
+requires = []
+runs_on = "both"
+
+[[component]]
+name = "fomod"
+purpose = "FOMOD mod installers read (ModuleConfig.xml, info.xml) and the player's choices turned into the files to copy into Data; no archives, no window, no game data"
+crates = ["fomod"]
+requires = []
+runs_on = "both"
+
+[[component]]
 name = "rendering"
 purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), the shader compiler seam off Windows (cache and libvkd3d-shader), and the fork-owned replay-bench that times a recorded stream through a null, the wgpu and a raw Vulkan backend (docs/fork/REPLAY.md)"
 crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader", "d3d9-replay"]
@@ -151,7 +165,7 @@ windows = "required"
 name = "integration"
 purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
 crates = ["engine", "host", "play-patch", "nv-viewer"]
-requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders", "game-profile"]
 runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not
@@ -218,7 +232,7 @@ requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay
 runs_on = "both"
 linux = "required"
 pr = "affected"
-paths = ["crates/host/tests/linux_saves.rs", "crates/host/src/save_out.rs", "crates/engine-platform/src/files.rs", "crates/engine-platform/src/files/"]
+paths = ["crates/host/tests/linux_saves.rs", "crates/host/src/save_out.rs", "crates/engine-platform/src/files.rs"]
 commands = [
   "cargo test --locked -p host --test linux_saves",
   "cargo test --locked -p engine-platform --lib files::",

@@ -9,7 +9,8 @@
 //! - winit makes no child windows. The game's child window (the one it draws in) fills its parent's
 //!   client area on Windows, so here it is its parent's window under an id of its own: the parent's
 //!   client area takes the child's size (unless borderless), and the device draws in the parent.
-//! - Borderless is winit's borderless full screen on the monitor the window is on, in its real
+//! - Borderless is winit's borderless full screen on the monitor the machine table describes (the
+//!   primary one, else the first: `crate::machine_table::display::described`), in its real
 //!   pixels (Windows: a popup window over the primary monitor). A framed window is sized and placed
 //!   in the system's scaled pixels, as the Win32 window thread, which is not DPI aware then, is; its
 //!   client area is the rectangle the game asks for less the frame the game added for it
@@ -43,10 +44,15 @@
 //!   game's (the run ends as with its close button), where the Win32 window keeps Alt for the game.
 //! - Minimised or hidden: X11 says so (the drawing side then asks no frame of the window); winit's
 //!   Wayland says neither, so there the drawing side keeps asking a hidden window for frames.
-//! - macOS: winit's event loop must run on the program's main thread, which the port does not hand
-//!   to the window layer yet (the game's own main thread runs there). [`run`] is the loop, on
-//!   whatever thread calls it; until a host calls it on the main thread, macOS has no window, and
-//!   the run ends with a line saying so.
+//! - macOS: winit's event loop must run on the program's main thread. The viewer hands it there
+//!   ([`run_on_main_thread`]): the game runs on a thread of its own (8 MB of stack, as a main
+//!   thread has), and the main thread waits until the game first needs a window (or the monitors),
+//!   then runs [`run`] for good. A program that does not hand it over gets no window on macOS: the
+//!   run ends with a line saying so.
+//!   The window's Metal layer is made here too, on the main thread, and the surface on it from the
+//!   game's or the render thread (d3d9-wgpu `surface_for`). wgpu itself still reads the window's
+//!   occlusion state on the thread that takes each frame, so a Main Thread Checker report from
+//!   there is expected.
 //! - Where no window can be shown the run ends with a line naming why (a run without its window
 //!   would go on drawing nothing): no X server or Wayland compositor, a missing library, winit's
 //!   loop stopping. The libraries a Linux player needs, all loaded at run time: on X11 libX11.so.6,
@@ -92,17 +98,29 @@ struct Shown {
     minimised: AtomicBool,
     /// Hidden from view, as the system says (X11).
     occluded: AtomicBool,
+    /// macOS: the window's `CAMetalLayer`, made here on the main thread, where the window is made
+    /// (the loop's thread): AppKit's view, and winit's window handle, are the main thread's only,
+    /// while the game's device and its surface are made on the game's or the render thread
+    /// (d3d9-wgpu `surface_for` makes the surface on this layer). `None` when the window has no
+    /// AppKit view (the device is then refused, naming why).
+    #[cfg(target_vendor = "apple")]
+    metal: Option<raw_window_metal::Layer>,
 }
 
 impl Shown {
+    /// Made on the loop's thread (on macOS the main thread: the Metal layer is made here).
     fn new(window: Window, resizable: bool) -> Shown {
         let size = window.inner_size();
+        #[cfg(target_vendor = "apple")]
+        let metal = metal_layer_of(&window);
         Shown {
             window,
             size: SizeKept::new(size),
             resizable,
             minimised: AtomicBool::new(false),
             occluded: AtomicBool::new(false),
+            #[cfg(target_vendor = "apple")]
+            metal,
         }
     }
 
@@ -175,6 +193,40 @@ impl d3d9_wgpu::GameWindow for Shown {
     fn refresh_millihertz(&self) -> Option<u32> {
         self.window.current_monitor()?.refresh_rate_millihertz()
     }
+
+    #[cfg(target_vendor = "apple")]
+    fn metal_layer(&self) -> Option<std::ptr::NonNull<std::ffi::c_void>> {
+        self.metal.as_ref().map(raw_window_metal::Layer::as_ptr)
+    }
+}
+
+/// macOS: `window`'s `CAMetalLayer` (its view made layer-backed, a Metal layer added that follows
+/// the view's size and scale), made on the main thread, where winit gives the window's handle and
+/// AppKit allows its view to be touched. `None`, with a line, when the window has no AppKit view.
+#[cfg(target_vendor = "apple")]
+fn metal_layer_of(window: &Window) -> Option<raw_window_metal::Layer> {
+    use raw_window_handle::RawWindowHandle;
+    match window.window_handle().map(|h| h.as_raw()) {
+        // SAFETY: winit's AppKit handle names the window's live NSView, and this runs on the main
+        // thread (the loop's: `run_on_main_thread`), as from_ns_view requires.
+        Ok(RawWindowHandle::AppKit(h)) => {
+            Some(unsafe { raw_window_metal::Layer::from_ns_view(h.ns_view) })
+        }
+        Ok(other) => {
+            eprintln!(
+                "NV_D3D9={}: the window is not an AppKit one ({other:?}): no Metal layer",
+                tag()
+            );
+            None
+        }
+        Err(e) => {
+            eprintln!(
+                "NV_D3D9={}: the window's handle: {e}: no Metal layer",
+                tag()
+            );
+            None
+        }
+    }
 }
 
 /// A real window by the id `super` keeps for it (never 0), with its top-level window's id (its
@@ -222,11 +274,17 @@ pub(super) fn window_thread() -> &'static std::sync::Mutex<std::sync::mpsc::Send
     static THREAD: OnceLock<Mutex<std::sync::mpsc::Sender<Request>>> = OnceLock::new();
     THREAD.get_or_init(|| {
         let (tx, rx) = std::sync::mpsc::channel::<Request>();
+        // macOS: the loop runs on the program's main thread, which the host hands to it
+        // ([`run_on_main_thread`]): the requests go there. Without it no window can be shown.
         if cfg!(target_vendor = "apple") {
-            no_window(
-                "on macOS the game's window needs the program's main thread, which is not handed \
-                 to the window layer yet",
-            );
+            if !MAIN_LOOP.load(Ordering::Acquire) {
+                no_window(
+                    "on macOS the game's window needs the program's main thread, which this \
+                     program did not hand to the window layer",
+                );
+            }
+            main_requests().give(rx);
+            return Mutex::new(tx);
         }
         if let Err(e) = std::thread::Builder::new()
             .name("nv-d3d9-window".into())
@@ -236,6 +294,193 @@ pub(super) fn window_thread() -> &'static std::sync::Mutex<std::sync::mpsc::Send
         }
         Mutex::new(tx)
     })
+}
+
+/// Whether the program's main thread waits to run the window layer's loop
+/// ([`run_on_main_thread`]).
+static MAIN_LOOP: AtomicBool = AtomicBool::new(false);
+
+/// The requests' receiver, handed from the first [`window_thread`] call to the main thread.
+fn main_requests() -> &'static Handoff<Receiver<Request>> {
+    static SLOT: OnceLock<Handoff<Receiver<Request>>> = OnceLock::new();
+    SLOT.get_or_init(Handoff::default)
+}
+
+/// One value handed from one thread to another that waits for it: given before or after the
+/// waiter starts, it is taken (no lost wake-up: the slot is looked at under its lock before each
+/// wait).
+struct Handoff<T>(Mutex<Option<T>>, std::sync::Condvar);
+
+impl<T> Default for Handoff<T> {
+    fn default() -> Self {
+        Handoff(Mutex::new(None), std::sync::Condvar::new())
+    }
+}
+
+impl<T> Handoff<T> {
+    fn give(&self, value: T) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
+        self.1.notify_all();
+    }
+
+    /// Waits until a value is given, and takes it.
+    fn take(&self) -> T {
+        let mut slot = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if let Some(value) = slot.take() {
+                return value;
+            }
+            slot = self
+                .1
+                .wait(slot)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+/// The process's status when the game's thread ends ([`run_on_main_thread`]): 0 when the game
+/// returned, 101 when it stopped with a panic (as Rust's own for a main thread's panic; its message
+/// is already printed).
+fn game_end_status(ended: &std::thread::Result<()>) -> i32 {
+    if ended.is_ok() {
+        0
+    } else {
+        101
+    }
+}
+
+/// The stack of the thread the game runs on when the main thread is the window layer's: the
+/// main thread's own on Linux and macOS (8 MB), not a spawned thread's default (2 MB in Rust).
+const GAME_STACK: usize = 8 << 20;
+
+/// Runs `game` on a thread of its own and the window layer's loop on the calling thread, which
+/// must be the program's main thread (macOS: winit's loop only runs there). The loop starts when
+/// the game first needs a window (or the monitors); until then the main thread waits. The process
+/// ends from the game's side (`crate::end_process`, the window closed) or here when `game`
+/// returns (status 0) or stops with a panic (status 101, its message already printed).
+pub(super) fn run_on_main_thread(game: Box<dyn FnOnce() + Send>) -> ! {
+    MAIN_LOOP.store(true, Ordering::Release);
+    let spawned = std::thread::Builder::new()
+        .name("nv-game".into())
+        .stack_size(GAME_STACK)
+        .spawn(move || {
+            let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(game));
+            crate::end_process(game_end_status(&ended))
+        });
+    if let Err(e) = spawned {
+        eprintln!("nv-rs: the game's thread could not start ({e})");
+        crate::end_process(1);
+    }
+    run(main_requests().take());
+    // `run` ends the process itself (`no_window`); this is never reached.
+    crate::end_process(1)
+}
+
+/// The monitors as the window thread read them when its loop started: `None` until then.
+type Monitors = Result<Vec<crate::machine_table::Monitor>, String>;
+
+fn monitors_read() -> &'static (Mutex<Option<Monitors>>, std::sync::Condvar) {
+    static READ: OnceLock<(Mutex<Option<Monitors>>, std::sync::Condvar)> = OnceLock::new();
+    READ.get_or_init(Default::default)
+}
+
+/// How long [`monitors`] waits for the window thread's loop to start.
+const MONITORS_WAIT: Duration = Duration::from_secs(10);
+
+/// The monitors as winit reports them (for the machine table, `crate::machine_table::display`):
+/// the window thread is started if it is not running (a run that draws needs it anyway), and its
+/// loop reads them once when it starts. Where no window can be shown the run ends there, with the
+/// line naming why, as it would when the game makes its window.
+pub(super) fn monitors() -> Monitors {
+    if cfg!(target_vendor = "apple") && !MAIN_LOOP.load(Ordering::Acquire) {
+        return Err(
+            "on macOS the window layer needs the program's main thread, which this program did \
+             not hand to it"
+                .into(),
+        );
+    }
+    let _ = window_thread();
+    let (read, ready) = monitors_read();
+    let guard = read
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (guard, _) = ready
+        .wait_timeout_while(guard, MONITORS_WAIT, |m| m.is_none())
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.clone().unwrap_or_else(|| {
+        Err(format!(
+            "the window system did not answer in {} s",
+            MONITORS_WAIT.as_secs()
+        ))
+    })
+}
+
+/// A winit monitor as the machine table takes it.
+fn monitor_of(m: &winit::monitor::MonitorHandle, primary: bool) -> crate::machine_table::Monitor {
+    let size = m.size();
+    crate::machine_table::Monitor {
+        size: (size.width, size.height),
+        scale: m.scale_factor(),
+        refresh_millihertz: m.refresh_rate_millihertz(),
+        modes: m
+            .video_modes()
+            .map(|v| crate::machine_table::Mode {
+                width: v.size().width,
+                height: v.size().height,
+                bit_depth: v.bit_depth(),
+                refresh_millihertz: v.refresh_rate_millihertz(),
+            })
+            .collect(),
+        primary,
+    }
+}
+
+thread_local! {
+    /// The monitor the machine table describes ([`read_monitors`]), on the window thread.
+    static DESCRIBED: std::cell::RefCell<Option<winit::monitor::MonitorHandle>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The monitor a borderless window is put on: the one the machine table describes, when the
+/// monitors were read; else winit's choice (the current one).
+fn described_monitor() -> Option<winit::monitor::MonitorHandle> {
+    DESCRIBED.with(|d| d.borrow().clone())
+}
+
+/// Reads the monitors for [`monitors`], once, on the window thread.
+fn read_monitors(event_loop: &ActiveEventLoop) {
+    let (read, ready) = monitors_read();
+    let mut slot = read
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if slot.is_some() {
+        return;
+    }
+    let primary = event_loop.primary_monitor();
+    let handles: Vec<_> = event_loop.available_monitors().collect();
+    // The monitor the table describes (the primary one, else the first) is the one the borderless
+    // window is put on ([`described_monitor`]), so the game's screen and its window agree.
+    let described = crate::machine_table::display::described(
+        handles.iter().map(|m| primary.as_ref() == Some(m)),
+    );
+    DESCRIBED.with(|d| *d.borrow_mut() = described.map(|i| handles[i].clone()));
+    let list: Vec<_> = handles
+        .iter()
+        .enumerate()
+        .map(|(i, m)| monitor_of(m, Some(i) == described))
+        .collect();
+    *slot = Some(if list.is_empty() {
+        Err("the window system reports no monitor".into())
+    } else {
+        Ok(list)
+    });
+    ready.notify_all();
 }
 
 /// The keyboard library winit needs and cannot load, if one is missing: libxkbcommon always, and
@@ -323,6 +568,7 @@ impl Layer {
     /// Makes the windows asked for since the last look, and looks up whether each top-level window
     /// is minimised (for the drawing side, [`Shown::minimised`]).
     fn serve(&mut self, event_loop: &ActiveEventLoop) {
+        read_monitors(event_loop);
         while let Ok(request) = self.requests.try_recv() {
             let id = self.make(event_loop, &request).unwrap_or(0);
             let _ = request.reply.send(id);
@@ -374,7 +620,7 @@ impl Layer {
         if borderless {
             attributes = attributes
                 .with_decorations(false)
-                .with_fullscreen(Some(Fullscreen::Borderless(None)));
+                .with_fullscreen(Some(Fullscreen::Borderless(described_monitor())));
         } else {
             let mut buttons = WindowButtons::empty();
             buttons.set(WindowButtons::CLOSE, frame.close);
@@ -657,6 +903,46 @@ mod tests {
         }
         let unknown = PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified);
         assert_eq!(key_name(unknown), None);
+    }
+
+    /// The hand-off of the requests to the main thread ([`run_on_main_thread`]): a value given
+    /// before the waiter starts and one given after it waits are both taken (no lost wake-up).
+    #[test]
+    fn the_handoff_is_taken_whether_given_before_or_after_the_wait() {
+        // Given before the waiter starts.
+        let before = Handoff::default();
+        before.give(7u32);
+        assert_eq!(before.take(), 7);
+        // Given after the waiter is waiting: the waiter is told it has started, then the value
+        // is given a little later (a lost wake-up would hang here; the test harness's time
+        // limit, and the channel's, end such a run).
+        let after = Arc::new(Handoff::default());
+        let (started, has_started) = std::sync::mpsc::channel();
+        let (took, has_taken) = std::sync::mpsc::channel();
+        let waiter = {
+            let after = Arc::clone(&after);
+            std::thread::spawn(move || {
+                started.send(()).unwrap();
+                took.send(after.take()).unwrap();
+            })
+        };
+        has_started.recv().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(has_taken.try_recv().is_err(), "taken before it was given");
+        after.give(9u32);
+        assert_eq!(has_taken.recv_timeout(Duration::from_secs(10)), Ok(9));
+        waiter.join().unwrap();
+        // Taken once: the slot is empty again.
+        assert!(after.0.lock().unwrap().is_none());
+    }
+
+    /// The process's status when the game's thread ends: 0 when the game returned, 101 when it
+    /// stopped with a panic.
+    #[test]
+    fn the_games_end_gives_0_or_101() {
+        assert_eq!(game_end_status(&Ok(())), 0);
+        let panicked = std::panic::catch_unwind(|| panic!("the game stopped"));
+        assert_eq!(game_end_status(&panicked), 101);
     }
 
     /// The size the drawing side reads follows the game's own resizes: on Wayland the size applied

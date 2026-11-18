@@ -28,3 +28,16 @@ raw-window-handle = "=0.6.2"
 # The window layer off Windows (docs/fork/LINUX.md): the surface of a window of X11 or Wayland.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 fork-window = { path = "../fork-window" }
+
+# macOS test (tests/metal_surface.rs, its own main: no test harness): a bare CAMetalLayer, and a real
+# window made with winit on the main thread with its layer made as the window layer makes it
+# (raw-window-metal). The versions the workspace already locks (wgpu-hal 30's, engine-platform's).
+[target.'cfg(target_vendor = "apple")'.dev-dependencies]
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CALayer", "CAMetalLayer"] }
+raw-window-metal = "=1.1.0"
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+
+[[test]]
+name = "metal_surface"
+path = "tests/metal_surface.rs"
+harness = false

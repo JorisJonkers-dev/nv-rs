@@ -16,14 +16,14 @@
 #![windows_subsystem = "windows"]
 
 mod find;
-mod game_ini;
+use game_profile::game_ini;
 mod mods;
-mod settings;
+use game_profile::settings;
 mod tables;
 mod ui;
 mod win;
 
-use settings::Settings;
+use settings::{migrated_name, Settings};
 use std::cell::{Cell, RefCell};
 use std::io::{Read, Write};
 use std::os::windows::process::CommandExt;
@@ -661,7 +661,7 @@ struct Prepared {
 
 /// A profile's `Fallout.ini` and `FalloutPrefs.ini`: the player's own copied once, read only from
 /// `real` (their `My Games\FalloutNV`: the settings the game's launcher made). nv-rs's own sections
-/// go into `Fallout.ini` (`game_ini.rs`): the whole block once, and what a file with only some of
+/// go into `Fallout.ini` (`game_profile::game_ini`, crates/game-profile): the whole block once, and what a file with only some of
 /// them lacks. The player's choices go into them: `pending`, a `settings.ini` that is being moved
 /// into the files, whose lines win. Play.exe has no values of its own: what nothing chose is the
 /// generated sections' value, the game's default (the borderless window among them).
@@ -776,23 +776,6 @@ fn prepare_profile(
         write_keeping_mark(&profile.prefs, &bytes)?;
     }
     Ok(prepared)
-}
-
-/// The name a moved `settings.ini` gets: `settings.ini.migrated`, or with the first free number
-/// after it (`settings.ini.migrated.2`, ...) when an earlier one is there. An earlier one is
-/// never replaced.
-fn migrated_name(settings: &Path) -> PathBuf {
-    let mut base = settings.as_os_str().to_owned();
-    base.push(".migrated");
-    let mut name = PathBuf::from(&base);
-    let mut number = 1u32;
-    while name.symlink_metadata().is_ok() {
-        number += 1;
-        let mut numbered = base.clone();
-        numbered.push(format!(".{number}"));
-        name = PathBuf::from(numbered);
-    }
-    name
 }
 
 /// Both profiles' files made ready ([`prepare_profile`]), so Settings.cmd finds them to edit; a
@@ -1302,7 +1285,7 @@ fn play(
         message: format!("{}: {e}", log_path.display()),
     })?;
     // The player's options are in the profile's Fallout.ini, which the game reads itself (host
-    // `game_ini.rs`): in play no variable is passed for them, so nothing here can beat the file
+    // `game_ini.rs`; Play.exe's side in `game_profile::game_ini`): in play no variable is passed for them, so nothing here can beat the file
     // (`pass_switches`, below).
     let mut command = Command::new(&package.game_exe);
     command
@@ -1396,7 +1379,7 @@ fn play(
 
 /// The game's variables for the player's options on its command ([`game_ini::switches`]).
 ///
-/// In play the twelve that would beat the profile's `Fallout.ini` are taken out, not even one left
+/// In play the thirteen that would beat the profile's `Fallout.ini` are taken out, not even one left
 /// from Play.exe's own environment. When a variable set before the start makes the run a test,
 /// which never reads the file, nothing is taken out and the file's choices are passed on, so the
 /// run plays like the player's game; the line for the log says which variable did it, what was
@@ -2270,12 +2253,12 @@ mod tests {
     }
 
     /// The variables on the game's own command (`pass_switches` on a `Command`, as `play` makes
-    /// it). In play the twelve are taken out and nothing else is said; with a test variable set
+    /// it). In play the thirteen are taken out and nothing else is said; with a test variable set
     /// before Play.exe, the file's choices are set on the command, nothing is taken out, the one
     /// set before is left to come through as it was, and the log line names all of it.
     #[test]
     fn the_games_command_gets_the_files_choices_only_in_a_test() {
-        let twelve = [
+        let thirteen = [
             "NV_PRESET",
             "NV_BORDERLESS",
             "NV_D3D9",
@@ -2285,6 +2268,7 @@ mod tests {
             "NV_AO",
             "NV_AO_STRENGTH",
             "NV_SUN_SHADOWS",
+            "NV_SUN_LIGHT_FROM_SKY",
             "NV_THREADS",
             "NV_RENDER_THREAD",
             "NV_NOT_BACKGROUND",
@@ -2308,8 +2292,10 @@ mod tests {
         play.env("NV_SETTINGS", "settings.ini");
         let line = pass_switches(&mut play, &game_ini::switches(&ini, None, |_| false));
         assert_eq!(line, None);
-        let mut want: Vec<(String, Option<String>)> =
-            twelve.iter().map(|name| (name.to_string(), None)).collect();
+        let mut want: Vec<(String, Option<String>)> = thirteen
+            .iter()
+            .map(|name| (name.to_string(), None))
+            .collect();
         want.push(("NV_SETTINGS".into(), Some("settings.ini".into())));
         want.sort();
         let mut got = envs(&play);
@@ -2331,6 +2317,7 @@ mod tests {
             ("NV_AO", "0"),
             ("NV_AO_STRENGTH", "0.7"),
             ("NV_SUN_SHADOWS", "0"),
+            ("NV_SUN_LIGHT_FROM_SKY", "1"),
             ("NV_RENDER_THREAD", "1"),
             ("NV_NOT_BACKGROUND", "1"),
             ("NV_GRAB_PUSH", "0"),
@@ -2587,6 +2574,7 @@ mod tests {
             ("NV_AO", "0"),
             ("NV_AO_STRENGTH", "0.7"),
             ("NV_SUN_SHADOWS", "0"),
+            ("NV_SUN_LIGHT_FROM_SKY", "1"),
             ("NV_THREADS", "stepped"),
             ("NV_RENDER_THREAD", "1"),
             ("NV_NOT_BACKGROUND", "1"),

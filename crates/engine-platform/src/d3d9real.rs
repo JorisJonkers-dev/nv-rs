@@ -42,8 +42,8 @@
 //! render thread, the forwarded calls, and the keyboard and mouse state DirectInput reads
 //! ([`Input`], [`held_keys`], [`take_input`]). The real windows come from a window layer of the
 //! system's: `d3d9real/win32.rs` on Windows (the Win32 window, its messages and raw input, moved
-//! there unchanged); elsewhere `d3d9real/winit_window.rs` (winit: X11 and Wayland; macOS refused
-//! until a host hands the window layer the program's main thread), whose keyboard and mouse go
+//! there unchanged); elsewhere `d3d9real/winit_window.rs` (winit: X11, Wayland and macOS, where
+//! the viewer hands the layer the program's main thread: [`run_on_main_thread`]), whose keyboard and mouse go
 //! through `d3d9real/input.rs` with the Win32 window's codes and rules. The real Direct3D 9
 //! (`super::d3d9backend`) is Windows only.
 
@@ -271,6 +271,21 @@ static DRAWING_REAL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// Whether a backend is asked for (`NV_D3D9`): the real window and the stream are made.
 pub fn wanted() -> bool {
     backends().is_some()
+}
+
+/// The monitors as the window layer's system reports them (Linux and macOS: winit), for the
+/// machine table (`crate::machine_table::display`). Windows' come from `scripts/d3d9-capture`.
+#[cfg(not(windows))]
+pub fn monitors() -> Result<Vec<crate::machine_table::Monitor>, String> {
+    window_layer::monitors()
+}
+
+/// Runs `game` on a thread of its own and the window layer's loop on the calling thread, which
+/// must be the program's main thread: macOS, where winit's loop runs only there (the viewer does
+/// this there). Never returns: the process ends from the game's side, or when `game` returns.
+#[cfg(not(windows))]
+pub fn run_on_main_thread(game: Box<dyn FnOnce() + Send>) -> ! {
+    window_layer::run_on_main_thread(game)
 }
 
 /// Whether wgpu draws (asked for alone, and not replaced by the real Direct3D 9): the game's
@@ -543,7 +558,7 @@ pub fn real_device(e: &Engine, this: u32) -> Option<RealDevice> {
         .devices
         .iter()
         .find(|(d, _)| *d == this)
-        .and_then(|(_, real)| real.clone())
+        .and_then(|(_, real)| real.as_ref().cloned())
 }
 
 /// Whether any of the game's modelled devices has a real one behind it (for a D3DX call that
@@ -970,14 +985,26 @@ fn backend_of(
 }
 
 /// The real Direct3D 9 asked for where there is none (`NV_D3D9=real` or `real,wgpu`, the Renderer
-/// setting's `d3d9`, or wgpu's fallback when it finds no graphics card or cannot make the game's
-/// device): refused, the run ends with a line saying so.
+/// setting's `d3d9`): refused, the run ends with a line saying so. wgpu's fallback to it (no
+/// graphics card, or the game's device refused) ends the run first, naming wgpu's reason
+/// ([`wgpu_cannot_draw`]).
 #[cfg(not(windows))]
 #[allow(dead_code)] // fork: the fork's window layer (fork_d3d9rec.rs) makes the stream off Windows
 fn no_real_direct3d9() -> ! {
     eprintln!(
         "NV_D3D9={}: the real Direct3D 9 is only on Windows (on this system only wgpu draws: Vulkan, or Metal on macOS): the run ends",
         backends().map_or("real", Backends::name)
+    );
+    crate::end_process(1)
+}
+
+/// wgpu cannot draw (no graphics card it can draw with, or the game's device refused) where there
+/// is no real Direct3D 9 to draw instead (Windows' fallback): the run ends with a line saying why,
+/// not the real one's refusal, which would name a Direct3D 9 the player never asked for.
+#[cfg(not(windows))]
+fn wgpu_cannot_draw(why: &str) -> ! {
+    eprintln!(
+        "NV_D3D9=wgpu: {why}: on this system nothing else can draw (the real Direct3D 9 is only on Windows): the run ends"
     );
     crate::end_process(1)
 }
@@ -1209,20 +1236,28 @@ pub fn device_created(
     // in): the real Direct3D 9 instead, as when wgpu finds no graphics card (`direct3d_created`),
     // so the player still gets a picture. The device is the backend's first object: nothing was
     // made on wgpu that the real one lacks.
-    #[cfg(windows)]
     let failed = matches!(reply, Some(Reply::Device { created: false, .. }));
-    #[cfg(windows)]
     if failed
         && backends() == Some(Backends::Wgpu)
         && !DRAWING_REAL.load(std::sync::atomic::Ordering::Relaxed)
     {
-        fork_log::warn!(target: "d3d9", "NV_D3D9=wgpu: wgpu could not make the game's device: the real Direct3D 9 draws instead");
-        // The wgpu stream is let go first (its render thread ends, its record is written out),
-        // then the real one takes over.
-        real(e).stream = None;
-        let stream = make_stream(e, Backends::Real);
-        real(e).stream = Some(stream);
-        reply = create(e);
+        // Off Windows there is no real one: the wgpu stream is let go (its render thread ends,
+        // its record is written out) and the run ends, saying so.
+        #[cfg(not(windows))]
+        {
+            real(e).stream = None;
+            wgpu_cannot_draw("wgpu could not make the game's device (the lines above say why)");
+        }
+        #[cfg(windows)]
+        {
+            fork_log::warn!(target: "d3d9", "NV_D3D9=wgpu: wgpu could not make the game's device: the real Direct3D 9 draws instead");
+            // The wgpu stream is let go first (its render thread ends, its record is written
+            // out), then the real one takes over.
+            real(e).stream = None;
+            let stream = make_stream(e, Backends::Real);
+            real(e).stream = Some(stream);
+            reply = create(e);
+        }
     }
     let Some(Reply::Device {
         created: true,
@@ -1384,8 +1419,12 @@ fn clear_lit(
             let frame = view
                 .as_ref()
                 .and_then(d3d9_wgpu::sun_shadow::Frame::from_game);
-            if let (Some(p), Some(f)) = (params, frame) {
+            if let (Some(p), Some(f), Some(v)) = (params, frame, view.as_ref()) {
                 for (state, m) in [
+                    (
+                        d3d9_wgpu::sun_shadow::WORLD_STATE,
+                        d3d9_wgpu::sun_shadow::world_words(v.world),
+                    ),
                     (d3d9_wgpu::sun_shadow::VIEW_STATE, p.to_words()),
                     (d3d9_wgpu::sun_shadow::BEGIN_STATE, f.to_words()),
                 ] {
@@ -3646,6 +3685,7 @@ mod tests {
             to_sun: None,
             sun_colour: [0.0; 3],
             interior: true,
+            world: 0,
         })
     }
 
@@ -3692,6 +3732,64 @@ mod tests {
         log.lock().unwrap().clear();
         clear(&mut e, DEVICE, 0, 0, 2, 0, 0, 0, 0);
         assert_eq!(*log.lock().unwrap(), [("Clear", 2)]);
+    }
+
+    /// With the sun shadows on and a sunny exterior, the scene's colour and depth clear is
+    /// preceded by the world the camera is in (`d3d9_wgpu::sun_shadow::WORLD_STATE`, the reader's
+    /// `world` in its first word), then the camera's and the frame's words, in that order: the
+    /// device forgets the casters of a world left behind before it brings the maps up to date.
+    #[test]
+    fn the_scene_clear_names_the_world_before_the_suns_words() {
+        const DEVICE: u32 = 0x1000;
+        type Seen = std::sync::Arc<std::sync::Mutex<Vec<(u32, Vec<u32>)>>>;
+        struct Words(Seen);
+        impl d3d9_stream::Backend for Words {
+            fn execute(&mut self, cmd: Cmd<Data<'_>>) -> Reply {
+                let seen = match &cmd {
+                    Cmd::SetTransform { state, matrix, .. } => (*state, matrix.to_words().to_vec()),
+                    Cmd::Clear { flags, .. } => (*flags, Vec::new()),
+                    _ => (0, Vec::new()),
+                };
+                self.0.lock().unwrap().push(seen);
+                Reply::None
+            }
+        }
+        fn sunny(_: &Engine) -> Option<SceneView> {
+            Some(SceneView {
+                frustum: [-0.7, 0.7, 0.4, -0.4, 5.0, 5000.0],
+                ortho: false,
+                rotate: [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                position: [100.0, 200.0, 300.0],
+                to_sun: Some([0.2, -0.1, 0.9]),
+                sun_colour: [1.0, 0.9, 0.8],
+                interior: false,
+                world: 0x0013_b308,
+            })
+        }
+        let seen: Seen = std::sync::Arc::default();
+        let mut e = Engine::new();
+        {
+            let r = real(&mut e);
+            r.stream = Some(Stream::direct(Box::new(Words(std::sync::Arc::clone(
+                &seen,
+            )))));
+            r.devices.push((DEVICE, None));
+        }
+        d3d9_wgpu::sun_shadow::enable(true);
+        clear_lit(&mut e, DEVICE, 0, 0, 3, 0, 0, 0, 0, Some(sunny));
+        d3d9_wgpu::sun_shadow::enable(false);
+        let got = std::mem::take(&mut *seen.lock().unwrap());
+        let states: Vec<u32> = got.iter().map(|(s, _)| *s).collect();
+        assert_eq!(
+            states,
+            [
+                d3d9_wgpu::sun_shadow::WORLD_STATE,
+                d3d9_wgpu::sun_shadow::VIEW_STATE,
+                d3d9_wgpu::sun_shadow::BEGIN_STATE,
+                3
+            ]
+        );
+        assert_eq!(got[0].1, d3d9_wgpu::sun_shadow::world_words(0x0013_b308));
     }
 
     /// The frame draw's point where the world is drawn (`engine_core::world_drawn`, first and

@@ -569,6 +569,12 @@ pub const PLAY_AMBIENT_OCCLUSION: bool = false;
 /// preset (a new look, not a fix). `crates/host/data/game_ini.tsv`'s `bSunShadows` row is held to it
 /// by a test.
 pub const PLAY_SUN_SHADOWS: bool = false;
+/// Whether, with the sun shadows on, the sun light comes from the sun disc by day and the moon disc by
+/// night (port-added: `engine_fallout_env`'s `sun::LightFromSky`) when neither `NV_SUN_LIGHT_FROM_SKY`
+/// nor `Fallout.ini`'s `bSunLightFromSky` says ([`Choice::sun_light_from_sky`]): on, so the shadows,
+/// the lit sides and the sky agree; it changes nothing while the sun shadows are off.
+/// `crates/host/data/game_ini.tsv`'s `bSunLightFromSky` row is held to it by a test.
+pub const PLAY_SUN_LIGHT_FROM_SKY: bool = true;
 /// How strong the new lighting's shade is when neither `NV_AO_STRENGTH` nor `Fallout.ini`'s
 /// `fAmbientOcclusionStrength` says ([`Choice::ambient_occlusion_strength`]): the step's own
 /// default (`d3d9_wgpu::scene_light::STRENGTH`). `crates/host/data/game_ini.tsv`'s
@@ -692,6 +698,12 @@ pub struct Choice {
     /// shows an engineers' overlay instead); else, in a launcher's play run, `Fallout.ini`'s `[nv-rs Display] bSunShadows`;
     /// else [`PLAY_SUN_SHADOWS`], off. Not part of any preset.
     pub sun_shadows: bool,
+    /// Whether the sun light comes from the sky's discs (`engine_fallout_env` `sun::LightFromSky`)
+    /// while the sun shadows are on: `NV_SUN_LIGHT_FROM_SKY` when set (`1` on, else off); else, in a
+    /// launcher's play run, `Fallout.ini`'s `[nv-rs Display] bSunLightFromSky`; else
+    /// [`PLAY_SUN_LIGHT_FROM_SKY`], on. Used only with [`Choice::sun_shadows`] ([`Choice::light_from_sky`]).
+    /// Not part of any preset.
+    pub sun_light_from_sky: bool,
     /// How strong its shade is, from 0.1 (faint) to 1 (all of it): `NV_AO_STRENGTH` when it is a
     /// number; else, in a launcher's play run, `Fallout.ini`'s `[nv-rs Display]
     /// fAmbientOcclusionStrength`; else [`PLAY_AMBIENT_OCCLUSION_STRENGTH`]. Clamped to that range
@@ -717,6 +729,13 @@ pub struct Choice {
 }
 
 impl Choice {
+    /// Whether the sun light is turned to come from the sky's discs: only with the sun shadows on
+    /// and [`Choice::sun_light_from_sky`] (on by default). With the sun shadows off the game's light
+    /// is the exe's, whatever the key says.
+    pub fn light_from_sky(&self) -> bool {
+        self.sun_shadows && self.sun_light_from_sky
+    }
+
     /// The original's behaviour, whatever the environment and the settings file say: what
     /// [`crate::Host::start`] runs (stepped threads, no render thread too).
     pub fn vanilla() -> Choice {
@@ -732,6 +751,7 @@ impl Choice {
             show_frame_rate: PLAY_SHOW_FRAME_RATE,
             ambient_occlusion: PLAY_AMBIENT_OCCLUSION,
             sun_shadows: PLAY_SUN_SHADOWS,
+            sun_light_from_sky: PLAY_SUN_LIGHT_FROM_SKY,
             ambient_occlusion_strength: PLAY_AMBIENT_OCCLUSION_STRENGTH,
             not_background: PLAY_NOT_BACKGROUND,
             not_background_by: None,
@@ -893,6 +913,7 @@ impl Choice {
             show_frame_rate: ini.show_frame_rate.unwrap_or(PLAY_SHOW_FRAME_RATE),
             ambient_occlusion: ini.ambient_occlusion.unwrap_or(PLAY_AMBIENT_OCCLUSION),
             sun_shadows: ini.sun_shadows.unwrap_or(PLAY_SUN_SHADOWS),
+            sun_light_from_sky: ini.sun_light_from_sky.unwrap_or(PLAY_SUN_LIGHT_FROM_SKY),
             ambient_occlusion_strength: ini.ambient_occlusion_strength.map_or(
                 PLAY_AMBIENT_OCCLUSION_STRENGTH,
                 d3d9_wgpu::scene_light::clamp_strength,
@@ -979,6 +1000,9 @@ impl Choice {
         }
         if let Some(value) = env("NV_SUN_SHADOWS").filter(|v| !v.trim().is_empty()) {
             choice.sun_shadows = matches!(value.trim(), "1" | "debug");
+        }
+        if let Some(value) = env("NV_SUN_LIGHT_FROM_SKY").filter(|v| !v.trim().is_empty()) {
+            choice.sun_light_from_sky = value.trim() == "1";
         }
         // A number, clamped; anything else leaves the strength as it is.
         if let Some(value) = env("NV_AO_STRENGTH")
@@ -2022,17 +2046,17 @@ mod tests {
     }
 
     /// Play.exe takes the player options' variables out in play and passes the file's choices on
-    /// in a test (scripts/launcher/src/game_ini.rs `switches`). It takes the six names from this
+    /// in a test (`switches` in crates/game-profile/src/game_ini.rs, which Play.exe uses). It takes the six names from this
     /// crate's table itself; what makes a test it keeps as a list, which must be this one. (A
     /// fix's own variable makes a test too: Play.exe reads those from the table.)
     #[test]
     fn the_launcher_knows_what_makes_a_test() {
-        let launcher = include_str!("../../../scripts/launcher/src/game_ini.rs");
+        let launcher = include_str!("../../game-profile/src/game_ini.rs");
         let list = launcher
             .split("pub const TEST_SWITCHES")
             .nth(1)
             .and_then(|rest| rest.split("];").next())
-            .expect("TEST_SWITCHES in the launcher's game_ini.rs");
+            .expect("TEST_SWITCHES in game-profile's game_ini.rs");
         let mut names: Vec<&str> = list
             .split('"')
             .skip(1)
@@ -2164,6 +2188,47 @@ bSunShadows=yes
         assert!(debug.sun_shadows && !debug.ambient_occlusion);
         let other = Choice::from_parts(None, env_of(&[("NV_SUN_SHADOWS", "yes")])).unwrap();
         assert!(!other.sun_shadows);
+    }
+
+    /// The sun light from the sky: on whenever the sun shadows are (the key's default), never
+    /// without them; `bSunLightFromSky=0` in a launcher's play run or `NV_SUN_LIGHT_FROM_SKY=0`
+    /// anywhere keeps the game's own light under the shadows.
+    #[test]
+    fn the_light_comes_from_the_sky_only_with_the_sun_shadows() {
+        assert!(!Choice::vanilla().light_from_sky());
+        assert!(!Choice::from_parts(None, no_env).unwrap().light_from_sky());
+        let shadows = "[nv-rs Display]
+bSunShadows=1
+";
+        assert!(with_ini(None, shadows, &[]).light_from_sky());
+        let kept = "[nv-rs Display]
+bSunShadows=1
+bSunLightFromSky=0
+";
+        let kept = with_ini(None, kept, &[]);
+        assert!(kept.sun_shadows && !kept.light_from_sky());
+        // The key alone changes nothing.
+        let alone = "[nv-rs Display]
+bSunLightFromSky=1
+";
+        assert!(!with_ini(None, alone, &[]).light_from_sky());
+        assert!(!with_ini(None, shadows, &[("NV_SUN_LIGHT_FROM_SKY", "0")]).light_from_sky());
+        let both = Choice::from_parts(
+            None,
+            env_of(&[("NV_SUN_SHADOWS", "1"), ("NV_SUN_LIGHT_FROM_SKY", "1")]),
+        )
+        .unwrap();
+        assert!(both.light_from_sky());
+        let one = Choice::from_parts(None, env_of(&[("NV_SUN_SHADOWS", "1")])).unwrap();
+        assert!(one.light_from_sky());
+        let not = Choice::from_parts(
+            None,
+            env_of(&[("NV_SUN_SHADOWS", "1"), ("NV_SUN_LIGHT_FROM_SKY", "0")]),
+        )
+        .unwrap();
+        assert!(!not.light_from_sky());
+        let without = Choice::from_parts(None, env_of(&[("NV_SUN_LIGHT_FROM_SKY", "1")])).unwrap();
+        assert!(!without.light_from_sky());
     }
 
     /// The new lighting's strength: the step's default in every run unless asked for;
@@ -2317,6 +2382,40 @@ bSunShadows=yes
         assert_eq!(choice.borderless, Some(true));
         let choice = Choice::from_parts(None, env_of(&[("NV_BORDERLESS", "1")])).unwrap();
         assert_eq!(choice.borderless, Some(true));
+    }
+
+    /// What Linux's play.sh exports (distribution/unix/play.sh, the same names as Play.exe's but the
+    /// two Windows tables) makes a play run on Vulkan with play's defaults, as Play.exe's does
+    /// (review of #687: without NV_SETTINGS nothing drew).
+    #[test]
+    fn play_sh_variables_make_a_play_run_on_vulkan() {
+        let play_sh: &'static [(&str, &str)] = &[
+            ("NV_SOUND", "out"),
+            (
+                "NV_SAVE_OUT",
+                "/home/p/.local/share/nv-rs/game/Documents/My Games/FalloutNV/Saves",
+            ),
+            (
+                "NV_PREFS_OUT",
+                "/home/p/.local/share/nv-rs/game/Documents/My Games/FalloutNV/FalloutPrefs.ini",
+            ),
+            ("NV_REPORT_DIR", "/home/p/.local/share/nv-rs/reports"),
+            ("NV_REPORT_LOG", "/home/p/.local/share/nv-rs/logs/game.log"),
+            (
+                "NV_WGPU_CACHE",
+                "/home/p/.local/share/nv-rs/machine/wgpu-cache",
+            ),
+            (
+                "NV_D3DX_CACHE",
+                "/home/p/.local/share/nv-rs/machine/d3dx-cache",
+            ),
+            ("NV_SETTINGS", "/home/p/.local/share/nv-rs/settings.ini"),
+        ];
+        assert!(is_play_run(env_of(play_sh)));
+        let choice = Choice::from_texts(None, None, env_of(play_sh)).unwrap();
+        assert_eq!(choice.renderer, Some(Renderer::Vulkan));
+        assert_eq!(choice.threads, PLAY_THREADS);
+        assert_eq!(choice.render_thread, PLAY_RENDER_THREAD);
     }
 
     /// Vulkan is play's renderer (the maintainer, 2026-11-11): a launcher's play run with no usable

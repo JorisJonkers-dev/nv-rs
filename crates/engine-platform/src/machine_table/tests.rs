@@ -404,6 +404,63 @@ fn a_list_and_its_rule_agree_where_both_answer() {
     assert!(from_changes(&zone, now).unwrap().is_some());
 }
 
+/// The table answers UTC: its `GetTimeZoneInformation` line, read back with no bias, no change-over
+/// dates and no daylight bias, and every year's rules the same.
+fn assert_utc(table: &str) {
+    assert!(table.contains("GetTimeZoneInformation\t\t"), "{table}");
+    let mut e = crate::Engine::new();
+    crate::d3d9::load_adapter_table(&mut e, table);
+    let bytes = crate::d3d9::time_zone(&mut e);
+    let zone = ZoneInfo::from_bytes(&bytes);
+    assert_eq!(
+        (zone.bias, zone.standard_bias, zone.daylight_bias),
+        (0, 0, 0)
+    );
+    assert_eq!((zone.standard_date, zone.daylight_date), ([0; 8], [0; 8]));
+    // StandardDate +0x44, DaylightDate +0x98 (16 bytes each), DaylightBias +0xA8.
+    assert!(bytes[0x44..0x54].iter().all(|&b| b == 0));
+    assert!(bytes[0x98..0xac].iter().all(|&b| b == 0));
+    for year in [1601, 2026, 30827] {
+        assert_eq!(crate::d3d9::time_zone_for_year(&mut e, year), bytes);
+    }
+}
+
+/// End to end: a zone file that cannot be used (`TZ` naming a folder; a version 1 zone file,
+/// which has no rule for the times after its list) is answered as UTC, with the reason in the
+/// problem line, where it used to leave the table without a time zone (the run then stopped at the
+/// game's first local time).
+#[test]
+fn an_unusable_zone_file_is_utc_with_its_reason() {
+    let dir = std::env::temp_dir().join(format!("nv-rs-zone-utc-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("Europe")).unwrap();
+    // A version 1 file: the header ("TZif", version 0, 15 reserved bytes) and six zero counts.
+    let mut v1 = b"TZif\0".to_vec();
+    v1.resize(20 + 24, 0);
+    std::fs::write(dir.join("old"), &v1).unwrap();
+    let local = dir.join("localtime");
+    for (tz, why) in [("Europe", "not a regular file"), ("old", "old")] {
+        let zone = read_zone(Some(tz), &dir, &local);
+        assert!(zone.is_err(), "{tz}");
+        let (table, problems) = write_table(&Inputs {
+            zone,
+            now: at(2026, 7, 1, 12),
+            processor: fixed_processor(),
+            own_folder: Ok("/home/me/.local/share/nv-rs".into()),
+            code_page: 1252,
+        });
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("the time zone cannot be read")
+                && problems[0].contains("the game is given UTC")
+                && problems[0].contains(why),
+            "{}",
+            problems[0]
+        );
+        assert_utc(&table);
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Broken zone files are refused, not misread.
 #[test]
 fn broken_zone_files_are_refused() {
@@ -474,23 +531,56 @@ fn the_folders_are_nv_rs_own_on_drive_z() {
     assert!(folder_lines(std::path::Path::new(&long)).is_err());
 }
 
-/// The whole table reads back through the Windows table's own reader with every answer in place.
+/// The whole table reads back through the Windows table's own reader with every answer in place:
+/// the machine's part, then the display part added after it (as the host loads them).
 #[test]
 fn the_table_reads_back_with_its_answers() {
-    let (table, problems) = write_table(&Inputs {
+    let (mut table, problems) = write_table(&Inputs {
         zone: parse_posix_tz("CET-1CEST,M3.5.0,M10.5.0/3").map(Zone::from_rule),
         now: at(2026, 7, 1, 12),
         processor: fixed_processor(),
         own_folder: Ok("/home/me/.local/share/nv-rs".into()),
+        code_page: 1252,
     });
     assert!(problems.is_empty(), "{problems:?}");
+    assert!(!table.contains("GetAdapterDisplayMode") && !table.contains("GetDeviceCaps"));
+    let (display, problems, refusal) = display_part(&DisplayInputs {
+        monitors: Ok(vec![Monitor {
+            size: (3840, 2160),
+            scale: 2.0,
+            refresh_millihertz: Some(59_997),
+            modes: Vec::new(),
+            primary: false,
+        }]),
+        card: Ok(Card {
+            name: "Apple M2".into(),
+            vendor: 0,
+            device: 0,
+            driver: String::new(),
+            driver_info: String::new(),
+            sample_counts: vec![1, 2, 4],
+            bc: true,
+            float32_blendable: true,
+        }),
+    });
+    // One log line: the real card and the driver name the game is given.
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].starts_with("graphics card: Apple M2 (vendor 0000"));
+    assert!(problems[0].contains("nvldumd.dll"));
+    assert!(refusal.is_none());
+    table.push_str(&display);
     let mut e = crate::Engine::new();
     crate::d3d9::load_adapter_table(&mut e, &table);
     assert_eq!(crate::d3d9::get_acp(&mut e), 1252);
     assert_eq!(crate::d3d9::get_oemcp(&mut e), 437);
     assert_eq!(crate::d3d9::is_valid_code_page(&mut e, 65001), 1);
     assert_eq!(crate::d3d9::system_metric(&mut e, 0x1000), Some(0));
-    assert_eq!(crate::d3d9::system_metric(&mut e, 0), None);
+    // The only monitor (none is the system's primary one) in scaled pixels.
+    assert_eq!(crate::d3d9::system_metric(&mut e, 0), Some(1920));
+    assert_eq!(crate::d3d9::system_metric(&mut e, 1), Some(1080));
+    assert_eq!(crate::d3d9::system_metric(&mut e, 0x50), Some(1));
+    assert!(table.contains("GetAdapterIdentifier\t0 2\t0\t"));
+    assert!(table.contains("GetDeviceCaps\t0 1\t0\t"));
     assert_eq!(crate::d3d9::windows_directory(&mut e), b"C:\\WINDOWS");
     assert_eq!(
         crate::d3d9::folder_path(&mut e, 0x23),
@@ -524,12 +614,63 @@ fn a_missing_part_is_named_and_the_rest_is_made() {
         now: 0,
         processor: fixed_processor(),
         own_folder: Err("no HOME".into()),
+        code_page: 1251,
     });
     assert_eq!(problems.len(), 2);
     assert!(problems[0].contains("no HOME") && problems[1].contains("no zone file"));
-    assert!(!table.contains("GetTimeZoneInformation") && !table.contains("SHGetFolderPathA\t5 "));
+    assert!(problems[1].contains("UTC"), "{}", problems[1]);
+    assert!(!table.contains("SHGetFolderPathA\t5 "));
+    // The zone that could not be read is answered as UTC (no stop at the game's first local
+    // time), for the current rules and every year's.
+    assert_utc(&table);
     assert!(table.contains("CpuIdFlagTest\t\t200000\nCpuid\t0\t1 0 0 0\nCpuid\t1\t0 0 0 6808000\n"));
     assert!(table.ends_with("NvApiLoad\t\t0\t7e\nNvApiEnd\n"));
+    let (display, problems, refusal) = display_part(&DisplayInputs {
+        monitors: Err("no window system".into()),
+        card: Err("no card".into()),
+    });
+    assert_eq!(problems.len(), 2);
+    assert!(problems[0].contains("no card") && problems[1].contains("no window system"));
+    assert_eq!(refusal, None);
+    // Without the card its identity is left out; the captured card's answers stay as captured.
+    // The Russian game's pages answer, after the fixed answers' 1252 and 437.
+    let mut e = crate::Engine::new();
+    crate::d3d9::load_adapter_table(&mut e, &table);
+    assert_eq!(crate::d3d9::get_acp(&mut e), 1251);
+    assert_eq!(crate::d3d9::get_oemcp(&mut e), 866);
+    assert_eq!(crate::d3d9::is_valid_code_page(&mut e, 866), 1);
+    assert_eq!(crate::d3d9::is_valid_code_page(&mut e, 1252), 1);
+    assert_eq!(display, display::CARD.replace("\r\n", "\n"));
+    // A display question then stops the run, saying it was not captured.
+    let mut e = crate::Engine::new();
+    crate::d3d9::load_adapter_table(&mut e, &(table + &display));
+    let d3d = crate::d3d9::direct3d_create9(&mut e, 32);
+    let mode = e.mem.alloc(16);
+    let stop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        e.vcall(d3d, 0x20, &[0, mode])
+    }));
+    let why = stop.unwrap_err();
+    let why = why.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert!(why.contains("GetAdapterDisplayMode"), "{why}");
+}
+
+/// A card without block-compressed textures: the start is refused with one plain line.
+#[test]
+fn a_card_without_dxt_textures_refuses_the_start() {
+    let (_, _, refusal) = display_part(&DisplayInputs {
+        monitors: Err("x".into()),
+        card: Ok(Card {
+            name: "llvmpipe".into(),
+            vendor: 0x10005,
+            device: 0,
+            driver: String::new(),
+            driver_info: String::new(),
+            sample_counts: vec![1],
+            bc: false,
+            float32_blendable: false,
+        }),
+    });
+    assert!(refusal.unwrap().contains("llvmpipe"));
 }
 
 /// The fixed Windows answers hold nothing personal: no user folder, no adapter, no NVIDIA lines,
@@ -631,9 +772,21 @@ mod this_system {
     }
 
     #[test]
+    /// A test draws nothing, so the display and the card are not asked (they are the only
+    /// problems).
     fn this_machines_table_has_no_problems() {
         let (table, problems) = this_machine(Ok("/nonexistent/nv-rs".into()));
         assert!(problems.is_empty(), "{problems:?}");
         assert!(table.contains("GetTimeZoneInformation\t\t"));
+        // A run that draws nothing asks neither the window system nor wgpu.
+        let (_, problems, refusal) = this_display(false);
+        assert_eq!(
+            problems,
+            [
+                "machine table: no graphics card: the run draws nothing (no renderer chosen)",
+                "machine table: no display: the run draws nothing (no renderer chosen)"
+            ]
+        );
+        assert_eq!(refusal, None);
     }
 }

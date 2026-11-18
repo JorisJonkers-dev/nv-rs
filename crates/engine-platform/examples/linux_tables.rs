@@ -21,7 +21,7 @@ fn main() {
                     std::process::exit(1);
                 }
             },
-            Some("sound") => print!("{}", t::no_device_sound_table()),
+            Some("sound") => print!("{}", engine_platform::dsound::fixed_table(false)),
             _ => {
                 eprintln!("usage: linux_tables adapter|sound");
                 std::process::exit(2);

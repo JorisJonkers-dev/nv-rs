@@ -33,9 +33,11 @@ fork-log
 fork-memlog
 fork-presence
 fork-window
+fomod
 fos
 frame-model
 game-folders
+game-profile
 host
 jip
 mcm

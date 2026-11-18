@@ -55,6 +55,10 @@ windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Di
 [target.'cfg(target_os = "macos")'.dependencies]
 cpal = "0.18.2"
 
+# macOS: the CAMetalLayer of upstream's winit window layer (d3d9real/winit_window.rs), which this
+# build does not compile (the window layer off Windows is fork_d3d9rec.rs), so raw-window-metal and
+# xkbcommon-dl are left out too.
+
 # The tests of the C runtime's stdio that moved here (crt_stdio_tests.rs) and of the process side
 # use the core's addresses and helpers behind this feature.
 [dev-dependencies]

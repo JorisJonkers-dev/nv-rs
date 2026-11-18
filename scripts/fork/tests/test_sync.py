@@ -291,6 +291,19 @@ class VerifySync(unittest.TestCase):
         self.fx.on("fork", {".github/workflows/ci.yml": "fork ci\n"}, "own ci")
         self.assertEqual(self.verify().returncode, 0)
 
+    def test_a_fork_only_file_missing_from_the_overlay_fails(self):
+        self.fx.on("fork", {"crates/fork-new/lib.rs": "fork\n", ".github/workflows/fork-x.yml": "x\n"}, "new crate")
+        res = self.verify()
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("missing from .fork/overlay-paths", res.stderr)
+        self.assertIn("crates/fork-new/lib.rs", res.stderr)
+        self.assertNotIn("fork-x.yml", res.stderr)
+
+    def test_a_fork_only_folder_listed_in_the_overlay_passes(self):
+        self.fx.on("fork", {"crates/fork-new/lib.rs": "fork\n", ".fork/overlay-paths": "# fork-only\n.fork/\nFORK.md\nshared.txt\ncrates/fork-new/\n"}, "listed")
+        res = self.verify()
+        self.assertEqual(res.returncode, 0, res.stderr)
+
 
 class CapabilitiesDiff(unittest.TestCase):
     def doc(self, names, total):

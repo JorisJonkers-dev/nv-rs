@@ -423,9 +423,12 @@ dependencies = [
  "fork-log",
  "fork-window",
  "naga",
+ "objc2-quartz-core 0.3.2",
  "qos",
  "raw-window-handle",
+ "raw-window-metal",
  "wgpu",
+ "winit",
 ]
 
 [[package]]
@@ -921,6 +924,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "fomod"
+version = "0.1.0"
+
+[[package]]
 name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1016,6 +1023,10 @@ dependencies = [
 
 [[package]]
 name = "game-folders"
+version = "0.1.0"
+
+[[package]]
+name = "game-profile"
 version = "0.1.0"
 
 [[package]]
@@ -1127,6 +1138,7 @@ dependencies = [
  "fork-hitch",
  "fork-log",
  "game-folders",
+ "game-profile",
  "jg",
  "jip",
  "mcm",

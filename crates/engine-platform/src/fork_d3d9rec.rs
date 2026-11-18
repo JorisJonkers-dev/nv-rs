@@ -120,6 +120,34 @@ pub fn window_titled(_e: &mut Engine, _handle: u32, _title: &[u8]) {}
 /// `SetWindowPos`: the real window keeps the size it was made with: the borderless window covers the chosen monitor and the swap chain follows it (docs/fork/LINUX.md, "Display match").
 pub fn window_moved(_e: &mut Engine, _handle: u32, _rect: [i32; 4], _flags: u32) {}
 
+/// `d3d9real::run_on_main_thread` (macOS's viewer): fork-window needs no main thread, so `game`
+/// runs here and the process ends when it returns.
+pub fn run_on_main_thread(game: Box<dyn FnOnce() + Send>) -> ! {
+    game();
+    crate::end_process(0)
+}
+
+/// The monitors for upstream's display part of the machine table (`machine_table::this_display`):
+/// the one fork-window chose (`fork_window::display`), at its current mode. The host does not ask
+/// for that part (the fork's adapter table answers the display), so this is for other callers.
+pub fn monitors() -> Result<Vec<crate::machine_table::Monitor>, String> {
+    let d = fork_window::display().ok_or("fork-window found no display")?;
+    let m = d.monitor;
+    let rate = (m.refresh_mhz != 0).then_some(m.refresh_mhz);
+    Ok(vec![crate::machine_table::Monitor {
+        size: (m.width, m.height),
+        scale: 1.0,
+        refresh_millihertz: rate,
+        modes: vec![crate::machine_table::Mode {
+            width: m.width,
+            height: m.height,
+            bit_depth: 32,
+            refresh_millihertz: m.refresh_mhz,
+        }],
+        primary: true,
+    }])
+}
+
 /// The wgpu backend, off screen, on the stream `which` names: the real Direct3D 9 is not there,
 /// so `real` and `real,wgpu` draw on wgpu too (a line says so). With the render thread, the
 /// occlusion counts are posted for the game's side to read without waiting

@@ -1,13 +1,15 @@
 //! The platform's answers off Windows (fork-owned; `docs/fork/LINUX.md`): what the game asks the
 //! machine that Windows answers and a Unix machine answers differently.
 //!
-//! Every function here is built on every target so its tests run everywhere, but the hooks in the
-//! upstream-owned files call them only under `cfg(unix)` (`files.rs`), except
-//! [`data_dir`], whose Windows arm is the `%LOCALAPPDATA%` lookup the call sites made before.
-//! Nothing on Windows takes another path than it took.
+//! Every function here is built on every target so its tests run everywhere. The folders are the
+//! ones the upstream-owned files ask for ([`data_dir`], whose Windows arm is the `%LOCALAPPDATA%`
+//! lookup the call sites made before, and [`known_folders`]); nothing on Windows takes another
+//! path than it took.
 //!
 //! - File times: [`filetime`] turns a Unix time into a `FILETIME`; [`find_fields`] gives the
-//!   attributes and the three times of a `WIN32_FIND_DATAA` from the file's own metadata. The
+//!   attributes and the three times of a `WIN32_FIND_DATAA` from the file's own metadata. No
+//!   upstream file calls them since upstream's `files.rs` gives the times itself
+//!   (slaterain/nv-rs#633); they stay for the fork's own tests and tools. The
 //!   birth time is the file system's (`statx` with `STATX_BTIME`, as the standard library asks
 //!   for it); on a file system that keeps none, [`creation`] answers the older of the last write
 //!   and the last status change, the oldest time the file system recorded.

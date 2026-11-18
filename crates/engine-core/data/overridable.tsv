@@ -17,7 +17,7 @@
 00493800	0	kNVSE
 004a0370	1	NVTF
 004a03c0	1	NVTF
-004ab400	1	JIP
+004ab400	0	JIP
 004b5d10	2	nv-rs thread races
 004bd570	2	ITR
 004bd820	1	JIP
@@ -74,7 +74,7 @@
 0071d0a0	1	nv-rs thread races
 0077a480	0	JIP
 007838a0	1	nv-rs mod fit worn question
-0078ac60	2	JIP
+0078ac60	0	JIP
 007acb60	0	nv-rs facial hair by race folder
 007adce0	0	nv-rs facial hair by race folder
 007b4b50	1	nv-rs facial hair by race folder

@@ -19,9 +19,15 @@
 //!   scene.
 //! - `sun_shadow`: sun shadows (port-added, off by default): cascaded shadow maps from the game's
 //!   own opaque draws, shown by a full-screen step.
+//! - `bright`: the HDR watch (a diagnostic, read only): the game's float targets checked for
+//!   pixels that are not finite, lone bright dots and jumps of the luminance targets.
 
 mod ahead;
 mod answers;
+// Used off Windows only; its tests run everywhere.
+#[cfg_attr(windows, allow(dead_code))]
+mod bitmap_font;
+pub mod bright;
 mod budget;
 mod cache;
 pub mod device;
@@ -57,6 +63,7 @@ pub use answers::{Answer, QueryAnswers};
 use d3d9_stream::{Backend, Cmd, Data, Handle, Reply};
 pub use device::{device_lost, hardware_adapter, Output};
 pub use window::window_changed;
+pub use window::NoFrame;
 #[cfg(not(windows))]
 pub use window::{register_window, GameWindow};
 
@@ -396,6 +403,10 @@ impl Backend for WgpuBackend {
             // The sun shadows' camera and frame at the scene's clear, for this frame's lit draws.
             Cmd::SetTransform { state, matrix, .. } if state == sun_shadow::VIEW_STATE => {
                 d.sun_begin_view(&matrix.to_words());
+            }
+            // The world the camera is in, before them: a new one forgets the casters kept.
+            Cmd::SetTransform { state, matrix, .. } if state == sun_shadow::WORLD_STATE => {
+                d.sun_world(&matrix.to_words());
             }
             Cmd::SetTransform { state, matrix, .. } if state == sun_shadow::BEGIN_STATE => {
                 d.sun_lookup(&matrix.to_words());

@@ -19,10 +19,6 @@ use super::{KernelObject, Opaque};
 use crate::{Engine, Ptr};
 use std::collections::BTreeMap;
 
-// Fork: a name relative to a host folder found without case off Windows (the mod files folder).
-mod files_host;
-pub use files_host::host_path_in;
-
 /// `GENERIC_READ` and `GENERIC_WRITE` (the access mask's top bits).
 pub const GENERIC_READ: u32 = 0x8000_0000;
 pub const GENERIC_WRITE: u32 = 0x4000_0000;
@@ -107,8 +103,9 @@ pub struct Entry {
     /// The name as the directory stores it: in the case of the call that made it or renamed it
     /// there.
     pub name: String,
-    /// Its 8.3 short name, empty for a name that needs none ([`short_name`]); `None` where it
-    /// could not be made as Windows makes it (writing it stops the run).
+    /// Its 8.3 short name, empty for a name that needs none or on a file system without 8.3 names
+    /// (every one off Windows, [`short_name`]); `None` on Windows where it could not be made as
+    /// Windows makes it (writing it stops the run there; elsewhere it is written empty).
     pub short: Option<String>,
     /// `FILE_ATTRIBUTE_*`.
     pub attributes: u32,
@@ -366,10 +363,65 @@ fn real_path(path: &[u8]) -> std::path::PathBuf {
 }
 
 /// Off Windows: the path's text as Windows' `real_path` reads it (each part UTF-8 or code page
-/// bytes), then this system's path ([`super::host_paths::host_path`]).
+/// bytes), then this system's path ([`super::host_paths::host_path`]). A part outside ASCII that
+/// reads as UTF-8 and is not in its folder under that reading is read as code page bytes when
+/// that reading is (part by part, so the install folder's own UTF-8 name stays as it is): a name
+/// the game was given by a listing in the code page whose bytes also read as UTF-8 (the file
+/// `CafÃ©.esp` is listed as `43 61 66 C3 A9 2E ...`, which as UTF-8 is `Café.esp`) opens.
 #[cfg(not(windows))]
 fn real_path(path: &[u8]) -> std::path::PathBuf {
-    super::host_paths::host_path(&game_text(path))
+    super::host_paths::host_path(&chosen_text(path, &|text| {
+        std::fs::symlink_metadata(super::host_paths::host_path(text)).is_ok()
+    }))
+}
+
+/// The text of the game's path `path` with each part read as [`real_path`] reads it: ASCII as it
+/// is; a part that is not UTF-8 as code page bytes; a part outside ASCII that is UTF-8 as UTF-8,
+/// unless the path up to it is not there (`exists`) under that reading and is under the code
+/// page's reading.
+#[cfg(not(windows))]
+fn chosen_text(path: &[u8], exists: &dyn Fn(&str) -> bool) -> String {
+    if path.is_ascii() {
+        return game_text(path);
+    }
+    let mut text = String::with_capacity(path.len());
+    let mut start = 0;
+    let cuts = separators(path);
+    for end in cuts.iter().map(|&at| at + 1).chain([path.len()]) {
+        let part = &path[start..end];
+        start = end;
+        let as_code_page = String::from_utf16_lossy(&code_page::to_wide(part));
+        match std::str::from_utf8(part) {
+            Ok(utf8) if !part.is_ascii() && utf8 != as_code_page => {
+                let so_far = |reading: &str| {
+                    let whole = format!("{text}{reading}");
+                    exists(whole.trim_end_matches(['\\', '/']))
+                };
+                if !so_far(utf8) && so_far(&as_code_page) {
+                    text.push_str(&as_code_page);
+                } else {
+                    text.push_str(utf8);
+                }
+            }
+            Ok(utf8) => text.push_str(utf8),
+            Err(_) => text.push_str(&as_code_page),
+        }
+    }
+    text
+}
+
+/// Off Windows: the game's relative name `rel` under this system's folder `folder` (the mod files
+/// folder, `super::mod_files`), each part found there without case
+/// ([`super::host_paths::host_path_under`]) and read as [`real_path`] reads it, the readings
+/// looked for under `folder` only (never in the process's current folder).
+#[cfg(not(windows))]
+pub fn host_path_in(folder: &std::path::Path, rel: &[u8]) -> std::path::PathBuf {
+    let under = |text: &str| {
+        super::host_paths::host_path_under(folder, &super::host_paths::host_path(text))
+    };
+    under(&chosen_text(rel, &|text| {
+        std::fs::symlink_metadata(under(text)).is_ok()
+    }))
 }
 
 /// The text of the game's path `path` as [`real_path`] reads it: ASCII as it is; else each part
@@ -397,7 +449,9 @@ fn game_text(path: &[u8]) -> String {
 /// ([`super::host_paths::host_folders`]: folders whose names differ only in case).
 #[cfg(not(windows))]
 fn real_folders(path: &[u8]) -> Vec<std::path::PathBuf> {
-    super::host_paths::host_folders(&game_text(path))
+    super::host_paths::host_folders(&chosen_text(path, &|text| {
+        std::fs::symlink_metadata(super::host_paths::host_path(text)).is_ok()
+    }))
 }
 
 /// The ANSI code page the game's `...A` calls turn names with: on Windows the system's
@@ -573,85 +627,26 @@ mod code_page {
 
     /// Off Windows the game's code page is 1252, Windows' Western page: Wine's for a Unix locale
     /// of English or none (Wine 11.22, `dlls/ntdll/unix/env.c` `unix_to_win_locale`, lines
-    /// 638-660: `C` and `POSIX` are `en-US`, whose ANSI page is 1252). Other pages are not
-    /// provided. Both directions are Windows' own, measured (`cp1252_measured.tsv`: every byte
+    /// 638-660: `C` and `POSIX` are `en-US`, whose ANSI page is 1252), unless `NV_CODE_PAGE`
+    /// names 1250 or 1251 (`crate::code_page`, measured the same way). Both directions are Windows' own, measured (`cp1252_measured.tsv`: every byte
     /// above 0x7F as `MultiByteToWideChar` turns it, and every character `WideCharToMultiByte`
     /// gives a byte for, its best fit included; any other is `?`), so a name the listing gives
     /// opens by the same bytes, as on Windows.
     #[cfg(not(windows))]
     mod system {
-        pub use super::cp1252::{to_ansi, to_wide};
-
-        /// 1252 is a single-byte page.
-        pub fn char_len(_: &[u8]) -> usize {
-            1
-        }
-    }
-
-    /// Code page 1252 by Windows' measured tables (off Windows the game's page, [`system`];
-    /// on Windows compiled for the test that holds it against Windows' own conversion).
-    #[cfg(any(not(windows), test))]
-    pub mod cp1252 {
-        use std::collections::HashMap;
-
-        /// The measured table: byte 0x80..0xFF to its unit, and unit to byte.
-        struct Tables {
-            wide: [u16; 128],
-            ansi: HashMap<u16, u8>,
-        }
-
-        fn tables() -> &'static Tables {
-            static TABLES: std::sync::OnceLock<Tables> = std::sync::OnceLock::new();
-            TABLES.get_or_init(|| {
-                let mut t = Tables {
-                    wide: [0; 128],
-                    ansi: HashMap::new(),
-                };
-                for line in include_str!("cp1252_measured.tsv").lines() {
-                    let mut cols = line.split('\t');
-                    let (Some(kind), Some(a), Some(b)) = (cols.next(), cols.next(), cols.next())
-                    else {
-                        continue;
-                    };
-                    let hex = |s: &str| u32::from_str_radix(s, 16).expect("the table's hex");
-                    match kind {
-                        "w" => t.wide[hex(a) as usize - 0x80] = hex(b) as u16,
-                        "a" => {
-                            t.ansi.insert(hex(a) as u16, hex(b) as u8);
-                        }
-                        _ => {}
-                    }
-                }
-                t
-            })
-        }
-
+        /// The game's page (`crate::code_page::game_page`: 1252 unless `NV_CODE_PAGE` names 1250
+        /// or 1251), by the same measured tables.
         pub fn to_wide(bytes: &[u8]) -> Vec<u16> {
-            let t = tables();
-            bytes
-                .iter()
-                .map(|&b| {
-                    if b < 0x80 {
-                        u16::from(b)
-                    } else {
-                        t.wide[usize::from(b - 0x80)]
-                    }
-                })
-                .collect()
+            crate::code_page::game_page().to_wide(bytes)
         }
 
         pub fn to_ansi(units: &[u16]) -> Vec<u8> {
-            let t = tables();
-            char::decode_utf16(units.iter().copied())
-                .map(|c| match c.map(u32::from) {
-                    Ok(c) if c < 0x80 => c as u8,
-                    Ok(c) => u16::try_from(c)
-                        .ok()
-                        .and_then(|u| t.ansi.get(&u).copied())
-                        .unwrap_or(b'?'),
-                    Err(_) => b'?',
-                })
-                .collect()
+            crate::code_page::game_page().to_ansi(units)
+        }
+
+        /// The provided pages are single-byte pages.
+        pub fn char_len(_: &[u8]) -> usize {
+            1
         }
     }
 
@@ -663,6 +658,23 @@ mod code_page {
             0xe0..=0xef => 3,
             0xf0..=0xf7 => 4,
             _ => 1,
+        }
+    }
+
+    /// Code page 1252 by Windows' measured tables (`crate::code_page`), for the tests that hold
+    /// it against Windows' own conversion and against names off Windows.
+    #[cfg(test)]
+    pub mod cp1252 {
+        fn page() -> &'static crate::code_page::Page {
+            crate::code_page::page(1252).expect("provided")
+        }
+
+        pub fn to_wide(bytes: &[u8]) -> Vec<u16> {
+            page().to_wide(bytes)
+        }
+
+        pub fn to_ansi(units: &[u16]) -> Vec<u8> {
+            page().to_ansi(units)
         }
     }
 }
@@ -1360,9 +1372,65 @@ fn host_units(name: &std::ffi::OsStr) -> Vec<u16> {
         use std::os::windows::ffi::OsStrExt;
         name.encode_wide().collect()
     }
-    #[cfg(not(windows))]
+    // macOS: composed (NFC), as Wine does there: names often come decomposed (NFD, a letter
+    // and a combining accent, as macOS's archives and older file systems store them), which no
+    // code page holds as one character. Linux: as stored, as Wine leaves them there (a
+    // decomposed accent is then a character the code page lacks, `?`).
+    #[cfg(target_vendor = "apple")]
+    {
+        composed(&name.to_string_lossy().encode_utf16().collect::<Vec<u16>>())
+    }
+    #[cfg(all(not(windows), not(target_vendor = "apple")))]
     {
         name.to_string_lossy().encode_utf16().collect()
+    }
+}
+
+/// `units` in Unicode's composed form (NFC), by Core Foundation's `CFStringNormalize`; ASCII
+/// as it is.
+#[cfg(target_vendor = "apple")]
+pub(crate) fn composed(units: &[u16]) -> Vec<u16> {
+    use std::ffi::c_void;
+    #[repr(C)]
+    struct CfRange {
+        location: isize,
+        length: isize,
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFStringCreateMutable(alloc: *const c_void, max_length: isize) -> *mut c_void;
+        fn CFStringAppendCharacters(s: *mut c_void, chars: *const u16, count: isize);
+        fn CFStringNormalize(s: *mut c_void, form: isize);
+        fn CFStringGetLength(s: *const c_void) -> isize;
+        fn CFStringGetCharacters(s: *const c_void, range: CfRange, buffer: *mut u16);
+        fn CFRelease(cf: *const c_void);
+    }
+    /// `kCFStringNormalizationFormC`.
+    const FORM_C: isize = 2;
+    if units.iter().all(|&u| u < 0x80) {
+        return units.to_vec();
+    }
+    // SAFETY: a mutable string of our own, filled from `units` (its length given), normalised,
+    // read back into a buffer of its length, then released; nothing else holds it.
+    unsafe {
+        let s = CFStringCreateMutable(std::ptr::null(), 0);
+        if s.is_null() {
+            return units.to_vec();
+        }
+        CFStringAppendCharacters(s, units.as_ptr(), units.len() as isize);
+        CFStringNormalize(s, FORM_C);
+        let length = CFStringGetLength(s);
+        let mut out = vec![0u16; length.max(0) as usize];
+        CFStringGetCharacters(
+            s,
+            CfRange {
+                location: 0,
+                length,
+            },
+            out.as_mut_ptr(),
+        );
+        CFRelease(s);
+        out
     }
 }
 
@@ -1403,24 +1471,8 @@ fn write_find_data(
     };
     #[cfg(not(windows))]
     let (attributes, created, accessed, written): (u32, u64, u64, u64) = {
-        let time = |what: &str, t: std::io::Result<std::time::SystemTime>| {
-            filetime(t.unwrap_or_else(|err| {
-                panic!(
-                    "FindFirstFileA(\"{shown}\"): the file system gives no {what} time ({err}); \
-                     not provided"
-                )
-            }))
-        };
-        (
-            if meta.is_dir() {
-                FILE_ATTRIBUTE_DIRECTORY
-            } else {
-                FILE_ATTRIBUTE_ARCHIVE
-            },
-            time("creation", creation_time(meta.created(), meta.modified())),
-            time("last-access", meta.accessed()),
-            time("last-write", meta.modified()),
-        )
+        let l = listed_from(meta, false, shown);
+        (l.attributes, l.created, l.accessed, l.written)
     };
     let d = data.addr();
     e.mem.set_u32(d, attributes);
@@ -1434,6 +1486,42 @@ fn write_find_data(
     e.mem.set_u32(d + 0x24, 0);
     e.mem.set_u32(d + 0x28, 0);
     write_names(e, d, &ansi_bytes(stored), b"")
+}
+
+/// Off Windows, an entry as a search lists it, from its metadata `meta` (a link's: what it links
+/// to, [`followed`]): the attributes there (a directory, else `ARCHIVE`; a link to a folder also
+/// `FILE_ATTRIBUTE_REPARSE_POINT`, as Wine gives it), the system's creation, last-access and
+/// last-write times as `FILETIME`s ([`filetime`], [`creation_time`]), the size, no reparse tag.
+/// A time the file system does not keep is 0 ([`known_or_zero`]); nothing stops.
+#[cfg(not(windows))]
+fn listed_from(meta: &std::fs::Metadata, link_to_folder: bool, shown: &str) -> Listed {
+    let _ = shown;
+    let time = |_what: &str, t: std::io::Result<std::time::SystemTime>| known_or_zero(t);
+    let mut attributes = if meta.is_dir() {
+        FILE_ATTRIBUTE_DIRECTORY
+    } else {
+        FILE_ATTRIBUTE_ARCHIVE
+    };
+    if link_to_folder {
+        attributes |= FILE_ATTRIBUTE_REPARSE_POINT;
+    }
+    Listed {
+        attributes,
+        size: meta.len(),
+        created: time("creation", creation_time(meta.created(), meta.modified())),
+        accessed: time("last-access", meta.accessed()),
+        written: time("last-write", meta.modified()),
+        tag: 0,
+    }
+}
+
+/// A time the file system gives as `FILETIME` ([`filetime`]), or 0 where it keeps none (Windows
+/// answers 0 for a time a volume does not keep, as FAT's creation time on media that never set
+/// one); no stop. Linux and macOS give the last-write and last-access times for every entry, so
+/// this is a guard, not a path the game's files take.
+#[cfg(any(not(windows), test))]
+fn known_or_zero(t: std::io::Result<std::time::SystemTime>) -> u64 {
+    t.map_or(0, filetime)
 }
 
 /// An entry's creation time off Windows: the system's own (`created`) when its file system keeps
@@ -1494,8 +1582,9 @@ mod tests_cp1252 {
         assert_eq!(to_ansi(&units("\u{416}uk.txt")), b"?uk.txt");
         assert_eq!(to_ansi(&units("\u{65e5}\u{672c}.txt")), b"??.txt");
         assert_eq!(to_ansi(&units("Caf\u{e9}.esp")), b"Caf\xe9.esp");
-        // A character outside the first 65,536 (two units) is one `?`; a lone half too.
-        assert_eq!(to_ansi(&units("\u{1f600}x")), b"?x");
+        // A character outside the first 65,536 (two units) is two `?`, as Windows gives it
+        // (`code_page::tests::the_tables_are_windows_own`); a lone half one.
+        assert_eq!(to_ansi(&units("\u{1f600}x")), b"??x");
         assert_eq!(to_ansi(&[0xd800, 0x78]), b"?x");
     }
 
@@ -1643,22 +1732,12 @@ fn write_names(e: &mut Engine, d: u32, name: &[u8], short: &[u8]) -> Result<(), 
 /// Writes the `WIN32_FIND_DATAA` at `data` for an entry of this run as [`write_find_data`] writes
 /// one, with its short name in `cAlternateFileName` (+0x130) and a zero byte; the rest of the
 /// buffer is left as it was (measured: the bytes after the name's terminator stayed 0xAA,
-/// `findfile-changed/findfile-2026-11-03.txt` 8). A short name that could not be made as Windows
-/// makes it ([`short_name`]) stops the run.
+/// `findfile-changed/findfile-2026-11-03.txt` 8). On Windows a short name that could not be made
+/// as Windows makes it ([`short_name`]) stops the run; elsewhere there are no short names
+/// ([`short_name_off_windows`]): `cAlternateFileName` is empty and nothing stops.
 fn write_entry(e: &mut Engine, data: Ptr, entry: &Entry, shown: &str) -> Result<(), u32> {
-    let _ = shown;
-    // Off Windows the host keeps no short names (as a volume without 8.3 names): empty.
-    #[cfg(not(windows))]
-    let short = entry.short.as_deref().unwrap_or("");
-    #[cfg(windows)]
-    let Some(short) = &entry.short
-    else {
-        panic!(
-            "FindFirstFileA(\"{shown}\"): the 8.3 short name of \"{}\", made in this run, is not \
-             provided",
-            entry.name
-        );
-    };
+    let short = alternate_name(entry, shown);
+    let short = &short;
     let d = data.addr();
     e.mem.set_u32(d, entry.attributes);
     for (offset, time) in [
@@ -1674,6 +1753,26 @@ fn write_entry(e: &mut Engine, data: Ptr, entry: &Entry, shown: &str) -> Result<
     e.mem.set_u32(d + 0x24, 0);
     e.mem.set_u32(d + 0x28, 0);
     write_names(e, d, &ansi_bytes(&entry.name), &ansi_bytes(short))
+}
+
+/// The `cAlternateFileName` a search answers for an entry of this run: its short name; one that
+/// is not known stops the run on Windows (not provided) and is empty elsewhere, where the file
+/// system keeps no 8.3 names.
+fn alternate_name(entry: &Entry, shown: &str) -> String {
+    match &entry.short {
+        Some(short) => short.clone(),
+        #[cfg(not(windows))]
+        None => {
+            let _ = shown;
+            String::new()
+        }
+        #[cfg(windows)]
+        None => panic!(
+            "FindFirstFileA(\"{shown}\"): the 8.3 short name of \"{}\", made in this run, is not \
+             provided",
+            entry.name
+        ),
+    }
 }
 
 /// `ERROR_NO_MORE_FILES`.
@@ -1775,7 +1874,8 @@ fn soft_find(e: &mut Engine, call: &str, shown: &str, why: &str) -> Option<u32> 
 
 /// The directory entry of the file at the full path `path` now: the run's ([`Disk::entries`]),
 /// else the player's as the disk keeps it ([`player_entry`]); `None` for a file of the run
-/// without one, or a player's file elsewhere than on Windows (times not provided there).
+/// without one (a copy), or a player's file that is not there (gone, or off Windows a link whose
+/// target is gone).
 fn entry_of(e: &Engine, path: &[u8]) -> Option<Entry> {
     let k = key(path);
     if state_ref!(e).disk.files.contains_key(&k) {
@@ -1857,6 +1957,7 @@ fn wild_units(pattern: &[u16], name: &[u16]) -> bool {
 /// the extension of that short name: the first three characters of its last extension, upper
 /// case, with spaces left out (`d.esmx` is `D6104~1.ESM`, measured). The rest of a short name is
 /// a hash Windows makes (for a name made in this run: [`short_name`]).
+#[cfg(any(windows, test))]
 fn short_extension(name: &str) -> Option<String> {
     let dots = name.matches('.').count();
     let (base, extension) = match name.rfind('.') {
@@ -1878,21 +1979,61 @@ fn short_extension(name: &str) -> Option<String> {
     )
 }
 
-/// Whether a search pattern finds `name`: its long name, or its 8.3 short name where the parts
-/// of it that are known decide (measured: `*.esm` finds `d.esmx` through `D6104~1.ESM`, not
-/// `c.esm.bak`; `?.esm` does not find `a b.esm`, `ABE286~1.ESM`). A short name is its
-/// extension ([`short_extension`]), then a base of at least three characters (`X~1`) whose
-/// first two characters are the long name's first two other than a space or a dot, upper case (the
-/// rest may be a hash Windows makes: `D6104~1`). A pattern the known parts cannot decide stops the
-/// run as not provided.
+/// Whether a search pattern finds `name`. On Windows the measured matcher of a volume that keeps
+/// 8.3 short names ([`search_finds_with_short_names`]: the default for a Windows system drive).
+/// Elsewhere its long name only ([`search_finds_long_names`]): a Linux or macOS file system
+/// keeps no short names, so a search answers as Windows answers one on a volume where 8.3 name
+/// creation is turned off (`fsutil 8dot3name set`, an ordinary Windows setting per volume), where
+/// only long names are matched. This
+/// never stops the run off Windows (the first Linux start stopped on `ClassicPack*.bsa` over
+/// `CaravanPack - Main.bsa`, 2026-11-17).
 fn search_finds(pattern: &[u8], name: &str, shown: &str) -> bool {
+    #[cfg(windows)]
+    {
+        search_finds_with_short_names(pattern, name, shown)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = shown;
+        search_finds_long_names(pattern, name)
+    }
+}
+
+/// Whether a search pattern finds `name` by its long name alone ([`wild_match`], the measured
+/// matcher), as on a volume without 8.3 short names ([`search_finds`]), with the two rewrites
+/// Windows' search makes of a pattern before matching (kernelbase turns them into its DOS
+/// wildcards; on Windows the port's listing is Windows' own, so this is for other systems): a
+/// pattern of exactly `*.*` is `*` (it also finds a name with no dot), and a pattern ending in a
+/// dot finds a name with no extension (`readme.` finds `readme`; `*.` finds only names with no
+/// dot).
+#[cfg(any(not(windows), test))]
+fn search_finds_long_names(pattern: &[u8], name: &str) -> bool {
+    let bytes = ansi_bytes(name);
+    if pattern == b"*.*" {
+        return wild_match(b"*", &bytes);
+    }
+    match pattern.strip_suffix(b".") {
+        Some(stem) if !stem.is_empty() && !stem.iter().all(|&b| b == b'.') => {
+            let no_dot = !bytes.contains(&b'.');
+            (wild_match(stem, &bytes) && (no_dot || !stem.contains(&b'*')))
+                || wild_match(pattern, &bytes)
+        }
+        _ => wild_match(pattern, &bytes),
+    }
+}
+
+/// Whether a search pattern finds `name` on a volume that keeps 8.3 short names: its long name,
+/// or its short name where the parts of it that are known decide (measured on Windows: `*.esm`
+/// finds `d.esmx` through `D6104~1.ESM`, not `c.esm.bak`; `?.esm` does not find `a b.esm`,
+/// `ABE286~1.ESM`). A short name is its extension ([`short_extension`]), then a base of at least
+/// three characters (`X~1`) whose first two characters are the long name's first two other than a
+/// space or a dot, upper case (the rest may be a hash Windows makes: `D6104~1`). A pattern the
+/// known parts cannot decide stops the run as not provided: on Windows only the game's own files
+/// of this run reach it (the player's files are listed by Windows' own search, [`listing`]).
+#[cfg(any(windows, test))]
+fn search_finds_with_short_names(pattern: &[u8], name: &str, shown: &str) -> bool {
     if wild_match(pattern, &ansi_bytes(name)) {
         return true;
-    }
-    // Off Windows the host keeps no 8.3 short names, as a Windows volume with their generation
-    // off: only the long name is matched.
-    if cfg!(not(windows)) {
-        return false;
     }
     if name == "." || name == ".." {
         return false;
@@ -2007,13 +2148,22 @@ fn find_first_wild(e: &mut Engine, text: &[u8], data: Ptr) -> u32 {
             )),
             _ => None,
         };
+        // On Windows (NTFS) a folder's times move with the game's changes inside it, which the
+        // run does not model: a stop. Elsewhere the folder is answered with the times its file
+        // system keeps, as a Windows volume that does not update a folder's times for changes
+        // inside it (FAT) answers it: no stop.
         if let Some(why) = why {
-            let why = format!("{why} is not provided");
-            if fork_log::soft_stop("files", "FindFirstFileA", format_args!("{shown}: {why}")) {
-                e.kernel.last_error = ERROR_FILE_NOT_FOUND;
-                return INVALID_HANDLE_VALUE;
+            #[cfg(windows)]
+            {
+                let why = format!("{why} is not provided");
+                if fork_log::soft_stop("files", "FindFirstFileA", format_args!("{shown}: {why}")) {
+                    e.kernel.last_error = ERROR_FILE_NOT_FOUND;
+                    return INVALID_HANDLE_VALUE;
+                }
+                panic!("FindFirstFileA(\"{shown}\"): {why}");
             }
-            panic!("FindFirstFileA(\"{shown}\"): {why}");
+            #[cfg(not(windows))]
+            let _ = why;
         }
         found.push(item);
     }
@@ -2325,8 +2475,8 @@ fn host_search(query: &std::path::Path, _shown: &str) -> Result<Vec<HostEntry>, 
 /// 8.3 short names and the order are the file system's (measured on scratch files,
 /// `build43-scratch/measure/findfile-2026-10-23.txt`: upper-case byte order, `.` and `..`, `?`
 /// matching nothing before a dot or at the end, `*.esm` finding `d.esmx` by `D6104~1.ESM`).
-/// Other systems run the measured matcher ([`search_finds`], the other `listing`), which stops
-/// on short names it cannot decide.
+/// Other systems run the measured matcher on long names only ([`search_finds`], the other
+/// `listing`): their file systems keep no short names.
 #[cfg(windows)]
 fn listing(directory: &std::path::Path, pattern: &[u8], shown: &str) -> Result<Vec<Found>, u32> {
     let query = directory.join(real_path(pattern));
@@ -2439,7 +2589,7 @@ fn listing_of(
             }
             // A link is described by what it links to ([`followed`]); one whose target is gone
             // is left out, as Wine leaves it out.
-            let Ok((target, _)) = followed(&entry.path()) else {
+            let Ok((target, link_to_folder)) = followed(&entry.path()) else {
                 continue;
             };
             let units = host_units(&entry.file_name());
@@ -2449,13 +2599,16 @@ fn listing_of(
             }
             names_here.push(key);
             let name = host_name_text(&entry.file_name());
+            // What the listing saw is kept (as Windows' search answers it), so that a later
+            // `FindNextFileA` describes the entry without a second look: one that went away
+            // since is still answered, and the game's loop goes on.
             if search_finds(pattern, &name, shown) {
                 found.push(Found::Disk {
                     path: entry.path(),
                     directory: target.is_dir(),
                     name,
                     short: String::new(),
-                    listed: None,
+                    listed: Some(listed_from(&target, link_to_folder, shown)),
                 });
             }
         }
@@ -2494,7 +2647,8 @@ fn listing_of(
 /// The directory entry of the player's file at the full path `path` as the disk keeps it (its
 /// name as stored, short name, attributes, size and times: the host's own search of that name,
 /// [`host_search`]), for a file the game takes into the run, renames or deletes; `None` when
-/// there is none (elsewhere than on Windows also when the file system keeps none of its times).
+/// there is none (off Windows also a link whose target is gone; a time the file system does not
+/// keep is 0, [`known_or_zero`]).
 fn player_entry(path: &[u8]) -> Option<Entry> {
     #[cfg(windows)]
     {
@@ -2519,7 +2673,8 @@ fn player_entry(path: &[u8]) -> Option<Entry> {
         let real = real_path(path);
         // A link by what it links to, as the listing describes it ([`followed`], as Wine).
         let (meta, link_to_folder) = followed(&real).ok()?;
-        let time = |t: std::io::Result<std::time::SystemTime>| t.ok().map(filetime);
+        // A time the file system does not keep is 0, as the listing gives it ([`known_or_zero`]).
+        let time = |t: std::io::Result<std::time::SystemTime>| Some(known_or_zero(t));
         // The name as the folder holds it (on a file system that ignores case, not the game's
         // spelling), as the search answers it.
         let name = match super::host_paths::stored_name(&real) {
@@ -2552,32 +2707,46 @@ fn player_entry(path: &[u8]) -> Option<Entry> {
 /// to `~4`, then the checksum names. Measured (`findfile-changed/findfile-2026-11-03.txt` 4,
 /// `gen-2026-11-03.tsv`): ntdll's names were NTFS's for all 25 long names measured with an
 /// extension of three characters or fewer; for a longer extension they differ (`d.esmx`: ntdll
-/// `D6104~1.ES~`, NTFS `D6104~1.ESM`), so such a name's short name is `None` (not provided), as
-/// it is elsewhere than on Windows.
+/// `D6104~1.ES~`, NTFS `D6104~1.ESM`), so on Windows such a name's short name is `None` (not
+/// provided).
+///
+/// Elsewhere than on Windows always empty ([`short_name_off_windows`]): Linux and macOS file
+/// systems keep no 8.3 names, as a Windows volume with 8.3 name creation turned off keeps none,
+/// so a file the game makes there has none and its search answers an empty `cAlternateFileName`
+/// (the first Linux save menu stopped on `quicksave.fos` here, 2026-11-17).
 fn short_name(e: &Engine, path: &[u8]) -> Option<String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (e, path);
+        short_name_off_windows()
+    }
+    #[cfg(windows)]
+    short_name_on_windows(e, path)
+}
+
+/// [`short_name`] on a volume without 8.3 names (every one off Windows): none, for every name.
+#[cfg(any(not(windows), test))]
+fn short_name_off_windows() -> Option<String> {
+    Some(String::new())
+}
+
+/// [`short_name`] on a Windows volume that makes 8.3 names (the system drive's default).
+#[cfg(windows)]
+fn short_name_on_windows(e: &Engine, path: &[u8]) -> Option<String> {
     let name = last_part(path);
     if short_extension(&name).is_none() {
         return Some(String::new());
     }
-    #[cfg(windows)]
-    {
-        let extension = name.rfind('.').map_or("", |at| &name[at + 1..]);
-        if extension.len() > 3 {
-            return None;
-        }
-        let cut = last_separator(path)?;
-        let taken = names_in(e, &path[..cut]);
-        let mut generator = ntdll::Generator::new(&name);
-        (0..1000)
-            .map(|_| generator.next())
-            .find(|short| !taken.contains(&short.to_ascii_uppercase()))
+    let extension = name.rfind('.').map_or("", |at| &name[at + 1..]);
+    if extension.len() > 3 {
+        return None;
     }
-    #[cfg(not(windows))]
-    {
-        // The host keeps no short names, as a Windows volume with their generation off.
-        let _ = e;
-        Some(String::new())
-    }
+    let cut = last_separator(path)?;
+    let taken = names_in(e, &path[..cut]);
+    let mut generator = ntdll::Generator::new(&name);
+    (0..1000)
+        .map(|_| generator.next())
+        .find(|short| !taken.contains(&short.to_ascii_uppercase()))
 }
 
 /// Every long and short name the directory at the full path `directory` holds now, upper case:
@@ -4430,11 +4599,12 @@ mod tests_player_files {
             let mut v: Vec<&str> = names
                 .iter()
                 .copied()
-                .filter(|n| search_finds(pattern, n, "test"))
+                .filter(|n| search_finds_with_short_names(pattern, n, "test"))
                 .collect();
             v.sort_by_key(|n| n.to_ascii_uppercase());
             v
         };
+        let search_finds = search_finds_with_short_names;
         assert_eq!(
             found(b"*.esm"),
             [
@@ -4498,6 +4668,203 @@ mod tests_player_files {
         assert_eq!(found(b"Abcdefg*.bsa"), spaced);
         assert_eq!(found(b"*.bsa"), spaced);
         assert!(search_finds(b"*", ".", "test") && !search_finds(b"*.bsa", "..", "test"));
+    }
+
+    /// The measured directory again, on a volume without short names (Linux and macOS, or a
+    /// Windows volume with 8.3 name creation off): only the long names match, so `*.esm` no
+    /// longer finds `d.esmx` (its `D6104~1.ESM` does not exist) and nothing stops the run.
+    #[test]
+    fn searches_without_short_names_match_long_names_only() {
+        let names = [
+            "A.esm",
+            "b.ESM",
+            "c.esm.bak",
+            "d.esmx",
+            "Z_long_name_file.esm",
+            "e.es",
+            "f.esp",
+            "a b.esm",
+            "g.esm",
+        ];
+        let found = |pattern: &[u8]| -> Vec<&str> {
+            names
+                .iter()
+                .copied()
+                .filter(|n| search_finds_long_names(pattern, n))
+                .collect()
+        };
+        assert_eq!(
+            found(b"*.esm"),
+            ["A.esm", "b.ESM", "Z_long_name_file.esm", "a b.esm", "g.esm"]
+        );
+        assert_eq!(
+            found(b"*.ES?"),
+            [
+                "A.esm",
+                "b.ESM",
+                "Z_long_name_file.esm",
+                "e.es",
+                "f.esp",
+                "a b.esm",
+                "g.esm"
+            ]
+        );
+        assert_eq!(found(b"?.esm"), ["A.esm", "b.ESM", "g.esm"]);
+        assert!(search_finds_long_names(b"*", "."));
+        assert!(!search_finds_long_names(b"*.esm", ".."));
+        // Windows' rewrites: `*.*` is `*`; a trailing dot finds a name with no extension.
+        assert!(search_finds_long_names(b"*.*", "README"));
+        assert!(search_finds_long_names(b"*.*", "A.esm"));
+        assert!(search_finds_long_names(b"README.", "readme"));
+        assert!(search_finds_long_names(b"*.", "README"));
+        assert!(!search_finds_long_names(b"*.", "A.esm"));
+        assert!(search_finds_long_names(b"A.esm.", "A.esm"));
+        // Off Windows the search is this one.
+        #[cfg(not(windows))]
+        for pattern in [&b"*.esm"[..], b"*.ES?", b"?.esm", b"x*.esm", b"*"] {
+            for name in names {
+                assert_eq!(
+                    search_finds(pattern, name, "test"),
+                    search_finds_long_names(pattern, name)
+                );
+            }
+        }
+    }
+
+    /// The game's Data folder of a default Steam install searched with the pre-order pack and
+    /// add-on archive patterns the game builds (`ClassicPack*.bsa` and the like, the first Linux
+    /// start's stop, 2026-11-17): exactly the long-name matches, never a stop. On a volume with
+    /// short names the same patterns stop the run (the measured matcher cannot tell
+    /// `CARAVA~1.BSA` from what `ClassicPack*` asks), so Windows lists the player's folder with
+    /// Windows' own search.
+    #[test]
+    fn the_data_folder_pack_searches_find_long_names_only() {
+        let data = [
+            "CaravanPack - Main.bsa",
+            "ClassicPack - Main.bsa",
+            "MercenaryPack - Main.bsa",
+            "TribalPack - Main.bsa",
+            "DeadMoney - Main.bsa",
+            "DeadMoney - Sounds.bsa",
+            "HonestHearts - Main.bsa",
+            "Fallout - Meshes.bsa",
+            "Fallout - Textures.bsa",
+            "Update.bsa",
+            "FalloutNV.esm",
+            "CaravanPack.esm",
+            "ClassicPack.esm",
+            "DeadMoney.esm",
+        ];
+        let found = |pattern: &[u8]| -> Vec<&str> {
+            data.iter()
+                .copied()
+                .filter(|n| search_finds_long_names(pattern, n))
+                .collect()
+        };
+        assert_eq!(found(b"ClassicPack*.bsa"), ["ClassicPack - Main.bsa"]);
+        assert_eq!(found(b"CaravanPack*.bsa"), ["CaravanPack - Main.bsa"]);
+        assert_eq!(found(b"MercenaryPack*.bsa"), ["MercenaryPack - Main.bsa"]);
+        assert_eq!(found(b"TribalPack*.bsa"), ["TribalPack - Main.bsa"]);
+        assert_eq!(
+            found(b"DeadMoney*.bsa"),
+            ["DeadMoney - Main.bsa", "DeadMoney - Sounds.bsa"]
+        );
+        assert_eq!(found(b"GunRunnersArsenal*.bsa"), Vec::<&str>::new());
+        assert_eq!(found(b"*.esm").len(), 4);
+        // The volume with short names: the case the first start stopped on. Fork: the first two
+        // letters of a short name rule it out (`CA` is not `CL`), so it no longer stops there;
+        // a pattern whose first two letters agree still does.
+        assert!(!search_finds_with_short_names(
+            b"ClassicPack*.bsa",
+            "CaravanPack - Main.bsa",
+            "test"
+        ));
+        let stopped = std::panic::catch_unwind(|| {
+            search_finds_with_short_names(b"CaravanPacx*.bsa", "CaravanPack - Main.bsa", "test")
+        });
+        assert!(stopped.is_err());
+    }
+
+    /// Linux and macOS: the same Data folder on the disk, searched through `FindFirstFileA` as
+    /// the game searches it: each pattern lists exactly its long-name matches, in NTFS's order.
+    #[cfg(not(windows))]
+    #[test]
+    fn the_data_folder_pack_searches_list_on_this_system() {
+        let dir = std::env::temp_dir().join(format!("nv-rs-packs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data = dir.join("Data");
+        std::fs::create_dir_all(&data).unwrap();
+        for name in [
+            "CaravanPack - Main.bsa",
+            "ClassicPack - Main.bsa",
+            "MercenaryPack - Main.bsa",
+            "TribalPack - Main.bsa",
+            "DeadMoney - Main.bsa",
+            "DeadMoney - Sounds.bsa",
+            "Fallout - Meshes.bsa",
+        ] {
+            std::fs::write(data.join(name), b"bsa").unwrap();
+        }
+        let game = engine_core::exe::game_view(&dir.to_string_lossy());
+        let mut e = Engine::new();
+        let mut list = |pattern: &str| listed(&mut e, &format!(r"{game}\Data\{pattern}"));
+        assert_eq!(
+            list("ClassicPack*.bsa"),
+            [b"ClassicPack - Main.bsa".to_vec()]
+        );
+        assert_eq!(
+            list("CaravanPack*.bsa"),
+            [b"CaravanPack - Main.bsa".to_vec()]
+        );
+        assert_eq!(
+            list("MercenaryPack*.bsa"),
+            [b"MercenaryPack - Main.bsa".to_vec()]
+        );
+        assert_eq!(list("TribalPack*.bsa"), [b"TribalPack - Main.bsa".to_vec()]);
+        assert_eq!(
+            list("DeadMoney*.bsa"),
+            [
+                b"DeadMoney - Main.bsa".to_vec(),
+                b"DeadMoney - Sounds.bsa".to_vec()
+            ]
+        );
+        assert!(list("OldWorldBlues*.bsa").is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Linux and macOS: Windows' two pattern rewrites, through `FindFirstFileA` over a folder
+    /// with a dotless file and a dotless folder: `*.*` lists everything as `*` does, and a
+    /// pattern ending in a dot finds the names with no extension.
+    #[cfg(not(windows))]
+    #[test]
+    fn star_dot_star_and_a_trailing_dot_find_dotless_names() {
+        let dir = std::env::temp_dir().join(format!("nv-rs-dotless-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Menus")).unwrap();
+        std::fs::write(dir.join("README"), b"r").unwrap();
+        std::fs::write(dir.join("a.txt"), b"a").unwrap();
+        let game = engine_core::exe::game_view(&dir.to_string_lossy());
+        let mut e = Engine::new();
+        let mut list = |pattern: &str| listed(&mut e, &format!(r"{game}\{pattern}"));
+        let all: Vec<Vec<u8>> = [".", "..", "a.txt", "Menus", "README"]
+            .iter()
+            .map(|n| n.as_bytes().to_vec())
+            .collect();
+        assert_eq!(list("*"), all);
+        assert_eq!(list("*.*"), all);
+        assert_eq!(list("README."), [b"README".to_vec()]);
+        assert_eq!(list("menus."), [b"Menus".to_vec()]);
+        assert_eq!(
+            list("*."),
+            [
+                b".".to_vec(),
+                b"..".to_vec(),
+                b"Menus".to_vec(),
+                b"README".to_vec()
+            ]
+        );
+        assert!(list("a.txt.").len() == 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -5050,6 +5417,201 @@ mod tests_changed_directories {
         )
     }
 
+    /// The alternate name a search writes for an entry of the run, on every system: a known short
+    /// name as it is (Windows' `QUICKS~1.FOS`, an empty one), an unknown one empty off Windows
+    /// (no 8.3 names there, every new name gets none), a stop on Windows (unchanged).
+    #[test]
+    fn the_alternate_name_of_an_entry_of_the_run() {
+        let entry = |short: Option<&str>| Entry {
+            name: "quicksave.fos".into(),
+            short: short.map(str::to_string),
+            attributes: FILE_ATTRIBUTE_ARCHIVE,
+            size: 1,
+            created: 0,
+            accessed: 0,
+            written: 0,
+        };
+        assert_eq!(
+            alternate_name(&entry(Some("QUICKS~1.FOS")), "test"),
+            "QUICKS~1.FOS"
+        );
+        assert_eq!(alternate_name(&entry(Some("")), "test"), "");
+        assert_eq!(short_name_off_windows(), Some(String::new()));
+        // A time the file system does not keep is 0, never a stop; a kept one is its FILETIME.
+        let none = std::io::Error::new(std::io::ErrorKind::Unsupported, "no such time");
+        assert_eq!(known_or_zero(Err(none)), 0);
+        assert_eq!(
+            known_or_zero(Ok(std::time::UNIX_EPOCH)),
+            filetime(std::time::UNIX_EPOCH)
+        );
+        let unknown = std::panic::catch_unwind(|| alternate_name(&entry(None), "test"));
+        #[cfg(not(windows))]
+        assert_eq!(unknown.unwrap(), "");
+        #[cfg(windows)]
+        assert!(unknown.is_err(), "Windows keeps its stop");
+    }
+
+    /// The `FILETIME` of the last write the disk keeps for the host file `path`.
+    #[cfg(not(windows))]
+    fn disk_written(path: &std::path::Path) -> u64 {
+        filetime(std::fs::metadata(path).unwrap().modified().unwrap())
+    }
+
+    /// Starts the run's file clock a minute after the disk's newest file in `dir`, so the run's
+    /// saves are newer than the player's (as in a real run) and the save menu sorts them so.
+    #[cfg(not(windows))]
+    fn clock_after_disk(e: &mut Engine, dir: &std::path::Path) {
+        let newest = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| disk_written(&entry.path()))
+            .max()
+            .unwrap_or(0);
+        state!(e).disk.clock = Some(newest + 60 * SECOND);
+    }
+
+    /// Linux and macOS (the first Linux save menu's stop, 2026-11-17): a quick save, a named save
+    /// and the same quick save again (its backup made: `CloseSaveFile`'s rename to `.bak`), all
+    /// with names that need an 8.3 name on Windows, beside a save of the player's from before the
+    /// run; then the save menu's `Saves\*.fos` listing (`00851330`) and the save list's look at
+    /// one save by name (`00846a20`). Every save is found, the player's and the run's, with an
+    /// empty `cAlternateFileName` (no 8.3 names on this file system), `ARCHIVE`, its size and
+    /// the times the save menu sorts by (the run's saves later than the player's), and nothing
+    /// stops; the whole folder lists `.` with its times on the disk; deleting a save from the
+    /// menu takes it out of the next listing.
+    #[cfg(not(windows))]
+    #[test]
+    fn saves_made_in_the_run_are_listed_without_short_names_here() {
+        let player = "Save 1   Courier  Goodsprings.fos";
+        let named = "Save 2   Courier  Doc Mitchell s House";
+        let dir = scratch("saves-here", &[(player, 300)]);
+        let host = std::path::PathBuf::from(&dir);
+        let saves = engine_core::exe::game_view(&dir);
+        let mut e = Engine::new();
+        clock_after_disk(&mut e, &host);
+        let (quick_made, _) = save(&mut e, &saves, "quicksave", &[100, 20]);
+        let (named_made, named_last) = save(&mut e, &saves, named, &[200]);
+        let (_, quick_last) = save(&mut e, &saves, "quicksave", &[150]);
+        let all = listed(&mut e, &format!(r"{saves}\*.fos"));
+        let player_written = disk_written(&host.join(player));
+        let expected: Vec<Listed> = vec![
+            // The second quick save takes the first one's creation time (tunnelling: the
+            // name was renamed away to `.bak` and made again within 15 s).
+            (
+                "quicksave.fos".into(),
+                String::new(),
+                FILE_ATTRIBUTE_ARCHIVE,
+                150,
+                quick_made,
+                quick_last,
+                quick_last,
+            ),
+            (
+                player.into(),
+                String::new(),
+                FILE_ATTRIBUTE_ARCHIVE,
+                300,
+                all[1].4,
+                all[1].5,
+                player_written,
+            ),
+            (
+                format!("{named}.fos"),
+                String::new(),
+                FILE_ATTRIBUTE_ARCHIVE,
+                200,
+                named_made,
+                named_last,
+                named_last,
+            ),
+        ];
+        assert_eq!(all, expected);
+        assert!(quick_last > player_written && named_last > player_written);
+        // The backup is there too, under its own name, with no short name: the first quick
+        // save's bytes and times.
+        let backups = listed(&mut e, &format!(r"{saves}\*.bak"));
+        assert_eq!(backups.len(), 1);
+        assert_eq!(
+            (backups[0].0.as_str(), backups[0].1.as_str(), backups[0].3),
+            ("quicksave.fos.bak", "", 120)
+        );
+        // The save list's look at one save by name: the same entry.
+        assert_eq!(
+            listed(&mut e, &format!(r"{saves}\quicksave.fos")),
+            [all[0].clone()]
+        );
+        // The whole folder (`*`): its `.` too, though the game changed the folder in this run
+        // (on Windows a stop: NTFS moves the folder's times; here the disk's times, no stop).
+        let every = listed(&mut e, &format!(r"{saves}\*"));
+        let named_fos = format!("{named}.fos");
+        let names: Vec<&str> = every.iter().map(|l| l.0.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                ".",
+                "..",
+                "quicksave.fos",
+                "quicksave.fos.bak",
+                player,
+                named_fos.as_str()
+            ]
+        );
+        assert_eq!(every[0].2, FILE_ATTRIBUTE_DIRECTORY);
+        assert_eq!(
+            every[0].6,
+            disk_written(&host),
+            "`.` has the folder's own times"
+        );
+        // Deleting a save from the menu: gone from the next listing.
+        assert_eq!(delete(&mut e, &format!(r"{saves}\quicksave.fos")), 1);
+        let left: Vec<String> = listed(&mut e, &format!(r"{saves}\*.fos"))
+            .into_iter()
+            .map(|l| l.0)
+            .collect();
+        assert_eq!(left, [player.to_string(), format!("{named}.fos")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Linux and macOS: a quick save over a quick save and its backup from an earlier session
+    /// (both on the disk): `CloseSaveFile` deletes the old backup, renames the old quick save to
+    /// the backup and the new one into place. `*.fos` and `*.bak` then list one entry each,
+    /// with no short names: the new save's size, and the backup with the old quick save's size
+    /// and its last-write time as the disk keeps it (never 0).
+    #[cfg(not(windows))]
+    #[test]
+    fn a_quick_save_over_saves_from_the_disk_keeps_their_times() {
+        let dir = scratch(
+            "quick-over-disk",
+            &[("quicksave.fos", 500), ("quicksave.fos.bak", 400)],
+        );
+        let host = std::path::PathBuf::from(&dir);
+        let old_written = disk_written(&host.join("quicksave.fos"));
+        let saves = engine_core::exe::game_view(&dir);
+        let mut e = Engine::new();
+        clock_after_disk(&mut e, &host);
+        let (_, last) = save(&mut e, &saves, "quicksave", &[150]);
+        let fos = listed(&mut e, &format!(r"{saves}\*.fos"));
+        assert_eq!(fos.len(), 1);
+        assert_eq!(
+            (
+                fos[0].0.as_str(),
+                fos[0].1.as_str(),
+                fos[0].2,
+                fos[0].3,
+                fos[0].6
+            ),
+            ("quicksave.fos", "", FILE_ATTRIBUTE_ARCHIVE, 150, last)
+        );
+        let bak = listed(&mut e, &format!(r"{saves}\*.bak"));
+        assert_eq!(bak.len(), 1);
+        assert_eq!(
+            (bak[0].0.as_str(), bak[0].1.as_str(), bak[0].3, bak[0].6),
+            ("quicksave.fos.bak", "", 500, old_written)
+        );
+        assert_ne!(bak[0].6, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The console's `save nvfix` beside a save of the player's, then the pause menu's
     /// `Saves\*.fos` (`007cbaf0`) and the save list's look at the new file (`00846a20`): the new
     /// save is listed first (upper-case order), `ARCHIVE`, no short name (a valid 8.3 name), its
@@ -5423,7 +5985,9 @@ mod tests_changed_directories {
     }
 
     /// `.` of a directory the game changed is not listed as Windows would (its times move with
-    /// the changes, not modelled): the run stops.
+    /// the changes, not modelled): the run stops. Windows only: elsewhere the folder's times
+    /// on the disk are answered (`saves_made_in_the_run_are_listed_without_short_names_here`).
+    #[cfg(windows)]
     #[test]
     #[should_panic(expected = "of a directory the game changed in this run")]
     fn a_search_that_finds_dot_in_a_changed_directory_stops() {
@@ -5435,8 +5999,10 @@ mod tests_changed_directories {
         });
     }
 
-    /// Under the soft policy (the default off Windows) the same search is logged and finds
-    /// nothing, as the call's documented failure: the game goes on.
+    /// Under the soft policy the same search is logged and finds nothing, as the call's
+    /// documented failure: the game goes on. Windows only: elsewhere upstream answers the folder
+    /// with its times on the disk (slaterain/nv-rs#718), so nothing stops.
+    #[cfg(windows)]
     #[test]
     fn under_the_soft_policy_that_search_finds_nothing_and_the_run_goes_on() {
         let dir = scratch("dotsoft", &[]);
@@ -5741,12 +6307,13 @@ mod tests_code_pages {
             })
             .collect()
     }
+    // Unit by unit, as Windows turns a single-byte page: a surrogate pair is two `?`.
     fn cp1252_to_ansi(u: &[u16]) -> Vec<u8> {
-        char::decode_utf16(u.iter().copied())
-            .map(|c| match c.map(u32::from) {
-                Ok(c) if c < 0x80 || (0xa0..=0xff).contains(&c) => c as u8,
-                Ok(0x142) => b'l',
-                Ok(0x141) => b'L',
+        u.iter()
+            .map(|&c| match c {
+                c if c < 0x80 || (0xa0..=0xff).contains(&c) => c as u8,
+                0x142 => b'l',
+                0x141 => b'L',
                 _ => b'?',
             })
             .collect()
@@ -6378,6 +6945,162 @@ mod tests_code_pages {
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An entry that goes away after the search listed it is still answered by `FindNextFileA`
+    /// as the listing saw it (Windows' search keeps what it listed; off Windows the listing keeps
+    /// it too), so the game's loop over a folder goes on to its end.
+    #[test]
+    fn an_entry_gone_after_the_listing_is_still_answered() {
+        let dir = scratch("gone-mid-listing");
+        std::fs::write(dir.join("a.txt"), b"a").unwrap();
+        std::fs::write(dir.join("b.txt"), b"bb").unwrap();
+        let mut e = Engine::new();
+        let mut query = folder_bytes(&dir);
+        query.extend_from_slice(b"\\*.txt");
+        let name = e.mem.alloc(0x400);
+        e.mem.set_cstr(name, &query);
+        let d = find_data(&mut e);
+        let h = find_first_file_a(&mut e, Ptr::new(name), Ptr::new(d));
+        assert_ne!(h, INVALID_HANDLE_VALUE);
+        assert_eq!(e.mem.cstr(d + 0x2c), b"a.txt");
+        std::fs::remove_file(dir.join("b.txt")).unwrap();
+        assert_ne!(
+            find_next_file_a(&mut e, h, Ptr::new(d)),
+            0,
+            "{}",
+            e.kernel.last_error
+        );
+        assert_eq!(e.mem.cstr(d + 0x2c), b"b.txt");
+        assert_eq!(e.mem.u32(d + 0x20), 2, "the size the listing saw");
+        assert_eq!(find_next_file_a(&mut e, h, Ptr::new(d)), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Off Windows, a name a listing gave in the code page whose bytes also read as UTF-8 opens:
+    /// `CafÃ©.esp` is listed as `43 61 66 C3 A9 2E 65 73 70` (1252), which as UTF-8 reads
+    /// `Café.esp`; that name is not there, so the bytes are read as the code page's.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_listed_name_whose_bytes_also_read_as_utf8_opens() {
+        let _page = Page::new(&CP1252);
+        let dir = scratch("utf8-looking");
+        std::fs::write(dir.join("Caf\u{c3}\u{a9}.esp"), b"plugin").unwrap();
+        let mut e = Engine::new();
+        let mut query = folder_bytes(&dir);
+        query.extend_from_slice(b"\\*.esp");
+        let name = e.mem.alloc(0x400);
+        e.mem.set_cstr(name, &query);
+        let d = find_data(&mut e);
+        let h = find_first_file_a(&mut e, Ptr::new(name), Ptr::new(d));
+        assert_ne!(h, INVALID_HANDLE_VALUE);
+        let listed = e.mem.cstr(d + 0x2c);
+        assert_eq!(listed, b"Caf\xc3\xa9.esp");
+        assert_eq!(read_named(&mut e, &dir, &listed), Ok(b"plugin".to_vec()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The listings' list of names in a folder whose own name the game was given in the code page
+    /// and whose bytes also read as UTF-8 (`CafÃ©`, listed as `43 61 66 C3 A9`): the folder is
+    /// found as the open finds a file (review of #697, point 1).
+    #[cfg(not(windows))]
+    #[test]
+    fn a_folder_listed_by_bytes_that_also_read_as_utf8_is_listed() {
+        let _page = Page::new(&CP1252);
+        let dir = scratch("utf8-looking-folder");
+        std::fs::create_dir_all(dir.join("Caf\u{c3}\u{a9}")).unwrap();
+        std::fs::write(dir.join("Caf\u{c3}\u{a9}").join("x.esp"), b"x").unwrap();
+        let mut e = Engine::new();
+        let mut query = folder_bytes(&dir);
+        query.extend_from_slice(b"\\Caf\xc3\xa9\\*.esp");
+        let name = e.mem.alloc(0x400);
+        e.mem.set_cstr(name, &query);
+        let d = find_data(&mut e);
+        let h = find_first_file_a(&mut e, Ptr::new(name), Ptr::new(d));
+        assert_ne!(h, INVALID_HANDLE_VALUE, "{}", e.kernel.last_error);
+        assert_eq!(e.mem.cstr(d + 0x2c), b"x.esp");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The code page's reading is tried part by part: in a folder whose own name is outside ASCII
+    /// (UTF-8 on the disk, as an install folder's), a listed name whose bytes also read as UTF-8
+    /// opens; the folder's part stays UTF-8 (review of #697, point 2).
+    #[cfg(not(windows))]
+    #[test]
+    fn a_listed_name_opens_inside_a_folder_named_outside_ascii() {
+        let _page = Page::new(&CP1252);
+        let dir = scratch("dossier-\u{e9}t\u{e9}");
+        std::fs::write(dir.join("Caf\u{c3}\u{a9}.esp"), b"plugin").unwrap();
+        let mut e = Engine::new();
+        assert_eq!(
+            read_named(&mut e, &dir, b"Caf\xc3\xa9.esp"),
+            Ok(b"plugin".to_vec())
+        );
+        // And a name that is UTF-8 on the disk opens by its UTF-8 bytes there too.
+        std::fs::write(dir.join("\u{e9}t\u{e9}.esp"), b"summer").unwrap();
+        assert_eq!(
+            read_named(&mut e, &dir, "\u{e9}t\u{e9}.esp".as_bytes()),
+            Ok(b"summer".to_vec())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A relative name under a folder of the port's own (the mods' kept copies) is read under
+    /// that folder only: the UTF-8 reading where nothing is there, the code page's where that
+    /// one is there; the process's current folder plays no part (review of #697, point 3).
+    #[cfg(not(windows))]
+    #[test]
+    fn a_name_under_a_folder_is_read_under_that_folder() {
+        let _page = Page::new(&CP1252);
+        let dir = scratch("kept-reading");
+        assert_eq!(
+            super::host_path_in(&dir, b"Caf\xc3\xa9.esp"),
+            dir.join("Caf\u{e9}.esp")
+        );
+        std::fs::write(dir.join("Caf\u{c3}\u{a9}.esp"), b"kept").unwrap();
+        assert_eq!(
+            super::host_path_in(&dir, b"Caf\xc3\xa9.esp"),
+            dir.join("Caf\u{c3}\u{a9}.esp")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// macOS: a name stored decomposed (NFD: `e` and a combining accent, as files from macOS
+    /// archives often are) is listed composed, in the code page's one byte, and opens by it
+    /// (review of #697, point 4).
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn a_decomposed_name_is_listed_composed_and_opens() {
+        let _page = Page::new(&CP1252);
+        let dir = scratch("nfd-name");
+        std::fs::write(dir.join("Cafe\u{301}.esp"), b"nfd").unwrap();
+        let mut e = Engine::new();
+        let mut query = folder_bytes(&dir);
+        query.extend_from_slice(b"\\*.esp");
+        let name = e.mem.alloc(0x400);
+        e.mem.set_cstr(name, &query);
+        let d = find_data(&mut e);
+        let h = find_first_file_a(&mut e, Ptr::new(name), Ptr::new(d));
+        assert_ne!(h, INVALID_HANDLE_VALUE);
+        let listed = e.mem.cstr(d + 0x2c);
+        assert_eq!(listed, b"Caf\xe9.esp");
+        assert_eq!(read_named(&mut e, &dir, &listed), Ok(b"nfd".to_vec()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The composition itself (macOS): decomposed letters become the composed ones, anything
+    /// else is unchanged.
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn decomposed_letters_are_composed() {
+        let units = |s: &str| s.encode_utf16().collect::<Vec<u16>>();
+        assert_eq!(super::composed(&units("Cafe\u{301}")), units("Caf\u{e9}"));
+        assert_eq!(
+            super::composed(&units("A\u{30a}n\u{303}")),
+            units("\u{c5}\u{f1}")
+        );
+        assert_eq!(super::composed(&units("plain.esp")), units("plain.esp"));
+        assert_eq!(super::composed(&units("\u{e9}")), units("\u{e9}"));
     }
 
     /// A player's file another program holds without sharing, or that the player may not read,

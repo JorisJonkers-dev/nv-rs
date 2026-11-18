@@ -110,19 +110,23 @@ mod single {
         .all(|&(x, r, c)| rsqrt(x) == r && rcp(x) == c)
     }
 
+    /// Off x86 the estimates are the model of the reference machine's (engine-core `estimate`,
+    /// whose tables were measured on it): the tests compare with its answers there too.
     #[cfg(all(test, not(any(target_arch = "x86", target_arch = "x86_64"))))]
     pub fn reference_estimates() -> bool {
-        false
+        true
     }
 
+    /// `RCPSS` off x86: the reference machine's, from engine-core's model of it.
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-    pub fn rcp(_x: u32) -> u32 {
-        panic!("RCPSS (the processor's reciprocal estimate) is not provided on this processor")
+    pub fn rcp(x: u32) -> u32 {
+        engine_core::estimate::rcp_model(x)
     }
 
+    /// `RSQRTSS` off x86: the reference machine's, from engine-core's model of it.
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-    pub fn rsqrt(_x: u32) -> u32 {
-        panic!("RSQRTSS (the processor's reciprocal square root estimate) is not provided on this processor")
+    pub fn rsqrt(x: u32) -> u32 {
+        engine_core::estimate::rsqrt_model(x)
     }
 
     /// `COMISS x, y` then `JNC`: `x >= y` as the flags say it (an unordered compare, a NaN on
@@ -2936,10 +2940,6 @@ mod tests_sse2_functions {
     // input words, output words. The measured matrices sat off a 16-byte boundary.
 
     #[test]
-    #[cfg_attr(
-        target_arch = "aarch64",
-        ignore = "arm64: the processor's RCPSS and RSQRTSS estimates are not provided yet (Linux and macOS track, the Apple estimates step)"
-    )]
     fn plane_normalize_matches_the_dll() {
         for (input, want) in [
             // A NaN in the normal: all four zero.
@@ -2984,10 +2984,6 @@ mod tests_sse2_functions {
     }
 
     #[test]
-    #[cfg_attr(
-        target_arch = "aarch64",
-        ignore = "arm64: the processor's RCPSS and RSQRTSS estimates are not provided yet (Linux and macOS track, the Apple estimates step)"
-    )]
     fn matrix_inverse_matches_the_dll() {
         let m: [u32; 16] = words("c4779013 c46d0c0d 439e49be 3d003fc3 4402c71e c227972c 3f403b3a 42e78421 ba6d58e4 3c1fc7e7 400d85ba c0ffa558 bf1ad120 3e2376d8 c080bfba bd7af630").try_into().unwrap();
         let (det, inv) = matrix_inverse_sse2(&m).expect("not singular");
@@ -3012,5 +3008,93 @@ mod tests_sse2_functions {
             0
         );
         assert_eq!(e.mem.u32(det), 0x5555_5555);
+    }
+}
+
+/// `D3DXGetVertexShaderProfile` and `D3DXGetPixelShaderProfile` away from Windows (no
+/// `d3dx9_38.dll` there): the profile named by the device's capabilities, as the DLL answers it
+/// for a device of shader model 3 (`vs_3_0`, `ps_3_0`: compared with the DLL on Windows,
+/// `d3dxreal`'s `tests_profiles`). The renderer asks them when it makes its program caches
+/// (`NiXenonRenderer` vtable +0x90, `00e6bdc0`). A device of a lower model is not provided (the
+/// machine table's card is model 3).
+pub mod profiles {
+    use crate::{Engine, Ptr};
+
+    /// `D3DCAPS9`'s size and its `VertexShaderVersion` (+0xc4) and `PixelShaderVersion` (+0xcc).
+    const CAPS_SIZE: u32 = 304;
+    const VERTEX_SHADER_VERSION: u32 = 0xc4;
+    const PIXEL_SHADER_VERSION: u32 = 0xcc;
+    /// `IDirect3DDevice9::GetDeviceCaps`'s slot offset (slot 7).
+    const GET_DEVICE_CAPS: u32 = 7 * 4;
+
+    /// The profile of a shader version word (`0xFFFE0300` vertex 3.0, `0xFFFF0300` pixel 3.0),
+    /// `None` below model 3 (not provided).
+    pub fn profile(version: u32, pixel: bool) -> Option<&'static [u8]> {
+        let major = (version >> 8) & 0xff;
+        (major >= 3).then_some(if pixel { b"ps_3_0" } else { b"vs_3_0" })
+    }
+
+    /// The profile string in engine memory, made once per text.
+    fn text(e: &mut Engine, bytes: &[u8]) -> u32 {
+        static MADE: std::sync::Mutex<Vec<(usize, Vec<u8>, u32)>> =
+            std::sync::Mutex::new(Vec::new());
+        let key = e as *const Engine as usize;
+        let mut made = MADE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((_, _, at)) = made.iter().find(|(k, b, _)| *k == key && b == bytes) {
+            return *at;
+        }
+        let at = e.mem.alloc(bytes.len() as u32 + 1);
+        e.mem.write(at, bytes);
+        e.mem.set_u8(at + bytes.len() as u32, 0);
+        made.push((key, bytes.to_vec(), at));
+        at
+    }
+
+    fn answer(e: &mut Engine, device: Ptr, pixel: bool) -> u32 {
+        let caps = e.mem.alloc(CAPS_SIZE);
+        let hr = e.vcall(device.addr(), GET_DEVICE_CAPS, &[caps]).u32();
+        let version = e.mem.u32(
+            caps + if pixel {
+                PIXEL_SHADER_VERSION
+            } else {
+                VERTEX_SHADER_VERSION
+            },
+        );
+        e.mem.free(caps);
+        assert!(
+            hr == 0,
+            "D3DXGet*ShaderProfile: the device's GetDeviceCaps answered {hr:#x}"
+        );
+        match profile(version, pixel) {
+            Some(bytes) => text(e, bytes),
+            None => panic!(
+                "D3DXGet{}ShaderProfile for a device of shader version {version:#x} is not provided",
+                if pixel { "Pixel" } else { "Vertex" }
+            ),
+        }
+    }
+
+    // Platform: replaces d3dx9_38.dll D3DXGetVertexShaderProfile (import, off Windows)
+    /// `D3DXGetVertexShaderProfile(device)` (see the module).
+    pub fn get_vertex_shader_profile(e: &mut Engine, device: Ptr) -> u32 {
+        answer(e, device, false)
+    }
+
+    // Platform: replaces d3dx9_38.dll D3DXGetPixelShaderProfile (import, off Windows)
+    /// `D3DXGetPixelShaderProfile(device)` (see the module).
+    pub fn get_pixel_shader_profile(e: &mut Engine, device: Ptr) -> u32 {
+        answer(e, device, true)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn shader_model_3_names_its_profiles() {
+            assert_eq!(super::profile(0xfffe_0300, false), Some(&b"vs_3_0"[..]));
+            assert_eq!(super::profile(0xffff_0300, true), Some(&b"ps_3_0"[..]));
+            assert_eq!(super::profile(0xffff_0200, true), None);
+        }
     }
 }

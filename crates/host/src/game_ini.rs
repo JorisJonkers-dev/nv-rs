@@ -85,6 +85,8 @@ pub struct Keys {
     pub ambient_occlusion_strength: Option<f32>,
     /// `bSunShadows`: the sun shadows (`d3d9_wgpu::sun_shadow`).
     pub sun_shadows: Option<bool>,
+    /// `bSunLightFromSky`: with the sun shadows, the sun light from the sky's discs.
+    pub sun_light_from_sky: Option<bool>,
     pub stepped_threads: Option<bool>,
     pub render_thread: Option<bool>,
     /// `bNotBackground`: Windows told the game is not background work (`qos`).
@@ -146,6 +148,10 @@ impl Keys {
                     keys.sun_shadows = flag(raw);
                     keys.sun_shadows.is_some()
                 }
+                "bSunLightFromSky" => {
+                    keys.sun_light_from_sky = flag(raw);
+                    keys.sun_light_from_sky.is_some()
+                }
                 "bSteppedThreads" => {
                     keys.stepped_threads = flag(raw);
                     keys.stepped_threads.is_some()
@@ -200,6 +206,27 @@ fn flag(raw: &str) -> Option<bool> {
 /// adapter table gives the game (`crate::adapter_table_text`), where the game reads it.
 /// A folder whose bytes can't be read is named once in the log ([`path_from_table`]).
 pub fn path() -> Option<PathBuf> {
+    // Linux and macOS: the Documents folder is nv-rs's own, found without making the machine
+    // table, which this settings' reading (before the run's renderer choice) must not fix. A
+    // test's table (`NV_D3D9_ADAPTER`) names its own. Fork: the fork's Documents
+    // (`fork_platform::known_folders`, `<data_dir>/userdata/Documents`), which the fork's adapter
+    // table gives the game and where the native build's saves are.
+    #[cfg(not(windows))]
+    if std::env::var_os("NV_D3D9_ADAPTER").is_none() {
+        let Some(documents) = engine_platform::fork_platform::known_folders()
+            .into_iter()
+            .next()
+        else {
+            eprintln!("Fallout.ini's nv-rs settings not read: no data folder (HOME is not set)");
+            return None;
+        };
+        return Some(
+            documents
+                .join("My Games")
+                .join("FalloutNV")
+                .join("Fallout.ini"),
+        );
+    }
     let table = crate::adapter_table_text()?;
     path_from_table(&table).unwrap_or_else(|why| {
         eprintln!("{why}");
@@ -313,6 +340,7 @@ mod tests {
                 "bAmbientOcclusion",
                 "fAmbientOcclusionStrength",
                 "bSunShadows",
+                "bSunLightFromSky",
                 "bSteppedThreads",
                 "bRenderThread",
                 "bNotBackground"
@@ -352,6 +380,10 @@ mod tests {
             Some(crate::fixes::PLAY_AMBIENT_OCCLUSION_STRENGTH)
         );
         assert_eq!(keys.sun_shadows, Some(crate::fixes::PLAY_SUN_SHADOWS));
+        assert_eq!(
+            keys.sun_light_from_sky,
+            Some(crate::fixes::PLAY_SUN_LIGHT_FROM_SKY)
+        );
         // The fix lines are commented out: the preset decides.
         assert!(keys.fixes.is_empty());
         assert!(keys.bad.is_empty(), "{:?}", keys.bad);

@@ -36,10 +36,27 @@ mise.toml
 release-please-config.json
 renovate.json
 scripts/fork/
-version.txt
-crates/engine-platform/src/files/files_host.rs
 crates/fork-log/
 crates/d3d9-replay/
+crates/fork-hitch/
+crates/fork-memlog/
+crates/fork-presence/
+crates/fork-window/
+crates/d3dx-shader/
+# The built-in JohnnyGuitar NVSE and ShowOff xNVSE (fork-only crates).
+crates/jg/
+crates/showoff/
+# Fork-only files inside upstream's crates (scripts/fork/verify-sync.sh fails on one that is not listed).
+crates/d3d9-wgpu/src/bin/d3d9-precompile.rs
+crates/d3d9-wgpu/src/perf.rs
+crates/d3d9-wgpu/src/precompile.rs
+crates/d3d9-wgpu/src/shader_cache.rs
+crates/engine-platform/examples/linux_tables.rs
+crates/engine-platform/src/d3dxshader.rs
+crates/engine-platform/src/fork_d3d9rec.rs
+crates/engine-platform/src/fork_sound.rs
+crates/host/src/fork_trace.rs
+crates/host/tests/linux_saves.rs
 # Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.
 crates/engine-core/src/exe.rs
 crates/engine-core/src/units/crt/cvt.rs
