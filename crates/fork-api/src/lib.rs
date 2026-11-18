@@ -37,7 +37,8 @@ pub const API_VERSION: u32 = 1;
 /// at the commit the crate is built from.
 pub const CAPABILITIES: &str = include_str!("../../../.fork/capabilities.json");
 
-/// A save's screenshot: `width` by `height` pixels, three bytes (RGB) each, row by row.
+/// A save's screenshot as the save stores it: `width` by `height` pixels, three bytes each, row
+/// by row. The channel order and the row direction are the game's; nothing here converts them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Screenshot {
     pub width: u32,
@@ -66,6 +67,7 @@ pub struct SaveSummary {
 
 /// Why a save could not be summarized.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum SaveError {
     /// The file could not be read.
     Io {
