@@ -92,7 +92,9 @@ pub(crate) struct Buf {
     /// The game released it (or made another in its place): the sun shadows let go of what they
     /// keep of it, however many places hold it.
     pub(crate) released: AtomicBool,
-    _charge: budget::Charge,
+    /// Its bytes in the layer's video-memory budget (`None`: a list the sun shadows made of a
+    /// caster's pieces past the budget, which is not refused).
+    _charge: Option<budget::Charge>,
 }
 
 impl Buf {
@@ -2089,7 +2091,7 @@ impl Device {
             index32: index && format == 102,
             batch: AtomicU64::new(0),
             uploads: AtomicU64::new(0),
-            _charge: charge,
+            _charge: Some(charge),
             id: Buf::next_id(),
             released: AtomicBool::new(false),
         });
@@ -7011,6 +7013,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                     index32: true,
                     batch: AtomicU64::new(0),
                     uploads: AtomicU64::new(0),
+                    _charge: self.budget.take(0, 0, bytes.len() as u64).ok(),
                     id: Buf::next_id(),
                     released: AtomicBool::new(false),
                 }),
