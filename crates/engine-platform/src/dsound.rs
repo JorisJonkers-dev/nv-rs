@@ -610,23 +610,44 @@ fn table(e: &mut Engine) -> &Table {
             .map(std::path::PathBuf::from)
             .or_else(|| crate::fork_platform::data_dir().map(|d| d.join("dsound.tsv")));
         let text = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
-        // Off Windows no capture tool exists: without a file the game runs silent (fork_tables).
-        // With the output asked for (`NV_SOUND`) the reference device of a sound server
-        // (fork_sound.rs).
+        // Off Windows without a file: upstream's fixed table, with a sound device only when the
+        // output is asked for (`NV_SOUND`, fork_sound.rs); else `DirectSoundCreate8` answers
+        // DSERR_NODRIVER and the game runs silent, as the fork's runs always have.
         #[cfg(not(windows))]
-        let text = text.or_else(|| {
-            Some(if state!(e).sound.output_wanted {
-                crate::fork_tables::reference_sound_table()
-            } else {
-                crate::fork_tables::no_device_sound_table()
-            })
-        });
+        let text = text.or_else(|| Some(fixed_table(state!(e).sound.output_wanted)));
         let text = text
             .unwrap_or_else(|| panic!("the sound table ({path:?}) is not there: {CAPTURE_HINT}"));
         load_table(e, &text);
     }
     state!(e).sound.table.as_ref().expect("loaded")
 }
+
+/// The sound table's answers that are the same on every Windows PC (`data/machine/dsound-fixed.tsv`,
+/// from `scripts/dsound-capture` on Windows 11, 2026-11-06): since Windows Vista DirectSound is
+/// software over Windows' audio engine, and none of these lines describe the sound device (the
+/// device enters through its mix format, `super::sound_out::device_mix`, not the table):
+/// `DirectSoundCreate8`'s and the cooperative level's results, `GetCaps` (software caps, no
+/// hardware buffers, rates 100 to 200000 Hz), the primary buffer's format, the listener's defaults,
+/// and `SetFX`'s answers (the distortion made in software; the I3DL2 reverb's class not registered).
+/// The buffers' and settings' answers follow the layer's rules and need no lines.
+pub const FIXED_TABLE: &str = include_str!("../data/machine/dsound-fixed.tsv");
+
+/// `DSERR_NODRIVER`: what `DirectSoundCreate8` answers on a PC without a sound device.
+const DSERR_NODRIVER: u32 = 0x8878_0078;
+
+/// [`FIXED_TABLE`] for a machine with a sound device (`device`), else with `DirectSoundCreate8`
+/// answering `DSERR_NODRIVER`, as Windows does without one.
+pub fn fixed_table(device: bool) -> String {
+    if device {
+        return FIXED_TABLE.to_string();
+    }
+    FIXED_TABLE.replacen(
+        "DsCreate\t\t0\t",
+        &format!("DsCreate\t\t{DSERR_NODRIVER:x}\t"),
+        1,
+    )
+}
+
 
 /// The DirectSound 8 `DS3DLISTENER` state: the settings in effect, and those set with
 /// `DS3D_DEFERRED` that wait for `CommitDeferredSettings` (each setting on its own, as the
@@ -4321,6 +4342,34 @@ mod tests {
         load_table(&mut e, &table_text());
         e.mem.map(0x1000, 0x2000);
         e
+    }
+
+    /// The fixed table (Linux and macOS) passes the layer's checks; the game's start-up gets its
+    /// device, the distortion's software answer and the reverb's "not registered"; without a sound
+    /// device `DirectSoundCreate8` answers `DSERR_NODRIVER` and gives no object.
+    #[test]
+    fn the_fixed_table_answers_the_start_up() {
+        let t = Table::parse(&fixed_table(true));
+        assert_eq!((t.create, t.primary), (DS_OK, DS_OK));
+        assert_eq!(t.cooperative.get(&2), Some(&DS_OK));
+        assert_eq!(t.caps.1.len(), 0x60);
+        assert_eq!(t.effect("distortion", true), (DS_OK, 2, DS_OK));
+        assert_eq!(t.effect("i3dl2", true).0, 0x8004_0154);
+        assert_eq!(t.effect("distortion", false).0, 0x8878_001e);
+        let mut e = Engine::new();
+        load_table(&mut e, &fixed_table(false));
+        e.mem.map(0x1000, 0x1000);
+        e.mem.set_u32(0x1000, 0x55);
+        assert_eq!(
+            direct_sound_create8(&mut e, 0, Ptr::new(0x1000), 0),
+            DSERR_NODRIVER
+        );
+        assert_eq!(e.mem.u32(0x1000), 0);
+        let mut e = Engine::new();
+        load_table(&mut e, &fixed_table(true));
+        e.mem.map(0x1000, 0x1000);
+        assert_eq!(direct_sound_create8(&mut e, 0, Ptr::new(0x1000), 0), DS_OK);
+        assert_ne!(e.mem.u32(0x1000), 0);
     }
 
     /// `BSXenonAudio::Init`'s calls in its order; the device; answers 0x1000.. scratch.
