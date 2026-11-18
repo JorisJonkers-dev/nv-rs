@@ -5999,8 +5999,10 @@ mod tests_changed_directories {
         });
     }
 
-    /// Under the soft policy (the default off Windows) the same search is logged and finds
-    /// nothing, as the call's documented failure: the game goes on.
+    /// Under the soft policy the same search is logged and finds nothing, as the call's
+    /// documented failure: the game goes on. Windows only: elsewhere upstream answers the folder
+    /// with its times on the disk (slaterain/nv-rs#718), so nothing stops.
+    #[cfg(windows)]
     #[test]
     fn under_the_soft_policy_that_search_finds_nothing_and_the_run_goes_on() {
         let dir = scratch("dotsoft", &[]);

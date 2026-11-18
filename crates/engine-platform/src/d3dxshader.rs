@@ -49,8 +49,18 @@ fn with_seam<R>(f: impl FnOnce(&CacheCompiler) -> R) -> R {
     })
 }
 
-/// The six imports, as the Windows table names them.
+/// Four of the six imports, as the Windows table names them. The two profile getters
+/// (`D3DXGetVertexShaderProfile`, `D3DXGetPixelShaderProfile`) are upstream's off Windows since
+/// slaterain/nv-rs#687 (`d3dx::profiles`), so only [`six`] (this file's tests) keeps this file's own.
 pub fn imports() -> Vec<(&'static str, &'static str, AbiFn)> {
+    six()
+        .into_iter()
+        .filter(|(_, n, _)| !n.ends_with("ShaderProfile"))
+        .collect()
+}
+
+/// The six functions this file provides, in the Windows table's order.
+fn six() -> Vec<(&'static str, &'static str, AbiFn)> {
     let d = "d3dx9_38.dll";
     vec![
         (d, "D3DXCompileShader", crate::entry!(0, compile_shader(Ptr, u32, Ptr, Ptr, Ptr, Ptr, u32, Ptr, Ptr, Ptr) -> u32).1),
@@ -654,9 +664,15 @@ mod tests {
         for name in SIX {
             assert_eq!(found.iter().filter(|n| **n == name).count(), 1, "{name}");
         }
+        let own: Vec<&str> = imports().iter().map(|(_, n, _)| *n).collect();
         assert_eq!(
-            imports().iter().map(|(_, n, _)| *n).collect::<Vec<_>>(),
-            SIX
+            own,
+            [
+                "D3DXCompileShader",
+                "D3DXGetShaderConstantTable",
+                "D3DXCreateBuffer",
+                "D3DXAssembleShader"
+            ]
         );
     }
 
@@ -664,7 +680,7 @@ mod tests {
     fn create_buffer_makes_a_zeroed_buffer_and_releases_it() {
         let mut e = Engine::new();
         let out = e.mem.alloc(4);
-        let table = imports();
+        let table = six();
         for (i, (_, _, f)) in table.iter().enumerate() {
             e.register(0x7f00_0000 + 4 * i as u32, *f);
         }
@@ -721,7 +737,7 @@ mod tests {
 
     fn engine_with_imports() -> Engine {
         let mut e = Engine::new();
-        for (i, (_, _, f)) in imports().iter().enumerate() {
+        for (i, (_, _, f)) in six().iter().enumerate() {
             e.register(0x7f00_0000 + 4 * i as u32, *f);
         }
         e
@@ -869,7 +885,7 @@ mod tests {
             ));
         });
         let mut e = Engine::new();
-        for (i, (_, _, f)) in imports().iter().enumerate() {
+        for (i, (_, _, f)) in six().iter().enumerate() {
             e.register(0x7f00_0000 + 4 * i as u32, *f);
         }
         Some((e, dir))
