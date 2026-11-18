@@ -1699,6 +1699,40 @@
     {
      "features": [],
      "kind": null,
+     "name": "esm"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fos"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "game-folders"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "game-profile"
+    },
+    {
+     "features": [
+      "write"
+     ],
+     "kind": "dev",
+     "name": "fos"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/fork-api/Cargo.toml",
+   "name": "fork-api"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
      "name": "fork-log"
     }
    ],

@@ -19,8 +19,8 @@ crates/engine-platform/src/lib.rs  # the modules of the fork-owned platform answ
 crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir; off Windows a missing file is upstream's fixed table with a device only when the output is asked for (NV_SOUND), else DSERR_NODRIVER (upstream asks the speakers' device); the runtime sound messages go through fork_log (target sound); `game` trace events (audio.*)
 crates/host/src/save_out.rs  # off Windows with NV_SAVE_OUT unset the saves go to the native build's own Saves folder (native_saves_dir; `off` keeps none), checked by upstream's guard at write time; known_folders off Windows answers the port's own Documents (for mod_files); the copy-out syncs the file and its folder (fsync) and says where it copied; refused takes a rooted path without a profile off Windows; the hitch recorder's save event
 # Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
-Cargo.toml  # rust-version "1.100" (the fork's toolchain); workspace members (two crates, d3dx-shader, fork-window, fork-presence, fork-memlog, fork-log, fork-hitch, d3d9-replay) beside upstream's
-Cargo.lock  # the two crates and the host's dependencies on them; d3d9-replay and its flate2
+Cargo.toml  # rust-version "1.100" (the fork's toolchain); workspace members (two crates, d3dx-shader, fork-window, fork-presence, fork-memlog, fork-log, fork-hitch, d3d9-replay, fork-api) beside upstream's
+Cargo.lock  # fork-api and the two crates and the host's dependencies on them; d3d9-replay and its flate2
 crates/host/Cargo.toml  # dependencies on the two crates; fork-log
 crates/nvse/src/plugins.rs  # read_chunks and write_chunks: a section's records carried unchanged
 crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off Windows (lavapipe offers 4x at most; nv-linux#189); a test of the video-memory budget

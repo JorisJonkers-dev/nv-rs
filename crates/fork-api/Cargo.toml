@@ -1,0 +1,18 @@
+[package]
+name = "fork-api"
+version = "0.1.0"
+description = "Fork-owned typed in-process facade of the engine's crates for a program that links them (raul): the readers re-exported, owned summaries, the capabilities file and the facade's version"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+# No external dependency: the base facade is the four reader crates, none of which has one.
+[dependencies]
+esm = { path = "../esm" }
+fos = { path = "../fos" }
+game-folders = { path = "../game-folders" }
+game-profile = { path = "../game-profile" }
+
+[dev-dependencies]
+fos = { path = "../fos", features = ["write"] }
