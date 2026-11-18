@@ -22,18 +22,24 @@ fn summary_has_the_header_plugins_and_screenshot() {
     assert_eq!(s.plugins, ["FalloutNV.esm", "Example.esp"]);
     assert_eq!((s.screenshot.width, s.screenshot.height), (4, 2));
     assert_eq!(s.screenshot.rgb.len(), 4 * 2 * 3);
-    assert_eq!(s.screenshot.rgb[..3], [0, 1, 2]);
+    let pattern: Vec<u8> = (0..4 * 2 * 3).map(|i| i as u8).collect();
+    assert_eq!(s.screenshot.rgb, pattern);
 }
 
 #[test]
 fn summary_of_a_file_matches_the_bytes() {
-    let dir = std::env::temp_dir().join(format!("fork-api-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("Save 3.fos");
+    struct Dir(PathBuf);
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let dir = Dir(std::env::temp_dir().join(format!("fork-api-{}", std::process::id())));
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let path = dir.0.join("Save 3.fos");
     std::fs::write(&path, synthetic()).unwrap();
     let from_file = save_summary(&path).unwrap();
     assert_eq!(from_file, summarize_save(&synthetic()).unwrap());
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -85,4 +91,16 @@ fn readers_are_reachable_through_the_facade() {
     let _: Option<Saves> = None;
     assert!(game_profile::settings::ini_value("[A]\nk=1\n", "A", "k").is_some());
     assert_eq!(esm::FormId(7).0, 7);
+}
+
+#[test]
+fn a_header_claiming_a_huge_screenshot_is_an_error_not_a_panic() {
+    let mut bytes = synthetic();
+    // The header block starts after the 11-byte magic and its 4-byte size; the two screenshot
+    // sizes follow the version (4 bytes, plus its `|`) and the language (64 bytes, plus `|`).
+    let at = 11 + 4 + 5 + 65;
+    assert_eq!(bytes[at..at + 4], 4u32.to_le_bytes());
+    bytes[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+    bytes[at + 5..at + 9].copy_from_slice(&1u32.to_le_bytes());
+    assert!(summarize_save(&bytes).is_err());
 }

@@ -109,9 +109,21 @@ pub fn save_summary(path: &Path) -> Result<SaveSummary, SaveError> {
 pub fn summarize_save(bytes: &[u8]) -> Result<SaveSummary, fos::Error> {
     let save = fos::Save::parse(bytes)?;
     let h = &save.header;
-    // `parse` has checked that the screenshot lies inside the file.
-    let len = (h.screenshot_width as usize) * (h.screenshot_height as usize) * 3;
-    let rgb = bytes[save.screenshot_offset..save.screenshot_offset + len].to_vec();
+    // `parse` has checked that the screenshot lies inside the file; the checks here keep a
+    // change in the reader from turning into a panic.
+    let shot_err = || fos::Error::new(save.screenshot_offset, "screenshot outside the file");
+    let len = (h.screenshot_width as usize)
+        .checked_mul(h.screenshot_height as usize)
+        .and_then(|n| n.checked_mul(3))
+        .ok_or_else(shot_err)?;
+    let end = save
+        .screenshot_offset
+        .checked_add(len)
+        .ok_or_else(shot_err)?;
+    let rgb = bytes
+        .get(save.screenshot_offset..end)
+        .ok_or_else(shot_err)?
+        .to_vec();
     Ok(SaveSummary {
         player_name: h.player_name.clone(),
         karma_title: h.karma_title.clone(),
