@@ -34,8 +34,11 @@ fn main() {
     );
 
     // A folder without the game: a start-up error, never a crash.
-    let data = empty.to_str().expect("utf-8 path");
-    let out = child(&dir, &["--play-mode", data, "--check"]);
+    let out = child_os(&[
+        "--play-mode".as_ref(),
+        empty.as_os_str(),
+        "--check".as_ref(),
+    ]);
     check(
         "a folder without the game ends with 1",
         out.status.code() == Some(1),
@@ -48,7 +51,11 @@ fn main() {
         .env("NV_STOP_FILE", dir.join("stop"))
         .env("NV_LOG_JSON", "off")
         .env("NV_LOG_TEXT", "off")
-        .args([data, "--play-mode", "--check"])
+        .args([
+            empty.as_os_str(),
+            "--play-mode".as_ref(),
+            "--check".as_ref(),
+        ])
         .output()
         .expect("start the child");
     check(
@@ -63,6 +70,17 @@ fn main() {
 
 fn exe() -> PathBuf {
     std::env::current_exe().expect("this program")
+}
+
+fn child_os(args: &[&std::ffi::OsStr]) -> Output {
+    Command::new(exe())
+        .env(AS_CHILD, "1")
+        .env("NV_LOG_JSON", "off")
+        .env("NV_LOG_TEXT", "off")
+        .env_remove("NV_STOP_FILE")
+        .args(args)
+        .output()
+        .expect("start the child")
 }
 
 fn child(_dir: &std::path::Path, args: &[&str]) -> Output {
