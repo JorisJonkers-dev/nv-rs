@@ -1607,7 +1607,10 @@ mod tests {
             let check = |p: &Path| game_folders::refused(p, &never);
             assert_eq!(
                 run_checked(&write(&own, "y.fos", b"the copy"), &check),
-                Ok(Some("NV_SAVE_OUT: copied y.fos".to_string()))
+                Ok(Some(format!(
+                    "NV_SAVE_OUT: copied y.fos to {}",
+                    own.join("y.fos").display()
+                )))
             );
             assert_eq!(std::fs::read(&victim).unwrap(), b"not nv-rs's");
             let meta = std::fs::symlink_metadata(own.join("y.fos")).unwrap();
