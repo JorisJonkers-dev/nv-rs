@@ -600,8 +600,8 @@ jobs:
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='2000-01-01 00:00Z' -C unpack \
             -czf "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" "nv-rs-${VERSION}-linux-x86_64"
           cp "windows/nv-rs-preview-${VERSION}-windows-x64.zip" "$OUT/nv-rs-${VERSION}-x86_64-pc-windows-msvc.zip"
-          unzip -l "$OUT/nv-rs-${VERSION}-x86_64-pc-windows-msvc.zip" | grep -q 'LICENSE'
-          tar -tzf "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" | grep -q 'LICENSE$'
+          unzip -l "$OUT/nv-rs-${VERSION}-x86_64-pc-windows-msvc.zip" | grep LICENSE >/dev/null
+          tar -tzf "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" | grep 'LICENSE$' >/dev/null
           ls -l "$OUT"
 
       - name: Push the packages
