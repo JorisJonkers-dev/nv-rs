@@ -1431,6 +1431,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-chooser"
+version = "0.1.0"
+dependencies = [
+ "fomod",
+ "libc",
+ "mod-archive",
+ "mod-install",
+ "sevenz-rust2",
+ "zip",
+]
+
+[[package]]
 name = "mod-install"
 version = "0.1.0"
 
@@ -1574,7 +1586,9 @@ dependencies = [
  "fork-presence",
  "game-folders",
  "host",
+ "mod-chooser",
  "mod-install",
+ "nvse",
 ]
 
 [[package]]

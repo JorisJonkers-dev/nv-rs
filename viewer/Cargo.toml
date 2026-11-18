@@ -14,6 +14,10 @@ fork-log = { path = "../crates/fork-log" }
 fork-hitch = { path = "../crates/fork-hitch" }
 # The game's own translated code (crates/engine), started on the player's FalloutNV.exe.
 host = { path = "../crates/host" }
+# --install-mods: the mod installer's text front end (Install mods.cmd, play.sh --install-mods), and
+# the built-in xNVSE's version for installers that ask for it.
+mod-chooser = { path = "../crates/mod-chooser" }
+nvse = { path = "../crates/nvse" }
 
 # Discord Rich Presence (docs/fork/DISCORD.md): a background thread, off without an application ID.
 fork-presence = { path = "../crates/fork-presence" }
