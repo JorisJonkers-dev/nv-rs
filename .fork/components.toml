@@ -137,6 +137,13 @@ requires = []
 runs_on = "both"
 
 [[component]]
+name = "facade"
+purpose = "The typed in-process facade a program that links the engine (the Toolbox's raul) depends on: the readers re-exported, a save's summary as owned values, the capabilities file and the facade's version. Fork-owned"
+crates = ["fork-api"]
+requires = ["formats", "game-profile", "game-folders"]
+runs_on = "both"
+
+[[component]]
 name = "fomod"
 purpose = "FOMOD mod installers read (ModuleConfig.xml, info.xml) and the player's choices turned into the files to copy into Data; no archives, no window, no game data"
 crates = ["fomod"]

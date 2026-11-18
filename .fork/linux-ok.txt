@@ -28,6 +28,7 @@ engine-platform
 engine-speedtree
 engine-typed
 esm
+fork-api
 fork-hitch
 fork-log
 fork-memlog

@@ -20,6 +20,7 @@ checks it against `cargo metadata` and turns it into the job matrix of [`fork-bu
 | 0 | `launcher-and-ledger` | 0 (own workspaces) | Play.exe with Settings.cmd, the typed-marker ledger | Windows |
 | 1 | `engine-base` | 4 | Gamebryo, Havok, SpeedTree, the Bethesda units | both |
 | 0 | `game-profile` | 1 | nv-rs's sections of Fallout.ini and the play lines of FalloutPrefs.ini (Play.exe and the first start off Windows) | both |
+| 1 | `facade` | 1 | the typed in-process facade a linking program depends on (readers re-exported, save summary, capabilities, version) | both |
 | 0 | `fomod` | 1 | FOMOD installers read and the files they plan | both |
 | 0 | `mod-archive` | 1 | zip and 7z archives of mods listed and unpacked into a folder | both |
 | 0 | `mod-install` | 1 | the port's mods folders and the game folder "Play with mods" plays from | both |
