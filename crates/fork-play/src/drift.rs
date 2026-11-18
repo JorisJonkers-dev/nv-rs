@@ -12,19 +12,46 @@ use std::path::Path;
 fn dependencies(manifest: &str) -> BTreeSet<(String, String)> {
     let mut found = BTreeSet::new();
     let mut section = String::new();
+    // Open brackets and braces of a value that continues on the next lines.
+    let mut depth: i32 = 0;
     for line in manifest.lines() {
-        let line = line.trim();
+        let line = line.split('#').next().unwrap_or("").trim();
+        if depth > 0 {
+            depth += nesting(line);
+            continue;
+        }
         if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             section = header.trim().to_string();
-        } else if !line.starts_with('#')
-            && (section.ends_with("dependencies") && !section.ends_with("build-dependencies"))
-        {
-            if let Some((name, _)) = line.split_once('=') {
-                found.insert((section.clone(), name.trim().to_string()));
+            // `[dependencies.name]`: the table is the dependency.
+            if let Some((base, name)) = section.rsplit_once('.') {
+                if base.ends_with("dependencies") && !base.ends_with("build-dependencies") {
+                    found.insert((base.to_string(), name.trim().trim_matches('"').to_string()));
+                }
+            }
+        } else if section.ends_with("dependencies") && !section.ends_with("build-dependencies") {
+            if let Some((name, value)) = line.split_once('=') {
+                // `dep.workspace = true` and `dep = { workspace = true }` are the same dependency.
+                let name = name
+                    .trim()
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .trim_matches('"');
+                found.insert((section.clone(), name.to_string()));
+                depth += nesting(value);
             }
         }
     }
     found
+}
+
+/// Brackets and braces opened minus closed on a line.
+fn nesting(text: &str) -> i32 {
+    text.chars().fold(0, |n, c| match c {
+        '[' | '{' => n + 1,
+        ']' | '}' => n - 1,
+        _ => n,
+    })
 }
 
 /// What the viewer depends on and this crate does not.
@@ -86,4 +113,28 @@ fn extra_dependencies_of_this_crate_are_fine() {
     let viewer = "[dependencies]\nhost = \"1\"\n";
     let play = "[dependencies]\nhost = \"1\"\nmore = \"1\"\n";
     assert!(missing(viewer, play).is_empty());
+}
+
+#[test]
+fn the_other_ways_to_write_a_dependency_are_read() {
+    let manifest = "[dependencies] # a comment\n\
+        a.workspace = true\nb = { workspace = true }\n\
+        c = {\n  path = \"../c\",\n  features = [\"x\"],\n}\n\
+        [dependencies.d]\npath = \"../d\"\n\
+        [target.'cfg(unix)'.dependencies.e]\npath = \"../e\"\n";
+    let names: Vec<(String, String)> = dependencies(manifest).into_iter().collect();
+    let got: Vec<(&str, &str)> = names
+        .iter()
+        .map(|(s, n)| (s.as_str(), n.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("dependencies", "a"),
+            ("dependencies", "b"),
+            ("dependencies", "c"),
+            ("dependencies", "d"),
+            ("target.'cfg(unix)'.dependencies", "e"),
+        ]
+    );
 }

@@ -8,6 +8,10 @@
 //! argument the viewer skips with one warning in the log; the data folder is its first word
 //! without a dash.
 //!
+//! Two things differ from the standalone program: `viewer/build.rs` (the Windows icon) is not run, so
+//! the program that links this crate carries its own icon, and `env!("CARGO_PKG_VERSION")` in the
+//! viewer's code is this crate's version.
+//!
 //! # Stop
 //!
 //! A signal or a kill skips the exit hooks and loses the pipeline cache and the save flush. The
@@ -143,10 +147,14 @@ pub fn play_main() -> ! {
         let _ = watch_stop_file(path, STOP_POLL);
     }
     #[cfg(target_vendor = "apple")]
-    host::run_on_main_thread(Box::new(viewer_main::run));
+    {
+        host::run_on_main_thread(Box::new(viewer_main::run))
+    }
     #[cfg(not(target_vendor = "apple"))]
-    viewer_main::run();
-    host::end_process(0)
+    {
+        viewer_main::run();
+        host::end_process(0)
+    }
 }
 
 #[cfg(test)]
