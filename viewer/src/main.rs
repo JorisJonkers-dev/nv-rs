@@ -255,7 +255,7 @@ fn main() {
 }
 
 /// The program: its arguments, the check or the start, main's frames.
-fn run() {
+pub fn run() {
     // With the game's own window (`NV_D3D9=real`, `wgpu` or `real,wgpu`, or a launcher's play
     // run, which draws by its `Fallout.ini`'s `sRenderer` without the variable) the process is
     // DPI-unaware, as FalloutNV.exe is (no `dpiAware` in its manifest): Windows scales the game's
@@ -423,6 +423,10 @@ fn run() {
     let mut trace = host::fork_trace::Trace::default();
     let mut last_ctx = fork_hitch::Context::default();
     loop {
+        if fork_log::stop_requested() {
+            host::run_exit_hooks();
+            host::end_process(fork_log::STOP_REQUESTED_STATUS);
+        }
         fork_log::set_frame(game.movement.main_frames);
         game.set_keys_down(&[]);
         game.mouse([0; 3], [false; 8]);

@@ -19,8 +19,8 @@ crates/engine-platform/src/lib.rs  # the modules of the fork-owned platform answ
 crates/engine-platform/src/dsound.rs  # the sound table's default folder comes from fork_platform::data_dir; off Windows a missing file is upstream's fixed table with a device only when the output is asked for (NV_SOUND), else DSERR_NODRIVER (upstream asks the speakers' device); the runtime sound messages go through fork_log (target sound); `game` trace events (audio.*)
 crates/host/src/save_out.rs  # off Windows with NV_SAVE_OUT unset the saves go to the native build's own Saves folder (native_saves_dir; `off` keeps none), checked by upstream's guard at write time; known_folders off Windows answers the port's own Documents (for mod_files); the copy-out syncs the file and its folder (fsync) and says where it copied; refused takes a rooted path without a profile off Windows; the hitch recorder's save event
 # Built-in JohnnyGuitar NVSE and ShowOff xNVSE (crates/jg, crates/showoff): workspace wiring and two helpers for a plugin's co-save.
-Cargo.toml  # rust-version "1.100" (the fork's toolchain); workspace members (two crates, d3dx-shader, fork-window, fork-presence, fork-memlog, fork-log, fork-hitch, d3d9-replay, fork-api) beside upstream's
-Cargo.lock  # fork-api and the two crates and the host's dependencies on them; d3d9-replay and its flate2
+Cargo.toml  # rust-version "1.100" (the fork's toolchain); workspace members (two crates, d3dx-shader, fork-window, fork-presence, fork-memlog, fork-log, fork-hitch, d3d9-replay, fork-api, fork-play) beside upstream's
+Cargo.lock  # fork-api, fork-play and the two crates and the host's dependencies on them; d3d9-replay and its flate2
 crates/host/Cargo.toml  # dependencies on the two crates; fork-log
 crates/nvse/src/plugins.rs  # read_chunks and write_chunks: a section's records carried unchanged
 crates/d3d9-wgpu/tests/frame.rs  # three 8x multisampling tests are ignored off Windows (lavapipe offers 4x at most; nv-linux#189); a test of the video-memory budget
@@ -52,7 +52,7 @@ crates/engine-platform/src/dinput.rs  # `game` trace events for key and mouse ch
 crates/engine-platform/src/d3d9backend.rs  # the real runtime's messages go through fork_log with a level and the target d3d9 (warn, info; fatal for a refused Direct3DCreate9 or CreateDevice), so they follow the terminal policy (docs/fork/LOGGING.md)
 crates/engine-platform/src/d3dx.rs  # the D3DX texture source and not-translated messages go through fork_log (target d3d9, info and warn)
 # Discord Rich Presence (docs/fork/DISCORD.md, crates/fork-presence).
-viewer/src/main.rs  # starts presence before main's frames and marks the first frame; the NV_MEMLOG line in main's loop; fork_log::init, the frame number and the status line (NV_STATUS_SECS)
+viewer/src/main.rs  # `run` is `pub` and the frame loop polls fork_log::stop_requested (fork-play includes this file as a module for the play mode of a program that links the engine, docs/fork/DIVERGENCE.md); starts presence before main's frames and marks the first frame; the NV_MEMLOG line in main's loop; fork_log::init, the frame number and the status line (NV_STATUS_SECS)
 viewer/Cargo.toml  # the fork-presence, fork-memlog, fork-log, d3d9-wgpu and engine-core dependencies
 # NV_MEMLOG memory timeline (docs/fork/MEMLOG.md, crates/fork-memlog): read-only counters and one hook.
 crates/engine-core/src/mem.rs  # Mem::heap_stats and HeapStats, read-only (no allocation path touched)

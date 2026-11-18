@@ -38,6 +38,7 @@ const RING_LINES: usize = 200;
 const NO_FRAME: u64 = u64::MAX;
 
 static FRAME: AtomicU64 = AtomicU64::new(NO_FRAME);
+static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 static ERRORS: AtomicU64 = AtomicU64::new(0);
 static WARNINGS: AtomicU64 = AtomicU64::new(0);
 static RING: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
@@ -116,6 +117,21 @@ fn config() -> &'static Config {
 /// The game's main frame the log lines are attributed to (the viewer sets it each frame).
 pub fn set_frame(frame: u64) {
     FRAME.store(frame, Ordering::Relaxed);
+}
+
+/// The process status of a run that ended because a stop was requested (`request_stop`).
+pub const STOP_REQUESTED_STATUS: i32 = 143;
+
+/// Asks the run to end: the game's own thread sees it with [`stop_requested`] between frames,
+/// runs the exit hooks and ends the process with [`STOP_REQUESTED_STATUS`]. Callable from any
+/// thread; `fork-play`'s stop file sets it.
+pub fn request_stop() {
+    STOP_REQUESTED.store(true, Ordering::Release);
+}
+
+/// Whether a stop was requested (`request_stop`); the viewer's frame loop polls it.
+pub fn stop_requested() -> bool {
+    STOP_REQUESTED.load(Ordering::Acquire)
 }
 
 pub(crate) fn frame() -> Option<u64> {
@@ -864,6 +880,13 @@ macro_rules! trace { (target: $t:expr, $($a:tt)+) => { $crate::log($crate::Level
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_stop_request_is_seen_and_has_the_documented_status() {
+        assert_eq!(super::STOP_REQUESTED_STATUS, 143);
+        super::request_stop();
+        assert!(super::stop_requested());
+    }
+
     use super::*;
 
     #[test]
