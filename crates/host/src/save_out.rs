@@ -168,7 +168,8 @@ fn refused_here(path: &Path) -> Option<&'static str> {
     })
 }
 
-/// [`refused_here`] for the host's other writes off Windows (the first start's profile files).
+/// [`refused_here`] for the host's other writes off Windows (the first start's profile files,
+/// the mods' own files folder: `mod_files::folder`).
 #[cfg(not(windows))]
 pub(crate) fn refused_to_write(path: &Path) -> Option<&'static str> {
     refused_here(path)
