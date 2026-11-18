@@ -119,7 +119,9 @@ identical in the fork, apart from the fork's own files, `.github/workflows/` and
 It runs in the **Pipeline** (job `Verify sync`, a need of `Pipeline Complete`, on every pull request and push, also when
 the builds are skipped), so a change to an upstream-owned file is caught in the pull request that makes it, and at the end
 of the sync workflow. A fork-only change to an upstream file is therefore always deliberate: add the file to
-`.fork/allowed-divergence` with a reason, or do not make the change.
+`.fork/allowed-divergence` with a reason, or do not make the change. It also fails when a file only the fork has (not in upstream's tree at
+that commit, workflows aside) is missing from `.fork/overlay-paths`: list a new fork-only file or crate folder there in the
+pull request that adds it.
 
 ## After a sync: the capabilities file
 
