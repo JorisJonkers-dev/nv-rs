@@ -21,7 +21,8 @@
 //! the exit hooks and ends the process with [`EXIT_STOP_REQUESTED`]. The program that asks for
 //! the stop creates the file after the start (a file left from an earlier run stops the game at
 //! once), waits for the exit and kills by process id only after a grace period longer than the
-//! flush. A frame in which the game's code does not return (a loading screen) delays the stop.
+//! flush. A frame in which the game's code does not return (a loading screen) delays the stop, and the
+//! `--movement-missing` lists are not written by a stop.
 //!
 //! # Exit codes
 //!
@@ -126,6 +127,11 @@ pub fn watch_stop_file(
         .name("stop-file".into())
         .spawn(move || loop {
             if path.exists() {
+                fork_log::info!(
+                    target: "host",
+                    "Stop file {} seen: the game stops between two frames (status {EXIT_STOP_REQUESTED})",
+                    path.display()
+                );
                 fork_log::request_stop();
                 return;
             }
@@ -144,7 +150,9 @@ pub fn watch_stop_file(
 pub fn play_main() -> ! {
     if let Some(path) = stop_file(std::env::var_os(STOP_FILE_ENV)) {
         // A thread that cannot start leaves the stop to the window and to the kill.
-        let _ = watch_stop_file(path, STOP_POLL);
+        if let Err(e) = watch_stop_file(path, STOP_POLL) {
+            fork_log::warn!(target: "host", "The stop file is not watched: {e}");
+        }
     }
     #[cfg(target_vendor = "apple")]
     {
