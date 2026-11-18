@@ -8,7 +8,7 @@ exclude = ["vendor"]
 [workspace.package]
 edition = "2021"
 license = "GPL-3.0-or-later"
-rust-version = "1.75"
+rust-version = "1.100"
 
 # wgpu-hal 30.0.1 with the changes vendor/README.md lists: wgpu and wgpu-core stay the published
 # 30.0.1 and use it in place of the crates.io copy.

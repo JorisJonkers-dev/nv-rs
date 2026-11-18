@@ -10,7 +10,7 @@
 | Secret scanning | `.gitleaks.toml`, `task secrets` | Every commit, in CI and locally |
 | Workflow lint and security | `actionlint`, `zizmor` in `task lint:actions` | |
 | Licences, bans, sources, advisories | `deny.toml`, `task deny` | |
-| Dependency cooldown | `.cargo/config.toml`, `renovate.json` | Cargo: 7 days, stable from 1.100 (inert while upstream pins 1.99.1). Renovate: the estate preset's `minimumReleaseAge` |
+| Dependency cooldown | `.cargo/config.toml`, `renovate.json` | Cargo: 7 days (`global-min-publish-age`, in force on the fork's Rust 1.100.0). Renovate: 7 days for crates (`minimumReleaseAge`), the estate preset's for the rest |
 | Dependency updates | `renovate.json` | Only fork-owned files |
 | Fuzzing | `fuzz/`, `.github/workflows/fork-fuzz.yml` | Weekly, three parsers; needs `cargo +nightly` |
 | Component-based build | `.fork/components.toml`, `scripts/fork/components.py`, `.github/workflows/fork-build.yml`, [`CI.md`](CI.md) | One job per engine component, each running only its own crates' tests; the slow engine tests are split along the typed families; on pull requests only the components a change reaches run; every workspace crate must belong to a component. Linux twins are informational until the crates are in `.fork/linux-ok.txt` |
