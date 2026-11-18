@@ -99,7 +99,8 @@ impl std::error::Error for SaveError {
 }
 
 /// Reads the save at `path` and summarizes it. The file is only read.
-pub fn save_summary(path: &Path) -> Result<SaveSummary, SaveError> {
+pub fn save_summary(path: impl AsRef<Path>) -> Result<SaveSummary, SaveError> {
+    let path = path.as_ref();
     let bytes = std::fs::read(path).map_err(|source| SaveError::Io {
         path: path.to_path_buf(),
         source,
