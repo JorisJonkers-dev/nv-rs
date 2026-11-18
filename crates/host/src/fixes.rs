@@ -44,6 +44,7 @@ pub static FIXES: &[Fix] = &[
     JIP_VANILLA_COMMANDS,
     JIP_GAME_PATCHES,
     MCM,
+    STEWIE,
     UIO,
     SCRIPT_ERROR_GUARD,
     IMOD_EVENT_FORM_CHECK,
@@ -252,7 +253,7 @@ pub const JIP_INSTALLED: Fix = Fix {
     name: "JIP LN NVSE built in (for testing)",
     env: "NV_JIP_INSTALLED",
     addresses: &[],
-    summary: "for testing, off in every preset: JIP LN NVSE answers \"installed\" to mods (MCM, oHUD and others that need it), with 995 of its 1,118 commands (a script line calling one of the others fails and stops that script for the run), its hooks and 64 of its 162 game patches",
+    summary: "for testing, off in every preset: JIP LN NVSE answers \"installed\" to mods (MCM, oHUD and others that need it), with the commands built so far (a script line calling one not built yet fails and stops that script for the run), its hooks and the game patches built so far (the README and docs/FIXES.md give the counts)",
     install: install_jip_installed,
 };
 
@@ -336,7 +337,7 @@ pub const SCRIPT_ERROR_GUARD: Fix = Fix {
     name: "script error loop guard",
     env: "NV_NVSE_ERROR_GUARD",
     addresses: &[],
-    summary: "an error inside a RuntimeScriptError handler is not sent to the handlers again",
+    summary: "an error inside a RuntimeScriptError handler is not sent to the handlers again; a JIP batch script or snippet running itself stops 64 deep",
     install: install_script_error_guard,
 };
 
@@ -469,6 +470,25 @@ fn install_uio(e: &mut Engine) {
     uio::set_on(e, true);
 }
 
+/// lStewieAl's Tweaks built in (`crates/stewie`, docs/FIXES.md "lStewieAl's Tweaks"): its engine fixes,
+/// each a row of its own with an off key in Fallout.ini's `[nv-rs Stewie]`, with VNV's values as the
+/// defaults of its settings and the player's `nvse_stewie_tweaks.ini` over them. Mods are not told
+/// it is installed until its script commands are built (`stewie::ANSWERS_INSTALLED`); then xNVSE
+/// lists it as "lStewieAl's Tweaks" 1005. On in the fixes preset, off in vanilla. The row sets a flag;
+/// `stewie::install` (after JIP and MCM, before UIO, in `install_rows_and_extenders`) reads the
+/// settings and sets the rows' bits.
+pub const STEWIE: Fix = Fix {
+    name: "lStewieAl's Tweaks built in",
+    env: "NV_STEWIE",
+    addresses: &[],
+    summary: "lStewieAl's Tweaks built in: its engine fixes (crash fixes first), each with its own off key in [nv-rs Stewie], with VNV's settings unless the player's nvse_stewie_tweaks.ini says otherwise",
+    install: install_stewie,
+};
+
+fn install_stewie(e: &mut Engine) {
+    stewie::set_on(e, true);
+}
+
 /// The Mod Configuration Menu's NVSE plugin built in (`crates/mcm`: MCM.dll 1.5, "MCM Extensions"):
 /// its nine commands at `0x21C0` up, which MCM's scripts and the menus of the mods that use it call
 /// (`GetMCMFloat`, `SetMCMFloat`, `GetModINI`, ...). Off in every preset ([`OFF_IN_EVERY_PRESET`])
@@ -505,6 +525,7 @@ const NO_ADDRESS: &[&str] = &[
     JIP_VANILLA_COMMANDS.name,
     JIP_GAME_PATCHES.name,
     MCM.name,
+    STEWIE.name,
     UIO.name,
     SCRIPT_ERROR_GUARD.name,
     IMOD_EVENT_FORM_CHECK.name,
@@ -575,6 +596,13 @@ pub const PLAY_SUN_SHADOWS: bool = false;
 /// the lit sides and the sky agree; it changes nothing while the sun shadows are off.
 /// `crates/host/data/game_ini.tsv`'s `bSunLightFromSky` row is held to it by a test.
 pub const PLAY_SUN_LIGHT_FROM_SKY: bool = true;
+/// Whether, with the sun shadows on, characters (the player, NPCs, creatures, bodies: skinned
+/// draws) cast into the sun shadows, the game's own projected actor shadows then left out so each
+/// casts one shadow (port-added: `d3d9_wgpu::sun_shadow::enable_characters`), when neither
+/// `NV_SUN_SHADOWS_CHARACTERS` nor `Fallout.ini`'s `bSunShadowsCharacters` says
+/// ([`Choice::sun_shadow_characters`]): on; it changes nothing while the sun shadows are off.
+/// `crates/host/data/game_ini.tsv`'s `bSunShadowsCharacters` row is held to it by a test.
+pub const PLAY_SUN_SHADOW_CHARACTERS: bool = true;
 /// How strong the new lighting's shade is when neither `NV_AO_STRENGTH` nor `Fallout.ini`'s
 /// `fAmbientOcclusionStrength` says ([`Choice::ambient_occlusion_strength`]): the step's own
 /// default (`d3d9_wgpu::scene_light::STRENGTH`). `crates/host/data/game_ini.tsv`'s
@@ -704,6 +732,12 @@ pub struct Choice {
     /// [`PLAY_SUN_LIGHT_FROM_SKY`], on. Used only with [`Choice::sun_shadows`] ([`Choice::light_from_sky`]).
     /// Not part of any preset.
     pub sun_light_from_sky: bool,
+    /// Whether characters cast into the sun shadows (the game's own actor shadows then left out):
+    /// `NV_SUN_SHADOWS_CHARACTERS` when set (`1` on, else off); else, in a launcher's play run,
+    /// `Fallout.ini`'s `[nv-rs Display] bSunShadowsCharacters`; else
+    /// [`PLAY_SUN_SHADOW_CHARACTERS`], on. Used only with [`Choice::sun_shadows`]. Not part of any
+    /// preset.
+    pub sun_shadow_characters: bool,
     /// How strong its shade is, from 0.1 (faint) to 1 (all of it): `NV_AO_STRENGTH` when it is a
     /// number; else, in a launcher's play run, `Fallout.ini`'s `[nv-rs Display]
     /// fAmbientOcclusionStrength`; else [`PLAY_AMBIENT_OCCLUSION_STRENGTH`]. Clamped to that range
@@ -726,6 +760,9 @@ pub struct Choice {
     /// The one log line naming `Fallout.ini` values that could not be used
     /// ([`crate::game_ini::Keys::bad_line`]): the default stood for each.
     pub ini_note: Option<String>,
+    /// Fallout.ini's `[nv-rs Stewie]` keys (a launcher's play run only): Tweaks' rows each off by
+    /// its own key, and `bMissingKeysAsTweaks` (`stewie::rows::Keys`).
+    pub stewie: stewie::rows::Keys,
 }
 
 impl Choice {
@@ -752,10 +789,12 @@ impl Choice {
             ambient_occlusion: PLAY_AMBIENT_OCCLUSION,
             sun_shadows: PLAY_SUN_SHADOWS,
             sun_light_from_sky: PLAY_SUN_LIGHT_FROM_SKY,
+            sun_shadow_characters: PLAY_SUN_SHADOW_CHARACTERS,
             ambient_occlusion_strength: PLAY_AMBIENT_OCCLUSION_STRENGTH,
             not_background: PLAY_NOT_BACKGROUND,
             not_background_by: None,
             ini_note: None,
+            stewie: stewie::rows::Keys::default(),
             draw_poison: false,
             draw_check: false,
         }
@@ -914,6 +953,9 @@ impl Choice {
             ambient_occlusion: ini.ambient_occlusion.unwrap_or(PLAY_AMBIENT_OCCLUSION),
             sun_shadows: ini.sun_shadows.unwrap_or(PLAY_SUN_SHADOWS),
             sun_light_from_sky: ini.sun_light_from_sky.unwrap_or(PLAY_SUN_LIGHT_FROM_SKY),
+            sun_shadow_characters: ini
+                .sun_shadow_characters
+                .unwrap_or(PLAY_SUN_SHADOW_CHARACTERS),
             ambient_occlusion_strength: ini.ambient_occlusion_strength.map_or(
                 PLAY_AMBIENT_OCCLUSION_STRENGTH,
                 d3d9_wgpu::scene_light::clamp_strength,
@@ -923,6 +965,7 @@ impl Choice {
                 .not_background
                 .map(|_| "Fallout.ini's [nv-rs Threads] bNotBackground"),
             ini_note: ini.bad_line(),
+            stewie: ini.stewie.clone(),
             draw_poison: env(DRAW_THREAD.env).as_deref().map(str::trim) == Some("poison"),
             draw_check: env(DRAW_THREAD_CHECK).as_deref().map(str::trim) == Some("1"),
         };
@@ -1003,6 +1046,9 @@ impl Choice {
         }
         if let Some(value) = env("NV_SUN_LIGHT_FROM_SKY").filter(|v| !v.trim().is_empty()) {
             choice.sun_light_from_sky = value.trim() == "1";
+        }
+        if let Some(value) = env("NV_SUN_SHADOWS_CHARACTERS").filter(|v| !v.trim().is_empty()) {
+            choice.sun_shadow_characters = value.trim() == "1";
         }
         // A number, clamped; anything else leaves the strength as it is.
         if let Some(value) = env("NV_AO_STRENGTH")
@@ -1281,6 +1327,7 @@ fn parse_limit(value: &str, source: &str) -> Result<u32, String> {
 /// for the whole run.
 pub fn install(e: &mut Engine, choice: &Choice) {
     crate::uncap::set_frame_limit(choice.frame_limit);
+    stewie::set_keys(e, choice.stewie.clone());
     crate::uncap::set_menu_frame_limit(choice.bound_menu_frame_limit());
     for fix in FIXES.iter().filter(|f| choice.is_on(f)) {
         (fix.install)(e);
@@ -2231,6 +2278,26 @@ bSunLightFromSky=1
         assert!(!without.light_from_sky());
     }
 
+    /// Characters cast into the sun shadows by default; `bSunShadowsCharacters=0` in a launcher's
+    /// play run or `NV_SUN_SHADOWS_CHARACTERS` (which wins) turns them off.
+    #[test]
+    fn characters_cast_unless_switched_off() {
+        assert!(Choice::vanilla().sun_shadow_characters);
+        assert!(
+            Choice::from_parts(None, no_env)
+                .unwrap()
+                .sun_shadow_characters
+        );
+        let off = "[nv-rs Display]
+bSunShadows=1
+bSunShadowsCharacters=0
+";
+        assert!(!with_ini(None, off, &[]).sun_shadow_characters);
+        assert!(with_ini(None, off, &[("NV_SUN_SHADOWS_CHARACTERS", "1")]).sun_shadow_characters);
+        let env = Choice::from_parts(None, env_of(&[("NV_SUN_SHADOWS_CHARACTERS", "0")])).unwrap();
+        assert!(!env.sun_shadow_characters);
+    }
+
     /// The new lighting's strength: the step's default in every run unless asked for;
     /// `fAmbientOcclusionStrength` in a launcher's play run, `NV_AO_STRENGTH` anywhere (which wins);
     /// both clamped to 0.1..1; a value that is no number is the default (and named in the note).
@@ -2682,6 +2749,65 @@ bSunLightFromSky=1
         // The other JIP rows still follow the preset.
         assert!(choices[1].is_on(&JIP_GAME_PATCHES));
         assert!(!choices[0].is_on(&JIP_GAME_PATCHES));
+    }
+
+    /// lStewieAl's Tweaks: on in the fixes preset, off in vanilla, its own line or variable over
+    /// both; `[nv-rs Stewie]`'s keys reach the choice (a play run only) and the install, and a value
+    /// other than 0 or 1 is named in the line for unusable keys.
+    #[test]
+    fn stewie_follows_the_preset_and_its_keys_reach_the_install() {
+        assert!(!Choice::vanilla().is_on(&STEWIE));
+        assert!(Choice::from_parts(None, no_env).unwrap().is_on(&STEWIE));
+        let off = with_ini(None, "[nv-rs Fixes]\nbStewieTweaks=0\n", &[]);
+        assert!(!off.is_on(&STEWIE));
+        let on = Choice::from_parts(
+            None,
+            env_of(&[("NV_STEWIE", "1"), ("NV_PRESET", "vanilla")]),
+        )
+        .unwrap();
+        assert!(on.is_on(&STEWIE));
+        let keyed = with_ini(
+            None,
+            "[nv-rs Stewie]\nbDialogSpeechNullCheck=0\nbMissingKeysAsTweaks=yes\n",
+            &[],
+        );
+        assert_eq!(keyed.stewie.rows, [("bDialogSpeechNullCheck", false)]);
+        assert!(!keyed.stewie.as_tweaks);
+        assert_eq!(
+            keyed.ini_note.as_deref(),
+            Some(
+                "Fallout.ini's nv-rs settings: not used, the default instead: bMissingKeysAsTweaks=yes"
+            )
+        );
+        // Not a play run: the keys are not read.
+        let script = Choice::from_texts(
+            None,
+            Some("[nv-rs Stewie]\nbDialogSpeechNullCheck=0\n"),
+            no_env,
+        )
+        .unwrap();
+        assert!(script.stewie.rows.is_empty());
+        // The install: the row on, its bit set unless its key is 0.
+        for (choice, bit) in [
+            (Choice::from_parts(None, no_env).unwrap(), true),
+            (keyed, false),
+            (Choice::vanilla(), false),
+        ] {
+            let mut e = Engine::new();
+            // No Tweaks INI: the game's CreateFileA (the read when no platform answers the mods'
+            // files seam) finds none.
+            e.register(0x00fd_f088, |_, _| 0xffff_ffffu32.into_ret());
+            install(&mut e, &choice);
+            stewie::install(&mut e);
+            assert_eq!(
+                e.stewie(engine_core::extend::stewie::DIALOG_SPEECH_NULL_CHECK),
+                bit
+            );
+            assert_eq!(stewie::on(&e), choice.is_on(&STEWIE));
+            // Not reported as installed in any preset while its script commands are not built:
+            // IsPluginInstalled "lStewieAl's Tweaks" answers 0.
+            assert!(nvse::commands::extender::plugin_info(&e, stewie::NAME.as_bytes()).is_none());
+        }
     }
 
     /// The switch from its variable: `1` on, `0` off, anything else a stop. Alone it makes the run

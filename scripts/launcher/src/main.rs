@@ -1114,16 +1114,26 @@ fn play(
         status.set("Getting the mods ready...");
         let install = package.userdata.join("modgame");
         let plugins = profile.local.join("FalloutNV\\plugins.txt");
-        let built =
-            mods::build_install(&game.folder, &package.root.join("mods"), &install, &plugins)
-                .map_err(|e| Stop {
-                    code: STOP_MODS,
-                    message: e.player_text(),
-                })?;
+        let built = mods::build_install(
+            &game.folder,
+            &package.userdata.join("mod installs"),
+            &package.root.join("mods"),
+            &install,
+            &plugins,
+        )
+        .map_err(|e| Stop {
+            code: STOP_MODS,
+            message: e.player_text(),
+        })?;
         package.log(&format!(
-            "mods: {} files linked, {} mod files",
-            built.linked, built.mod_files
+            "mods: {} mod files; {} names made and {} removed since the last start ({} copied)",
+            built.mod_files, built.made, built.removed, built.copied
         ));
+        for name in &built.added_plugins {
+            package.log(&format!(
+                "mods: {name} switched on after the mods folder's own plugins.txt"
+            ));
+        }
         if built.extender_plugins {
             ui::warning("Some of your mods include plugins for xNVSE or other script extenders. Those plugins are not used yet, and mods that need them may not work or may stop the game.");
         }
@@ -1379,7 +1389,7 @@ fn play(
 
 /// The game's variables for the player's options on its command ([`game_ini::switches`]).
 ///
-/// In play the thirteen that would beat the profile's `Fallout.ini` are taken out, not even one left
+/// In play the fourteen that would beat the profile's `Fallout.ini` are taken out, not even one left
 /// from Play.exe's own environment. When a variable set before the start makes the run a test,
 /// which never reads the file, nothing is taken out and the file's choices are passed on, so the
 /// run plays like the player's game; the line for the log says which variable did it, what was
@@ -2253,12 +2263,12 @@ mod tests {
     }
 
     /// The variables on the game's own command (`pass_switches` on a `Command`, as `play` makes
-    /// it). In play the thirteen are taken out and nothing else is said; with a test variable set
+    /// it). In play the fourteen are taken out and nothing else is said; with a test variable set
     /// before Play.exe, the file's choices are set on the command, nothing is taken out, the one
     /// set before is left to come through as it was, and the log line names all of it.
     #[test]
     fn the_games_command_gets_the_files_choices_only_in_a_test() {
-        let thirteen = [
+        let fourteen = [
             "NV_PRESET",
             "NV_BORDERLESS",
             "NV_D3D9",
@@ -2269,6 +2279,7 @@ mod tests {
             "NV_AO_STRENGTH",
             "NV_SUN_SHADOWS",
             "NV_SUN_LIGHT_FROM_SKY",
+            "NV_SUN_SHADOWS_CHARACTERS",
             "NV_THREADS",
             "NV_RENDER_THREAD",
             "NV_NOT_BACKGROUND",
@@ -2292,7 +2303,7 @@ mod tests {
         play.env("NV_SETTINGS", "settings.ini");
         let line = pass_switches(&mut play, &game_ini::switches(&ini, None, |_| false));
         assert_eq!(line, None);
-        let mut want: Vec<(String, Option<String>)> = thirteen
+        let mut want: Vec<(String, Option<String>)> = fourteen
             .iter()
             .map(|name| (name.to_string(), None))
             .collect();
@@ -2318,6 +2329,7 @@ mod tests {
             ("NV_AO_STRENGTH", "0.7"),
             ("NV_SUN_SHADOWS", "0"),
             ("NV_SUN_LIGHT_FROM_SKY", "1"),
+            ("NV_SUN_SHADOWS_CHARACTERS", "1"),
             ("NV_RENDER_THREAD", "1"),
             ("NV_NOT_BACKGROUND", "1"),
             ("NV_GRAB_PUSH", "0"),
@@ -2575,6 +2587,7 @@ mod tests {
             ("NV_AO_STRENGTH", "0.7"),
             ("NV_SUN_SHADOWS", "0"),
             ("NV_SUN_LIGHT_FROM_SKY", "1"),
+            ("NV_SUN_SHADOWS_CHARACTERS", "1"),
             ("NV_THREADS", "stepped"),
             ("NV_RENDER_THREAD", "1"),
             ("NV_NOT_BACKGROUND", "1"),
