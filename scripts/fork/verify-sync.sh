@@ -28,7 +28,8 @@ while IFS= read -r f; do
     if [[ $f == "$o" || ( $o == */ && $f == "$o"* ) ]]; then listed=true; break; fi
   done
   $listed || unlisted+=("$f")
-done < <(comm -23 <(git ls-tree -r --name-only HEAD | LC_ALL=C sort) <(git ls-tree -r --name-only "$last" | LC_ALL=C sort))
+done < <(LC_ALL=C comm -23 <(git -c core.quotePath=false ls-tree -r --name-only HEAD | LC_ALL=C sort) \
+  <(git -c core.quotePath=false ls-tree -r --name-only "$last" | LC_ALL=C sort))
 status=0
 if [[ -n $changed ]]; then
   echo "DIVERGED from upstream at ${last:0:8}, outside the overlay:" >&2
