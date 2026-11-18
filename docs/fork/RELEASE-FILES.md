@@ -75,3 +75,16 @@ run independently after the `guard` job (fork branch, `vX.Y.Z`, release-please c
   The installing side needs no change.
 - Date-version builds (no tag) publish nothing; each job uploads its own workflow artefact as soon as it finishes, so the
   Linux artefact (`nv-rs-<version>-linux-x86_64-dev`) can be downloaded while Windows is still running.
+
+## Packages on ghcr.io
+
+After `publish-linux` and `publish-windows`, the `packages` job of `fork-release-build.yml` pushes the builds already made as OCI
+packages (Toolbox ADR-0017): `ghcr.io/jorisjonkers-dev/nv-rs:<version>-<target>`, `<version>` the tag without `v`, for
+`x86_64-unknown-linux-gnu` (the developer build's tree plus `LICENSE`) and `x86_64-pc-windows-msvc` (the portable ZIP). Each push
+carries source, revision (the tag's commit) and licence annotations and a build provenance attestation pushed to the registry; the job
+then pulls each package anonymously and compares the SHA-256, and adds a package table to the run summary and the release notes.
+The fork builds no macOS binary, so there is no macOS package. Republish an existing tag with
+`gh workflow run fork-release-build.yml -R JorisJonkers-dev/nv-rs --ref fork -f tag=vX.Y.Z -f publish=true`. A pull request that
+touches the workflow runs `fork-packages-dry-run.yml`, which builds one archive and prints what would be pushed. A package is private
+after its first push until the owner makes it public once (set the repository variable `NV_RS_FIRST_PACKAGE_PUSH` to `true` to skip
+the anonymous check until then).

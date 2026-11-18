@@ -36,6 +36,10 @@ name: Release Build
 # SHA256SUMS, release-manifest.json, capabilities.json and the schemas; `publish-windows` (after the Windows
 # package) uploads the ZIP, the installer and SHA256SUMS-windows. Each attests its own assets.
 # `tag` without `publish` is a dry run that builds and attests nothing to the release.
+#
+# Packages: after both publish jobs the `packages` job pushes the same builds as OCI packages to
+# ghcr.io/jorisjonkers-dev/nv-rs:<version>-<target> (ADR-0017 of the Toolbox; docs/fork/RELEASE-FILES.md), from the
+# artefacts already built here (nothing is built twice). fork-packages-dry-run.yml is the pull request dry run.
 
 on:
   workflow_dispatch:
@@ -532,3 +536,156 @@ jobs:
           set -euo pipefail
           gh release view "$TAG" --repo "$REPO" > /dev/null
           gh release upload "$TAG" dist/* --repo "$REPO" --clobber
+
+  # The engine builds of this release as OCI packages on ghcr.io (Toolbox ADR-0017): one package named after the
+  # repository, one tag per target, <version>-<target>. Fork-only (docs/fork/DIVERGENCE.md). The archives are made from
+  # the artefacts of the `linux` and `package` jobs, so nothing is built a second time. oras comes from its release with a
+  # checked SHA-256 (the repository allows only listed actions). Re-running with the tag republishes it.
+  packages:
+    name: Publish the OCI packages
+    needs: [version, publish-linux, publish-windows]
+    if: ${{ inputs.publish && inputs.tag != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: release-packages-${{ inputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write # append the package table to the release notes
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ inputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OUT: packages
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+
+      - name: Download the Linux build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nv-rs-${{ env.VERSION }}-linux-x86_64-dev
+          path: linux
+
+      - name: Download the Windows package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nv-rs-${{ env.VERSION }}-windows-x64-package
+          path: windows
+
+      - name: Install oras
+        run: |
+          set -euo pipefail
+          curl -fsSLo oras.tar.gz https://github.com/oras-project/oras/releases/download/v1.4.0/oras_1.4.0_linux_amd64.tar.gz
+          echo "d8e1dce2fd8ce996f1d901845b688eb0cf505a6082897606f053825bb47935d1  oras.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/oras"
+          tar -xzf oras.tar.gz -C "$RUNNER_TEMP/oras" oras
+          echo "$RUNNER_TEMP/oras" >> "$GITHUB_PATH"
+          rm oras.tar.gz
+
+      # Linux: the developer build's tree with LICENSE added. Windows: the portable ZIP, which already carries LICENSE.
+      - name: Build the archives
+        run: |
+          set -euo pipefail
+          ( cd linux && sha256sum --check SHA256SUMS )
+          mkdir -p "$OUT" unpack
+          tar -xzf linux/nv-rs-linux-x86_64-dev.tar.gz -C unpack
+          cp LICENSE "unpack/nv-rs-${VERSION}-linux-x86_64/"
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='2000-01-01 00:00Z' -C unpack \
+            -czf "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" "nv-rs-${VERSION}-linux-x86_64"
+          cp "windows/nv-rs-preview-${VERSION}-windows-x64.zip" "$OUT/nv-rs-${VERSION}-x86_64-pc-windows-msvc.zip"
+          unzip -l "$OUT/nv-rs-${VERSION}-x86_64-pc-windows-msvc.zip" | grep LICENSE >/dev/null
+          tar -tzf "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" | grep 'LICENSE$' >/dev/null
+          ls -l "$OUT"
+
+      - name: Push the packages
+        id: push
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          # The commit the tag points at (the job checked the tag out).
+          REVISION="$(git rev-parse HEAD)"
+          echo "$GH_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          push_one() {
+            local target="$1" archive="$2"
+            local ref="ghcr.io/jorisjonkers-dev/nv-rs:${VERSION}-${target}"
+            (cd "$OUT" && oras push "$ref" "$(basename "$archive")" \
+              --annotation "org.opencontainers.image.source=https://github.com/JorisJonkers-dev/nv-rs" \
+              --annotation "org.opencontainers.image.revision=${REVISION}" \
+              --annotation "org.opencontainers.image.licenses=GPL-3.0-only")
+            oras resolve "$ref" | tr -d '\n' > "$OUT/${target}.digest"
+            sha256sum "$archive" | awk '{print $1}' > "$OUT/${target}.sha256"
+            echo "pushed $ref $(cat "$OUT/${target}.digest")"
+          }
+          push_one x86_64-unknown-linux-gnu "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          push_one x86_64-pc-windows-msvc "$OUT/nv-rs-${VERSION}-x86_64-pc-windows-msvc.zip"
+          {
+            echo "digest_linux=$(cat "$OUT/x86_64-unknown-linux-gnu.digest")"
+            echo "digest_windows=$(cat "$OUT/x86_64-pc-windows-msvc.digest")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest the Linux package
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/jorisjonkers-dev/nv-rs
+          subject-digest: ${{ steps.push.outputs.digest_linux }}
+          push-to-registry: true
+
+      - name: Attest the Windows package
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/jorisjonkers-dev/nv-rs
+          subject-digest: ${{ steps.push.outputs.digest_windows }}
+          push-to-registry: true
+
+      # The attestations pushed with the login of the push step; the pull below is anonymous.
+      - name: Log out of the registry
+        run: oras logout ghcr.io
+
+      # A first push of a package is private until the owner makes it public once; set the variable then to skip this.
+      - name: Verify the packages are public
+        if: ${{ vars.NV_RS_FIRST_PACKAGE_PUSH != 'true' }}
+        run: |
+          set -euo pipefail
+          check() {
+            local target="$1" archive="$2"
+            local digest sha pulled
+            digest="$(cat "$OUT/${target}.digest")"
+            sha="$(cat "$OUT/${target}.sha256")"
+            rm -rf "$OUT/pull-${target}"
+            mkdir -p "$OUT/pull-${target}"
+            oras pull "ghcr.io/jorisjonkers-dev/nv-rs@${digest}" -o "$OUT/pull-${target}"
+            pulled="$(sha256sum "$OUT/pull-${target}/$(basename "$archive")" | awk '{print $1}')"
+            echo "$target: pulled $pulled (expected $sha)"
+            test "$pulled" = "$sha"
+          }
+          check x86_64-unknown-linux-gnu "$OUT/nv-rs-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          check x86_64-pc-windows-msvc "$OUT/nv-rs-${VERSION}-x86_64-pc-windows-msvc.zip"
+
+      - name: Record the package references
+        run: |
+          set -euo pipefail
+          summary="$(mktemp)"
+          {
+            echo "## OCI packages"
+            echo
+            echo "| Name | Tag | Digest | Archive SHA-256 |"
+            echo "| --- | --- | --- | --- |"
+            for target in x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+              echo "| ghcr.io/jorisjonkers-dev/nv-rs | ${VERSION}-${target} | $(cat "$OUT/${target}.digest") | $(cat "$OUT/${target}.sha256") |"
+            done
+          } > "$summary"
+          cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          notes="$(mktemp)"
+          # A republish replaces the earlier table instead of adding a second one.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body -q .body | sed '/^## Packages$/,$d' > "$notes"
+          printf '\n## Packages\n\n' >> "$notes"
+          cat "$summary" >> "$notes"
+          gh release edit "$TAG" --notes-file "$notes" --repo "$GITHUB_REPOSITORY"
