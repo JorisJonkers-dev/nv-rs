@@ -6,7 +6,7 @@
 //! published (`publish = false`); the release tag is its version, and [`API_VERSION`] is the
 //! number a consumer checks against the one it was written for.
 //!
-//! This base part has no external dependency and compiles in seconds. It holds:
+//! The base part (without the feature `engine`) has no external dependency and compiles in seconds. It holds:
 //! - the readers, re-exported whole: [`esm`] (plugins and load order), [`fos`] (saves),
 //!   [`game_profile`] (nv-rs's own sections of `Fallout.ini` and the play settings) and
 //!   [`game_folders`] (finding the game and its saves folders), with [`Found`], [`Saves`] and
@@ -14,7 +14,9 @@
 //! - [`save_summary`] and [`summarize_save`]: a save's header, plugins and screenshot as owned
 //!   values, so a caller does not hold the borrowed [`fos::Save`];
 //! - [`CAPABILITIES`]: the checked-in capabilities file, as text;
-//! - [`API_VERSION`].
+//! - [`API_VERSION`];
+//! - with the feature `engine`: [`check`], the installation check of `nv-viewer --check` as a typed
+//!   result (this feature brings the whole engine closure).
 //!
 //! Nothing here writes a file or starts a thread, and nothing opens the game.
 
@@ -26,6 +28,11 @@ pub use fos;
 pub use game_folders;
 pub use game_folders::{Found, Saves, Scan};
 pub use game_profile;
+
+#[cfg(feature = "engine")]
+mod check;
+#[cfg(feature = "engine")]
+pub use check::{check, CheckError, CheckKind, CheckReport};
 
 /// The facade's version: bumped by hand on a change that breaks a caller (a name removed or a
 /// shape changed). Additions do not bump it. The release tag and the lock file are the other

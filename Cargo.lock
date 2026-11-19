@@ -979,6 +979,7 @@ dependencies = [
  "fos",
  "game-folders",
  "game-profile",
+ "host",
 ]
 
 [[package]]

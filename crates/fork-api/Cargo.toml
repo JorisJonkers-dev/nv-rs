@@ -7,12 +7,19 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
-# No external dependency: the base facade is the four reader crates, none of which has one.
+# The base facade has no external dependency: it is the four reader crates, none of which has one. The
+# feature `engine` adds the engine's crates (through `host`).
 [dependencies]
 esm = { path = "../esm" }
 fos = { path = "../fos" }
 game-folders = { path = "../game-folders" }
 game-profile = { path = "../game-profile" }
+host = { path = "../host", optional = true }
+
+[features]
+default = []
+# The installation check (check.rs): it lives in `host`, so this brings the whole engine closure.
+engine = ["dep:host"]
 
 [dev-dependencies]
 fos = { path = "../fos", features = ["write"] }

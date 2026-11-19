@@ -10,7 +10,7 @@ Two fork-owned crates live under `crates/`. Both carry `publish = false`.
 
 | Crate | What it is |
 | --- | --- |
-| `fork-api` | A typed, in-process facade. It re-exports the readers `fos`, `esm`, `game-profile` and `game-folders`, and offers owned summaries such as `SaveSummary`. It exposes `CAPABILITIES` and `API_VERSION: u32`, currently `1`. The number is bumped by hand on a breaking change of the facade. It has no external dependency and compiles in seconds. |
+| `fork-api` | A typed, in-process facade. It re-exports the readers `fos`, `esm`, `game-profile` and `game-folders`, and offers owned summaries such as `SaveSummary`. It exposes `CAPABILITIES` and `API_VERSION: u32`, currently `1`. The number is bumped by hand on a breaking change of the facade. It has no external dependency and compiles in seconds. With the feature `engine` it also offers `check(&Path)`, the installation check as a typed result (`CheckKind`: `NotProvidedOnThisSystem` or `Refused`), and that feature brings the whole engine closure. |
 | `fork-play` | The play-mode entry point, `play_main()` (see PLAY-MODE.md). It is the engine itself and brings the whole engine closure, about 230 to 260 external crates. |
 
 Use `fork-api` when you need data from saves, plugins and game folders. Use `fork-play` only when you need to run the
@@ -66,8 +66,8 @@ off in fast development loops.
 
 A consumer should record its own clean build time and peak memory for the engine feature.
 
-The check job `facade` in `.github/workflows/fork-ci.yml` runs `cargo check --locked -p fork-api` and
-`cargo check --locked -p fork-play` on every pull request and push to `fork`. Each crate therefore builds alone.
+The check job `facade` in `.github/workflows/fork-ci.yml` runs `cargo check --locked -p fork-api`, the same with
+`--features engine`, and `cargo check --locked -p fork-play` on every pull request and push to `fork`. Each crate therefore builds alone.
 
 ## 6. Keeping the copies in step
 

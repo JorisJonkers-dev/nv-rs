@@ -143,6 +143,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/fork' }}
       - name: fork-api
         run: cargo check --locked -p fork-api
+      - name: fork-api with the engine
+        if: ${{ !cancelled() }}
+        run: cargo check --locked -p fork-api --features engine
       - name: fork-play
         if: ${{ !cancelled() }}
         run: cargo check --locked -p fork-play

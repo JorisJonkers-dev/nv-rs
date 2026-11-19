@@ -140,8 +140,13 @@ runs_on = "both"
 name = "facade"
 purpose = "The typed in-process facade a program that links the engine (the Toolbox's raul) depends on: the readers re-exported, a save's summary as owned values, the capabilities file and the facade's version. Fork-owned"
 crates = ["fork-api"]
-requires = ["formats", "game-profile", "game-folders"]
+requires = ["formats", "game-profile", "game-folders", "integration"]
 runs_on = "both"
+# The installation check behind the feature `engine` (it builds the whole engine closure).
+extra = [
+  "cargo test --locked -p fork-api --features engine",
+  "cargo clippy --locked -p fork-api --all-targets --features engine -- -D warnings",
+]
 
 [[component]]
 name = "play"
