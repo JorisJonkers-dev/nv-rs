@@ -1800,6 +1800,16 @@
     {
      "features": [],
      "kind": null,
+     "name": "mod-chooser"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "engine-platform"
     },
     {
@@ -2110,6 +2120,40 @@
    "name": "mod-archive"
   },
   {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "fomod"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "mod-archive"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "mod-install"
+    },
+    {
+     "kind": "dev",
+     "name": "sevenz-rust2"
+    },
+    {
+     "kind": "dev",
+     "name": "zip"
+    },
+    {
+     "kind": null,
+     "name": "libc"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/mod-chooser/Cargo.toml",
+   "name": "mod-chooser"
+  },
+  {
    "dependencies": [],
    "features": [],
    "manifest_path": "/ws/crates/mod-install/Cargo.toml",
@@ -2271,6 +2315,16 @@
      "features": [],
      "kind": null,
      "name": "host"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "mod-chooser"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
     },
     {
      "features": [],

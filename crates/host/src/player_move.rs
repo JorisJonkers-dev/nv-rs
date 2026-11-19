@@ -1674,11 +1674,13 @@ impl crate::Host {
     }
 
     /// The viewer's mouse for the game's DirectInput mouse: motion since the last frame
-    /// (`dinput::mouse_move`) and the buttons down (`dinput::mouse_button`).
+    /// (`dinput::mouse_move`) and the buttons down (`dinput::mouse_button`). Where the game's mouse
+    /// is not exclusive (`bBackground Mouse=1`), the real window's cursor moves are also the game's
+    /// `WM_MOUSEMOVE` (`window::post_mouse_move`), from which its menus place their cursor.
     pub fn mouse(&mut self, motion: [i32; 3], buttons: [bool; 8]) {
         self.join();
         // The real game window's mouse (a backend drawing it, every system) moves and clicks too.
-        let (motion, buttons) = {
+        let (motion, buttons, pointer, reactivated) = {
             let w = engine_platform::d3d9real::take_input();
             let mut b = buttons;
             for (held, window) in b.iter_mut().zip(w.buttons) {
@@ -1691,6 +1693,8 @@ impl crate::Host {
                     motion[2] + w.motion[2],
                 ],
                 b,
+                w.pointer.filter(|_| w.pointer_moved),
+                w.reactivated,
             )
         };
         // A scripted run (`NV_MOVE_KEYS`) drives the menus with keys; the real mouse moving over
@@ -1701,11 +1705,12 @@ impl crate::Host {
         let scripted_until = key_script()
             .iter()
             .any(|&(p, at, _, hold)| (if p { play } else { all }) < at + hold);
-        let (mut motion, mut buttons) = if !real_input_reaches_game() || scripted_until {
-            ([0; 3], [false; 8])
-        } else {
-            (motion, buttons)
-        };
+        let (mut motion, mut buttons, pointer, reactivated) =
+            if !real_input_reaches_game() || scripted_until {
+                ([0; 3], [false; 8], None, None)
+            } else {
+                (motion, buttons, pointer, reactivated)
+            };
         for &(p, at, dx, dy, hold, mask) in mouse_script() {
             let frame = if p { play } else { all };
             if frame >= at && frame < at + hold {
@@ -1720,6 +1725,14 @@ impl crate::Host {
         engine_platform::dinput::mouse_move(e, motion[0], motion[1], motion[2]);
         for (button, down) in buttons.into_iter().enumerate() {
             engine_platform::dinput::mouse_button(e, button, down);
+        }
+        // An activation of the real window after it was not active goes to the game's procedure
+        // first (it makes the game's mouse exclusive again), as Windows sends it.
+        if let Some(wparam) = reactivated {
+            engine_platform::window::post_activate(e, wparam);
+        }
+        if let Some(at) = pointer {
+            engine_platform::window::post_mouse_move(e, at, &buttons);
         }
     }
 
