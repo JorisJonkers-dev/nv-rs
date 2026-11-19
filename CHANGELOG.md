@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.10.0...v0.11.0) (2026-11-19)
+
+
+### Features
+
+* the engine on macOS: build, window and a release build ([fc7b393](https://github.com/JorisJonkers-dev/nv-rs/commit/fc7b393105d0d13ad51dbe2d0b9c5c29e0b97fd9))
+
 ## [0.10.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.9.0...v0.10.0) (2026-11-19)
 
 
