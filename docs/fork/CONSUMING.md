@@ -67,7 +67,7 @@ off in fast development loops.
 A consumer should record its own clean build time and peak memory for the engine feature.
 
 The check job `facade` in `.github/workflows/fork-ci.yml` runs `cargo check --locked -p fork-api` and
-`cargo check --locked -p fork-play` on every pull request. Each crate therefore builds alone.
+`cargo check --locked -p fork-play` on every pull request and push to `fork`. Each crate therefore builds alone.
 
 ## 6. Keeping the copies in step
 

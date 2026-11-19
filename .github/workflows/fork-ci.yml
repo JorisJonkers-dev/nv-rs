@@ -122,7 +122,7 @@ jobs:
         run: mise exec -- task secrets
 
   # The crates a program that links the engine depends on (docs/fork/CONSUMING.md), each built alone, as the Toolbox's raul
-  # builds them. Runs on every pull request and push: the crates are fork-owned, so the `changes` filter would skip them.
+  # builds them. Runs on every pull request and push to fork: the crates are fork-owned, so the `changes` filter would skip them.
   facade:
     name: Facade crates
     runs-on: ubuntu-latest

@@ -20,7 +20,8 @@ The program starts itself again as:
 - `--play-mode` is a reserved dashed word. The viewer skips it and writes one warning line to the log.
 - `<DATA>` is the first word without a dash: the game's data folder.
 - The viewer's own flags work unchanged: `--check`, `--precompile-shaders` (the shader precompile runs in the play
-  child, not in the program), `--find`, `--build-mods`, `--movement-missing FILE`, `--movement-probe` and `--help`.
+  child, not in the program), `--movement-missing FILE`, `--movement-probe` and `--help`.
+- `--find` and `--build-mods` are not available through `--play-mode`: the viewer recognises them only as the first argument of the process.
 
 Differences from the standalone program:
 
@@ -55,7 +56,7 @@ From the module documentation of `crates/fork-play/src/lib.rs`:
 
 | Code | Meaning |
 |---|---|
-| `0..` | the game's own code (its return or its `ExitProcess`); 0 also for `--help`, `--find`, `--build-mods` and a successful `--check` |
+| `0..` | the game's own code (its return or its `ExitProcess`); 0 also for `--help` and a successful `--check` |
 | `1` (`EXIT_START`) | a start-up error: no data, the executable not accepted, a failed `--check`; also the window layer's close path that skips the exit hooks |
 | `2` (`EXIT_ARGUMENTS`) | an argument error |
 | `3` (`EXIT_GAME_STOPPED`) | the game's code stopped (a fault, a function not translated, a call the platform does not provide) |
