@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.10.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.9.0...v0.10.0) (2026-11-19)
+
+
+### Features
+
+* **d3d9-wgpu:** menus follow the mouse with bBackground Mouse=1: the cursor's moves reach the game's window procedure as WM_MOUSEMOVE (slaterain/nv-rs[#766](https://github.com/JorisJonkers-dev/nv-rs/issues/766)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **d3d9-wgpu:** the menus' cursor speed follows Windows' pointer speed, as in the original (slaterain/nv-rs[#767](https://github.com/JorisJonkers-dev/nv-rs/issues/767)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **fork-api:** the installation check as a typed result behind the feature engine ([#373](https://github.com/JorisJonkers-dev/nv-rs/issues/373)) ([6287e65](https://github.com/JorisJonkers-dev/nv-rs/commit/6287e659ad0f0d556ee8bdb31c33df8e485ce27a))
+* **mod-chooser:** install mods: a text installer for FOMOD and plain mod archives, the same on Windows, Linux and macOS (slaterain/nv-rs[#750](https://github.com/JorisJonkers-dev/nv-rs/issues/750)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** JIP CC&C: CCCOnLoad, CCCSetFloat, CCCSetString, CCCSetTrait, CCCSavedForm, CCCSMS (slaterain/nv-rs[#761](https://github.com/JorisJonkers-dev/nv-rs/issues/761)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** JIP LN commands that rewrite the game's code, part 1: ToggleVanityWheel, ToggleCameraCollision, InitRockItLauncher (slaterain/nv-rs[#772](https://github.com/JorisJonkers-dev/nv-rs/issues/772)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** JIP LN commands, lane 2 package 4: ShowQuantityMenu, CloseActiveMenu (slaterain/nv-rs[#759](https://github.com/JorisJonkers-dev/nv-rs/issues/759)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** JIP's light setters, AttachLight, RemoveLight and SetCursorPos (slaterain/nv-rs[#775](https://github.com/JorisJonkers-dev/nv-rs/issues/775)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** with JIP: a sound's playing copies found, stopped and changed (4 JIP commands) (slaterain/nv-rs[#757](https://github.com/JorisJonkers-dev/nv-rs/issues/757)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** with JIP: MessageBoxExAlt's boxes up to 1200 wide (JIP game patch G55) (slaterain/nv-rs[#760](https://github.com/JorisJonkers-dev/nv-rs/issues/760)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** with JIP: mods' own fonts, 89 fonts instead of 8 (JIP game patch G129, SetFontFile) (slaterain/nv-rs[#771](https://github.com/JorisJonkers-dev/nv-rs/issues/771)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **tweaks:** lStewieAl's Tweaks: mods' settings files in Tweaks\INIs read over the main INI (slaterain/nv-rs[#749](https://github.com/JorisJonkers-dev/nv-rs/issues/749)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+
+
+### Bug Fixes
+
+* **d3d9-wgpu:** AMD and Intel cards on Vulkan: grass drawn as thin blades again (slaterain/nv-rs[#769](https://github.com/JorisJonkers-dev/nv-rs/issues/769)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **d3d9-wgpu:** AMD on Vulkan: a frame with very many passes no longer loses the device (submits of at most 512 passes and commands) (slaterain/nv-rs[#778](https://github.com/JorisJonkers-dev/nv-rs/issues/778)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **engine-platform:** keep the pointer-hold helpers visible to the tests off Windows ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** the extenders' call check: unread calls a checked list, ShowMessageBox's closing 0, words counted by type (slaterain/nv-rs[#776](https://github.com/JorisJonkers-dev/nv-rs/issues/776)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **nvse:** xNVSE inline functions no longer stop the game: the lambdas' list copies get the three words they take (slaterain/nv-rs[#765](https://github.com/JorisJonkers-dev/nv-rs/issues/765)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **stewie:** lStewieAl's Tweaks: ten crash fixes (water explosions, multibounds, stealing, regions, limbs, packages, patrols, doors, SetActorRefEssential, saving) (slaterain/nv-rs[#754](https://github.com/JorisJonkers-dev/nv-rs/issues/754)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **stewie:** lStewieAl's Tweaks: ten menu and HUD crash fixes (inventory with nothing selected, container keys, console while menus load, list boxes, level 100, credits, holotapes) (slaterain/nv-rs[#755](https://github.com/JorisJonkers-dev/nv-rs/issues/755)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **stewie:** lStewieAl's Tweaks: twelve crash fixes in animations, AI and equipping (crash group C) (slaterain/nv-rs[#780](https://github.com/JorisJonkers-dev/nv-rs/issues/780)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **viewer:** Linux and macOS: play.sh's profile variable tied to the program's; the play-run test built from play.sh's own exports (slaterain/nv-rs[#777](https://github.com/JorisJonkers-dev/nv-rs/issues/777)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **viewer:** Linux and macOS: the game's window always fits the screen (a framed window too large for it is shown borderless) (slaterain/nv-rs[#774](https://github.com/JorisJonkers-dev/nv-rs/issues/774)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **viewer:** separate Unix save profiles from engine profiling (slaterain/nv-rs[#763](https://github.com/JorisJonkers-dev/nv-rs/issues/763)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+
+
+### Performance Improvements
+
+* **engine-fallout-cell:** shorter saves late in a playthrough: the changed-forms map gets 10,037 buckets (slaterain/nv-rs[#768](https://github.com/JorisJonkers-dev/nv-rs/issues/768)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **engine-fallout-cell:** shorter saves late in a playthrough: the clean-up every save runs first finds expired cells natively (slaterain/nv-rs[#762](https://github.com/JorisJonkers-dev/nv-rs/issues/762)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+* **engine-fallout-cell:** shorter saves late in a playthrough: the expiry queue's inserts as Rust code (slaterain/nv-rs[#770](https://github.com/JorisJonkers-dev/nv-rs/issues/770)) ([9c0b6e5](https://github.com/JorisJonkers-dev/nv-rs/commit/9c0b6e5f23bfaf863de09239dfe07bca45ae1ebf))
+
 ## [0.9.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.8.0...v0.9.0) (2026-11-19)
 
 
