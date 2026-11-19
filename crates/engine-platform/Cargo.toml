@@ -64,6 +64,11 @@ raw-window-handle = "=0.6.2"
 # build does not compile (the window layer off Windows is fork_d3d9rec.rs), so raw-window-metal and
 # xkbcommon-dl are left out too.
 
+# Linux: the game pads' event devices (xinput/linux.rs: their requests, poll, and the kernel's
+# input and rumble structures). Already in the lock and its notices.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 # The tests of the C runtime's stdio that moved here (crt_stdio_tests.rs) and of the process side
 # use the core's addresses and helpers behind this feature.
 [dev-dependencies]

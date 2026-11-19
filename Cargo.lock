@@ -875,6 +875,7 @@ dependencies = [
  "fork-hitch",
  "fork-log",
  "fork-window",
+ "libc",
  "libloading",
  "mp3",
  "nvse",
