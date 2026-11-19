@@ -136,6 +136,11 @@ jobs:
             printf '\nLeft out of the replay (paths the fork owns, so the fork version stays):\n\n' >>"$body"
             python3 -I "$RUNNER_TEMP/fork-scripts/sync_report.py" summary --dropped-file "$RUNNER_TEMP/sync-dropped" >>"$body"
           fi
+          # Last line: the replay point, so a squash merge (its message is this description) keeps it as a rebase does.
+          # The Verify sync job checks it (scripts/fork/sync_trailer.py).
+          newest="$(git log -1 --format=%B --grep='^Upstream-Commit: [0-9a-f]\{40\}$' sync/upstream | sed -n 's/^Upstream-Commit: \([0-9a-f]\{40\}\)$/\1/p' | tail -n 1)"
+          [ -n "$newest" ] || { echo "::error::no Upstream-Commit trailer on sync/upstream"; exit 1; }
+          printf '\nUpstream-Commit: %s\n' "$newest" >>"$body"
           if [ -z "$(gh pr list --head sync/upstream --state open --json number --jq '.[0].number')" ]; then
             gh pr create --base fork --head sync/upstream --label allow-repository-hygiene-exception \
               --title "chore(sync): replay upstream" --body-file "$body"
