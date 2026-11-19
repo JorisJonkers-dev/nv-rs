@@ -121,6 +121,32 @@ jobs:
         if: ${{ !cancelled() }}
         run: mise exec -- task secrets
 
+  # The crates a program that links the engine depends on (docs/fork/CONSUMING.md), each built alone, as the Toolbox's raul
+  # builds them. Runs on every pull request and push: the crates are fork-owned, so the `changes` filter would skip them.
+  facade:
+    name: Facade crates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_TERM_COLOR: always
+      CARGO_TERM_PROGRESS_WHEN: never
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: facade-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - name: fork-api
+        run: cargo check --locked -p fork-api
+      - name: fork-play
+        if: ${{ !cancelled() }}
+        run: cargo check --locked -p fork-play
+
   # Coverage of the components the change reaches, and the changed-line coverage gate of the fork-owned crates
   # (fork-coverage.yml, docs/fork/COVERAGE.md). Pull requests only; the nightly baseline is that workflow's own schedule.
   coverage:
@@ -150,7 +176,7 @@ jobs:
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, build, coverage]
+    needs: [changes, hygiene, pr-title, lint, verify-sync, build, coverage, facade]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

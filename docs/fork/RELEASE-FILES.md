@@ -81,7 +81,7 @@ run independently after the `guard` job (fork branch, `vX.Y.Z`, release-please c
 After `publish-linux` and `publish-windows`, the `packages` job of `fork-release-build.yml` pushes the builds already made as OCI
 packages (Toolbox ADR-0017): `ghcr.io/jorisjonkers-dev/nv-rs:<version>-<target>`, `<version>` the tag without `v`, for
 `x86_64-unknown-linux-gnu` (the developer build's tree plus `LICENSE`) and `x86_64-pc-windows-msvc` (the portable ZIP). Each push
-carries source, revision (the tag's commit) and licence annotations and a build provenance attestation pushed to the registry; the job
+carries source, revision (the tag's commit), licence and description annotations (the description says it is the standalone build, which raul does not use: raul links the engine, see CONSUMING.md) and a build provenance attestation pushed to the registry; the job
 then pulls each package anonymously and compares the SHA-256, and adds a package table to the run summary and the release notes.
 The fork builds no macOS binary, so there is no macOS package. Republish an existing tag with
 `gh workflow run fork-release-build.yml -R JorisJonkers-dev/nv-rs --ref fork -f tag=vX.Y.Z -f publish=true`. A pull request that
