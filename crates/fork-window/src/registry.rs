@@ -251,6 +251,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_metal_layer_is_known_only_while_its_window_is_registered() {
+        assert_eq!(metal_layer(-7), None, "an unknown window");
+        let shared = Shared::new();
+        let id = register(shared.clone());
+        assert_eq!(
+            metal_layer(id),
+            None,
+            "a window without a layer (every system but macOS)"
+        );
+        let mut stand_in = 0u8;
+        shared
+            .metal
+            .store(std::ptr::addr_of_mut!(stand_in) as usize, Ordering::Release);
+        assert_eq!(
+            metal_layer(id).map(|p| p.as_ptr() as usize),
+            Some(std::ptr::addr_of_mut!(stand_in) as usize)
+        );
+        unregister(id);
+        assert_eq!(metal_layer(id), None, "gone with its window");
+    }
+
+    #[test]
     fn pointer_motion_is_scaled_to_the_back_buffer() {
         let mut rest = 0.0;
         // 1080 window pixels across a 640 pixel back buffer: 1080 of motion is 640.

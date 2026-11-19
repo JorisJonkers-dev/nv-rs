@@ -87,6 +87,7 @@ fn session_name(w: &winit::window::Window) -> &'static str {
     match w.window_handle().map(|h| h.as_raw()) {
         Ok(RawWindowHandle::Wayland(_)) => "wayland",
         Ok(RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_)) => "x11",
+        #[cfg(target_os = "macos")]
         Ok(RawWindowHandle::AppKit(_)) => "macos",
         _ => "unknown",
     }
@@ -291,10 +292,9 @@ fn run(ready: mpsc::Sender<Result<EventLoopProxy<Command>, String>>) {
     // winit refuses an event loop off the main thread unless asked, per backend (macOS: never
     // allowed, so the loop is the main thread's: `run_on_main_thread`).
     #[cfg(not(target_os = "macos"))]
-    {
-        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-    }
+    EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+    #[cfg(not(target_os = "macos"))]
+    EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
     let event_loop = match builder.build() {
         Ok(l) => l,
         Err(e) => {
