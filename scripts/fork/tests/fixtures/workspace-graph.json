@@ -108,11 +108,6 @@
      "name": "wgpu"
     },
     {
-     "features": [],
-     "kind": null,
-     "name": "fork-window"
-    },
-    {
      "kind": "dev",
      "name": "objc2-quartz-core"
     },
@@ -123,6 +118,11 @@
     {
      "kind": "dev",
      "name": "winit"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-window"
     }
    ],
    "features": [],
@@ -1537,6 +1537,10 @@
     },
     {
      "kind": null,
+     "name": "raw-window-handle"
+    },
+    {
+     "kind": null,
      "name": "windows"
     }
    ],
@@ -1868,6 +1872,14 @@
     {
      "kind": null,
      "name": "wayland-protocols"
+    },
+    {
+     "kind": null,
+     "name": "winit"
+    },
+    {
+     "kind": null,
+     "name": "raw-window-metal"
     },
     {
      "kind": null,
