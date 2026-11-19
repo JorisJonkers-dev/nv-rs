@@ -52,7 +52,7 @@ settings itself.
 | Rust toolchain 1.100.0 | `rust-toolchain.toml` | The crates refuse an older rustc. Keep both repositories on the same version. |
 | 7-day crate cooldown | configured in both repositories | Keeps the two lock files choosing the same crate versions. Keep the setting identical. |
 | Clippy allows | `.cargo/config.toml` | These are not applied to a consumer. A consumer's `-D warnings` reaches path dependencies unless it caps their lints. |
-| Shared package versions in `Cargo.lock` | this repository's `Cargo.lock` | wgpu is pinned `=30.0.1` in `d3d9-wgpu`, `winit` `=0.30.13`, `raw-window-handle` `=0.6.2`. |
+| Shared package versions in `Cargo.lock` | this repository's `Cargo.lock` | wgpu is pinned `=30.0.1` in `d3d9-wgpu`, `winit` 0.30.13 (locked), `raw-window-handle` `=0.6.2`. |
 
 On the lock file: the consumer's lock should pick the same versions as this repository's lock for every shared
 package. When the cooldown would choose an older version, copy the version with

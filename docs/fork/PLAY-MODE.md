@@ -39,7 +39,7 @@ A launcher may scrub the environment, so the caller passes these on purpose:
 | `NV_D3D9` | the Direct3D 9 backend (`wgpu`, or `real` for the real `d3d9.dll`) |
 | `NV_SOUND` | the sound output; the sound layer reads `NV_SOUND_BACKEND` and `NV_SOUND_LAYOUT` |
 | `NV_LOG_JSON` | the JSON log: `auto`, `off`, or a path in the instance's log folder |
-| `NV_LOG_TERM` | the terminal filter; use `normal` (`off` also drops the status line from stdout) |
+| `NV_LOG_TERM` | the terminal filter; `normal` keeps stdout quiet; `off` silences it entirely; see Logs for the status line |
 | `NV_STATUS_SECS` | the status interval in seconds (default 5) |
 | `NV_WGPU_CACHE` | the folder that keeps the driver's compiled pipelines between runs |
 | `NV_STOP_FILE` | the stop file (see Stop below) |
