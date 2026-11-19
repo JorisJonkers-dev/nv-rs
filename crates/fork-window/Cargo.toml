@@ -22,6 +22,20 @@ winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", 
 wayland-client = { version = "=0.31.15", default-features = false, features = ["system", "dlopen"] }
 wayland-protocols = { version = "=0.32.13", default-features = false, features = ["client", "unstable"] }
 
+# macOS: AppKit through winit, its loop on the program's main thread (`run_on_main_thread`), and the window's
+# CAMetalLayer, made on that thread, on which the device layer makes its Metal surface. The versions the workspace
+# already locks (d3d9-wgpu's macOS test, upstream's winit layer).
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
+raw-window-metal = "=1.1.0"
+
 [[example]]
 name = "clear"
 path = "examples/clear.rs"
+
+# macOS: a window of this layer on the program's real main thread (`run_on_main_thread`): its own
+# main, no test harness.
+[[test]]
+name = "macos_window"
+path = "tests/macos_window.rs"
+harness = false

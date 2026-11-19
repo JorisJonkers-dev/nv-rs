@@ -1,5 +1,8 @@
 # Fork-only. The pull request dry run of the OCI package step of fork-release-build.yml (`packages`): it lays out the Linux
 # archive the same way, from a stand-in nv-viewer (no second slow build), and prints what would be pushed. Nothing is pushed.
+# The macOS jobs build the macOS archive of the release's macOS jobs for real (nv-viewer per processor in parallel, then
+# joined with lipo) and smoke-test it. Their rust-cache is saved on pushes to `fork` that touch these files (the fork's
+# rule: saved on `fork`, restored by pull requests); the Linux dry run does not run on those pushes.
 name: Packages Dry Run
 
 on:
@@ -8,6 +11,13 @@ on:
       - '.github/workflows/fork-release-build.yml'
       - '.github/workflows/fork-packages-dry-run.yml'
       - 'packaging/linux/**'
+      - 'packaging/macos/**'
+  push:
+    branches: [fork]
+    paths:
+      - '.github/workflows/fork-release-build.yml'
+      - '.github/workflows/fork-packages-dry-run.yml'
+      - 'packaging/macos/**'
 
 permissions:
   contents: read
@@ -15,6 +25,7 @@ permissions:
 jobs:
   dry-run:
     name: Build one archive and print what would be pushed
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -49,3 +60,76 @@ jobs:
             echo "Would push ghcr.io/jorisjonkers-dev/nv-rs:${VERSION}-x86_64-unknown-linux-gnu"
             echo "Archive $(basename "$archive"), SHA-256 $(sha256sum "$archive" | awk '{print $1}')"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # nv-viewer for one macOS processor, on its own runner, with the rust-cache of that target. Both run on Apple silicon:
+  # x86_64 is cross-compiled there (Intel runners are fewer and slower), and the universal binary's arm64 half is the one
+  # the smoke test runs.
+  macos-build:
+    name: Build nv-viewer (${{ matrix.target }})
+    runs-on: macos-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain and the target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustup target add "$TARGET"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.target }}
+          shared-key: macos-viewer-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - name: Build nv-viewer
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked -p nv-viewer --target "$TARGET"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nv-viewer-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/nv-viewer
+          if-no-files-found: error
+          retention-days: 3
+
+  # The two halves joined into the universal binary, packaged by packaging/macos/package.sh, unpacked and smoke-tested.
+  macos:
+    name: Build the macOS archive and smoke-test it
+    needs: macos-build
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      VERSION: 0.0.0-dry-run
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: nv-viewer-*
+          path: halves
+      - name: Join the two halves into one universal binary
+        run: |
+          set -euo pipefail
+          lipo -create -output nv-viewer \
+            halves/nv-viewer-aarch64-apple-darwin/nv-viewer halves/nv-viewer-x86_64-apple-darwin/nv-viewer
+          chmod 0755 nv-viewer
+          lipo -archs nv-viewer | tee "$RUNNER_TEMP/archs"
+          grep -qw arm64 "$RUNNER_TEMP/archs" && grep -qw x86_64 "$RUNNER_TEMP/archs"
+      - name: Package, unpack and smoke-test
+        run: |
+          set -euo pipefail
+          packaging/macos/package.sh ./nv-viewer "$VERSION" dist
+          mkdir unpack
+          tar -xzf dist/nv-rs-macos-universal-dev.tar.gz -C unpack
+          if find unpack -type l | grep -q .; then echo "::error::the tree holds a link"; exit 1; fi
+          packaging/linux/smoke-test.sh "unpack/nv-rs-${VERSION}-macos-universal"

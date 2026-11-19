@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      native: ${{ steps.diff.outputs.native }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,7 +49,7 @@ jobs:
           set -euo pipefail
           # A push to the fork branch always runs the builds: it verifies the result and fills the caches.
           if [ "$EVENT" = push ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
-            echo "code=true" >>"$GITHUB_OUTPUT"; echo "building (push, or no base to compare with)"; exit 0
+            { echo "code=true"; echo "native=true"; } >>"$GITHUB_OUTPUT"; echo "building (push, or no base to compare with)"; exit 0
           fi
           # On a pull request the Rust builds verify UPSTREAM's code. A change that only touches documentation or the fork's own
           # files (.fork/overlay-paths) cannot change that, so the builds are skipped. Files that steer the builds still count.
@@ -69,6 +70,9 @@ jobs:
           code += [f for f in diff("MDR") if steering.match(f)]
           print("code files:", ", ".join(code[:10]) or "none", file=__import__("sys").stderr)
           print("code=" + ("true" if code else "false"))
+          # The macOS job also checks fork-owned crates (fork-window, the facade): it runs unless only documentation changed.
+          native = [f for f in diff("ACDMRT") if not docs.match(f)]
+          print("native=" + ("true" if native else "false"))
           ' >>"$GITHUB_OUTPUT"
 
   hygiene:
@@ -150,6 +154,43 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo check --locked -p fork-play
 
+  # The engine on macOS (Apple silicon, wgpu on Metal; nv-rs#378): the crates the Toolbox links and the window and
+  # device layers build, and their tests that need no game run. The game's window on macOS is nv-rs#379; until then
+  # the device layer stays off screen there. Skipped when only documentation changed.
+  macos:
+    name: macOS
+    needs: changes
+    if: ${{ needs.changes.outputs.native == 'true' }}
+    runs-on: macos-latest
+    timeout-minutes: 120
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_TERM_COLOR: always
+      CARGO_TERM_PROGRESS_WHEN: never
+      # Apple silicon runners have 7 GB of memory: two compilers at a time.
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: macos
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - name: The window and device layers and the platform layer
+        run: cargo build --locked -p fork-window -p d3d9-wgpu -p engine-platform
+      - name: fork-api with the engine
+        if: ${{ !cancelled() }}
+        run: cargo check --locked -p fork-api --features engine
+      - name: fork-play
+        if: ${{ !cancelled() }}
+        run: cargo check --locked -p fork-play
+      - name: Tests that need no game
+        if: ${{ !cancelled() }}
+        run: cargo test --locked --no-fail-fast -p fork-window -p d3d9-wgpu -p engine-platform
+
   # Coverage of the components the change reaches, and the changed-line coverage gate of the fork-owned crates
   # (fork-coverage.yml, docs/fork/COVERAGE.md). Pull requests only; the nightly baseline is that workflow's own schedule.
   coverage:
@@ -192,7 +233,7 @@ jobs:
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, build, coverage, facade]
+    needs: [changes, hygiene, pr-title, lint, verify-sync, build, coverage, facade, macos]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -206,13 +247,14 @@ jobs:
           sparse-checkout: scripts/fork
 
       # A skipped job fails, except the three that only run on pull requests (hygiene also skips when
-      # its override label is set) and the build when only documentation changed.
+      # its override label is set), the build when only documentation or fork-owned files changed and the macOS job
+      # when only documentation changed.
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage")) or ((.key == "build") and $n.changes.outputs.code == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage")) or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.

@@ -8,26 +8,35 @@
 //! buttons), taken once a frame with [`take_input`].
 //!
 //! Additive and fork-owned: nothing here touches the platform layer upstream reserves. Platforms
-//! are modules of `platform`; X11 and Wayland (winit 0.30) are the one that exists.
+//! are modules of `platform`: X11 and Wayland, and macOS (winit 0.30). On macOS the loop runs on
+//! the program's main thread, which the program hands over with [`run_on_main_thread`], and each
+//! window has a `CAMetalLayer` ([`metal_layer`]). Elsewhere (Windows, which has its own window
+//! layer) the same API builds and [`Window::open`] refuses.
 
 pub mod dik;
 mod display;
 mod registry;
 mod surface;
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(unix))]
+mod elsewhere;
+#[cfg(unix)]
 mod platform;
 
 pub use display::{
     display, hz_of, last_monitor, parse_wanted, pick, remember_monitor, Display, Monitor, Wanted,
 };
 pub use registry::{
-    client_size, close_requested, held_keys, raw_handles, scale_motion, set_game_area, take_input,
-    to_game_position, Input,
+    client_size, close_requested, held_keys, metal_layer, raw_handles, scale_motion, set_game_area,
+    take_input, to_game_position, Input,
 };
 pub use surface::surface_for;
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(unix))]
+pub use elsewhere::Window;
+#[cfg(target_os = "macos")]
+pub use platform::run_on_main_thread;
+#[cfg(unix)]
 pub use platform::Window;
 
 /// What the game asked of its window.

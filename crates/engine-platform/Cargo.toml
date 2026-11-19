@@ -54,6 +54,9 @@ windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Di
 # run time, or a null sink), so the program starts without ALSA's library (docs/fork/DIVERGENCE.md).
 [target.'cfg(target_os = "macos")'.dependencies]
 cpal = "0.18.2"
+# macOS: the fork-window window's raw handles for the device layer's window registry (fork_d3d9rec.rs,
+# `MacWindow`); the version d3d9-wgpu and fork-window take.
+raw-window-handle = "=0.6.2"
 
 # macOS: the CAMetalLayer of upstream's winit window layer (d3d9real/winit_window.rs), which this
 # build does not compile (the window layer off Windows is fork_d3d9rec.rs), so raw-window-metal and

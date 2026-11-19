@@ -1058,8 +1058,9 @@ mod tests {
         // The 195 of the table before the layer moved out of `engine-core` (6 are Windows only),
         // `GlobalMemoryStatus(Ex)`, `MultiByteToWideChar` and `LCMapStringW`, and `DefWindowProcA`
         // (the game's `WM_MOUSEMOVE`, `window::post_mouse_move`).
-        // Off Windows also the two shader profile getters (`d3dx::profiles`).
-        assert_eq!(table.len(), if cfg!(windows) { 200 } else { 196 });
+        // Off Windows also the two shader profile getters (`d3dx::profiles`) and, instead of the
+        // six of the player's d3dx9_38.dll, the fork's four (`d3dxshader::imports`): 200 as well.
+        assert_eq!(table.len(), 200);
     }
 
     /// Not a check: the rows of `engine-core`'s `allocations_per_operation_of_the_kernel` whose

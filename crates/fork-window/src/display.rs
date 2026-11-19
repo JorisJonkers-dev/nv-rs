@@ -131,7 +131,7 @@ pub fn display() -> Option<Display> {
     *CHOSEN.get_or_init(probe)
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(unix)]
 fn probe() -> Option<Display> {
     // A thread of its own: its event loop is made and dropped there, before the window's.
     std::thread::Builder::new()
@@ -143,7 +143,7 @@ fn probe() -> Option<Display> {
         .flatten()
 }
 
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(not(unix))]
 fn probe() -> Option<Display> {
     None
 }
