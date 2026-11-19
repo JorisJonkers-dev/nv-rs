@@ -11,7 +11,7 @@ tasks:
     desc: actionlint on every workflow, shellcheck on the fork's shell scripts, zizmor on the fork's own workflows (upstream's are not ours to change)
     cmds:
       - actionlint
-      - shellcheck scripts/fork/*.sh scripts/fork/local/lib.sh scripts/fork/local/nv-rs-dev packaging/linux/*.sh packaging/linux/nv-rs-launch
+      - shellcheck scripts/fork/*.sh scripts/fork/local/lib.sh scripts/fork/local/nv-rs-dev packaging/linux/*.sh packaging/linux/nv-rs-launch packaging/macos/*.sh
       - zizmor --offline --no-progress .github/workflows/fork-*.yml .github/workflows/release.yml
 
   deny:
