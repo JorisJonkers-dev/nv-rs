@@ -16,7 +16,7 @@ The Toolbox program, raul, must check data, read saves, precompile shaders and s
 3. Shader precompile runs in that child (`--precompile-shaders`), not in process, because it opens a GPU device whose driver may abort or hang. So there is no in-process precompile step.
 4. Stop is a file named by `NV_STOP_FILE`, polled once a second and observed on the game's own thread, with exit status 143. Signals are not the stop.
 5. Exit codes overlap the game's own and are documented, not changed.
-6. The viewer's loop is included by `#[path]` into `fork-play`, with a minimal edit of `viewer/src/main.rs` (`pub fn run`, one stop poll), so there is one loop.
+6. The viewer's loop is included by `#[path]` into `fork-play`, with a small edit of `viewer/src/main.rs` (listed in `.fork/allowed-divergence`; `pub fn run`, the stop poll), so there is one loop.
 7. One binary behind a feature `engine` (on in release builds, off in fast loops), subject to a three-system spike of the Windows DPI manifest. If that spike fails, the fallback is a sidecar program beside the program.
 
 ## Consequences

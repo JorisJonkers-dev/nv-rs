@@ -113,7 +113,7 @@ An unset or empty `NV_STOP_FILE` means that nothing is watched.
 
 Nothing beyond itself.
 
-- **Memory.** The engine reserves a 4 GiB guest address window (about 3.25 GiB of heap address space, committed on
+- **Memory.** The engine reserves a 4 GiB guest address window (about 3.2 GiB of heap address space, committed on
   demand). An out-of-memory kill, a failed reservation or a stack overflow kills only the child.
 - **GPU or driver abort.** Only the child ends.
 - **Panic.** `fork_log` installs a panic hook in the child, and the child then exits. The translated C runtime `abort`
