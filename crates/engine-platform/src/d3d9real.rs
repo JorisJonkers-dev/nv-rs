@@ -703,13 +703,13 @@ pub fn mouse_exclusive() -> bool {
 }
 
 /// Whether a hold is wanted for the mouse the game made exclusive again ([`HOLD_WANTED`]).
-#[cfg(windows)]
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 pub(crate) fn hold_wanted() -> bool {
     HOLD_WANTED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The wanted hold was made ([`HOLD_WANTED`] cleared).
-#[cfg(windows)]
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 pub(crate) fn take_hold_wanted() {
     HOLD_WANTED.store(false, std::sync::atomic::Ordering::Relaxed);
 }
