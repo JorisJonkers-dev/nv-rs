@@ -1,6 +1,27 @@
-//! X11 and Wayland: a winit 0.30 event loop on a thread of its own.
+//! X11 and Wayland: a winit 0.30 event loop on a thread of its own. macOS: the same loop on the
+//! program's main thread ([`run_on_main_thread`]: AppKit runs its windows there only), each window
+//! with a `CAMetalLayer` made there for the device layer's surface ([`crate::metal_layer`]).
 
+#[cfg(not(target_os = "macos"))]
 mod idle;
+
+/// macOS: the screen is not kept awake yet (the system's display sleep applies).
+#[cfg(target_os = "macos")]
+mod idle {
+    use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+
+    pub(crate) struct Inhibit;
+
+    impl Inhibit {
+        pub(crate) fn name(&self) -> &'static str {
+            "none"
+        }
+
+        pub(crate) fn start(_: RawDisplayHandle, _: RawWindowHandle) -> Inhibit {
+            Inhibit
+        }
+    }
+}
 
 use crate::registry::{self, Handles, Shared};
 use crate::{dik, ChangeHook, WindowRequest};
@@ -15,7 +36,9 @@ use winit::event::{
 };
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
+#[cfg(not(target_os = "macos"))]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
+#[cfg(not(target_os = "macos"))]
 use winit::platform::x11::EventLoopBuilderExtX11;
 use winit::window::{CursorGrabMode, WindowAttributes, WindowId};
 
@@ -64,6 +87,7 @@ fn session_name(w: &winit::window::Window) -> &'static str {
     match w.window_handle().map(|h| h.as_raw()) {
         Ok(RawWindowHandle::Wayland(_)) => "wayland",
         Ok(RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_)) => "x11",
+        Ok(RawWindowHandle::AppKit(_)) => "macos",
         _ => "unknown",
     }
 }
@@ -87,6 +111,7 @@ enum Command {
 /// The one event loop of the process. winit allows one per process (a second is refused with
 /// "EventLoop can't be recreated"), so the monitor query and every window go through it: it is
 /// made on the first use, on a thread of its own that lives to the end of the process.
+#[cfg(not(target_os = "macos"))]
 fn hub() -> Result<&'static EventLoopProxy<Command>, String> {
     static HUB: OnceLock<Result<EventLoopProxy<Command>, String>> = OnceLock::new();
     HUB.get_or_init(|| {
@@ -100,6 +125,66 @@ fn hub() -> Result<&'static EventLoopProxy<Command>, String> {
     })
     .as_ref()
     .map_err(Clone::clone)
+}
+
+/// macOS: the loop [`run_on_main_thread`] runs on the main thread, once it has started.
+#[cfg(target_os = "macos")]
+static MAIN_HUB: OnceLock<Result<EventLoopProxy<Command>, String>> = OnceLock::new();
+
+/// macOS: the loop on the main thread, waited for while [`run_on_main_thread`] starts it; an error
+/// when the program did not hand the main thread over (the run then stays off screen).
+#[cfg(target_os = "macos")]
+fn hub() -> Result<&'static EventLoopProxy<Command>, String> {
+    if !HANDED_OVER.load(std::sync::atomic::Ordering::Acquire) {
+        return Err("on macOS the window layer needs the program's main thread, which this program did not hand to it".into());
+    }
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(hub) = MAIN_HUB.get() {
+            return hub.as_ref().map_err(Clone::clone);
+        }
+        if started.elapsed() > std::time::Duration::from_secs(10) {
+            return Err("the main thread's event loop did not start in 10 s".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// macOS: whether [`run_on_main_thread`] was called.
+#[cfg(target_os = "macos")]
+static HANDED_OVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The stack of the thread the game runs on when the main thread is the window loop's: the main
+/// thread's own size on macOS (8 MB), not a spawned thread's default (2 MB in Rust).
+#[cfg(target_os = "macos")]
+const GAME_STACK: usize = 8 << 20;
+
+/// macOS: runs `game` on a thread of its own and the window loop on the calling thread, which must
+/// be the program's main thread (AppKit's windows and events are the main thread's only). When
+/// `game` returns, `end` is called with 0 (101 when it panicked) on the game's thread; `end` ends
+/// the process. If the loop ends first (it cannot be made), `end(1)` is called here.
+#[cfg(target_os = "macos")]
+pub fn run_on_main_thread(game: Box<dyn FnOnce() + Send>, end: fn(i32) -> !) -> ! {
+    HANDED_OVER.store(true, std::sync::atomic::Ordering::Release);
+    let spawned = std::thread::Builder::new()
+        .name("nv-game".into())
+        .stack_size(GAME_STACK)
+        .spawn(move || {
+            let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(game));
+            end(if ended.is_ok() { 0 } else { 101 })
+        });
+    if let Err(e) = spawned {
+        eprintln!("fork-window: the game's thread could not start ({e})");
+        end(1);
+    }
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        if let Ok(hub) = rx.recv() {
+            let _ = MAIN_HUB.set(hub);
+        }
+    });
+    run(tx);
+    end(1)
 }
 
 /// A window of the process's event loop. Drop (or [`Window::shutdown`]) ends the window: drop
@@ -203,9 +288,13 @@ fn run(ready: mpsc::Sender<Result<EventLoopProxy<Command>, String>>) {
     // winit takes Wayland when the session is one, else X11 (`WINIT_UNIX_BACKEND=x11` forces X11;
     // a second event loop cannot be made after a failed one, so there is no retry here).
     let mut builder = EventLoop::<Command>::with_user_event();
-    // winit refuses an event loop off the main thread unless asked, per backend.
-    EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
+    // winit refuses an event loop off the main thread unless asked, per backend (macOS: never
+    // allowed, so the loop is the main thread's: `run_on_main_thread`).
+    #[cfg(not(target_os = "macos"))]
+    {
+        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
+    }
     let event_loop = match builder.build() {
         Ok(l) => l,
         Err(e) => {
@@ -226,6 +315,8 @@ fn run(ready: mpsc::Sender<Result<EventLoopProxy<Command>, String>>) {
         rest: [0.0; 2],
         landed_on: None,
         idle: None,
+        #[cfg(target_os = "macos")]
+        metal: None,
         held: "none",
         reported: None,
         close_first: None,
@@ -255,6 +346,9 @@ struct App {
     landed_on: Option<String>,
     /// Keeps the screen awake while the window is up.
     idle: Option<idle::Inhibit>,
+    /// macOS: the window's `CAMetalLayer`, kept retained while the window is registered.
+    #[cfg(target_os = "macos")]
+    metal: Option<raw_window_metal::Layer>,
     /// How the pointer is held (for the report).
     held: &'static str,
     /// What the last report said (size in pixels, scale), so a line is made only on a change.
@@ -309,6 +403,17 @@ impl App {
         self.shared.set_size(size.width, size.height);
         if let Ok(mut h) = self.shared.handles.lock() {
             *h = Some(Handles(display, handle));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            self.metal = metal_layer_of(handle);
+            let address = self
+                .metal
+                .as_ref()
+                .map_or(0, |l| l.as_ptr().as_ptr() as usize);
+            self.shared
+                .metal
+                .store(address, std::sync::atomic::Ordering::Release);
         }
         self.id = registry::register(self.shared.clone());
         self.idle = Some(idle::Inhibit::start(display, handle));
@@ -455,6 +560,10 @@ impl ApplicationHandler<Command> for App {
                     self.id = 0;
                 }
                 self.idle = None;
+                #[cfg(target_os = "macos")]
+                {
+                    self.metal = None;
+                }
                 self.window = None;
                 let _ = done.send(());
             }
@@ -547,6 +656,24 @@ impl ApplicationHandler<Command> for App {
         if let DeviceEvent::MouseMotion { delta } = event {
             self.device_motion = true;
             self.add_motion(delta.0, delta.1);
+        }
+    }
+}
+
+/// macOS: a `CAMetalLayer` on the window's view (made layer-backed; the layer follows the view's
+/// size and scale). Runs on the main thread, as AppKit requires. `None`, with a line, when the
+/// window has no AppKit view.
+#[cfg(target_os = "macos")]
+fn metal_layer_of(handle: raw_window_handle::RawWindowHandle) -> Option<raw_window_metal::Layer> {
+    match handle {
+        // SAFETY: winit's AppKit handle names the window's live NSView, and this runs on the main
+        // thread (the loop's: `run_on_main_thread`), as from_ns_view requires.
+        raw_window_handle::RawWindowHandle::AppKit(h) => {
+            Some(unsafe { raw_window_metal::Layer::from_ns_view(h.ns_view) })
+        }
+        other => {
+            eprintln!("fork-window: the window is not an AppKit one ({other:?}): no Metal layer");
+            None
         }
     }
 }

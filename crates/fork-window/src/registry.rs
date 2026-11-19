@@ -1,9 +1,9 @@
-#![cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+#![cfg_attr(not(unix), allow(dead_code))]
 //! The handle registry: the window's id, its raw handles, its size and its input.
 
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// What the window's keyboard and mouse did since the last frame (the shape of
@@ -89,6 +89,9 @@ pub(crate) struct Shared {
     /// The game's back buffer, width in the high 32 bits, height in the low; 0 until the device
     /// layer says (`Present` stretches it over the whole client area).
     pub game: AtomicU64,
+    /// macOS: the address of the window's `CAMetalLayer`, which the window thread keeps retained
+    /// while the window is registered; 0 for none ([`metal_layer`]).
+    pub metal: AtomicUsize,
 }
 
 impl Shared {
@@ -99,6 +102,7 @@ impl Shared {
             size: AtomicU64::new(0),
             close: AtomicBool::new(false),
             game: AtomicU64::new(0),
+            metal: AtomicUsize::new(0),
         })
     }
 
@@ -138,6 +142,15 @@ pub fn raw_handles(id: isize) -> Option<(RawDisplayHandle, RawWindowHandle)> {
     let s = get(id)?;
     let h = (*s.handles.lock().ok()?)?;
     Some((h.0, h.1))
+}
+
+/// macOS: the `CAMetalLayer` of window `id`, made on the main thread with the window (AppKit's
+/// view may only be touched there, while the game's device makes its surface on another thread);
+/// `None` elsewhere, for an unknown window, or a window without one. The layer stays valid while
+/// the window does (the caller's contract of `Window::shutdown`).
+pub fn metal_layer(id: isize) -> Option<std::ptr::NonNull<std::ffi::c_void>> {
+    let address = get(id)?.metal.load(Ordering::Acquire);
+    std::ptr::NonNull::new(address as *mut std::ffi::c_void)
 }
 
 /// The client size of window `id` in pixels (0, 0 when unknown).

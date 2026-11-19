@@ -23,11 +23,64 @@ pub(super) fn main_window() -> Option<isize> {
 /// The windows made, kept for the run (dropping one closes it).
 static KEPT: std::sync::Mutex<Vec<fork_window::Window>> = std::sync::Mutex::new(Vec::new());
 
-/// Whether the game's windows are real ones: a display is there (X11 or Wayland) and
-/// `NV_D3D9_OFFSCREEN` is not set (CI without a display, and tests, stay off screen).
+/// Whether the game's windows are real ones: a display is there (X11 or Wayland; macOS always has
+/// one) and `NV_D3D9_OFFSCREEN` is not set (CI without a display, and tests, stay off screen).
 fn windows_wanted() -> bool {
     let set = |n: &str| std::env::var_os(n).is_some_and(|v| !v.is_empty());
-    wanted() && !set("NV_D3D9_OFFSCREEN") && (set("DISPLAY") || set("WAYLAND_DISPLAY"))
+    wanted()
+        && !set("NV_D3D9_OFFSCREEN")
+        && (cfg!(target_os = "macos") || set("DISPLAY") || set("WAYLAND_DISPLAY"))
+}
+
+/// macOS: the fork-window window `id` as the device layer's window registry knows a window
+/// (`d3d9_wgpu::register_window`): the surface is made on its Metal layer, made on the main thread.
+#[cfg(target_os = "macos")]
+struct MacWindow(isize);
+
+#[cfg(target_os = "macos")]
+impl raw_window_handle::HasWindowHandle for MacWindow {
+    fn window_handle(
+        &self,
+    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+        let (_, window) =
+            fork_window::raw_handles(self.0).ok_or(raw_window_handle::HandleError::Unavailable)?;
+        // SAFETY: fork-window keeps the window alive while it is registered (`KEPT` holds it for
+        // the run); the handle is only read, on the device layer's terms.
+        Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(window) })
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl raw_window_handle::HasDisplayHandle for MacWindow {
+    fn display_handle(
+        &self,
+    ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+        let (display, _) =
+            fork_window::raw_handles(self.0).ok_or(raw_window_handle::HandleError::Unavailable)?;
+        // SAFETY: as for the window handle above.
+        Ok(unsafe { raw_window_handle::DisplayHandle::borrow_raw(display) })
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl d3d9_wgpu::GameWindow for MacWindow {
+    fn client_size(&self) -> Option<(u32, u32)> {
+        Some(fork_window::client_size(self.0)).filter(|&(w, h)| w > 0 && h > 0)
+    }
+
+    fn minimised(&self) -> bool {
+        false
+    }
+
+    fn refresh_millihertz(&self) -> Option<u32> {
+        fork_window::display()
+            .map(|d| d.monitor.refresh_mhz)
+            .filter(|&mhz| mhz > 0)
+    }
+
+    fn metal_layer(&self) -> Option<std::ptr::NonNull<std::ffi::c_void>> {
+        fork_window::metal_layer(self.0)
+    }
 }
 
 /// `CreateWindowExA` made the modelled window `handle`: a real window of its title and size (a
@@ -76,6 +129,8 @@ pub fn window_created(
                     ""
                 }
             );
+            #[cfg(target_os = "macos")]
+            d3d9_wgpu::register_window(id, std::sync::Arc::new(MacWindow(id)));
             let _ = MAIN_WINDOW.compare_exchange(0, id, Ordering::Relaxed, Ordering::Relaxed);
             KEPT.lock().unwrap_or_else(|p| p.into_inner()).push(window);
             watch_close(id);
@@ -120,11 +175,20 @@ pub fn window_titled(_e: &mut Engine, _handle: u32, _title: &[u8]) {}
 /// `SetWindowPos`: the real window keeps the size it was made with: the borderless window covers the chosen monitor and the swap chain follows it (docs/fork/LINUX.md, "Display match").
 pub fn window_moved(_e: &mut Engine, _handle: u32, _rect: [i32; 4], _flags: u32) {}
 
-/// `d3d9real::run_on_main_thread` (macOS's viewer): fork-window needs no main thread, so `game`
-/// runs here and the process ends when it returns.
+/// `d3d9real::run_on_main_thread` (the viewer hands the main thread over): on Linux fork-window
+/// needs no main thread, so `game` runs here and the process ends when it returns.
+#[cfg(not(target_os = "macos"))]
 pub fn run_on_main_thread(game: Box<dyn FnOnce() + Send>) -> ! {
     game();
     crate::end_process(0)
+}
+
+/// `d3d9real::run_on_main_thread` on macOS: the window loop takes the main thread (AppKit's
+/// windows are the main thread's only) and `game` runs on a thread of its own; the process ends
+/// when it returns (101 when it panicked).
+#[cfg(target_os = "macos")]
+pub fn run_on_main_thread(game: Box<dyn FnOnce() + Send>) -> ! {
+    fork_window::run_on_main_thread(game, crate::end_process)
 }
 
 /// The monitors for upstream's display part of the machine table (`machine_table::this_display`):

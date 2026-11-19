@@ -879,6 +879,7 @@ dependencies = [
  "mp3",
  "nvse",
  "qos",
+ "raw-window-handle",
  "vorbis",
  "windows 0.58.0",
 ]
@@ -1029,6 +1030,7 @@ version = "0.1.0"
 dependencies = [
  "fork-log",
  "raw-window-handle",
+ "raw-window-metal",
  "wayland-client",
  "wayland-protocols",
  "wgpu",

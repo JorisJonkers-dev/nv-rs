@@ -119,7 +119,7 @@ fn reconfigures_after(why: NoFrame) -> bool {
 }
 
 /// One line, once: the monitor's index, its size and refresh in hertz, and the present mode.
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(windows))]
 fn log_display(mode: wgpu::PresentMode) {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| match fork_window::display() {
@@ -144,22 +144,6 @@ fn log_display(mode: wgpu::PresentMode) {
         }
         None => {
             fork_log::info!(target: "window", "NV_D3D9 display: no monitor known, present {mode:?}")
-        }
-    });
-}
-
-/// Elsewhere (macOS): one line, once: the refresh of the last window made known
-/// ([`register_window`]) and the present mode.
-#[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
-fn log_display(mode: wgpu::PresentMode) {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        let last = registry().1;
-        match registered(last).and_then(|w| w.refresh_millihertz()) {
-            Some(mhz) => fork_log::info!(target: "window",
-                "NV_D3D9 display: {} Hz, present {mode:?}", mhz / 1000),
-            None => fork_log::info!(target: "window",
-                "NV_D3D9 display: no monitor known, present {mode:?}"),
         }
     });
 }
@@ -324,9 +308,8 @@ impl Window {
         let _dpi = DpiScope::of(hwnd);
         let area = client_size(hwnd).filter(|&(w, h)| w > 0 && h > 0);
         let (width, height) = area.unwrap_or(fallback);
-        // Linux: the pointer's motion is scaled to the back buffer that is stretched over the
-        // window (the fork's window layer's input; macOS has none of it yet, nv-rs#379).
-        #[cfg(all(unix, not(target_os = "macos")))]
+        // The pointer's motion is scaled to the back buffer that is stretched over the window.
+        #[cfg(not(windows))]
         fork_window::set_game_area(hwnd, fallback.0, fallback.1);
         let mut w = Window {
             hwnd,

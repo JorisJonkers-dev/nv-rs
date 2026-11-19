@@ -1,6 +1,5 @@
-//! Systems this layer has no window on yet (macOS: nv-rs#379). The same API as the X11 and Wayland
-//! module, so the crates above it build there; opening a window says why it cannot, and the device
-//! layer stays off screen (`engine-platform`'s `fork_d3d9rec.rs` logs the reason).
+//! Systems this layer has no window on (Windows, which has its own window layer). The same API as
+//! the `platform` module, so the crates above it build there; opening a window says why it cannot.
 
 use crate::{ChangeHook, WindowRequest};
 
