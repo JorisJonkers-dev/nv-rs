@@ -278,7 +278,7 @@ class Affected(unittest.TestCase):
         # dev-dependency with test-support, which the stored graph lacked until it was made by `components.py fixture`), so
         # a change to jip reaches fallout-world and fallout-gameplay too; nothing below them (core, formats, platform).
         self.assertEqual(self.reached(["crates/jip/src/lib.rs"])[1],
-                         {"scripting", "fallout-world", "fallout-gameplay", "integration", "play", "repo-checks", "release-files"})
+                         {"scripting", "fallout-world", "fallout-gameplay", "facade", "integration", "play", "repo-checks", "release-files"})
 
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
@@ -292,7 +292,7 @@ class Affected(unittest.TestCase):
 
     def test_the_vendored_wgpu_hal_reaches_the_crates_that_use_wgpu(self):
         _, got = self.reached(["vendor/wgpu-hal/src/lib.rs"])
-        self.assertEqual(got, {"rendering", "window-layer", "platform", "integration", "play", "repo-checks", "release-files"})
+        self.assertEqual(got, {"rendering", "window-layer", "platform", "facade", "integration", "play", "repo-checks", "release-files"})
 
     def test_the_launcher_and_the_distribution_scripts_run_their_component(self):
         for f in ("scripts/launcher/src/main.rs", "scripts/ledger/src/main.rs", "distribution/Settings.ps1"):

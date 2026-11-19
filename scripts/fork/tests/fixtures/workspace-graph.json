@@ -1717,6 +1717,11 @@
      "name": "game-profile"
     },
     {
+     "features": [],
+     "kind": null,
+     "name": "host"
+    },
+    {
      "features": [
       "write"
      ],
@@ -1724,7 +1729,10 @@
      "name": "fos"
     }
    ],
-   "features": [],
+   "features": [
+    "default",
+    "engine"
+   ],
    "manifest_path": "/ws/crates/fork-api/Cargo.toml",
    "name": "fork-api"
   },
