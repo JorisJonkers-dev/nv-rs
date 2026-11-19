@@ -8,13 +8,16 @@
 //! buttons), taken once a frame with [`take_input`].
 //!
 //! Additive and fork-owned: nothing here touches the platform layer upstream reserves. Platforms
-//! are modules of `platform`; X11 and Wayland (winit 0.30) are the one that exists.
+//! are modules of `platform`; X11 and Wayland (winit 0.30) are the one that exists. Elsewhere
+//! (macOS) the same API builds and [`Window::open`] refuses, so the device layer stays off screen.
 
 pub mod dik;
 mod display;
 mod registry;
 mod surface;
 
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+mod elsewhere;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod platform;
 
@@ -27,6 +30,8 @@ pub use registry::{
 };
 pub use surface::surface_for;
 
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+pub use elsewhere::Window;
 #[cfg(all(unix, not(target_os = "macos")))]
 pub use platform::Window;
 
