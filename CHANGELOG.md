@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.8.0...v0.9.0) (2026-11-19)
+
+
+### Features
+
+* **fork-api:** typed in-process facade crate (step N1 of [#353](https://github.com/JorisJonkers-dev/nv-rs/issues/353)) ([#366](https://github.com/JorisJonkers-dev/nv-rs/issues/366)) ([521fd79](https://github.com/JorisJonkers-dev/nv-rs/commit/521fd790bc8f463e38091ce9ac8a300bad895ca4))
+* **fork-play:** play-mode entry point of the engine (step N3a of [#353](https://github.com/JorisJonkers-dev/nv-rs/issues/353)) ([#369](https://github.com/JorisJonkers-dev/nv-rs/issues/369)) ([e6e97b2](https://github.com/JorisJonkers-dev/nv-rs/commit/e6e97b28a1978b11d102b53a9c4e21bcbdd9b44b))
+
 ## [0.8.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.7.0...v0.8.0) (2026-11-18)
 
 
