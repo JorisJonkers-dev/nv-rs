@@ -38,6 +38,18 @@ which reads `main`, and opens (or refreshes) the pull request `sync/upstream` in
 release-please would see one `chore`. The repository ruleset allows both squash (people) and rebase (the
 sync).
 
+A squash merge's message is the pull request's description, so a squashed replay keeps its replay point only when
+the description ends with it. A sync was squash-merged without it (#376; #377 recorded the point
+afterwards), and verify-sync, the next replay and the release build then read an older replay point. So every pull
+request whose commits carry `Upstream-Commit:` trailers (the automatic sync and a hand-made one) must end its
+description with the line `Upstream-Commit: <newest replayed sha>`: the Verify sync job checks it
+(`scripts/fork/sync_trailer.py`, also on description edits), and the sync workflow writes it.
+
+A pull request's checks run on GitHub's merge commit of the pull request into `fork`, made when the event came. If
+`fork` moved shortly before (a replay-point commit, for example), that merge may still be on the older `fork`, and a
+re-run reuses the same merge commit. Close and reopen the pull request (or push to it) once GitHub shows the new base
+to get a run on the current merge.
+
 The script:
 
 1. fetches `main` (the upstream copy) and `fork` from `origin`; it never talks to upstream itself;
