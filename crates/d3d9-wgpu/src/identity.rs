@@ -50,7 +50,10 @@ mod tests {
     fn the_adapter_wgpu_finds_has_an_identity() {
         if let Some(id) = gpu_identity() {
             assert!(!id.name.is_empty());
-            assert_ne!(id.vendor_id, 0, "{id:?}");
+            // Metal names no PCI vendor (CI's Mac: "Apple Paravirtual device", vendor 0).
+            if !cfg!(target_vendor = "apple") {
+                assert_ne!(id.vendor_id, 0, "{id:?}");
+            }
         }
     }
 }
