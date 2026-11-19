@@ -25,6 +25,7 @@ checks it against `cargo metadata` and turns it into the job matrix of [`fork-bu
 | 0 | `fomod` | 1 | FOMOD installers read and the files they plan | both |
 | 0 | `mod-archive` | 1 | zip and 7z archives of mods listed and unpacked into a folder | both |
 | 0 | `mod-install` | 1 | the port's mods folders and the game folder "Play with mods" plays from | both |
+| 0 | `mod-chooser` | 1 | the mod installer's text front end: lists, asks the FOMOD questions, unpacks into the mod installs folder | both |
 | 1 | `rendering` | 4 | the Direct3D 9 call stream and the wgpu backend, the shader compiler seam, the replay-bench | Windows (and a Linux twin) |
 | 1 | `scripting` | 7 | xNVSE and JIP LN NVSE commands, and the other built-in plugins | both, Windows required (the `tan` and `tanh` cases of the recorded math results) |
 | 2 | `fallout-world` | 4 | forms, cells, land, sky, FaceGen | both |

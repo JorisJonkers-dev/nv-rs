@@ -21,6 +21,14 @@ pub struct Input {
     pub key_taps: [bool; 256],
     /// The same for the buttons.
     pub button_taps: [bool; 8],
+    /// Where the cursor last was over the window, as fractions of its client area (the shape of
+    /// `d3d9real::Input::pointer`). Not read from the window system yet: always `None`, so the
+    /// menus follow the mouse's motion, as before.
+    pub pointer: Option<[f64; 2]>,
+    /// Whether the cursor moved since the last frame (always `false`, see [`Input::pointer`]).
+    pub pointer_moved: bool,
+    /// The `WM_ACTIVATE` word when the window became active again (always `None` here).
+    pub reactivated: Option<u32>,
 }
 
 impl Input {
@@ -57,6 +65,9 @@ impl Default for Input {
             buttons: [false; 8],
             key_taps: [false; 256],
             button_taps: [false; 8],
+            pointer: None,
+            pointer_moved: false,
+            reactivated: None,
         }
     }
 }

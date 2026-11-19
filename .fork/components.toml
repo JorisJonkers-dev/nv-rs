@@ -152,7 +152,7 @@ extra = [
 name = "play"
 purpose = "The play-mode entry point of the engine for a program that links it (the Toolbox's raul): the viewer's loop behind play_main, the stop file, the exit codes, and the guard that the viewer's dependencies are this crate's too. Fork-owned. Builds the whole engine closure"
 crates = ["fork-play"]
-requires = ["integration", "core", "rendering", "platform", "presence", "memlog", "log", "hitch", "game-folders", "mod-install"]
+requires = ["integration", "core", "rendering", "platform", "presence", "memlog", "log", "hitch", "game-folders", "mod-chooser", "mod-install"]
 runs_on = "both"
 
 [[component]]
@@ -177,6 +177,13 @@ requires = []
 runs_on = "both"
 
 [[component]]
+name = "mod-chooser"
+purpose = "The mod installer's text front end on every system: lists the mods to install and the installed ones, asks each FOMOD installer's questions in plain words, unpacks into the port's mod installs folder and removes mods"
+crates = ["mod-chooser"]
+requires = ["fomod", "mod-archive", "mod-install"]
+runs_on = "both"
+
+[[component]]
 name = "rendering"
 purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), the shader compiler seam off Windows (cache and libvkd3d-shader), and the fork-owned replay-bench that times a recorded stream through a null, the wgpu and a raw Vulkan backend (docs/fork/REPLAY.md)"
 crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader", "d3d9-replay"]
@@ -198,7 +205,7 @@ windows = "required"
 name = "integration"
 purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
 crates = ["engine", "host", "play-patch", "nv-viewer"]
-requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders", "game-profile", "mod-install"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders", "game-profile", "mod-chooser", "mod-install"]
 runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not
@@ -242,7 +249,7 @@ args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree -
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
-args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda --test jip_call_arity --test stewie_fixes", "-p engine --doc"]
+args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda --test jip_call_arity --test stewie_fixes --test menu_mouse_move --test save_changes_map --test save_maps", "-p engine --doc"]
 optional_tests = ["engine/capture_run_mode"]
 
 [[component]]

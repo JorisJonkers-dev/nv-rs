@@ -1010,7 +1010,9 @@ dependencies = [
  "fork-presence",
  "game-folders",
  "host",
+ "mod-chooser",
  "mod-install",
+ "nvse",
 ]
 
 [[package]]
