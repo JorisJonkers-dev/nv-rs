@@ -3,7 +3,7 @@
 //! The program starts itself again as `<program> --play-mode <DATA> [viewer arguments]` and that
 //! child calls [`play_main`]; the game is a process of its own, so a crash of the engine stays
 //! out of the program that started it. The loop is the standalone viewer's (`viewer/src/main.rs`,
-//! included here, so there is one loop): `--check`, `--precompile-shaders`, `--find` and
+//! included here, so there is one loop): `--check`, `--precompile-shaders`, and
 //! `--movement-missing FILE` work as they do there. The reserved word `--play-mode` is a dashed
 //! argument the viewer skips with one warning in the log; the data folder is its first word
 //! without a dash.
@@ -28,7 +28,7 @@
 //!
 //! | Code | Meaning |
 //! |---|---|
-//! | `0..` | the game's own code (its return or its `ExitProcess`); 0 also for `--help`, `--find`, `--build-mods` and a successful `--check` |
+//! | `0..` | the game's own code (its return or its `ExitProcess`); 0 also for `--help` and a successful `--check` |
 //! | [`EXIT_START`] (1) | a start-up error: no data, the executable not accepted, a failed `--check`; also the window layer's close path that skips the exit hooks |
 //! | [`EXIT_ARGUMENTS`] (2) | an argument error |
 //! | [`EXIT_GAME_STOPPED`] (3) | the game's code stopped (a fault, a function not translated, a call the platform does not provide) |
@@ -145,7 +145,7 @@ pub fn watch_stop_file(
 /// owns the program's main thread, so the viewer's code runs on another); the log is started
 /// once, inside the viewer's code, because `fork_log::init` is not guarded against a second
 /// call, so a program must not call it before this. Most ends go through `host::end_process`;
-/// when the viewer's code returns (`--help`, `--find`, `--build-mods`, a successful `--check`)
+/// when the viewer's code returns (`--help`, a successful `--check`)
 /// the process ends here with status 0.
 pub fn play_main() -> ! {
     if let Some(path) = stop_file(std::env::var_os(STOP_FILE_ENV)) {

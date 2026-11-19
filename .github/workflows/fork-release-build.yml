@@ -619,7 +619,8 @@ jobs:
             (cd "$OUT" && oras push "$ref" "$(basename "$archive")" \
               --annotation "org.opencontainers.image.source=https://github.com/JorisJonkers-dev/nv-rs" \
               --annotation "org.opencontainers.image.revision=${REVISION}" \
-              --annotation "org.opencontainers.image.licenses=GPL-3.0-only")
+              --annotation "org.opencontainers.image.licenses=GPL-3.0-only" \
+              --annotation "org.opencontainers.image.description=nv-rs standalone build, raul does not use it")
             oras resolve "$ref" | tr -d '\n' > "$OUT/${target}.digest"
             sha256sum "$archive" | awk '{print $1}' > "$OUT/${target}.sha256"
             echo "pushed $ref $(cat "$OUT/${target}.digest")"
