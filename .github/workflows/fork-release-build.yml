@@ -37,8 +37,9 @@ name: Release Build
 # package) uploads the ZIP, the installer and SHA256SUMS-windows. Each attests its own assets.
 # `tag` without `publish` is a dry run that builds and attests nothing to the release.
 #
-# macOS: the `macos` job builds nv-viewer for Apple silicon and Intel into one universal binary and lays it out as
-# nv-rs-macos-universal-dev.tar.gz with SHA256SUMS-macos (packaging/macos/); `publish-macos` uploads both.
+# macOS: `macos-build` builds nv-viewer for Apple silicon and Intel in parallel, `macos` joins them into one universal
+# binary and lays it out as nv-rs-macos-universal-dev.tar.gz with SHA256SUMS-macos (packaging/macos/); `publish-macos`
+# uploads both.
 #
 # Packages: after both publish jobs the `packages` job pushes the same builds as OCI packages to
 # ghcr.io/jorisjonkers-dev/nv-rs:<version>-<target> (ADR-0017 of the Toolbox; docs/fork/RELEASE-FILES.md), from the
@@ -419,14 +420,55 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # macOS: nv-viewer for Apple silicon and Intel, joined into one binary with lipo, laid out by packaging/macos/package.sh
-  # as nv-rs-macos-universal-dev.tar.gz with its own SHA256SUMS-macos (Linux owns SHA256SUMS). The smoke test runs the
-  # unpacked tree as a person gets it (packaging/linux/smoke-test.sh is POSIX sh and system-neutral).
+  # macOS, in two steps. `macos-build`: nv-viewer for one processor per runner, in parallel (x86_64 cross-compiled on
+  # Apple silicon), with no cache: a release is built from clean sources only, as the Linux and Windows builds are (a
+  # restored cache would be a cache-poisoning path into published binaries; zizmor's cache-poisoning audit).
+  # `macos`: the halves joined into one universal binary with lipo, laid out by packaging/macos/package.sh as
+  # nv-rs-macos-universal-dev.tar.gz with its own SHA256SUMS-macos (Linux owns SHA256SUMS), smoke-tested as a person
+  # gets it (packaging/linux/smoke-test.sh is POSIX sh and system-neutral) and attested.
+  macos-build:
+    name: macOS nv-viewer (${{ matrix.target }})
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || '' }}
+          persist-credentials: false
+
+      - name: Install the pinned toolchain and the target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustup target add "$TARGET"
+
+      - name: Build nv-viewer
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked -p nv-viewer --target "$TARGET"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nv-rs-${{ needs.version.outputs.version }}-nv-viewer-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/nv-viewer
+          if-no-files-found: error
+          retention-days: 3
+
   macos:
     name: macOS universal build
-    needs: [version, release-files]
+    needs: [version, release-files, macos-build]
     runs-on: macos-latest
-    timeout-minutes: 120
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -458,19 +500,19 @@ jobs:
           [ ! -d tooling/packaging ] || cp -a tooling/packaging .
           rm -rf tooling
 
-      - name: Install the pinned toolchain and both Apple targets
-        run: |
-          set -euo pipefail
-          rustup toolchain install
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Download the two halves
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: nv-rs-${{ needs.version.outputs.version }}-nv-viewer-*
+          path: halves
 
-      - name: Build nv-viewer (arm64 and x86_64, one universal binary)
+      - name: Join them into one universal binary
         run: |
           set -euo pipefail
-          cargo build --release --locked -p nv-viewer --target aarch64-apple-darwin
-          cargo build --release --locked -p nv-viewer --target x86_64-apple-darwin
           lipo -create -output nv-viewer \
-            target/aarch64-apple-darwin/release/nv-viewer target/x86_64-apple-darwin/release/nv-viewer
+            "halves/nv-rs-${VERSION}-nv-viewer-aarch64-apple-darwin/nv-viewer" \
+            "halves/nv-rs-${VERSION}-nv-viewer-x86_64-apple-darwin/nv-viewer"
+          chmod 0755 nv-viewer
           lipo -archs nv-viewer | tee "$RUNNER_TEMP/archs"
           grep -qw arm64 "$RUNNER_TEMP/archs" && grep -qw x86_64 "$RUNNER_TEMP/archs"
 

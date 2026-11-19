@@ -83,8 +83,8 @@ packages (the Toolbox's ADR-0017, not this repository's record of that number): 
 `x86_64-unknown-linux-gnu` (the developer build's tree plus `LICENSE`) and `x86_64-pc-windows-msvc` (the portable ZIP). Each push
 carries source, revision (the tag's commit), licence and description annotations (the description says it is the standalone build, which raul does not use: raul links the engine, see CONSUMING.md) and a build provenance attestation pushed to the registry; the job
 then pulls each package anonymously and compares the SHA-256, and adds a package table to the run summary and the release notes.
-The macOS build is a release asset only, not an OCI package yet: `nv-rs-macos-universal-dev.tar.gz` (the `macos` job: nv-viewer for
-Apple silicon and Intel joined with `lipo`, laid out by `packaging/macos/package.sh` as `bin/nv-viewer`, `share/nv-rs/` with the
+The macOS build is a release asset only, not an OCI package yet: `nv-rs-macos-universal-dev.tar.gz` (`macos-build`: nv-viewer for
+Apple silicon and Intel on two runners in parallel, uncached as every release build; `macos`: joined with `lipo`, laid out by `packaging/macos/package.sh` as `bin/nv-viewer`, `share/nv-rs/` with the
 release files and `share/doc/nv-rs/README.txt`) with `SHA256SUMS-macos`, uploaded by `publish-macos`; the Toolbox puts the unpacked
 tree under `Resources/components/nv-rs/` of its macOS bundle. Republish an existing tag with
 `gh workflow run fork-release-build.yml -R JorisJonkers-dev/nv-rs --ref fork -f tag=vX.Y.Z -f publish=true`. A pull request that
