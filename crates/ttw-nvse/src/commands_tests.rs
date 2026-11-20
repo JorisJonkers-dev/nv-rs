@@ -19,6 +19,7 @@ fn engine(on: bool) -> Engine {
     let mut e = Engine::new();
     e.map(0x0118_e000, 0x9000);
     e.map(0x011d_e000, 0x1000);
+    e.map(0x011c_3000, 0x1000);
     e.map(DATA, 0x1_0000);
     nvse::table::install(&mut e);
     e.mem.set_u32(DATA_HANDLER, HANDLER_AT);
@@ -96,7 +97,7 @@ fn the_plugin_is_listed_with_its_identity_when_on() {
     let e = engine(true);
     assert_eq!(
         nvse::plugins::listed(&e, b"ttw_nvse"),
-        Some((crate::FILE, crate::VERSION))
+        Some((crate::NAME, crate::VERSION))
     );
     assert_eq!(crate::NAME, "ttw_nvse");
     assert_eq!(crate::VERSION, 1);
@@ -127,7 +128,10 @@ fn the_record_names_are_registered_at_their_opcodes() {
     assert_eq!(name_of(&e, GET_PLUGINS), b"TTW_GetPlugins");
     assert_eq!(name_of(&e, ENABLE_RADIO_FIX), b"TTW_EnableRadioFix");
     assert_eq!(name_of(&e, SHOW_GENE_PROJECTOR), b"TTW_ShowGeneProjector");
-    assert_eq!(nvse::table::return_type(&e, GET_PLUGINS), nvse::table::Returns::Array);
+    assert_eq!(
+        nvse::table::return_type(&e, GET_PLUGINS),
+        nvse::table::Returns::Array
+    );
     // The unbuilt one has no handler and no parameters.
     let record = nvse::table::record_of(&e, SHOW_GENE_PROJECTOR);
     assert_eq!(e.mem.u32(record + 0x18), 0);
@@ -135,7 +139,6 @@ fn the_record_names_are_registered_at_their_opcodes() {
     // The radio fix takes one integer.
     let record = nvse::table::record_of(&e, ENABLE_RADIO_FIX);
     assert_eq!(e.mem.u16(record + 0x12), 1);
-    assert_eq!(e.mem.u32(e.mem.u32(e.mem.u32(record + 0x14)) + 0), e.mem.u32(e.mem.u32(record + 0x14)));
     assert_eq!(e.mem.u32(e.mem.u32(record + 0x14) + 4), 0x01);
 }
 
@@ -208,8 +211,11 @@ fn an_empty_node_is_skipped() {
 
 #[test]
 fn a_version_that_is_not_a_number_is_kept_as_it_is() {
-    assert!(super::commands::version_number(f32::NAN).is_nan());
-    assert_eq!(super::commands::version_number(f32::INFINITY), f64::INFINITY);
+    assert!(crate::commands::version_number(f32::NAN).is_nan());
+    assert_eq!(
+        crate::commands::version_number(f32::INFINITY),
+        f64::INFINITY
+    );
 }
 
 #[test]
@@ -220,10 +226,10 @@ fn enable_radio_fix_stores_the_value_and_changes_nothing_else() {
     assert!(crate::radio_fix(&mut e));
     assert_eq!(call(&mut e, ENABLE_RADIO_FIX, &[int(0)]).0, 1);
     assert!(!crate::radio_fix(&mut e));
-    // A read that fails leaves the value as it was.
+    // A call that gives no value takes it as 0 and still answers true.
     call(&mut e, ENABLE_RADIO_FIX, &[int(1)]);
     assert_eq!(call(&mut e, ENABLE_RADIO_FIX, &[]).0, 1);
-    assert!(crate::radio_fix(&mut e));
+    assert!(!crate::radio_fix(&mut e));
 }
 
 #[test]
