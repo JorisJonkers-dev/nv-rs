@@ -23,7 +23,7 @@ thread of the process (Linux: `/proc/self/task/*/stat`, 10 ms resolution) over t
 busiest first, threads under 1% left out. It shows whether the game main thread (one thread near 100%) or a helper is
 the bottleneck, and how much of the machine the run uses. It is the measurement the threading work is judged by.
 
-## Findings (2026-11-16, unmodded first room, offscreen, 144 Hz cap, RX 7900 XTX)
+## Findings (2026-11-16, unmodded first room, offscreen, 144 Hz cap, AMD RDNA 3 (RADV))
 
 - The backend is not the cost. At 945 draws a frame the device thread spends 0.6 ms recording draws (0.65 us a draw), the
   queue thread 0.6 to 1.6 ms in submits, and pipelines made on draws, uploads, resource creation, read-backs and queue waits

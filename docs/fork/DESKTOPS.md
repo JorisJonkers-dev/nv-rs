@@ -19,7 +19,7 @@ source and documentation only, **-** not supported, **?** not known.
 
 | | X11 (any WM) | GNOME Wayland (Mutter) | KDE Wayland (KWin) | Hyprland | sway |
 | --- | --- | --- | --- | --- | --- |
-| Borderless full screen | R: `_NET_WM_STATE_FULLSCREEN` on the pick | V on the owner's machine (PR 69) | R | R | V (CI, headless) |
+| Borderless full screen | R: `_NET_WM_STATE_FULLSCREEN` on the pick | V on the maintainer's machine (PR 69) | R | R | V (CI, headless) |
 | Which output | The pick (`NV_MONITOR`, last used, primary, first) | The compositor: where the pointer or focus is; `NV_MONITOR` names one | The compositor places it; `NV_MONITOR` names one | The compositor: the focused monitor; the launcher can name it | The focused output; the launcher can name it |
 | Monitor detection | RandR via winit | `wl_output` via winit | same | same | same |
 | Pointer lock | - (X11 has no lock) | R: `zwp_pointer_constraints_v1` | R | R | winit asks; accepted (log says `locked`) |
@@ -60,7 +60,7 @@ Notes behind the cells:
 
 ## Launcher: `scripts/fork/desktop-hint.sh`
 
-`nv-rs-run` (owner-local) can source it and call `nv_desktop_export`. It detects the desktop from
+a local wrapper can source it and call `nv_desktop_export`. It detects the desktop from
 `HYPRLAND_INSTANCE_SIGNATURE`, `SWAYSOCK`, `XDG_CURRENT_DESKTOP` and `XDG_SESSION_TYPE` and sets `NV_MONITOR` only when it is
 unset or empty. Hyprland: `hyprctl -j monitors` (focused). sway: `swaymsg -t get_outputs -r` (focused). X11: the output under
 the pointer (`xdotool`, `xrandr`), else the primary. KDE (`kscreen-doctor -o`) and GNOME (Mutter DisplayConfig over `gdbus`)

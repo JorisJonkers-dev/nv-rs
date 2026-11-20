@@ -1,6 +1,6 @@
 # Local build-and-test loop
 
-`scripts/fork/local/nv-rs-dev` builds, runs and smoke-tests the viewer on the owner's machine (Linux, Wayland,
+`scripts/fork/local/nv-rs-dev` builds, runs and smoke-tests the viewer on the maintainer's machine (Linux, Wayland,
 Vulkan) without waiting for a CI Release Build. CI stays the merge gate: this loop is for iterating.
 
 ## Commands
@@ -11,7 +11,7 @@ Vulkan) without waiting for a CI Release Build. CI stays the merge gate: this lo
 | `nv-rs-dev matrix [spec.toml] [flags]` | Builds, tests and benchmarks many refs, configurations and hosts, and writes one comparison report: [Matrix runs](#matrix-runs) |
 | `nv-rs-dev compare <baseline> <candidate>` | A two-ref matrix |
 | `nv-rs-dev clean [--all]` | Removes this loop's own caches, sizes first: [Clean](#clean) |
-| `nv-rs-dev run [args]` | Runs that binary on the Steam game folder as `nv-rs-run` does (`NV_D3D9=wgpu`, Nix-store `LD_LIBRARY_PATH` fallback for wayland, xkbcommon and vulkan, `NV_SOUND=out`, `NV_PULSE_SIMPLE` fallback); log in `~/.local/state/nv-rs/logs/dev-<time>.log` |
+| `nv-rs-dev run [args]` | Runs that binary on the Steam game folder as a local wrapper does (`NV_D3D9=wgpu`, Nix-store `LD_LIBRARY_PATH` fallback for wayland, xkbcommon and vulkan, `NV_SOUND=out`, `NV_PULSE_SIMPLE` fallback); log in `~/.local/state/nv-rs/logs/dev-<time>.log` |
 | `nv-rs-dev smoke [--seconds N] [--shot]` | Runs N seconds (default 60) on the real display, stops it with SIGTERM, prints a PASS/FAIL checklist parsed from the log |
 | `nv-rs-dev bench <run\|list\|report\|compare>` | Scripted playthrough runs with frame-time, memory and stability reports: [BENCH.md](BENCH.md) |
 | `nv-rs-dev logs [--run ID\|latest\|latest-bad] [--errors\|--hitches\|--tail N\|--grep PAT\|--around FRAME] [--diff A B] [--bundle]` | What happened in a run, in under 40 lines (80 for a bad one): [LOGS.md](LOGS.md). Also `nv-rs-logs` |
@@ -133,7 +133,7 @@ time. `--dry-run` prints the resolved plan and the exact ssh and rsync commands 
 - Use this loop instead of CI Release Builds while iterating; push when it works. `Pipeline Complete` is still the merge gate.
 - Heavy work goes through `capped` (limit first): the script does this with `NV_DEV_MEM` (default 12G, above the measured peak). A runaway once used 14.4 GB and froze the desktop.
 - One cargo process at a time on this machine, and no whole-workspace builds. Do not start a second `nv-rs-dev build` or `test` in parallel.
-- `smoke` opens a window on the owner's display: run it only when the owner's session is free for a minute, and never run two.
+- `smoke` opens a window on the maintainer's display: run it only when the maintainer's session is free for a minute, and never run two.
 - Output holds numbers only. Never copy game data, logs of game content or screenshots into a repository. `--shot` saves to `~/.local/state/nv-rs/shots/` with grim or spectacle, local only.
 
 ## Smoke checklist
@@ -143,13 +143,13 @@ Hz, frame counters advancing, no wgpu error lines, no `stopped:` line, no "not e
 line, no panic. Exit status is 0 only if all pass; the viewer exit status 124 is `timeout` stopping it, as intended. The patterns follow the viewer's current log wording; adjust them in
 that script when the wording changes.
 
-First run on `fork` at #66 (2026-11-15, 45 s, RX 7900 XTX on Wayland): 8 of 8 checks pass, 1920x1080 at 144 Hz, frame counter 1 to about 8800, 0 wgpu errors.
+First run on `fork` at #66 (2026-11-15, 45 s, AMD RDNA 3 (RADV) on Wayland): 8 of 8 checks pass, 1920x1080 at 144 Hz, frame counter 1 to about 8800, 0 wgpu errors.
 
 ## GPU memory safety
 
 The amdgpu driver once ran out of memory during a New Game and took the compositor with it. Two guards now stand in front of that:
 
-- `nv-rs-run` samples VRAM and GTT every 2 s into `<log>.gpumem` and stops the game at `NV_VRAM_LIMIT_PCT` (default 90; use 50 while debugging).
+- A local wrapper samples VRAM and GTT every 2 s into `<log>.gpumem` and stops the game at `NV_VRAM_LIMIT_PCT` (default 90; use 50 while debugging).
 - `d3d9-wgpu` counts the bytes of every texture and buffer it makes (`budget.rs`) and refuses what goes past `NV_GPU_BUDGET_MB` (default 80 % of the first DRM card's `mem_info_vram_total`; 0 switches it off) or a texture side over 16384, with one `NV_D3D9 wgpu: stop: ...` line. Every 600th present prints the budget and wgpu's allocator report (`gpu memory made by the layer: ...; driver allocator ...`). A window client area under 16 pixels a side gets no swap chain (`stop: the window's client area is WxH`), and each (re)made set of back buffers is logged (`back buffers WxH`).
 
 To test without risking the desktop, run with `NV_D3D9_OFFSCREEN=1 NV_HUD=0 NV_VRAM_LIMIT_PCT=50`; there is no window, so nothing can reach the compositor.

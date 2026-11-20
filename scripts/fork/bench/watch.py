@@ -1,7 +1,7 @@
 """Watching a running bench session without disturbing it, and recording any nested session.
 
 A run writes `session.json` (the nested compositor's socket, the shots folder, the pids). `bench watch` attaches
-read-only clients to that compositor's own socket: they never touch the owner's session, take no focus (the nested
+read-only clients to that compositor's own socket: they never touch the maintainer's session, take no focus (the nested
 sway has no seat of ours) and no input (wayvnc runs with --disable-input; the web view only reads frames). A run that had
 a watcher attached is marked `watched` in summary.json: a watcher costs a little GPU/CPU, so such numbers are not baselines.
 

@@ -1,6 +1,6 @@
 # Scripted playthrough and benchmark runs
 
-`nv-rs-dev bench` runs the viewer on the owner's game folder with scripted input and records frame times, memory and
+`nv-rs-dev bench` runs the viewer on the maintainer's game folder with scripted input and records frame times, memory and
 stability numbers, so the engine can be exercised far more than by hand. It uses what the engine already has: the
 scripted keys and mouse of `crates/host/src/player_move.rs` (`NV_MOVE_KEYS`, `NV_MOVE_MOUSE`, by main-loop frame), the
 per-frame log `NV_FRAME_LOG` (clock, player position, screen), the game's own console, and the viewer's log counters. No
@@ -58,7 +58,7 @@ their benchmarks through `bench run`, so they take the same lock one cell at a t
 **Every worker and every person measures through `nv-rs-dev bench run`; nobody launches `nv-viewer` directly for numbers.**
 The run also scans /proc for other `nv-viewer` processes every 5 s; if any ran, `summary.json` has `run.noisy: true`
 and `run.other_viewers_max`, the report says NOISY, and `bench compare` says which side was noisy: such timing rows
-are not to be trusted (a run by hand on the side, an `nv-rs-run` session, a worker that skipped the lock).
+are not to be trusted (a run by hand on the side, a session of a local wrapper, a worker that skipped the lock).
 
 ## The memory guard (every run)
 
@@ -115,7 +115,7 @@ Xwayland, memory-capped scope) and runs the game in it as a normal borderless wi
 wgpu swap chain with Mailbox present, real window focus and pointer lock, 2560x1440 if you ask for it. Your session
 (GNOME) is never involved, nothing appears on your screen, no focus is taken, and the watchdog (`--vram-limit-pct`,
 use 50 for window runs) and the memory scope stay on. Needs `sway` (`nix shell nixpkgs#sway`, or `NV_BENCH_SWAY=path`).
-The runner also borrows the Nix store's Wayland, xkbcommon, Vulkan and pulse-simple libraries as `nv-rs-run` does;
+The runner also borrows the Nix store's Wayland, xkbcommon, Vulkan and pulse-simple libraries as a local wrapper does;
 without them a windowed run fell back to off screen silently (the log line "the real window could not be made").
 
 `--nested window` shows the nested compositor as one window in your session (`--yes-windowed`; the compositor is a
@@ -125,7 +125,7 @@ others, not activated). Which gives valid numbers: only `--nested headless` (the
 callback) for fps and pacing; offscreen for work and stability without a swap chain; the other two only for stability, with
 the card's memory watchdog at 50%.
 
-Measured 2026-11-16 (RX 7900 XTX, `newgame` and `chargen`, capped, 2560x1440, build of the day), offscreen against nested:
+Measured 2026-11-16 (AMD RDNA 3 (RADV), `newgame` and `chargen`, capped, 2560x1440, build of the day), offscreen against nested:
 
 | | offscreen | nested headless |
 | --- | --- | --- |
@@ -137,7 +137,7 @@ Measured 2026-11-16 (RX 7900 XTX, `newgame` and `chargen`, capped, 2560x1440, bu
 | screens reached, face menu drawn | yes | yes |
 
 VRAM and GTT were flat after the load in every run (a few MiB a minute); nothing grew without bound, so the GPU
-out-of-memory that once took gdm down did not reproduce in either path with today's build. The owner's own windowed run
+out-of-memory that once took gdm down did not reproduce in either path with today's build. A windowed run by the maintainer
 of 2026-11-16 07:34 on GNOME (`~/.local/state/nv-rs/logs/run-*.log.gpumem`) also stayed under 2.2 GiB VRAM and 340 MiB GTT
 with 0 wgpu errors; there the swap chain was configured 24 times in three minutes (the nested one twice): the compositor
 reconfigures it (monitor 1920x1080 at 144 Hz, window 2560x1440). What to capture if it happens again: the run's `.gpumem`
@@ -260,7 +260,7 @@ then stayed for minutes). The start-up keeps its 3 s.
 ### Results: the quick suite, 2026-11-16
 
 `nv-rs-dev bench suite --quick --resolution 2560x1440 --vram-limit-pct 50 --nested headless` (the suite turns on
-`NV_PERF`), `play-opt` build of `fork` of the day, unlimited (no frame limiter; menus 120), real threads, RX 7900 XTX,
+`NV_PERF`), `play-opt` build of `fork` of the day, unlimited (no frame limiter; menus 120), real threads, AMD RDNA 3 (RADV),
 16-core machine with no other viewer running (no run flagged noisy). Five runs in a row, all `PASS`: the player walked
 and the view turned at every place in each (paths 3699 to 3805 units; heading changes 33 to 69 degrees in Doc's house,
 68 to 80 in Goodsprings, 76 to 92 on the Strip). Total wall time, start-up and loading included: 113.0, 112.5, 106.0,

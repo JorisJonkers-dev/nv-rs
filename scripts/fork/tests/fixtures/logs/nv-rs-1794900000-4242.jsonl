@@ -1,5 +1,5 @@
 {"ts": "2026-11-17T07:20:00.005Z", "level": "info", "target": "host", "message": "logging: JSON lines to /home/someone/.local/state/nv-rs/logs/nv-rs-1794900000-4242.jsonl", "fields": {}, "frame": null, "thread": "main"}
-{"ts": "2026-11-17T07:20:00.100Z", "level": "info", "target": "d3d9", "message": "NV_D3D9 wgpu: the game's device on AMD Radeon RX 7900 XTX (RADV NAVI31) (Vulkan)", "fields": {}, "frame": null, "thread": "main"}
+{"ts": "2026-11-17T07:20:00.100Z", "level": "info", "target": "d3d9", "message": "NV_D3D9 wgpu: the game's device on Example GPU (RADV TEST) (Vulkan)", "fields": {}, "frame": null, "thread": "main"}
 {"ts": "2026-11-17T07:20:00.800Z", "level": "warn", "target": "sound", "message": "sound: the output device /home/someone/.config/pulse cannot be opened: Connection refused", "fields": {}, "frame": 20, "thread": "main"}
 {"ts": "2026-11-17T07:20:05.000Z", "level": "error", "target": "stop", "message": "soft stop: IDirectSoundBuffer::Lock: flags 0x10 (the game gets the failure result and goes on) [1]", "fields": {}, "frame": 900, "thread": "main"}
 {"ts": "2026-11-17T07:20:05.700Z", "level": "error", "target": "stop", "message": "soft stop: IDirectSoundBuffer::Lock: flags 0x11 (the game gets the failure result and goes on) [2]", "fields": {}, "frame": 940, "thread": "main"}

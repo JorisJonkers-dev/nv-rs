@@ -1,6 +1,6 @@
 {"ts": "2026-11-16T08:40:19.005Z", "level": "info", "target": "host", "message": "logging: JSON lines to /home/someone/.local/state/nv-rs/logs/nv-rs-1794818419-998250.jsonl", "fields": {}, "frame": null, "thread": "main"}
 {"ts": "2026-11-16T08:40:19.090Z", "level": "info", "target": "host", "message": "Preset fixes: uncapped frame rate, high-frame-rate landing", "fields": {}, "frame": null, "thread": "main"}
-{"ts": "2026-11-16T08:40:19.120Z", "level": "info", "target": "d3d9", "message": "NV_D3D9 wgpu: the game's device on AMD Radeon RX 7900 XTX (RADV NAVI31) (Vulkan)", "fields": {}, "frame": null, "thread": "main"}
+{"ts": "2026-11-16T08:40:19.120Z", "level": "info", "target": "d3d9", "message": "NV_D3D9 wgpu: the game's device on Example GPU (RADV TEST) (Vulkan)", "fields": {}, "frame": null, "thread": "main"}
 {"ts": "2026-11-16T08:40:23.000Z", "level": "debug", "target": "d3d9", "message": "NV_D3D9 wgpu: present 300: 7.0 ms", "fields": {}, "frame": 300, "thread": "main"}
 {"ts": "2026-11-16T08:40:28.000Z", "level": "warn", "target": "window", "message": "NV_D3D9 wgpu: the window's surface was lost: made again", "fields": {}, "frame": 640, "thread": "main"}
 {"ts": "2026-11-16T08:40:50.000Z", "level": "warn", "target": "window", "message": "NV_D3D9 wgpu: the window's surface was lost: made again", "fields": {}, "frame": 4400, "thread": "main"}
