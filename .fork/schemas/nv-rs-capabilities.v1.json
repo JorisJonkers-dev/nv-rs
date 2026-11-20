@@ -21,6 +21,14 @@
         "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
         "name": { "type": "string", "minLength": 1 },
         "provided_by_source": { "type": "string" },
+        "version": {
+          "type": "number",
+          "description": "What GetPluginVersion answers for the extender when it answers (a mod's version check reads it); absent for xNVSE itself."
+        },
+        "reported_installed": {
+          "type": "string",
+          "description": "When the engine answers IsPluginInstalled 1 for this extender, in words (for example: when the data folder holds Tale of Two Wastelands)."
+        },
         "commands": {
           "type": "object",
           "required": ["implemented", "total", "implemented_names"],

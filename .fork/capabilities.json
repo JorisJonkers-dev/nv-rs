@@ -1792,7 +1792,9 @@
       },
       "id": "jip-ln",
       "name": "JIP LN NVSE",
-      "provided_by_source": "crates/jip"
+      "provided_by_source": "crates/jip",
+      "reported_installed": "when the data folder holds TaleOfTwoWastelands.esm (NV_JIP_INSTALLED=1 forces it, 0 turns it off)",
+      "version": 57.3
     }
   ],
   "schema_version": 1

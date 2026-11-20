@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.13.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.12.0...v0.13.0) (2026-11-20)
+
+
+### Features
+
+* **ds-mix:** Linux surround output: reconnect, own-layout fallback, report, null-sink CI check ([#392](https://github.com/JorisJonkers-dev/nv-rs/issues/392)) ([4d4ace2](https://github.com/JorisJonkers-dev/nv-rs/commit/4d4ace2887b1a53ea180f625079a3d07ec5d80fd))
+* **jip:** null checks G01: the first-word getter and the light count (slaterain/nv-rs[#835](https://github.com/JorisJonkers-dev/nv-rs/issues/835)) ([e44db19](https://github.com/JorisJonkers-dev/nv-rs/commit/e44db193d1238c876117cf60ed63f6a8b4b58edb))
+* **jip:** null checks G01: the first-word getter and the light count (slaterain/nv-rs[#835](https://github.com/JorisJonkers-dev/nv-rs/issues/835)) ([329f103](https://github.com/JorisJonkers-dev/nv-rs/commit/329f1030e631bf100888fc702d7621a5b82c265c))
+* **jip:** null checks G01: the first-word getter and the light count (slaterain/nv-rs[#835](https://github.com/JorisJonkers-dev/nv-rs/issues/835)) ([e57786b](https://github.com/JorisJonkers-dev/nv-rs/commit/e57786b0c5d9687ed84a54b38986ddeb53349875))
+* **jip:** null checks G01: the first-word getter and the light count (slaterain/nv-rs[#835](https://github.com/JorisJonkers-dev/nv-rs/issues/835)) ([baeaab6](https://github.com/JorisJonkers-dev/nv-rs/commit/baeaab652825d83f126b7383443df19adb172ad5))
+* **jip:** null checks G01: the first-word getter and the light count (slaterain/nv-rs[#835](https://github.com/JorisJonkers-dev/nv-rs/issues/835)) ([924f429](https://github.com/JorisJonkers-dev/nv-rs/commit/924f429175bcc77b6ce05313da4f212d2d86fe0f))
+* **jip:** null checks G01: the first-word getter and the light count (slaterain/nv-rs[#835](https://github.com/JorisJonkers-dev/nv-rs/issues/835)) ([f8303d2](https://github.com/JorisJonkers-dev/nv-rs/commit/f8303d275e073be4fb16ffdb1accb1573ccde088))
+* **jip:** null checks G01: the first-word getter and the light count (slaterain/nv-rs[#835](https://github.com/JorisJonkers-dev/nv-rs/issues/835)) ([d8813fe](https://github.com/JorisJonkers-dev/nv-rs/commit/d8813fe2f0e663922932276013790cf97edc37f9))
+* **launcher:** the terminal's sounds play through the game's DirectSound mixer, no hum from an unwanted opening (slaterain/nv-rs[#834](https://github.com/JorisJonkers-dev/nv-rs/issues/834), slaterain/nv-rs[#836](https://github.com/JorisJonkers-dev/nv-rs/issues/836)) ([e44db19](https://github.com/JorisJonkers-dev/nv-rs/commit/e44db193d1238c876117cf60ed63f6a8b4b58edb))
+* **launcher:** the terminal's sounds play through the game's DirectSound mixer, no hum from an unwanted opening (slaterain/nv-rs[#834](https://github.com/JorisJonkers-dev/nv-rs/issues/834), slaterain/nv-rs[#836](https://github.com/JorisJonkers-dev/nv-rs/issues/836)) ([329f103](https://github.com/JorisJonkers-dev/nv-rs/commit/329f1030e631bf100888fc702d7621a5b82c265c))
+* **launcher:** the terminal's sounds play through the game's DirectSound mixer, no hum from an unwanted opening (slaterain/nv-rs[#834](https://github.com/JorisJonkers-dev/nv-rs/issues/834), slaterain/nv-rs[#836](https://github.com/JorisJonkers-dev/nv-rs/issues/836)) ([e57786b](https://github.com/JorisJonkers-dev/nv-rs/commit/e57786b0c5d9687ed84a54b38986ddeb53349875))
+* **launcher:** the terminal's sounds play through the game's DirectSound mixer, no hum from an unwanted opening (slaterain/nv-rs[#834](https://github.com/JorisJonkers-dev/nv-rs/issues/834), slaterain/nv-rs[#836](https://github.com/JorisJonkers-dev/nv-rs/issues/836)) ([baeaab6](https://github.com/JorisJonkers-dev/nv-rs/commit/baeaab652825d83f126b7383443df19adb172ad5))
+* **launcher:** the terminal's sounds play through the game's DirectSound mixer, no hum from an unwanted opening (slaterain/nv-rs[#834](https://github.com/JorisJonkers-dev/nv-rs/issues/834), slaterain/nv-rs[#836](https://github.com/JorisJonkers-dev/nv-rs/issues/836)) ([924f429](https://github.com/JorisJonkers-dev/nv-rs/commit/924f429175bcc77b6ce05313da4f212d2d86fe0f))
+* **launcher:** the terminal's sounds play through the game's DirectSound mixer, no hum from an unwanted opening (slaterain/nv-rs[#834](https://github.com/JorisJonkers-dev/nv-rs/issues/834), slaterain/nv-rs[#836](https://github.com/JorisJonkers-dev/nv-rs/issues/836)) ([f8303d2](https://github.com/JorisJonkers-dev/nv-rs/commit/f8303d275e073be4fb16ffdb1accb1573ccde088))
+* **launcher:** the terminal's sounds play through the game's DirectSound mixer, no hum from an unwanted opening (slaterain/nv-rs[#834](https://github.com/JorisJonkers-dev/nv-rs/issues/834), slaterain/nv-rs[#836](https://github.com/JorisJonkers-dev/nv-rs/issues/836)) ([d8813fe](https://github.com/JorisJonkers-dev/nv-rs/commit/d8813fe2f0e663922932276013790cf97edc37f9))
+* **stewie:** share 1b group 1, eight script-command rows (slaterain/nv-rs[#826](https://github.com/JorisJonkers-dev/nv-rs/issues/826)) ([e44db19](https://github.com/JorisJonkers-dev/nv-rs/commit/e44db193d1238c876117cf60ed63f6a8b4b58edb))
+* **stewie:** share 1b group 1, eight script-command rows (slaterain/nv-rs[#826](https://github.com/JorisJonkers-dev/nv-rs/issues/826)) ([329f103](https://github.com/JorisJonkers-dev/nv-rs/commit/329f1030e631bf100888fc702d7621a5b82c265c))
+* **stewie:** share 1b group 1, eight script-command rows (slaterain/nv-rs[#826](https://github.com/JorisJonkers-dev/nv-rs/issues/826)) ([e57786b](https://github.com/JorisJonkers-dev/nv-rs/commit/e57786b0c5d9687ed84a54b38986ddeb53349875))
+* **stewie:** share 1b group 1, eight script-command rows (slaterain/nv-rs[#826](https://github.com/JorisJonkers-dev/nv-rs/issues/826)) ([baeaab6](https://github.com/JorisJonkers-dev/nv-rs/commit/baeaab652825d83f126b7383443df19adb172ad5))
+* **stewie:** share 1b group 1, eight script-command rows (slaterain/nv-rs[#826](https://github.com/JorisJonkers-dev/nv-rs/issues/826)) ([924f429](https://github.com/JorisJonkers-dev/nv-rs/commit/924f429175bcc77b6ce05313da4f212d2d86fe0f))
+* **stewie:** share 1b group 1, eight script-command rows (slaterain/nv-rs[#826](https://github.com/JorisJonkers-dev/nv-rs/issues/826)) ([f8303d2](https://github.com/JorisJonkers-dev/nv-rs/commit/f8303d275e073be4fb16ffdb1accb1573ccde088))
+* **stewie:** share 1b group 1, eight script-command rows (slaterain/nv-rs[#826](https://github.com/JorisJonkers-dev/nv-rs/issues/826)) ([d8813fe](https://github.com/JorisJonkers-dev/nv-rs/commit/d8813fe2f0e663922932276013790cf97edc37f9))
+* **stewie:** share 2 group 2, NPC processes and combat AI, eight engine fixes ([e44db19](https://github.com/JorisJonkers-dev/nv-rs/commit/e44db193d1238c876117cf60ed63f6a8b4b58edb))
+* **stewie:** share 2 group 2, NPC processes and combat AI, eight engine fixes ([329f103](https://github.com/JorisJonkers-dev/nv-rs/commit/329f1030e631bf100888fc702d7621a5b82c265c))
+* **stewie:** share 2 group 2, NPC processes and combat AI, eight engine fixes ([e57786b](https://github.com/JorisJonkers-dev/nv-rs/commit/e57786b0c5d9687ed84a54b38986ddeb53349875))
+* **stewie:** share 2 group 2, NPC processes and combat AI, eight engine fixes ([baeaab6](https://github.com/JorisJonkers-dev/nv-rs/commit/baeaab652825d83f126b7383443df19adb172ad5))
+* **stewie:** share 2 group 2, NPC processes and combat AI, eight engine fixes ([924f429](https://github.com/JorisJonkers-dev/nv-rs/commit/924f429175bcc77b6ce05313da4f212d2d86fe0f))
+* **stewie:** share 2 group 2, NPC processes and combat AI, eight engine fixes ([f8303d2](https://github.com/JorisJonkers-dev/nv-rs/commit/f8303d275e073be4fb16ffdb1accb1573ccde088))
+* **stewie:** share 2 group 2, NPC processes and combat AI, eight engine fixes ([d8813fe](https://github.com/JorisJonkers-dev/nv-rs/commit/d8813fe2f0e663922932276013790cf97edc37f9))
+* **xnvse:** argument expressions for the game's own commands, fix row xnvse.extract_args ([e44db19](https://github.com/JorisJonkers-dev/nv-rs/commit/e44db193d1238c876117cf60ed63f6a8b4b58edb))
+* **xnvse:** argument expressions for the game's own commands, fix row xnvse.extract_args ([329f103](https://github.com/JorisJonkers-dev/nv-rs/commit/329f1030e631bf100888fc702d7621a5b82c265c))
+* **xnvse:** argument expressions for the game's own commands, fix row xnvse.extract_args ([e57786b](https://github.com/JorisJonkers-dev/nv-rs/commit/e57786b0c5d9687ed84a54b38986ddeb53349875))
+* **xnvse:** argument expressions for the game's own commands, fix row xnvse.extract_args ([baeaab6](https://github.com/JorisJonkers-dev/nv-rs/commit/baeaab652825d83f126b7383443df19adb172ad5))
+* **xnvse:** argument expressions for the game's own commands, fix row xnvse.extract_args ([924f429](https://github.com/JorisJonkers-dev/nv-rs/commit/924f429175bcc77b6ce05313da4f212d2d86fe0f))
+* **xnvse:** argument expressions for the game's own commands, fix row xnvse.extract_args ([f8303d2](https://github.com/JorisJonkers-dev/nv-rs/commit/f8303d275e073be4fb16ffdb1accb1573ccde088))
+* **xnvse:** argument expressions for the game's own commands, fix row xnvse.extract_args ([d8813fe](https://github.com/JorisJonkers-dev/nv-rs/commit/d8813fe2f0e663922932276013790cf97edc37f9))
+
 ## [0.12.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.11.0...v0.12.0) (2026-11-20)
 
 

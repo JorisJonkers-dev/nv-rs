@@ -95,6 +95,21 @@ fn the_counts_come_from_the_tables() {
     assert_eq!(ext(1)["total"].as_u64().unwrap(), 1118);
 }
 
+/// JIP LN's entry carries the version a mod's check reads (`GetPluginVersion "JIP NVSE Plugin"`:
+/// Tale of Two Wastelands wants 57.2 or later) and says when the engine answers "installed".
+#[test]
+fn jip_reports_the_version_tale_of_two_wastelands_reads() {
+    let c = capabilities();
+    let jip = &c["extenders"][1];
+    assert_eq!(jip["id"], "jip-ln");
+    assert!(jip["version"].as_f64().unwrap() >= 57.2);
+    assert!(jip["reported_installed"]
+        .as_str()
+        .unwrap()
+        .contains("TaleOfTwoWastelands.esm"));
+    assert!(c["extenders"][0].get("version").is_none());
+}
+
 #[test]
 fn the_manifest_hashes_are_the_ones_the_engine_checks() {
     let m = manifest(&input());
