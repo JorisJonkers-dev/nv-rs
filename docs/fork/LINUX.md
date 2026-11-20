@@ -315,8 +315,13 @@ file upstream owns (both in `.fork/allowed-divergence`).
   `d3d9real::held_keys` and `take_input` (the same calls the Windows build makes in `host/player_move.rs`). A close request
   runs the exit hooks and ends the process, as `WM_CLOSE` does. The swap chain follows the window's size. Without a display
   the run stays off screen. The Xvfb smoke also runs `a_guest_program_draws_to_a_window` (`NV_WINDOW_SMOKE=1`).
-- Not done: Wayland pointer lock and cursor hold (#213), title and `SetWindowPos` changes (#214) after the window is
-  made, gamepads (#216), IME (#217), exclusive full screen (#218).
+- Done since: the pointer is held while the game holds the mouse (#213): `fork-window` locks it where the compositor
+  allows (Wayland), else confines it (X11), and lets it go on focus loss (`platform/mod.rs`, `CursorGrabMode`). Gamepads
+  (#216): `engine-platform/src/xinput/linux.rs` reads the kernel's event devices (Steam's virtual pad first, then
+  Xbox-style, PlayStation and Nintendo pads, with rumble and hot-plugging) behind the game's XInput calls, replayed from
+  slaterain/nv-rs#791.
+- Not done: title and `SetWindowPos` changes (#214) after the window is made (partly handled), IME (#217), exclusive full
+  screen (#218; the window is borderless over the monitor).
 
 ## Direct3D 9 off Windows (#196, stage 3a)
 
