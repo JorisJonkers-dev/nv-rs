@@ -116,7 +116,16 @@ fn jip_reports_the_version_tale_of_two_wastelands_reads() {
 #[test]
 fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
     let c = capabilities();
-    let plugins: [(&str, f64, &[&str]); 3] = [
+    let plugins: [(&str, f64, &[&str]); 4] = [
+        (
+            "ttw-nvse",
+            1.0,
+            &[
+                "TTW_ShowGeneProjector",
+                "TTW_GetPlugins",
+                "TTW_EnableRadioFix",
+            ],
+        ),
         (
             "johnnyguitar",
             501.0,

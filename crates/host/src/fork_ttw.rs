@@ -43,6 +43,10 @@ pub const PLUGINS: &[Plugin] = &[
         name: stewie::NAME,
         switch: stewie::set_answers_installed,
     },
+    Plugin {
+        name: ttw_nvse::NAME,
+        switch: ttw_nvse::set_answers_installed,
+    },
 ];
 
 /// Whether the plugins answer "installed": the variable's `0` or `1` when it says so, else
@@ -111,6 +115,7 @@ mod tests {
         assert_eq!(e.ext::<showoff::State>().answers, None);
         assert_eq!(e.ext::<jg::State>().answers_installed, None);
         assert!(!e.ext::<stewie::Stewie>().answers_installed);
+        assert!(!e.ext::<ttw_nvse::State>().on);
     }
 
     #[test]
@@ -120,6 +125,7 @@ mod tests {
         assert_eq!(e.ext::<showoff::State>().answers, Some(true));
         assert_eq!(e.ext::<jg::State>().answers_installed, Some(true));
         assert!(e.ext::<stewie::Stewie>().answers_installed);
+        assert!(e.ext::<ttw_nvse::State>().on);
         for plugin in PLUGINS {
             assert!(line.contains(plugin.name), "{line}");
         }
@@ -143,6 +149,12 @@ mod tests {
     fn johnny_guitar_is_the_name_and_version_ttw_reads() {
         assert_eq!(jg::identity::NAME, "JohnnyGuitarNVSE");
         assert!(jg::identity::VERSION_INT >= 501);
+    }
+
+    /// `IsPluginInstalled ttw_nvse`.
+    #[test]
+    fn the_ttw_plugin_is_the_name_ttw_asks_for() {
+        assert_eq!(ttw_nvse::NAME, "ttw_nvse");
     }
 
     /// `GetPluginVersion "lStewieAl's Tweaks"` at least 941.

@@ -32,6 +32,8 @@ nvse = { path = "../nvse" }
 jip = { path = "../jip" }
 jg = { path = "../jg" }
 showoff = { path = "../showoff" }
+# The plugin Tale of Two Wastelands ships for its scripts (fork-only crate), when `fork_ttw` asks.
+ttw-nvse = { path = "../ttw-nvse" }
 # lStewieAl's Tweaks built in, when its row is on: after JIP and MCM, before UIO (crates/stewie).
 stewie = { path = "../stewie" }
 uio = { path = "../uio" }

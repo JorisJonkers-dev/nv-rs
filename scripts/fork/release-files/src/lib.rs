@@ -182,6 +182,14 @@ pub fn capabilities() -> Value {
                 SHOWOFF_TOTAL,
             ),
             stewie_entry(),
+            ttw_plugin(
+                "ttw-nvse",
+                "Tale of Two Wastelands plugin (ttw_nvse)",
+                "crates/ttw-nvse",
+                ttw_nvse::VERSION,
+                &ttw_nvse::COMMAND_NAMES,
+                ttw_nvse::COMMAND_NAMES.len(),
+            ),
         ],
     })
 }

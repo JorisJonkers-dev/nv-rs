@@ -110,6 +110,9 @@ pub(crate) fn install_rows_and_extenders(engine: &mut Engine, choice: &fixes::Ch
     // on for Tale of Two Wastelands).
     jg::install(engine);
     showoff::install(engine);
+    // The plugin Tale of Two Wastelands ships for its scripts (`ttw_nvse`), when `fork_ttw`
+    // switched it on (`crates/ttw-nvse`).
+    ttw_nvse::install(engine);
     // The Mod Configuration Menu's plugin, when its row is on: xNVSE loads MCM.dll after
     // jip_nvse.dll and before ui_organizer.dll (`crates/mcm`).
     mcm::install(engine);
