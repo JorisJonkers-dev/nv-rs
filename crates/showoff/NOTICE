@@ -13,5 +13,11 @@ Licence check: not recorded. The author and licence are not known from any docum
 this crate takes nothing but facts (names, opcode base, behaviour as publicly documented) and
 builds no command until its documentation is read and its licence terms are noted here.
 
-Unverified: the plugin name handed to xNVSE (ShowOff NVSE Plugin) and the version number
+Unverified: the plugin name handed to xNVSE (ShowOffNVSE Plugin) and the version number
 (184). They are inert while ANSWERS_INSTALLED is false.
+
+Commands (2026-11-20): ActorHasBaseFlag (long name GetActorHasBaseFlag) is built from its public
+name and one integer parameter, how Tale of Two Wastelands' scripts call it (`ref.ActorHasBaseFlag 5`,
+in conditions of trap scripts, and its opcode 0x3CE0 read from those scripts' compiled form) and the
+engine's own actor base layout (the flags word of TESActorBaseData). It answers 1 when that bit of
+the actor base's flags is set, 0 otherwise.
