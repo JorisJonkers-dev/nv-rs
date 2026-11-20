@@ -2036,6 +2036,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "ttw-nvse"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "uio"
     },
     {
@@ -2074,6 +2079,13 @@
     {
      "features": [],
      "kind": null,
+     "name": "nvse"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
      "name": "nvse"
     }
    ],
@@ -2343,6 +2355,30 @@
    "features": [],
    "manifest_path": "/ws/crates/stewie/Cargo.toml",
    "name": "stewie"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/ttw-nvse/Cargo.toml",
+   "name": "ttw-nvse"
   },
   {
    "dependencies": [
