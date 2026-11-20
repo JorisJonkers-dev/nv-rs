@@ -81,6 +81,15 @@ impl LayoutChoice {
             _ => LayoutChoice::Auto,
         }
     }
+
+    /// Whether `value` is unset or names a choice (a doctor says so when it is not: it reads as
+    /// `auto`).
+    pub fn recognised(value: Option<&str>) -> bool {
+        match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+            None | Some("auto" | "stereo" | "5.1" | "7.1") => true,
+            Some(_) => false,
+        }
+    }
 }
 
 /// `pa_channel_position_t` values (`PA_CHANNEL_POSITION_*`).
@@ -188,37 +197,200 @@ pub fn mix(backend: Backend) -> Option<(u32, Layout)> {
     if backend == Backend::Pulse && pulse::api().is_none() {
         return None;
     }
+    // The null sink has no sink to probe: nothing to cache, and one process may ask for both.
+    if backend == Backend::Null {
+        return Some((MIX_RATE, choose_layout(LayoutChoice::from_env(), || None)));
+    }
     static LAYOUT: std::sync::OnceLock<Layout> = std::sync::OnceLock::new();
-    let layout = *LAYOUT.get_or_init(|| {
-        choose_layout(LayoutChoice::from_env(), || match backend {
-            Backend::Null => None,
-            _ => pulse::probe_channel_map(),
-        })
-    });
+    let layout =
+        *LAYOUT.get_or_init(|| choose_layout(LayoutChoice::from_env(), pulse::probe_channel_map));
     Some((MIX_RATE, layout))
 }
 
-/// Starts playing `source` ([`super::sound_out::start`]).
+/// The layout of the default sink as it is now (probed again, `NV_SOUND_LAYOUT` not applied):
+/// what a stream is opened in when the layout asked for is refused ([`start`] with `want` `None`).
+fn own_layout(backend: Backend) -> Layout {
+    match backend {
+        Backend::Null => Layout::STEREO,
+        _ => choose_layout(LayoutChoice::Auto, pulse::probe_channel_map),
+    }
+}
+
+/// What the sound output sees and what the game will be given: the page a doctor prints
+/// (docs/fork/LINUX.md, "Sound output"). [`report`] asks the machine; [`describe`] is the same
+/// from what was found, so it can be tested.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Report {
+    pub backend: Backend,
+    /// The text of `NV_SOUND_LAYOUT`, when set.
+    pub setting: Option<String>,
+    /// Whether the setting is one of `auto`, `stereo`, `5.1`, `7.1` (an unset one is).
+    pub recognised: bool,
+    /// What the setting asks for.
+    pub choice: LayoutChoice,
+    /// The default sink's channel map as Pulse names the positions; `None` with no server.
+    pub map: Option<Vec<i32>>,
+    /// The layout the game will see.
+    pub layout: Layout,
+}
+
+/// Probes the default sink and reads `NV_SOUND_LAYOUT` and `NV_SOUND_BACKEND` as the output does
+/// at start (the layout is probed again, not the one cached for the process).
+pub fn report() -> Report {
+    let backend = Backend::from_env();
+    let map = match backend {
+        Backend::Null => None,
+        _ => pulse::probe_channel_map(),
+    };
+    describe(
+        backend,
+        std::env::var("NV_SOUND_LAYOUT").ok().as_deref(),
+        map,
+    )
+}
+
+/// The [`Report`] for a backend, a setting and the sink's map as found.
+pub fn describe(backend: Backend, setting: Option<&str>, map: Option<Vec<i32>>) -> Report {
+    let choice = LayoutChoice::parse(setting);
+    let layout = choose_layout(choice, || map.clone());
+    Report {
+        backend,
+        setting: setting.map(str::to_owned),
+        recognised: LayoutChoice::recognised(setting),
+        choice,
+        map,
+        layout,
+    }
+}
+
+/// Pulse's name of a channel position, as `pactl list sinks` prints them.
+fn position_name(position: i32) -> String {
+    match position {
+        position::MONO => "mono".into(),
+        position::FRONT_LEFT => "front-left".into(),
+        position::FRONT_RIGHT => "front-right".into(),
+        position::FRONT_CENTER => "front-center".into(),
+        4 => "rear-center".into(),
+        position::REAR_LEFT => "rear-left".into(),
+        position::REAR_RIGHT => "rear-right".into(),
+        position::LFE => "lfe".into(),
+        8 => "front-left-of-center".into(),
+        9 => "front-right-of-center".into(),
+        position::SIDE_LEFT => "side-left".into(),
+        position::SIDE_RIGHT => "side-right".into(),
+        other => format!("position-{other}"),
+    }
+}
+
+/// The common name of a layout the mixer provides.
+fn layout_name(layout: Layout) -> &'static str {
+    match layout.mask {
+        0x4 => "mono",
+        0x3 => "stereo",
+        0x33 => "quad",
+        0x3f => "5.1 (back speakers)",
+        0x60f => "5.1 (side speakers)",
+        0x63f => "7.1",
+        _ => "not one of the mixer's layouts",
+    }
+}
+
+impl std::fmt::Display for Report {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let backend = match self.backend {
+            Backend::Auto => "auto (pulse, else null)",
+            Backend::Pulse => "pulse",
+            Backend::Null => "null",
+        };
+        writeln!(f, "sound backend: {backend}")?;
+        match &self.map {
+            Some(map) => {
+                let names: Vec<String> = map.iter().map(|p| position_name(*p)).collect();
+                writeln!(
+                    f,
+                    "default sink: {} channels ({})",
+                    map.len(),
+                    names.join(", ")
+                )?
+            }
+            None if self.backend == Backend::Null => {
+                writeln!(f, "default sink: not asked (null backend)")?
+            }
+            None => writeln!(
+                f,
+                "default sink: no sound server answered (libpulse missing or no PipeWire or \
+                 PulseAudio session); the game is given stereo"
+            )?,
+        }
+        match (&self.setting, self.recognised) {
+            (Some(v), false) => writeln!(
+                f,
+                "NV_SOUND_LAYOUT: \"{v}\" is not auto, stereo, 5.1 or 7.1; read as auto"
+            )?,
+            (Some(v), true) => writeln!(f, "NV_SOUND_LAYOUT: {}", v.trim())?,
+            (None, _) => writeln!(f, "NV_SOUND_LAYOUT: not set (auto)")?,
+        }
+        write!(
+            f,
+            "layout the game will see: {}, {} channels, speaker mask {:#x}",
+            layout_name(self.layout),
+            self.layout.channels,
+            self.layout.mask
+        )
+    }
+}
+
+/// Starts playing `source` ([`super::sound_out::start`]). `want` `None` is the default sink's own
+/// layout, probed now; a layout the sound server refuses is [`Refused::Layout`] (one line on
+/// stderr), so the caller asks again with `None` and gets a working stream in the sink's layout.
 pub fn start(
     backend: Backend,
     source: Arc<Mutex<dyn Source>>,
     want: Option<Layout>,
 ) -> Result<Output, Refused> {
-    let layout = want.unwrap_or(Layout::STEREO);
+    let pulse = || {
+        let api = pulse::api()?;
+        let open: Opener =
+            Arc::new(move |l| pulse::Stream::open(api, l).map(|s| Box::new(s) as Box<dyn Sink>));
+        Some(open)
+    };
+    start_in(backend, source, want, &pulse, &|| own_layout(backend))
+}
+
+/// [`start`] with the server's opener and the sink's own layout given (the tests' seam).
+fn start_in(
+    backend: Backend,
+    source: Arc<Mutex<dyn Source>>,
+    want: Option<Layout>,
+    pulse: &dyn Fn() -> Option<Opener>,
+    own: &dyn Fn() -> Layout,
+) -> Result<Output, Refused> {
+    let layout = want.unwrap_or_else(own);
     if !layout.provided() {
         return Err(Refused::Format(super::sound_out::not_provided(layout)));
     }
     match backend {
         Backend::Null => Ok(start_null(source, layout)),
-        Backend::Pulse => start_pulse(source, layout),
-        Backend::Auto => start_pulse(source.clone(), layout).or_else(|why| {
-            fork_log::warn!(target: "sound",
-                "sound: no sound server answered ({why:?}); the mix is made and dropped \
-                 (NV_SOUND_BACKEND=null does this on purpose)"
-            );
-            Ok(start_null(source, layout))
-        }),
+        Backend::Pulse => start_server(pulse().ok_or(Refused::NoDevice)?, source, layout),
+        Backend::Auto => match pulse() {
+            Some(open) => match start_server(open, source.clone(), layout) {
+                // The server is there and does not take the layout: the caller asks again.
+                Err(Refused::Layout) => Err(Refused::Layout),
+                Err(Refused::Format(why)) => Err(Refused::Format(why)),
+                Err(Refused::NoDevice) => Ok(no_server(source, layout, "the stream was refused")),
+                ok => ok,
+            },
+            None => Ok(no_server(source, layout, "libpulse is not available")),
+        },
     }
+}
+
+fn no_server(source: Arc<Mutex<dyn Source>>, layout: Layout, why: &str) -> Output {
+    fork_log::warn!(target: "sound",
+        "sound: no sound server answered ({why}); the mix is made and dropped \
+         (NV_SOUND_BACKEND=null does this on purpose)"
+    );
+    start_null(source, layout)
 }
 
 fn start_null(source: Arc<Mutex<dyn Source>>, layout: Layout) -> Output {
@@ -226,11 +398,26 @@ fn start_null(source: Arc<Mutex<dyn Source>>, layout: Layout) -> Output {
         .expect("the null sink always opens")
 }
 
-fn start_pulse(source: Arc<Mutex<dyn Source>>, layout: Layout) -> Result<Output, Refused> {
-    let api = pulse::api().ok_or(Refused::NoDevice)?;
-    spawn(source, layout, "nv sound pulse", move |l| {
-        pulse::Stream::open(api, l).map(|s| Box::new(s) as Box<dyn Sink>)
-    })
+fn start_server(
+    open: Opener,
+    source: Arc<Mutex<dyn Source>>,
+    layout: Layout,
+) -> Result<Output, Refused> {
+    let out = spawn_with(source, layout, "nv sound pulse", open);
+    if out.as_ref().err() == Some(&Refused::Layout) {
+        fork_log::warn!(target: "sound", "{}", refusal_line(layout));
+    }
+    out
+}
+
+/// The line said when the server refuses the layout asked for (once per refusal: the one place
+/// that says it).
+fn refusal_line(layout: Layout) -> String {
+    format!(
+        "sound: the sound server refused a stream of {} channels (speaker mask {:#x}); the \
+         stream is opened again in the default sink's own layout",
+        layout.channels, layout.mask
+    )
 }
 
 /// Where a chunk of frames goes; a blocking write paces the thread when it is a device.
@@ -257,17 +444,30 @@ impl Sink for Drop_ {
     }
 }
 
-type Open = dyn FnOnce(Layout) -> Result<Box<dyn Sink>, Refused> + Send;
+/// Opens a sink in a layout. The output thread keeps it: a stream the server ended (the server
+/// restarted, the sink it played on went away) is opened again with it.
+type Opener = Arc<dyn Fn(Layout) -> Result<Box<dyn Sink>, Refused> + Send + Sync>;
 
-/// Runs the output thread: opens the sink on it (so the caller learns of a refusal), then fills
-/// and writes chunks until the [`Output`] is dropped.
+/// How often a lost stream is opened again.
+const RECONNECT_EVERY: Duration = Duration::from_millis(250);
+
 fn spawn(
     source: Arc<Mutex<dyn Source>>,
     layout: Layout,
     name: &str,
-    open: impl FnOnce(Layout) -> Result<Box<dyn Sink>, Refused> + Send + 'static,
+    open: impl Fn(Layout) -> Result<Box<dyn Sink>, Refused> + Send + Sync + 'static,
 ) -> Result<Output, Refused> {
-    let open: Box<Open> = Box::new(open);
+    spawn_with(source, layout, name, Arc::new(open))
+}
+
+/// Runs the output thread: opens the sink on it (so the caller learns of a refusal), then fills
+/// and writes chunks until the [`Output`] is dropped.
+fn spawn_with(
+    source: Arc<Mutex<dyn Source>>,
+    layout: Layout,
+    name: &str,
+    open: Opener,
+) -> Result<Output, Refused> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -276,7 +476,7 @@ fn spawn(
         .spawn(move || match open(layout) {
             Ok(sink) => {
                 let _ = tx.send(Ok(()));
-                run(sink, &source, layout, &flag);
+                run(sink, &open, &source, layout, &flag);
             }
             Err(why) => {
                 let _ = tx.send(Err(why));
@@ -295,6 +495,7 @@ fn spawn(
 
 fn run(
     mut sink: Box<dyn Sink>,
+    open: &Opener,
     source: &Arc<Mutex<dyn Source>>,
     layout: Layout,
     stop: &AtomicBool,
@@ -304,6 +505,9 @@ fn run(
     let period = Duration::from_micros(1_000_000 * CHUNK_FRAMES as u64 / u64::from(MIX_RATE));
     let mut due = Instant::now();
     let mut lost = false;
+    let mut retry_at = Instant::now();
+    // Underruns of the streams before this one; the count the source sees only grows.
+    let mut before = 0u64;
     let mut reported = 0u64;
     while !stop.load(Ordering::Relaxed) {
         chunk.fill(0.0);
@@ -313,7 +517,7 @@ fn run(
         if super::sound_out::is_muted() {
             chunk.fill(0.0);
         }
-        let underruns = sink.underruns();
+        let underruns = before + sink.underruns();
         while reported < underruns {
             reported += 1;
             if reported == 1 {
@@ -326,15 +530,32 @@ fn run(
                 s.starved(reported);
             }
         }
-        if !sink.write(&chunk) {
+        let mut wrote = sink.write(&chunk);
+        if !wrote && Instant::now() >= retry_at {
+            retry_at = Instant::now() + RECONNECT_EVERY;
+            if let Ok(fresh) = open(layout) {
+                before = reported;
+                sink = fresh;
+                wrote = sink.write(&chunk);
+            }
+        }
+        if !wrote {
             if !lost {
                 lost = true;
                 fork_log::warn!(target: "sound",
-                    "sound: the sound server stopped taking frames; this stream is not heard"
+                    "sound: the sound server stopped taking frames; the stream is not heard \
+                     until a new one opens (tried every {} ms)",
+                    RECONNECT_EVERY.as_millis()
                 );
             }
             std::thread::sleep(period);
             continue;
+        }
+        if lost {
+            lost = false;
+            fork_log::info!(target: "sound",
+                "sound: a new stream is open on the sound server; the sound is heard again"
+            );
         }
         if !sink.paces() {
             due += period;
@@ -611,6 +832,11 @@ mod pulse {
     /// The default sink's channel map (`pa_context_get_server_info`, then
     /// `pa_context_get_sink_info_by_name`); `None` with no library, no server or no sink.
     pub fn probe_channel_map() -> Option<Vec<i32>> {
+        probe_channel_map_of(None)
+    }
+
+    /// The channel map of the sink `name`, or of the default sink (`None`).
+    pub fn probe_channel_map_of(name: Option<&str>) -> Option<Vec<i32>> {
         let api = api()?;
         let mut conn = Conn::open(api)?;
         let ml = conn.shared.ml;
@@ -618,13 +844,18 @@ mod pulse {
         let ud = &mut *conn.shared as *mut Shared as Ptr;
         unsafe {
             (api.ml_lock)(ml);
-            conn.shared.done = false;
-            let op = (api.server_info)(ctx, on_server, ud);
-            while !conn.shared.done && !op.is_null() && (api.op_state)(op) == OPERATION_RUNNING {
-                (api.ml_wait)(ml);
-            }
-            if !op.is_null() {
-                (api.op_unref)(op);
+            if let Some(name) = name {
+                conn.shared.sink = CString::new(name).ok();
+            } else {
+                conn.shared.done = false;
+                let op = (api.server_info)(ctx, on_server, ud);
+                while !conn.shared.done && !op.is_null() && (api.op_state)(op) == OPERATION_RUNNING
+                {
+                    (api.ml_wait)(ml);
+                }
+                if !op.is_null() {
+                    (api.op_unref)(op);
+                }
             }
             if let Some(sink) = conn.shared.sink.clone() {
                 conn.shared.done = false;
@@ -651,9 +882,28 @@ mod pulse {
     unsafe impl Send for Stream {}
 
     impl Stream {
-        /// Opens a float stream in `layout`'s channel map (WAVE order) at [`MIX_RATE`].
+        /// Opens a float stream in `layout`'s channel map (WAVE order) at [`MIX_RATE`], on the
+        /// default sink.
         pub fn open(api: &'static Api, layout: Layout) -> Result<Stream, Refused> {
+            Stream::open_on(api, layout, None)
+        }
+
+        /// [`Stream::open`] on the sink `device` (`None`: the default sink, which the stream
+        /// then follows when the server moves it). The server being there and not taking the
+        /// stream is [`Refused::Layout`] (the caller asks again in the sink's own layout) unless
+        /// the layout is stereo, which has no layout to fall back to.
+        pub fn open_on(
+            api: &'static Api,
+            layout: Layout,
+            device: Option<&str>,
+        ) -> Result<Stream, Refused> {
             let conn = Conn::open(api).ok_or(Refused::NoDevice)?;
+            let refused = if layout == Layout::STEREO {
+                Refused::NoDevice
+            } else {
+                Refused::Layout
+            };
+            let device = device.and_then(|d| CString::new(d).ok());
             let positions = channel_map_of(layout);
             let mut map = ChannelMap {
                 channels: positions.len() as u8,
@@ -682,14 +932,14 @@ mod pulse {
                 let stream = (api.st_new)(conn.ctx, name.as_ptr(), &spec, &map);
                 if stream.is_null() {
                     (api.ml_unlock)(ml);
-                    return Err(Refused::NoDevice);
+                    return Err(refused);
                 }
                 (api.st_state_cb)(stream, Some(on_state), ud);
                 (api.st_write_cb)(stream, Some(on_write), ud);
                 (api.st_underflow_cb)(stream, Some(on_underflow), ud);
                 let ok = (api.st_connect)(
                     stream,
-                    std::ptr::null(),
+                    device.as_ref().map_or(std::ptr::null(), |d| d.as_ptr()),
                     &attr,
                     STREAM_ADJUST_LATENCY,
                     std::ptr::null_mut(),
@@ -714,7 +964,7 @@ mod pulse {
                 if ready {
                     Ok(s)
                 } else {
-                    Err(Refused::NoDevice)
+                    Err(refused)
                 }
             }
         }
@@ -769,6 +1019,248 @@ mod pulse {
                 (api.ml_unlock)(ml);
             }
             // `conn` drops after this and closes the context and the loop.
+        }
+    }
+
+    /// What the tests need of libpulse beyond the stream: a null sink with a channel map, and a
+    /// recording of its monitor (docs/fork/LINUX.md, "Tests").
+    #[cfg(test)]
+    pub mod kit {
+        use super::*;
+        use libloading::Symbol;
+
+        type IndexCb = unsafe extern "C" fn(Ptr, u32, Ptr);
+        type SuccessCb = unsafe extern "C" fn(Ptr, c_int, Ptr);
+
+        /// The answer of a request, written by its callback on the loop's thread.
+        struct Reply {
+            api: &'static Api,
+            ml: Ptr,
+            value: u32,
+            done: bool,
+        }
+
+        unsafe extern "C" fn on_index(_: Ptr, index: u32, ud: Ptr) {
+            let r = &mut *(ud as *mut Reply);
+            r.value = index;
+            r.done = true;
+            (r.api.ml_signal)(r.ml, 0);
+        }
+
+        unsafe extern "C" fn on_success(_: Ptr, ok: c_int, ud: Ptr) {
+            let r = &mut *(ud as *mut Reply);
+            r.value = ok as u32;
+            r.done = true;
+            (r.api.ml_signal)(r.ml, 0);
+        }
+
+        /// `pa_context_load_module`'s module index, `u32::MAX` when the server refused.
+        fn load_module(conn: &Conn, name: &str, args: &str) -> u32 {
+            let api = conn.api();
+            unsafe {
+                let load: Symbol<
+                    unsafe extern "C" fn(Ptr, *const c_char, *const c_char, IndexCb, Ptr) -> Ptr,
+                > = match api._lib.get(b"pa_context_load_module\0") {
+                    Ok(f) => f,
+                    Err(_) => return u32::MAX,
+                };
+                let (name, args) = (CString::new(name).unwrap(), CString::new(args).unwrap());
+                let ml = conn.shared.ml;
+                let mut reply = Reply {
+                    api,
+                    ml,
+                    value: u32::MAX,
+                    done: false,
+                };
+                (api.ml_lock)(ml);
+                let op = load(
+                    conn.ctx,
+                    name.as_ptr(),
+                    args.as_ptr(),
+                    on_index,
+                    &mut reply as *mut Reply as Ptr,
+                );
+                while !reply.done && !op.is_null() && (api.op_state)(op) == OPERATION_RUNNING {
+                    (api.ml_wait)(ml);
+                }
+                if !op.is_null() {
+                    (api.op_unref)(op);
+                }
+                (api.ml_unlock)(ml);
+                reply.value
+            }
+        }
+
+        /// A null sink loaded into the server, unloaded when dropped.
+        pub struct NullSink {
+            conn: Conn,
+            module: u32,
+            pub name: String,
+        }
+
+        impl NullSink {
+            /// `channel_map` is Pulse's text (`front-left,front-right,...`). `None`: no library, no
+            /// server, or the server did not take the module.
+            pub fn load(name: &str, channel_map: &str) -> Option<NullSink> {
+                let api = api()?;
+                let conn = Conn::open(api)?;
+                let channels = channel_map.split(',').count();
+                let module = load_module(
+                    &conn,
+                    "module-null-sink",
+                    &format!(
+                        "sink_name={name} rate={MIX_RATE} channels={channels} \
+                         channel_map={channel_map}"
+                    ),
+                );
+                (module != u32::MAX).then(|| NullSink {
+                    conn,
+                    module,
+                    name: name.to_owned(),
+                })
+            }
+        }
+
+        impl Drop for NullSink {
+            fn drop(&mut self) {
+                let api = self.conn.api();
+                let ml = self.conn.shared.ml;
+                unsafe {
+                    let Ok(unload) = api
+                        ._lib
+                        .get::<unsafe extern "C" fn(Ptr, u32, SuccessCb, Ptr) -> Ptr>(
+                            b"pa_context_unload_module\0",
+                        )
+                    else {
+                        return;
+                    };
+                    let mut reply = Reply {
+                        api,
+                        ml,
+                        value: 0,
+                        done: false,
+                    };
+                    (api.ml_lock)(ml);
+                    let op = unload(
+                        self.conn.ctx,
+                        self.module,
+                        on_success,
+                        &mut reply as *mut Reply as Ptr,
+                    );
+                    while !reply.done && !op.is_null() && (api.op_state)(op) == OPERATION_RUNNING {
+                        (api.ml_wait)(ml);
+                    }
+                    if !op.is_null() {
+                        (api.op_unref)(op);
+                    }
+                    (api.ml_unlock)(ml);
+                }
+            }
+        }
+
+        /// Records `source` (a sink's monitor) as float frames of `layout` until `stop`; the
+        /// interleaved samples, or `None` when the stream did not open.
+        pub fn record(
+            source: &str,
+            layout: Layout,
+            ready: std::sync::mpsc::Sender<bool>,
+            stop: Arc<AtomicBool>,
+        ) -> Option<Vec<f32>> {
+            let api = api()?;
+            let Some(conn) = Conn::open(api) else {
+                let _ = ready.send(false);
+                return None;
+            };
+            let positions = channel_map_of(layout);
+            let mut map = ChannelMap {
+                channels: positions.len() as u8,
+                map: [0; 32],
+            };
+            map.map[..positions.len()].copy_from_slice(&positions);
+            let spec = SampleSpec {
+                format: SAMPLE_FLOAT32LE,
+                rate: MIX_RATE,
+                channels: layout.channels as u8,
+            };
+            let (connect, peek, drop_chunk) = unsafe {
+                let connect = api
+                    ._lib
+                    .get::<unsafe extern "C" fn(Ptr, *const c_char, *const BufferAttr, c_int) -> c_int>(
+                        b"pa_stream_connect_record\0",
+                    )
+                    .ok();
+                let peek = api
+                    ._lib
+                    .get::<unsafe extern "C" fn(Ptr, *mut *const c_void, *mut usize) -> c_int>(
+                        b"pa_stream_peek\0",
+                    )
+                    .ok();
+                let drop_chunk = api
+                    ._lib
+                    .get::<unsafe extern "C" fn(Ptr) -> c_int>(b"pa_stream_drop\0")
+                    .ok();
+                (connect, peek, drop_chunk)
+            };
+            let (Some(connect), Some(peek), Some(drop_chunk)) = (connect, peek, drop_chunk) else {
+                let _ = ready.send(false);
+                return None;
+            };
+            let name = CString::new("nv test recorder").unwrap();
+            let device = CString::new(source).unwrap();
+            let ml = conn.shared.ml;
+            let ud = &*conn.shared as *const Shared as Ptr;
+            let mut got = Vec::new();
+            let healthy;
+            unsafe {
+                (api.ml_lock)(ml);
+                let stream = (api.st_new)(conn.ctx, name.as_ptr(), &spec, &map);
+                if stream.is_null() {
+                    (api.ml_unlock)(ml);
+                    let _ = ready.send(false);
+                    return None;
+                }
+                (api.st_state_cb)(stream, Some(on_state), ud);
+                let attr = BufferAttr {
+                    maxlength: u32::MAX,
+                    tlength: u32::MAX,
+                    prebuf: u32::MAX,
+                    minreq: u32::MAX,
+                    fragsize: 4 * u32::from(layout.channels) * MIX_RATE / 50,
+                };
+                let mut ok = connect(stream, device.as_ptr(), &attr, STREAM_ADJUST_LATENCY) >= 0;
+                while ok {
+                    match (api.st_state)(stream) {
+                        STREAM_READY => break,
+                        3 | 4 => ok = false,
+                        _ => (api.ml_wait)(ml),
+                    }
+                }
+                let _ = ready.send(ok);
+                while ok && !stop.load(Ordering::Relaxed) {
+                    let mut data: *const c_void = std::ptr::null();
+                    let mut bytes = 0usize;
+                    if peek(stream, &mut data, &mut bytes) < 0 {
+                        break;
+                    }
+                    if bytes == 0 {
+                        (api.ml_unlock)(ml);
+                        std::thread::sleep(Duration::from_millis(5));
+                        (api.ml_lock)(ml);
+                        continue;
+                    }
+                    if !data.is_null() {
+                        let samples = std::slice::from_raw_parts(data.cast::<f32>(), bytes / 4);
+                        got.extend_from_slice(samples);
+                    }
+                    drop_chunk(stream);
+                }
+                healthy = ok;
+                (api.st_state_cb)(stream, None, std::ptr::null_mut());
+                (api.st_disconnect)(stream);
+                (api.st_unref)(stream);
+                (api.ml_unlock)(ml);
+            }
+            healthy.then_some(got)
         }
     }
 }
@@ -982,7 +1474,7 @@ mod tests {
         let f = flag.clone();
         let source: Arc<Mutex<dyn Source>> = Arc::new(Mutex::new(Starving(counts.clone())));
         let out = spawn(source, Layout::STEREO, "test", move |_| {
-            Ok(Box::new(Late(f)))
+            Ok(Box::new(Late(f.clone())))
         })
         .unwrap();
         std::thread::sleep(Duration::from_millis(60));
@@ -1059,13 +1551,471 @@ mod tests {
         let peak = Arc::new(Mutex::new(0f32));
         let p = peak.clone();
         let out = spawn(source, Layout::STEREO, "test", move |_| {
-            Ok(Box::new(Peak(p)))
+            Ok(Box::new(Peak(p.clone())))
         })
         .unwrap();
         std::thread::sleep(Duration::from_millis(100));
         drop(out);
         assert_eq!(*peak.lock().unwrap(), 0.25);
         assert!(seen.lock().unwrap().0 > 0);
+    }
+
+    /// What a sink of the tests' own was given, chunk after chunk.
+    #[derive(Clone, Default)]
+    struct Tape(Arc<Mutex<Vec<f32>>>);
+
+    struct Recording(Tape);
+
+    impl Sink for Recording {
+        fn write(&mut self, frames: &[f32]) -> bool {
+            (self.0).0.lock().unwrap().extend_from_slice(frames);
+            true
+        }
+        fn paces(&self) -> bool {
+            false
+        }
+    }
+
+    fn recording(tape: Tape) -> impl Fn(Layout) -> Result<Box<dyn Sink>, Refused> + Send + Sync {
+        move |_| Ok(Box::new(Recording(tape.clone())) as Box<dyn Sink>)
+    }
+
+    /// A source whose every channel carries a value of its own (`base + channel`), so a frame
+    /// that was moved, mixed into another channel or invented shows.
+    struct PerChannel(f32);
+
+    impl Source for PerChannel {
+        fn render(&mut self, _: u32, channels: u16, out: &mut [f32]) {
+            for frame in out.chunks_mut(usize::from(channels)) {
+                for (c, v) in frame.iter_mut().enumerate() {
+                    // Channel 3 (low frequency) stays silent, as the mixer leaves it.
+                    *v = if c == 3 {
+                        0.0
+                    } else {
+                        self.0 + c as f32 / 16.0
+                    };
+                }
+            }
+        }
+    }
+
+    /// The backend moves what the mixer made to the sink as it is: no upmix, no synthesis of the
+    /// low-frequency channel, no gain per channel (docs/fork/LINUX.md, "What a 5.1 sink does").
+    #[test]
+    fn frames_reach_the_sink_unmodified_channel_for_channel() {
+        for layout in [
+            Layout::MONO,
+            Layout::STEREO,
+            Layout::of_mix(4, Some(0x33)),
+            Layout::of_mix(6, Some(0x3f)),
+            Layout::of_mix(6, Some(0x60f)),
+            Layout::of_mix(8, Some(0x63f)),
+        ] {
+            let tape = Tape::default();
+            let source: Arc<Mutex<dyn Source>> = Arc::new(Mutex::new(PerChannel(0.25)));
+            let out = spawn(source, layout, "test", recording(tape.clone())).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            drop(out);
+            let got = tape.0.lock().unwrap();
+            let n = usize::from(layout.channels);
+            assert!(got.len() >= n * CHUNK_FRAMES, "{layout:?}: nothing written");
+            assert_eq!(got.len() % n, 0, "{layout:?}: whole frames only");
+            for (i, v) in got.iter().enumerate() {
+                let c = i % n;
+                let want = if c == 3 { 0.0 } else { 0.25 + c as f32 / 16.0 };
+                assert_eq!(
+                    v.to_bits(),
+                    want.to_bits(),
+                    "{layout:?}: channel {c} of frame {} is {v}, not {want}",
+                    i / n
+                );
+            }
+        }
+    }
+
+    /// A voice playing on the centre before the lock goes on at exactly the frame it stopped
+    /// when the stream is opened again in eight channels (the upstream lock case: nothing skipped
+    /// or repeated): every chunk the source rendered reaches a sink, in order.
+    #[test]
+    fn a_reopen_from_two_to_eight_channels_skips_and_repeats_no_frame() {
+        /// Writes the frame number into every channel, so order and gaps show.
+        struct Count(Arc<Mutex<u64>>);
+        impl Source for Count {
+            fn render(&mut self, _: u32, channels: u16, out: &mut [f32]) {
+                let mut n = self.0.lock().unwrap();
+                for frame in out.chunks_mut(usize::from(channels)) {
+                    frame.fill(*n as f32);
+                    *n += 1;
+                }
+            }
+        }
+        let next = Arc::new(Mutex::new(0u64));
+        let source: Arc<Mutex<dyn Source>> = Arc::new(Mutex::new(Count(next.clone())));
+        let (two, eight) = (Tape::default(), Tape::default());
+        let out = spawn(
+            source.clone(),
+            Layout::STEREO,
+            "test",
+            recording(two.clone()),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(70));
+        drop(out); // the engine closes the stream, then opens the locked layout with the same source
+        let out = spawn(
+            source,
+            Layout::of_mix(8, Some(0x63f)),
+            "test",
+            recording(eight.clone()),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(70));
+        drop(out);
+        let frames: Vec<f32> = two
+            .0
+            .lock()
+            .unwrap()
+            .chunks(2)
+            .map(|f| f[0])
+            .chain(eight.0.lock().unwrap().chunks(8).map(|f| f[0]))
+            .collect();
+        assert!(frames.len() > 2 * CHUNK_FRAMES);
+        for (i, f) in frames.iter().enumerate() {
+            assert_eq!(*f, i as f32, "frame {i}");
+        }
+        assert_eq!(
+            frames.len() as u64,
+            *next.lock().unwrap(),
+            "none rendered and lost"
+        );
+    }
+
+    /// A server that refuses the layout is [`Refused::Layout`] with one line, and the next try
+    /// without a layout is a working stream in the sink's own layout.
+    #[test]
+    fn a_refused_layout_leads_to_a_stream_in_the_sinks_own_layout() {
+        let five_one = Layout::of_mix(6, Some(0x3f));
+        let seven_one = Layout::of_mix(8, Some(0x63f));
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let tape = Tape::default();
+        let (a, t) = (asked.clone(), tape.clone());
+        let pulse = move || {
+            let (a, t) = (a.clone(), t.clone());
+            let open: Opener = Arc::new(move |l: Layout| {
+                a.lock().unwrap().push(l.channels);
+                if l.channels == 8 {
+                    Err(Refused::Layout)
+                } else {
+                    Ok(Box::new(Recording(t.clone())) as Box<dyn Sink>)
+                }
+            });
+            Some(open)
+        };
+        let source = || -> Arc<Mutex<dyn Source>> { Arc::new(Mutex::new(PerChannel(0.25))) };
+        let own = || five_one;
+        for backend in [Backend::Pulse, Backend::Auto] {
+            asked.lock().unwrap().clear();
+            let first = start_in(backend, source(), Some(seven_one), &pulse, &own);
+            assert_eq!(first.err(), Some(Refused::Layout), "{backend:?}");
+            let out = start_in(backend, source(), None, &pulse, &own).expect("the sink's own");
+            assert_eq!(out.layout, five_one);
+            std::thread::sleep(Duration::from_millis(60));
+            drop(out);
+            assert_eq!(*asked.lock().unwrap(), [8, 6], "{backend:?}");
+        }
+        assert!(tape.0.lock().unwrap().len() >= 6 * CHUNK_FRAMES);
+        let line = refusal_line(seven_one);
+        assert!(
+            line.contains("8 channels") && line.contains("0x63f"),
+            "{line}"
+        );
+        assert!(!line.contains('\n'), "one line");
+    }
+
+    /// No server: `pulse` has no device, `auto` plays on the null sink in the layout asked for.
+    #[test]
+    fn without_a_server_pulse_has_no_device_and_auto_is_null() {
+        let none = || None;
+        let own = || Layout::STEREO;
+        let source = || -> Arc<Mutex<dyn Source>> { Arc::new(Mutex::new(PerChannel(0.25))) };
+        let six = Layout::of_mix(6, Some(0x3f));
+        assert_eq!(
+            start_in(Backend::Pulse, source(), Some(six), &none, &own).err(),
+            Some(Refused::NoDevice)
+        );
+        let out = start_in(Backend::Auto, source(), Some(six), &none, &own).expect("null");
+        assert_eq!(out.layout, six);
+    }
+
+    /// A stream the server ended (the server restarted, or the sink it played on went away) is
+    /// opened again within a second and the source keeps being pulled meanwhile; the underruns
+    /// the source is told of only grow.
+    #[test]
+    fn a_stream_the_server_ended_is_opened_again() {
+        struct Dies {
+            tape: Tape,
+            alive: Arc<AtomicBool>,
+        }
+        impl Sink for Dies {
+            fn write(&mut self, frames: &[f32]) -> bool {
+                if !self.alive.load(Ordering::Relaxed) {
+                    return false;
+                }
+                self.tape.0.lock().unwrap().extend_from_slice(frames);
+                true
+            }
+            fn paces(&self) -> bool {
+                false
+            }
+            fn underruns(&self) -> u64 {
+                1
+            }
+        }
+        struct Starved(Arc<Mutex<Vec<u64>>>, Arc<Mutex<u64>>);
+        impl Source for Starved {
+            fn render(&mut self, _: u32, channels: u16, out: &mut [f32]) {
+                *self.1.lock().unwrap() += (out.len() / usize::from(channels)) as u64;
+                out.fill(0.5);
+            }
+            fn starved(&mut self, count: u64) {
+                self.0.lock().unwrap().push(count);
+            }
+        }
+        let (first, second) = (Tape::default(), Tape::default());
+        let first_alive = Arc::new(AtomicBool::new(true));
+        let opened = Arc::new(Mutex::new(0u32));
+        let (f, s, alive, n) = (
+            first.clone(),
+            second.clone(),
+            first_alive.clone(),
+            opened.clone(),
+        );
+        let open = move |_: Layout| {
+            let mut n = n.lock().unwrap();
+            *n += 1;
+            let sink: Box<dyn Sink> = if *n == 1 {
+                Box::new(Dies {
+                    tape: f.clone(),
+                    alive: alive.clone(),
+                })
+            } else {
+                Box::new(Dies {
+                    tape: s.clone(),
+                    alive: Arc::new(AtomicBool::new(true)),
+                })
+            };
+            Ok(sink)
+        };
+        let starved = Arc::new(Mutex::new(Vec::new()));
+        let rendered = Arc::new(Mutex::new(0u64));
+        let source: Arc<Mutex<dyn Source>> =
+            Arc::new(Mutex::new(Starved(starved.clone(), rendered.clone())));
+        let out = spawn(source, Layout::of_mix(6, Some(0x3f)), "test", open).unwrap();
+        std::thread::sleep(Duration::from_millis(60));
+        let before = *rendered.lock().unwrap();
+        first_alive.store(false, Ordering::Relaxed);
+        let lost_at = Instant::now();
+        while second.0.lock().unwrap().is_empty() && lost_at.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let back = lost_at.elapsed();
+        // The new stream's own underrun is reported on the next pull.
+        while starved.lock().unwrap().len() < 2 && lost_at.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(out);
+        assert!(back < Duration::from_secs(1), "back after {back:?}");
+        assert_eq!(*opened.lock().unwrap(), 2, "opened again once");
+        assert!(!first.0.lock().unwrap().is_empty());
+        assert!(
+            *rendered.lock().unwrap() > before,
+            "the source kept being pulled"
+        );
+        // The second stream's own underrun counts on after the first's, never from 1 again.
+        assert_eq!(*starved.lock().unwrap(), vec![1, 2]);
+    }
+
+    #[test]
+    fn the_layout_setting_is_recognised_or_flagged() {
+        for ok in [
+            None,
+            Some("auto"),
+            Some("stereo"),
+            Some(" 5.1 "),
+            Some("7.1"),
+            Some("STEREO"),
+        ] {
+            assert!(LayoutChoice::recognised(ok), "{ok:?}");
+        }
+        for bad in [Some("5.0"), Some("surround"), Some("")] {
+            assert!(!LayoutChoice::recognised(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_report_says_the_sink_the_setting_and_the_layout() {
+        let five_one = Some(FIVE_ONE.to_vec());
+        let r = describe(Backend::Auto, None, five_one.clone());
+        assert_eq!((r.layout.channels, r.layout.mask), (6, 0x3f));
+        let text = r.to_string();
+        assert!(text.contains("default sink: 6 channels (front-left, front-right, front-center, lfe, rear-left, rear-right)"), "{text}");
+        assert!(text.contains("NV_SOUND_LAYOUT: not set (auto)"), "{text}");
+        assert!(
+            text.ends_with(
+                "layout the game will see: 5.1 (back speakers), 6 channels, speaker mask 0x3f"
+            ),
+            "{text}"
+        );
+
+        // The override wins over the sink; a typo is said and read as auto.
+        let r = describe(Backend::Auto, Some("stereo"), five_one.clone());
+        assert_eq!(r.layout, Layout::STEREO);
+        assert!(r.to_string().contains("NV_SOUND_LAYOUT: stereo"));
+        let r = describe(Backend::Auto, Some("7.2"), five_one);
+        assert_eq!(r.layout.channels, 6);
+        assert!(r
+            .to_string()
+            .contains("\"7.2\" is not auto, stereo, 5.1 or 7.1; read as auto"));
+
+        let r = describe(Backend::Pulse, Some("7.1"), Some(STEREO_MAP.to_vec()));
+        assert_eq!((r.layout.channels, r.layout.mask), (8, 0x63f));
+        assert!(r.to_string().contains("7.1, 8 channels"));
+
+        let r = describe(Backend::Auto, None, None);
+        assert_eq!(r.layout, Layout::STEREO);
+        assert!(r.to_string().contains("no sound server answered"));
+        let r = describe(Backend::Null, None, None);
+        assert!(r.to_string().contains("not asked (null backend)"));
+    }
+
+    /// The test needs a sound server. Without one it says why and passes, unless
+    /// `NV_REQUIRE_SOUND_SERVER` is set (the fork's CI sets it: a skipped check there is a
+    /// failure, not a pass).
+    fn skip(why: &str) {
+        eprintln!("SKIPPED a_multichannel_null_sink_hears_every_channel: {why}");
+        assert!(
+            std::env::var_os("NV_REQUIRE_SOUND_SERVER").is_none(),
+            "NV_REQUIRE_SOUND_SERVER is set but: {why}"
+        );
+    }
+
+    /// One tone per channel at the same time, at frequencies of their own.
+    struct Tones {
+        phase: Vec<f32>,
+        hz: Vec<f32>,
+    }
+
+    impl Source for Tones {
+        fn render(&mut self, rate: u32, channels: u16, out: &mut [f32]) {
+            for frame in out.chunks_mut(usize::from(channels)) {
+                for (c, v) in frame.iter_mut().enumerate() {
+                    *v = 0.2 * (self.phase[c] * std::f32::consts::TAU).sin();
+                    self.phase[c] = (self.phase[c] + self.hz[c] / rate as f32).fract();
+                }
+            }
+        }
+    }
+
+    /// The amplitude of `hz` in channel `c` of interleaved frames (Goertzel, exact when the
+    /// window holds whole cycles).
+    fn amplitude(samples: &[f32], channels: usize, c: usize, hz: f32) -> f32 {
+        let w = std::f64::consts::TAU * f64::from(hz) / f64::from(MIX_RATE);
+        let (mut s1, mut s2) = (0f64, 0f64);
+        let mut n = 0usize;
+        for frame in samples.chunks_exact(channels) {
+            let s0 = f64::from(frame[c]) + 2.0 * w.cos() * s1 - s2;
+            s2 = s1;
+            s1 = s0;
+            n += 1;
+        }
+        let power = s1 * s1 + s2 * s2 - 2.0 * w.cos() * s1 * s2;
+        (2.0 * power.sqrt() / n as f64) as f32
+    }
+
+    /// A PipeWire or PulseAudio null sink with a 5.1 and a 7.1 channel map: the default layout
+    /// the output chooses for it, a stream through the backend in that layout, and the sink's
+    /// monitor recorded. Every channel carries its own tone and no other channel's: a mix
+    /// returned to stereo, a channel dropped, swapped or leaking into another fails it. Needs no
+    /// game data and no sound card.
+    #[test]
+    fn a_multichannel_null_sink_hears_every_channel() {
+        let Some(api) = pulse::api() else {
+            return skip("libpulse is not installed (NV_PULSE names it)");
+        };
+        let five_one = (
+            "nv_test_51",
+            "front-left,front-right,front-center,lfe,rear-left,rear-right",
+            (6usize, 0x3f_u32),
+        );
+        let seven_one = (
+            "nv_test_71",
+            "front-left,front-right,front-center,lfe,rear-left,rear-right,side-left,side-right",
+            (8usize, 0x63f_u32),
+        );
+        for (name, map, (channels, mask)) in [five_one, seven_one] {
+            let Some(sink) = pulse::kit::NullSink::load(name, map) else {
+                return skip("no PipeWire or PulseAudio server took a null sink");
+            };
+            // What the output makes of this sink's map, with nothing set in the environment.
+            let reported = pulse::probe_channel_map_of(Some(&sink.name)).expect("the sink's map");
+            assert_eq!(reported.len(), channels, "{name}: {reported:?}");
+            let layout = choose_layout(LayoutChoice::Auto, || Some(reported.clone()));
+            assert_eq!(
+                (usize::from(layout.channels), layout.mask),
+                (channels, mask),
+                "{name}: the layout the game is given"
+            );
+
+            let stop = Arc::new(AtomicBool::new(false));
+            let (tx, rx) = std::sync::mpsc::channel();
+            let monitor = format!("{name}.monitor");
+            let recorder = {
+                let stop = stop.clone();
+                std::thread::spawn(move || pulse::kit::record(&monitor, layout, tx, stop))
+            };
+            assert_eq!(rx.recv(), Ok(true), "{name}: the monitor records");
+
+            let hz: Vec<f32> = (0..channels).map(|c| 400.0 + 200.0 * c as f32).collect();
+            let source: Arc<Mutex<dyn Source>> = Arc::new(Mutex::new(Tones {
+                phase: vec![0.0; channels],
+                hz: hz.clone(),
+            }));
+            let device = name.to_owned();
+            let out = spawn(source, layout, "test", move |l| {
+                pulse::Stream::open_on(api, l, Some(&device)).map(|s| Box::new(s) as Box<dyn Sink>)
+            })
+            .expect("a stream on the null sink");
+            std::thread::sleep(Duration::from_millis(1800));
+            drop(out);
+            stop.store(true, Ordering::Relaxed);
+            let heard = recorder.join().unwrap().expect("recorded");
+
+            // Half a second from the middle of what was heard: 24000 frames, whole cycles of
+            // every tone.
+            let n = 24_000;
+            let from = (heard.len() / channels / 2).saturating_sub(n / 2);
+            assert!(
+                heard.len() / channels >= from + n,
+                "{name}: only {} frames heard",
+                heard.len() / channels
+            );
+            let window = &heard[from * channels..(from + n) * channels];
+            for c in 0..channels {
+                for (k, f) in hz.iter().enumerate() {
+                    let a = amplitude(window, channels, c, *f);
+                    if k == c {
+                        assert!(
+                            a > 0.15,
+                            "{name}: channel {c} has {a} of its own tone {f} Hz"
+                        );
+                    } else {
+                        assert!(
+                            a < 0.01,
+                            "{name}: channel {c} has {a} of channel {k}'s tone {f} Hz"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
