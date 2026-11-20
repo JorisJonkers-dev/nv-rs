@@ -452,6 +452,24 @@ pub const DRAW_THREAD: Fix = Fix {
     install: install_nothing,
 };
 
+/// Whether a data folder holds the interface extender's files: `NVSE/Plugins/ui_organizer.dll` or a
+/// `uio` folder, each name matched without regard to case (a Linux file system has the case the
+/// mod's archive had).
+fn holds_uio_files(data: &std::path::Path) -> bool {
+    fn child(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+        std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
+            e.file_name()
+                .to_str()
+                .filter(|n| n.eq_ignore_ascii_case(name))
+                .map(|_| e.path())
+        })
+    }
+    let plugin = child(data, "NVSE")
+        .and_then(|d| child(&d, "Plugins"))
+        .and_then(|d| child(&d, uio::FILE));
+    plugin.is_some() || child(data, "uio").is_some_and(|d| d.is_dir())
+}
+
 /// UI Organizer built in (`crates/uio`, parts 1 and 2): its lists (`Data\uio\supported.txt` and
 /// `Data\uio\public\*.txt`) put UI mods' additions into the menus, in memory, and every menu file
 /// is read through UIO's reader and parsed by its own XML parser. It changes how every menu file
@@ -1095,6 +1113,25 @@ impl Choice {
     pub fn bound_menu_frame_limit(&self) -> Option<u32> {
         self.is_on(&crate::uncap::MENU_FIX)
             .then_some(self.menu_frame_limit)
+    }
+
+    /// The built-in menu-file reader ([`UIO`]) switched on because the data folder holds the interface
+    /// extender's files: its plugin (`NVSE/Plugins/ui_organizer.dll`) or its `uio` folder, names read
+    /// without regard to case. Only when nothing set the row (`NV_UIO` or its `Fallout.ini` line, either
+    /// way), so `NV_UIO=0` and `NV_UIO=1` still win. Returns the choice to start with and the line to
+    /// log when the detection turned it on.
+    pub fn with_uio_detected(&self, data: &std::path::Path) -> (Choice, Option<String>) {
+        let mut choice = self.clone();
+        if choice.overrides.iter().any(|(env, _)| *env == UIO.env) || !holds_uio_files(data) {
+            return (choice, None);
+        }
+        choice.overrides.push((UIO.env, true));
+        let line = format!(
+            "{}: on, because {} holds the interface extender's files (NV_UIO=0 turns it off)",
+            UIO.name,
+            data.display()
+        );
+        (choice, Some(line))
     }
 
     /// Whether this fix runs: its environment variable if set, else its `Fallout.ini` line
@@ -2982,5 +3019,76 @@ bSunShadowsCharacters=0
         let paths = candidates(Path::new("game/app"));
         assert_eq!(paths[0], Path::new("game/app/settings.ini"));
         assert_eq!(paths[1], Path::new("game/settings.ini"));
+    }
+}
+
+#[cfg(test)]
+mod uio_detection_tests {
+    use super::*;
+
+    fn data(tag: &str, files: &[&str]) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("nv-uio-detect-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        for f in files {
+            let path = root.join(f);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"x").unwrap();
+        }
+        root
+    }
+
+    fn fixes_choice(env: &[(&str, &str)]) -> Choice {
+        let env: Vec<(String, String)> = env
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        Choice::load(
+            None,
+            None,
+            |k| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()),
+            false,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn the_extenders_plugin_or_folder_turns_the_reader_on_and_says_so() {
+        for (tag, file) in [
+            ("dll", "nvse/plugins/UI_Organizer.DLL"),
+            ("dir", "uio/supported.txt"),
+        ] {
+            let root = data(tag, &[file]);
+            let (choice, line) = fixes_choice(&[]).with_uio_detected(&root);
+            assert!(choice.is_on(&UIO), "{tag}");
+            assert!(
+                line.unwrap().contains("interface extender's files"),
+                "{tag}"
+            );
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn without_the_files_nothing_changes() {
+        let root = data("none", &["NVSE/Plugins/other.dll"]);
+        let before = fixes_choice(&[]);
+        let (choice, line) = before.with_uio_detected(&root);
+        assert_eq!(choice, before);
+        assert_eq!(line, None);
+        assert!(!choice.is_on(&UIO));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn nv_uio_overrides_the_detection_either_way() {
+        let root = data("env", &["uio/supported.txt"]);
+        let (off, line) = fixes_choice(&[("NV_UIO", "0")]).with_uio_detected(&root);
+        assert!(!off.is_on(&UIO));
+        assert_eq!(line, None);
+        let (on, line) = fixes_choice(&[("NV_UIO", "1")]).with_uio_detected(&root);
+        assert!(on.is_on(&UIO));
+        assert_eq!(line, None);
+        let _ = std::fs::remove_dir_all(root);
     }
 }
