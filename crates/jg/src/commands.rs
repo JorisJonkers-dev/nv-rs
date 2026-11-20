@@ -17,11 +17,10 @@
 //!
 //! Every other opcode of the block stays an empty record (a call fails, as without the plugin).
 //!
-//! What is NOT built: the extra miscellaneous statistics are kept in the engine from a new game or
-//! a load until the next one. They are not written to the co-save (a loaded game starts with none)
-//! and not shown in the Stats menu; no record format
-//! is invented for them, so a plugin section of a real install is carried untouched
-//! ([`crate::cosave`]) and never collides with one of ours. `IsDLLLoaded`'s optional integer is
+//! What is NOT built: the extra miscellaneous statistics are not shown in the Stats menu. They are
+//! saved in a record of nv-rs's own type in the plugin's co-save section ([`crate::cosave`]);
+//! the plugin's own record format is in no public document read, so a plugin section of a real
+//! install is carried untouched and never collides with ours. `IsDLLLoaded`'s optional integer is
 //! accepted and ignored (its meaning is not in the sources read).
 
 use crate::identity::OPCODE_BASE;
