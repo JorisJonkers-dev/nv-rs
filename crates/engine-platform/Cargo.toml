@@ -42,9 +42,6 @@ d3d9-wgpu = { path = "../d3d9-wgpu" }
 # xinputhid).
 [target.'cfg(not(windows))'.dependencies]
 fork-window = { path = "../fork-window" }
-# The sound output off Windows (fork_sound.rs): libpulse-simple loaded at run time, as d3dx-shader loads vkd3d.
-libloading = "0.8"
-
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_HumanInterfaceDevice", "Win32_Devices_Properties", "Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D9", "Win32_Graphics_Gdi", "Foundation_Numerics", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_WindowsAndMessaging"] }
@@ -59,8 +56,8 @@ windows = { version = "0.58", features = ["Win32_Devices_DeviceAndDriverInstalla
 # `realtime` would do nothing on Linux as built (no D-Bus/rtkit) and is not used on macOS; the
 # Linux sound thread runs at normal priority (sound_out.rs says why). Linux links ALSA's
 # libasound.so.2 (alsa-sys): the program needs it to start. Windows keeps its own WASAPI arm
-# (no cpal there). In this build cpal is macOS's only: Linux keeps fork_sound.rs (libpulse loaded at
-# run time, or a null sink), so the program starts without ALSA's library (docs/fork/DIVERGENCE.md).
+# (no cpal there). In this build cpal is macOS's only: Linux keeps fork_sound.rs in ds-mix (libpulse loaded
+# at run time, or a null sink), so the program starts without ALSA's library (docs/fork/DIVERGENCE.md).
 [target.'cfg(target_os = "macos")'.dependencies]
 cpal = "0.18.2"
 # macOS: the fork-window window's raw handles for the device layer's window registry (fork_d3d9rec.rs,

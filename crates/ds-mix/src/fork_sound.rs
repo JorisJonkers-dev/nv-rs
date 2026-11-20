@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 /// The rate the mixer runs at on this target (the shared-mode rate DirectSound saw on the
 /// measured machine); the sound server converts to the sink's.
-pub const MIX_RATE: u32 = super::fork_tables::MIX_RATE;
+pub const MIX_RATE: u32 = 48_000;
 
 /// Frames asked of the source at a time: 20 ms.
 const CHUNK_FRAMES: usize = (MIX_RATE / 50) as usize;

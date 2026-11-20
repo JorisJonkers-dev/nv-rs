@@ -30,6 +30,9 @@
 mod alloc_count;
 pub mod ds3d;
 pub mod dsfx;
+// Fork-owned: the sound output off Windows and macOS (libpulse loaded at run time, or a null sink).
+#[cfg(not(windows))]
+pub mod fork_sound;
 pub mod mixer;
 pub mod resampler;
 pub mod sound_out;
