@@ -1657,6 +1657,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "bsa",
+ "ds-mix",
  "game-folders",
  "game-profile",
  "mod-install",
