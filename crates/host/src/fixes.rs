@@ -495,7 +495,7 @@ const TTW_ROWS: &[&Fix] = &[&JIP_INSTALLED];
 
 /// Whether the data folder holds Tale of Two Wastelands' master (`TaleOfTwoWastelands.esm`), the
 /// name read without regard to case.
-fn holds_ttw_master(data: &std::path::Path) -> bool {
+pub(crate) fn holds_ttw_master(data: &std::path::Path) -> bool {
     std::fs::read_dir(data).ok().is_some_and(|dir| {
         dir.flatten().any(|e| {
             e.file_name()

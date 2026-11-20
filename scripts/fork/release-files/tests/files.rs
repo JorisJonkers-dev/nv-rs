@@ -110,6 +110,37 @@ fn jip_reports_the_version_tale_of_two_wastelands_reads() {
     assert!(c["extenders"][0].get("version").is_none());
 }
 
+/// Each other plugin Tale of Two Wastelands' start-up check asks for is listed with a version its
+/// check accepts, the condition, and exactly the commands of it that are built: the ones TTW's
+/// scripts call (id, the least version TTW 3.4 accepts, the built commands).
+#[test]
+fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
+    let c = capabilities();
+    let plugins: [(&str, f64, &[&str]); 1] = [("showoff", 180.0, &["GetActorHasBaseFlag"])];
+    for (id, least, built) in plugins {
+        let entry = c["extenders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["id"] == id)
+            .unwrap_or_else(|| panic!("{id} is listed"));
+        assert!(entry["version"].as_f64().unwrap() >= least, "{id}");
+        let when = entry["reported_installed"].as_str().unwrap();
+        assert!(when.contains("TaleOfTwoWastelands.esm"), "{id}: {when}");
+        assert!(when.contains("NV_TTW_PLUGINS"), "{id}: {when}");
+        let names: Vec<&str> = entry["commands"]["implemented_names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_str().unwrap())
+            .collect();
+        assert_eq!(names, built, "{id}");
+        let commands = &entry["commands"];
+        assert_eq!(commands["implemented"].as_u64().unwrap(), built.len() as u64);
+        assert!(commands["total"].as_u64().unwrap() >= built.len() as u64, "{id}");
+    }
+}
+
 #[test]
 fn the_manifest_hashes_are_the_ones_the_engine_checks() {
     let m = manifest(&input());
