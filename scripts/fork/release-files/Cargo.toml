@@ -14,6 +14,10 @@ path = "src/main.rs"
 engine-core = { path = "../../../crates/engine-core" }
 nvse = { path = "../../../crates/nvse" }
 jip = { path = "../../../crates/jip" }
+jg = { path = "../../../crates/jg" }
+showoff = { path = "../../../crates/showoff" }
+stewie = { path = "../../../crates/stewie" }
+ttw-nvse = { path = "../../../crates/ttw-nvse" }
 serde_json = "1"
 jsonschema = { version = "0.30", default-features = false }
 

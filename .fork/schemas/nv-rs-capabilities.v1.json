@@ -21,6 +21,19 @@
         "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
         "name": { "type": "string", "minLength": 1 },
         "provided_by_source": { "type": "string" },
+        "version": {
+          "type": "number",
+          "description": "The version the extender hands xNVSE (what GetPluginVersion answers for it); absent for xNVSE itself."
+        },
+        "reported_installed": {
+          "type": "string",
+          "description": "When the engine answers IsPluginInstalled 1 for this extender: 'always' or a condition in words (for example the data folder holds Tale of Two Wastelands)."
+        },
+        "unbuilt_commands": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Named commands of the extender that the engine knows are called by games it reports the extender for and does not build."
+        },
         "commands": {
           "type": "object",
           "required": ["implemented", "total", "implemented_names"],

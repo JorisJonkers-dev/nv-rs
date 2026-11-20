@@ -45,6 +45,7 @@ pub static FIXES: &[Fix] = &[
     JIP_GAME_PATCHES,
     MCM,
     STEWIE,
+    TTW_EXTENDERS,
     UIO,
     SCRIPT_ERROR_GUARD,
     IMOD_EVENT_FORM_CHECK,
@@ -507,6 +508,41 @@ fn install_stewie(e: &mut Engine) {
     stewie::set_on(e, true);
 }
 
+/// The plugins Tale of Two Wastelands' start-up script asks for (fork, nv-rs#399): it reads
+/// `GetPluginVersion` of JohnnyGuitar NVSE, lStewieAl's Tweaks and ShowOff xNVSE and
+/// `IsPluginInstalled "ttw_nvse"`, and shows a "missing dependency" box for each that is not listed.
+/// Off in every preset; switched on (with [`JIP_INSTALLED`] and [`STEWIE`]) when the data folder
+/// holds TTW's master ([`Choice::with_ttw_detected`]). Each plugin answers "installed" with the
+/// version the real one has, JohnnyGuitar, ShowOff and the TTW plugin with the script commands TTW's
+/// scripts call built (the commands the rest of each plugin has are not: docs/FIXES.md, "Tale of Two
+/// Wastelands' extenders"), Tweaks with its engine fixes but none of its eight script commands.
+pub const TTW_EXTENDERS: Fix = Fix {
+    name: "The extenders Tale of Two Wastelands asks for",
+    env: "NV_TTW_EXTENDERS",
+    addresses: &[],
+    summary: "JohnnyGuitar NVSE, ShowOff xNVSE, lStewieAl's Tweaks and the TTW plugin (ttw_nvse) answer \"installed\" to Tale of Two Wastelands' start-up check, with the script commands its scripts call built",
+    install: install_ttw_extenders,
+};
+
+fn install_ttw_extenders(e: &mut Engine) {
+    jg::set_answers_installed(e, true);
+    showoff::set_answers_installed(e, true);
+    stewie::set_answers_installed(e, true);
+    ttw_nvse::set_answers_installed(e, true);
+}
+
+/// Whether the data folder holds Tale of Two Wastelands' master (`TaleOfTwoWastelands.esm`), the
+/// name read without regard to case.
+fn holds_ttw_master(data: &std::path::Path) -> bool {
+    std::fs::read_dir(data).ok().is_some_and(|dir| {
+        dir.flatten().any(|e| {
+            e.file_name()
+                .to_str()
+                .is_some_and(|n| n.eq_ignore_ascii_case("TaleOfTwoWastelands.esm"))
+        })
+    })
+}
+
 /// The Mod Configuration Menu's NVSE plugin built in (`crates/mcm`: MCM.dll 1.5, "MCM Extensions"):
 /// its nine commands at `0x21C0` up, which MCM's scripts and the menus of the mods that use it call
 /// (`GetMCMFloat`, `SetMCMFloat`, `GetModINI`, ...). Off in every preset ([`OFF_IN_EVERY_PRESET`])
@@ -530,7 +566,13 @@ fn install_nothing(_: &mut Engine) {}
 
 /// Rows that are off in every preset until the maintainer turns them on: only their own variable or `Fallout.ini`
 /// line turns them on.
-pub const OFF_IN_EVERY_PRESET: &[&str] = &[DRAW_THREAD.env, MCM.env, UIO.env, JIP_INSTALLED.env];
+pub const OFF_IN_EVERY_PRESET: &[&str] = &[
+    DRAW_THREAD.env,
+    MCM.env,
+    UIO.env,
+    JIP_INSTALLED.env,
+    TTW_EXTENDERS.env,
+];
 
 /// The rows that register nothing at an exe address: the menu limit paces the uncapped step;
 /// the extender's rows set flags `crates/nvse` reads.
@@ -544,6 +586,7 @@ const NO_ADDRESS: &[&str] = &[
     JIP_GAME_PATCHES.name,
     MCM.name,
     STEWIE.name,
+    TTW_EXTENDERS.name,
     UIO.name,
     SCRIPT_ERROR_GUARD.name,
     IMOD_EVENT_FORM_CHECK.name,
@@ -1129,6 +1172,34 @@ impl Choice {
         let line = format!(
             "{}: on, because {} holds the interface extender's files (NV_UIO=0 turns it off)",
             UIO.name,
+            data.display()
+        );
+        (choice, Some(line))
+    }
+
+    /// The extenders Tale of Two Wastelands asks for ([`TTW_EXTENDERS`]), JIP LN ([`JIP_INSTALLED`])
+    /// and Tweaks ([`STEWIE`]) switched on because the data folder holds its master. Each is left as
+    /// it is where something set it (`NV_TTW_EXTENDERS=0`, `NV_JIP_INSTALLED=0`, `NV_STEWIE=0` or
+    /// their `Fallout.ini` lines still win). Returns the choice to start with and the line to log
+    /// when the detection turned anything on.
+    pub fn with_ttw_detected(&self, data: &std::path::Path) -> (Choice, Option<String>) {
+        let mut choice = self.clone();
+        if !holds_ttw_master(data) {
+            return (choice, None);
+        }
+        let mut turned_on = Vec::new();
+        for fix in [&TTW_EXTENDERS, &JIP_INSTALLED, &STEWIE] {
+            if !choice.overrides.iter().any(|(env, _)| *env == fix.env) {
+                choice.overrides.push((fix.env, true));
+                turned_on.push(fix.name);
+            }
+        }
+        if turned_on.is_empty() {
+            return (choice, None);
+        }
+        let line = format!(
+            "{}: on, because {} holds TaleOfTwoWastelands.esm (NV_TTW_EXTENDERS=0 turns the plugins it asks for off)",
+            turned_on.join(", "),
             data.display()
         );
         (choice, Some(line))

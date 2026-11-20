@@ -1,8 +1,11 @@
 //! Fork-only. The two machine-readable files a nv-rs release carries for nvmod (nv-linux
 //! docs/architecture/integration.md, sections "nv-rs" and "Built in per target"):
 //!
-//! - `capabilities.json`: per built-in script extender (xNVSE, JIP LN) the implemented and total
-//!   command counts and the implemented command names, read from the real command tables.
+//! - `capabilities.json`: per built-in script extender (xNVSE, JIP LN, and the plugins Tale of Two
+//!   Wastelands asks for: JohnnyGuitar NVSE, ShowOff xNVSE, lStewieAl's Tweaks, the TTW plugin) the
+//!   implemented and total command counts and the implemented command names, read from the real
+//!   command tables; for the plugins that answer "installed" only for such a game, the version they
+//!   hand xNVSE, when they answer, and the commands of theirs that are called and not built.
 //! - `release-manifest.json`: the version, the upstream base commit, the expected hashes of the
 //!   supported game executable's sections, the play-patch step and whether a plugins.txt
 //!   ordering switch exists.
@@ -101,6 +104,43 @@ fn extender(id: &str, display: &str, source: &str, names: Vec<String>, total: us
     })
 }
 
+/// A plugin that answers "installed" only for a game that asks for it (Tale of Two Wastelands,
+/// nv-rs#399): the extender entry plus the version it reports, when, and the named commands of it
+/// that games it is reported for call and the engine does not build. `total` is the number of
+/// commands the plugin's public repository registers at its latest release (a count, not a promise
+/// about the version reported); 0 when no public list exists.
+#[allow(clippy::too_many_arguments)]
+fn plugin_entry(
+    id: &str,
+    display: &str,
+    source: &str,
+    version: u32,
+    names: &[&str],
+    total: usize,
+    unbuilt: &[&str],
+) -> Value {
+    let mut v = extender(
+        id,
+        display,
+        source,
+        names.iter().map(|n| n.to_string()).collect(),
+        total,
+    );
+    v["version"] = json!(version);
+    v["reported_installed"] = json!("when the data folder holds TaleOfTwoWastelands.esm (NV_TTW_EXTENDERS=1 forces it, 0 turns it off)");
+    if !unbuilt.is_empty() {
+        v["unbuilt_commands"] = json!(unbuilt);
+    }
+    v
+}
+
+/// The commands JohnnyGuitar NVSE and ShowOff xNVSE register at their latest public releases (their
+/// repositories' command definitions, counted 2026-11-20), and lStewieAl's Tweaks' script commands
+/// (docs/FIXES.md, "lStewieAl's Tweaks": eight, none built).
+const JG_TOTAL: usize = 418;
+const SHOWOFF_TOTAL: usize = 235;
+const STEWIE_COMMANDS: usize = 8;
+
 /// `capabilities.json`, generated from the command tables.
 pub fn capabilities() -> Value {
     let (x_names, x_total) = xnvse();
@@ -110,6 +150,42 @@ pub fn capabilities() -> Value {
         "extenders": [
             extender("xnvse", "xNVSE", "crates/nvse", x_names, x_total),
             extender("jip-ln", "JIP LN NVSE", "crates/jip", j_names, j_total),
+            plugin_entry(
+                "johnnyguitar",
+                jg::identity::NAME,
+                "crates/jg",
+                jg::identity::VERSION_INT,
+                &jg::COMMAND_NAMES,
+                JG_TOTAL,
+                &[],
+            ),
+            plugin_entry(
+                "showoff",
+                showoff::identity::NAME,
+                "crates/showoff",
+                showoff::identity::VERSION_INT,
+                &showoff::COMMAND_NAMES,
+                SHOWOFF_TOTAL,
+                &[],
+            ),
+            plugin_entry(
+                "stewie-tweaks",
+                stewie::NAME,
+                "crates/stewie",
+                stewie::VERSION,
+                &[],
+                STEWIE_COMMANDS,
+                &[],
+            ),
+            plugin_entry(
+                "ttw-nvse",
+                ttw_nvse::NAME,
+                "crates/ttw-nvse",
+                ttw_nvse::VERSION,
+                &ttw_nvse::COMMAND_NAMES,
+                ttw_nvse::COMMAND_NAMES.len() + ttw_nvse::UNBUILT_COMMAND_NAMES.len(),
+                &ttw_nvse::UNBUILT_COMMAND_NAMES,
+            ),
         ],
     })
 }
