@@ -12,6 +12,11 @@ engine-core = { path = "../engine-core" }
 # Logging: levels, a JSON file, soft stops (docs/fork/LOGGING.md).
 fork-log = { path = "../fork-log" }
 fork-hitch = { path = "../fork-hitch" }
+# DirectSound's mixer, sample-rate converters, speaker placement, 3D stage, distortion effect and
+# the sound output (mixer, resampler, speakers, ds3d, dsfx, sound_out): their own crate so that
+# programs without the engine (the launcher) play sound through the same code; re-exported in
+# lib.rs under their old names.
+ds-mix = { path = "../ds-mix" }
 # The Bink layer (bink.rs) decodes with the repository's own Bink 1 decoder.
 bink = { path = "../bink" }
 mp3 = { path = "../mp3" }
