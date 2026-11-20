@@ -68,7 +68,10 @@ if [ -x "$launch" ]; then
     # viewer next to a copy of the launcher prints what it was given.
     mkdir -p "$work/stub/bin"
     cp "$launch" "$work/stub/bin/nv-rs-launch"
-    printf '#!/bin/sh\necho "NV_D3D9=${NV_D3D9:-unset} $*"\n' >"$work/stub/bin/nv-viewer"
+    cat >"$work/stub/bin/nv-viewer" <<'EOF'
+#!/bin/sh
+echo "NV_D3D9=${NV_D3D9:-unset} $*"
+EOF
     chmod +x "$work/stub/bin/nv-viewer" "$work/stub/bin/nv-rs-launch"
     expect "launcher: wgpu by default" 0 "NV_D3D9=wgpu $work/noexe" -- env -u NV_D3D9 "$work/stub/bin/nv-rs-launch" "$work/noexe"
     expect "launcher: the player's back end stays" 0 "NV_D3D9=real " -- env NV_D3D9=real "$work/stub/bin/nv-rs-launch" "$work/noexe"
