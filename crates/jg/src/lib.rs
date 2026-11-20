@@ -12,8 +12,9 @@
 //!   today).
 //! - [`commands`]: the five commands Tale of Two Wastelands 3.4 calls (`IsDLLLoaded`,
 //!   `InitExtraMiscStat`, `ModExtraMiscStat`, `GetExtraMiscStat`, `GetQuestFailed`), at the
-//!   opcodes its compiled scripts carry. The extra statistics live in the engine for the session
-//!   only: they are NOT saved in the co-save and NOT shown in the Stats menu. Every other
+//!   opcodes its compiled scripts carry. The extra statistics live in the engine from a new game
+//!   or a load until the next one: they are NOT saved in the co-save (nv-rs#405) and NOT shown in
+//!   the Stats menu. Every other
 //!   command of the plugin is not built.
 //!
 //! The plugin answers "installed" only together with those commands ([`install_as`]): a mod that
@@ -40,7 +41,8 @@ pub struct State {
     pub carried: Vec<nvse::cosave::Chunk>,
     /// [`set_answers_installed`]; `None` takes [`ANSWERS_INSTALLED`].
     pub answers_installed: Option<bool>,
-    /// The extra miscellaneous statistics by name (exact bytes), for the session only.
+    /// The extra miscellaneous statistics by name (exact bytes), from a new game or a load until
+    /// the next one ([`cosave`] clears them).
     pub stats: std::collections::BTreeMap<Vec<u8>, i32>,
 }
 

@@ -22,7 +22,7 @@ engine's own data layouts only, no plugin code:
   in the sources read.
 - InitExtraMiscStat (string), ModExtraMiscStat (string, int), GetExtraMiscStat (string): built
   from TTW's calls (Bobbleheads Found, Captives Rescued, Contracts Completed, ...): a table of
-  named integers kept in the engine for the session.
+  named integers kept in the engine from a new game or a load until the next one.
 - GetQuestFailed (alias GetQF; one quest): built from `if GetQuestFailed MS14 == 0` and the
   engine's quest layout (the failed bit TESQuest::SetFailed sets); also a condition function.
 Opcodes (offset from 0x3100): each command sits at the opcode TTW's compiled scripts carry for it,
