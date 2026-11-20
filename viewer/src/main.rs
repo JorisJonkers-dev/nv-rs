@@ -288,6 +288,12 @@ fn main() {
     run()
 }
 
+/// Whether this run is `--check` and the player has not chosen a log target: the report goes to
+/// the terminal and no log files are made.
+fn check_leaves_no_logs(args: impl IntoIterator<Item = OsString>, log_chosen: bool) -> bool {
+    !log_chosen && args.into_iter().any(|a| a == "--check")
+}
+
 /// The program: its arguments, the check or the start, main's frames.
 pub fn run() {
     // With the game's own window (`NV_D3D9=real`, `wgpu` or `real,wgpu`, or a launcher's play
@@ -305,6 +311,15 @@ pub fn run() {
         unsafe {
             SetProcessDpiAwarenessContext(-1);
         }
+    }
+    // `--check` prints its report and writes no log files (#401): without this the run left an
+    // empty `.log` and `.jsonl` pair each time. A player's own `NV_LOG_JSON` still wins.
+    if check_leaves_no_logs(
+        std::env::args_os().skip(1),
+        std::env::var_os("NV_LOG_JSON").is_some(),
+    ) {
+        // The process is still single-threaded here.
+        std::env::set_var("NV_LOG_JSON", "off");
     }
     // Logging (docs/fork/LOGGING.md): the JSON file and the panic hook, before anything logs.
     fork_log::init();
@@ -783,6 +798,14 @@ mod tests {
         assert_eq!(args.movement_missing, Some(PathBuf::from("m.tsv")));
         assert!(!args.movement_probe);
         assert_eq!(args.ignored.len(), 7);
+    }
+
+    #[test]
+    fn check_runs_write_no_log_files_unless_a_log_is_chosen() {
+        let check = strings(&["C:\\Games\\Data", "--check"]);
+        assert!(check_leaves_no_logs(check.clone(), false));
+        assert!(!check_leaves_no_logs(check, true));
+        assert!(!check_leaves_no_logs(strings(&["C:\\Games\\Data"]), false));
     }
 
     #[test]
