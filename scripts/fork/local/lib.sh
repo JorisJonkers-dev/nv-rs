@@ -43,7 +43,7 @@ dev_build() {
   return $rc
 }
 
-# The run environment, as nv-rs-run sets it (game folder, wgpu, Nix-store fallbacks, sound).
+# The run environment, as a local wrapper sets it (game folder, wgpu, Nix-store fallbacks, sound).
 dev_env() {
   GAME="${NV_GAME:-$HOME/Games/SteamLibrary/steamapps/common/Fallout New Vegas}"
   export NV_D3D9="${NV_D3D9:-wgpu}"
@@ -56,8 +56,8 @@ dev_env() {
     export LD_LIBRARY_PATH
   fi
   export NV_SOUND="${NV_SOUND:-out}"
-  # Scripted and local-loop runs keep their saves in a scratch folder, never in the owner's userdata
-  # (a real run through nv-rs-run keeps the default: saves persist there); the caller may set it.
+  # Scripted and local-loop runs keep their saves in a scratch folder, never in the maintainer's userdata
+  # (a real run through a local wrapper keeps the default: saves persist there); the caller may set it.
   export NV_SAVE_OUT="${NV_SAVE_OUT:-$HOME/.local/state/nv-rs/bench/saves-$(date +%Y%m%dT%H%M%S)-$$}"
   if [ -z "${NV_PULSE_SIMPLE:-}" ] && ! ldconfig -p 2>/dev/null | grep -q libpulse-simple; then
     local f

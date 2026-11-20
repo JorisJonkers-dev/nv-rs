@@ -3,7 +3,7 @@ only): zwp_virtual_keyboard_v1 with a real xkb keymap, so the game gets true evd
 private keycode, which the game reads as the wrong key), and zwlr_virtual_pointer_v1 for relative motion and buttons.
 
 It is created before the game starts and lives for the whole run: a seat with no keyboard when the game binds it would
-never be given one. Only ever connect it to the nested compositor's socket, never to the owner's session.
+never be given one. Only ever connect it to the nested compositor's socket, never to the maintainer's session.
 """
 import os
 import socket

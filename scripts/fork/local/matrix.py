@@ -254,7 +254,7 @@ def bench_cell(exe, cfg, scenario, out_dir, scale, game, help_text):
         env["NV_GAME"] = game
     sess = cfg["session"]
     if sess == "xvfb":
-        # A private X server: the window can never reach the owner's desktop.
+        # A private X server: the window can never reach the maintainer's desktop.
         if not shutil.which("xvfb-run"):
             return {"status": "skipped", "detail": "xvfb-run is not installed"}
         for v in ("WAYLAND_DISPLAY", "DISPLAY"):

@@ -76,7 +76,7 @@ run; the pass covers what the game loader finds in packages. Launching with a wa
 (`raul run`, the Toolbox's ADR-0007): it is a thin caller of the viewer flag with the load order's Data roots; until
 then `nvmod run --warm` (nvmod-rs) does the same.
 
-Measured on the vanilla install (16 packages, 15,791 shaders, 1,809 distinct bytecodes), RX 7900 XTX, 16 cores:
+Measured on the vanilla install (16 packages, 15,791 shaders, 1,809 distinct bytecodes), AMD RDNA 3 (RADV), 16 cores:
 
 | Run | Time | Store hits / misses |
 | --- | --- | --- |
@@ -87,7 +87,7 @@ Measured on the vanilla install (16 packages, 15,791 shaders, 1,809 distinct byt
 
 ## Measured
 
-`nv-rs-dev bench run newgame --nested headless --resolution 1920x1080`, RX 7900 XTX (RADV), 16 cores, the vanilla
+`nv-rs-dev bench run newgame --nested headless --resolution 1920x1080`, AMD RDNA 3 (RADV) (RADV), 16 cores, the vanilla
 game, 765 shaders; the first row's run was marked noisy by the bench (another viewer overlapped), the others were not. Start numbers are the viewer log's `the start:` line.
 
 | Run | Start (wall, 16 cores) | Threads: converting / modules / libraries | First picture | Play 1% low |

@@ -3,7 +3,7 @@
 the host session is in trouble.
 
 A bench run once started while the card's memory was already nearly full; the driver then refused the desktop's own
-command submissions (`Not enough memory for command submission`) and the owner's session crashed. So every run:
+command submissions (`Not enough memory for command submission`) and the maintainer's session crashed. So every run:
 
 - runs the viewer and its nested compositor in transient systemd scopes with `MemoryMax`, `MemoryHigh` and
   `MemorySwapMax=0`, sized well below the free RAM (no scope, no run);
