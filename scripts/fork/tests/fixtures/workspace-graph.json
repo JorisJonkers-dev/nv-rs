@@ -2222,6 +2222,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "ds-mix"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "game-folders"
     },
     {
