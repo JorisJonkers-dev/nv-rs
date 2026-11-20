@@ -454,6 +454,24 @@ fn the_install_sets_the_bits_and_lists_tweaks() {
     install(&mut e);
     assert_eq!(nvse::plugins::built_ins(&e).len(), 1);
 
+    // The host asks for "installed" (a game whose scripts check Tweaks' version, nv-rs#399): listed
+    // under its own name at 1005, so GetPluginVersion answers 1005 and IsPluginInstalled 1.
+    let mut e = engine(None);
+    set_on(&mut e, true);
+    set_answers_installed(&mut e, true);
+    install(&mut e);
+    assert_eq!(
+        nvse::commands::extender::plugin_info(&e, NAME.as_bytes()).map(|p| p.version),
+        Some(1005)
+    );
+    assert_eq!(nvse::commands::extender::loaded_plugins(&e).len(), 1);
+    // Asked for with the row off: Tweaks is not built in, so nothing answers.
+    let mut e = engine(None);
+    set_answers_installed(&mut e, true);
+    install(&mut e);
+    assert!(nvse::commands::extender::plugin_info(&e, NAME.as_bytes()).is_none());
+    assert!(nvse::commands::extender::loaded_plugins(&e).is_empty());
+
     let mut e = engine(None);
     set_on(&mut e, true);
     set_keys(
@@ -472,16 +490,16 @@ fn the_install_sets_the_bits_and_lists_tweaks() {
 fn the_start_lines_name_what_was_read() {
     let keys = rows::Keys::default();
     let (settings, on) = settings_and_rows(None, &[], &keys);
+    // Every row built is on with VNV's values (the count is the table's, so a share adding rows
+    // does not edit this line).
+    let built = rows::all().count();
+    assert_eq!(on.len(), built);
     assert_eq!(
         start_lines(false, &settings, &keys, on.len()),
         [
             "lStewieAl's Tweaks: no Data\\NVSE\\Plugins\\nvse_stewie_tweaks.ini: VNV's values"
                 .to_string(),
-            // Every row is on by default: the count follows the rows built (every share's list).
-            format!(
-                "lStewieAl's Tweaks: {n} of its {n} rows built are on",
-                n = rows::all().count()
-            ),
+            format!("lStewieAl's Tweaks: {built} of its {built} rows built are on"),
         ]
     );
     let (settings, on) = settings_and_rows(Some(b"[Tweaks]\nbBetterAutoWalk=1\n"), &[], &keys);
