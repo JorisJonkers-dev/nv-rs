@@ -576,8 +576,9 @@ const REFUSAL_START: &str = "nv-rs does not run the game on this system yet: ";
 /// The line a Linux start and `--check` say where the start is not refused: what this build is
 /// and is not (review of #687).
 #[cfg_attr(windows, allow(dead_code))]
-const FIRST_STARTS: &str = "nv-rs on this system: built and unit-tested here, but never started \
-     with the game's files before. Known to be missing: sounds at rates other than the sound \
+const FIRST_STARTS: &str = "nv-rs on this system: started with the game's files on Linux on x86-64 \
+     (main menu, character creation and the first minutes of a new game play); other systems are \
+     built and unit-tested only. Known to be missing: sounds at rates other than the sound \
      device's are not heard until the game first changes a sound's pitch, pop-up warnings are log \
      lines, a mod's loose HLSL shaders stop the game. Please report any stop with this log.";
 
@@ -1325,6 +1326,11 @@ mod tests {
             "{arm}"
         );
         assert!(arm.contains("never started with the game"), "{arm}");
+        assert!(
+            super::FIRST_STARTS.contains("started with the game's files on Linux"),
+            "{}",
+            super::FIRST_STARTS
+        );
     }
 
     /// A scratch installation whose FalloutNV.exe is two bytes (enough to be found).
