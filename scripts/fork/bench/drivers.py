@@ -22,8 +22,8 @@ def start_new_game(d, hold_first_room=0.0, quiet=6.0, brisk=False):
         d.wait(movie)
         d.tap("esc", 0.1)
     d.wait(menu)
-    d.tap("down", 0.3)  # wakes the menu's keyboard mode
-    d.wait(step)
+    # The menu opens with Continue highlighted and the first Down already moves the selection (it does not
+    # only wake a keyboard mode: nv-rs#410, lodwright-rs#156): one Down is Continue -> New, two land on Load.
     d.tap("down", 0.3)  # Continue -> New
     d.wait(step)
     d.tap("enter", 0.3)  # "Start a new game?"
@@ -328,8 +328,7 @@ def continue_game(d, opts):
         d.wait(2.0)
         d.tap("esc", 0.1)
     d.wait(6.0)
-    d.tap("down", 0.3)  # wakes the menu's keyboard mode, on Continue
-    d.wait(1.5)
+    # Continue is highlighted when the menu opens: no key before Enter (a Down would move to New).
     d.tap("enter", 0.3)  # Continue: "Continue from your last saved game?"
     d.wait(1.5)
     d.tap("enter", 0.3)  # Yes: the newest save loads

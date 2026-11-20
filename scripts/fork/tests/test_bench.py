@@ -668,6 +668,41 @@ class DriverTests(unittest.TestCase):
         self.assertEqual([r[1] for r in driver.parse_tail(cut)], ["play"])
         self.assertEqual(driver.parse_tail(cut + "pl"), driver.parse_tail(cut))
 
+    def test_the_new_game_menu_walk_takes_one_down_and_continue_takes_none(self):
+        # The main menu opens on Continue and the first Down already moves the selection (nv-rs#410): two Downs
+        # land on Load. New is one Down, Continue none.
+        import driver
+        import drivers
+
+        class Proc:
+            def poll(self):
+                return None
+
+        class Vi:
+            def __init__(self):
+                self.keys = []
+
+            def tap(self, key, hold):
+                self.keys.append(key)
+
+        clock = [0.0]
+        vi = Vi()
+        d = driver.Driver(vi, "/nonexistent", Proc(), clock=lambda: clock[0], sleep=lambda s: clock.__setitem__(0, clock[0] + s))
+        d.tail = lambda nbytes=4096: [(1, "menu", 0.0, 0.0, 0.0)]
+        d.screen = lambda: "menu"
+        d.until_screen = lambda *a, **k: False  # stops right after the menu keys
+        drivers.start_new_game(d)
+        menu = vi.keys[vi.keys.index("esc") :]
+        after_movies = menu[menu.index("down") :] if "down" in menu else []
+        self.assertEqual(vi.keys.count("down"), 1)
+        self.assertEqual(after_movies[:3], ["down", "enter", "enter"])
+        vi.keys.clear()
+        d.position = lambda: (2048.0, 2048.0, 128.0)
+        d.until = lambda cond, timeout, every=0.25, what="": what == "the first frame"
+        drivers.continue_game(d, {})
+        self.assertNotIn("down", vi.keys)
+        self.assertEqual(vi.keys.count("enter"), 2)
+
     def test_ensure_walks_takes_the_opening_package_off_when_the_player_does_not_move(self):
         import driver
         import drivers
