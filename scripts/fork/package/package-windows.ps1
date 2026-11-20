@@ -32,7 +32,7 @@ New-Item -ItemType Directory -Path (Join-Path $stage 'app/tools') -Force | Out-N
 # Our own programs. app\FalloutNV.exe is nv-viewer under that name (NVIDIA's driver fixes and Windows' per-program sound
 # go by the name); the program the release manifest calls `nv-viewer` is that file.
 $copies = @(
-    @((Join-Path $x64 'Play.exe'), 'Play.exe'),
+    @((Join-Path $x64 'nv-rs.exe'), 'Play.exe'),
     @((Join-Path $x64 'nv-viewer.exe'), 'app/FalloutNV.exe'),
     @((Join-Path $x64 'd3d9-capture.exe'), 'app/tools/d3d9-capture.exe'),
     @((Join-Path $x86 'nvapi-capture.exe'), 'app/tools/nvapi-capture.exe'),
@@ -47,8 +47,8 @@ foreach ($pair in $copies) {
         throw "copy of $src to $dest did not make a file"
     }
 }
-# The launchers, the settings tool, the game-folder chooser and the READ MEs.
-foreach ($file in @('Play with mods.cmd', 'Import my saves.cmd', 'Settings.cmd', 'Settings.ps1', 'READ ME.txt', 'THIRD-PARTY-NOTICES.txt')) {
+# The launchers (the settings are the launcher's own Settings screen), the game-folder chooser and the READ MEs.
+foreach ($file in @('Play with mods.cmd', 'Install mods.cmd', 'Import my saves.cmd', 'READ ME.txt', 'THIRD-PARTY-NOTICES.txt')) {
     Copy-Item -LiteralPath (Join-Path $root "distribution/$file") -Destination $stage
 }
 foreach ($file in @('Choose game folder.cmd', 'Choose game folder.ps1', 'WINDOWS READ ME.txt')) {

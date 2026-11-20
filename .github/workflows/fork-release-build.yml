@@ -238,9 +238,9 @@ jobs:
           $rustupHome = if ($env:RUSTUP_HOME) { $env:RUSTUP_HOME } else { Join-Path $env:USERPROFILE '.rustup' }
           $registry = Join-Path $cargoHome 'registry\src'
           $env:CARGO_ENCODED_RUSTFLAGS = @('-C', 'target-feature=+crt-static', "--remap-path-prefix=$env:GITHUB_WORKSPACE=nv-rs", "--remap-path-prefix=$registry=cargo", "--remap-path-prefix=$rustupHome=rustup") -join [char]0x1f
-          cargo build --release --locked -p nv-viewer
-          if ($LASTEXITCODE) { throw 'nv-viewer did not build.' }
-          foreach ($m in @('launcher', 'd3d9-capture', 'package-check')) {
+          cargo build --release --locked -p nv-viewer -p nv-launcher
+          if ($LASTEXITCODE) { throw 'nv-viewer or nv-launcher did not build.' }
+          foreach ($m in @('d3d9-capture', 'package-check')) {
             cargo build --release --locked --manifest-path "scripts/$m/Cargo.toml"
             if ($LASTEXITCODE) { throw "$m did not build." }
           }
@@ -258,7 +258,7 @@ jobs:
 
           $layout = [ordered]@{
             'release/nv-viewer.exe'                           = 'target/release/nv-viewer.exe'
-            'release/Play.exe'                                = 'target/release/Play.exe'
+            'release/nv-rs.exe'                                = 'target/release/nv-rs.exe'
             'release/d3d9-capture.exe'                        = 'target/release/d3d9-capture.exe'
             'release/package-check.exe'                       = 'target/release/package-check.exe'
             'i686-pc-windows-msvc/release/nvapi-capture.exe'  = 'target/i686-pc-windows-msvc/release/nvapi-capture.exe'
