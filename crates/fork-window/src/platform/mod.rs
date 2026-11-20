@@ -107,6 +107,59 @@ enum Command {
     Probe(mpsc::Sender<Option<crate::Display>>),
     /// End the window; answered when it is gone.
     Close(mpsc::Sender<()>),
+    /// A new title for window `id` (the game's `SetWindowTextA`); answered when it is asked of the
+    /// window system, with whether the window was there.
+    Title(isize, String, mpsc::Sender<bool>),
+    /// Window `id` moved to `position` (its outer corner) and/or sized to `size` (its client
+    /// area) (the game's `SetWindowPos`); answered when asked of the window system, with whether
+    /// anything was asked: the full-screen window keeps its monitor and is left as it is.
+    Place(
+        isize,
+        Option<(i32, i32)>,
+        Option<(u32, u32)>,
+        mpsc::Sender<bool>,
+    ),
+    /// Window `id` minimised or brought back; answered when asked of the window system.
+    Minimise(isize, bool, mpsc::Sender<bool>),
+    /// Whether window `id` is minimised, as the window system says.
+    IsMinimised(isize, mpsc::Sender<bool>),
+}
+
+/// Sends `command` made with a reply channel to the loop and waits for the answer (`false` when
+/// there is no loop, or it does not answer).
+fn ask(make: impl FnOnce(mpsc::Sender<bool>) -> Command) -> bool {
+    let Ok(hub) = hub() else { return false };
+    let (tx, rx) = mpsc::channel();
+    if hub.send_event(make(tx)).is_err() {
+        return false;
+    }
+    rx.recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap_or(false)
+}
+
+/// Gives window `id` the title `title` (the game's `SetWindowTextA` after the window is made).
+/// Whether the window is there.
+pub fn set_title(id: isize, title: &str) -> bool {
+    ask(|tx| Command::Title(id, title.to_owned(), tx))
+}
+
+/// Moves window `id` to `position` (its outer corner, in pixels) and/or sizes its client area to
+/// `size` (the game's `SetWindowPos`). The window of a full-screen request keeps the monitor
+/// (nothing is asked of it), and Wayland places no window for its client. Whether a change was
+/// asked of the window system.
+pub fn place(id: isize, position: Option<(i32, i32)>, size: Option<(u32, u32)>) -> bool {
+    ask(|tx| Command::Place(id, position, size, tx))
+}
+
+/// Minimises window `id`, or brings it back (the compositor or window manager acts on the
+/// request). Whether the window is there.
+pub fn set_minimised(id: isize, minimised: bool) -> bool {
+    ask(|tx| Command::Minimise(id, minimised, tx))
+}
+
+/// Whether the window system says window `id` is minimised.
+pub fn is_minimised(id: isize) -> bool {
+    ask(|tx| Command::IsMinimised(id, tx))
 }
 
 /// The one event loop of the process. winit allows one per process (a second is refused with
@@ -320,6 +373,8 @@ fn run(ready: mpsc::Sender<Result<EventLoopProxy<Command>, String>>) {
         held: "none",
         reported: None,
         close_first: None,
+        active: false,
+        deactivated: false,
     };
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("fork-window: the event loop ended: {e}");
@@ -355,6 +410,12 @@ struct App {
     reported: Option<(u32, u32, u64)>,
     /// When the first close request of the window came ([`close_ignored`]).
     close_first: Option<std::time::Instant>,
+    /// Whether the window has the focus.
+    active: bool,
+    /// Whether the window lost a focus it had since it was made: from then on each time it gets the
+    /// focus back the game is told it was activated again (`Input::reactivated`). X11 says the
+    /// window is not focused before it says it is, which is not a loss.
+    deactivated: bool,
 }
 
 impl App {
@@ -373,6 +434,8 @@ impl App {
         self.rest = [0.0; 2];
         self.reported = None;
         self.close_first = None;
+        self.active = false;
+        self.deactivated = false;
         let attrs = WindowAttributes::default()
             .with_title(self.request.title.clone())
             .with_inner_size(PhysicalSize::new(self.request.width, self.request.height))
@@ -530,6 +593,25 @@ impl App {
         self.landed_on = Some(name);
     }
 
+    /// Moves and sizes window `id` as the game's `SetWindowPos` asks. The full-screen window keeps
+    /// the monitor. The client area keeps its size for the compositor to honour: the window is not
+    /// resizable by the player, so the size hints follow the request (winit does this).
+    fn place(&mut self, id: isize, position: Option<(i32, i32)>, size: Option<(u32, u32)>) -> bool {
+        let Some(w) = self.window.as_ref().filter(|_| self.id == id) else {
+            return false;
+        };
+        if self.request.fullscreen || (position.is_none() && size.is_none()) {
+            return false;
+        }
+        if let Some((x, y)) = position {
+            w.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+        }
+        if let Some((width, height)) = size {
+            let _ = w.request_inner_size(PhysicalSize::new(width.max(1), height.max(1)));
+        }
+        true
+    }
+
     fn changed(&self) {
         if let Some(f) = self.on_change {
             f();
@@ -566,6 +648,31 @@ impl ApplicationHandler<Command> for App {
                 }
                 self.window = None;
                 let _ = done.send(());
+            }
+            Command::Title(id, title, done) => {
+                let there = self.id == id && self.window.is_some();
+                if let (true, Some(w)) = (there, &self.window) {
+                    w.set_title(&title);
+                }
+                let _ = done.send(there);
+            }
+            Command::Place(id, position, size, done) => {
+                let _ = done.send(self.place(id, position, size));
+            }
+            Command::Minimise(id, minimised, done) => {
+                let there = self.id == id && self.window.is_some();
+                if let (true, Some(w)) = (there, &self.window) {
+                    w.set_minimized(minimised);
+                }
+                let _ = done.send(there);
+            }
+            Command::IsMinimised(id, done) => {
+                let down = self.id == id
+                    && self
+                        .window
+                        .as_ref()
+                        .is_some_and(|w| w.is_minimized() == Some(true));
+                let _ = done.send(down);
             }
         }
     }
@@ -604,7 +711,18 @@ impl ApplicationHandler<Command> for App {
                     }
                     self.cursor = None;
                     self.release_pointer();
+                    self.deactivated |= self.active;
+                    self.active = false;
                 } else {
+                    self.active = true;
+                    // A focus that follows a loss of it is the game's activation (`WA_ACTIVE`):
+                    // its window procedure makes the mouse exclusive again. The first focus,
+                    // when the window is made, is not passed on (the game ignores it).
+                    if self.deactivated {
+                        if let Ok(mut i) = self.shared.input.lock() {
+                            i.reactivated = Some(1);
+                        }
+                    }
                     self.held = self.hold_pointer();
                     self.restore();
                     self.changed();

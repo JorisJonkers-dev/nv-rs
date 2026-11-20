@@ -27,7 +27,8 @@ pub struct Input {
     pub pointer: Option<[f64; 2]>,
     /// Whether the cursor moved since the last frame (always `false`, see [`Input::pointer`]).
     pub pointer_moved: bool,
-    /// The `WM_ACTIVATE` word when the window became active again (always `None` here).
+    /// The `WM_ACTIVATE` word when the window became active again after it lost the focus (taken
+    /// by [`take_input`]); `None` when it did not.
     pub reactivated: Option<u32>,
 }
 
@@ -238,6 +239,8 @@ pub fn take_input(id: isize) -> Input {
         *b |= std::mem::take(tap);
     }
     i.motion = [0; 3];
+    // The activation is taken: the game is told once.
+    i.reactivated = None;
     now
 }
 

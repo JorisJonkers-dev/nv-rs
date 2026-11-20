@@ -37,7 +37,7 @@ pub use elsewhere::Window;
 #[cfg(target_os = "macos")]
 pub use platform::run_on_main_thread;
 #[cfg(unix)]
-pub use platform::Window;
+pub use platform::{is_minimised, place, set_minimised, set_title, Window};
 
 /// What the game asked of its window.
 #[derive(Clone, Debug)]

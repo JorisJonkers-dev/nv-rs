@@ -20,6 +20,14 @@ pub(super) fn main_window() -> Option<isize> {
     Some(MAIN_WINDOW.load(Ordering::Relaxed)).filter(|&w| w != 0)
 }
 
+/// The game's top-level windows (by modelled handle): their `SetWindowPos` rectangle is on the
+/// screen, a child's is in its parent's client area.
+static TOPS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+
+/// `SWP_NOSIZE`, `SWP_NOMOVE`: the game's `SetWindowPos` flags keeping the size or the place.
+const SWP_NOSIZE: u32 = 1;
+const SWP_NOMOVE: u32 = 2;
+
 /// The windows made, kept for the run (dropping one closes it).
 static KEPT: std::sync::Mutex<Vec<fork_window::Window>> = std::sync::Mutex::new(Vec::new());
 
@@ -132,6 +140,7 @@ pub fn window_created(
             #[cfg(target_os = "macos")]
             d3d9_wgpu::register_window(id, std::sync::Arc::new(MacWindow(id)));
             let _ = MAIN_WINDOW.compare_exchange(0, id, Ordering::Relaxed, Ordering::Relaxed);
+            TOPS.lock().unwrap_or_else(|p| p.into_inner()).push(handle);
             KEPT.lock().unwrap_or_else(|p| p.into_inner()).push(window);
             watch_close(id);
             let _device = engine_core::real_threads::device_guard(e);
@@ -169,11 +178,56 @@ fn watch_close(id: isize) {
     }
 }
 
-/// `SetWindowTextA`: the real window's title is not changed after it is made (not offered yet).
-pub fn window_titled(_e: &mut Engine, _handle: u32, _title: &[u8]) {}
+/// The game's title bytes (its code page's; the game's titles are ASCII) as text.
+fn latin1(bytes: &[u8]) -> String {
+    bytes.iter().map(|&b| char::from(b)).collect()
+}
 
-/// `SetWindowPos`: the real window keeps the size it was made with: the borderless window covers the chosen monitor and the swap chain follows it (docs/fork/LINUX.md, "Display match").
-pub fn window_moved(_e: &mut Engine, _handle: u32, _rect: [i32; 4], _flags: u32) {}
+/// `SetWindowTextA`: the real window takes the title the game gave its record.
+pub fn window_titled(e: &mut Engine, handle: u32, title: &[u8]) {
+    if let Some(id) = real_window(e, handle).filter(|&w| w != 0) {
+        fork_window::set_title(id, &latin1(title));
+    }
+}
+
+/// The client area for the rectangle `rect` the game asked its window for, less the frame
+/// `border` the game added for it (the renderer's start calls `AdjustWindowRect` with the
+/// window's style, then `SetWindowPos`): the size the game wanted, whatever frame the desktop
+/// draws round it. At least 1 by 1.
+fn client_for(rect: [i32; 4], border: [i32; 4]) -> (u32, u32) {
+    let side = |a: i32, b: i32, low: i32, high: i32| {
+        let want = i64::from(b) - i64::from(a);
+        let frame = i64::from(high) - i64::from(low);
+        (want - frame).clamp(1, i64::from(u32::MAX)) as u32
+    };
+    (
+        side(rect[0], rect[2], border[0], border[2]),
+        side(rect[1], rect[3], border[1], border[3]),
+    )
+}
+
+/// `SetWindowPos`: the real window follows the game's rectangle (its client area the rectangle
+/// less the frame the game added for it, `SWP_NOSIZE` and `SWP_NOMOVE` keep what they name). The
+/// borderless window (the game's full screen) keeps the monitor, and the swap chain follows the
+/// window's size (docs/fork/LINUX.md, "Display match"). A child window shares its parent's real
+/// window: it sizes the parent's client area and never moves it.
+pub fn window_moved(e: &mut Engine, handle: u32, rect: [i32; 4], flags: u32) {
+    let Some(id) = real_window(e, handle).filter(|&w| w != 0) else {
+        return;
+    };
+    let top = TOPS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .contains(&handle);
+    let border = if top {
+        crate::window::game_frame(e, handle).unwrap_or([0; 4])
+    } else {
+        [0; 4]
+    };
+    let size = (flags & SWP_NOSIZE == 0).then(|| client_for(rect, border));
+    let position = (top && flags & SWP_NOMOVE == 0).then_some((rect[0], rect[1]));
+    fork_window::place(id, position, size);
+}
 
 /// `d3d9real::run_on_main_thread` (the viewer hands the main thread over): on Linux fork-window
 /// needs no main thread, so `game` runs here and the process ends when it returns.
