@@ -6,6 +6,8 @@ Macs. It checks an installation of your own Fallout: New Vegas and runs the game
 (through wgpu). This package carries no game data, and it never copies your FalloutNV.exe.
 
 Most people get it through Raul's Trusty Toolbox (raul), which carries this build and sets it up for an Instance.
+Raul is the launcher: this archive has no launcher program and no play.sh of its own, so start the game with raul, or
+with bin/nv-viewer as below.
 
 Use
   bin/nv-viewer "<your game folder>" --check     check FalloutNV.exe is 1.4.0.525 and what a run will find (exit 0 ok, 1 not)
