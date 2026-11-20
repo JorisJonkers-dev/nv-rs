@@ -254,7 +254,7 @@ pub const JIP_INSTALLED: Fix = Fix {
     name: "JIP LN NVSE built in (for testing)",
     env: "NV_JIP_INSTALLED",
     addresses: &[],
-    summary: "for testing, off in every preset: JIP LN NVSE answers \"installed\" to mods (MCM, oHUD and others that need it), with all its commands, its hooks and the game patches built so far (the README and docs/FIXES.md give the counts)",
+    summary: "off in every preset, switched on when the data folder holds Tale of Two Wastelands: JIP LN NVSE answers \"installed\" to mods (MCM, oHUD and others that need it), with all its commands, its hooks and the game patches built so far (the README and docs/FIXES.md give the counts)",
     install: install_jip_installed,
 };
 
@@ -487,6 +487,22 @@ fn holds_uio_files(data: &std::path::Path) -> bool {
         .and_then(|d| child(&d, "Plugins"))
         .and_then(|d| child(&d, uio::FILE));
     plugin.is_some() || child(data, "uio").is_some_and(|d| d.is_dir())
+}
+
+/// The rows [`Choice::with_ttw_detected`] switches on for Tale of Two Wastelands: one per plugin its
+/// start-up check asks for that the fork builds and answers for honestly (nv-rs#399).
+const TTW_ROWS: &[&Fix] = &[&JIP_INSTALLED];
+
+/// Whether the data folder holds Tale of Two Wastelands' master (`TaleOfTwoWastelands.esm`), the
+/// name read without regard to case.
+fn holds_ttw_master(data: &std::path::Path) -> bool {
+    std::fs::read_dir(data).ok().is_some_and(|dir| {
+        dir.flatten().any(|e| {
+            e.file_name()
+                .to_str()
+                .is_some_and(|n| n.eq_ignore_ascii_case("TaleOfTwoWastelands.esm"))
+        })
+    })
 }
 
 /// UI Organizer built in (`crates/uio`, parts 1 and 2): its lists (`Data\uio\supported.txt` and
@@ -1149,6 +1165,34 @@ impl Choice {
         let line = format!(
             "{}: on, because {} holds the interface extender's files (NV_UIO=0 turns it off)",
             UIO.name,
+            data.display()
+        );
+        (choice, Some(line))
+    }
+
+    /// The rows Tale of Two Wastelands' start-up check needs ([`TTW_ROWS`]) switched on because the
+    /// data folder holds its master: the script reads `GetPluginVersion "JIP NVSE Plugin"` and shows a
+    /// "missing dependency" box below 57.2, and JIP is built in whole (nv-rs#399). A row something
+    /// set (its variable or its `Fallout.ini` line, either way) is left as it is. Returns the choice
+    /// to start with and the line to log when the detection turned anything on.
+    pub fn with_ttw_detected(&self, data: &std::path::Path) -> (Choice, Option<String>) {
+        let mut choice = self.clone();
+        if !holds_ttw_master(data) {
+            return (choice, None);
+        }
+        let mut turned_on = Vec::new();
+        for fix in TTW_ROWS {
+            if !choice.overrides.iter().any(|(env, _)| *env == fix.env) {
+                choice.overrides.push((fix.env, true));
+                turned_on.push(fix.name);
+            }
+        }
+        if turned_on.is_empty() {
+            return (choice, None);
+        }
+        let line = format!(
+            "{}: on, because {} holds TaleOfTwoWastelands.esm, which asks for them (each row's variable set to 0 turns it off)",
+            turned_on.join(", "),
             data.display()
         );
         (choice, Some(line))
@@ -3118,6 +3162,45 @@ mod uio_detection_tests {
         let (on, line) = fixes_choice(&[("NV_UIO", "1")]).with_uio_detected(&root);
         assert!(on.is_on(&UIO));
         assert_eq!(line, None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tale_of_two_wastelands_master_turns_jip_on_and_says_so() {
+        for (tag, file) in [
+            ("lower", "taleoftwowastelands.esm"),
+            ("mixed", "TaleOfTwoWastelands.esm"),
+        ] {
+            let root = data(tag, &[file]);
+            let (choice, line) = fixes_choice(&[]).with_ttw_detected(&root);
+            assert!(choice.is_on(&JIP_INSTALLED), "{tag}");
+            assert!(line.unwrap().contains("JIP"), "{tag}");
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn without_the_ttw_master_jip_stays_as_it_was() {
+        let root = data("nottw", &["FalloutNV.esm", "YUPTTW.esm"]);
+        let before = fixes_choice(&[]);
+        let (choice, line) = before.with_ttw_detected(&root);
+        assert_eq!(choice, before);
+        assert_eq!(line, None);
+        assert!(!choice.is_on(&JIP_INSTALLED));
+        let (none, line) = before.with_ttw_detected(&root.join("missing"));
+        assert_eq!((none, line), (before, None));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn nv_jip_installed_overrides_the_ttw_detection_either_way() {
+        let root = data("ttwenv", &["TaleOfTwoWastelands.esm"]);
+        for (value, on) in [("0", false), ("1", true)] {
+            let (choice, line) =
+                fixes_choice(&[("NV_JIP_INSTALLED", value)]).with_ttw_detected(&root);
+            assert_eq!(choice.is_on(&JIP_INSTALLED), on, "{value}");
+            assert_eq!(line, None, "{value}");
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 }

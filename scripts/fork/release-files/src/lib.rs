@@ -105,11 +105,16 @@ fn extender(id: &str, display: &str, source: &str, names: Vec<String>, total: us
 pub fn capabilities() -> Value {
     let (x_names, x_total) = xnvse();
     let (j_names, j_total) = jip_ln();
+    let mut jip_entry = extender("jip-ln", "JIP LN NVSE", "crates/jip", j_names, j_total);
+    jip_entry["version"] = json!(jip::identity::version());
+    jip_entry["reported_installed"] = json!(
+        "when the data folder holds TaleOfTwoWastelands.esm (NV_JIP_INSTALLED=1 forces it, 0 turns it off)"
+    );
     json!({
         "schema_version": SCHEMA_VERSION,
         "extenders": [
             extender("xnvse", "xNVSE", "crates/nvse", x_names, x_total),
-            extender("jip-ln", "JIP LN NVSE", "crates/jip", j_names, j_total),
+            jip_entry,
         ],
     })
 }
