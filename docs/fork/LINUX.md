@@ -79,7 +79,7 @@ Not yet known: what the game does on the AMD path with this table (stop lines an
 ## Sound output (#171)
 
 The mixer (DirectSound's mixing, the resamplers, 3D placement) is platform-independent; only the device was
-WASAPI. `engine-platform/src/fork_sound.rs` is the device on Linux, behind the same `sound_out::start` and
+WASAPI. `ds-mix/src/fork_sound.rs` is the device on Linux, behind the same `sound_out::start` and
 `device_mix` seam; the Windows code is unchanged. Upstream's own device off Windows (cpal, slaterain/nv-rs#637) is built for
 macOS only here: on Linux it links ALSA's `libasound.so.2`, which the program would then need to start at all, and it has
 no null sink.
@@ -89,7 +89,7 @@ no null sink.
   it). Nothing is linked, so no build prerequisite. Under PipeWire the library talks to `pipewire-pulse`; under
   PulseAudio to the server. Prerequisite at run time: Arch `libpulse`, Debian and Ubuntu `libpulse0`, Fedora
   `pulseaudio-libs`.
-- **Layout**: `fork_sound::mix()` probes the default sink's channel map once (`pa_context_get_server_info`,
+- **Layout**: `fork_sound::mix()` (re-exported by `engine-platform`) probes the default sink's channel map once (`pa_context_get_server_info`,
   then `pa_context_get_sink_info_by_name`), converts it to a WAVE speaker mask and returns it, so `device_mix()` and
   `GetSpeakerConfig` follow it: stereo 0x3, quad 0x33, 5.1 0x3F (side 5.1 0x60F), 7.1 0x63F, mono 0x4. A map that is not
   exactly one of these falls back to the nearest layout whose speakers the sink has (else stereo) with one stderr line,
@@ -99,6 +99,23 @@ no null sink.
   BL BR SL SR, only the mask's bits), 32-bit float at 48000 Hz, 80 ms of latency (`PA_STREAM_ADJUST_LATENCY`); the
   server resamples and remaps by position. The underflow callback counts underruns and the output thread calls
   `Source::starved(count)`; one stderr line per stream says the first happened.
+- **Layout lock and reopen** (#222): the engine opens a two-channel stream, closes it at the game's first 3D buffer
+  and opens the locked layout with the same source (docs/SOUND.md, "More than two channels"). Every chunk the
+  source renders reaches a stream, so a 2D voice goes on at the frame where it stopped (test
+  `a_reopen_from_two_to_eight_channels_skips_and_repeats_no_frame`). The layout the game is given is probed once
+  per process.
+- **Refused layout** (#222): a server that is there and does not take the stream is `Refused::Layout` with one line
+  on stderr ("the sound server refused a stream of N channels ..."); the engine then asks again with no layout, and
+  that is a stream in the default sink's own layout, probed again at that moment (`NV_SOUND_LAYOUT` does not apply).
+  Test `a_refused_layout_leads_to_a_stream_in_the_sinks_own_layout`.
+- **Default sink changes** (#222): the stream is opened on the default sink without naming one, so the server moves
+  it when the default changes (PipeWire and PulseAudio both do) and remixes the game's layout to the new sink's
+  by position: the sound resumes on the new device and the game does not notice. The layout the game was given is
+  not changed until the next start (headphones to a 5.1 receiver in a running game stay on the stereo or 5.1 the
+  game was given at its lock; restart the game to be given the receiver's). When the server ends the stream (it
+  restarted, or the sink was removed with the stream on it), the output thread opens a new one every 250 ms and
+  the sound is back within one second of the server being back (test `a_stream_the_server_ended_is_opened_again`);
+  the source is pulled the whole time, so the game's clock does not stall.
 - **Null**: a thread that pulls the mixer on the wall clock and drops the frames. It is the fallback when no sound
   server answers (a headless machine, CI), said once on stderr.
 - `NV_SOUND_BACKEND=auto|pulse|null`: `auto` (default) is Pulse, else Null; `pulse` refuses when there is no server
@@ -107,12 +124,73 @@ no null sink.
   `NV_SOUND_RECORD` and the hidden-window mute work as before. With output asked for and no `dsound.tsv`, the sound
   table is upstream's fixed table (`dsound::fixed_table(true)`, captured on Windows 11: a software device, the
   distortion effect's answers), so `DirectSoundCreate8` succeeds. A `dsound.tsv` in the data folder wins.
-- Tests: `fork_sound` unit tests run on the null sink (no device, no game data). `cargo test -p engine-platform
-  fork_sound -- --ignored` plays 0.4 s of a quiet tone on the session's default sink, and 0.4 s on each channel of its
-  layout in turn (logging the sink's reported map; `NV_SOUND_LAYOUT=7.1` opens an eight-channel stream). If libpulse is not on the loader path set `NV_PULSE`.
+### What a 5.1 or 7.1 sink does and does not do (#223)
 
-Open: the layout is not re-probed when the default sink changes mid-game (#222), the 3D path has not been listened to in a play run, and the launcher does not
-set `NV_SOUND=out` yet.
+The backend hands the sound server exactly what DirectSound's mixer made, channel for channel (test
+`frames_reach_the_sink_unmodified_channel_for_channel`: mono, stereo, quad, both 5.1, 7.1; no upmix, no synthesis of
+the low-frequency channel, no gain per channel). What the game then sounds like on a surround sink is the mixer's
+(`ds-mix`, bit-exact to DirectSound, docs/SOUND.md "More than two channels") and is the same as on Windows:
+
+- A **2D mono** sound (most of the game's effects and voices are mono samples) is on the **front centre only**, at
+  its volume; the pan is not heard. On a 5.1 or 7.1 sink these sounds come from the centre speaker alone.
+- A **2D stereo** sound is on front left and front right.
+- A **3D** sound is placed over the speakers by its direction, with the tangent law between the two speakers
+  either side; sounds behind you are on the back (and side) speakers.
+- The **low-frequency (LFE) channel** carries a sound only when it is at the listener's own position (or straight
+  above or below), where every channel, the LFE included, gets one eighth of it. Nothing is routed to it
+  otherwise and nothing is synthesised for it from the other channels.
+- There is **no bass management** in the game or in nv-rs: speakers are not high-passed and the low frequencies of
+  the other channels are not sent to the LFE. That belongs to the **sound server or the receiver**: the server's
+  own remix or the receiver's crossover (set the front, centre and back speakers to "small" there to send their
+  bass to the subwoofer). With a stereo sink, `NV_SOUND_LAYOUT=5.1` hands the server six channels and the server
+  downmixes them by its own rules (PipeWire and PulseAudio's default downmix matrices, which can change levels);
+  the game's stereo mix (`auto` on a stereo sink) is the one measured against DirectSound.
+
+### Settings, doctor line and checking the sink (#225)
+
+- `NV_SOUND_LAYOUT=auto|stereo|5.1|7.1` (default `auto`: the default sink's channel map). `5.1` keeps a side-5.1
+  sink's side speakers; `stereo` forces the stereo mix on any sink; `7.1` asks for eight channels (the server
+  downmixes when the sink has fewer). Anything else is read as `auto`, and the report below says so.
+- What the output sees: `cargo run -p ds-mix --example nv_sound_report` prints the sink's channel map, the setting
+  and the layout the game will be given, for example:
+
+  ```
+  sound backend: auto (pulse, else null)
+  default sink: 6 channels (front-left, front-right, front-center, lfe, rear-left, rear-right)
+  NV_SOUND_LAYOUT: not set (auto)
+  layout the game will see: 5.1 (back speakers), 6 channels, speaker mask 0x3f
+  ```
+
+  A program that links `ds-mix` (the installer tool's doctor) prints the same with `ds_mix::fork_sound::report()`.
+- Setting the sink to 5.1 or 7.1 in the sound server (the game follows the default sink; restart it after):
+  - PipeWire with WirePlumber: `pw-cli ls Node` shows the sink; to force a channel layout for the card, create
+    `~/.config/wireplumber/wireplumber.conf.d/51-surround.conf` with a `monitor.alsa.rules` entry whose action
+    sets `audio.position = [ FL FR FC LFE RL RR ]` (add `SL SR` for 7.1) on the node of your card, then restart
+    WirePlumber. GNOME and KDE sound settings choose the card profile ("Analog Surround 5.1 Output", "Digital
+    Surround 5.1 (HDMI)").
+  - PulseAudio: select the surround profile of the card in `pavucontrol` (Configuration tab), or
+    `pactl set-card-profile <card> output:analog-surround-51`.
+  - Either: `pactl list sinks | grep -E "Name|Channel Map"` prints the map the server reports (`front-left,front-right,front-center,lfe,rear-left,rear-right`).
+- The speaker test: `speaker-test -D default -c 6 -t wav` (or `-c 8`) names each speaker in turn through the same
+  server; if every channel is heard there and the nv-rs report says 6 or 8 channels, the game's output reaches the
+  same speakers. nv-rs's own: `cargo test -p ds-mix fork_sound -- --ignored --nocapture a_tone_per_channel` plays 0.4 s
+  on each channel of the report's layout.
+
+### Tests
+
+- `fork_sound` unit tests run with no device and no game data: the null sink, fake sinks, and the checks above.
+  `cargo test -p ds-mix fork_sound -- --ignored` plays 0.4 s of a quiet tone on the session's default sink, and 0.4 s
+  on each channel of its layout in turn (logging the sink's reported map; `NV_SOUND_LAYOUT=7.1` opens an
+  eight-channel stream). If libpulse is not on the loader path set `NV_PULSE`.
+- `a_multichannel_null_sink_hears_every_channel` (#224) loads a null sink with a 5.1 map and one with a 7.1 map into
+  the running PipeWire or PulseAudio server (`module-null-sink`, unloaded after), takes the layout the output
+  chooses for each, plays one tone per channel through the backend and records the sink's monitor: every channel
+  must carry its own tone and none of the others. A mix returned to stereo, or a channel dropped, swapped or leaking,
+  fails it. Without a server it prints `SKIPPED ...: <reason>` and passes; the fork's CI (job `ds-mix`) starts
+  PulseAudio and sets `NV_REQUIRE_SOUND_SERVER=1`, so there a skip fails. It plays nothing on real speakers.
+
+Open: the 3D path has not been listened to in a play run, a real 5.1 or 7.1 sink has not been tried (the owner's
+check, #219), and the launcher does not set `NV_SOUND=out` yet.
 
 ## Shader compiler off Windows (#181)
 
