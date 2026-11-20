@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.13.0...v0.14.0) (2026-11-20)
+
+
+### Features
+
+* **host:** JIP LN answers installed when the data folder holds Tale of Two Wastelands ([#399](https://github.com/JorisJonkers-dev/nv-rs/issues/399)) ([#403](https://github.com/JorisJonkers-dev/nv-rs/issues/403)) ([1598e18](https://github.com/JorisJonkers-dev/nv-rs/commit/1598e1881591318d0bbd9b70b7a12484be7a1f16))
+* **host:** JohnnyGuitar, ShowOff, Tweaks and the TTW plugin answer installed for a game with Tale of Two Wastelands ([#399](https://github.com/JorisJonkers-dev/nv-rs/issues/399)) ([#404](https://github.com/JorisJonkers-dev/nv-rs/issues/404)) ([b1b0d35](https://github.com/JorisJonkers-dev/nv-rs/commit/b1b0d35a1b7316962ab17a5d9e6f740e6f6eb880))
+
 ## [0.13.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.12.0...v0.13.0) (2026-11-20)
 
 
