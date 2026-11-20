@@ -95,6 +95,65 @@ fn the_counts_come_from_the_tables() {
     assert_eq!(ext(1)["total"].as_u64().unwrap(), 1118);
 }
 
+/// JIP LN's entry carries the version a mod's check reads (`GetPluginVersion "JIP NVSE Plugin"`:
+/// Tale of Two Wastelands wants 57.2 or later) and says when the engine answers "installed".
+#[test]
+fn jip_reports_the_version_tale_of_two_wastelands_reads() {
+    let c = capabilities();
+    let jip = &c["extenders"][1];
+    assert_eq!(jip["id"], "jip-ln");
+    assert!(jip["version"].as_f64().unwrap() >= 57.2);
+    assert!(jip["reported_installed"]
+        .as_str()
+        .unwrap()
+        .contains("TaleOfTwoWastelands.esm"));
+    assert!(c["extenders"][0].get("version").is_none());
+}
+
+/// Each other plugin Tale of Two Wastelands' start-up check asks for is listed with a version its
+/// check accepts, the condition, and exactly the commands of it that are built: the ones TTW's
+/// scripts call (id, the least version TTW 3.4 accepts, the built commands).
+#[test]
+fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
+    let c = capabilities();
+    let plugins: [(&str, f64, &[&str]); 2] = [
+        ("showoff", 180.0, &["GetActorHasBaseFlag"]),
+        ("stewie-tweaks", 941.0, &[]),
+    ];
+    for (id, least, built) in plugins {
+        let entry = c["extenders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["id"] == id)
+            .unwrap_or_else(|| panic!("{id} is listed"));
+        assert!(entry["version"].as_f64().unwrap() >= least, "{id}");
+        let when = entry["reported_installed"].as_str().unwrap();
+        assert!(when.contains("TaleOfTwoWastelands.esm"), "{id}: {when}");
+        assert!(when.contains("NV_TTW_PLUGINS"), "{id}: {when}");
+        let names: Vec<&str> = entry["commands"]["implemented_names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_str().unwrap())
+            .collect();
+        assert_eq!(names, built, "{id}");
+        let commands = &entry["commands"];
+        assert_eq!(commands["implemented"].as_u64().unwrap(), built.len() as u64);
+        assert!(commands["total"].as_u64().unwrap() >= built.len() as u64, "{id}");
+    }
+    // Tweaks has no command built: its entry says what the answer stands for.
+    let tweaks = c["extenders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "stewie-tweaks")
+        .unwrap();
+    assert_eq!(tweaks["commands"]["total"], 8);
+    let when = tweaks["reported_installed"].as_str().unwrap();
+    assert!(when.contains("NV_STEWIE") && when.contains("engine fixes"), "{when}");
+}
+
 #[test]
 fn the_manifest_hashes_are_the_ones_the_engine_checks() {
     let m = manifest(&input());

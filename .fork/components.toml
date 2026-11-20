@@ -194,7 +194,7 @@ runs_on = "both"
 name = "nv-launcher"
 purpose = "nv-rs's one launcher, themed like the game's terminal: the start screen, Settings and Play (Play.exe on Windows, nv-rs on Linux and macOS)"
 crates = ["nv-launcher"]
-requires = ["formats", "game-profile", "game-folders", "mod-install"]
+requires = ["formats", "game-profile", "game-folders", "mod-install", "ds-mix"]
 runs_on = "both"
 
 [[component]]

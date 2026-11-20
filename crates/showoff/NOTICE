@@ -5,13 +5,21 @@ none was read for it: it is written from public behaviour and documentation only
 Plugin: ShowOff xNVSE, release 1.84 is the target (the owner's list had 1.83). Opcode block
 0x3c93. DLL file name ShowOffNVSE.dll as seen in the owner's installation. Nexus mod 72541.
 
-Sources used (2026-11-14): none beyond xNVSE's documented plugin interface. No public source
-repository was found (GitHub repository and code searches return nothing), and its Nexus page
-and GECK Wiki category were not read (bot blocks answer HTTP 403; no workaround was attempted).
+Sources used (2026-11-14): none beyond xNVSE's documented plugin interface. Its Nexus page and
+GECK Wiki category were not read (bot blocks answer HTTP 403; no workaround was attempted).
 
-Licence check: not recorded. The author and licence are not known from any document read, so
-this crate takes nothing but facts (names, opcode base, behaviour as publicly documented) and
-builds no command until its documentation is read and its licence terms are noted here.
+Sources used (2026-11-20): the plugin's public repository (github.com/Demorome/ShowOff-NVSE, which
+states no licence) for four facts only, all from the registration list in ShowOffNVSE.cpp: the
+name the plugin hands xNVSE (`ShowOffNVSE Plugin`), its version number (184), the opcode the
+list gives GetActorHasBaseFlag (0x3CE0) and the opcode slots the list registers (0x3C93 to
+0x3D69, 215). No function body was read and no code is copied.
 
-Unverified: the plugin name handed to xNVSE (ShowOff NVSE Plugin) and the version number
-(184). They are inert while ANSWERS_INSTALLED is false.
+Licence check: the repository states none, so this crate takes nothing but facts (names, opcodes,
+version, behaviour as publicly documented) and builds a command only from its public name and
+parameters and from how scripts call it.
+
+Commands (2026-11-20): ActorHasBaseFlag (long name GetActorHasBaseFlag) is built from its public
+name and one integer parameter, how Tale of Two Wastelands' scripts call it (`ref.ActorHasBaseFlag 5`,
+in conditions of trap scripts, and its opcode 0x3CE0 read from those scripts' compiled form) and the
+engine's own actor base layout (the flags word of TESActorBaseData). It answers 1 when that bit of
+the actor base's flags is set, 0 otherwise.

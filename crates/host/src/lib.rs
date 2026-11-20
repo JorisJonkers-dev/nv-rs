@@ -23,6 +23,7 @@ pub mod draw_thread;
 pub mod first_profile;
 pub mod fixes;
 pub mod fork_trace;
+pub mod fork_ttw;
 pub mod form_types;
 pub mod frame_log;
 pub mod full_screen;
@@ -104,9 +105,9 @@ pub(crate) fn install_rows_and_extenders(engine: &mut Engine, choice: &fixes::Ch
     // installed" unless the row `NV_JIP_INSTALLED` (off in every preset, set by
     // `fixes::install` above) switched it on (`crates/jip`).
     jip::install(engine);
-    // JohnnyGuitar NVSE and ShowOff xNVSE, the next plugins in xNVSE's order of blocks: identity
-    // and co-save only, registered when they answer "installed" (not yet; `crates/jg`,
-    // `crates/showoff`).
+    // JohnnyGuitar NVSE and ShowOff xNVSE, the next plugins in xNVSE's order of blocks: registered
+    // when they answer "installed" (`crates/jg`: not yet, identity and co-save only;
+    // `crates/showoff`: when `fork_ttw` switched it on for Tale of Two Wastelands).
     jg::install(engine);
     showoff::install(engine);
     // The Mod Configuration Menu's plugin, when its row is on: xNVSE loads MCM.dll after
@@ -197,8 +198,19 @@ impl Host {
         // The interface extender's files in the data folder switch the built-in menu-file reader on
         // (NV_UIO=0 and NV_UIO=1 still win), and the log says so.
         let (detected, uio_line) = choice.with_uio_detected(data);
-        let choice = &detected;
         if let Some(line) = uio_line {
+            fork_log::info!(target: "host", "{line}");
+        }
+        // Tale of Two Wastelands' master in the data folder switches JIP LN's "installed" answer on:
+        // its start-up check asks for JIP 57.21 or later (nv-rs#399; NV_JIP_INSTALLED=0 still wins).
+        let (detected, ttw_line) = detected.with_ttw_detected(data);
+        let choice = &detected;
+        if let Some(line) = ttw_line {
+            fork_log::info!(target: "host", "{line}");
+        }
+        // The other plugins its check asks for answer too, each with the commands TTW calls
+        // (`fork_ttw`; NV_TTW_PLUGINS=0 turns them off).
+        if let Some(line) = fork_ttw::switch_on(&mut engine, data) {
             fork_log::info!(target: "host", "{line}");
         }
         install_rows_and_extenders(&mut engine, choice);
