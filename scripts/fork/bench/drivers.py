@@ -29,9 +29,22 @@ def start_new_game(d, hold_first_room=0.0, quiet=6.0, brisk=False):
     d.tap("enter", 0.3)  # "Start a new game?"
     d.wait(step)
     d.tap("enter", 0.3)  # Yes: the intro movie starts on the loading screen
-    if not d.until_screen("loading", 40):
+    # The loading menu is not always a "loading" row in the frame log (the nv-rs 0.14.0 viewer logs it as "play"):
+    # the menu is left, then the new game's player is placed in its first cell (the position leaves the start-up
+    # value), the intro movie skipped with Escape on the way.
+    if not d.until(lambda: d.screen() != "menu", 40, what="the main menu to be left"):
         return False
-    d.until_not_screen("loading", 180, tap="esc", tap_every=2.0)
+    placed = lambda: (d.position() or (2048.0, 2048.0, 128.0))[:2] != (2048.0, 2048.0)
+    last = [0.0]
+
+    def loaded():
+        if d.clock() - last[0] >= 2.0:
+            last[0] = d.clock()
+            d.tap("esc", 0.1)
+        return placed()
+
+    if not d.until(loaded, 240, every=0.1, what="the new game's first cell"):
+        return False
     if not d.settle_play(quiet=quiet, timeout=240, tap="enter", console_after=None):
         return False
     d.wait(hold_first_room)
