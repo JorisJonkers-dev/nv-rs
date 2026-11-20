@@ -1220,14 +1220,8 @@ mod pulse {
                     return None;
                 }
                 (api.st_state_cb)(stream, Some(on_state), ud);
-                let attr = BufferAttr {
-                    maxlength: u32::MAX,
-                    tlength: u32::MAX,
-                    prebuf: u32::MAX,
-                    minreq: u32::MAX,
-                    fragsize: 4 * u32::from(layout.channels) * MIX_RATE / 50,
-                };
-                let mut ok = connect(stream, device.as_ptr(), &attr, STREAM_ADJUST_LATENCY) >= 0;
+                // The server's own buffer sizes, as `parec` asks.
+                let mut ok = connect(stream, device.as_ptr(), std::ptr::null(), 0) >= 0;
                 while ok {
                     match (api.st_state)(stream) {
                         STREAM_READY => break,
