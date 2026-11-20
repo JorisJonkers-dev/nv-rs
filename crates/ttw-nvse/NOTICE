@@ -1,0 +1,35 @@
+This crate is an original implementation for nv-rs of the role the script extender plugin of
+Tale of Two Wastelands plays for TTW's own scripts (the plugin answers to `ttw_nvse`; TTW's
+readers call it ROOGNVSE). It contains no code of the plugin and no decompiled code, and none
+was read for it: it is written from public behaviour only.
+
+Sources used (2026-11-20):
+- the command names, opcodes and parameter counts: a third-party dump of the plugin's command
+  list (nvse-lsp, resources/functions/ttw_nvse.json): TTW_ShowGeneProjector 0x3800,
+  TTW_GetPlugins 0x3806 (returns an array), TTW_EnableRadioFix 0x3808 (one integer). The three
+  opcodes were checked against the compiled scripts of the installed TaleOfTwoWastelands.esm
+  (the opcode u16 in each SCDA whose SCTX calls the command); they match;
+- how each command is called and what the caller does with the answer: the script text (SCTX)
+  of TTW's own scripts in TaleOfTwoWastelands.esm (its start-up quest script reads
+  `aLoadedMods[iModIndex][1]` of TTW_GetPlugins and flags `< 1.3` as a mod not converted for
+  TTW; TTW_EnableRadioFix is called with 0 or 1);
+- the engine's own data: the data handler's list of loaded files and each file's header version
+  (the HEDR version float), and xNVSE's arrays.
+
+What each command is built from:
+- TTW_GetPlugins: the TTW script's use (an array of [name, version] pairs, element 1 a number
+  compared with 1.3) and the engine's loaded-file list. Built.
+- TTW_EnableRadioFix: the TTW script's calls (one integer, 0 or 1). It STORES the value in the
+  plugin's state. The radio fix itself is NOT built: nothing in the engine changes behaviour
+  because of the value.
+- TTW_ShowGeneProjector: TTW's scripts call it where the player chooses face and body (the
+  result script of a stage of the quest CG00, which sets `CG00.runTimer` on the next line, and
+  the vault exit's script, which then waits in `MenuMode 1036`, the race and sex menu). It is
+  built as the game's own ShowRaceMenu: the same handler and parameter list, so that menu opens.
+  What the real plugin changes in the menu for the gene projector is not in a public document
+  and is NOT built.
+
+Unverified: the DLL file name (ttw_nvse.dll is the plugin's name plus the extension, not read
+from a public document) and the version the plugin hands xNVSE (1 is a guess). The name
+"ttw_nvse" is exact (TTW asks IsPluginInstalled ttw_nvse). The parameter name and help text of
+each command are not known; none is claimed.

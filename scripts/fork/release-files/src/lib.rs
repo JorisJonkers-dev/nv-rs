@@ -1,8 +1,10 @@
 //! Fork-only. The two machine-readable files a nv-rs release carries for nvmod (nv-linux
 //! docs/architecture/integration.md, sections "nv-rs" and "Built in per target"):
 //!
-//! - `capabilities.json`: per built-in script extender (xNVSE, JIP LN) the implemented and total
-//!   command counts and the implemented command names, read from the real command tables.
+//! - `capabilities.json`: per built-in script extender (xNVSE, JIP LN, and the plugins that
+//!   answer for a game with Tale of Two Wastelands) the implemented and total command counts and
+//!   the implemented command names, read from the real command tables; for an extender that
+//!   answers "installed" only on a condition, the version it reports and the condition.
 //! - `release-manifest.json`: the version, the upstream base commit, the expected hashes of the
 //!   supported game executable's sections, the play-patch step and whether a plugins.txt
 //!   ordering switch exists.
@@ -101,6 +103,54 @@ fn extender(id: &str, display: &str, source: &str, names: Vec<String>, total: us
     })
 }
 
+/// What `reported_installed` says for a plugin `host::fork_ttw` switches on.
+const WITH_TTW: &str =
+    "when the data folder holds TaleOfTwoWastelands.esm (NV_TTW_PLUGINS=1 forces it, 0 turns it off)";
+
+/// A plugin that answers "installed" only for a game with Tale of Two Wastelands (nv-rs#399): the
+/// extender entry, the version it hands xNVSE and the condition. `names` are the commands built;
+/// `total` is the number of opcode slots the real plugin registers at that version.
+fn ttw_plugin(
+    id: &str,
+    display: &str,
+    source: &str,
+    version: u32,
+    names: &[&str],
+    total: usize,
+) -> Value {
+    let names = names.iter().map(|n| n.to_string()).collect();
+    let mut entry = extender(id, display, source, names, total);
+    entry["version"] = json!(version);
+    entry["reported_installed"] = json!(WITH_TTW);
+    entry
+}
+
+/// JohnnyGuitar NVSE's public registration list holds 412 commands from `0x3100` (2026-11-20).
+const JG_TOTAL: usize = 412;
+
+/// ShowOff xNVSE 1.84 registers the opcodes `0x3C93` to `0x3D69` (its public registration list).
+const SHOWOFF_TOTAL: usize = 0x3d69 - 0x3c93 + 1;
+
+/// lStewieAl's Tweaks' script commands (docs/FIXES.md, "lStewieAl's Tweaks": eight, none built).
+const STEWIE_COMMANDS: usize = 8;
+
+/// lStewieAl's Tweaks: no command of it is built and Tale of Two Wastelands calls none, so its
+/// entry says what the answer stands for.
+fn stewie_entry() -> Value {
+    let mut entry = ttw_plugin(
+        "stewie-tweaks",
+        "lStewieAl's Tweaks",
+        "crates/stewie",
+        stewie::VERSION,
+        &[],
+        STEWIE_COMMANDS,
+    );
+    entry["reported_installed"] = json!(format!(
+        "{WITH_TTW}, and only with the row NV_STEWIE on: it stands for the engine fixes built so far (docs/FIXES.md), not for its script commands, which Tale of Two Wastelands does not call"
+    ));
+    entry
+}
+
 /// `capabilities.json`, generated from the command tables.
 pub fn capabilities() -> Value {
     let (x_names, x_total) = xnvse();
@@ -115,6 +165,31 @@ pub fn capabilities() -> Value {
         "extenders": [
             extender("xnvse", "xNVSE", "crates/nvse", x_names, x_total),
             jip_entry,
+            ttw_plugin(
+                "johnnyguitar",
+                "JohnnyGuitar NVSE",
+                "crates/jg",
+                jg::identity::VERSION_INT,
+                &jg::COMMAND_NAMES,
+                JG_TOTAL,
+            ),
+            ttw_plugin(
+                "showoff",
+                "ShowOff xNVSE",
+                "crates/showoff",
+                showoff::identity::VERSION_INT,
+                &showoff::COMMAND_NAMES,
+                SHOWOFF_TOTAL,
+            ),
+            stewie_entry(),
+            ttw_plugin(
+                "ttw-nvse",
+                "Tale of Two Wastelands plugin (ttw_nvse)",
+                "crates/ttw-nvse",
+                ttw_nvse::VERSION,
+                &ttw_nvse::COMMAND_NAMES,
+                ttw_nvse::COMMAND_NAMES.len(),
+            ),
         ],
     })
 }

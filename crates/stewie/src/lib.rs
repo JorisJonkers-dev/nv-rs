@@ -20,7 +20,9 @@
 //! in xNVSE's list as "lStewieAl's Tweaks" 1005, not yet listed: `IsPluginInstalled` and
 //! `GetPluginVersion` answer "absent" until its script commands are built ([`ANSWERS_INSTALLED`]; the
 //! project's rule: nothing half-working is offered to a script). The fixes work either way. Off, no
-//! bit is set and no translation changes.
+//! bit is set and no translation changes. One exception, the fork's: the host may ask for the
+//! answer "installed" in a run ([`set_answers_installed`]) for a game whose scripts read Tweaks'
+//! version and call none of its commands (Tale of Two Wastelands).
 //!
 //! Not yet: Tweaks' eight script commands (opcodes `0x2132` up), its co-save records (kept for the
 //! next save by the co-save row while its section is not read here) and every row not in
@@ -61,6 +63,9 @@ pub struct Stewie {
     pub keys: rows::Keys,
     /// [`install`] ran with the row on.
     pub installed: bool,
+    /// The host asked for "installed" before [`install`] ([`set_answers_installed`]), as for a
+    /// game whose own scripts check for Tweaks (Tale of Two Wastelands).
+    pub answers_installed: bool,
     /// The settings read at [`install`].
     pub settings: settings::Settings,
     /// The start-up lines [`install`] logged.
@@ -70,6 +75,14 @@ pub struct Stewie {
 /// The host's row: Tweaks built in for this run (before [`install`]).
 pub fn set_on(e: &mut Engine, on: bool) {
     e.ext::<Stewie>().on = on;
+}
+
+/// The host's wish that Tweaks answers "installed" in this run although its script commands are
+/// not built ([`ANSWERS_INSTALLED`]); before [`install`]. Only for a game whose scripts ask for
+/// its version and call none of the commands (fork: Tale of Two Wastelands, nv-rs#399). It
+/// answers only when the row is on too ([`set_on`]): with Tweaks off nothing is listed.
+pub fn set_answers_installed(e: &mut Engine, on: bool) {
+    e.ext::<Stewie>().answers_installed = on;
 }
 
 /// Fallout.ini's `[nv-rs Stewie]` keys (before [`install`]).
@@ -89,13 +102,13 @@ pub const ANSWERS_INSTALLED: bool = false;
 
 /// xNVSE's record of Tweaks: listed only when it answers "installed" ([`ANSWERS_INSTALLED`]), no
 /// callbacks yet; its opcode base is its co-save section's header.
-fn plugin() -> nvse::plugins::BuiltIn {
+fn plugin(answers_installed: bool) -> nvse::plugins::BuiltIn {
     nvse::plugins::BuiltIn {
         file: FILE,
         name: NAME,
         version: VERSION,
         opcode_base: OPCODE_BASE,
-        listed: ANSWERS_INSTALLED,
+        listed: ANSWERS_INSTALLED || answers_installed,
         listener: None,
         save: None,
         load: None,
@@ -204,7 +217,8 @@ pub fn install(e: &mut Engine) {
     state.installed = true;
     state.settings = settings;
     state.log = log;
-    nvse::plugins::register(e, plugin());
+    let answers_installed = e.ext::<Stewie>().answers_installed;
+    nvse::plugins::register(e, plugin(answers_installed));
     // The game's state, not one engine's: real threads' engines share it.
     e.share_ext::<Stewie>();
 }

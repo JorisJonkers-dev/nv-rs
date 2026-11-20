@@ -11,7 +11,11 @@ use nvse::plugins::{read_chunks, write_chunks, Records};
 /// The load callback: the section's records, or none when the co-save has no section.
 pub fn load(e: &mut Engine, r: &mut Reader) -> Result<(), OutOfRange> {
     // A section cut short keeps no half record: nothing is carried then.
-    e.ext::<State>().carried = read_chunks(r).unwrap_or_default();
+    let state = e.ext::<State>();
+    state.carried = read_chunks(r).unwrap_or_default();
+    // The extra statistics are not in the co-save: a loaded game starts with none, never with
+    // the ones of the game played before it.
+    state.stats.clear();
     Ok(())
 }
 
@@ -21,9 +25,11 @@ pub fn save(e: &mut Engine, out: &mut Records) {
     write_chunks(&carried, out);
 }
 
-/// A new game carries nothing.
+/// A new game carries nothing and has no extra statistics.
 pub fn new_game(e: &mut Engine) {
-    e.ext::<State>().carried.clear();
+    let state = e.ext::<State>();
+    state.carried.clear();
+    state.stats.clear();
 }
 
 #[cfg(test)]

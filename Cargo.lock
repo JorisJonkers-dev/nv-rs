@@ -1263,6 +1263,7 @@ dependencies = [
  "qos",
  "showoff",
  "stewie",
+ "ttw-nvse",
  "uio",
  "zlib-rs",
 ]
@@ -2699,6 +2700,14 @@ dependencies = [
  "memchr",
  "nom",
  "petgraph",
+]
+
+[[package]]
+name = "ttw-nvse"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "nvse",
 ]
 
 [[package]]

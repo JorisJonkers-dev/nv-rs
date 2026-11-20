@@ -2,7 +2,7 @@
 //!
 //! Sources (public, no code read): the plugin's own README and release page name its DLL and
 //! version; xNVSE's wiki-origin names (`crates/nvse/src/docs.rs`, from xNVSE's documented
-//! behaviour) name the plugin as `ShowOff NVSE Plugin`. The version number the plugin hands xNVSE is
+//! behaviour) name the plugin as `ShowOffNVSE Plugin`. The version number the plugin hands xNVSE is
 //! **not verified** from a public document; see `NOTICE`. Until it is, only the file name,
 //! name and base are relied on and the version is the release's number as an integer.
 
@@ -11,7 +11,7 @@ use nvse::plugins::BuiltIn;
 /// The DLL's file name (xNVSE loads plugins in the order of their file names).
 pub const DLL: &str = "ShowOffNVSE.dll";
 /// `PluginInfo::name`: what `IsPluginInstalled` and `GetPluginVersion` are asked for.
-pub const NAME: &str = "ShowOff NVSE Plugin";
+pub const NAME: &str = "ShowOffNVSE Plugin";
 /// The release this targets, as the owner's list names it after the update.
 pub const RELEASE: &str = "1.84";
 /// `PluginInfo::version`.

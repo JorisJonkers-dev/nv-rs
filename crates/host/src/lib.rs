@@ -23,6 +23,7 @@ pub mod draw_thread;
 pub mod first_profile;
 pub mod fixes;
 pub mod fork_trace;
+pub mod fork_ttw;
 pub mod form_types;
 pub mod frame_log;
 pub mod full_screen;
@@ -104,11 +105,14 @@ pub(crate) fn install_rows_and_extenders(engine: &mut Engine, choice: &fixes::Ch
     // installed" unless the row `NV_JIP_INSTALLED` (off in every preset, set by
     // `fixes::install` above) switched it on (`crates/jip`).
     jip::install(engine);
-    // JohnnyGuitar NVSE and ShowOff xNVSE, the next plugins in xNVSE's order of blocks: identity
-    // and co-save only, registered when they answer "installed" (not yet; `crates/jg`,
-    // `crates/showoff`).
+    // JohnnyGuitar NVSE and ShowOff xNVSE, the next plugins in xNVSE's order of blocks: registered
+    // when they answer "installed" (`crates/jg`, `crates/showoff`: when `fork_ttw` switched them
+    // on for Tale of Two Wastelands).
     jg::install(engine);
     showoff::install(engine);
+    // The plugin Tale of Two Wastelands ships for its scripts (`ttw_nvse`), when `fork_ttw`
+    // switched it on (`crates/ttw-nvse`).
+    ttw_nvse::install(engine);
     // The Mod Configuration Menu's plugin, when its row is on: xNVSE loads MCM.dll after
     // jip_nvse.dll and before ui_organizer.dll (`crates/mcm`).
     mcm::install(engine);
@@ -205,6 +209,11 @@ impl Host {
         let (detected, ttw_line) = detected.with_ttw_detected(data);
         let choice = &detected;
         if let Some(line) = ttw_line {
+            fork_log::info!(target: "host", "{line}");
+        }
+        // The other plugins its check asks for answer too, each with the commands TTW calls
+        // (`fork_ttw`; NV_TTW_PLUGINS=0 turns them off).
+        if let Some(line) = fork_ttw::switch_on(&mut engine, data) {
             fork_log::info!(target: "host", "{line}");
         }
         install_rows_and_extenders(&mut engine, choice);

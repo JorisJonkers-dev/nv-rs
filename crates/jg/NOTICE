@@ -10,8 +10,31 @@ Sources used (2026-11-14): the plugin's repository page and README (https://gith
 JohnnyGuitarNVSE: the GitHub API reports the licence as LGPL-2.1, the README says LGPLv2.1-only,
 and points to its documentation on the GECK Wiki); xNVSE's documented plugin interface. The
 GECK Wiki answered the fetch with HTTP 403 (a bot block); no workaround was attempted, so the
-command documentation is not yet read and no command is built. A command is built only after
-its public documentation is read, with a note beside it of what it was read from.
+command documentation was not read. A command is built only from public names, parameter lists
+and behaviour, with a note beside it of what it was built from.
+
+Commands built (2026-11-20), from the Tale of Two Wastelands 3.4 scripts that call them (the
+script text, SCTX, shows how each is called; the compiled bytes, SCDA, give its opcode) and the
+engine's own data layouts only, no plugin code:
+- IsDLLLoaded (string, optional int): built from the call `IsDLLLoaded "client"` expecting 0 and
+  the command's name; it answers 1 when a plugin DLL of that name is in xNVSE's plugin list as
+  nvse::plugins knows built-ins. The optional integer is accepted and ignored: its meaning is not
+  in the sources read.
+- InitExtraMiscStat (string), ModExtraMiscStat (string, int), GetExtraMiscStat (string): built
+  from TTW's calls (Bobbleheads Found, Captives Rescued, Contracts Completed, ...): a table of
+  named integers kept in the engine from a new game or a load until the next one.
+- GetQuestFailed (alias GetQF; one quest): built from `if GetQuestFailed MS14 == 0` and the
+  engine's quest layout (the failed bit TESQuest::SetFailed sets); also a condition function.
+Opcodes (offset from 0x3100): each command sits at the opcode TTW's compiled scripts carry for it,
+and the order of the names in the plugin's public registration list (JG/internal/JG/
+JohnnyCommands.cpp of the repository above, LGPL-2.1; only the order and number of the names were
+read, 412 on 2026-11-20, no function body) gives the same five opcodes: GetQuestFailed
+0x3165, IsDLLLoaded 0x317E, GetExtraMiscStat 0x31E4, ModExtraMiscStat 0x31E5, InitExtraMiscStat
+0x31EE. Other opcodes of the block stay empty.
+
+Not built: the extra statistics are not written to the co-save and not shown in the Stats menu
+(no record format is invented, so a real install's section is carried untouched and cannot
+collide). Every other JohnnyGuitar command is not built.
 
 Licence check: LGPL-2.1-only. Because no code is copied, nothing of it is carried here; the
 credit is given for the names and the behaviour this crate follows. The earlier translation of

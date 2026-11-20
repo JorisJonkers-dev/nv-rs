@@ -48,6 +48,7 @@ crates/fork-play/
 # The built-in JohnnyGuitar NVSE and ShowOff xNVSE (fork-only crates).
 crates/jg/
 crates/showoff/
+crates/ttw-nvse/
 # Fork-only files inside upstream's crates (scripts/fork/verify-sync.sh fails on one that is not listed).
 crates/d3d9-wgpu/src/bin/d3d9-precompile.rs
 crates/d3d9-wgpu/src/perf.rs
@@ -59,6 +60,7 @@ crates/engine-platform/src/fork_d3d9rec.rs
 crates/ds-mix/src/fork_sound.rs
 crates/ds-mix/examples/nv_sound_report.rs
 crates/host/src/fork_trace.rs
+crates/host/src/fork_ttw.rs
 crates/host/tests/linux_saves.rs
 # Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.
 crates/engine-core/src/exe.rs

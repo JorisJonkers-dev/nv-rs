@@ -444,7 +444,7 @@ fn wiki_origin_names() {
         ("JIP LN NVSE", "JIP", "JIP"),
         ("SUP NVSE Plugin", "SUP", "SUP NVSE Plugin"),
         ("kNVSE", "kNVSE", "kNVSE"),
-        ("ShowOff NVSE Plugin", "ShowOff", "ShowOff NVSE"),
+        ("ShowOffNVSE Plugin", "ShowOff", "ShowOff NVSE"),
         ("JohnnyGuitarNVSE", "JohnnyGuitar", "JohnnyGuitar NVSE"),
         ("ppNVSE", "pp", "ppNVSE"),
         (
