@@ -1236,10 +1236,14 @@ mod pulse {
                     }
                 }
                 let _ = ready.send(ok);
+                let (mut polls, mut chunks) = (0u32, 0u32);
                 while ok && !stop.load(Ordering::Relaxed) {
                     let mut data: *const c_void = std::ptr::null();
                     let mut bytes = 0usize;
-                    if peek(stream, &mut data, &mut bytes) < 0 {
+                    polls += 1;
+                    let r = peek(stream, &mut data, &mut bytes);
+                    if r < 0 {
+                        eprintln!("recorder: pa_stream_peek returned {r} after {polls} polls");
                         break;
                     }
                     if bytes == 0 {
@@ -1252,8 +1256,14 @@ mod pulse {
                         let samples = std::slice::from_raw_parts(data.cast::<f32>(), bytes / 4);
                         got.extend_from_slice(samples);
                     }
+                    chunks += 1;
                     drop_chunk(stream);
                 }
+                eprintln!(
+                    "recorder: {polls} polls, {chunks} chunks, {} samples, stream state {}",
+                    got.len(),
+                    (api.st_state)(stream)
+                );
                 healthy = ok;
                 (api.st_state_cb)(stream, None, std::ptr::null_mut());
                 (api.st_disconnect)(stream);

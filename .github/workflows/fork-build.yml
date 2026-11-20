@@ -157,6 +157,8 @@ jobs:
           pulseaudio --start --exit-idle-time=-1 --log-target=stderr
           for _ in 1 2 3 4 5 6 7 8 9 10; do pulseaudio --check && break; sleep 1; done
           pulseaudio --check
+          pactl info | grep -E 'Server Name|Server Version|Default Sink'
+          pactl list short sinks
           echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" >> "$GITHUB_ENV"
           echo "NV_REQUIRE_SOUND_SERVER=1" >> "$GITHUB_ENV"
       - name: Test ${{ matrix.component }}
