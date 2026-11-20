@@ -576,7 +576,8 @@ const REFUSAL_START: &str = "nv-rs does not run the game on this system yet: ";
 /// The line a Linux start and `--check` say where the start is not refused: what this build is
 /// and is not (review of #687).
 #[cfg_attr(windows, allow(dead_code))]
-const FIRST_STARTS: &str = "nv-rs on this system: started with the game's files on Linux on x86-64 \
+const FIRST_STARTS: &str =
+    "nv-rs on this system: started with the game's files on Linux on x86-64 \
      (main menu, character creation and the first minutes of a new game play); other systems are \
      built and unit-tested only. Known to be missing: sounds at rates other than the sound \
      device's are not heard until the game first changes a sound's pitch, pop-up warnings are log \
