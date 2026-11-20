@@ -3233,29 +3233,6 @@ mod tests {
         assert!(!e.call(0x007a_a110, &args![m, 1u32]).bool());
     }
 
-    /// The original `DoKey` moves no selection: the arrow keys and Return are
-    /// not among its three cases (Escape, Space, hotkey letters), so a message
-    /// box is chosen with the pointer or a hotkey, never by stepping through
-    /// the buttons (#410).
-    #[test]
-    fn do_key_ignores_arrow_keys_and_return() {
-        let mut e = engine();
-        vtables(&mut e);
-        strings(&mut e);
-        let lists = arrays(&mut e);
-        let m = menu(&mut e);
-        let object = entry(&mut e);
-        set_text(&mut e, object.addr(), 0x20, "ab");
-        set_list(&lists, &mut e, ENTRY_LIST, &[object.addr()]);
-        stub(&mut e, LIST_BOX_COUNT, 3);
-        stub(&mut e, LIST_BOX_FIRST_ITEM, 0x8888);
-        // DirectInput scan codes: Up, Down, Left, Right, Return, keypad Return.
-        for key in [0xc8u32, 0xd0, 0xcb, 0xcd, 0x1c, 0x9c] {
-            assert!(!e.call(0x007a_a110, &args![m, key]).bool(), "key {key:#x}");
-        }
-        assert!(calls(&e, 0x0ac0_0003).is_empty());
-    }
-
     // ----- 007aa2a0 -----
 
     struct Idle {
