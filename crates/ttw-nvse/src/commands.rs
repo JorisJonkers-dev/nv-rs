@@ -26,7 +26,7 @@ const HEADER_VERSION: u32 = 0x3dc;
 
 /// A header version as a script sees it: the float's shortest decimal reading, as a double, so
 /// 1.3 compares equal to 1.3 and not below it.
-fn version_number(v: f32) -> f64 {
+pub fn version_number(v: f32) -> f64 {
     if v.is_finite() {
         format!("{v}").parse().unwrap_or(f64::from(v))
     } else {
