@@ -1263,6 +1263,7 @@ dependencies = [
  "qos",
  "showoff",
  "stewie",
+ "ttw-nvse",
  "uio",
  "zlib-rs",
 ]
