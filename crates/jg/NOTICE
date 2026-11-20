@@ -22,7 +22,7 @@ engine's own data layouts only, no plugin code:
   in the sources read.
 - InitExtraMiscStat (string), ModExtraMiscStat (string, int), GetExtraMiscStat (string): built
   from TTW's calls (Bobbleheads Found, Captives Rescued, Contracts Completed, ...): a table of
-  named integers kept in the engine from a new game or a load until the next one.
+  named integers kept by the engine and saved in the co-save (nv-rs#405, a record of nv-rs's own).
 - GetQuestFailed (alias GetQF; one quest): built from `if GetQuestFailed MS14 == 0` and the
   engine's quest layout (the failed bit TESQuest::SetFailed sets); also a condition function.
 Opcodes (offset from 0x3100): each command sits at the opcode TTW's compiled scripts carry for it,
@@ -32,9 +32,9 @@ read, 412 on 2026-11-20, no function body) gives the same five opcodes: GetQuest
 0x3165, IsDLLLoaded 0x317E, GetExtraMiscStat 0x31E4, ModExtraMiscStat 0x31E5, InitExtraMiscStat
 0x31EE. Other opcodes of the block stay empty.
 
-Not built: the extra statistics are not written to the co-save and not shown in the Stats menu
-(no record format is invented, so a real install's section is carried untouched and cannot
-collide). Every other JohnnyGuitar command is not built.
+Not built: the extra statistics are not shown in the Stats menu. They are written to the co-save
+in a record of type NVXS that nv-rs defines (the plugin's own record format is in no public
+document read), so a real install's section is carried untouched and cannot collide. Every other JohnnyGuitar command is not built.
 
 Licence check: LGPL-2.1-only. Because no code is copied, nothing of it is carried here; the
 credit is given for the names and the behaviour this crate follows. The earlier translation of

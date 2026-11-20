@@ -7,15 +7,14 @@
 //! - [`identity`]: the plugin as xNVSE's plugin list knows it (name, DLL file name, version,
 //!   first opcode `0x3100`), which is what `IsPluginInstalled`, `GetPluginVersion` and
 //!   `GetPluginInfoByName` read;
-//! - [`cosave`]: the plugin's co-save section carried from a load to the next save, record by
-//!   record, until its records are interpreted (the row `NV_COSAVE_KEEP` keeps it as bytes
-//!   today).
+//! - [`cosave`]: the plugin's co-save section: the extra statistics in a record of nv-rs's own,
+//!   every other record carried from a load to the next save, record by record, until it is
+//!   interpreted (the row `NV_COSAVE_KEEP` keeps a plugin's section as bytes).
 //! - [`commands`]: the five commands Tale of Two Wastelands 3.4 calls (`IsDLLLoaded`,
 //!   `InitExtraMiscStat`, `ModExtraMiscStat`, `GetExtraMiscStat`, `GetQuestFailed`), at the
 //!   opcodes its compiled scripts carry. The extra statistics live in the engine from a new game
-//!   or a load until the next one: they are NOT saved in the co-save (nv-rs#405) and NOT shown in
-//!   the Stats menu. Every other
-//!   command of the plugin is not built.
+//!   or a load until the next one and are saved in the co-save ([`cosave`]); they are NOT shown in
+//!   the Stats menu. Every other command of the plugin is not built.
 //!
 //! The plugin answers "installed" only together with those commands ([`install_as`]): a mod that
 //! checks for it and needs another command then fails at that line. Off ([`ANSWERS_INSTALLED`],
@@ -41,8 +40,8 @@ pub struct State {
     pub carried: Vec<nvse::cosave::Chunk>,
     /// [`set_answers_installed`]; `None` takes [`ANSWERS_INSTALLED`].
     pub answers_installed: Option<bool>,
-    /// The extra miscellaneous statistics by name (exact bytes), from a new game or a load until
-    /// the next one ([`cosave`] clears them).
+    /// The extra miscellaneous statistics by name (exact bytes): saved and loaded with the game
+    /// ([`cosave`]), empty after a new game and after a load of a save without them.
     pub stats: std::collections::BTreeMap<Vec<u8>, i32>,
 }
 
