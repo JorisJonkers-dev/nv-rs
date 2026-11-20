@@ -25,6 +25,9 @@ const D3D_OK: u32 = 0;
 const NOT_AVAILABLE: u32 = 0x8876_086a;
 /// The rate the mixer runs at off Windows (`fork_sound::MIX_RATE`).
 pub const MIX_RATE: u32 = 48_000;
+// The sound output (ds-mix, fork_sound.rs) names the same rate.
+#[cfg(not(windows))]
+const _: () = assert!(MIX_RATE == ds_mix::fork_sound::MIX_RATE);
 
 /// What the table says about the machine.
 #[derive(Debug, Clone, PartialEq)]

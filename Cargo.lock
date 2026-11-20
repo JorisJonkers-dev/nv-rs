@@ -557,6 +557,8 @@ name = "ds-mix"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "fork-log",
+ "libloading",
  "qos",
 ]
 
@@ -912,7 +914,6 @@ dependencies = [
  "fork-log",
  "fork-window",
  "libc",
- "libloading",
  "mp3",
  "nvse",
  "qos",

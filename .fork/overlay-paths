@@ -56,7 +56,7 @@ crates/d3d9-wgpu/src/shader_cache.rs
 crates/engine-platform/examples/linux_tables.rs
 crates/engine-platform/src/d3dxshader.rs
 crates/engine-platform/src/fork_d3d9rec.rs
-crates/engine-platform/src/fork_sound.rs
+crates/ds-mix/src/fork_sound.rs
 crates/host/src/fork_trace.rs
 crates/host/tests/linux_saves.rs
 # Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.

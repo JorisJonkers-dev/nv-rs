@@ -9,6 +9,8 @@ description = "What DirectSound does with the game's sound buffers, as measured 
 [dependencies]
 # The sound output's thread is not background work for Windows (sound_out.rs).
 qos = { path = "../qos" }
+# Logging: levels, a JSON file, soft stops (docs/fork/LOGGING.md).
+fork-log = { path = "../fork-log" }
 
 # Sound on the speakers off Windows (sound_out.rs, `mod device`): the default output device through
 # ALSA (PipeWire's and PulseAudio's ALSA plugins among them) on Linux, CoreAudio on macOS. The
@@ -16,6 +18,12 @@ qos = { path = "../qos" }
 # `realtime` would do nothing on Linux as built (no D-Bus/rtkit) and is not used on macOS; the
 # Linux sound thread runs at normal priority (sound_out.rs says why). Linux links ALSA's
 # libasound.so.2 (alsa-sys): the program needs it to start. Windows keeps its own WASAPI arm
-# (no cpal there).
-[target.'cfg(not(windows))'.dependencies]
+# (no cpal there). In this build cpal is macOS's only: Linux plays through fork_sound.rs (libpulse
+# loaded at run time, or a null sink), so the program starts without ALSA's libasound.so.2
+# (docs/fork/DIVERGENCE.md).
+[target.'cfg(target_os = "macos")'.dependencies]
 cpal = "0.18.2"
+
+# The sound output off Windows (fork_sound.rs): libpulse-simple loaded at run time, as d3dx-shader loads vkd3d.
+[target.'cfg(not(windows))'.dependencies]
+libloading = "0.8"

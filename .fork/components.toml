@@ -123,6 +123,13 @@ requires = []
 runs_on = "both"
 
 [[component]]
+name = "ds-mix"
+purpose = "DirectSound's mixer, the two sample-rate converters, speaker placement, the 3D stage, the distortion effect and the sound output (macOS's cpal device, Windows' WASAPI arm; Linux plays through the fork's fork_sound.rs), used by the platform layer"
+crates = ["ds-mix"]
+requires = ["qos", "log"]
+runs_on = "both"
+
+[[component]]
 name = "game-folders"
 purpose = "Off Windows: the game's installs (Steam, Heroic, Lutris), the Proton and Wine saves, the player's folders nv-rs never writes into and nv-rs's own folder, as plain functions over a home folder (nv-viewer --find, the save guard)"
 crates = ["game-folders"]
@@ -184,6 +191,13 @@ requires = ["fomod", "mod-archive", "mod-install"]
 runs_on = "both"
 
 [[component]]
+name = "nv-launcher"
+purpose = "nv-rs's one launcher, themed like the game's terminal: the start screen, Settings and Play (Play.exe on Windows, nv-rs on Linux and macOS)"
+crates = ["nv-launcher"]
+requires = ["formats", "game-profile", "game-folders", "mod-install"]
+runs_on = "both"
+
+[[component]]
 name = "rendering"
 purpose = "The renderer back end: the recorded Direct3D 9 call stream and its wgpu backend with the shader-bytecode-to-WGSL converter (wgpu 30.0.1 with the vendored wgpu-hal), the shader compiler seam off Windows (cache and libvkd3d-shader), and the fork-owned replay-bench that times a recorded stream through a null, the wgpu and a raw Vulkan backend (docs/fork/REPLAY.md)"
 crates = ["d3d9-stream", "d3d9-wgpu", "d3dx-shader", "d3d9-replay"]
@@ -195,7 +209,7 @@ windows = "required"
 name = "platform"
 purpose = "The Windows platform layer: window, Direct3D 9 and D3DX entry points, DirectInput, DirectSound, DirectShow, files, loader and process"
 crates = ["engine-platform"]
-requires = ["core", "formats", "rendering", "log", "hitch", "qos"]
+requires = ["core", "formats", "rendering", "log", "hitch", "qos", "ds-mix"]
 runs_on = "both"
 # The Windows entry points are cfg(windows) code that only Windows can test; the Linux job runs the rest, among it the
 # shader compiler seam's tests against a recent libvkd3d-shader (docs/fork/CI-NIX.md).
@@ -249,7 +263,7 @@ args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree -
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
-args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda --test jip_call_arity --test stewie_fixes --test menu_mouse_move --test save_changes_map --test save_maps", "-p engine --doc"]
+args = ["-p host -p play-patch -p nv-viewer", "-p engine --lib --test par_render --test real_scda --test jip_call_arity --test stewie_fixes --test menu_mouse_move --test save_changes_map --test save_maps --test menu_tiles --test water_clip_plane --test xinput_pad --test xnvse_inline_arguments --test xnvse_line_reader", "-p engine --doc"]
 optional_tests = ["engine/capture_run_mode"]
 
 [[component]]
@@ -281,16 +295,13 @@ commands = [
 # Separate workspaces (their own Cargo.toml and target): not workspace members, so no crate list.
 [[component]]
 name = "launcher-and-ledger"
-purpose = "Play.exe with Settings.cmd, and the ledger of typed markers: two small workspaces that upstream's CI builds on Windows"
+purpose = "The ledger of typed markers (a small workspace that upstream's CI builds on Windows) and the distribution files; Play.exe is crates/nv-launcher now, a member of the main workspace"
 crates = []
 requires = []
 runs_on = "windows"
-paths = ["scripts/launcher/", "scripts/ledger/", "distribution/"]
+paths = ["scripts/ledger/", "distribution/"]
 commands = [
   "cargo test --locked --manifest-path scripts/ledger/Cargo.toml",
-  "cargo fmt --manifest-path scripts/launcher/Cargo.toml -- --check",
-  "cargo test --locked --manifest-path scripts/launcher/Cargo.toml",
-  "cargo clippy --locked --manifest-path scripts/launcher/Cargo.toml --all-targets -- -D warnings",
 ]
 
 # The release files (docs/fork/RELEASE-FILES.md): a separate workspace that reads the command tables of nvse and jip, so
