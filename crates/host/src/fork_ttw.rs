@@ -87,6 +87,11 @@ pub fn apply(e: &mut Engine, var: Option<&str>, master: bool) -> Option<String> 
     ))
 }
 
+/// The versions TTW 3.4's check accepts (501, 180 and 941 or later), held at compile time.
+const _: () = assert!(jg::identity::VERSION_INT >= 501);
+const _: () = assert!(showoff::identity::VERSION_INT >= 180);
+const _: () = assert!(stewie::VERSION >= 941);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,20 +140,17 @@ mod tests {
         assert!(forced.contains("NV_TTW_PLUGINS=1"), "{forced}");
     }
 
-    /// The plugin's own install then lists it under the name and version TTW reads
-    /// (`GetPluginVersion "ShowOffNVSE Plugin"` at least 180) with its command registered; the
-    /// crates' tests cover the commands themselves.
+    /// `GetPluginVersion "ShowOffNVSE Plugin"` (the crates' tests cover what each plugin then
+    /// lists and its commands).
     #[test]
-    fn show_off_is_the_name_and_version_ttw_reads() {
+    fn show_off_is_the_name_ttw_reads() {
         assert_eq!(showoff::identity::NAME, "ShowOffNVSE Plugin");
-        assert!(showoff::identity::VERSION_INT >= 180);
     }
 
-    /// `GetPluginVersion "JohnnyGuitarNVSE"` at least 501.
+    /// `GetPluginVersion "JohnnyGuitarNVSE"`.
     #[test]
-    fn johnny_guitar_is_the_name_and_version_ttw_reads() {
+    fn johnny_guitar_is_the_name_ttw_reads() {
         assert_eq!(jg::identity::NAME, "JohnnyGuitarNVSE");
-        assert!(jg::identity::VERSION_INT >= 501);
     }
 
     /// `IsPluginInstalled ttw_nvse`.
@@ -157,10 +159,9 @@ mod tests {
         assert_eq!(ttw_nvse::NAME, "ttw_nvse");
     }
 
-    /// `GetPluginVersion "lStewieAl's Tweaks"` at least 941.
+    /// `GetPluginVersion "lStewieAl's Tweaks"`.
     #[test]
-    fn tweaks_is_the_name_and_version_ttw_reads() {
+    fn tweaks_is_the_name_ttw_reads() {
         assert_eq!(stewie::NAME, "lStewieAl's Tweaks");
-        assert!(stewie::VERSION >= 941);
     }
 }
