@@ -49,3 +49,25 @@ fn read_then_write_is_the_identity() {
     write_chunks(&read, &mut out);
     assert_eq!(out.chunks, chunks());
 }
+
+/// The extra statistics belong to the game being played: a new game and a load start with none
+/// (they are not saved), so one game's counts never show up in another.
+#[test]
+fn a_new_game_and_a_load_start_without_extra_statistics() {
+    let mut e = Engine::new();
+    e.ext::<State>().stats.insert(b"Bobbleheads Found".to_vec(), 3);
+    new_game(&mut e);
+    assert!(e.ext::<State>().stats.is_empty());
+
+    e.ext::<State>().stats.insert(b"Captives Rescued".to_vec(), 2);
+    let plugin = nvse::cosave::Plugin {
+        opcode_base: crate::identity::OPCODE_BASE,
+        chunks: chunks(),
+    };
+    let bytes = nvse::cosave::write(&[plugin]);
+    let mut r = Reader::open(&bytes).unwrap();
+    r.next_plugin().unwrap().unwrap();
+    load(&mut e, &mut r).unwrap();
+    assert!(e.ext::<State>().stats.is_empty());
+    assert_eq!(e.ext::<State>().carried, chunks());
+}

@@ -25,8 +25,10 @@ engine's own data layouts only, no plugin code:
   named integers kept in the engine for the session.
 - GetQuestFailed (alias GetQF; one quest): built from `if GetQuestFailed MS14 == 0` and the
   engine's quest layout (the failed bit TESQuest::SetFailed sets); also a condition function.
-Opcodes (offset from 0x3100): the registration order of the plugin is not in a public document
-read, so each command sits at the opcode TTW's compiled scripts carry for it: GetQuestFailed
+Opcodes (offset from 0x3100): each command sits at the opcode TTW's compiled scripts carry for it,
+and the order of the names in the plugin's public registration list (JG/internal/JG/
+JohnnyCommands.cpp of the repository above, LGPL-2.1; only the order and number of the names were
+read, 412 on 2026-11-20, no function body) gives the same five opcodes: GetQuestFailed
 0x3165, IsDLLLoaded 0x317E, GetExtraMiscStat 0x31E4, ModExtraMiscStat 0x31E5, InitExtraMiscStat
 0x31EE. Other opcodes of the block stay empty.
 

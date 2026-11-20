@@ -32,6 +32,10 @@ pub struct Plugin {
 /// The plugins switched on, in xNVSE's order of blocks.
 pub const PLUGINS: &[Plugin] = &[
     Plugin {
+        name: jg::identity::NAME,
+        switch: jg::set_answers_installed,
+    },
+    Plugin {
         name: showoff::identity::NAME,
         switch: showoff::set_answers_installed,
     },
@@ -105,6 +109,7 @@ mod tests {
         assert_eq!(apply(&mut e, None, false), None);
         assert_eq!(apply(&mut e, Some("0"), true), None);
         assert_eq!(e.ext::<showoff::State>().answers, None);
+        assert_eq!(e.ext::<jg::State>().answers_installed, None);
         assert!(!e.ext::<stewie::Stewie>().answers_installed);
     }
 
@@ -113,6 +118,7 @@ mod tests {
         let mut e = Engine::new();
         let line = apply(&mut e, None, true).expect("a line to log");
         assert_eq!(e.ext::<showoff::State>().answers, Some(true));
+        assert_eq!(e.ext::<jg::State>().answers_installed, Some(true));
         assert!(e.ext::<stewie::Stewie>().answers_installed);
         for plugin in PLUGINS {
             assert!(line.contains(plugin.name), "{line}");
@@ -130,6 +136,13 @@ mod tests {
     fn show_off_is_the_name_and_version_ttw_reads() {
         assert_eq!(showoff::identity::NAME, "ShowOffNVSE Plugin");
         assert!(showoff::identity::VERSION_INT >= 180);
+    }
+
+    /// `GetPluginVersion "JohnnyGuitarNVSE"` at least 501.
+    #[test]
+    fn johnny_guitar_is_the_name_and_version_ttw_reads() {
+        assert_eq!(jg::identity::NAME, "JohnnyGuitarNVSE");
+        assert!(jg::identity::VERSION_INT >= 501);
     }
 
     /// `GetPluginVersion "lStewieAl's Tweaks"` at least 941.

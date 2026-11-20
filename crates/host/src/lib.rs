@@ -106,8 +106,8 @@ pub(crate) fn install_rows_and_extenders(engine: &mut Engine, choice: &fixes::Ch
     // `fixes::install` above) switched it on (`crates/jip`).
     jip::install(engine);
     // JohnnyGuitar NVSE and ShowOff xNVSE, the next plugins in xNVSE's order of blocks: registered
-    // when they answer "installed" (`crates/jg`: not yet, identity and co-save only;
-    // `crates/showoff`: when `fork_ttw` switched it on for Tale of Two Wastelands).
+    // when they answer "installed" (`crates/jg`, `crates/showoff`: when `fork_ttw` switched them
+    // on for Tale of Two Wastelands).
     jg::install(engine);
     showoff::install(engine);
     // The Mod Configuration Menu's plugin, when its row is on: xNVSE loads MCM.dll after

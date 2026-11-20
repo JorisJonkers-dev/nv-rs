@@ -116,7 +116,18 @@ fn jip_reports_the_version_tale_of_two_wastelands_reads() {
 #[test]
 fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
     let c = capabilities();
-    let plugins: [(&str, f64, &[&str]); 2] = [
+    let plugins: [(&str, f64, &[&str]); 3] = [
+        (
+            "johnnyguitar",
+            501.0,
+            &[
+                "GetQuestFailed",
+                "IsDLLLoaded",
+                "GetExtraMiscStat",
+                "ModExtraMiscStat",
+                "InitExtraMiscStat",
+            ],
+        ),
         ("showoff", 180.0, &["GetActorHasBaseFlag"]),
         ("stewie-tweaks", 941.0, &[]),
     ];

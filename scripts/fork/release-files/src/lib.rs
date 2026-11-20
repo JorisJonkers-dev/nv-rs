@@ -125,6 +125,9 @@ fn ttw_plugin(
     entry
 }
 
+/// JohnnyGuitar NVSE's public registration list holds 412 commands from `0x3100` (2026-11-20).
+const JG_TOTAL: usize = 412;
+
 /// ShowOff xNVSE 1.84 registers the opcodes `0x3C93` to `0x3D69` (its public registration list).
 const SHOWOFF_TOTAL: usize = 0x3d69 - 0x3c93 + 1;
 
@@ -162,6 +165,14 @@ pub fn capabilities() -> Value {
         "extenders": [
             extender("xnvse", "xNVSE", "crates/nvse", x_names, x_total),
             jip_entry,
+            ttw_plugin(
+                "johnnyguitar",
+                "JohnnyGuitar NVSE",
+                "crates/jg",
+                jg::identity::VERSION_INT,
+                &jg::COMMAND_NAMES,
+                JG_TOTAL,
+            ),
             ttw_plugin(
                 "showoff",
                 "ShowOff xNVSE",
