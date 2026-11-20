@@ -1989,6 +1989,15 @@ mod tests {
             })
             .expect("a stream on the null sink");
             std::thread::sleep(Duration::from_millis(900));
+            if let Ok(o) = std::process::Command::new("sh")
+                .args([
+                    "-c",
+                    &format!("timeout 1 parec -d {name}.monitor --raw --format=float32le --rate=48000 --channels={channels} | wc -c; pactl list source-outputs | grep -E 'Corked|Buffer|Latency|Sample|Source:' "),
+                ])
+                .output()
+            {
+                eprintln!("parec: {}", String::from_utf8_lossy(&o.stdout));
+            }
             for what in ["sinks", "sink-inputs", "sources", "source-outputs"] {
                 if let Ok(o) = std::process::Command::new("pactl")
                     .args(["list", "short", what])
