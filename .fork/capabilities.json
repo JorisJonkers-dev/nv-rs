@@ -1795,6 +1795,66 @@
       "provided_by_source": "crates/jip",
       "reported_installed": "when the data folder holds TaleOfTwoWastelands.esm (NV_JIP_INSTALLED=1 forces it, 0 turns it off)",
       "version": 57.3
+    },
+    {
+      "commands": {
+        "implemented": 5,
+        "implemented_names": [
+          "GetQuestFailed",
+          "IsDLLLoaded",
+          "GetExtraMiscStat",
+          "ModExtraMiscStat",
+          "InitExtraMiscStat"
+        ],
+        "total": 412
+      },
+      "id": "johnnyguitar",
+      "name": "JohnnyGuitar NVSE",
+      "provided_by_source": "crates/jg",
+      "reported_installed": "when the data folder holds TaleOfTwoWastelands.esm (NV_TTW_PLUGINS=1 forces it, 0 turns it off)",
+      "version": 525
+    },
+    {
+      "commands": {
+        "implemented": 1,
+        "implemented_names": [
+          "GetActorHasBaseFlag"
+        ],
+        "total": 215
+      },
+      "id": "showoff",
+      "name": "ShowOff xNVSE",
+      "provided_by_source": "crates/showoff",
+      "reported_installed": "when the data folder holds TaleOfTwoWastelands.esm (NV_TTW_PLUGINS=1 forces it, 0 turns it off)",
+      "version": 184
+    },
+    {
+      "commands": {
+        "implemented": 0,
+        "implemented_names": [],
+        "total": 8
+      },
+      "id": "stewie-tweaks",
+      "name": "lStewieAl's Tweaks",
+      "provided_by_source": "crates/stewie",
+      "reported_installed": "when the data folder holds TaleOfTwoWastelands.esm (NV_TTW_PLUGINS=1 forces it, 0 turns it off), and only with the row NV_STEWIE on: it stands for the engine fixes built so far (docs/FIXES.md), not for its script commands, which Tale of Two Wastelands does not call",
+      "version": 1005
+    },
+    {
+      "commands": {
+        "implemented": 3,
+        "implemented_names": [
+          "TTW_ShowGeneProjector",
+          "TTW_GetPlugins",
+          "TTW_EnableRadioFix"
+        ],
+        "total": 3
+      },
+      "id": "ttw-nvse",
+      "name": "Tale of Two Wastelands plugin (ttw_nvse)",
+      "provided_by_source": "crates/ttw-nvse",
+      "reported_installed": "when the data folder holds TaleOfTwoWastelands.esm (NV_TTW_PLUGINS=1 forces it, 0 turns it off)",
+      "version": 1
     }
   ],
   "schema_version": 1
