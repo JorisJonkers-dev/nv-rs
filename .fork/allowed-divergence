@@ -83,3 +83,6 @@ research/nv-trace/Cargo.toml  # rust-version "1.100"
 crates/nvse/src/docs_tests.rs  # the input names ShowOff xNVSE's plugin "ShowOffNVSE Plugin", the name the plugin hands xNVSE and Tale of Two Wastelands asks for (nv-rs#399)
 crates/stewie/src/lib.rs  # set_answers_installed: Tweaks is listed with xNVSE when the host asks and its row is on, for a game whose scripts read its version and call none of its commands (Tale of Two Wastelands, nv-rs#399)
 crates/stewie/src/tests.rs  # tests of that switch
+# JohnnyGuitar's extra miscellaneous statistics in the Pip-Boy (nv-rs#307): the Stats menu asks three natives of a built-in extender for rows after the game's own.
+crates/engine-core/src/extend.rs  # EXTRA_MISC_STAT_COUNT, _NAME and _VALUE: the addresses of those three natives
+crates/engine-fallout-interface/src/units/fallout_interface/statsmenu.rs  # add_extra_misc_stat_rows after the game's 0x2b rows of StatsMenu::Create, only when an extender registered the natives; its test

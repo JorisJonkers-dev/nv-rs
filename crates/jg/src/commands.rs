@@ -17,8 +17,9 @@
 //!
 //! Every other opcode of the block stays an empty record (a call fails, as without the plugin).
 //!
-//! What is NOT built: the extra miscellaneous statistics are not shown in the Stats menu. They are
-//! saved in a record of nv-rs's own type in the plugin's co-save section ([`crate::cosave`]);
+//! The extra miscellaneous statistics are listed in the Pip-Boy's statistics page after the game's
+//! own, by name (the three natives of [`engine_core::extend::EXTRA_MISC_STAT_COUNT`] that the
+//! Stats menu calls). They are saved in a record of nv-rs's own type in the plugin's co-save section ([`crate::cosave`]);
 //! the plugin's own record format is in no public document read, so a plugin section of a real
 //! install is carried untouched and never collides with ours. `IsDLLLoaded`'s optional integer is
 //! accepted and ignored (its meaning is not in the sources read).
@@ -146,6 +147,46 @@ pub fn install(e: &mut Engine) {
         };
         table::add_plugin_record(e, c.opcode, &record);
     }
+    install_stat_rows(e);
+}
+
+/// The three natives the Stats menu asks for the rows after the game's own (nv-rs#307): how many
+/// statistics there are, and the name and value of the one at an index (by name order).
+fn install_stat_rows(e: &mut Engine) {
+    use engine_core::extend::{EXTRA_MISC_STAT_COUNT, EXTRA_MISC_STAT_NAME, EXTRA_MISC_STAT_VALUE};
+    e.register(EXTRA_MISC_STAT_COUNT, stat_row_count);
+    e.register(EXTRA_MISC_STAT_NAME, stat_row_name);
+    e.register(EXTRA_MISC_STAT_VALUE, stat_row_value);
+}
+
+fn stat_row_count(e: &mut Engine, _w: &[u32]) -> Ret {
+    (e.ext::<State>().stats.len() as u32).into_ret()
+}
+
+/// The name of row `w[0]` as guest text (kept by the built-ins' text table), 0 past the end.
+fn stat_row_name(e: &mut Engine, w: &[u32]) -> Ret {
+    let name = e
+        .ext::<State>()
+        .stats
+        .keys()
+        .nth(w.first().copied().unwrap_or(u32::MAX) as usize)
+        .cloned();
+    match name {
+        Some(name) => table::guest_str(e, &name).into_ret(),
+        None => 0u32.into_ret(),
+    }
+}
+
+/// The value of row `w[0]`, 0 past the end.
+fn stat_row_value(e: &mut Engine, w: &[u32]) -> Ret {
+    let value = e
+        .ext::<State>()
+        .stats
+        .values()
+        .nth(w.first().copied().unwrap_or(u32::MAX) as usize)
+        .copied()
+        .unwrap_or(0);
+    (value as u32).into_ret()
 }
 
 /// A name as a stat key: the text up to its first 0.
