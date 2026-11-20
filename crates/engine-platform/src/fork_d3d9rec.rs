@@ -381,9 +381,10 @@ mod tests {
     /// `NV_WINDOW_SMOKE`; without it (no display) the test does nothing.
     #[test]
     fn a_guest_program_draws_to_a_window() {
-        if std::env::var_os("NV_WINDOW_SMOKE").is_none() {
+        // One real window at a time (the layer has one): the window tests below take turns.
+        let Some(_one_at_a_time) = window_session() else {
             return;
-        }
+        };
         let window = fork_window::Window::open(
             fork_window::WindowRequest {
                 width: 64,
@@ -395,6 +396,231 @@ mod tests {
         .expect("a window under the display");
         guest_frame(Some(window.id()));
         assert!(!fork_window::close_requested(window.id()));
+    }
+
+    /// The window session of the tests below: one real window at a time (the layer has one), and
+    /// none where there is no display (`NV_WINDOW_SMOKE` unset).
+    fn window_session() -> Option<std::sync::MutexGuard<'static, ()>> {
+        static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        if std::env::var_os("NV_WINDOW_SMOKE").is_none() {
+            eprintln!("skipped: NV_WINDOW_SMOKE is not set");
+            return None;
+        }
+        Some(ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    fn becomes<T: PartialEq + std::fmt::Debug>(what: &str, want: T, mut read: impl FnMut() -> T) {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let got = read();
+            if got == want {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < until,
+                "{what}: wanted {want:?}, still {got:?} after 5 s"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// The game's window `handle` as `window_created` leaves it: a real top-level window under
+    /// the modelled handle, in an engine the game's calls go to.
+    fn engine_with_window(
+        request: fork_window::WindowRequest,
+        handle: u32,
+    ) -> (Engine, fork_window::Window, u32) {
+        let window = fork_window::Window::open(request, None).expect("a window under the display");
+        let x = fork_window::probe::x_window(window.id()).expect("an X11 window");
+        let mut e = Engine::new();
+        real(&mut e).windows.insert(handle, window.id());
+        TOPS.lock().unwrap_or_else(|p| p.into_inner()).push(handle);
+        (e, window, x)
+    }
+
+    /// #214: the game's `SetWindowTextA` after its window is made reaches the X11 property.
+    #[test]
+    fn the_games_set_window_text_reaches_the_x11_window() {
+        let Some(_s) = window_session() else { return };
+        let probe = fork_window::probe::Probe::connect();
+        let (mut e, _window, x) = engine_with_window(
+            fork_window::WindowRequest {
+                title: "Fallout".into(),
+                ..Default::default()
+            },
+            0x11c,
+        );
+        assert_eq!(probe.title(x).as_deref(), Some("Fallout"));
+        window_titled(&mut e, 0x11c, b"Fallout: New Vegas - Mojave");
+        becomes(
+            "the title",
+            Some("Fallout: New Vegas - Mojave".to_string()),
+            || probe.title(x),
+        );
+        // A window the game never made (no real window) is left alone.
+        window_titled(&mut e, 0x999, b"nobody");
+        assert_eq!(
+            probe.title(x).as_deref(),
+            Some("Fallout: New Vegas - Mojave")
+        );
+    }
+
+    /// #214: the game's `SetWindowPos` (the rectangle it grew for its client area) moves and sizes
+    /// the real window, the flags keep what they name, a child window sizes its parent's client area
+    /// and never moves it, and the swap chain's size (`client_size`) is the one the server has.
+    #[test]
+    fn the_games_set_window_pos_moves_and_sizes_the_x11_window() {
+        let Some(_s) = window_session() else { return };
+        let probe = fork_window::probe::Probe::connect();
+        let (mut e, window, x) = engine_with_window(
+            fork_window::WindowRequest {
+                width: 640,
+                height: 480,
+                decorations: false,
+                ..Default::default()
+            },
+            0x11c,
+        );
+        let geometry = |probe: &fork_window::probe::Probe| {
+            let g = probe.geometry(x);
+            (g.x, g.y, g.width, g.height)
+        };
+        // No frame is recorded for the window (`game_frame` has none): the rectangle is the client.
+        window_moved(&mut e, 0x11c, [100, 50, 900, 650], 0);
+        becomes("moved and sized", (100, 50, 800, 600), || geometry(&probe));
+        becomes("the swap chain", (800, 600), || {
+            fork_window::client_size(window.id())
+        });
+
+        window_moved(&mut e, 0x11c, [0, 0, 512, 384], SWP_NOMOVE);
+        becomes("size only (SWP_NOMOVE)", (100, 50, 512, 384), || {
+            geometry(&probe)
+        });
+        becomes("the swap chain", (512, 384), || {
+            fork_window::client_size(window.id())
+        });
+
+        window_moved(&mut e, 0x11c, [20, 10, 9999, 9999], SWP_NOSIZE);
+        becomes("place only (SWP_NOSIZE)", (20, 10, 512, 384), || {
+            geometry(&probe)
+        });
+
+        // A child window: its rectangle is in the parent's client area. Its size is the parent's
+        // client area's, its place is not the window's.
+        real(&mut e).windows.insert(0x120, window.id());
+        window_moved(&mut e, 0x120, [300, 200, 700, 500], 0);
+        becomes("a child's size", (20, 10, 400, 300), || geometry(&probe));
+
+        // The frame the game added (AdjustWindowRect) is taken off: the client area is what it wanted.
+        assert_eq!(client_for([0, 0, 656, 519], [-8, -31, 8, 8]), (640, 480));
+        assert_eq!(client_for([0, 0, 0, 0], [0; 4]), (1, 1));
+    }
+
+    /// #218: `Reset` of the device to another size while the window is the full-screen one (the
+    /// game's display mode change, which is a windowed reset here): the window stays refitted to the
+    /// monitor, the back buffer takes the requested size, a frame is presented, and nothing changes
+    /// the monitor's own mode (RandR's, read from the server).
+    #[test]
+    fn a_mode_change_through_reset_keeps_the_borderless_window_on_the_monitor() {
+        let Some(_s) = window_session() else { return };
+        let _wm = fork_window::probe::FakeWm::start();
+        let probe = fork_window::probe::Probe::connect();
+        let monitor = probe.crtc();
+        let window = fork_window::Window::open(
+            fork_window::WindowRequest {
+                width: 64,
+                height: 64,
+                decorations: false,
+                fullscreen: true,
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("a full-screen window");
+        let id = window.id();
+        let x = fork_window::probe::x_window(id).expect("an X11 window");
+        let covers = |probe: &fork_window::probe::Probe| {
+            let g = probe.geometry(x);
+            (g.x, g.y, g.width, g.height)
+        };
+        let whole = (monitor.x, monitor.y, monitor.width, monitor.height);
+        becomes("the window over the monitor", whole, || covers(&probe));
+
+        let backend = std::sync::Arc::new(std::sync::Mutex::new(d3d9_wgpu::WgpuBackend::new(
+            d3d9_wgpu::Output::Window,
+        )));
+        let mut e = Engine::new();
+        d3d9::load_adapter_table(&mut e, &table());
+        let create = d3d9::proc_address(&mut e, b"Direct3DCreate9").unwrap();
+        let d3d = e.call(create, &[d3d9::D3D_SDK_VERSION]).u32();
+        real(&mut e).stream = Some(Stream::direct(Box::new(Shared(backend.clone()))));
+        real(&mut e).windows.insert(0x11c, id);
+        let present = e.mem.alloc(0x38);
+        e.mem.set_u32(present, 64);
+        e.mem.set_u32(present + 4, 64);
+        e.mem.set_u32(present + 0x1c, 0x11c);
+        e.mem.set_u32(present + 0x20, 1);
+        let out = e.mem.alloc(4);
+        assert_eq!(
+            e.vcall(d3d, 4 * 16, &[0, 1, 0x11c, 0x40, present, out])
+                .u32(),
+            0,
+            "CreateDevice"
+        );
+        let device = e.mem.u32(out);
+        if backend.lock().unwrap().device().is_none() {
+            assert!(
+                std::env::var_os("NV_REQUIRE_GPU").is_none(),
+                "NV_REQUIRE_GPU is set and wgpu has no adapter"
+            );
+            eprintln!("no GPU adapter: the reset test is skipped");
+            return;
+        }
+        assert_eq!(e.vcall(device, 4 * 17, &[0, 0, 0, 0]).u32(), 0, "Present");
+
+        // The game asks for 128x96 (another mode): a windowed reset at that size.
+        e.mem.set_u32(present, 128);
+        e.mem.set_u32(present + 4, 96);
+        assert_eq!(e.vcall(device, 4 * 16, &[present]).u32(), 0, "Reset");
+        assert_eq!(
+            e.vcall(device, 4 * 18, &[0, 0, 0, out]).u32(),
+            0,
+            "GetBackBuffer"
+        );
+        let back = e.mem.u32(out);
+        e.vcall(device, 4 * 41, &[]);
+        e.vcall(device, 4 * 43, &[0, 0, 1, 0xFF00_FF00, 1.0f32.to_bits(), 0]);
+        e.vcall(device, 4 * 42, &[]);
+        assert_eq!(
+            e.vcall(device, 4 * 17, &[0, 0, 0, 0]).u32(),
+            0,
+            "Present after Reset"
+        );
+        real(&mut e).stream.as_mut().expect("the stream").finish();
+        let (w, h, _) = backend
+            .lock()
+            .unwrap()
+            .device()
+            .and_then(|d| d.read_surface_pixels(back))
+            .expect("the back buffer's pixels");
+        assert_eq!(
+            (w, h),
+            (128, 96),
+            "the back buffer takes the requested size"
+        );
+
+        // The window is still the monitor's, and the swap chain follows it, not the back buffer.
+        assert_eq!(
+            covers(&probe),
+            whole,
+            "the window is refitted to the monitor"
+        );
+        assert_eq!(
+            fork_window::client_size(id),
+            (monitor.width, monitor.height)
+        );
+        assert_eq!(probe.crtc(), monitor, "the monitor's own mode is unchanged");
+        assert_eq!(probe.screen_size(), (monitor.width, monitor.height));
     }
 
     fn guest_frame(window: Option<isize>) {

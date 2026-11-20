@@ -15,6 +15,10 @@
 
 pub mod dik;
 mod display;
+/// Test support for the X11 window system (used by this crate's and engine-platform's tests).
+#[cfg(all(unix, not(target_os = "macos")))]
+#[doc(hidden)]
+pub mod probe;
 mod registry;
 mod surface;
 
