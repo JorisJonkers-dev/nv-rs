@@ -116,7 +116,10 @@ fn jip_reports_the_version_tale_of_two_wastelands_reads() {
 #[test]
 fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
     let c = capabilities();
-    let plugins: [(&str, f64, &[&str]); 1] = [("showoff", 180.0, &["GetActorHasBaseFlag"])];
+    let plugins: [(&str, f64, &[&str]); 2] = [
+        ("showoff", 180.0, &["GetActorHasBaseFlag"]),
+        ("stewie-tweaks", 941.0, &[]),
+    ];
     for (id, least, built) in plugins {
         let entry = c["extenders"]
             .as_array()
@@ -139,6 +142,16 @@ fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
         assert_eq!(commands["implemented"].as_u64().unwrap(), built.len() as u64);
         assert!(commands["total"].as_u64().unwrap() >= built.len() as u64, "{id}");
     }
+    // Tweaks has no command built: its entry says what the answer stands for.
+    let tweaks = c["extenders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == "stewie-tweaks")
+        .unwrap();
+    assert_eq!(tweaks["commands"]["total"], 8);
+    let when = tweaks["reported_installed"].as_str().unwrap();
+    assert!(when.contains("NV_STEWIE") && when.contains("engine fixes"), "{when}");
 }
 
 #[test]

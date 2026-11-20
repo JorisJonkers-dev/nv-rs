@@ -15,6 +15,7 @@ engine-core = { path = "../../../crates/engine-core" }
 nvse = { path = "../../../crates/nvse" }
 jip = { path = "../../../crates/jip" }
 showoff = { path = "../../../crates/showoff" }
+stewie = { path = "../../../crates/stewie" }
 serde_json = "1"
 jsonschema = { version = "0.30", default-features = false }
 

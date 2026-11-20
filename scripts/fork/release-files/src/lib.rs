@@ -128,6 +128,26 @@ fn ttw_plugin(
 /// ShowOff xNVSE 1.84 registers the opcodes `0x3C93` to `0x3D69` (its public registration list).
 const SHOWOFF_TOTAL: usize = 0x3d69 - 0x3c93 + 1;
 
+/// lStewieAl's Tweaks' script commands (docs/FIXES.md, "lStewieAl's Tweaks": eight, none built).
+const STEWIE_COMMANDS: usize = 8;
+
+/// lStewieAl's Tweaks: no command of it is built and Tale of Two Wastelands calls none, so its
+/// entry says what the answer stands for.
+fn stewie_entry() -> Value {
+    let mut entry = ttw_plugin(
+        "stewie-tweaks",
+        "lStewieAl's Tweaks",
+        "crates/stewie",
+        stewie::VERSION,
+        &[],
+        STEWIE_COMMANDS,
+    );
+    entry["reported_installed"] = json!(format!(
+        "{WITH_TTW}, and only with the row NV_STEWIE on: it stands for the engine fixes built so far (docs/FIXES.md), not for its script commands, which Tale of Two Wastelands does not call"
+    ));
+    entry
+}
+
 /// `capabilities.json`, generated from the command tables.
 pub fn capabilities() -> Value {
     let (x_names, x_total) = xnvse();
@@ -150,6 +170,7 @@ pub fn capabilities() -> Value {
                 &showoff::COMMAND_NAMES,
                 SHOWOFF_TOTAL,
             ),
+            stewie_entry(),
         ],
     })
 }

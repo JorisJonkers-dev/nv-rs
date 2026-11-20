@@ -81,3 +81,5 @@ research/nv-oracle/Cargo.toml  # rust-version "1.100"
 research/nv-oracle/nv-pure/Cargo.toml  # rust-version "1.100"
 research/nv-trace/Cargo.toml  # rust-version "1.100"
 crates/nvse/src/docs_tests.rs  # the input names ShowOff xNVSE's plugin "ShowOffNVSE Plugin", the name the plugin hands xNVSE and Tale of Two Wastelands asks for (nv-rs#399)
+crates/stewie/src/lib.rs  # set_answers_installed: Tweaks is listed with xNVSE when the host asks and its row is on, for a game whose scripts read its version and call none of its commands (Tale of Two Wastelands, nv-rs#399)
+crates/stewie/src/tests.rs  # tests of that switch
