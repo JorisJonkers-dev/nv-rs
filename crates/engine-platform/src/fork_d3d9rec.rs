@@ -409,6 +409,7 @@ mod tests {
         Some(ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner()))
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn becomes<T: PartialEq + std::fmt::Debug>(what: &str, want: T, mut read: impl FnMut() -> T) {
         let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
@@ -426,6 +427,7 @@ mod tests {
 
     /// The game's window `handle` as `window_created` leaves it: a real top-level window under
     /// the modelled handle, in an engine the game's calls go to.
+    #[cfg(not(target_os = "macos"))]
     fn engine_with_window(
         request: fork_window::WindowRequest,
         handle: u32,
@@ -439,6 +441,7 @@ mod tests {
     }
 
     /// #214: the game's `SetWindowTextA` after its window is made reaches the X11 property.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn the_games_set_window_text_reaches_the_x11_window() {
         let Some(_s) = window_session() else { return };
@@ -468,6 +471,7 @@ mod tests {
     /// #214: the game's `SetWindowPos` (the rectangle it grew for its client area) moves and sizes
     /// the real window, the flags keep what they name, a child window sizes its parent's client area
     /// and never moves it, and the swap chain's size (`client_size`) is the one the server has.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn the_games_set_window_pos_moves_and_sizes_the_x11_window() {
         let Some(_s) = window_session() else { return };
@@ -520,6 +524,7 @@ mod tests {
     /// game's display mode change, which is a windowed reset here): the window stays refitted to the
     /// monitor, the back buffer takes the requested size, a frame is presented, and nothing changes
     /// the monitor's own mode (RandR's, read from the server).
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn a_mode_change_through_reset_keeps_the_borderless_window_on_the_monitor() {
         let Some(_s) = window_session() else { return };

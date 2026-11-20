@@ -96,6 +96,19 @@ jobs:
             cargo install --locked "cargo-llvm-cov@$LLVM_COV_VERSION"
           fi
 
+      # The window layer's tests open real windows and read them back from the X server (fork_window::probe), so
+      # they are measured under Xvfb, as the window smoke runs them; a display-less run would leave them unexecuted.
+      - name: Display for the window tests
+        if: ${{ matrix.component == 'window-layer' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libx11-6 libxkbcommon-x11-0 libxcursor1 libxi6
+          Xvfb :99 -screen 0 1280x720x24 >/tmp/xvfb.log 2>&1 &
+          for _ in $(seq 50); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.2; done
+          test -e /tmp/.X11-unix/X99
+          { echo "DISPLAY=:99"; echo "NV_WINDOW_SMOKE=1"; echo "WINIT_UNIX_BACKEND=x11"; } >>"$GITHUB_ENV"
+
       - name: Measure this commit
         run: |
           set -euo pipefail
