@@ -125,7 +125,11 @@ fn the_record_names_are_registered_at_their_opcodes() {
     let e = engine(true);
     assert_eq!(
         COMMAND_NAMES,
-        ["TTW_ShowGeneProjector", "TTW_GetPlugins", "TTW_EnableRadioFix"]
+        [
+            "TTW_ShowGeneProjector",
+            "TTW_GetPlugins",
+            "TTW_EnableRadioFix"
+        ]
     );
     assert_eq!(name_of(&e, GET_PLUGINS), b"TTW_GetPlugins");
     assert_eq!(name_of(&e, ENABLE_RADIO_FIX), b"TTW_EnableRadioFix");

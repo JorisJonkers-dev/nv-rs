@@ -55,11 +55,15 @@ fn read_then_write_is_the_identity() {
 #[test]
 fn a_new_game_and_a_load_start_without_extra_statistics() {
     let mut e = Engine::new();
-    e.ext::<State>().stats.insert(b"Bobbleheads Found".to_vec(), 3);
+    e.ext::<State>()
+        .stats
+        .insert(b"Bobbleheads Found".to_vec(), 3);
     new_game(&mut e);
     assert!(e.ext::<State>().stats.is_empty());
 
-    e.ext::<State>().stats.insert(b"Captives Rescued".to_vec(), 2);
+    e.ext::<State>()
+        .stats
+        .insert(b"Captives Rescued".to_vec(), 2);
     let plugin = nvse::cosave::Plugin {
         opcode_base: crate::identity::OPCODE_BASE,
         chunks: chunks(),

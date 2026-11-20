@@ -159,8 +159,14 @@ fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
             .collect();
         assert_eq!(names, built, "{id}");
         let commands = &entry["commands"];
-        assert_eq!(commands["implemented"].as_u64().unwrap(), built.len() as u64);
-        assert!(commands["total"].as_u64().unwrap() >= built.len() as u64, "{id}");
+        assert_eq!(
+            commands["implemented"].as_u64().unwrap(),
+            built.len() as u64
+        );
+        assert!(
+            commands["total"].as_u64().unwrap() >= built.len() as u64,
+            "{id}"
+        );
     }
     // Tweaks has no command built: its entry says what the answer stands for.
     let tweaks = c["extenders"]
@@ -171,7 +177,10 @@ fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
         .unwrap();
     assert_eq!(tweaks["commands"]["total"], 8);
     let when = tweaks["reported_installed"].as_str().unwrap();
-    assert!(when.contains("NV_STEWIE") && when.contains("engine fixes"), "{when}");
+    assert!(
+        when.contains("NV_STEWIE") && when.contains("engine fixes"),
+        "{when}"
+    );
 }
 
 #[test]
