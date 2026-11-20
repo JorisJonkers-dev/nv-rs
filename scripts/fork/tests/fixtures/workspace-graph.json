@@ -1563,10 +1563,6 @@
     },
     {
      "kind": null,
-     "name": "cpal"
-    },
-    {
-     "kind": null,
      "name": "raw-window-handle"
     },
     {
