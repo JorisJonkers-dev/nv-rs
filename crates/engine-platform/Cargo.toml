@@ -50,16 +50,8 @@ windows = { version = "0.58", features = ["Win32_Devices_DeviceAndDriverInstalla
 # xkbcommon-dl are not built here: off Windows the fork's window layer (fork_d3d9rec.rs, fork-window
 # above) makes the game's window (docs/fork/DIVERGENCE.md, "Direct3D 9 window layer off Windows").
 #
-# Sound on the speakers off Windows (sound_out.rs, `mod device`): the default output device through
-# ALSA (PipeWire's and PulseAudio's ALSA plugins among them) on Linux, CoreAudio on macOS. The
-# mixer is the port's own on every system; only the device differs. No cpal features: its
-# `realtime` would do nothing on Linux as built (no D-Bus/rtkit) and is not used on macOS; the
-# Linux sound thread runs at normal priority (sound_out.rs says why). Linux links ALSA's
-# libasound.so.2 (alsa-sys): the program needs it to start. Windows keeps its own WASAPI arm
-# (no cpal there). In this build cpal is macOS's only: Linux keeps fork_sound.rs in ds-mix (libpulse loaded
-# at run time, or a null sink), so the program starts without ALSA's library (docs/fork/DIVERGENCE.md).
+# Sound off Windows is ds-mix's (sound_out.rs: cpal on macOS, the fork's fork_sound.rs on Linux).
 [target.'cfg(target_os = "macos")'.dependencies]
-cpal = "0.18.2"
 # macOS: the fork-window window's raw handles for the device layer's window registry (fork_d3d9rec.rs,
 # `MacWindow`); the version d3d9-wgpu and fork-window take.
 raw-window-handle = "=0.6.2"
