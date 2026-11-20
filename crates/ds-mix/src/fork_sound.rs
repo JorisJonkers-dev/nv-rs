@@ -1994,7 +1994,19 @@ mod tests {
                 pulse::Stream::open_on(api, l, Some(&device)).map(|s| Box::new(s) as Box<dyn Sink>)
             })
             .expect("a stream on the null sink");
-            std::thread::sleep(Duration::from_millis(1800));
+            std::thread::sleep(Duration::from_millis(900));
+            for what in ["sinks", "sink-inputs", "sources", "source-outputs"] {
+                if let Ok(o) = std::process::Command::new("pactl")
+                    .args(["list", "short", what])
+                    .output()
+                {
+                    eprintln!(
+                        "pactl list short {what}:\n{}",
+                        String::from_utf8_lossy(&o.stdout)
+                    );
+                }
+            }
+            std::thread::sleep(Duration::from_millis(900));
             drop(out);
             stop.store(true, Ordering::Relaxed);
             let heard = recorder.join().unwrap().expect("recorded");
