@@ -194,6 +194,13 @@ impl Host {
         for (address, function) in play_patch::funcs() {
             engine.register(address, function);
         }
+        // The interface extender's files in the data folder switch the built-in menu-file reader on
+        // (NV_UIO=0 and NV_UIO=1 still win), and the log says so.
+        let (detected, uio_line) = choice.with_uio_detected(data);
+        let choice = &detected;
+        if let Some(line) = uio_line {
+            fork_log::info!(target: "host", "{line}");
+        }
         install_rows_and_extenders(&mut engine, choice);
         fork_log::info!(target: "host", "{}", choice.describe());
         let jip_state = {
