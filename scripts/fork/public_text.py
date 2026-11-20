@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 ROOTS = ("docs/fork", "scripts/fork")
-# This file and its test hold the patterns' own examples.
-SKIP = {"scripts/fork/public_text.py", "scripts/fork/tests/test_public_text.py"}
+# This file, its test and the rule document hold the patterns' own examples.
+SKIP = {"scripts/fork/public_text.py", "scripts/fork/tests/test_public_text.py", "docs/fork/PUBLIC-TEXT.md"}
 SKIP_NAMES = {"Cargo.lock"}
 PLACEHOLDER_HOMES = {"someone", "user", "bob", "runner", "you", "name", "me", "example"}
 
