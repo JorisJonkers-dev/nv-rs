@@ -44,7 +44,7 @@ Source: "{#Stage}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs i
 [Icons]
 Name: "{autoprograms}\nv-rs\Play"; Filename: "{app}\Play.exe"; WorkingDir: "{app}"
 Name: "{autoprograms}\nv-rs\Play with mods"; Filename: "{app}\Play with mods.cmd"; WorkingDir: "{app}"
-Name: "{autoprograms}\nv-rs\Settings"; Filename: "{app}\Settings.cmd"; WorkingDir: "{app}"
+Name: "{autoprograms}\nv-rs\Install mods"; Filename: "{app}\Install mods.cmd"; WorkingDir: "{app}"
 Name: "{autoprograms}\nv-rs\Choose game folder"; Filename: "{app}\Choose game folder.cmd"; WorkingDir: "{app}"
 Name: "{autoprograms}\nv-rs\READ ME"; Filename: "{app}\READ ME.txt"
 Name: "{autodesktop}\nv-rs"; Filename: "{app}\Play.exe"; WorkingDir: "{app}"; Tasks: desktopicon

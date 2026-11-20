@@ -158,6 +158,31 @@
     {
      "features": [],
      "kind": null,
+     "name": "fork-log"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "qos"
+    },
+    {
+     "kind": null,
+     "name": "libloading"
+    },
+    {
+     "kind": null,
+     "name": "cpal"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/ds-mix/Cargo.toml",
+   "name": "ds-mix"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
      "name": "engine-core"
     },
     {
@@ -1483,6 +1508,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "ds-mix"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "engine-core"
     },
     {
@@ -1529,7 +1559,7 @@
     },
     {
      "kind": null,
-     "name": "libloading"
+     "name": "libc"
     },
     {
      "kind": null,
@@ -1680,6 +1710,11 @@
      "features": [],
      "kind": "dev",
      "name": "esm"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "nvse"
     }
    ],
    "features": [],
@@ -2176,6 +2211,49 @@
    "features": [],
    "manifest_path": "/ws/crates/mp3/Cargo.toml",
    "name": "mp3"
+  },
+  {
+   "dependencies": [
+    {
+     "kind": null,
+     "name": "arboard"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "bsa"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "game-folders"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "game-profile"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "mod-install"
+    },
+    {
+     "kind": null,
+     "name": "wgpu"
+    },
+    {
+     "kind": null,
+     "name": "winit"
+    },
+    {
+     "kind": null,
+     "name": "xkbcommon-dl"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/nv-launcher/Cargo.toml",
+   "name": "nv-launcher"
   },
   {
    "dependencies": [],
