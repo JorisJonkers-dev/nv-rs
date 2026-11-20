@@ -514,6 +514,8 @@ pub fn run() {
         if frames == 1 {
             fork_log::print_header();
         }
+        // An F12 report waiting for where it was taken (`place.txt`).
+        host::report_place::note(&mut game.engine);
         if !status_every.is_zero() && last.map_or(true, |at| at.elapsed() >= status_every) {
             last = Some(Instant::now());
             if fork_log::live_status_on() {
