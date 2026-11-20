@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.11.0...v0.12.0) (2026-11-20)
+
+
+### Features
+
+* **host:** the built-in menu-file reader turns itself on when the data folder holds the interface extender's files ([#390](https://github.com/JorisJonkers-dev/nv-rs/issues/390)) ([bc3c852](https://github.com/JorisJonkers-dev/nv-rs/commit/bc3c8524b8043eaa3d63c003a6224c1fb0b50934))
+
 ## [0.11.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.10.0...v0.11.0) (2026-11-19)
 
 
