@@ -1091,6 +1091,7 @@ dependencies = [
  "wayland-protocols",
  "wgpu",
  "winit",
+ "x11rb",
 ]
 
 [[package]]

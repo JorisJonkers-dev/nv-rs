@@ -53,13 +53,24 @@ jobs:
         run: |
           xvfb-run -a -s '-screen 0 1280x720x24' cargo test --locked -p fork-window --test one_loop -- --nocapture 2>&1 | tee loop.txt
           grep -q 'test result: ok. 1 passed' loop.txt
-      - name: Guest program to the window (X11)
+      # #214 and #218: the window after it is made (title, SetWindowPos, minimise and restore, a display change) and the
+      # borderless full screen, read back from the X server. No window manager runs under Xvfb: `fork_window::probe::FakeWm`
+      # stands in for one in the tests that need it. The test binaries are separate processes, so they run one after another.
+      - name: Window state and full screen (X11)
+        env:
+          WINIT_UNIX_BACKEND: x11
+          NV_WINDOW_SMOKE: '1'
+        run: |
+          xvfb-run -a -s '-screen 0 1280x720x24' cargo test --locked -p fork-window --test window_state --test full_screen -- --nocapture 2>&1 | tee state.txt
+          grep -q 'test result: ok. 5 passed; 0 failed; 1 ignored' state.txt
+          grep -q 'test result: ok. 2 passed' state.txt
+      - name: Guest program, the game's window calls and Reset (X11)
         env:
           WINIT_UNIX_BACKEND: x11
           NV_WINDOW_SMOKE: '1'
           # The check reads an info line, which a quiet terminal keeps in the files.
           NV_LOG_TERM: normal
         run: |
-          xvfb-run -a -s '-screen 0 1280x720x24' cargo test --locked -p engine-platform --lib a_guest_program_draws_to_a_window -- --nocapture 2>&1 | tee guest.txt
-          grep -q 'test result: ok. 1 passed' guest.txt
+          xvfb-run -a -s '-screen 0 1280x720x24' cargo test --locked -p engine-platform --lib d3d9real::fork::tests -- --nocapture 2>&1 | tee guest.txt
+          grep -q 'test result: ok. 5 passed' guest.txt
           grep -q 'on the game.s window' guest.txt

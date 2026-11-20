@@ -398,8 +398,10 @@ file upstream owns (both in `.fork/allowed-divergence`).
   (#216): `engine-platform/src/xinput/linux.rs` reads the kernel's event devices (Steam's virtual pad first, then
   Xbox-style, PlayStation and Nintendo pads, with rumble and hot-plugging) behind the game's XInput calls, replayed from
   slaterain/nv-rs#791.
-- Not done: title and `SetWindowPos` changes (#214) after the window is made (partly handled), IME (#217), exclusive full
-  screen (#218; the window is borderless over the monitor).
+- Done since: a title and a `SetWindowPos` change after the window is made reach the real window (#214, see "The window
+  after it is made" below), and the borderless full screen is tested (#218, "Full screen").
+- Not done: IME (#217), exclusive full screen and a video mode change (#218: not offered, the window is borderless over the
+  monitor).
 
 ## Direct3D 9 off Windows (#196, stage 3a)
 
@@ -458,6 +460,64 @@ no frame is shown the device is waited for each skipped frame (the queue does no
 occluded or outdated frame has the swap chain configured again before the next ask. A device the driver took away
 (`radv/amdgpu: Not enough memory for command submission`, a reset) is logged with wgpu's reason and ends the run through the
 exit hooks (`d3d9_wgpu::device_lost`) instead of leaving a frozen window and a stream of validation errors.
+
+### The window after it is made (#214)
+
+What the game does to its window after `CreateWindowExA` reaches the real one, through `fork_window::set_title`, `place`
+and `set_minimised` (commands to the window's one event loop, each answered once it has been asked of the window system):
+
+- `SetWindowTextA` sets `_NET_WM_NAME` and `WM_NAME` (`window_titled`).
+- `SetWindowPos` (`window_moved`) moves the top-level window to the rectangle's corner and sizes its client area to the
+  rectangle less the frame the game added for it (`AdjustWindowRect`); `SWP_NOMOVE` and `SWP_NOSIZE` keep what they name. A
+  child window shares its parent's real window: it sizes the parent's client area and never moves it. The borderless
+  (full-screen) window keeps the monitor and is left as it is. Wayland places no window for its client, so only the size
+  applies there. The swap chain is configured from `client_size`, which follows the window's `Resized`, so it follows the
+  new size. Not carried over from upstream's winit layer: the borderless fallback for a framed rectangle larger than the
+  screen (the full-screen request already makes that window borderless).
+- Minimise and restore are `set_minimised(id, bool)` (a `WM_CHANGE_STATE` and a `_NET_ACTIVE_WINDOW` request on X11), and
+  `is_minimised(id)` reads `_NET_WM_STATE_HIDDEN`. Losing the focus lets go of every held key and button; the focus coming
+  back after a loss is the game's activation: `Input::reactivated` is `Some(1)` (`WA_ACTIVE`) in the next `take_input`, which
+  `post_activate` turns into the game's `WM_ACTIVATE` (the focus the window gets when it is made is not passed on, as the
+  game ignores it). The game's deactivation is not passed on either (`post_activate`).
+- A display change: the refit of a window held full screen is the window manager's (or compositor's) work, and no code
+  here resizes it: the window layer follows it (the `Resized` it gets becomes `client_size`, so the swap chain follows). The
+  display the game's size is seeded from is asked once and kept for the run (`fork_window::display`), so a display change
+  in the middle of a run is seen by the next run. A session with no window manager at all does not refit a full-screen
+  window (a gap, not a regression: the window keeps the size it had).
+
+Tests (`NV_WINDOW_SMOKE=1`, Xvfb, read back from the X server with `fork_window::probe`; the job is
+`fork-window-smoke.yml`):
+`crates/fork-window/tests/window_state.rs` (`a_title_set_after_the_window_is_made_reaches_the_x11_property`,
+`set_window_pos_moves_and_sizes_the_window_and_the_swap_chain_follows`,
+`minimise_and_restore_tell_the_game_it_was_deactivated_and_activated_again`,
+`a_full_screen_window_follows_the_refit_when_the_display_changes` (RandR shrinks Xvfb's one output),
+`the_display_chosen_at_start_is_kept_when_the_display_changes`) and, through the game's own calls, `fork_d3d9rec.rs`
+(`the_games_set_window_text_reaches_the_x11_window`, `the_games_set_window_pos_moves_and_sizes_the_x11_window`). Xvfb has no
+window manager: `probe::FakeWm` does what the EWMH says a window manager does with the requests (map, configure, full
+screen, minimise, activate) and refits its full-screen windows on a display change, so those tests prove what this layer
+asks and how it follows the answer, not what any real window manager does.
+`a_full_screen_window_is_refitted_by_a_real_window_manager_when_the_display_changes` is `#[ignore]`d: it is the same
+scenario for a real window manager that refits full-screen windows on a RandR change (start one by hand under Xvfb), which
+CI does not have. Wayland has no equivalent of `probe` (no client can read another's window or place it), so none of this is
+tested on Wayland; the desktops job (`fork-window-desktops.yml`) runs the layer under real compositors as a smoke only.
+
+### Full screen (#218)
+
+"Full screen" here is the game's `bFull Screen=1` made borderless: the window of a request with no caption
+(`WindowRequest::fullscreen`) is winit's `Fullscreen::Borderless` over the monitor the display choice names
+(`NV_MONITOR`, else last used, primary, first; on Wayland the compositor's current output). It has no caption and covers
+exactly that monitor whatever `iSize` says; the game's picture is stretched to it. Exclusive full screen and a video mode
+change are not offered: the monitor's own mode is never changed, and a game device `Reset` to another size (the game's mode
+change) only gives the back buffer that size, which `Present` scales to the window; a full-screen device (`Windowed=0`) is
+refused. `bFull Screen=0` at the next start gives the framed window at the size the game asked for.
+
+Tests (same setup): `crates/fork-window/tests/full_screen.rs`
+(`full_screen_is_a_captionless_window_over_exactly_the_monitor_the_choice_names`,
+`leaving_full_screen_gives_the_framed_window_back_at_its_size`) and, with a game device,
+`fork_d3d9rec.rs` `a_mode_change_through_reset_keeps_the_borderless_window_on_the_monitor` (the window stays over the monitor,
+the back buffer takes the requested size, a frame is presented, RandR's mode is the one before). Xvfb has no window manager,
+so `probe::FakeWm` makes the `_NET_WM_STATE_FULLSCREEN` request the window manager's work; the tests prove the request is for
+the right monitor and that nothing else changes the mode.
 
 ### One event loop, and the game's size
 
