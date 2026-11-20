@@ -100,34 +100,54 @@ fn guest_params(e: &mut Engine, params: &[Param]) -> u32 {
     at
 }
 
-/// Registers the commands: the table grown to them, the two built ones with their handlers, the
-/// unbuilt one by its name alone (no handler, no parameters: a call fails).
+/// The game's own command that opens the race and sex menu (menu 1036), whose handler
+/// `TTW_ShowGeneProjector` runs.
+pub const RACE_MENU: &[u8] = b"ShowRaceMenu";
+
+/// The game's record of [`RACE_MENU`], when the game's table has it with a handler.
+fn race_menu(e: &Engine) -> Option<table::Record> {
+    let opcode = table::opcode_by_name(e, RACE_MENU)?;
+    let at = table::record_of(e, opcode);
+    (at != 0)
+        .then(|| table::Record::read(e, at))
+        .filter(|record| record.execute != 0)
+}
+
+/// Registers the commands: the table grown to them, `TTW_GetPlugins` and `TTW_EnableRadioFix`
+/// with their handlers, and `TTW_ShowGeneProjector` with the handler and parameter list of the
+/// game's own `ShowRaceMenu`: TTW's scripts call it where the player chooses face and body and
+/// then wait in `MenuMode 1036`, the race and sex menu that command opens. What the real plugin
+/// changes in that menu for the gene projector is not in a public document and is not built.
+/// Without the game's command (a table that lacks it) the record has its name alone and a call
+/// fails.
 pub fn install(e: &mut Engine) {
     table::grow_to(e, ENABLE_RADIO_FIX + 1);
-    let unbuilt = PluginRecord {
-        name: crate::UNBUILT_COMMAND_NAMES[0],
+    let game = race_menu(e);
+    let gene_projector = PluginRecord {
+        name: crate::COMMAND_NAMES[0],
         short: "",
         needs_ref: false,
-        param_count: 0,
-        params: 0,
-        execute: 0,
+        param_count: game.as_ref().map_or(0, |r| r.param_count),
+        params: game.as_ref().map_or(0, |r| r.params),
+        execute: game.as_ref().map_or(0, |r| r.execute),
         eval: 0,
         flags: 0,
         expression: false,
         returns: Returns::Default,
     };
-    table::add_plugin_record(e, SHOW_GENE_PROJECTOR, &unbuilt);
+    table::add_plugin_record(e, SHOW_GENE_PROJECTOR, &gene_projector);
+    e.ext::<State>().gene_projector = game.is_some();
     let built: [(u32, &str, &[Param], AbiFn, Returns); 2] = [
         (
             GET_PLUGINS,
-            crate::COMMAND_NAMES[0],
+            crate::COMMAND_NAMES[1],
             &[],
             get_plugins,
             Returns::Array,
         ),
         (
             ENABLE_RADIO_FIX,
-            crate::COMMAND_NAMES[1],
+            crate::COMMAND_NAMES[2],
             ONE_INT,
             enable_radio_fix,
             Returns::Default,

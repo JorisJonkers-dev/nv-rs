@@ -10,9 +10,12 @@
 //!   `[name, version]` pairs;
 //! - `TTW_EnableRadioFix` (`0x3808`, one integer): built as far as storing the value
 //!   ([`radio_fix`]). The radio fix itself is NOT built: the value changes nothing in the engine;
-//! - `TTW_ShowGeneProjector` (`0x3800`): NOT built. It opens the gene projector character menu.
-//!   Its record name is registered with no handler, so the script error log names it and a call
-//!   fails (the script stops for that run).
+//! - `TTW_ShowGeneProjector` (`0x3800`): opens the game's race and sex menu, through the handler
+//!   of the game's own `ShowRaceMenu` ([`commands::install`]). TTW calls it where the player
+//!   chooses face and body (the birth scene's quest stage sets its timer on the next line, so a
+//!   call that failed would stop the scene) and then waits in `MenuMode 1036`. What the real
+//!   plugin changes in that menu for the gene projector is NOT built: it is not in a public
+//!   document.
 //!
 //! Identity: name `ttw_nvse`, version 1 (unknown, a guess), DLL file name `ttw_nvse.dll` (unknown,
 //! the name plus `.dll`), opcode base `0x3800`, listed when installed. The host's switch
@@ -31,10 +34,12 @@ pub const VERSION: u32 = 1;
 pub const FILE: &str = "ttw_nvse.dll";
 /// `SetOpcodeBase`.
 pub const OPCODE_BASE: u32 = 0x3800;
-/// The commands built, by name.
-pub const COMMAND_NAMES: [&str; 2] = ["TTW_GetPlugins", "TTW_EnableRadioFix"];
-/// The commands not built (record name only, no handler).
-pub const UNBUILT_COMMAND_NAMES: [&str; 1] = ["TTW_ShowGeneProjector"];
+/// The commands built, by name, in the order of their opcodes: all three TTW's scripts call.
+pub const COMMAND_NAMES: [&str; 3] = [
+    "TTW_ShowGeneProjector",
+    "TTW_GetPlugins",
+    "TTW_EnableRadioFix",
+];
 
 /// The plugin on this engine: one slot per engine ([`Engine::ext`]).
 #[derive(Default)]
@@ -45,6 +50,9 @@ pub struct State {
     pub installed: bool,
     /// The last value `TTW_EnableRadioFix` was given (nothing acts on it).
     pub radio_fix: bool,
+    /// `TTW_ShowGeneProjector` got the handler of the game's `ShowRaceMenu` at [`install`]
+    /// (false: the game's table had no such command, and a call fails).
+    pub gene_projector: bool,
 }
 
 /// The host's switch: the plugin answers "installed" (before [`install`]).

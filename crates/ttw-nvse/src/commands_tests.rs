@@ -2,7 +2,7 @@
 //! Tests of the plugin's commands against how TTW's scripts call them.
 
 use crate::commands::{ENABLE_RADIO_FIX, GET_PLUGINS, SHOW_GENE_PROJECTOR};
-use crate::{COMMAND_NAMES, UNBUILT_COMMAND_NAMES};
+use crate::COMMAND_NAMES;
 use engine_core::prelude::*;
 use nvse::vars::{self, Data, Key};
 
@@ -123,8 +123,10 @@ fn a_second_install_does_nothing() {
 #[test]
 fn the_record_names_are_registered_at_their_opcodes() {
     let e = engine(true);
-    assert_eq!(COMMAND_NAMES, ["TTW_GetPlugins", "TTW_EnableRadioFix"]);
-    assert_eq!(UNBUILT_COMMAND_NAMES, ["TTW_ShowGeneProjector"]);
+    assert_eq!(
+        COMMAND_NAMES,
+        ["TTW_ShowGeneProjector", "TTW_GetPlugins", "TTW_EnableRadioFix"]
+    );
     assert_eq!(name_of(&e, GET_PLUGINS), b"TTW_GetPlugins");
     assert_eq!(name_of(&e, ENABLE_RADIO_FIX), b"TTW_EnableRadioFix");
     assert_eq!(name_of(&e, SHOW_GENE_PROJECTOR), b"TTW_ShowGeneProjector");
@@ -132,7 +134,7 @@ fn the_record_names_are_registered_at_their_opcodes() {
         nvse::table::return_type(&e, GET_PLUGINS),
         nvse::table::Returns::Array
     );
-    // The unbuilt one has no handler and no parameters.
+    // Without the game's ShowRaceMenu (this table has none) it has no handler and no parameters.
     let record = nvse::table::record_of(&e, SHOW_GENE_PROJECTOR);
     assert_eq!(e.mem.u32(record + 0x18), 0);
     assert_eq!(e.mem.u16(record + 0x12), 0);
@@ -232,9 +234,77 @@ fn enable_radio_fix_stores_the_value_and_changes_nothing_else() {
     assert!(!crate::radio_fix(&mut e));
 }
 
+/// A table without the game's `ShowRaceMenu`: the record has its name alone, a call fails.
 #[test]
-fn show_gene_projector_is_not_built() {
-    let e = engine(true);
+fn show_gene_projector_without_the_games_race_menu_has_no_handler() {
+    let mut e = engine(true);
     let record = nvse::table::record_of(&e, SHOW_GENE_PROJECTOR);
     assert_eq!(e.mem.u32(record + 0x18), 0, "no handler");
+    assert!(!e.ext::<crate::State>().gene_projector);
+}
+
+/// The game's own `ShowRaceMenu` at a script opcode of the stand-in table: its handler counts
+/// its calls at [`MENU_OPENED`], and its parameter list is at [`RACE_MENU_PARAMS`].
+const RACE_MENU_OPCODE: u32 = 0x10a0;
+const RACE_MENU_EXECUTE: u32 = 0x005c_0000;
+const RACE_MENU_PARAMS: u32 = 0x0300_0e00;
+const MENU_OPENED: u32 = 0x0300_0e80;
+
+fn engine_with_the_games_race_menu(name: &[u8]) -> Engine {
+    let mut e = Engine::new();
+    e.map(0x0118_e000, 0x9000);
+    e.map(0x011d_e000, 0x1000);
+    e.map(0x011c_3000, 0x1000);
+    e.map(DATA, 0x1_0000);
+    nvse::table::install(&mut e);
+    let at = nvse::table::record_of(&e, RACE_MENU_OPCODE);
+    assert_ne!(at, 0);
+    let long_name = nvse::table::guest_str(&mut e, name);
+    let mut record = nvse::table::Record::read(&e, at);
+    record.long_name = long_name;
+    record.opcode = RACE_MENU_OPCODE;
+    record.param_count = 0;
+    record.params = RACE_MENU_PARAMS;
+    record.execute = RACE_MENU_EXECUTE;
+    record.write(&mut e, at);
+    e.register(RACE_MENU_EXECUTE, |e, _| {
+        let opened = e.mem.u32(MENU_OPENED);
+        e.mem.set_u32(MENU_OPENED, opened + 1);
+        Ret {
+            eax: 1,
+            ..Ret::default()
+        }
+    });
+    crate::set_answers_installed(&mut e, true);
+    crate::install(&mut e);
+    e
+}
+
+/// `TTW_ShowGeneProjector` runs the handler of the game's `ShowRaceMenu` with that command's
+/// parameter list: a call opens the menu once and succeeds, so the line after it runs (the
+/// birth scene's `set CG00.runTimer to 1`).
+#[test]
+fn show_gene_projector_opens_the_games_race_menu() {
+    let mut e = engine_with_the_games_race_menu(b"ShowRaceMenu");
+    assert!(e.ext::<crate::State>().gene_projector);
+    let record = nvse::table::record_of(&e, SHOW_GENE_PROJECTOR);
+    assert_eq!(e.mem.u32(record + 0x18), RACE_MENU_EXECUTE);
+    assert_eq!(e.mem.u32(record + 0x14), RACE_MENU_PARAMS);
+    assert_eq!(name_of(&e, SHOW_GENE_PROJECTOR), b"TTW_ShowGeneProjector");
+    assert_eq!(e.mem.u32(MENU_OPENED), 0);
+    let (ok, _) = call(&mut e, SHOW_GENE_PROJECTOR, &[]);
+    assert_eq!(ok, 1);
+    assert_eq!(e.mem.u32(MENU_OPENED), 1);
+    // The game's own record is untouched.
+    let game = nvse::table::record_of(&e, RACE_MENU_OPCODE);
+    assert_eq!(e.mem.u32(game + 0x18), RACE_MENU_EXECUTE);
+    assert_eq!(e.mem.u32(game + 8), RACE_MENU_OPCODE);
+}
+
+/// Another command at that opcode is not taken for the race menu.
+#[test]
+fn show_gene_projector_takes_only_the_command_named_show_race_menu() {
+    let e = engine_with_the_games_race_menu(b"ShowBarberMenu");
+    let record = nvse::table::record_of(&e, SHOW_GENE_PROJECTOR);
+    assert_eq!(e.mem.u32(record + 0x18), 0);
 }

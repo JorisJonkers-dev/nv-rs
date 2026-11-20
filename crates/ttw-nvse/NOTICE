@@ -22,9 +22,12 @@ What each command is built from:
 - TTW_EnableRadioFix: the TTW script's calls (one integer, 0 or 1). It STORES the value in the
   plugin's state. The radio fix itself is NOT built: nothing in the engine changes behaviour
   because of the value.
-- TTW_ShowGeneProjector: opens the gene projector character menu. NOT built: its record name is
-  registered so the script error log names it, with no handler; a script that calls it stops
-  for that run.
+- TTW_ShowGeneProjector: TTW's scripts call it where the player chooses face and body (the
+  result script of a stage of the quest CG00, which sets `CG00.runTimer` on the next line, and
+  the vault exit's script, which then waits in `MenuMode 1036`, the race and sex menu). It is
+  built as the game's own ShowRaceMenu: the same handler and parameter list, so that menu opens.
+  What the real plugin changes in the menu for the gene projector is not in a public document
+  and is NOT built.
 
 Unverified: the DLL file name (ttw_nvse.dll is the plugin's name plus the extension, not read
 from a public document) and the version the plugin hands xNVSE (1 is a guess). The name
