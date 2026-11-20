@@ -86,7 +86,7 @@ then pulls each package anonymously and compares the SHA-256, and adds a package
 The macOS build is a release asset only, not an OCI package yet: `nv-rs-macos-universal-dev.tar.gz` (`macos-build`: nv-viewer for
 Apple silicon and Intel on two runners in parallel, uncached as every release build; `macos`: joined with `lipo`, laid out by `packaging/macos/package.sh` as `bin/nv-viewer`, `share/nv-rs/` with the
 release files and `share/doc/nv-rs/README.txt`) with `SHA256SUMS-macos`, uploaded by `publish-macos`; the Toolbox puts the unpacked
-tree under `Resources/components/nv-rs/` of its macOS bundle. Republish an existing tag with
+tree under `Resources/components/nv-rs/` of its macOS bundle. The archive carries no launcher program and no `play.sh`: raul is the launcher on macOS (its README says so, nv-rs#387). Republish an existing tag with
 `gh workflow run fork-release-build.yml -R JorisJonkers-dev/nv-rs --ref fork -f tag=vX.Y.Z -f publish=true`. A pull request that
 touches the workflow runs `fork-packages-dry-run.yml`, which builds one archive and prints what would be pushed, and builds the
 macOS archive for real and smoke-tests it. A package is private
