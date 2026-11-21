@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.16.0...v0.16.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **bench:** the driver starts a new game on the 0.14 viewer and reaches the first exterior ([#410](https://github.com/JorisJonkers-dev/nv-rs/issues/410)) ([#427](https://github.com/JorisJonkers-dev/nv-rs/issues/427)) ([754c1c0](https://github.com/JorisJonkers-dev/nv-rs/commit/754c1c08f68ba6571fc429b132689532eca3a35c))
+
 ## [0.16.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.15.0...v0.16.0) (2026-11-21)
 
 
