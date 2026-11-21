@@ -96,6 +96,8 @@ Final records (`"event"` set) carry `reason`, `frame`, `thread`, counts of `soft
 - `panic`: a panic anywhere outside the game's own stops (the panic hook, then the previous hook runs), with `location` (file name and line only; paths in the message are cut to file names too).
 - `exit`: the process ends, with the summary line.
 
+At the end of the run the file layer's listing cache says what it did, one `info` line on target `files` (`file layer listing cache: N looks, H from the kept names (P%), R directory reads, F folders forgotten after the run's own writes`; nv-rs#277): the cost of the case-insensitive lookups of a load, to compare before and after a change to the lookups.
+
 `NV_HEAP_STOP_FRACTION` (off unless set; `0.9` or `90`): when the share of the guest heap in use reaches it (looked at every 30
 frames, `crates/host/src/fork_heap.rs`), the run logs `graceful stop: the guest heap is N% in use ...` on target `stop`, writes a
 `stop` record with that reason and ends as a requested stop (status 143), before the heap's exhaustion panic.

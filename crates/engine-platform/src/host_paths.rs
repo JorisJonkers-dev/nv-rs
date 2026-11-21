@@ -49,6 +49,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
@@ -464,6 +465,50 @@ impl Listings {
 
 static LISTINGS: Mutex<Option<Listings>> = Mutex::new(None);
 
+/// The listing cache's counters (nv-rs#277): looks answered from the kept names, looks that read
+/// the folder, and the folders dropped by a [`forget`]. Logged once at the end of the run
+/// ([`listing_counters_line`], target `files`), so a run's cost of case-insensitive lookups shows.
+static LISTING_HITS: AtomicU64 = AtomicU64::new(0);
+static LISTING_READS: AtomicU64 = AtomicU64::new(0);
+static LISTING_FORGETS: AtomicU64 = AtomicU64::new(0);
+
+/// The counters' text: `hits`, `reads` (directory reads) and `forgets`, and the share of looks
+/// the cache answered.
+pub fn listing_counters_line(hits: u64, reads: u64, forgets: u64) -> String {
+    let looks = hits + reads;
+    let share = if looks == 0 {
+        0.0
+    } else {
+        100.0 * hits as f64 / looks as f64
+    };
+    format!(
+        "file layer listing cache: {looks} looks, {hits} from the kept names ({share:.1}%), \
+         {reads} directory reads, {forgets} folders forgotten after the run's own writes"
+    )
+}
+
+/// `(hits, reads, forgets)` so far.
+pub fn listing_counters() -> (u64, u64, u64) {
+    (
+        LISTING_HITS.load(Ordering::Relaxed),
+        LISTING_READS.load(Ordering::Relaxed),
+        LISTING_FORGETS.load(Ordering::Relaxed),
+    )
+}
+
+fn say_listing_counters(how: &str) {
+    let (hits, reads, forgets) = listing_counters();
+    if how == "exit" && hits + reads > 0 {
+        fork_log::info!(target: "files", "{}", listing_counters_line(hits, reads, forgets));
+    }
+}
+
+fn count_listing(counter: &AtomicU64) {
+    static REGISTERED: std::sync::Once = std::sync::Once::new();
+    REGISTERED.call_once(|| fork_log::on_finish(say_listing_counters));
+    counter.fetch_add(1, Ordering::Relaxed);
+}
+
 /// The key a folder's names are kept under: on Linux and macOS the folder itself (its device
 /// and number), so every spelling of it (another case on macOS, a link, `..`) is one folder kept
 /// once and forgotten once; elsewhere (the tests on Windows) its path.
@@ -495,11 +540,13 @@ pub fn folder_matches(folder: &str, part: &str) -> Option<Vec<String>> {
         let kept = LISTINGS.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(modified) = modified {
             if let Some(found) = kept.as_ref().and_then(|l| l.get(&at, modified, &key)) {
+                count_listing(&LISTING_HITS);
                 return Some(found);
             }
         }
         kept.as_ref().map_or(0, |l| l.generation)
     };
+    count_listing(&LISTING_READS);
     let now = SystemTime::now();
     let names: Vec<String> = std::fs::read_dir(folder)
         .ok()?
@@ -526,6 +573,7 @@ pub fn forget(folder: &Path) {
         return;
     };
     let at = folder_key(&folder.to_string_lossy(), &meta);
+    count_listing(&LISTING_FORGETS);
     let mut kept = LISTINGS.lock().unwrap_or_else(|p| p.into_inner());
     kept.get_or_insert_with(Listings::default).forget(&at);
 }
@@ -1372,6 +1420,16 @@ mod tests {
     /// A folder's names are kept while its time is the one read with them, grouped by Windows'
     /// comparison in byte order.
     #[test]
+    fn the_counters_line_says_looks_hits_reads_and_forgets() {
+        assert_eq!(
+            listing_counters_line(90, 10, 3),
+            "file layer listing cache: 100 looks, 90 from the kept names (90.0%), 10 directory \
+             reads, 3 folders forgotten after the run's own writes"
+        );
+        assert!(listing_counters_line(0, 0, 0).contains("0 looks, 0 from the kept names (0.0%)"));
+    }
+
+    #[test]
     fn kept_names_answer_while_the_folder_time_stays() {
         let mut kept = Listings::default();
         kept.keep(
@@ -1459,6 +1517,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let folder = dir.to_str().unwrap().to_string();
+        let counters_before = listing_counters();
         std::fs::write(dir.join("Foo.txt"), b"").unwrap();
         let old = SystemTime::now() - Duration::from_secs(3600);
         set_folder_time(&dir, old);
@@ -1488,6 +1547,10 @@ mod tests {
             folder_matches(&folder, "BAZ.TXT"),
             Some(names(&["Baz.txt"]))
         );
+        // The counters moved (other tests count too, so only that they rose).
+        let after = listing_counters();
+        assert!(after.0 > counters_before.0 && after.1 > counters_before.1);
+        assert!(after.2 > counters_before.2);
         // Linux and macOS: the folder is kept as itself, so another spelling of it is forgotten
         // too. (The 2-second rule is tested with set times: a_listing_read_just_after_...)
         #[cfg(unix)]

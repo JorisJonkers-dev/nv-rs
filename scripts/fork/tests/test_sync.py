@@ -85,6 +85,19 @@ class Fixture:
         return run(self.work, "git", "show", f"{ref}:{path}").stdout
 
 
+class AllowedFiles(unittest.TestCase):
+    def test_the_old_list_and_the_folder_are_read_together(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".fork/allowed-divergence.d").mkdir(parents=True)
+            (root / ".fork/allowed-divergence").write_text("README.md  # old\n")
+            (root / ".fork/allowed-divergence.d/one").write_text("# why\ncrates/x/a.rs  # a\ncrates/x/b.rs\n")
+            (root / ".fork/allowed-divergence.d/two").write_text("crates/y/c.rs\n")
+            (root / ".fork/allowed-divergence.d/.hidden").write_text("nope\n")
+            self.assertEqual(sync_report.read_allowed(d), ["README.md", "crates/x/a.rs", "crates/x/b.rs", "crates/y/c.rs"])
+            self.assertEqual(sync_report.read_allowed(str(root / "none")), [])
+
+
 class Classify(unittest.TestCase):
     def test_classes(self):
         got = sync_report.classify(["a.rs", "README.md", ".fork/x", "dir/f"], ["README.md"], [".fork/", "dir/f"])
@@ -278,6 +291,12 @@ class VerifySync(unittest.TestCase):
 
     def test_listed_divergence_passes(self):
         self.fx.on("fork", {"crates/a/lib.rs": "fork\n", "FORK.md": "x\n"}, "ok")
+        res = self.verify()
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_a_divergence_listed_in_its_own_file_passes(self):
+        # nv-rs#438: one file per entry in .fork/allowed-divergence.d/
+        self.fx.on("fork", {"crates/b/lib.rs": "fork\n", ".fork/allowed-divergence.d/b-lib": "crates/b/lib.rs  # a change\n"}, "own file")
         res = self.verify()
         self.assertEqual(res.returncode, 0, res.stderr)
 
