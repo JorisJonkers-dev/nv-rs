@@ -417,6 +417,9 @@ def views(d, opts):
             d.note(f"{view.name}: not reached")
             phase(d, f"view.{view.name}", "end")
             continue
+        if not d.alive():  # the game stopped on the way: a picture now would be of nothing
+            d.note(f"{view.name}: the game stopped before the picture")
+            return
         name = f"{viewlib.DIR}/{view.name}.png"
         if d.capture(os.path.join(run_dir, name)):
             pos = d.position()

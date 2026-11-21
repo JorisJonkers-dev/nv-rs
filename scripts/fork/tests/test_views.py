@@ -316,6 +316,24 @@ class DriverTests(unittest.TestCase):
             self.assertIn("set timescale to 600", g.lines)
             self.assertTrue(g.open)  # the console is open again, ready to stop the clock
 
+    def test_a_game_that_stopped_on_the_way_gets_no_picture_and_no_state_line(self):
+        with tempfile.TemporaryDirectory() as t:
+            g = FakeGame(t)
+            lines = g.console_line
+
+            def line(text, settle=1.0):
+                if text.startswith("player.setpos y 5"):
+                    g.alive = lambda: False  # the port stopped while the player was moving
+                return lines(text, settle)
+
+            g.console_line = line
+            vs = [views.View("a", 1.0, 2.0, 3.0, 0.0), views.View("b", 4.0, 5.0, 6.0, 0.0), views.View("c", 7.0, 8.0, 9.0, 0.0)]
+            self.run_views(g, {"views": vs, "hour": None})
+            self.assertEqual([Path(s).name for s in g.shots], ["a.png"])
+            self.assertIn("b: the game stopped before the picture", g.notes)
+            m = json.loads((Path(t) / views.MANIFEST).read_text())
+            self.assertEqual([v["captured"] for v in m["views"]], [True, False, False])
+
     def test_near_xy_and_calm(self):
         v = views.View("a", 100.0, 100.0, 0.0, 0.0)
         self.assertTrue(drivers.near_xy((130.0, 100.0, 5.0), v))
