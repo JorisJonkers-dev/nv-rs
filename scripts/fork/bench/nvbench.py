@@ -26,6 +26,7 @@ import parse  # noqa: E402
 import report  # noqa: E402
 import replay  # noqa: E402
 import suite  # noqa: E402
+import timeline  # noqa: E402
 import runner  # noqa: E402
 import scenarios  # noqa: E402
 import watch  # noqa: E402
@@ -53,6 +54,9 @@ def analyze_dir(run_dir, plan=None, run=None, settings=None):
     if recorder:
         # The hitch recorder's own summary; metrics["hitches"] is the frame log's count.
         metrics["recorder"] = recorder
+    hit_frames = [h["frame"] for h in timeline.parse_hitches(read(run_dir / "hitches.csv"))]
+    if hit_frames and log.get("game_events"):
+        metrics["hitch_events"] = parse.attribute_hitches(hit_frames, log["game_events"])
     checks = verdict_checks(metrics, plan, (run or {}).get("wall_s"))
     series_t = [r["t"] for r in samples]
     out = {
