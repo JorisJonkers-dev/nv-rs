@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.2](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.18.1...v0.18.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* **deps:** lower the zip requirement to 9.5 so the lock resolves under the 7-day crate age rule ([#450](https://github.com/JorisJonkers-dev/nv-rs/issues/450)) ([27bbbfa](https://github.com/JorisJonkers-dev/nv-rs/commit/27bbbfa41d74597914351f88dcf34b7b794852b8))
+* **sync:** put the new typed_after_draw test in the typed runtime job of the component map ([2420052](https://github.com/JorisJonkers-dev/nv-rs/commit/242005289c4699a1bb1ffe31af706fa8432a7254))
+
 ## [0.18.1](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.18.0...v0.18.1) (2026-11-21)
 
 
