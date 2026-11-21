@@ -7,7 +7,10 @@ A scenario is a function `drive(d)` of a Driver. `d.until_screen("play", 60)` wa
 (NV_FRAME_LOG), read from its tail.
 """
 import os
+import subprocess
 import time
+
+import tools
 
 SCREEN_COL, PX, PY, PZ, FDELTA = 8, 5, 6, 7, 2
 
@@ -35,6 +38,7 @@ class Driver:
         self.vi, self.frames, self.proc, self.log, self.scale = vi, frames, proc, log, scale
         self.clock, self.sleep = clock, sleep
         self.t0 = clock()
+        self.wayland = None  # the nested compositor's environment (WAYLAND_DISPLAY, XDG_RUNTIME_DIR), set by the runner
 
     # state ---------------------------------------------------------------------------------------
     def alive(self):
@@ -56,6 +60,23 @@ class Driver:
     def position(self):
         rows = self.tail(2048)
         return rows[-1][2:5] if rows else None
+
+    def capture(self, path, timeout=30.0):
+        """A picture of the nested screen (grim) as a PNG at `path`; False, with a note, when there is none to take."""
+        grim = tools.find("grim")
+        if not (grim and self.wayland):
+            self.note("no picture: " + ("grim is not installed" if not grim else "no nested compositor"))
+            return False
+        env = dict(os.environ, **self.wayland)
+        try:
+            r = subprocess.run([grim, "-t", "png", str(path)], env=env, capture_output=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            self.note(f"grim failed: {e}")
+            return False
+        if r.returncode != 0 or not os.path.exists(path):
+            self.note(f"grim failed: {r.stderr.decode('utf-8', 'replace').strip()[:200]}")
+            return False
+        return True
 
     def note(self, text):
         if self.log:

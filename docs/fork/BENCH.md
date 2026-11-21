@@ -22,7 +22,7 @@ game folder and run only locally; CI runs the parsing, report and compare code a
 Options of `run`: `--nested headless|window` (the real window path, see "Real window path" below), `--windowed --yes-windowed` (the viewer's own window on your compositor; refused without both), `--threads real|stepped`,
 `--preset fixes|vanilla`, `--resolution WxH`, `--sound silent|out|none`, `--vram-limit-pct N`, `--mem 12G`, `--scale F`
 (shorten or lengthen a scenario), `--keys` and `--mouse` (extra scripted input, `NV_MOVE_KEYS` syntax), `--shots DIR[,ms]`
-(debugging: the game's frames saved for you to look at, never commit them).
+(debugging: the game's frames saved for you to look at, never commit them). The `views` scenario has its own: `--views`, `--views-file`, `--hour`, `--weather`, `--views-settle` (see "The views scenario").
 
 Runs go to `~/.local/state/nv-rs/bench/<scenario>-<time>/` (`NV_BENCH_DIR` changes it): `viewer.log`, `frames.tsv`,
 `samples.tsv`, `summary.json`, `report.md`, `report.html` (inline SVG charts, no script). Numbers only: no game data.
@@ -192,6 +192,7 @@ is the default for these scenarios (`--legacy` runs the old frame-counted `NV_MO
 | `quick` | **The quick suite, one viewer session, 120 s in all (`TOO_LONG` over that, start-up and loading included):** start-up (shorter fixed waits), the new game's first room, then Doc's house, Goodsprings and the Strip in turn by console teleports, each place's measured script at half length (about 10 s) |
 | `doc_house`, `goodsprings`, `strip`, `novac` | Each the same for one place (start-up, new game, then the place): ~3 s warm-up, ~18 s measured |
 | `sneak` | Goodsprings, then the sneak check: a step forward standing, real Ctrl, the same step sneaking; fails when sneaking is not slower (see "Ctrl and sneak") |
+| `views` | **Fixed views of the world, one picture each (nv-rs#343; "The views scenario" below):** a new game, Goodsprings, the game hour set and stopped, a weather forced, then each view of a list placed by the console, settled, and captured to `views/<name>.png` with a manifest `views.json` |
 | `save`, `continue` | The save round trip of the release test ([RELEASE-TEST.md](RELEASE-TEST.md)): a new game saved in the first town with the console, then a new session that loads it with Continue; each notes the player's position |
 | `newgame` | Start-up movies skipped, menu, New, the intro movie skipped, the pack boxes, the first room, 20 s there |
 | `boot` | The start-up movies skipped, 40 s on the main menu |
@@ -230,6 +231,49 @@ dismissed before the measured script starts rather than measured as a menu. `168
 Why `NV_MOVE_KEYS` real input needed `NV_MOVE_REAL_INPUT=1`: a run with a key or mouse script shuts the window's keyboard
 and mouse out (`real_input_reaches_game`, `crates/host/src/player_move.rs`), so real events never arrived until the
 drivers stopped using scripts altogether.
+
+### The views scenario
+
+`nv-rs-dev bench run views` shows the same places, at the same headings and the same time of day, every run, with one
+picture per view: for comparing a run with a generated LOD folder against one without it, and for judging distant land and
+water from the pictures. It is a driver like the others (nested headless window, the memory guard, the bench lock).
+
+After the new game and a teleport to Goodsprings (which is how the driver gets into the Mojave exterior), the driver sets the
+sky once, by the console: `set gamehour to H`, `set timescale to 0` (the hour then stays for the whole run) and, unless
+asked not to, `fw <weather>` (a forced weather; the default is the base game's clear day, `0FFC88`). Then, for each view in
+order, it opens the console and sets `player.setpos x/y/z` and `player.setangle z <heading>`, waits for the player to be there
+and the load to end, holds the play screen `--views-settle` seconds (default 15; boxes dismissed), waits for the frame times
+to even out (60 frames none over 100 ms and the player landed), and takes the picture of the nested screen (`grim`, found as
+`NV_BENCH_GRIM` or on `PATH`; without it no picture is taken and the verdict fails). Its position is noted in the log as
+`# driver: state view.<name> x=.. y=.. z=..` after the picture is written.
+
+| Option | Meaning |
+| --- | --- |
+| `--views 'name:x:y:z:heading;...'` | The views on the command line (`;` between views). Default: the built-in list below |
+| `--views-file FILE` | The views in a file, one a line `name x y z heading`, `#` comments and blank lines ignored. Not together with `--views` |
+| `--hour H` | The game hour (0 up to 24, default 12) |
+| `--weather FORMID\|none` | The weather form id in hex to force (default `0FFC88`); `none` leaves the game's own weather, and the manifest then says it is not fixed |
+| `--views-settle S` | Seconds of play at a view before its picture (default 15) |
+
+A view's name is its file name (letters, digits, `-` and `_`), so two runs compare file by file whatever else is on the list;
+the position is in world units of the Mojave Wasteland, the heading in degrees of the game's compass (0 is north, +y; 90 is
+east, +x). The heading is commanded, not read back (the frame log has no heading column), so it is exact; the position
+is the one the frame log showed after the player landed. The built-in views (map markers of the base game, looking far over
+land and water):
+
+| Name | From | Heading |
+| --- | --- | --- |
+| `goodsprings-valley` | the east edge of Goodsprings | 90 |
+| `vegas-from-the-south` | NCR Sharecropper Farms | 0 |
+| `lake-mead` | Boulder Beach | 60 |
+| `colorado-river` | Cottonwood Cove | 90 |
+| `hoover-dam-from-the-west` | west of Hoover Dam | 75 |
+
+The run directory gets `views/<name>.png` and `views.json`: the hour, the clock (stopped), the weather (or that it is not
+set), the settle time and, per view, the commanded and the observed position, the heading and the picture's name. The
+manifest is rewritten after every view. `nv-rs-dev bench views-compare RUN_A RUN_B` checks two runs against the issue's
+acceptance: the same views and sky, positions within 1 unit and headings within 1 degree (exit status 1 and one line per
+difference otherwise). The pictures are game content: they stay on the machine, never in a repository.
 
 ### Fixed: the player stopped answering movement and the mouse (nv-rs#324)
 

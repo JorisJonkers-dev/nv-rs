@@ -1,5 +1,8 @@
 """Scenario drivers: the scenarios of scenarios.py as closed-loop, wall-clock programs for driver.py, valid at any frame
 rate (docs/fork/BENCH.md). Each takes a Driver and an options dict (`scale` shortens or lengthens the walking)."""
+import os
+
+import views as viewlib
 
 # Form ids of the base game (numbers only; scenarios.PLACES and friends hold the same).
 OPENING_QUEST = "104c1c"
@@ -303,6 +306,132 @@ def session(places, measure=1.0, quiet=6.0, brisk=False, sneak_at=()):
     return run
 
 
+
+def near_xy(pos, view, units=60.0):
+    return bool(pos) and ((pos[0] - view.x) ** 2 + (pos[1] - view.y) ** 2) ** 0.5 <= units
+
+
+def calm(d, frames=60, limit=0.1, steady=0.5):
+    """Whether the last `frames` frames of the log are even: no frame took more than `limit` s (a load or a stream
+    shows as one long frame) and the player stopped moving (landed): `steady` units over the stretch."""
+    rows = d.tail(16384)[-frames:]
+    if len(rows) < frames:
+        return False
+    if max(r[5] for r in rows) > limit:
+        return False
+    first, last = rows[0][2:5], rows[-1][2:5]
+    return sum((a - b) ** 2 for a, b in zip(first, last)) ** 0.5 <= steady
+
+
+def run_clock(d, hours, scale=viewlib.CLOCK_SCALE, timeout=300.0):
+    """Let the game's clock run `hours` game hours at `scale` (the console is shut meanwhile) and see it done: the
+    seconds of play the frame log shows (the game stands still in a menu) are added up, so the console's open and
+    shut times do not count. `set gamehour` stops the port (an unmapped write at 4, the sky's update after a jump), so the
+    hour is reached the way the game itself reaches one. Returns the game seconds that passed."""
+    need = hours * 3600.0 / scale - viewlib.CLOCK_LATENCY_S
+    rows = d.tail(1)
+    passed, last = 0.0, [rows[-1][0] if rows else 0]
+    d.console_line(f"set timescale to {scale:g}", 0.3)
+    d.console_close(quiet=0.0, timeout=60)
+
+    def done():
+        nonlocal passed
+        if d.screen() == "menu":  # a box that came (the packs' boxes come in the first exterior): dismissed, the clock goes on
+            d.settle_play(quiet=0.2, timeout=30)
+        for r in d.tail(16384):
+            if r[0] > last[0]:
+                last[0] = r[0]
+                if r[1] == "play":
+                    passed += r[5]
+        return passed >= need
+
+    d.until(done, timeout, every=0.05, what=f"the clock to run {hours:g} hours")
+    d.console_open()
+    return passed
+
+
+def set_sky(d, hour, weather, timescale=0):
+    """The game hour, the clock stopped (the hour then stays for the whole run) and, when given, a forced weather;
+    an argument that is None is left as the game has it. The hour is reached by running the clock on from the new
+    game's start hour (viewlib.START_HOUR)."""
+    d.console_open()
+    d.console_line("tgm", 0.6)  # god mode: a fall (a view from the console's own height) does no damage (it killed the player)
+    d.console_line("set timescale to 0", 0.4)
+    if hour is not None:
+        hours = (hour - viewlib.START_HOUR) % 24.0
+        if hours > 0.0:
+            run_clock(d, hours)
+    if timescale is not None:
+        d.console_line(f"set timescale to {timescale:g}", 0.6)
+    if weather:
+        d.console_line(f"fw {weather}", 1.0)
+    d.note(f"sky hour={'game' if hour is None else format(hour, 'g')} timescale={'game' if timescale is None else format(timescale, 'g')} weather={weather or 'game'}")
+    return d.console_close(quiet=1.0, timeout=60)
+
+
+def place_view(d, view, settle):
+    """Put the player at a view by the console, wait for the load, the play screen to hold `settle` s and the frames to
+    even out; the level of the settle is noted. False when the player did not get there."""
+    d.console_open()
+    for line in viewlib.console_lines(view):
+        d.console_line(line, 0.5)
+    ok = d.until(lambda: near_xy(d.position(), view), 20, every=0.1, what=f"the move to {view.name}")
+    d.until(lambda: d.screen() != "loading", 60, every=0.1, what="the end of the load")
+    d.wait(0.3)
+    d.console_close(quiet=2.0, timeout=60)
+    d.settle_play(quiet=settle, timeout=settle + 90)
+    if not d.until(lambda: calm(d), 60, every=0.25, what=f"the frames at {view.name} to even out"):
+        d.note(f"{view.name}: the frame times did not even out; captured as it is")
+    return ok
+
+
+def views(d, opts):
+    """The views scenario (nv-rs#343, docs/fork/BENCH.md): a new game, the Mojave exterior, the sky fixed, then each
+    view of the list in turn: placed by the console, settled, one picture (`views/<name>.png` in the run directory) and
+    the position noted (`state view.<name>`); `views.json` is the manifest, rewritten after every view."""
+    plan = opts.get("views") or viewlib.DEFAULT_VIEWS
+    hour = opts["hour"] if "hour" in opts else viewlib.HOUR
+    timescale = opts["timescale"] if "timescale" in opts else 0
+    weather = opts["weather"] if "weather" in opts else viewlib.WEATHER
+    settle = opts.get("views_settle", viewlib.SETTLE_S)
+    run_dir = os.path.dirname(d.frames)
+    os.makedirs(os.path.join(run_dir, viewlib.DIR), exist_ok=True)
+    captures = {}
+
+    def write():
+        viewlib.write_manifest(run_dir, viewlib.manifest(plan, hour, weather, settle, captures, resolution=opts.get("resolution"), timescale=timescale))
+
+    write()
+    if not start_new_game(d, hold_first_room=0.0):
+        return
+    if not at_marker(d, "1658B7"):  # Goodsprings: the way into the Mojave exterior
+        d.note("the Mojave exterior was not reached")
+        return
+    warm_first_exterior(d)
+    set_sky(d, hour, weather, timescale)
+    for view in plan:
+        if not d.alive():
+            return
+        phase(d, f"view.{view.name}", "start")
+        if not place_view(d, view, settle):
+            d.note(f"{view.name}: not reached")
+            phase(d, f"view.{view.name}", "end")
+            continue
+        if not d.alive():  # the game stopped on the way: a picture now would be of nothing
+            d.note(f"{view.name}: the game stopped before the picture")
+            return
+        name = f"{viewlib.DIR}/{view.name}.png"
+        if d.capture(os.path.join(run_dir, name)):
+            pos = d.position()
+            captures[view.name] = {"observed": list(pos) if pos else None, "file": name}
+            note_state(d, f"view.{view.name}")
+            d.note(f"view {view.name} file={name}")
+        else:
+            d.note(f"{view.name}: no picture taken")
+        phase(d, f"view.{view.name}", "end")
+        write()
+
+
 ROUND_TRIP_SAVE = "nvbench-roundtrip"  # the save the save round trip writes (docs/fork/RELEASE-TEST.md)
 
 
@@ -399,5 +528,6 @@ DRIVERS = {
     "save": save_game,
     "continue": continue_game,
     "soak": soak,
+    "views": views,
 }
 
