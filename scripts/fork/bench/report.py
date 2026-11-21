@@ -116,6 +116,10 @@ def markdown(summary):
                 f"{hi['slow_windows']} slow windows, p99 {hi['p99_ms']} ms. {hi['verdict']}"]
         if hi["by_cause"]:
             out.append("By cause: " + ", ".join(f"{k} x{v['n']} ({v['ms']} ms)" for k, v in hi["by_cause"].items()))
+        he = m.get("hitch_events")
+        if he and he["total"]:
+            near = ", ".join(f"{k} x{v}" for k, v in he["by_event"].items()) or "none"
+            out.append(f"Next to a menu or load event of the game trace (within a few frames): {near}; {he['unattributed']} of {he['total']} hitches with none.")
         if hi["over_pct"]:
             out.append("Frames over: " + ", ".join(f"{k} ms {v}%" for k, v in hi["over_pct"].items()))
         for w in hi["worst"]:
