@@ -85,6 +85,8 @@ A commit that adds a `mod x;` line to an overlay file upstream also has would ar
 the build breaks. The replay stops on it with reason `partial`: take the file out of `.fork/overlay-paths` and list it in
 `.fork/allowed-divergence`, or apply the commit by hand.
 
+Since nv-rs#438 the list is a folder: `.fork/allowed-divergence` is frozen history (a test fails on any change to it) and a new entry is one file under `.fork/allowed-divergence.d/`, so two pull requests that each add one do not conflict. Wherever this document says `.fork/allowed-divergence`, read the old list and that folder together.
+
 The divergence list is meant to grow. A file the fork wants to change for good goes into `.fork/allowed-divergence` with a
 reason; nothing needs to be accepted anywhere else.
 

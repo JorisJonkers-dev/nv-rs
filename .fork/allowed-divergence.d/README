@@ -1,0 +1,3 @@
+One file per entry (nv-rs#438). Each file lists upstream-owned paths the fork changes on purpose, one `path  # reason` per line,
+and is named for the change (`heap-guard`, `guest-window`). The old list `.fork/allowed-divergence` is frozen history; both are
+read by verify-sync.sh, sync_report.py and divergence_report.py. Files starting with a dot are not read.
