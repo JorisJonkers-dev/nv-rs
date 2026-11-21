@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.18.2...v0.19.0) (2026-11-21)
+
+
+### Features
+
+* **bench:** a views scenario with fixed position, heading and time of day, one frame per view ([#452](https://github.com/JorisJonkers-dev/nv-rs/issues/452)) ([95ae6e0](https://github.com/JorisJonkers-dev/nv-rs/commit/95ae6e0d1f52458f8ce0d9974a6c8681d3b2b9e1))
+
+
+### Bug Fixes
+
+* **host:** the game trace reads the load counts without the shared xNVSE slot ([#454](https://github.com/JorisJonkers-dev/nv-rs/issues/454)) ([e8135e8](https://github.com/JorisJonkers-dev/nv-rs/commit/e8135e8506cdf21968a0e5c03db64c89eadbc188))
+
 ## [0.18.2](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.18.1...v0.18.2) (2026-11-21)
 
 
