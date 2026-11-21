@@ -24,10 +24,11 @@
 //! answer "installed" in a run ([`set_answers_installed`]) for a game whose scripts read Tweaks'
 //! version and call none of its commands (Tale of Two Wastelands).
 //!
-//! Not yet: Tweaks' eight script commands (opcodes `0x2132` up), its co-save records (kept for the
-//! next save by the co-save row while its section is not read here) and every row not in
+//! Not yet: Tweaks' eight script commands (opcodes `0x2132` up), its co-save records other than `AMID` (kept
+//! as they were, [`cosave`]) and every row not in
 //! [`rows::all`].
 
+pub mod cosave;
 pub mod ini;
 pub mod rows;
 pub mod settings;
@@ -70,6 +71,8 @@ pub struct Stewie {
     pub settings: settings::Settings,
     /// The start-up lines [`install`] logged.
     pub log: Vec<String>,
+    /// Tweaks' co-save records of the kinds not built, kept for the next co-save ([`cosave`]).
+    pub kept: cosave::Kept,
 }
 
 /// The host's row: Tweaks built in for this run (before [`install`]).
@@ -100,8 +103,8 @@ pub fn on(e: &Engine) -> bool {
 /// missing (the lead, 2026-11-18). The commands' PR turns it on.
 pub const ANSWERS_INSTALLED: bool = false;
 
-/// xNVSE's record of Tweaks: listed only when it answers "installed" ([`ANSWERS_INSTALLED`]), no
-/// callbacks yet; its opcode base is its co-save section's header.
+/// xNVSE's record of Tweaks: listed only when it answers "installed" ([`ANSWERS_INSTALLED`]); its
+/// opcode base is its co-save section's header, read and written by [`cosave`].
 fn plugin(answers_installed: bool) -> nvse::plugins::BuiltIn {
     nvse::plugins::BuiltIn {
         file: FILE,
@@ -109,11 +112,11 @@ fn plugin(answers_installed: bool) -> nvse::plugins::BuiltIn {
         version: VERSION,
         opcode_base: OPCODE_BASE,
         listed: ANSWERS_INSTALLED || answers_installed,
-        listener: None,
-        save: None,
-        load: None,
+        listener: Some(cosave::listen),
+        save: Some(cosave::save),
+        load: Some(cosave::load),
         pre_load: None,
-        new_game: None,
+        new_game: Some(cosave::new_game),
     }
 }
 
