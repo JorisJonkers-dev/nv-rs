@@ -474,6 +474,7 @@ pub fn run() {
     // The live status line's numbers: the frames and the time of the last one.
     let mut live = (Instant::now(), 0u64);
     let mut trace = host::fork_trace::Trace::default();
+    let mut heap_guard = host::fork_heap::Guard::default();
     let mut last_ctx = fork_hitch::Context::default();
     loop {
         if fork_log::stop_requested() {
@@ -497,6 +498,7 @@ pub fn run() {
             host::end_process(0);
         }
         trace.sample(&game.engine);
+        heap_guard.sample(&game.engine);
         let ctx = hitch_context(&game.engine);
         if ctx.cell != last_ctx.cell {
             fork_hitch::event("cell.change", u64::from(ctx.cell));

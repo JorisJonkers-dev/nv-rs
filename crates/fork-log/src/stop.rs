@@ -79,6 +79,45 @@ pub fn addresses(why: &str) -> Vec<String> {
         .collect()
 }
 
+/// The family a stop names (nv-rs#227): the moved family's number from "family N" in the reason
+/// (a dual-run difference, a stale read of a moved object) and, when it follows, the field of a
+/// poison word ("family N's field +x"). `(number, field)`; `None` when the reason names none.
+pub fn family(why: &str) -> Option<(u32, Option<String>)> {
+    let at = why.find("family ")? + "family ".len();
+    let rest = &why[at..];
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let number: u32 = digits.parse().ok()?;
+    let field = rest[digits.len()..]
+        .strip_prefix("'s field +")
+        .map(|f| {
+            f.chars()
+                .take_while(char::is_ascii_hexdigit)
+                .collect::<String>()
+        })
+        .filter(|f| !f.is_empty())
+        .map(|f| format!("+{f}"));
+    Some((number, field))
+}
+
+/// A text with each path in it cut to its file name (`crates/x/src/lib.rs:12:3` and
+/// `C:\\Games\\a.esp` become `lib.rs:12:3` and `a.esp`), so a report carries no folder of the
+/// machine. A word is a path when it holds a `/` or a `\\` and is not a URL.
+pub fn file_names_only(text: &str) -> String {
+    text.split(' ')
+        .map(|word| {
+            if word.contains("://") || !(word.contains('/') || word.contains('\\')) {
+                return word.to_string();
+            }
+            let core = word.trim_matches(|c: char| matches!(c, '(' | ')' | ',' | ';' | '"' | '\''));
+            let lead = &word[..word.find(core).unwrap_or(0)];
+            let tail = &word[lead.len() + core.len()..];
+            let name = core.rsplit(['/', '\\']).next().unwrap_or(core);
+            format!("{lead}{name}{tail}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// What a recoverable stop does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Policy {
@@ -223,6 +262,36 @@ mod tests {
             ["0044fb20", "00401000", "0040a000"]
         );
         assert!(addresses("no chain").is_empty());
+    }
+
+    #[test]
+    fn a_stop_names_its_family_and_field() {
+        assert_eq!(
+            family("read of unmapped memory at ffff0a04 (the last 64 KB: family 10's field +4 or near it)"),
+            Some((10, Some("+4".to_string())))
+        );
+        assert_eq!(
+            family("dual run: family 3 differs at 0040a000"),
+            Some((3, None))
+        );
+        assert_eq!(family("function 0044fb20 not translated yet"), None);
+        assert_eq!(family("a large family of things"), None);
+    }
+
+    #[test]
+    fn paths_are_cut_to_file_names() {
+        assert_eq!(
+            file_names_only("crates/engine-core/src/mem.rs:2548:9"),
+            "mem.rs:2548:9"
+        );
+        assert_eq!(
+            file_names_only("cannot open (C:\\Games\\FNV\\Data\\a.esp), see /home/u/x.log."),
+            "cannot open (a.esp), see x.log."
+        );
+        assert_eq!(
+            file_names_only("see https://example.org/a/b and heap exhausted"),
+            "see https://example.org/a/b and heap exhausted"
+        );
     }
 
     #[test]
