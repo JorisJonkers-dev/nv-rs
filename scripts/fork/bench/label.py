@@ -22,7 +22,7 @@ SCOPE_PREFIX = "nvgame-"
 MAX_LEN = 100
 _VALID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,%d}$" % (MAX_LEN - 1))
 # A game folder with one of these names says nothing: the folder above it does.
-_GENERIC = {"game", "data", "fallout-new-vegas", "fallout new vegas"}
+_GENERIC = {"game", "data", "fallout-new-vegas", "common", "steamapps"}
 
 
 def valid(label):
@@ -38,8 +38,9 @@ def variant_of(game, preset=None):
     """The variant of a bench run: the game folder's name (its parent's when the folder's own name is generic)."""
     p = Path(str(game)).resolve() if game else None
     name = p.name if p else ""
-    if p and name.lower() in _GENERIC:
-        name = p.parent.name
+    while p and part(name) in _GENERIC and p.parent != p:
+        p = p.parent
+        name = p.name
     pieces = [part(name)] if part(name) else []
     if preset and preset != "fixes":
         pieces.append(part(preset))

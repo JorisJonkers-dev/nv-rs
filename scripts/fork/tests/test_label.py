@@ -19,6 +19,7 @@ class FormTests(unittest.TestCase):
     def test_default_is_bench_scenario_variant(self):
         self.assertEqual(label.bench_label("views", "/x/runs/lod0151/game", env={}), "bench-views-lod0151")
         self.assertEqual(label.bench_label("doc_house", "/x/Fallout New Vegas", preset="vanilla", env={}), "bench-doc-house-x-vanilla")
+        self.assertEqual(label.bench_label("goodsprings", "/h/SteamLibrary/steamapps/common/Fallout New Vegas", env={}), "bench-goodsprings-steamlibrary")
 
     def test_callers_label_wins_and_is_checked(self):
         self.assertEqual(label.bench_label("views", "/g", asked="gate14-mojave-ttw", env={}), "gate14-mojave-ttw")
