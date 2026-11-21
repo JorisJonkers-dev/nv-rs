@@ -4064,7 +4064,13 @@ pub fn actor_pick_animations(e: &mut Engine, this: Ptr<Actor>, arg_2: f32, arg_3
                                     &args![controller.byte_add(CONTROLLER_LAND_SOUND_OFFSET)],
                                 )
                                 .u32();
-                            e.call(IMPACT_MIXER_PLAY_JUMP_LAND, &args![this, landing_sound]);
+                            // No recorded landing surface (the controller has not touched
+                            // ground since a move far away) gives no landing sound: the exe's
+                            // `PlayJumpLand` reads a flag off the sound unchecked, which stopped
+                            // the game with a read at 0x24 (nv-rs#455). Nothing to play then.
+                            if landing_sound != 0 {
+                                e.call(IMPACT_MIXER_PLAY_JUMP_LAND, &args![this, landing_sound]);
+                            }
                         }
                     }
                 } else if state == 1 {
@@ -16869,6 +16875,25 @@ mod tests {
             logs.push(exe);
         }
         assert_eq!(logs[0], logs[1]);
+    }
+
+    /// nv-rs#455: no landing sound (the controller's record is empty after a far move) plays nothing
+    /// and does not call the mixer, which reads a flag off the sound.
+    #[test]
+    fn landing_without_a_recorded_sound_plays_nothing() {
+        let mut e = engine();
+        let (actor, animation, _) = pick_setup(&mut e);
+        stub(&mut e, ACTOR_ANIM_FLAGS, 1);
+        stub(&mut e, CONTROLLER_STATE, 0);
+        stub(&mut e, TRANSFORM_IS_LOOPING, 1);
+        stub(&mut e, LANDING_SOUND_LOOKUP, 0);
+        stub(&mut e, ANIM_GROUP_GET_TYPE, 0xf1);
+        actor_pick_animations(&mut e, actor, 1.0, 1.0);
+        assert_eq!(
+            calls_to(&e, ANIMATION_LAND_RESET),
+            vec![vec![animation.addr()]]
+        );
+        assert!(calls_to(&e, IMPACT_MIXER_PLAY_JUMP_LAND).is_empty());
     }
 
     #[test]
