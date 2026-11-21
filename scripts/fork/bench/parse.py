@@ -171,6 +171,9 @@ RE_BUSY = re.compile(r"NV_PERF: thread busy over [\d.]+ s, [\d.]+ cores in all: 
 RE_STATE = re.compile(r"# driver: state (\S+) x=(-?[\d.]+) y=(-?[\d.]+) z=(-?[\d.]+)")
 RE_PHASE = re.compile(r"# driver: phase (\S+) (start|end) frame=(\d+) t=([\d.]+)")
 RE_LOG_FRAME = re.compile(r"^\[f(\d+) ")
+# The game trace's menu and load events (docs/fork/LOGGING.md): `[f123 +4567ms] menu.stack: ...`. In the viewer log the
+# line may carry a prefix (`INFO game f123: [f123 +4567ms] kind: text`), so the bracket is searched for.
+RE_GAME_EVENT = re.compile(r"\[f(\d+) \+\d+ms\] (menu\.stack|menu\.loading|load\.kind|load\.thread|load\.movie): (.*)$")
 
 
 def parse_log(text):
@@ -197,6 +200,7 @@ def parse_log(text):
         "busiest_thread_pct": [],  # NV_PERF's report: the busiest thread's CPU share, one per report
         "phase_busy_pct": {},  # phase name -> the busiest-thread shares of the reports logged while it was open
         "states": {},  # the driver's noted player positions by name (the save round trip: saved, loaded)
+        "game_events": [],  # (frame, kind, text) of the menu and load events of the game trace
         "loading_menu": False,  # the engine's `menu.loading ... is up` game event was logged (the frame log has no "loading" row for it in the nv-rs 0.14 viewer)
         "ctrl_down_frames": [],  # the frames where a real Ctrl press reached the game (input.key lines)
     }
@@ -215,6 +219,9 @@ def parse_log(text):
             continue
         if "menu.loading: the loading menu is up" in line:
             out["loading_menu"] = True
+        ev = RE_GAME_EVENT.search(line)
+        if ev:
+            out["game_events"].append((int(ev.group(1)), ev.group(2), ev.group(3).strip()))
         if "input.key: LeftControl (0x1d) down reaches the game" in line:
             m = RE_LOG_FRAME.match(line)
             out["ctrl_down_frames"].append(int(m.group(1)) if m else None)
@@ -443,6 +450,31 @@ def hitches(rows):
     n = sum(1 for d in dts if d > 25.0 and d > 3 * med)
     minutes = sum(dts) / 60000.0
     return {"count": n, "per_min": round(n / minutes, 2) if minutes > 0 else None}
+
+
+def event_label(kind, text):
+    """What a menu or load event is called in the attribution: a load's kind by its text, the others by their kind."""
+    return f"{kind}: {text}" if kind == "load.kind" else kind
+
+
+def attribute_hitches(hitch_frames, events, window=3):
+    """Which menu or load event each hitch frame sits next to (nv-rs#297): the nearest event of the game trace within
+    `window` frames, ties to the earlier one. `events` are (frame, kind, text); `hitch_frames` the frames of the hitch
+    recorder's rows. Returns {"total", "unattributed", "by_event": {label: count}}. Pure."""
+    evs = sorted(events)
+    by_event, none = {}, 0
+    for f in hitch_frames:
+        best = None
+        for e in evs:
+            d = abs(e[0] - f)
+            if d <= window and (best is None or d < best[0]):
+                best = (d, e)
+        if best is None:
+            none += 1
+        else:
+            label = event_label(best[1][1], best[1][2])
+            by_event[label] = by_event.get(label, 0) + 1
+    return {"total": len(hitch_frames), "unattributed": none, "by_event": dict(sorted(by_event.items(), key=lambda kv: -kv[1]))}
 
 
 def game_clock_sanity(rows):
