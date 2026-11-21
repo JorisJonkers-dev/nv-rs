@@ -81,8 +81,14 @@ which the 3.46 GB heap binds is unknown**; vanilla routes use 6% of it. `heap_pe
    that space as it moves more families. Not safe to take while upstream grows into it.
 5. **Smaller reservation gap use.** `NV_RESERVE_GAP` already keeps the scrap heaps' 8 MiB reservations out of the heap
    (99% never committed). Nothing left to gain.
-6. **Lowering the window (a vanilla 2 GB preset).** Not an unlock; useful to test how mods behave in a plain 32-bit
-   process. `Heap::cross` is the place (noted in HANDOFF). Left to whoever needs it.
+6. **Lowering the window (a vanilla 2 GB preset).** Not an unlock; a test of how mods behave in a plain 32-bit process.
+   `NV_GUEST_WINDOW=2GiB` (also `1GiB`, `1536`, `1536MiB`; at least 256 MiB; unset is the whole heap) lowers the guest heap
+   to that size: the two ranges end earlier (`mem/heap.rs`, `window_ends`; the lower range is 1504 MiB, so 1 GiB cuts it
+   short with no upper range and 2 GiB leaves 544 MiB above `HEAP_HIGH_BASE`). Nothing moves: addresses of the platform
+   area, the slab and token ranges and the freed-block words stay as they are, and `heap_cap` in `NV_MEMLOG` reports the
+   lowered size. Off by default, one process-wide read of the variable, no cost on the allocation path. An allocation the
+   lowered heap cannot serve ends the run as the exhausted heap does (`heap exhausted allocating ...`), which names the
+   sizes most live and most free; with the stop report of nv-rs#227 the record carries the class. Results below.
 
 ## 5. What was left for upstream
 
@@ -98,3 +104,12 @@ grep NV_MEMLOG ~/.local/state/nv-rs/bench/newgame-*/viewer.log | tail -1
 
 Keys: [MEMLOG.md](MEMLOG.md). Guest share of the resident set is `heap_used` plus the exe image; the host share is
 `rss_anon` minus the guest's committed pages.
+
+## 7. Window shrink results
+
+Runs of `NV_GUEST_WINDOW` on a scenario (nv-rs#267) go in this table, one row each: the scenario, the window, the heap peak
+(`heap_peak` of `NV_MEMLOG`), how the run ended (verdict, and the stop's reason text when it stopped) and the run's commit. The
+runs need the owner's game data, so they are run on a machine that has it, under the trial lock, not in CI.
+
+| Scenario | Window | Heap peak | Ended | Commit |
+| --- | --- | --- | --- | --- |

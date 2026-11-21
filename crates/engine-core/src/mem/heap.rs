@@ -387,6 +387,63 @@ pub(super) struct Heap {
     failed_flush: (u64, usize),
     /// The largest size the quick stacks take (0: none, for tests of the bins alone).
     quick_max: u32,
+    /// The ends of the two ranges: [`HEAP_LOW_END`] and [`HEAP_END`] unless the guest window is
+    /// lowered (`NV_GUEST_WINDOW`, [`window_ends`]).
+    low_end: u32,
+    end: u32,
+}
+
+/// The ends of the heap's two ranges for a guest window of `window` bytes (`None`: the whole
+/// one): the lower range up to its end, the rest of the window from [`HEAP_HIGH_BASE`] up. A
+/// window that holds the whole heap, or none of the upper range, gives the constants or a
+/// lower range cut short with an empty upper one.
+pub(super) fn window_ends(window: Option<u64>) -> (u32, u32) {
+    let low = u64::from(HEAP_LOW_END - HEAP_BASE);
+    let all = low + u64::from(HEAP_END - HEAP_HIGH_BASE);
+    let Some(w) = window.filter(|w| *w < all) else {
+        return (HEAP_LOW_END, HEAP_END);
+    };
+    if w <= low {
+        (HEAP_BASE + w as u32, HEAP_HIGH_BASE)
+    } else {
+        (HEAP_LOW_END, HEAP_HIGH_BASE + (w - low) as u32)
+    }
+}
+
+/// `NV_GUEST_WINDOW`: the guest heap's size, lowered for a test of how the game behaves in a
+/// smaller address space (nv-rs#267): a number of MiB, or `2GiB` or `1536MiB` (unit `G`, `GiB`,
+/// `M`, `MiB`). `None` when unset, unreadable or below 256 MiB (said on stderr once).
+pub(super) fn parse_window(text: Option<&str>) -> Option<u64> {
+    let t = text?.trim();
+    let lower = t.to_ascii_lowercase();
+    let (num, unit) = match lower.find(|c: char| !c.is_ascii_digit() && c != '.') {
+        Some(i) => (&lower[..i], lower[i..].trim()),
+        None => (lower.as_str(), "mib"),
+    };
+    let n: f64 = num.parse().ok()?;
+    let mib = match unit {
+        "g" | "gb" | "gib" => n * 1024.0,
+        "m" | "mb" | "mib" | "" => n,
+        _ => return None,
+    };
+    (mib >= 256.0).then(|| (mib * 1048576.0) as u64)
+}
+
+/// The window the environment asks for, read once per process.
+fn env_window() -> Option<u64> {
+    static WINDOW: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *WINDOW.get_or_init(|| {
+        let text = std::env::var("NV_GUEST_WINDOW").ok()?;
+        let w = parse_window(Some(&text));
+        match w {
+            Some(w) => eprintln!(
+                "NV_GUEST_WINDOW={text}: the guest heap is {} MB (a lower window, for tests)",
+                w >> 20
+            ),
+            None => eprintln!("NV_GUEST_WINDOW={text}: not a size of 256 MiB or more; ignored"),
+        }
+        w
+    })
 }
 
 impl Heap {
@@ -407,7 +464,14 @@ impl Heap {
             spill_from: 0,
             failed_flush: (0, 0),
             quick_max: QUICK_MAX,
+            low_end: window_ends(env_window()).0,
+            end: window_ends(env_window()).1,
         }
+    }
+
+    /// The heap's size in bytes: both ranges, less what a lowered window took.
+    pub(super) fn capacity(&self) -> u64 {
+        u64::from(self.low_end - HEAP_BASE) + u64::from(self.end - HEAP_HIGH_BASE)
     }
 
     /// The next fresh address. It comes down when the block below it is freed.
@@ -581,10 +645,10 @@ impl Heap {
     #[inline]
     fn grow(&mut self, size: u32) -> Option<u32> {
         let a = self.top;
-        let end = if a <= HEAP_LOW_END {
-            HEAP_LOW_END
+        let end = if a <= self.low_end {
+            self.low_end
         } else {
-            HEAP_END
+            self.end
         };
         if u64::from(a) + u64::from(size) > u64::from(end) {
             return None;
@@ -604,13 +668,13 @@ impl Heap {
     #[cold]
     #[inline(never)]
     fn cross(&mut self, size: u32) -> Option<u32> {
-        if self.top > HEAP_LOW_END || size > HEAP_END - HEAP_HIGH_BASE {
+        if self.top > self.low_end || size > self.end - HEAP_HIGH_BASE {
             return None;
         }
         let rest = self.top;
         self.top = HEAP_HIGH_BASE;
-        if rest < HEAP_LOW_END {
-            self.release(rest, HEAP_LOW_END - rest);
+        if rest < self.low_end {
+            self.release(rest, self.low_end - rest);
         }
         self.grow(size)
     }
@@ -719,7 +783,7 @@ impl Heap {
             // No free block in a bin ends at the top, so only the left one can merge.
             self.top = self.merge_below_top(addr);
             if self.top == HEAP_HIGH_BASE {
-                self.top = self.merge_below_top(HEAP_LOW_END);
+                self.top = self.merge_below_top(self.low_end);
             }
             return 0;
         }
@@ -826,10 +890,10 @@ impl Heap {
     /// The bytes the heap can still hand out: its free blocks, the quick stacks and the fresh
     /// space above the top, in both ranges.
     pub(super) fn available(&self) -> u64 {
-        let fresh = if self.top <= HEAP_LOW_END {
-            u64::from(HEAP_LOW_END - self.top) + u64::from(HEAP_END - HEAP_HIGH_BASE)
+        let fresh = if self.top <= self.low_end {
+            u64::from(self.low_end - self.top) + u64::from(self.end - HEAP_HIGH_BASE)
         } else {
-            u64::from(HEAP_END - self.top)
+            u64::from(self.end - self.top)
         };
         self.free_bytes + self.quick_bytes + fresh
     }
@@ -1030,6 +1094,78 @@ impl Heap {
 
 #[cfg(test)]
 mod tests {
+    const MIB: u64 = 1 << 20;
+
+    fn windowed(bytes: u64) -> Heap {
+        let (low_end, end) = window_ends(Some(bytes));
+        Heap {
+            low_end,
+            end,
+            ..Heap::new()
+        }
+    }
+
+    /// `NV_GUEST_WINDOW` reads MiB, `G`/`GiB` and `M`/`MiB`, and nothing under 256 MiB.
+    #[test]
+    fn the_window_text_is_a_size() {
+        assert_eq!(parse_window(None), None);
+        assert_eq!(parse_window(Some("2GiB")), Some(2048 * MIB));
+        assert_eq!(parse_window(Some(" 1g ")), Some(1024 * MIB));
+        assert_eq!(parse_window(Some("1536")), Some(1536 * MIB));
+        assert_eq!(parse_window(Some("1536MiB")), Some(1536 * MIB));
+        assert_eq!(parse_window(Some("1.5G")), Some(1536 * MIB));
+        assert_eq!(parse_window(Some("255")), None);
+        assert_eq!(parse_window(Some("big")), None);
+        assert_eq!(parse_window(Some("2TB")), None);
+    }
+
+    #[test]
+    fn a_window_cuts_the_ranges_and_the_whole_heap_is_the_constants() {
+        assert_eq!(window_ends(None), (HEAP_LOW_END, HEAP_END));
+        let all = u64::from(HEAP_LOW_END - HEAP_BASE) + u64::from(HEAP_END - HEAP_HIGH_BASE);
+        assert_eq!(window_ends(Some(all)), (HEAP_LOW_END, HEAP_END));
+        assert_eq!(window_ends(Some(all + MIB)), (HEAP_LOW_END, HEAP_END));
+        assert_eq!(
+            window_ends(Some(1024 * MIB)),
+            (HEAP_BASE + (1024 << 20), HEAP_HIGH_BASE)
+        );
+        // 2 GiB: the lower range whole (1504 MiB) and the other 544 MiB above HEAP_HIGH_BASE.
+        assert_eq!(
+            window_ends(Some(2048 * MIB)),
+            (HEAP_LOW_END, HEAP_HIGH_BASE + (544 << 20))
+        );
+    }
+
+    #[test]
+    fn a_heap_of_one_gib_ends_there_and_says_so() {
+        let mut h = windowed(1024 * MIB);
+        assert_eq!(h.capacity(), 1024 * MIB);
+        let half = (512 * MIB) as u32;
+        assert_eq!(h.take(half), Some(HEAP_BASE));
+        assert_eq!(h.take(half), Some(HEAP_BASE + half));
+        assert_eq!(h.available(), 0);
+        // No upper range: nothing more, and the top stays.
+        assert_eq!(h.take(0x10), None);
+        assert_eq!(h.top(), HEAP_BASE + 2 * half);
+        // A freed block is served again.
+        h.give(HEAP_BASE, half);
+        assert_eq!(h.take(0x10), Some(HEAP_BASE));
+    }
+
+    #[test]
+    fn a_heap_of_two_gib_goes_up_for_its_last_544_mib() {
+        let mut h = windowed(2048 * MIB);
+        assert_eq!(h.capacity(), 2048 * MIB);
+        // The lower range is 1504 MiB: two blocks of 512 and one of 480 fill it.
+        assert_eq!(h.take(512 << 20), Some(HEAP_BASE));
+        assert_eq!(h.take(512 << 20), Some(HEAP_BASE + (512 << 20)));
+        assert_eq!(h.take(480 << 20), Some(HEAP_BASE + (1024 << 20)));
+        assert_eq!(h.top(), HEAP_LOW_END);
+        assert_eq!(h.take(544 << 20), Some(HEAP_HIGH_BASE));
+        assert_eq!(h.take(0x10), None);
+        assert_eq!(h.available(), 0);
+    }
+
     use super::*;
 
     /// The bins: one per size below 512, then 32 per power of two, in increasing order of size.
