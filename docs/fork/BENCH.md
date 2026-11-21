@@ -43,6 +43,7 @@ using the thresholds below; see [LOCAL.md](LOCAL.md#matrix-runs). `--json` gives
   `NV_MEMLOG=1` is set too: once the build has it (#70) its lines are parsed (heap use) as well.
 - From the viewer log: stop lines, wgpu errors, skipped draws, draws, pipelines, presents over 20 ms, panics, memory
   failures; from `--movement-missing`: the untranslated addresses and their hits.
+- Hitches next to the game trace's menu and load events (`menu.stack`, `menu.loading`, `load.kind`, `load.thread`, `load.movie`): each hitch of the recorder's `hitches.csv` is counted under the nearest such event within three frames of the viewer log (`metrics.hitch_events`, one line in the report's Hitches section), else under none.
 - A verdict: the stability checks plus the scenario's own (screens reached, player placed, minutes of play).
 
 ## One run at a time (the bench lock)

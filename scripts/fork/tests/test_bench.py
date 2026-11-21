@@ -679,6 +679,21 @@ class DriverTests(unittest.TestCase):
         log = parse.parse_log("INFO game f1: [f1 +1ms] menu.loading: the loading menu is up (the game's first load)\n")
         self.assertTrue(log["loading_menu"])
 
+    def test_hitches_are_attributed_to_the_nearest_menu_or_load_event(self):
+        import parse
+
+        log = parse.parse_log(
+            "INFO game f100: [f100 +1000ms] load.kind: the load is a door or another cell change\n"
+            "INFO game f200: [f200 +2000ms] menu.stack: 1 open, bottom to top 0x40c (menu mode 3)\n"
+            "INFO game f300: [f300 +3000ms] menu.loading: the loading menu is up (a later load)\n"
+        )
+        self.assertEqual([e[1] for e in log["game_events"]], ["load.kind", "menu.stack", "menu.loading"])
+        got = parse.attribute_hitches([101, 102, 199, 250, 400], log["game_events"])
+        self.assertEqual(got["total"], 5)
+        self.assertEqual(got["unattributed"], 2)
+        self.assertEqual(got["by_event"], {"load.kind: the load is a door or another cell change": 2, "menu.stack": 1})
+        self.assertEqual(parse.attribute_hitches([], [])["total"], 0)
+
     def test_the_new_game_menu_walk_takes_one_down_and_continue_takes_none(self):
         # The main menu opens on Continue and the first Down already moves the selection (nv-rs#410): two Downs
         # land on Load. New is one Down, Continue none.

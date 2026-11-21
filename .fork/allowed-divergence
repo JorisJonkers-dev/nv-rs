@@ -89,3 +89,6 @@ crates/engine-fallout-interface/src/units/fallout_interface/statsmenu.rs  # add_
 # The heap guard (nv-rs#227): NV_HEAP_STOP_FRACTION ends the run gracefully with a stop report.
 crates/host/src/lib.rs  # `pub mod fork_heap;` (the heap guard)
 viewer/src/main.rs  # the heap guard's sample call after the trace's in main's loop
+# The game trace's load kind (nv-rs#297): the co-save moments count the new games and saves that begin, for the host's read-only trace.
+crates/nvse/src/saveload.rs  # `starts`, `Start` and `note_start`: a count and the kind of the last new game or saved game, set at `new_game` and `pre_load`
+crates/nvse/src/saveload_tests.rs  # a test of that count

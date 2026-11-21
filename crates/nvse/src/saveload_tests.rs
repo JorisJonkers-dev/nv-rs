@@ -853,3 +853,15 @@ fn a_built_in_plugin_has_its_own_section() {
         [r"message 11 C:\Saves\Save 7.nvse", "message 15 Save 7.fos"]
     );
 }
+
+/// The host's game trace tells a new game and a saved game by the moments counted here.
+#[test]
+fn a_new_game_and_a_pre_load_are_counted_for_the_trace() {
+    let mut e = engine();
+    set_files(&mut e, &["FalloutNV.esm"]);
+    assert_eq!(starts(&e), (0, None));
+    new_game(&mut e);
+    assert_eq!(starts(&e), (1, Some(Start::NewGame)));
+    e.site(PRE_LOAD.addr(), &[NAME]);
+    assert_eq!(starts(&e), (2, Some(Start::SaveGame)));
+}

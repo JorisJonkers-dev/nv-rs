@@ -126,8 +126,11 @@ From the game's own state (`crates/host/src/fork_trace.rs`, read-only, once a fr
 open, their class ids bottom to top in hex, the mode; logged when either changes, so a message box, the pause menu or the Reflectron
 (`0x40c`) shows when it opens and closes).
 
-Not traced: the kind of a later load (new game, save, door or fast travel); `bInitialLoad` only tells the first load from the
-rest. That needs a patch row in `engine-core`'s extend hooks at the load functions (an engine-core change).
+`load.kind` (what began a load: a new game or a saved game, from the script extender's own co-save moments
+(`nvse::saveload`, the seams at the new game and `PreLoadGame`), told when the moment comes; a fast travel, by the game's
+fast-travel flag read when the loading menu opens, or a door or another cell change, told when the loading menu closes
+and no new game or save began in it). A new game or save whose loading menu never opens leaves its moment to be taken for
+the next load's, which is then not told as a door.
 
 ## Soft stops
 

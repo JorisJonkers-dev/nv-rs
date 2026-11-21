@@ -117,25 +117,35 @@ jobs:
           cargo llvm-cov --locked --no-fail-fast --lcov --output-path out/lcov.info --ignore-filename-regex "$IGNORE" $ARGS 2>&1 | tail -n 40
           cargo llvm-cov report --summary-only --ignore-filename-regex "$IGNORE" | tail -n 3 | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # The baseline: the last nightly (or manual) run's lcov of this component; with none, the base commit measured here.
+      # The baseline is the merge base of the pull request (docs/fork/COVERAGE.md): the lcov of the nightly (or manual)
+      # run that measured exactly that commit; with none on it, the merge base measured here, so the delta is always
+      # the pull request's own against the commit it started from. With no nightly run at all it is informational.
       - name: Baseline
         if: ${{ github.event_name == 'pull_request' }}
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          run="$(gh run list -R "$REPO" --workflow fork-coverage.yml --branch fork --status success --limit 20 --json databaseId,event \
-            --jq '[.[] | select(.event != "pull_request")][0].databaseId // empty' || true)"
-          if [ -n "$run" ] && gh run download "$run" -R "$REPO" -n "cov-$COMPONENT" -D baseline 2>/dev/null && [ -f baseline/lcov.info ]; then
+          mb="$(git merge-base "$BASE" "$PR_HEAD" || echo "$BASE")"
+          gh run list -R "$REPO" --workflow fork-coverage.yml --branch fork --status success --limit 100 \
+            --json databaseId,headSha,event,conclusion >runs.json || echo '[]' >runs.json
+          exact="$(python3 -I scripts/fork/coverage_report.py pick-run --runs runs.json --merge-base "$mb")"
+          last="$(jq -r '[.[] | select(.event != "pull_request")][0] | "\(.databaseId // "") \(.headSha // "")"' runs.json)"
+          if [ -n "$exact" ] && gh run download "$exact" -R "$REPO" -n "cov-$COMPONENT" -D baseline 2>/dev/null && [ -f baseline/lcov.info ]; then
             cp baseline/lcov.info out/base.info
-            echo "the last nightly run, run $run" >out/baseline.txt
+            echo "the last nightly run, run $exact, on the merge base ${mb:0:10}" >out/baseline.txt
           else
-            echo "no baseline run yet: measuring the base commit"
-            git worktree add --detach ../base "$BASE"
+            echo "no nightly run on the merge base ${mb:0:10}: measuring it"
+            git worktree add --detach ../base "$mb"
             # shellcheck disable=SC2086
             (cd ../base && cargo llvm-cov --locked --no-fail-fast --lcov --output-path "$GITHUB_WORKSPACE/out/base.info" --ignore-filename-regex "$IGNORE" $ARGS 2>&1 | tail -n 5) || true
-            echo "the base commit ${BASE:0:10}, measured in this run" >out/baseline.txt
+            if [ "${last%% *}" = "" ]; then
+              echo "the base commit ${mb:0:10}, measured in this run" >out/baseline.txt
+            else
+              echo "the merge base ${mb:0:10}, measured in this run (the last nightly, run ${last%% *}, was on ${last##* })" >out/baseline.txt
+            fi
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
