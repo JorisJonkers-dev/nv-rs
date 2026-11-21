@@ -1528,7 +1528,8 @@ pub fn low_process_process_patrol(e: &mut Engine, this: Ptr<LowProcess>, actor: 
         e.vcall(actor.addr(), ACTOR_SLOT_418, &args![]);
         return;
     }
-    let mut time = low_process_get_time_delta(e, this, actor.addr()).to_bits();
+    let mut time =
+        patrol_time_to_spend(low_process_get_time_delta(e, this, actor.addr()).to_bits());
     let zero: f64 = e.global(ZERO);
     while x87_load32(time) > zero {
         time = match e.mem.u32(data.wrapping_add(4)) {
@@ -1561,6 +1562,21 @@ pub fn low_process_process_patrol(e: &mut Engine, this: Ptr<LowProcess>, actor: 
             }
             _ => 0,
         };
+    }
+}
+
+/// The time `ProcessPatrol` has to spend, as `float` bits. `GetTimeDelta` divides by the game's time
+/// scale, so a time scale of 0 (`set timescale to 0`) gives infinity after any change of the hour
+/// (`set gamehour`), and the loop below, which takes the time of each leg off it, never ended: every
+/// leg queues a task to the actor's thread until the task queue's 8 MB scrap heap is full and the
+/// next push writes through a null node (nv-rs#457). A time that is not a finite number is spent as
+/// no time at all, so the patrol stays where it is until the clock runs again; finite times, however
+/// large, are passed on unchanged.
+fn patrol_time_to_spend(bits: u32) -> u32 {
+    if f32::from_bits(bits).is_finite() {
+        bits
+    } else {
+        0
     }
 }
 
@@ -15905,5 +15921,21 @@ mod n027_tests {
             calls(&e, slot(PROCESS_VTABLE, EVALUATE_ORDER_ACQUIRE_LIST_SLOT)),
             vec![vec![base, actor]]
         );
+    }
+}
+
+#[cfg(test)]
+mod patrol_time_tests {
+    use super::patrol_time_to_spend;
+
+    /// nv-rs#457: an infinite or undefined time (a time scale of 0) is no time; every finite time stays.
+    #[test]
+    fn a_time_that_is_not_finite_is_spent_as_none() {
+        for bits in [f32::INFINITY, f32::NEG_INFINITY, f32::NAN].map(f32::to_bits) {
+            assert_eq!(patrol_time_to_spend(bits), 0);
+        }
+        for value in [0.0f32, 1.5, -2.0, 1320.4, 86_400.0, f32::MAX] {
+            assert_eq!(patrol_time_to_spend(value.to_bits()), value.to_bits());
+        }
     }
 }
