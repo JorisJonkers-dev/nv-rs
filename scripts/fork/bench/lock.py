@@ -12,6 +12,8 @@ import sys
 import time
 from pathlib import Path
 
+import label as runlabel
+
 
 def lock_path():
     env = os.environ.get("NV_BENCH_LOCK")
@@ -112,7 +114,7 @@ def other_viewers(own_pids=(), proc="/proc"):
             continue
         try:
             comm = (d / "comm").read_text().strip()
-            if comm.startswith("nv-viewer") or comm == "nv-viewer":
+            if comm.startswith("nv-viewer") or comm == "nv-viewer" or runlabel.in_game_scope(d.name, proc):
                 ppid = int((d / "stat").read_text().rsplit(")", 1)[1].split()[1])
                 if ppid in own:
                     continue
