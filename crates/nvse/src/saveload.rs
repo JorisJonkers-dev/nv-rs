@@ -149,7 +149,8 @@ pub fn starts(e: &Engine) -> (u32, Option<Start>) {
 fn note_start(e: &mut Engine, start: Start) {
     use std::sync::atomic::Ordering::Relaxed;
     let c = e.ext_free::<StartCounts>();
-    c.last.store(if start == Start::NewGame { 1 } else { 2 }, Relaxed);
+    c.last
+        .store(if start == Start::NewGame { 1 } else { 2 }, Relaxed);
     c.count.fetch_add(1, Relaxed);
 }
 

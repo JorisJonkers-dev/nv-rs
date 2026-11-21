@@ -881,10 +881,16 @@ fn the_counts_for_the_trace_are_read_without_the_shared_slot() {
     let mut other = Engine::new_untyped_for_test();
     e.share_slots_for_test(&mut other);
     engine_core::extend::release_held_for_test();
-    assert!(other.ext::<Nvse>().installed, "the other engine holds xNVSE's state");
+    assert!(
+        other.ext::<Nvse>().installed,
+        "the other engine holds xNVSE's state"
+    );
     let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| starts(&e)));
     engine_core::extend::release_held_for_test();
-    assert_eq!(read.expect("the read asked for the held slot"), (1, Some(Start::NewGame)));
+    assert_eq!(
+        read.expect("the read asked for the held slot"),
+        (1, Some(Start::NewGame))
+    );
     // The count is the game's, not one engine's: the other engine's moment is seen by the first.
     new_game(&mut other);
     engine_core::extend::release_held_for_test();
