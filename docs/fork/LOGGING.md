@@ -95,6 +95,8 @@ Final records (`"event"` set) carry `reason`, `frame`, `thread`, counts of `soft
 - `panic`: a panic anywhere outside the game's own stops (the panic hook, then the previous hook runs), with `location`.
 - `exit`: the process ends, with the summary line.
 
+At the end of the run the file layer's listing cache says what it did, one `info` line on target `files` (`file layer listing cache: N looks, H from the kept names (P%), R directory reads, F folders forgotten after the run's own writes`; nv-rs#277): the cost of the case-insensitive lookups of a load, to compare before and after a change to the lookups.
+
 No game data goes into a record: only names of calls, counts, paths of the machine's own files and the engine's messages.
 
 ## The `game` event trace
