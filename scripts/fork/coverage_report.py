@@ -11,6 +11,10 @@
       Reads DIR/cov-<component>/{lcov.info,base.info,baseline.txt} and renders the comment: totals for the pull
       request against the base, a table per component, the changed files and the changed lines no test ran.
 
+  coverage_report.py pick-run --runs runs.json --merge-base SHA
+      The id of the nightly (or manual) run that measured exactly the commit SHA, from the JSON of
+      `gh run list --json databaseId,headSha,event,conclusion` (newest first); nothing when there is none.
+
 Stdlib only; Python 3.11 or newer.
 """
 import argparse
@@ -207,7 +211,26 @@ def gate_eval(measured, ranges, crates, minimum):
 
 
 def has_nightly_baseline(baselines):
-    return any(b.startswith("the last nightly") for b in baselines)
+    """A baseline made at the merge base: a nightly run on that very commit, or the commit measured in the run
+    (when the last nightly was on another commit); not the one measured because no nightly run exists at all."""
+    return any(b.startswith(("the last nightly", "the merge base")) for b in baselines)
+
+
+def pick_run(runs, merge_base):
+    """The newest successful run that is not a pull request's and measured exactly `merge_base`, else None."""
+    for run in runs:
+        if run.get("event") == "pull_request" or run.get("conclusion", "success") != "success":
+            continue
+        if run.get("headSha") == merge_base:
+            return run.get("databaseId")
+    return None
+
+
+def pick_run_cmd(args):
+    with open(args.runs, encoding="utf-8") as fh:
+        found = pick_run(json.load(fh), args.merge_base)
+    if found is not None:
+        print(found)
 
 
 def render_gate(cfg, crates, baselines, result):
@@ -364,8 +387,11 @@ def main():
     for name in ("dir", "plan", "base", "head"):
         g.add_argument(f"--{name}", required=True)
     g.add_argument("--out")
+    k = sub.add_parser("pick-run")
+    k.add_argument("--runs", required=True)
+    k.add_argument("--merge-base", required=True)
     a = ap.parse_args()
-    {"plan": plan, "report": report, "gate": gate}[a.cmd](a)
+    {"plan": plan, "report": report, "gate": gate, "pick-run": pick_run_cmd}[a.cmd](a)
 
 
 if __name__ == "__main__":

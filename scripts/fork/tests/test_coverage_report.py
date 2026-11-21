@@ -68,6 +68,14 @@ class GateTests(unittest.TestCase):
         off = dict(cfg, enforce=False)
         self.assertFalse(cr.render_gate(off, ["fork-log"], nightly, result)[2])
 
+    def test_a_baseline_at_the_merge_base_enforces_and_the_one_without_a_nightly_does_not(self):
+        result = cr.gate_eval(self.MEASURED, self.RANGES, {"fork-log"}, 70.0)
+        cfg = {"enforce": True, "min_changed_line_coverage": 70.0}
+        exact = {"the last nightly run, run 1, on the merge base abc"}
+        measured = {"the merge base abc, measured in this run (the last nightly, run 1, was on def)"}
+        self.assertTrue(cr.render_gate(cfg, ["fork-log"], exact, result)[2])
+        self.assertTrue(cr.render_gate(cfg, ["fork-log"], measured, result)[2])
+
     def test_fork_owned_crates_are_derived(self):
         d = tempfile.mkdtemp()
         (Path(d) / ".fork").mkdir()
@@ -120,6 +128,28 @@ class PlanTests(unittest.TestCase):
         d = tempfile.mkdtemp()
         (Path(d) / "plan.json").write_text("not json")
         self.assertEqual(cr.load_plan(str(Path(d) / "plan.json"), d)["include"], [])
+
+class PickRunTests(unittest.TestCase):
+    RUNS = [
+        {"databaseId": 5, "headSha": "ccc", "event": "schedule", "conclusion": "success"},
+        {"databaseId": 4, "headSha": "bbb", "event": "pull_request", "conclusion": "success"},
+        {"databaseId": 3, "headSha": "bbb", "event": "schedule", "conclusion": "failure"},
+        {"databaseId": 2, "headSha": "bbb", "event": "workflow_dispatch", "conclusion": "success"},
+        {"databaseId": 1, "headSha": "aaa", "event": "schedule", "conclusion": "success"},
+    ]
+
+    def test_the_run_on_the_merge_base_is_found(self):
+        self.assertEqual(cr.pick_run(self.RUNS, "aaa"), 1)
+        self.assertEqual(cr.pick_run(self.RUNS, "ccc"), 5)
+
+    def test_pull_request_and_failed_runs_do_not_count(self):
+        self.assertEqual(cr.pick_run(self.RUNS, "bbb"), 2)
+        self.assertIsNone(cr.pick_run(self.RUNS[1:3], "bbb"))
+
+    def test_no_run_on_that_commit_is_none(self):
+        self.assertIsNone(cr.pick_run(self.RUNS, "zzz"))
+        self.assertIsNone(cr.pick_run([], "aaa"))
+
 
 
 if __name__ == "__main__":
