@@ -175,7 +175,11 @@ class Script:
 def reached_screen(name):
     def check(m):
         seen = [s for _, _, s in m["screens"]]
-        return name in seen, f"screens seen: {', '.join(dict.fromkeys(seen)) or 'none'}"
+        shown = f"screens seen: {', '.join(dict.fromkeys(seen)) or 'none'}"
+        if name == "loading" and name not in seen and m.get("loading_menu"):
+            # The nv-rs 0.14 viewer logs the loading menu as "play" in the frame log; its game event says it was up.
+            return True, shown + " (the loading menu's game event was logged)"
+        return name in seen, shown
 
     return (f"reached the {name} screen", check)
 

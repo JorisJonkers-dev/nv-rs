@@ -197,6 +197,7 @@ def parse_log(text):
         "busiest_thread_pct": [],  # NV_PERF's report: the busiest thread's CPU share, one per report
         "phase_busy_pct": {},  # phase name -> the busiest-thread shares of the reports logged while it was open
         "states": {},  # the driver's noted player positions by name (the save round trip: saved, loaded)
+        "loading_menu": False,  # the engine's `menu.loading ... is up` game event was logged (the frame log has no "loading" row for it in the nv-rs 0.14 viewer)
         "ctrl_down_frames": [],  # the frames where a real Ctrl press reached the game (input.key lines)
     }
     open_phases = set()
@@ -212,6 +213,8 @@ def parse_log(text):
                 out["phases"].append((m.group(1), m.group(2), int(m.group(3)), float(m.group(4))))
                 (open_phases.add if m.group(2) == "start" else open_phases.discard)(m.group(1))
             continue
+        if "menu.loading: the loading menu is up" in line:
+            out["loading_menu"] = True
         if "input.key: LeftControl (0x1d) down reaches the game" in line:
             m = RE_LOG_FRAME.match(line)
             out["ctrl_down_frames"].append(int(m.group(1)) if m else None)
@@ -506,6 +509,7 @@ def summarize(frame_rows, log, samples, missing=(0, 0), stops=0):
         "phases": phase_stats(frame_rows, log["phases"], log.get("phase_busy_pct")),
         "heading_change_deg": heading_changes(frame_rows, log["phases"]),
         "states": log.get("states") or {},
+        "loading_menu": bool(log.get("loading_menu")),
         "sneak": sneak_ratios(frame_rows, log["phases"], log.get("ctrl_down_frames") or ()),
         "main_busy_pct": round(sum(log["busiest_thread_pct"]) / len(log["busiest_thread_pct"]), 1) if log["busiest_thread_pct"] else None,
         "untranslated_addresses": missing[0],
