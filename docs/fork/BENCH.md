@@ -263,17 +263,22 @@ land and water):
 
 | Name | From | Heading |
 | --- | --- | --- |
-| `goodsprings-valley` | the east edge of Goodsprings | 90 |
+| `goodsprings-valley` | the east edge of Goodsprings, over the valley | 90 |
 | `vegas-from-the-south` | NCR Sharecropper Farms | 0 |
 | `lake-mead` | Boulder Beach | 60 |
-| `colorado-river` | Cottonwood Cove | 90 |
-| `hoover-dam-from-the-west` | west of Hoover Dam | 75 |
+| `colorado-river` | Cottonwood Overlook | 90 |
 
 The run directory gets `views/<name>.png` and `views.json`: the hour, the clock (stopped), the weather (or that it is not
 set), the settle time and, per view, the commanded and the observed position, the heading and the picture's name. The
 manifest is rewritten after every view. `nv-rs-dev bench views-compare RUN_A RUN_B` checks two runs against the issue's
 acceptance: the same views and sky, positions within 1 unit and headings within 1 degree (exit status 1 and one line per
 difference otherwise). The pictures are game content: they stay on the machine, never in a repository.
+
+Known limit (nv-rs#455): a far move to some places later in the same session stops the port (`read of unmapped memory at
+00000024` in the game's cell streaming): Hoover Dam, Black Mountain and El Dorado Dry Lake each did after the built-in
+places, and El Dorado Dry Lake as the fourth place too. The four built-in places pass in every run, so the built-in list has
+those four. The driver writes no picture and no state line for a view the game stopped before. For more views, run the
+scenario again with a `--views-file` of the others.
 
 ### Fixed: the player stopped answering movement and the mouse (nv-rs#324)
 

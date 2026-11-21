@@ -49,7 +49,6 @@ DEFAULT_VIEWS = [
     View("vegas-from-the-south", -9320.0, 85176.0, 5000.0, 0.0),  # NCR Sharecropper Farms, north toward Vegas
     View("lake-mead", 53808.0, 38384.0, 3850.0, 60.0),  # Boulder Beach, northeast over the lake
     View("colorado-river", 62699.0, -97604.0, 600.0, 90.0),  # Cottonwood Overlook, east across the river
-    View("black-mountain-west", 3171.0, 11634.0, 11100.0, 270.0),  # Black Mountain, west over the valley toward Goodsprings
 ]
 
 
