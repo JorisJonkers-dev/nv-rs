@@ -1,0 +1,1 @@
+crates/engine-fallout-ai/src/units/fallout_ai/actor_p3.rs  # the landing of a jump plays no sound when the controller has no recorded landing surface, instead of calling the mixer with a null sound (nv-rs#455)
