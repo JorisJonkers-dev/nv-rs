@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.17.0...v0.18.0) (2026-11-21)
+
+
+### Features
+
+* **sync:** the sync report counts stop reports per sync and per family ([#271](https://github.com/JorisJonkers-dev/nv-rs/issues/271)) ([#441](https://github.com/JorisJonkers-dev/nv-rs/issues/441)) ([7fa5733](https://github.com/JorisJonkers-dev/nv-rs/commit/7fa57339c11c21a80f4d331deb9e23999a958301))
+
 ## [0.17.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.16.1...v0.17.0) (2026-11-21)
 
 
