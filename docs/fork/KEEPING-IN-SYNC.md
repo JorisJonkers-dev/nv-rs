@@ -181,3 +181,12 @@ from your own login: `gh repo sync JorisJonkers-dev/nv-rs -b main` (or the Sync 
 ## Layout constants of mem.rs
 
 The job `Layout window test` (`fork-ci.yml`, `scripts/fork/layout_gate.py`) compares the definitions of the layout constants of `engine-core/src/mem.rs` (`HEAP_BASE`, `HEAP_LOW_END`, `HEAP_HIGH_BASE`, `HEAP_END`, `PLATFORM_AREA`, `EXTENDER_CODE`, `BUILTIN_DATA`, `HELPER_AREA`, `HELPER_SLOT`, `HEAP_LARGEST_BLOCK`) at the base and at the head. When one differs, as in a sync that moves the guest window, the job runs the heap's window tests (`cargo test -p engine-core --lib -- mem::heap::tests::`, the ranges at 1 GiB and 2 GiB, docs/fork/ADDRESS-SPACE.md); they state the ranges' sizes, so a moved constant fails them until they are looked at. The job is part of `Pipeline Complete`, so the pull request cannot merge red; with no constant changed it passes at once.
+
+## Stop reports per sync
+
+The bench and soak runs write a `stop` final record into their JSON log when the game's main stops (docs/fork/LOGGING.md): its class
+and, when the reason names a moved family, `family` and `field`. After a sync, count them for that sync with
+`python3 -I scripts/fork/sync_report.py stops --dir ~/.local/state/nv-rs/bench --sync <replay point sha>`: the total, a table by class
+and by family, and one tracking entry per family a stop names; `--open-entries` opens each as an issue labelled `stop-family`
+(`Stop names moved family N field +x`; one open issue per title). The runs live on the machine that made them, so this is run
+there, not in CI.

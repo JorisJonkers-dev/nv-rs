@@ -346,3 +346,55 @@ class BehindTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StopTracker(unittest.TestCase):
+    """nv-rs#271: the stop reports of runs, counted per sync and per family."""
+
+    RECORDS = [
+        {"event": "stop", "class": "memory", "family": 10, "field": "+4", "reason": "read of unmapped memory", "frame": 5},
+        {"event": "stop", "class": "memory", "family": 10, "field": "+4", "reason": "again", "frame": 9},
+        {"event": "stop", "class": "memory", "family": 3, "reason": "dual run", "frame": 1},
+        {"event": "stop", "class": "untranslated", "reason": "not translated", "frame": 2},
+    ]
+
+    def test_the_summary_counts_by_class_and_family_and_lists_entries(self):
+        text = sync_report.stops_summary(self.RECORDS, "0123456789abcdef")
+        self.assertIn("Stop reports since the sync at `01234567`", text)
+        self.assertIn("4 stop report(s)", text)
+        self.assertIn("| memory | 3 |", text)
+        self.assertIn("| family 10 field +4 | 2 |", text)
+        self.assertIn("- Stop names moved family 3", text)
+        self.assertNotIn("untranslated stop names", text)
+
+    def test_no_stops_is_a_line(self):
+        self.assertIn("0 stop report(s)", sync_report.stops_summary([]))
+
+    def test_records_are_read_from_json_lines_under_a_folder(self):
+        with tempfile.TemporaryDirectory() as d:
+            sub = Path(d) / "run1"
+            sub.mkdir()
+            lines = [json.dumps({"event": "exit"}), "not json", json.dumps(self.RECORDS[0]), json.dumps(self.RECORDS[3])]
+            (sub / "log.jsonl").write_text("\n".join(lines) + "\n")
+            (Path(d) / "notes.txt").write_text(json.dumps(self.RECORDS[2]))
+            got = sync_report.read_stop_records(d)
+            self.assertEqual([r["frame"] for r in got], [5, 2])
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sync_report.main(["stops", "--dir", d, "--sync", "abcdef012345"])
+            self.assertIn("2 stop report(s)", out.getvalue())
+
+    def test_one_entry_is_opened_per_family_and_not_twice(self):
+        calls = []
+
+        def fake_gh(*args, check=True):
+            calls.append(args)
+            out = "[]"
+            if args[:2] == ("issue", "list"):
+                out = json.dumps([{"title": "Stop names moved family 3"}])
+            return subprocess.CompletedProcess(args, 0, out, "")
+
+        with unittest.mock.patch.object(sync_report, "gh", fake_gh), unittest.mock.patch.object(sync_report, "issues_enabled", lambda: True):
+            opened = sync_report.open_entries(self.RECORDS, "abc12345")
+        self.assertEqual(opened, ["Stop names moved family 10 field +4"])
+        self.assertEqual(len([c for c in calls if c[:2] == ("issue", "create")]), 1)
