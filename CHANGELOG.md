@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.1](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.18.0...v0.18.1) (2026-11-21)
+
+
+### Performance Improvements
+
+* **scripts:** the expression evaluator and operand reader are native code (slaterain/nv-rs[#857](https://github.com/JorisJonkers-dev/nv-rs/issues/857)) ([abcb83b](https://github.com/JorisJonkers-dev/nv-rs/commit/abcb83b7d0ce3ce148f275a559e1dbf998446814))
+* **scripts:** the expression evaluator and operand reader are native code (slaterain/nv-rs[#857](https://github.com/JorisJonkers-dev/nv-rs/issues/857)) ([a0303b1](https://github.com/JorisJonkers-dev/nv-rs/commit/a0303b1dd90ae69273b18ffca67084e7dff57601))
+* **scripts:** the expression evaluator and operand reader are native code (slaterain/nv-rs[#857](https://github.com/JorisJonkers-dev/nv-rs/issues/857)) ([9f19209](https://github.com/JorisJonkers-dev/nv-rs/commit/9f19209e5272a0beb1db827f050b61bac4dbd418))
+* **typed:** room for 64 families, flag words widened to 64 bits (slaterain/nv-rs[#859](https://github.com/JorisJonkers-dev/nv-rs/issues/859)) ([abcb83b](https://github.com/JorisJonkers-dev/nv-rs/commit/abcb83b7d0ce3ce148f275a559e1dbf998446814))
+* **typed:** room for 64 families, flag words widened to 64 bits (slaterain/nv-rs[#859](https://github.com/JorisJonkers-dev/nv-rs/issues/859)) ([a0303b1](https://github.com/JorisJonkers-dev/nv-rs/commit/a0303b1dd90ae69273b18ffca67084e7dff57601))
+* **typed:** room for 64 families, flag words widened to 64 bits (slaterain/nv-rs[#859](https://github.com/JorisJonkers-dev/nv-rs/issues/859)) ([9f19209](https://github.com/JorisJonkers-dev/nv-rs/commit/9f19209e5272a0beb1db827f050b61bac4dbd418))
+
 ## [0.18.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.17.0...v0.18.0) (2026-11-21)
 
 
