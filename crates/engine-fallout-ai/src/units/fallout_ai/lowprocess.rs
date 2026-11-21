@@ -1528,7 +1528,8 @@ pub fn low_process_process_patrol(e: &mut Engine, this: Ptr<LowProcess>, actor: 
         e.vcall(actor.addr(), ACTOR_SLOT_418, &args![]);
         return;
     }
-    let mut time = patrol_time_to_spend(low_process_get_time_delta(e, this, actor.addr()).to_bits());
+    let mut time =
+        patrol_time_to_spend(low_process_get_time_delta(e, this, actor.addr()).to_bits());
     let zero: f64 = e.global(ZERO);
     while x87_load32(time) > zero {
         time = match e.mem.u32(data.wrapping_add(4)) {
