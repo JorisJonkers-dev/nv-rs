@@ -668,6 +668,17 @@ class DriverTests(unittest.TestCase):
         self.assertEqual([r[1] for r in driver.parse_tail(cut)], ["play"])
         self.assertEqual(driver.parse_tail(cut + "pl"), driver.parse_tail(cut))
 
+    def test_the_loading_check_accepts_the_loading_menus_game_event(self):
+        import scenarios
+        import parse
+
+        check = scenarios.reached_screen("loading")[1]
+        self.assertFalse(check({"screens": [(0, 0, "menu"), (9, 1, "play")]})[0])
+        self.assertTrue(check({"screens": [(0, 0, "menu"), (9, 1, "play")], "loading_menu": True})[0])
+        self.assertTrue(check({"screens": [(0, 0, "loading")]})[0])
+        log = parse.parse_log("INFO game f1: [f1 +1ms] menu.loading: the loading menu is up (the game's first load)\n")
+        self.assertTrue(log["loading_menu"])
+
     def test_the_new_game_menu_walk_takes_one_down_and_continue_takes_none(self):
         # The main menu opens on Continue and the first Down already moves the selection (nv-rs#410): two Downs
         # land on Load. New is one Down, Continue none.
