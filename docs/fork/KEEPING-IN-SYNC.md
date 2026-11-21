@@ -178,6 +178,10 @@ fork-only commits) or, possibly, when upstream changed workflow files and the to
 verified: the first scheduled run shows it). Then the workflow warns and the replay works from where `main` is. Fix it
 from your own login: `gh repo sync JorisJonkers-dev/nv-rs -b main` (or the Sync fork button on `main`).
 
+## Layout constants of mem.rs
+
+The job `Layout window test` (`fork-ci.yml`, `scripts/fork/layout_gate.py`) compares the definitions of the layout constants of `engine-core/src/mem.rs` (`HEAP_BASE`, `HEAP_LOW_END`, `HEAP_HIGH_BASE`, `HEAP_END`, `PLATFORM_AREA`, `EXTENDER_CODE`, `BUILTIN_DATA`, `HELPER_AREA`, `HELPER_SLOT`, `HEAP_LARGEST_BLOCK`) at the base and at the head. When one differs, as in a sync that moves the guest window, the job runs the heap's window tests (`cargo test -p engine-core --lib -- mem::heap::tests::`, the ranges at 1 GiB and 2 GiB, docs/fork/ADDRESS-SPACE.md); they state the ranges' sizes, so a moved constant fails them until they are looked at. The job is part of `Pipeline Complete`, so the pull request cannot merge red; with no constant changed it passes at once.
+
 ## Stop reports per sync
 
 The bench and soak runs write a `stop` final record into their JSON log when the game's main stops (docs/fork/LOGGING.md): its class

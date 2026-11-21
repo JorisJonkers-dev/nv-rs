@@ -231,9 +231,36 @@ jobs:
           printf '%s\n' "$BODY" >"$RUNNER_TEMP/pr-body.md"
           python3 -I scripts/fork/sync_trailer.py "$BASE" "$HEAD" "$RUNNER_TEMP/pr-body.md"
 
+  # A change to a layout constant of engine-core's mem.rs (the heap's ranges, the platform area, the extenders' code and
+  # the helper area) must pass the window test before it merges (nv-rs#272, scripts/fork/layout_gate.py): the heap's
+  # tests at lowered windows state the ranges' sizes, so a moved constant fails them. Cheap when nothing moved.
+  layout-window:
+    name: Layout window test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Did a layout constant change
+        id: layout
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/fork/layout_gate.py check --base "${BASE:-HEAD^}" --head "$HEAD" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: The window test
+        if: ${{ steps.layout.outputs.changed == 'true' }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          cargo test --locked -p engine-core --lib -- mem::heap::tests::
+
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, build, coverage, facade, macos]
+    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, build, coverage, facade, macos]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
