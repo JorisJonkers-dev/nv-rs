@@ -2274,6 +2274,11 @@ fn create_sound_buffer(e: &mut Engine, this: Ptr, desc: Ptr, out: Ptr, outer: u3
             ""
         }
     );
+    if flags & DSBCAPS_PRIMARYBUFFER == 0 {
+        // The hitch log's counts (`engine_core::hitch`): a sound buffer made, its bytes.
+        engine_core::hitch::one(engine_core::hitch::Count::SoundBuffers);
+        engine_core::hitch::add(engine_core::hitch::Count::SoundBytes, u64::from(size));
+    }
     let mut buffer = if flags & DSBCAPS_PRIMARYBUFFER != 0 {
         assert!(
             flags & !(DSBCAPS_PRIMARYBUFFER | DSBCAPS_CTRL3D | DSBCAPS_CTRLVOLUME) == 0
