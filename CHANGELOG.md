@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.20.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.19.0...v0.20.0) (2026-11-21)
+
+
+### Features
+
+* support the GOG 1.4.0.525(a) build 55068 executable and its wrapper imports ([2ae9944](https://github.com/JorisJonkers-dev/nv-rs/commit/2ae99445d9f5d63c4375d317b69f15d8758a8b0c))
+
+
+### Bug Fixes
+
+* **bench:** the built-in views are the four places that pass; the far-move stop is [#455](https://github.com/JorisJonkers-dev/nv-rs/issues/455) ([#456](https://github.com/JorisJonkers-dev/nv-rs/issues/456)) ([661dea1](https://github.com/JorisJonkers-dev/nv-rs/commit/661dea1943e0c1fa3767b735831be3b20fac63cc))
+* **bench:** the menu walk follows the selection the menu shows and answers the TTW start choice ([#265](https://github.com/JorisJonkers-dev/nv-rs/issues/265)) ([#462](https://github.com/JorisJonkers-dev/nv-rs/issues/462)) ([167e613](https://github.com/JorisJonkers-dev/nv-rs/commit/167e61367b8fd1c66fee9a7ca96e815d33aeadda))
+
 ## [0.19.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.18.2...v0.19.0) (2026-11-21)
 
 
