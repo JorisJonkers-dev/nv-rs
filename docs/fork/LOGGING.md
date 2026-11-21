@@ -116,13 +116,13 @@ counts are in the exit summary.
 
 From the game's own state (`crates/host/src/fork_trace.rs`, read-only, once a frame, changes only; the words are those
 `loadingmenu.rs` names): `menu.loading` (the loading menu is up or gone, and whether it is the game's first load), `load.thread`
-(the loading thread object exists: a load runs), `load.music` and `load.movie` (the movie player word set or cleared).
+(the loading thread object exists: a load runs), `load.music` and `load.movie` (the movie player word set or cleared), and
+`menu.stack` (the interface manager's menu stack, `+0x114` ten words of menu class ids, and its menu mode `+0x0c`: how many menus are
+open, their class ids bottom to top in hex, the mode; logged when either changes, so a message box, the pause menu or the Reflectron
+(`0x40c`) shows when it opens and closes).
 
-Not traced, and there is no seam to trace them at: the main, pause and other menus and the menu stack, and the kind of a later
-load (new game, save, door or fast travel). The menus are the game's translated code; the port intercepts none of their calls and
-the stack is a structure no translation names a global for. `bInitialLoad` only tells the first load from the rest. Tracing them
-needs a patch row in `engine-core`'s extend hooks at a menu's show and hide functions (an engine-core change), or reading the
-interface manager's menu list once its layout is named.
+Not traced: the kind of a later load (new game, save, door or fast travel); `bInitialLoad` only tells the first load from the
+rest. That needs a patch row in `engine-core`'s extend hooks at the load functions (an engine-core change).
 
 ## Soft stops
 
