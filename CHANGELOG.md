@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.20.1](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.20.0...v0.20.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **ai:** a jump's landing with no recorded landing surface plays no sound ([#468](https://github.com/JorisJonkers-dev/nv-rs/issues/468)) ([9742419](https://github.com/JorisJonkers-dev/nv-rs/commit/9742419683f082e312aa179b36630a52aafcd623))
+* **ai:** a patrol spends a time that is not finite as no time (set gamehour with the time scale at 0) ([#465](https://github.com/JorisJonkers-dev/nv-rs/issues/465)) ([6f7d6fc](https://github.com/JorisJonkers-dev/nv-rs/commit/6f7d6fc782a96faea1f09aeb4aff4f1342e8a576))
+* fix recursive-lock publication with native host threads (ARM store ordering) ([a99bfad](https://github.com/JorisJonkers-dev/nv-rs/commit/a99bfad6cb3ce0fec2c14972824c71f554367b28))
+
 ## [0.20.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.19.0...v0.20.0) (2026-11-21)
 
 
