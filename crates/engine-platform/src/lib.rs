@@ -1037,6 +1037,16 @@ fn layer_imports() -> Vec<(&'static str, &'static str, AbiFn)> {
     ]);
     #[cfg(not(windows))]
     imports.extend(d3dxshader::imports());
+    // GOG 55068's PE imports name GalaxyWrp.dll at the same IAT slots as
+    // Steam's API (measured from the user's executable, 2026-11-19). Keep
+    // the existing offline/no-client model and ABI for those same exports;
+    // this does not load GalaxyWrp.dll or provide Galaxy achievements.
+    let gog: Vec<_> = imports
+        .iter()
+        .filter(|(dll, _, _)| dll.eq_ignore_ascii_case("steam_api.dll"))
+        .map(|(_, name, function)| ("GalaxyWrp.dll", *name, *function))
+        .collect();
+    imports.extend(gog);
     imports
 }
 
@@ -1074,7 +1084,82 @@ mod tests {
         // (the game's `WM_MOUSEMOVE`, `window::post_mouse_move`).
         // Off Windows also the two shader profile getters (`d3dx::profiles`) and, instead of the
         // six of the player's d3dx9_38.dll, the fork's four (`d3dxshader::imports`): 200 as well.
-        assert_eq!(table.len(), 200);
+        // Plus the 11 GalaxyWrp.dll wrapper imports of the GOG executable (same answers as
+        // steam_api.dll): 211.
+        assert_eq!(table.len(), 211);
+    }
+
+    /// The owned GOG executable's actual wrapper imports all resolve. No
+    /// executable data is included in this repository.
+    #[test]
+    fn gog_wrapper_imports_when_given() {
+        let Ok(path) = std::env::var("NV_GOG_EXE") else {
+            return;
+        };
+        let file = std::fs::read(&path).unwrap();
+        let actual = engine_core::exe::imports(&file).unwrap();
+        let table = imports();
+        let wrapper: Vec<_> = actual
+            .iter()
+            .filter(|i| i.dll.eq_ignore_ascii_case("GalaxyWrp.dll"))
+            .collect();
+        assert_eq!(wrapper.len(), 11);
+        for import in wrapper {
+            assert!(
+                table
+                    .iter()
+                    .any(|(dll, name, _)| dll.eq_ignore_ascii_case(&import.dll)
+                        && *name == import.name),
+                "unanswered {} {}",
+                import.dll,
+                import.name
+            );
+        }
+    }
+
+    /// The PE table's measured wrapper exports, represented by artificial
+    /// imports rather than game data, register and answer in no-client mode.
+    #[test]
+    fn gog_wrapper_exports_resolve_without_game_files() {
+        let exports = [
+            "SteamFriends",
+            "SteamAPI_Init",
+            "SteamAPI_UnregisterCallback",
+            "SteamAPI_Shutdown",
+            "SteamUser",
+            "SteamAPI_RunCallbacks",
+            "SteamAPI_RegisterCallback",
+            "SteamUserStats",
+            "SteamApps",
+            "SteamAPI_IsSteamRunning",
+            "SteamUtils",
+        ];
+        let imports: Vec<_> = exports
+            .iter()
+            .enumerate()
+            .map(|(i, name)| engine_core::exe::Import {
+                slot: 0x0300_0000 + i as u32 * 4,
+                dll: "GalaxyWrp.dll".to_owned(),
+                name: (*name).to_owned(),
+            })
+            .collect();
+        let mut e = Engine::new();
+        assert_eq!(e.register_imports(&imports), 11);
+        for (index, name) in exports.iter().enumerate() {
+            let slot = imports[index].slot;
+            match *name {
+                "SteamAPI_RegisterCallback" => {
+                    e.call(slot, &[0, 100]);
+                }
+                "SteamAPI_UnregisterCallback" => {
+                    e.call(slot, &[0]);
+                }
+                "SteamAPI_Shutdown" | "SteamAPI_RunCallbacks" => {
+                    e.call(slot, &[]);
+                }
+                _ => assert_eq!(e.call(slot, &[]).u32(), 0, "{name}"),
+            }
+        }
     }
 
     /// Not a check: the rows of `engine-core`'s `allocations_per_operation_of_the_kernel` whose
