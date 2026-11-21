@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.17.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.16.1...v0.17.0) (2026-11-21)
+
+
+### Features
+
+* **bench:** the summary counts hitches next to menu and load events ([#297](https://github.com/JorisJonkers-dev/nv-rs/issues/297)) ([#434](https://github.com/JorisJonkers-dev/nv-rs/issues/434)) ([5fd5a6b](https://github.com/JorisJonkers-dev/nv-rs/commit/5fd5a6b74cef2176e608188b1443bdf035355f69))
+* **files:** the listing cache counts its looks and says so at the end of the run ([#277](https://github.com/JorisJonkers-dev/nv-rs/issues/277)) ([#436](https://github.com/JorisJonkers-dev/nv-rs/issues/436)) ([cce171e](https://github.com/JorisJonkers-dev/nv-rs/commit/cce171ec24964bd8aaa4691c15ae2cf796126d98))
+* **host:** the game trace tells the kind of a load ([#297](https://github.com/JorisJonkers-dev/nv-rs/issues/297)) ([#429](https://github.com/JorisJonkers-dev/nv-rs/issues/429)) ([4d23eda](https://github.com/JorisJonkers-dev/nv-rs/commit/4d23edace3ecabcd7510b3c163e90a4caacc3c04))
+* **log:** graceful stop at a heap fraction and stop reports that name the family ([#227](https://github.com/JorisJonkers-dev/nv-rs/issues/227)) ([#432](https://github.com/JorisJonkers-dev/nv-rs/issues/432)) ([fdf4b8b](https://github.com/JorisJonkers-dev/nv-rs/commit/fdf4b8be8c0571ff0f2cdd3c63f666241e4a060c))
+* **mem:** NV_GUEST_WINDOW lowers the guest heap for window-shrink runs ([#267](https://github.com/JorisJonkers-dev/nv-rs/issues/267)) ([#433](https://github.com/JorisJonkers-dev/nv-rs/issues/433)) ([ff3d4e2](https://github.com/JorisJonkers-dev/nv-rs/commit/ff3d4e2d85be569c5286ffbf906f4f2c36ca60d4))
+* **stewie:** group J, seven world-side fixes and group I review follow-ups (slaterain/nv-rs[#854](https://github.com/JorisJonkers-dev/nv-rs/issues/854)) ([cc9de98](https://github.com/JorisJonkers-dev/nv-rs/commit/cc9de981529f62c0635d40984868ec6d9571acac))
+* **stewie:** group J, seven world-side fixes and group I review follow-ups (slaterain/nv-rs[#854](https://github.com/JorisJonkers-dev/nv-rs/issues/854)) ([f0929c9](https://github.com/JorisJonkers-dev/nv-rs/commit/f0929c99b3498c7069e2bb20bd66fa4b99718d23))
+* **stewie:** group J, seven world-side fixes and group I review follow-ups (slaterain/nv-rs[#854](https://github.com/JorisJonkers-dev/nv-rs/issues/854)) ([2dbb20e](https://github.com/JorisJonkers-dev/nv-rs/commit/2dbb20e74c2c8bb8385d865b082f144917574f28))
+* **stewie:** menus 2, nine crafting, inventory and repair menu fixes (slaterain/nv-rs[#839](https://github.com/JorisJonkers-dev/nv-rs/issues/839)) ([58cac57](https://github.com/JorisJonkers-dev/nv-rs/commit/58cac574e397770b7847d1141da586e671900461))
+* **stewie:** menus 2, nine crafting, inventory and repair menu fixes (slaterain/nv-rs[#839](https://github.com/JorisJonkers-dev/nv-rs/issues/839)) ([7acea07](https://github.com/JorisJonkers-dev/nv-rs/commit/7acea077f0b3787625b82ca9161f8018d2cf2638))
+* **stewie:** share 1b group 2, the perk menu's requirement line (slaterain/nv-rs[#846](https://github.com/JorisJonkers-dev/nv-rs/issues/846)) ([cc9de98](https://github.com/JorisJonkers-dev/nv-rs/commit/cc9de981529f62c0635d40984868ec6d9571acac))
+* **stewie:** share 1b group 2, the perk menu's requirement line (slaterain/nv-rs[#846](https://github.com/JorisJonkers-dev/nv-rs/issues/846)) ([f0929c9](https://github.com/JorisJonkers-dev/nv-rs/commit/f0929c99b3498c7069e2bb20bd66fa4b99718d23))
+* **stewie:** share 1b group 2, the perk menu's requirement line (slaterain/nv-rs[#846](https://github.com/JorisJonkers-dev/nv-rs/issues/846)) ([2dbb20e](https://github.com/JorisJonkers-dev/nv-rs/commit/2dbb20e74c2c8bb8385d865b082f144917574f28))
+
+
+### Bug Fixes
+
+* **jip:** silenced shots no longer stop the game at an NPC's first shot (slaterain/nv-rs[#855](https://github.com/JorisJonkers-dev/nv-rs/issues/855)) ([cc9de98](https://github.com/JorisJonkers-dev/nv-rs/commit/cc9de981529f62c0635d40984868ec6d9571acac))
+* **jip:** silenced shots no longer stop the game at an NPC's first shot (slaterain/nv-rs[#855](https://github.com/JorisJonkers-dev/nv-rs/issues/855)) ([f0929c9](https://github.com/JorisJonkers-dev/nv-rs/commit/f0929c99b3498c7069e2bb20bd66fa4b99718d23))
+* **jip:** silenced shots no longer stop the game at an NPC's first shot (slaterain/nv-rs[#855](https://github.com/JorisJonkers-dev/nv-rs/issues/855)) ([2dbb20e](https://github.com/JorisJonkers-dev/nv-rs/commit/2dbb20e74c2c8bb8385d865b082f144917574f28))
+
+
+### Performance Improvements
+
+* **culling:** read each node's children ahead before walking them (slaterain/nv-rs[#838](https://github.com/JorisJonkers-dev/nv-rs/issues/838)) ([58cac57](https://github.com/JorisJonkers-dev/nv-rs/commit/58cac574e397770b7847d1141da586e671900461))
+* **culling:** read each node's children ahead before walking them (slaterain/nv-rs[#838](https://github.com/JorisJonkers-dev/nv-rs/issues/838)) ([7acea07](https://github.com/JorisJonkers-dev/nv-rs/commit/7acea077f0b3787625b82ca9161f8018d2cf2638))
+
 ## [0.16.1](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.16.0...v0.16.1) (2026-11-21)
 
 
