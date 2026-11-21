@@ -764,8 +764,16 @@ fn write_final(event: &str, level: Level, extra: &dyn Fn(&mut String)) {
 pub fn report_stop(why: &str) {
     write_final("stop", Level::Error, &|o| {
         o.push_str(",\"reason\":");
-        sink::json_str(o, why);
-        let _ = write!(o, ",\"class\":\"{}\",\"addresses\":[", classify(why).name());
+        sink::json_str(o, &stop::file_names_only(why));
+        let _ = write!(o, ",\"class\":\"{}\"", classify(why).name());
+        if let Some((family, field)) = stop::family(why) {
+            let _ = write!(o, ",\"family\":{family}");
+            if let Some(field) = field {
+                o.push_str(",\"field\":");
+                sink::json_str(o, &field);
+            }
+        }
+        o.push_str(",\"addresses\":[");
         for (i, a) in stop::addresses(why).iter().enumerate() {
             if i > 0 {
                 o.push(',');
@@ -790,7 +798,12 @@ pub fn install_panic_hook() {
                 .map(|s| (*s).to_string())
                 .or_else(|| info.payload().downcast_ref::<String>().cloned())
                 .unwrap_or_default();
-            let place = info.location().map(ToString::to_string).unwrap_or_default();
+            // No folder of the machine in a report: the file name and the line only.
+            let place = info
+                .location()
+                .map(|l| stop::file_names_only(&l.to_string()))
+                .unwrap_or_default();
+            let message = stop::file_names_only(&message);
             ERRORS.fetch_add(1, Ordering::Relaxed);
             write_final("panic", Level::Error, &|o| {
                 o.push_str(",\"reason\":");

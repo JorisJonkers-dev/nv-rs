@@ -22,6 +22,7 @@ pub mod direct_files;
 pub mod draw_thread;
 pub mod first_profile;
 pub mod fixes;
+pub mod fork_heap;
 pub mod fork_trace;
 pub mod fork_ttw;
 pub mod form_types;
