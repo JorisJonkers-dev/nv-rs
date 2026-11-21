@@ -1,3 +1,5 @@
+# FROZEN (nv-rs#438): this list is history. A new entry is ONE FILE under .fork/allowed-divergence.d/ (`path  # reason` lines, named for the
+# change), so parallel pull requests do not collide here. scripts/fork/tests/test_allowed_divergence_guard.py fails on any other change to this file.
 # Upstream-owned files the fork changes on purpose (scripts/fork/verify-sync.sh). The list grows with the fork: the fork may differ
 # from upstream wherever it is better. Upstream is an imported source, nothing here is offered back. A replayed upstream change to
 # one of these files that touches the same lines stops the replay (docs/fork/KEEPING-IN-SYNC.md, "Who wins").
