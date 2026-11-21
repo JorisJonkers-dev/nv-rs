@@ -67,6 +67,9 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(any("lake" in n or "river" in n for n in names) and any("valley" in n or "vegas" in n for n in names))
         self.assertTrue(all(0.0 <= v.heading < 360.0 for v in views.DEFAULT_VIEWS))
 
+    def test_the_default_list_stays_within_the_far_moves_a_session_survives(self):
+        self.assertLessEqual(len(views.DEFAULT_VIEWS), 4)  # a fifth far move stopped the port (nv-rs#455)
+
     def test_hour_and_weather(self):
         self.assertEqual(views.parse_hour("6.5"), 6.5)
         for bad in ("24", "-1", "noon"):
