@@ -1,0 +1,1 @@
+viewer/src/main.rs  # NV_STOP_AFTER_FRAMES: the frame loop ends the run with status 0 after N main frames, real threads kept (nv-rs#463); the switch itself is fork_log::stop_after

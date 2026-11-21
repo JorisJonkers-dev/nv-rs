@@ -422,6 +422,14 @@ pub fn run() {
             host::end_process(1);
         }
     };
+    // `NV_STOP_AFTER_FRAMES=N` (nv-rs#463): a value that is no positive number stops the start here.
+    let stop_after = match fork_log::stop_after::from_env() {
+        Ok(limit) => limit,
+        Err(e) => {
+            fork_log::fatal!(target: "host", "{e}");
+            host::end_process(1);
+        }
+    };
     let mut game = match host::Host::start_with(&data, &choice) {
         Ok(host) => host,
         Err(e) => {
@@ -497,6 +505,14 @@ pub fn run() {
         }
         // `NV_REPEATABLE=FRAMES` (a test mode): the run ends after FRAMES of main's frames.
         if game.repeatable_end() {
+            host::end_process(0);
+        }
+        // `NV_STOP_AFTER_FRAMES=N`: the run, real threads and all, ends with status 0 after N of main's frames.
+        if fork_log::stop_after::reached(stop_after, game.movement.main_frames) {
+            game.join();
+            let frames = game.movement.main_frames;
+            fork_log::info!(target: "host", "{}", fork_log::stop_after::end_line(stop_after.unwrap_or(0), frames));
+            host::run_exit_hooks();
             host::end_process(0);
         }
         trace.sample(&game.engine);
