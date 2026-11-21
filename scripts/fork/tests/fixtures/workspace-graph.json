@@ -1835,6 +1835,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "fork-scene-run"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "host"
     },
     {
@@ -1885,6 +1890,44 @@
    ],
    "manifest_path": "/ws/crates/fork-presence/Cargo.toml",
    "name": "fork-presence"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-log"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-scene"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "host"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/fork-scene-run/Cargo.toml",
+   "name": "fork-scene-run"
+  },
+  {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/fork-scene/Cargo.toml",
+   "name": "fork-scene"
   },
   {
    "dependencies": [
@@ -2475,6 +2518,11 @@
      "features": [],
      "kind": null,
      "name": "fork-presence"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-scene-run"
     },
     {
      "features": [],
