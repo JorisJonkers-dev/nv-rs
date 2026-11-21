@@ -27,6 +27,7 @@ import report  # noqa: E402
 import replay  # noqa: E402
 import suite  # noqa: E402
 import timeline  # noqa: E402
+import views as viewlib  # noqa: E402
 import runner  # noqa: E402
 import scenarios  # noqa: E402
 import watch  # noqa: E402
@@ -240,6 +241,11 @@ def run_scenario(a):
         "vram_limit_pct": a.vram_limit_pct, "shots": a.shots, "nested": a.nested, "record": a.record, "record_fps": a.record_fps, "record_format": a.record_format, "scale": a.scale,
         "cap": a.cap, "legacy": a.legacy, "perf": a.perf,
     }
+    try:
+        opts.update(views_options(a))
+    except viewlib.ViewError as e:
+        print(f"bench: {e}", file=sys.stderr)
+        return 2
     plan = scenarios.build(a.scenario, opts)
     if plan.capped_only and a.mode != "capped" and not a.force:
         print(f"{plan.name} is timed in main-loop frames and only valid in capped mode (the game's menus run on time); --force to try", file=sys.stderr)
@@ -280,6 +286,38 @@ def run_scenario(a):
     print((run_dir / "report.md").read_text())
     print(f"report: {run_dir / 'report.html'}")
     return 0 if summary["verdict"]["ok"] else 1
+
+
+def views_options(a):
+    """The views scenario's options from the command line (nothing for the other scenarios)."""
+    if a.scenario != "views":
+        return {}
+    return {
+        "views": viewlib.resolve(a.views, a.views_file),
+        "hour": viewlib.parse_hour(a.hour) if a.hour is not None else viewlib.HOUR,
+        "timescale": viewlib.parse_timescale(a.timescale) if a.timescale is not None else 0,
+        "weather": viewlib.parse_weather(a.weather) if a.weather is not None else viewlib.WEATHER,
+        "views_settle": a.views_settle if a.views_settle is not None else viewlib.SETTLE_S,
+    }
+
+
+def cmd_views_compare(a):
+    """Two runs of the views scenario: do they agree at every view (position, heading, sky)?"""
+    data = []
+    for run in (a.first, a.second):
+        p = resolve(run)
+        p = Path(p) / viewlib.MANIFEST if Path(p).is_dir() else Path(p)
+        try:
+            data.append(json.loads(p.read_text()))
+        except (OSError, ValueError) as e:
+            print(f"cannot read {p}: {e}", file=sys.stderr)
+            return 2
+    problems = viewlib.compare(*data)
+    for line in problems:
+        print(line)
+    if not problems:
+        print(f"the runs agree at all {len(data[0].get('views', []))} views (positions within {viewlib.POSITION_UNITS:g} unit, headings within {viewlib.HEADING_DEGREES:g} degree)")
+    return 1 if problems else 0
 
 
 def parse_keys(spec):
@@ -469,6 +507,12 @@ def run_args(r):
     r.add_argument("--record", action="store_true", help="record the nested screen to screen.mp4 in the run directory (needs --nested headless and wf-recorder); then: bench replay RUN")
     r.add_argument("--record-fps", type=int, default=30)
     r.add_argument("--record-format", choices=["mp4", "webm"], default="mp4")
+    r.add_argument("--views", metavar="NAME:X:Y:Z:HEADING;...", help="views scenario: the views, `;` between them (default: the built-in list, docs/fork/BENCH.md)")
+    r.add_argument("--views-file", metavar="FILE", help="views scenario: a file with one view a line (name x y z heading; # comments)")
+    r.add_argument("--hour", metavar="H|none", help="views scenario: the game hour set before the first view (default 12; none leaves it)")
+    r.add_argument("--timescale", metavar="N", help="views scenario: the time scale set after the hour (default 0: the clock stops); none leaves it")
+    r.add_argument("--weather", metavar="FORMID|none", help="views scenario: a weather forced before the first view, a form id in hex (default 0FFC88, the clear day), or none to leave the game's own")
+    r.add_argument("--views-settle", type=float, metavar="S", help="views scenario: seconds of play at a view before its picture (default 15)")
     r.add_argument("--force", action="store_true", help="run a capped-only scenario uncapped")
     r.add_argument("--mouse", help="extra NV_MOVE_MOUSE items FRAME:DX:DY:HOLD[:BUTTONS],...")
     r.add_argument("--keys", help="extra NV_MOVE_KEYS items FRAME:DIKHEX:HOLD,...")
@@ -501,6 +545,10 @@ def main(argv=None):
     c.add_argument("--threshold", action="append", help="key=percent, e.g. fps=3 (keys: " + ", ".join(k[0] for k in report.COMPARED) + ")")
     c.add_argument("--out")
     c.set_defaults(fn=cmd_compare)
+    vc = sub.add_parser("views-compare", help="two runs of the views scenario: the same positions, headings and sky at every view?")
+    vc.add_argument("first")
+    vc.add_argument("second")
+    vc.set_defaults(fn=cmd_views_compare)
     an = sub.add_parser("analyze")
     an.add_argument("log")
     an.add_argument("--frames")

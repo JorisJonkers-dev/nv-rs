@@ -524,6 +524,27 @@ def world_plan(name, opts):
     return p
 
 
+def views_captured(names):
+    """Every view of the list has its picture and its position noted (`state view.<name>`: written after the picture)."""
+    def check(m):
+        states = m.get("states") or {}
+        missing = [n for n in names if f"view.{n}" not in states]
+        return not missing, (f"{len(names)} views captured" if not missing else f"no picture of: {', '.join(missing)}")
+
+    return ("every view has its picture", check)
+
+
+def views_plan(opts):
+    """Fixed views of the world (nv-rs#343, docs/fork/BENCH.md): the same places, headings and time of day each run."""
+    import views as viewlib
+
+    names = [v.name for v in (opts.get("views") or viewlib.DEFAULT_VIEWS)]
+    p = Plan("views", f"Fixed views of the Mojave at a set hour: {len(names)} places and headings, one picture each, with a manifest", fps=opts.get("fps", 60.0))
+    p.checks = [reached_screen("play"), player_placed(), views_captured(names)]
+    p.drive, p.self_scaled = DRIVERS["views"], True
+    return p
+
+
 def build(name, opts):
     if name not in SCENARIOS:
         raise SystemExit(f"unknown scenario {name!r}; known: {', '.join(sorted(SCENARIOS))}")
@@ -542,5 +563,6 @@ SCENARIOS = {
     "goodsprings": goodsprings, "novac": novac, "strip": strip, "combat": combat, "soak": soak, "realwalk": realwalk,
     "doc_house": lambda opts: world_plan("doc_house", opts), "quick": lambda opts: world_plan("quick", opts),
     "sneak": lambda opts: world_plan("sneak", opts),
+    "views": views_plan,
     "save": lambda opts: round_trip_plan("save", opts), "continue": lambda opts: round_trip_plan("continue", opts),
 }
