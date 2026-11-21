@@ -11,7 +11,7 @@ rust-version.workspace = true
 # flate2 on zlib-rs (already in the lock) and Deflate64; 7z's LZMA, LZMA2, BCJ/BCJ2 and PPMd.
 # Left out: encryption, zstd (C code) and BZip2 (rare in mods, and its reader has a licence of its
 # own).
-zip = { version = "9.7", default-features = false, features = ["deflate-flate2-zlib-rs", "deflate64"] }
+zip = { version = "9.5", default-features = false, features = ["deflate-flate2-zlib-rs", "deflate64"] }
 sevenz-rust2 = { version = "0.25", default-features = false, features = ["ppmd"] }
 # Names in one Unicode normal form (NFC), so a name stored one way finds the file asked for the
 # other way ((MIT OR Apache-2.0) AND Unicode-3.0, the permissive licence of its Unicode tables).

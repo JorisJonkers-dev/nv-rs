@@ -1,0 +1,2 @@
+crates/mod-archive/Cargo.toml  # zip requirement "9.5" instead of upstream's "9.7": the Toolbox's 7-day crate age rule refuses zip 9.7.0 (published 2026-11-17) until 2026-11-24 23:09 UTC; revert to "9.7" on or after 2026-11-25 (nv-rs#449)
+crates/mod-chooser/Cargo.toml  # same, zip requirement "9.5" (nv-rs#449)
