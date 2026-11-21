@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.16.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.15.0...v0.16.0) (2026-11-21)
+
+
+### Features
+
+* **bench:** measuring tools for the draw path (slaterain/nv-rs[#848](https://github.com/JorisJonkers-dev/nv-rs/issues/848)) ([6d0b8d1](https://github.com/JorisJonkers-dev/nv-rs/commit/6d0b8d1121099eee63facc005380a37853af1f96))
+* **host:** the game trace logs the menu stack ([#297](https://github.com/JorisJonkers-dev/nv-rs/issues/297)) ([#424](https://github.com/JorisJonkers-dev/nv-rs/issues/424)) ([0e67002](https://github.com/JorisJonkers-dev/nv-rs/commit/0e670027f4b26fdb412a256e5ffb0881a23dea0e))
+* **jg:** the extra miscellaneous statistics are listed in the Pip-Boy ([#307](https://github.com/JorisJonkers-dev/nv-rs/issues/307)) ([#422](https://github.com/JorisJonkers-dev/nv-rs/issues/422)) ([9739af4](https://github.com/JorisJonkers-dev/nv-rs/commit/9739af47a67ec980405fc1a1aa9a96dcc03ea98a))
+* **stewie:** share 2 group 3, eight engine fixes (slaterain/nv-rs[#845](https://github.com/JorisJonkers-dev/nv-rs/issues/845)) ([410728a](https://github.com/JorisJonkers-dev/nv-rs/commit/410728aa652dbf06fc7b27d3c4fd77cdaca21106))
+
 ## [0.15.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.14.0...v0.15.0) (2026-11-20)
 
 
