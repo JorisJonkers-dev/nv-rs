@@ -865,3 +865,34 @@ fn a_new_game_and_a_pre_load_are_counted_for_the_trace() {
     e.site(PRE_LOAD.addr(), &[NAME]);
     assert_eq!(starts(&e), (2, Some(Start::SaveGame)));
 }
+
+/// nv-rs#451: the host's trace reads the counts on its own thread every frame while the game's
+/// main thread may hold xNVSE's shared slot. The read must not ask for that slot: with a second
+/// engine (a real thread's) holding it, the read answers and takes nothing (taking it from a
+/// third engine on this thread stops, and from another OS thread with the same engine stopped
+/// every start with real threads).
+#[test]
+fn the_counts_for_the_trace_are_read_without_the_shared_slot() {
+    let mut e = engine();
+    e.ext::<Nvse>().installed = true;
+    e.share_ext::<Nvse>();
+    new_game(&mut e);
+    engine_core::extend::release_held_for_test();
+    let mut other = Engine::new_untyped_for_test();
+    e.share_slots_for_test(&mut other);
+    engine_core::extend::release_held_for_test();
+    assert!(
+        other.ext::<Nvse>().installed,
+        "the other engine holds xNVSE's state"
+    );
+    let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| starts(&e)));
+    engine_core::extend::release_held_for_test();
+    assert_eq!(
+        read.expect("the read asked for the held slot"),
+        (1, Some(Start::NewGame))
+    );
+    // The count is the game's, not one engine's: the other engine's moment is seen by the first.
+    new_game(&mut other);
+    engine_core::extend::release_held_for_test();
+    assert_eq!(starts(&e).0, 2);
+}
