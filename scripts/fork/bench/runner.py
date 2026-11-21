@@ -62,7 +62,7 @@ class Watchdog:
     """Sample VRAM/GTT/RSS/CPU once a second into samples.tsv; stop the viewer past the limit.
 
     A GPU out of memory once took the whole desktop session down with it, so the limit is on the card's
-    total use (every process on it), checked as nv-rs-run's watchdog does, but here the first lines of
+    total use (every process on it), checked as a local wrapper's watchdog does, but here the first lines of
     defence are early: a SIGTERM at the limit, a SIGKILL three seconds later.
     """
 
@@ -191,7 +191,7 @@ class LogTail:
 
 
 def borrowed_libs(env):
-    """What nv-rs-run does: the viewer dlopens Wayland, xkbcommon, Vulkan and pulse-simple; where the system has none
+    """What a local wrapper does: the viewer dlopens Wayland, xkbcommon, Vulkan and pulse-simple; where the system has none
     (NixOS), take the Nix store's copies. Without them a windowed run silently falls back to off screen."""
     out = {}
     have = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True).stdout if shutil.which("ldconfig") else ""

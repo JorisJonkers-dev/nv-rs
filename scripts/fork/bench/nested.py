@@ -1,8 +1,8 @@
 """A nested headless Wayland compositor (sway on wlroots' headless backend) for window-path bench runs.
 
 The game gets a real Wayland surface, a real swap chain, real focus and input events at the output's size, and the
-owner's session (GNOME) is never involved: the compositor has its own socket and no display. `window` mode instead
-shows the nested compositor as one window inside the owner's session (opt-in; it can be covered, then frame callbacks
+maintainer's session (GNOME) is never involved: the compositor has its own socket and no display. `window` mode instead
+shows the nested compositor as one window inside the maintainer's session (opt-in; it can be covered, then frame callbacks
 stop and the fps numbers are not valid; use headless for numbers).
 """
 import os
@@ -60,7 +60,7 @@ class Nested:
         env["WLR_LIBINPUT_NO_DEVICES"] = "1"
         if self.mode == "headless":
             env["WLR_BACKENDS"] = "headless"
-        else:  # a window in the session; WAYLAND_DISPLAY of the owner's session is the host
+        else:  # a window in the session; WAYLAND_DISPLAY of the maintainer's session is the host
             env["WAYLAND_DISPLAY"] = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
             env["WLR_BACKENDS"] = "wayland"
         cmd = self.scope + [self.sway, "-c", str(conf)]

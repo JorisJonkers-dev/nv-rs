@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Which desktop is this, and which output has the focus (docs/fork/DESKTOPS.md).
 #
-# Source it from a launcher (nv-rs-run does):
+# Source it from a launcher (a local wrapper does):
 #     . /path/to/scripts/fork/desktop-hint.sh
 #     nv_desktop_export            # sets and exports NV_MONITOR only when it is unset or empty
 # or run it:  desktop-hint.sh [kind | output | export]      (default: both lines, `kind` and `output`)

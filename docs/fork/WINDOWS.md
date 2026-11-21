@@ -64,7 +64,7 @@ clean PC does: `--help` exits 0; a folder with no game exits 1 naming `FalloutNV
 `FalloutNV.esm`) without `FalloutNV.exe` exits 1 with `FalloutNV.exe: not found`; a text file named `FalloutNV.exe` exits 1
 with the version refusal, not "not found" (the executable check ran); and `Play.exe --check --game <that folder>` exits non-zero
 and writes `userdata\logs\launcher.log`. Every file is empty or one line of text made by the script. A run of `--check` on a
-real installation is for the owner's PC.
+real installation is for the maintainer's PC.
 
 ## The release manifest contract
 

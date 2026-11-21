@@ -53,8 +53,8 @@ the clock start is upstream's (`engine::tests`).
 ## Machine tables of a Linux machine (#182)
 
 Nothing captures the adapter table on Linux, so `engine_platform::fork_tables` writes it. Decision (owner, by time to a
-working game): a shared reference profile, not a per-machine capture. The default is the owner's card, an AMD Radeon
-RX 7900 XTX on RADV (`1002:744c`, D3D9 driver `aticfx32.dll`, the file the game keys its AMD path on). At run time the
+working game): a shared reference profile, not a per-machine capture. The default is a reference AMD card of the
+RDNA 3 family on RADV (AMD's vendor id, one device id of that family, D3D9 driver `aticfx32.dll`, the file the game keys its AMD path on). At run time the
 name, vendor id and device id come from wgpu's adapter info (`d3d9_wgpu::identity`) and the driver file from the vendor;
 a software adapter (lavapipe) keeps the reference card. The capabilities and format answers are one Shader Model 3 set
 written from the Direct3D 9 structures, the same for every vendor; no Windows capture is copied. Folders are under
@@ -74,7 +74,7 @@ Sound: see "Sound output" below. Without `NV_SOUND=out` (or `device`) and withou
 upstream's fixed table without a device (`dsound::fixed_table(false)`): `DirectSoundCreate8` fails with `DSERR_NODRIVER`,
 so the game runs silent.
 
-Not yet known: what the game does on the AMD path with this table (stop lines and counts); that needs the owner's run.
+Not yet known: what the game does on the AMD path with this table (stop lines and counts); that needs a run on a Linux machine with the game.
 
 ## Sound output (#171)
 
@@ -189,7 +189,7 @@ the low-frequency channel, no gain per channel). What the game then sounds like 
   fails it. Without a server it prints `SKIPPED ...: <reason>` and passes; the fork's CI (job `ds-mix`) starts
   PulseAudio and sets `NV_REQUIRE_SOUND_SERVER=1`, so there a skip fails. It plays nothing on real speakers.
 
-Open: the 3D path has not been listened to in a play run, a real 5.1 or 7.1 sink has not been tried (the owner's
+Open: the 3D path has not been listened to in a play run, a real 5.1 or 7.1 sink has not been tried (the hardware
 check, #219), and the launcher does not set `NV_SOUND=out` yet.
 
 ## Shader compiler off Windows (#181)

@@ -62,4 +62,9 @@ if [ -z "$data" ]; then
     exit 2
 fi
 
+# A Linux window needs the wgpu back end: without NV_D3D9 the game runs with no window (nv-rs#401). A value the
+# player set stays.
+NV_D3D9="${NV_D3D9:-wgpu}"
+export NV_D3D9
+
 exec "$viewer" "$data" "$@"

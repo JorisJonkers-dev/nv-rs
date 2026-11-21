@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.15.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.14.0...v0.15.0) (2026-11-20)
+
+
+### Features
+
+* **host:** F12 reports say where they were taken, in place.txt (slaterain/nv-rs[#824](https://github.com/JorisJonkers-dev/nv-rs/issues/824)) ([e12a0f1](https://github.com/JorisJonkers-dev/nv-rs/commit/e12a0f1fac8755c7b638efcb0b8c39c2e8c32582))
+* **jg:** JohnnyGuitar's extra statistics are saved with the game ([#405](https://github.com/JorisJonkers-dev/nv-rs/issues/405)) ([#412](https://github.com/JorisJonkers-dev/nv-rs/issues/412)) ([e83b039](https://github.com/JorisJonkers-dev/nv-rs/commit/e83b0395a0c4824c6f7a4d0de800b6d771b56671))
+* **jip:** lights in combat, G95 to G97 (slaterain/nv-rs[#841](https://github.com/JorisJonkers-dev/nv-rs/issues/841)) ([e12a0f1](https://github.com/JorisJonkers-dev/nv-rs/commit/e12a0f1fac8755c7b638efcb0b8c39c2e8c32582))
+* **render:** sun shadows, the five points of the review of slaterain/nv-rs[#817](https://github.com/JorisJonkers-dev/nv-rs/issues/817) (slaterain/nv-rs[#843](https://github.com/JorisJonkers-dev/nv-rs/issues/843)) ([e12a0f1](https://github.com/JorisJonkers-dev/nv-rs/commit/e12a0f1fac8755c7b638efcb0b8c39c2e8c32582))
+* **stewie:** crash group I, five rows (slaterain/nv-rs[#842](https://github.com/JorisJonkers-dev/nv-rs/issues/842)) ([e12a0f1](https://github.com/JorisJonkers-dev/nv-rs/commit/e12a0f1fac8755c7b638efcb0b8c39c2e8c32582))
+
+
+### Bug Fixes
+
+* **packaging:** the Linux launcher sets the wgpu back end; the READMEs say what the archives are ([#387](https://github.com/JorisJonkers-dev/nv-rs/issues/387), [#401](https://github.com/JorisJonkers-dev/nv-rs/issues/401)) ([#413](https://github.com/JorisJonkers-dev/nv-rs/issues/413)) ([943d18a](https://github.com/JorisJonkers-dev/nv-rs/commit/943d18a763ccd04d2cfce391eb331203b7cdd430))
+* **render:** sun shadows, a swapped distant-object block's piece stops casting (slaterain/nv-rs[#844](https://github.com/JorisJonkers-dev/nv-rs/issues/844)) ([c48534d](https://github.com/JorisJonkers-dev/nv-rs/commit/c48534dc4a339a101836f7d2965ed3661994a72a))
+* **viewer:** --check text matches the release and leaves no empty log files ([#401](https://github.com/JorisJonkers-dev/nv-rs/issues/401)) ([#417](https://github.com/JorisJonkers-dev/nv-rs/issues/417)) ([a683e11](https://github.com/JorisJonkers-dev/nv-rs/commit/a683e11feec5918a3eed107313c8b556249ae330))
+
 ## [0.14.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.13.0...v0.14.0) (2026-11-20)
 
 

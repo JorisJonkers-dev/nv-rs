@@ -29,8 +29,19 @@ pub const EVAL_BASE: u32 = 0x7ec0_0000;
 /// xNVSE's padding handler, up to the end of the extenders' range.
 pub const ROUTINE_BASE: u32 = 0x7eff_0000;
 
+/// Fork-only (nv-rs#307): the three natives a built-in extender registers to add rows to the
+/// Pip-Boy's miscellaneous statistics list, called by `StatsMenu::Create` after the game's own
+/// rows when the extender has registered them ([`Engine::is_registered`]). Each is one word
+/// apart, at the end of the extenders' range, above the named routines. The count takes no
+/// word; the name (a guest text pointer) and the value take the row's index.
+pub const EXTRA_MISC_STAT_COUNT: u32 = 0x7eff_f000;
+pub const EXTRA_MISC_STAT_NAME: u32 = 0x7eff_f004;
+pub const EXTRA_MISC_STAT_VALUE: u32 = 0x7eff_f008;
+
 const _: () = assert!(
-    crate::mem::EXTENDER_CODE.start == EXECUTE_BASE
+    EXTRA_MISC_STAT_VALUE + 4 <= crate::mem::EXTENDER_CODE.end
+        && EXTRA_MISC_STAT_COUNT > ROUTINE_BASE
+        && crate::mem::EXTENDER_CODE.start == EXECUTE_BASE
         && EXECUTE_BASE < EVAL_BASE
         && EVAL_BASE < ROUTINE_BASE
         && ROUTINE_BASE < crate::mem::EXTENDER_CODE.end

@@ -63,5 +63,19 @@ if [ -x "$launch" ]; then
     expect "launcher: saved folder" 1 "1.4.0.525" -- env -u NV_RS_DATA XDG_CONFIG_HOME="$work/config" "$launch" --check
 fi
 
+if [ -x "$launch" ]; then
+    # The launcher hands the viewer the wgpu back end unless the player chose another (nv-rs#401): a stand-in
+    # viewer next to a copy of the launcher prints what it was given.
+    mkdir -p "$work/stub/bin"
+    cp "$launch" "$work/stub/bin/nv-rs-launch"
+    cat >"$work/stub/bin/nv-viewer" <<'EOF'
+#!/bin/sh
+echo "NV_D3D9=${NV_D3D9:-unset} $*"
+EOF
+    chmod +x "$work/stub/bin/nv-viewer" "$work/stub/bin/nv-rs-launch"
+    expect "launcher: wgpu by default" 0 "NV_D3D9=wgpu $work/noexe" -- env -u NV_D3D9 "$work/stub/bin/nv-rs-launch" "$work/noexe"
+    expect "launcher: the player's back end stays" 0 "NV_D3D9=real " -- env NV_D3D9=real "$work/stub/bin/nv-rs-launch" "$work/noexe"
+fi
+
 if [ "$fail" -ne 0 ]; then echo "smoke test FAILED"; exit 1; fi
 echo "smoke test passed"

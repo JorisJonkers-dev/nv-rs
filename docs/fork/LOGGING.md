@@ -72,7 +72,7 @@ The files: `nv-rs-<unix>-<pid>.jsonl` (JSON lines) and `nv-rs-<unix>-<pid>.log` 
 (`2026-11-16T09:40:19.586Z INFO  d3d9 f123: message`; frame `-` before the first), with the same bound and rotation (`.1`). The newest
 nine runs are kept, all their files together. `nv-rs-dev logs` reads them (below).
 
-The owner-local `~/.local/bin/nv-rs-run` pipes the viewer through `tee` into its own log. It should let the terminal output through as it is
+A local wrapper may pipe the viewer through `tee` into its own log; it should let the terminal output through as it is
 (it is short now) and, after the run, print `nv-rs-dev logs`, which says what happened in under 40 lines. It no longer needs to keep
 the viewer's output as the record: the two files hold everything. A pipe is not a terminal, so the live status line is off there.
 
