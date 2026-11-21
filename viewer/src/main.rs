@@ -476,6 +476,8 @@ pub fn run() {
     let mut trace = host::fork_trace::Trace::default();
     let mut heap_guard = host::fork_heap::Guard::default();
     let mut last_ctx = fork_hitch::Context::default();
+    // The hitch log (on unless `NV_HITCH_LOG=0`): a line for each frame a player could feel as a jump.
+    let mut hitch_log = host::hitch_log::HitchLog::from_env();
     loop {
         if fork_log::stop_requested() {
             host::run_exit_hooks();
@@ -511,8 +513,13 @@ pub fn run() {
         }
         last_ctx = ctx;
         fork_hitch::frame_end(&ctx);
+        // The frame's stage marks, taken once for both logs.
+        let stages = host::hitch_log::take_stages();
+        if let Some(log) = &mut hitch_log {
+            log.record(&mut game.engine, stages.as_ref().map(|s| &s[..]));
+        }
         if let Some(log) = &mut frame_log {
-            log.record(&mut game.engine);
+            log.record(&mut game.engine, stages.as_ref().map(|s| &s[..]));
         }
         frames += 1;
         if let Some(m) = &mut memlog {

@@ -2531,6 +2531,7 @@ impl Mem {
         if let Some(s) = self.shared {
             return self.with_shared(s, |m| m.alloc(size));
         }
+        crate::hitch::heap(false);
         let asked = size;
         let guard = if self.check.is_some() { GUARD } else { 0 };
         let pool = heap::pool_size(size);
@@ -2576,6 +2577,7 @@ impl Mem {
         if let Some(s) = self.shared {
             return self.with_shared(s, |m| m.free(addr));
         }
+        crate::hitch::heap(true);
         let entry = self
             .live
             .remove(&addr)
