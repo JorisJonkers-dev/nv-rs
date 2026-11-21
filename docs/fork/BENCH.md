@@ -228,6 +228,23 @@ key has given it the focus; not in the start-up, where Down in the pause menu mo
 gets the console key, again every 6 s. The warm-up of a place is the play screen held 3 s with no box, so a late box is
 dismissed before the measured script starts rather than measured as a menu. `168D0B` is the hostile gecko, `E3778` the pistol, `8ED03` the ammo.
 
+The walk from the main menu to the new game follows what the menu shows, not a fixed count of keys (nv-rs#265).
+A Profile with a save opens on Continue; one without opens with nothing selected and its first arrow key only wakes
+the keyboard, so Down then Enter lands on Continue and its box. The menu's own boxes ("Start a new game?", "Continue from
+your last saved game?") are not on `menu.stack`, so the driver takes a picture of the nested screen (`menu_view.py`,
+grim's PPM output) and reads the two pixel outline the game draws round the selected line: no outline is a Down to wake
+the menu, a line above New a Down, below it an Up, on New an Enter; the box that Enter opened gets Enter (Yes is selected),
+a box it did not open gets Escape; a message box on the stack ("No valid save game found") gets Enter. It is done when
+the game traces `load.kind: the load is a new game`. On a Tale of Two Wastelands game folder (its Data holds
+`TaleOfTwoWastelands.esm`) the new game then opens with the start choice, a box over nothing with "Start in Capital
+Wasteland (Recommended)" and "Start in Mojave Wasteland": the driver reads which line is selected from where the outline
+lies in the box's frame, moves to the wanted one (Mojave; `NV_BENCH_TTW_START=capital` picks the first, `off` leaves the
+box alone) and presses Enter only on it, then skips the film that follows. A start that opens the other film
+(`FNVIntro` for Mojave, `Fallout INTRO Vsk` for Capital) ends the walk with a note. The pictures are read in memory and
+kept nowhere. A viewer without the game trace, or a run without grim, falls back to the old fixed keys (one Down for a
+Profile with a save). A TTW Profile's `Fallout.ini` must carry the three values Raul writes when TTW is on
+(`SCharGenQuest=001FFFF8`, `sIntroMovie=` empty, `bBackgroundLoadLipFiles=1`), or the start choice never comes.
+
 Why `NV_MOVE_KEYS` real input needed `NV_MOVE_REAL_INPUT=1`: a run with a key or mouse script shuts the window's keyboard
 and mouse out (`real_input_reaches_game`, `crates/host/src/player_move.rs`), so real events never arrived until the
 drivers stopped using scripts altogether.

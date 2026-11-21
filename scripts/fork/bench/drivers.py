@@ -2,6 +2,7 @@
 rate (docs/fork/BENCH.md). Each takes a Driver and an options dict (`scale` shortens or lengthens the walking)."""
 import os
 
+import menu_view
 import views as viewlib
 
 # Form ids of the base game (numbers only; scenarios.PLACES and friends hold the same).
@@ -15,6 +16,121 @@ def laps(opts, n=3):
     return max(1, round(n * (opts.get("scale") or 1.0)))
 
 
+# The class ids the game's menu stack holds (docs/fork/LOGGING.md, `menu.stack`): the main menu (over the background
+# menu 0x3ef) and a message box. The walk below reads them from the viewer log.
+MAIN_MENU, MESSAGE_BOX = 0x3F5, 0x3E9
+# The Tale of Two Wastelands start choice: a message box with "Start in Capital Wasteland (Recommended)" and "Start in
+# Mojave Wasteland" that comes once the new game has begun (nv-rs#265). The walks of the bench are the Mojave's.
+INTRO_FILMS = {"mojave": "FNVIntro", "capital": "Fallout INTRO Vsk"}
+
+
+FILM_WAIT = 12.0  # seconds after the choice that a film is waited for to open
+START_CHOICE_WAIT = 90.0  # seconds after the new game began that the start choice box is waited for
+
+
+def ttw_start(d):
+    """"mojave" or "capital" when the run is on a Tale of Two Wastelands game folder (its Data has TaleOfTwoWastelands.esm,
+    any case) and the new game therefore opens with the start choice; None otherwise. NV_BENCH_TTW_START picks the line
+    (mojave is the default: the walks of the bench are Mojave's), or "off" turns the choice handling off."""
+    want = (os.environ.get("NV_BENCH_TTW_START") or "").lower()
+    if want == "off":
+        return None
+    if want not in ("mojave", "capital"):
+        data = os.path.join(d.game_dir or "", "Data")
+        try:
+            if not any(n.lower() == "taleoftwowastelands.esm" for n in os.listdir(data)):
+                return None
+        except OSError:
+            return None
+        want = "mojave"
+    return want
+
+
+def menu_top(d):
+    """The menu class on top of the game's menu stack: None with no trace or no menu open."""
+    stack = d.menu_stack()
+    return stack[-1] if stack else None
+
+
+def new_game_begun(d, before):
+    return d.count_events("load.kind", "new game") > before
+
+
+NEW = menu_view.LINES.index("new")
+
+
+def new_game_from_menu(d, step=1.5, tries=14, box_wait=20.0):
+    """The main menu to a new game, by what the menu shows and not by a fixed count of keys (nv-rs#265). A Profile with a
+    save opens on Continue; one without opens with nothing selected, and the first arrow key only wakes the keyboard, so a
+    fixed "Down, Enter" lands on Continue and its box. Each round takes a picture (menu_view) and does one thing: a message
+    box of the game (on the menu stack: "No valid save game found") gets Enter; a box of the main menu that the walk did not
+    open (it asked for Continue or Load by mistake) gets Escape; the box it did open ("Start a new game?", with Yes
+    selected) gets Enter; no outline anywhere is a menu waiting for its first key, so a Down; a selected line above New gets
+    Down, below New Up, on New Enter. Done when the game traces `load.kind: the load is a new game`. False after `tries`
+    rounds, or when there is no picture to read."""
+    before = d.count_events("load.kind", "new game")
+    opened = False  # the box on the screen is the one that Enter on New opened
+    for n in range(tries):
+        if new_game_begun(d, before):
+            return True
+        if menu_top(d) == MESSAGE_BOX:
+            d.note(f"menu walk round {n + 1}: a message box, Enter")
+            d.tap("enter", 0.3)
+            d.wait(step)
+            continue
+        pic = d.snapshot()
+        if pic is None:
+            d.note("menu walk: no picture of the screen")
+            return False
+        box, line = menu_view.box_buttons(pic), menu_view.main_menu_line(pic)
+        if box:
+            if opened:
+                d.note(f"menu walk round {n + 1}: Yes of the new game box")
+                d.tap("enter", 0.3)
+                opened = False
+                if d.until(lambda: new_game_begun(d, before), box_wait, every=0.25, what="the new game to begin after Yes"):
+                    return True
+                continue
+            d.note(f"menu walk round {n + 1}: a box the walk did not open, Escape")
+            d.tap("esc", 0.2)
+        elif line is None:
+            d.note(f"menu walk round {n + 1}: no line selected, Down to wake the menu")
+            d.tap("down", 0.3)
+        elif line == NEW:
+            d.note(f"menu walk round {n + 1}: New selected, Enter")
+            d.tap("enter", 0.3)
+            opened = True
+        else:
+            d.note(f"menu walk round {n + 1}: {menu_view.LINES[line]} selected, {'Down' if line < NEW else 'Up'}")
+            d.tap("down" if line < NEW else "up", 0.3)
+            opened = False
+        d.wait(step)
+    return new_game_begun(d, before)
+
+
+def answer_start_choice(d, want="mojave", tries=8):
+    """The start choice box: its first line is Capital Wasteland (Recommended), its second Mojave Wasteland. Each round
+    takes a picture and reads which line is selected (menu_view.choice_line: where the selection's outline lies in the box's
+    frame); Enter goes in only on the wanted line, otherwise a Down or Up goes toward it, and with no outline yet (the
+    first key only wakes the box) a Down wakes it. True once Enter went in on the wanted line, False after `tries` rounds
+    without the wanted line proven or with no picture."""
+    target = "first" if want == "capital" else "second"
+    for n in range(tries):
+        pic = d.snapshot()
+        if pic is None:
+            d.note("start choice: no picture of the screen")
+            return False
+        line = menu_view.choice_line(pic)
+        d.note(f"start choice round {n + 1}: selected line {line}")
+        if line == target:
+            d.tap("enter", 0.3)
+            return True
+        d.tap("up" if line == "second" else "down", 0.3)
+        d.wait(1.0)
+    d.note("start choice: the wanted line could not be proven")
+    return False
+
+
 def start_new_game(d, hold_first_room=0.0, quiet=6.0, brisk=False):
     """Start-up movies skipped, main menu, New, the intro movie skipped, the pack boxes dismissed, the first room.
     `brisk` (the quick suite) shortens the fixed waits of the start-up movies and the main menu."""
@@ -25,13 +141,17 @@ def start_new_game(d, hold_first_room=0.0, quiet=6.0, brisk=False):
         d.wait(movie)
         d.tap("esc", 0.1)
     d.wait(menu)
-    # The menu opens with Continue highlighted and the first Down already moves the selection (it does not
-    # only wake a keyboard mode: nv-rs#410, lodwright-rs#156): one Down is Continue -> New, two land on Load.
-    d.tap("down", 0.3)  # Continue -> New
-    d.wait(step)
-    d.tap("enter", 0.3)  # "Start a new game?"
-    d.wait(step)
-    d.tap("enter", 0.3)  # Yes: the intro movie starts on the loading screen
+    if d.menu_stack() is not None and d.snapshot() is not None:
+        if not new_game_from_menu(d, step):
+            return False
+    else:
+        # No game trace in this viewer: fixed keys. A menu with a save opens with Continue highlighted and the first Down
+        # already moves the selection (nv-rs#410, lodwright-rs#156): one Down is Continue -> New, two land on Load.
+        d.tap("down", 0.3)  # Continue -> New
+        d.wait(step)
+        d.tap("enter", 0.3)  # "Start a new game?"
+        d.wait(step)
+        d.tap("enter", 0.3)  # Yes: the intro movie starts on the loading screen
     # The loading menu is not always a "loading" row in the frame log (the nv-rs 0.14.0 viewer logs it as "play"):
     # the menu is left, then the new game's player is placed in its first cell (the position leaves the start-up
     # value), the intro movie skipped with Escape on the way.
@@ -39,14 +159,43 @@ def start_new_game(d, hold_first_room=0.0, quiet=6.0, brisk=False):
         return False
     placed = lambda: (d.position() or (2048.0, 2048.0, 128.0))[:2] != (2048.0, 2048.0)
     last = [0.0]
+    want = ttw_start(d)
+    begun_at = d.clock()
+    state = {"answered": False, "failed": False, "at": 0.0, "films": 0}
 
     def loaded():
-        if d.clock() - last[0] >= 2.0:
+        stack = d.menu_stack() or ()
+        if want and not state["answered"]:
+            if stack == (MESSAGE_BOX,):
+                # A box over nothing after the new game began is the Tale of Two Wastelands start choice, which comes
+                # a second or two after the player is placed: answered once, and never with an Enter meant for a box
+                # of the opening or an Escape meant for a film.
+                state["answered"], state["at"] = True, d.clock()
+                state["films"] = d.count_events("movie.open")
+                d.note(f"the start choice box: {want}")
+                state["failed"] = not answer_start_choice(d, want)
+                state["at"] = d.clock()
+                return state["failed"]
+            if d.clock() - begun_at > START_CHOICE_WAIT:
+                d.note(f"no start choice box came within {START_CHOICE_WAIT:.0f} s")
+                state["answered"], state["films"], state["at"] = True, d.count_events("movie.open"), -1e9
+        elif stack and stack[-1] == MESSAGE_BOX:
+            return placed() and not d.film_playing()
+        if d.clock() - last[0] >= 2.0 and not (stack and stack[-1] == MESSAGE_BOX):
             last[0] = d.clock()
             d.tap("esc", 0.1)
-        return placed()
+        if not (placed() and (not want or state["answered"])):
+            return False
+        # The film that follows the choice opens a moment after the answer: it is skipped (the Escape above) and waited for.
+        film_done = d.count_events("movie.open") > state["films"] or d.clock() - state["at"] > FILM_WAIT
+        return not want or (film_done and not d.film_playing())
 
     if not d.until(loaded, 240, every=0.1, what="the new game's first cell"):
+        return False
+    if state["failed"]:
+        return False
+    if want and d.count_events("movie.open", INTRO_FILMS["capital" if want == "mojave" else "mojave"]):
+        d.note(f"the {'Capital' if want == 'mojave' else 'Mojave'} Wasteland start was taken, not the {want}'s")
         return False
     if not d.settle_play(quiet=quiet, timeout=240, tap="enter", console_after=None):
         return False

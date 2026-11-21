@@ -370,7 +370,8 @@ def launch(plan, opts, run_dir):
             if not vi:
                 proc.terminate()
                 raise SystemExit("this scenario is a wall-clock driver and needs real input into a window: --nested headless (or --legacy for the frame-counted script)")
-            drv = driver.Driver(vi, frames, proc, lf)
+            drv = driver.Driver(vi, frames, proc, lf, log_path=log)
+            drv.game_dir = opts.get("game")
             if comp:
                 drv.wayland = {"WAYLAND_DISPLAY": comp.socket, "XDG_RUNTIME_DIR": comp.runtime}
             threading.Thread(target=run_drive, args=(plan, drv, opts, drive_done, lf), daemon=True).start()

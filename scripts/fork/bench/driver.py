@@ -10,6 +10,8 @@ import os
 import subprocess
 import time
 
+import menu_view
+import parse
 import tools
 
 SCREEN_COL, PX, PY, PZ, FDELTA = 8, 5, 6, 7, 2
@@ -34,8 +36,11 @@ def parse_tail(text):
 
 
 class Driver:
-    def __init__(self, vi, frames, proc, log=None, scale=1.0, clock=time.monotonic, sleep=time.sleep):
+    def __init__(self, vi, frames, proc, log=None, scale=1.0, clock=time.monotonic, sleep=time.sleep, log_path=None):
         self.vi, self.frames, self.proc, self.log, self.scale = vi, frames, proc, log, scale
+        self.last_stack = None
+        self.game_dir = None  # the game folder of the run (the runner sets it): what the walk may tell about the Profile from it
+        self.log_path = log_path  # the viewer log the driver also writes its notes to: the game trace is read from it
         self.clock, self.sleep = clock, sleep
         self.t0 = clock()
         self.wayland = None  # the nested compositor's environment (WAYLAND_DISPLAY, XDG_RUNTIME_DIR), set by the runner
@@ -57,6 +62,38 @@ class Driver:
         rows = self.tail(2048)
         return rows[-1][1] if rows else ""
 
+    def game_events(self, nbytes=262144):
+        """(frame, kind, text) of the menu stack, load kind and film events at the end of the viewer log, in order; empty
+        without a log or a game trace (an older viewer), so a walk that needs them falls back to fixed keys."""
+        if not self.log_path:
+            return []
+        try:
+            with open(self.log_path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - nbytes))
+                return parse.walk_events(f.read().decode("utf-8", "replace"))
+        except OSError:
+            return []
+
+    def menu_stack(self):
+        """The menu class ids open now, bottom to top, from the last `menu.stack` event; None when the log has none."""
+        for _, kind, text in reversed(self.game_events()):
+            if kind == "menu.stack":
+                got = parse.parse_menu_stack(text)
+                if got:
+                    self.last_stack = got[0]
+                    break
+        return self.last_stack  # a stack that has not changed for a long time has scrolled out of the tail
+
+    def film_playing(self):
+        """A film is open now: the last of the `movie.open` and `movie.close` events is an open."""
+        last = [k for _, k, _ in self.game_events() if k in ("movie.open", "movie.close")]
+        return bool(last) and last[-1] == "movie.open"
+
+    def count_events(self, kind, needle=""):
+        """How many events of `kind` whose text holds `needle` the log tail shows."""
+        return sum(1 for _, k, t in self.game_events() if k == kind and needle in t)
+
     def position(self):
         rows = self.tail(2048)
         return rows[-1][2:5] if rows else None
@@ -77,6 +114,13 @@ class Driver:
             self.note(f"grim failed: {r.stderr.decode('utf-8', 'replace').strip()[:200]}")
             return False
         return True
+
+    def snapshot(self):
+        """The nested screen as (width, height, rgb bytes) for menu_view; None without grim or a nested compositor."""
+        grim = tools.find("grim")
+        if not (grim and self.wayland):
+            return None
+        return menu_view.grab(grim, dict(os.environ, **self.wayland))
 
     def note(self, text):
         if self.log:
