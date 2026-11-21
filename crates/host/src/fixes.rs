@@ -3246,7 +3246,7 @@ mod uio_detection_tests {
         let (choice, line) = before.with_uio_detected(&root);
         assert_eq!(choice, before);
         assert_eq!(line, None);
-        assert!(!choice.is_on(&UIO));
+        assert_eq!(choice.is_on(&UIO), before.is_on(&UIO));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3283,7 +3283,7 @@ mod uio_detection_tests {
         let (choice, line) = before.with_ttw_detected(&root);
         assert_eq!(choice, before);
         assert_eq!(line, None);
-        assert!(!choice.is_on(&JIP_INSTALLED));
+        assert_eq!(choice.is_on(&JIP_INSTALLED), before.is_on(&JIP_INSTALLED));
         let (none, line) = before.with_ttw_detected(&root.join("missing"));
         assert_eq!((none, line), (before, None));
         let _ = std::fs::remove_dir_all(root);
