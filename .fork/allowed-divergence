@@ -86,6 +86,9 @@ crates/stewie/src/tests.rs  # tests of that switch
 # JohnnyGuitar's extra miscellaneous statistics in the Pip-Boy (nv-rs#307): the Stats menu asks three natives of a built-in extender for rows after the game's own.
 crates/engine-core/src/extend.rs  # EXTRA_MISC_STAT_COUNT, _NAME and _VALUE: the addresses of those three natives
 crates/engine-fallout-interface/src/units/fallout_interface/statsmenu.rs  # add_extra_misc_stat_rows after the game's 0x2b rows of StatsMenu::Create, only when an extender registered the natives; its test
+# The guest window knob (nv-rs#267): NV_GUEST_WINDOW lowers the heap's two ranges' ends; off by default.
+crates/engine-core/src/mem.rs  # heap_stats reads the heap's own capacity
+crates/engine-core/src/mem/heap.rs  # `low_end` and `end` fields, `window_ends`, `parse_window`, `capacity`, and their tests; grow, cross, release and available use the fields (equal to the constants unless NV_GUEST_WINDOW is set)
 # The file layer's listing cache counters (nv-rs#277).
 crates/engine-platform/src/host_paths.rs  # three counters in folder_matches and forget, their end-of-run line through fork_log::on_finish (target files), and two tests
 # The heap guard (nv-rs#227): NV_HEAP_STOP_FRACTION ends the run gracefully with a stop report.

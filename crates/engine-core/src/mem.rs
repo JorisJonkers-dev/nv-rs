@@ -2425,7 +2425,7 @@ impl Mem {
         if let Some(s) = self.shared {
             return s.with(|m| m.heap_stats());
         }
-        let capacity = u64::from(HEAP_LOW_END - HEAP_BASE) + u64::from(HEAP_END - HEAP_HIGH_BASE);
+        let capacity = self.heap.capacity();
         let available = self.heap.available();
         HeapStats {
             capacity,
