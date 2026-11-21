@@ -426,7 +426,7 @@ pub(super) fn parse_window(text: Option<&str>) -> Option<u64> {
         "m" | "mb" | "mib" | "" => n,
         _ => return None,
     };
-    (mib >= 256.0).then(|| (mib * 1048576.0) as u64)
+    (mib >= 256.0).then_some((mib * 1_048_576.0) as u64)
 }
 
 /// The window the environment asks for, read once per process.
