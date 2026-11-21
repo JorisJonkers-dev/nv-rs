@@ -229,6 +229,7 @@ def parse_log(text):
         "game_events": [],  # (frame, kind, text) of the menu and load events of the game trace
         "loading_menu": False,  # the engine's `menu.loading ... is up` game event was logged (the frame log has no "loading" row for it in the nv-rs 0.14 viewer)
         "ctrl_down_frames": [],  # the frames where a real Ctrl press reached the game (input.key lines)
+        "view_failures": {},  # the views scenario's views that were not captured: name -> why (`# driver: view-failed NAME: WHY`)
     }
     open_phases = set()
     for line in text.splitlines():
@@ -236,6 +237,10 @@ def parse_log(text):
             m = RE_STATE.match(line)
             if m:
                 out["states"][m.group(1)] = [float(m.group(2)), float(m.group(3)), float(m.group(4))]
+            continue
+        if line.startswith("# driver: view-failed "):
+            name, _, why = line[len("# driver: view-failed "):].partition(": ")
+            out["view_failures"][name] = why.strip()
             continue
         if line.startswith("# driver: phase "):
             m = RE_PHASE.match(line)
@@ -569,6 +574,8 @@ def summarize(frame_rows, log, samples, missing=(0, 0), stops=0):
         "states": log.get("states") or {},
         "loading_menu": bool(log.get("loading_menu")),
         "sneak": sneak_ratios(frame_rows, log["phases"], log.get("ctrl_down_frames") or ()),
+        "ctrl_down": len(log.get("ctrl_down_frames") or ()),
+        "view_failures": log.get("view_failures") or {},
         "main_busy_pct": round(sum(log["busiest_thread_pct"]) / len(log["busiest_thread_pct"]), 1) if log["busiest_thread_pct"] else None,
         "untranslated_addresses": missing[0],
         "untranslated_hits": missing[1],

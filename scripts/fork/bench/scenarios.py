@@ -525,13 +525,23 @@ def world_plan(name, opts):
 
 
 def views_captured(names):
-    """Every view of the list has its picture and its position noted (`state view.<name>`: written after the picture)."""
+    """Every view of the list has its picture and its position noted (`state view.<name>`: written after the picture),
+    and says why when it has none (`view-failed`: the player did not stand still at the view's height, in a loaded
+    place, within the time allowed: a picture taken in a bad state is no picture)."""
     def check(m):
         states = m.get("states") or {}
+        failed = m.get("view_failures") or {}
         missing = [n for n in names if f"view.{n}" not in states]
-        return not missing, (f"{len(names)} views captured" if not missing else f"no picture of: {', '.join(missing)}")
+        if not missing:
+            return True, f"{len(names)} views captured"
+        return False, "no picture of: " + ", ".join(f"{n} ({failed[n]})" if n in failed else n for n in missing)
 
-    return ("every view has its picture", check)
+    return ("every view has its picture, taken standing", check)
+
+
+def no_sneak_key():
+    """No Ctrl press reached the game: the player cannot have been sneaking at any picture (sneaking is the game's Ctrl toggle)."""
+    return ("the player was not sneaking (no Ctrl reached the game)", lambda m: (not m.get("ctrl_down"), f"{m.get('ctrl_down', 0)} Ctrl presses reached the game"))
 
 
 def views_plan(opts):
@@ -540,7 +550,7 @@ def views_plan(opts):
 
     names = [v.name for v in (opts.get("views") or viewlib.DEFAULT_VIEWS)]
     p = Plan("views", f"Fixed views of the Mojave at a set hour: {len(names)} places and headings, one picture each, with a manifest", fps=opts.get("fps", 60.0))
-    p.checks = [reached_screen("play"), player_placed(), views_captured(names)]
+    p.checks = [reached_screen("play"), player_placed(), views_captured(names), no_sneak_key()]
     p.drive, p.self_scaled = DRIVERS["views"], True
     return p
 

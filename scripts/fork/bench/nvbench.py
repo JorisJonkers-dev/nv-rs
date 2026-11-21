@@ -298,15 +298,19 @@ def views_options(a):
         "timescale": viewlib.parse_timescale(a.timescale) if a.timescale is not None else 0,
         "weather": viewlib.parse_weather(a.weather) if a.weather is not None else viewlib.WEATHER,
         "views_settle": a.views_settle if a.views_settle is not None else viewlib.SETTLE_S,
+        "views_console": list(a.views_console or []),
     }
 
 
 def cmd_views_compare(a):
-    """Two runs of the views scenario: do they agree at every view (position, heading, sky)?"""
-    data = []
+    """Two runs of the views scenario: do they agree at every view (position, heading, pitch, stance, sky)? And, per view,
+    how far apart are the two pictures: the mean and the largest difference of a colour value (0 to 255) over the pixels
+    (moving things, such as people, differ; the numbers are printed, not judged)."""
+    data, dirs = [], []
     for run in (a.first, a.second):
-        p = resolve(run)
-        p = Path(p) / viewlib.MANIFEST if Path(p).is_dir() else Path(p)
+        p = Path(resolve(run))
+        dirs.append(p if p.is_dir() else p.parent)
+        p = p / viewlib.MANIFEST if p.is_dir() else p
         try:
             data.append(json.loads(p.read_text()))
         except (OSError, ValueError) as e:
@@ -315,8 +319,22 @@ def cmd_views_compare(a):
     problems = viewlib.compare(*data)
     for line in problems:
         print(line)
+    first = {v["name"]: v for v in data[0].get("views", [])}
+    for v in data[1].get("views", []):
+        u = first.get(v["name"])
+        if not (u and u.get("file") and v.get("file")):
+            continue
+        try:
+            mean, peak, note = viewlib.picture_difference(dirs[0] / u["file"], dirs[1] / v["file"])
+        except (OSError, viewlib.ViewError) as e:
+            print(f"{v['name']}: pictures not compared: {e}")
+            continue
+        pa, pb = u.get("observed") or [0, 0, 0], v.get("observed") or [0, 0, 0]
+        move = ((pa[0] - pb[0]) ** 2 + (pa[1] - pb[1]) ** 2 + (pa[2] - pb[2]) ** 2) ** 0.5
+        print(f"{v['name']}: pictures {'differ by mean %.3f, largest %d' % (mean, peak) if mean is not None else note}; position differs by {move:.3f} units; "
+              f"heading by {viewlib.angle_difference(u['heading'], v['heading']):.2f} and pitch by {abs(u.get('pitch', 0.0) - v.get('pitch', 0.0)):.2f} degrees; frames {u.get('frame')} and {v.get('frame')}")
     if not problems:
-        print(f"the runs agree at all {len(data[0].get('views', []))} views (positions within {viewlib.POSITION_UNITS:g} unit, headings within {viewlib.HEADING_DEGREES:g} degree)")
+        print(f"the runs agree at all {len(data[0].get('views', []))} views (positions within {viewlib.POSITION_UNITS:g} unit, headings and pitches within {viewlib.HEADING_DEGREES:g} degree, the same stance)")
     return 1 if problems else 0
 
 
@@ -507,12 +525,13 @@ def run_args(r):
     r.add_argument("--record", action="store_true", help="record the nested screen to screen.mp4 in the run directory (needs --nested headless and wf-recorder); then: bench replay RUN")
     r.add_argument("--record-fps", type=int, default=30)
     r.add_argument("--record-format", choices=["mp4", "webm"], default="mp4")
-    r.add_argument("--views", metavar="NAME:X:Y:Z:HEADING;...", help="views scenario: the views, `;` between them (default: the built-in list, docs/fork/BENCH.md)")
-    r.add_argument("--views-file", metavar="FILE", help="views scenario: a file with one view a line (name x y z heading; # comments)")
+    r.add_argument("--views", metavar="NAME:X:Y:Z:HEADING[:PITCH];...", help="views scenario: the views, `;` between them; z is the standing height, the pitch is optional (default: the built-in list, docs/fork/BENCH.md)")
+    r.add_argument("--views-file", metavar="FILE", help="views scenario: a file with one view a line (name x y z heading [pitch]; # comments)")
     r.add_argument("--hour", metavar="H|none", help="views scenario: the game hour set before the first view (default 12; none leaves it)")
     r.add_argument("--timescale", metavar="N", help="views scenario: the time scale set after the hour (default 0: the clock stops); none leaves it")
     r.add_argument("--weather", metavar="FORMID|none", help="views scenario: a weather forced before the first view, a form id in hex (default 0FFC88, the clear day), or none to leave the game's own")
-    r.add_argument("--views-settle", type=float, metavar="S", help="views scenario: seconds of play at a view before its picture (default 15)")
+    r.add_argument("--views-console", action="append", metavar="LINE", help="views scenario: a console line run once before the first view, after the sky, the camera and the interface are set (repeat for more): for a variant of the run, such as `tll all` (distant land off); the manifest records it")
+    r.add_argument("--views-settle", type=float, metavar="S", help="views scenario: seconds of play after a view's cells are loaded before the player is placed in them (default 3)")
     r.add_argument("--force", action="store_true", help="run a capped-only scenario uncapped")
     r.add_argument("--mouse", help="extra NV_MOVE_MOUSE items FRAME:DX:DY:HOLD[:BUTTONS],...")
     r.add_argument("--keys", help="extra NV_MOVE_KEYS items FRAME:DIKHEX:HOLD,...")

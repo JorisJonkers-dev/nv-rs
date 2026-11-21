@@ -518,26 +518,78 @@ def set_sky(d, hour, weather, timescale=0):
     return d.console_close(quiet=1.0, timeout=60)
 
 
-def place_view(d, view, settle):
-    """Put the player at a view by the console, wait for the load, the play screen to hold `settle` s and the frames to
-    even out; the level of the settle is noted. False when the player did not get there."""
+def fix_camera_and_interface(d):
+    """Once, before the first view: the idle camera off and the interface hidden. The game turns the camera round an idle
+    player after about nine seconds (its "vanity" camera: third person, every picture at another angle); its delay is the
+    game setting fVanityModeAutoDelay, set far beyond a run's length (fVanityModeDelay is another setting and does nothing
+    for it). `tm` hides the interface (toggles it: called once)."""
     d.console_open()
+    d.console_line(f"setgs fVanityModeAutoDelay {viewlib.VANITY_DELAY:.0f}", 0.8)
+    d.console_line("tm", 0.8)
+    return d.console_close(quiet=1.0, timeout=60)
+
+
+def last_cell_load(d):
+    """The frame of the last `load.kind: the load is a door or another cell change` event of the game trace (-1: none)."""
+    frames = [f for f, kind, text in d.game_events() if kind == "load.kind" and "cell change" in text]
+    return max(frames) if frames else -1
+
+
+def wait_load(d, what, since, timeout=15.0):
+    """The load of a move: the game traces `load.kind: ... another cell change` when it takes place (the frame log shows its
+    loading screen for one row or none: it is one long frame), so it is seen by an event newer than `since` (last_cell_load
+    before the move). A centre-on-world onto the cell the player is in loads nothing: no event within `timeout` is noted, not
+    failed; the cells are loaded already and the standing condition that follows is the one that decides."""
+    if d.until(lambda: last_cell_load(d) > since, timeout, every=0.1, what=f"the load of {what}"):
+        return True
+    d.note(f"no cell load was traced for {what}: the cells were loaded already")
+    return False
+
+
+def wait_standing(d, view, timeout):
+    """Until the player has stood still at the view's height and place for viewlib.STAND_S seconds of play (viewlib.standing);
+    `(ok, why, stats)` with the last reason on a timeout (the view then FAILS: no picture is taken anyway)."""
+    result = [False, "no frames", {}]
+
+    def ok():
+        result[:] = viewlib.standing(d.tail(262144), view)
+        return result[0]
+
+    d.until(ok, timeout, every=0.25, what=f"the player to stand at {view.name}")
+    return tuple(result)
+
+
+def place_view(d, view, weather=None, timeout=viewlib.LOAD_TIMEOUT_S):
+    """Put the player at a view and wait until it stands there: the cells around the place are loaded with the game's own
+    centre-on-world load (`cow WastelandNV x y`: a loading screen, the cells' land, objects and collision, as a fast travel
+    loads them), the weather is forced again (a new region brings its own: a dust storm came at the Colorado), then the
+    player is put DROP_UNITS above the view's standing height, turned to its heading and pitch, and falls onto it.
+    `(ok, why, stats)`: ok only once the player has stood at the view's height, still, for viewlib.STAND_S seconds of play,
+    inside `timeout` seconds. The console is not closed after the `cow` line: the load closes it, and a key sent then
+    would open it again."""
+    end = d.clock() + timeout
+    cx, cy = view.cell()
+    since = last_cell_load(d)
+    d.console_open()
+    d.console_line(f"cow WastelandNV {cx} {cy}", 0.3)
+    wait_load(d, f"the cells of {view.name}", since)
+    d.settle_play(quiet=viewlib.SETTLE_S, timeout=60)
+    d.console_open()
+    if weather:
+        for _ in range(2):
+            d.console_line(f"fw {weather}", 0.4)
     for line in viewlib.console_lines(view):
-        d.console_line(line, 0.5)
-    ok = d.until(lambda: near_xy(d.position(), view), 20, every=0.1, what=f"the move to {view.name}")
-    d.until(lambda: d.screen() != "loading", 60, every=0.1, what="the end of the load")
-    d.wait(0.3)
-    d.console_close(quiet=2.0, timeout=60)
-    d.settle_play(quiet=settle, timeout=settle + 90)
-    if not d.until(lambda: calm(d), 60, every=0.25, what=f"the frames at {view.name} to even out"):
-        d.note(f"{view.name}: the frame times did not even out; captured as it is")
-    return ok
+        d.console_line(line, 0.4)
+    d.console_close(quiet=0.5, timeout=60)
+    return wait_standing(d, view, max(5.0, end - d.clock()))
 
 
 def views(d, opts):
-    """The views scenario (nv-rs#343, docs/fork/BENCH.md): a new game, the Mojave exterior, the sky fixed, then each
-    view of the list in turn: placed by the console, settled, one picture (`views/<name>.png` in the run directory) and
-    the position noted (`state view.<name>`); `views.json` is the manifest, rewritten after every view."""
+    """The views scenario (nv-rs#343, docs/fork/BENCH.md): a new game, the Mojave exterior, the sky fixed, the idle camera off
+    and the interface hidden, then each view of the list in turn: its cells loaded, the player standing at its height with
+    its heading and pitch, one picture (`views/<name>.png` in the run directory) only once the player has stood still for
+    a set time, and the position, frame and stance noted (`state view.<name>`); `views.json` is the manifest, rewritten after
+    every view. A view whose condition does not hold in time gets no picture and a `view-failed` line: the verdict fails."""
     plan = opts.get("views") or viewlib.DEFAULT_VIEWS
     hour = opts["hour"] if "hour" in opts else viewlib.HOUR
     timescale = opts["timescale"] if "timescale" in opts else 0
@@ -548,7 +600,7 @@ def views(d, opts):
     captures = {}
 
     def write():
-        viewlib.write_manifest(run_dir, viewlib.manifest(plan, hour, weather, settle, captures, resolution=opts.get("resolution"), timescale=timescale))
+        viewlib.write_manifest(run_dir, viewlib.manifest(plan, hour, weather, settle, captures, resolution=opts.get("resolution"), timescale=timescale, console=opts.get("views_console")))
 
     write()
     if not start_new_game(d, hold_first_room=0.0):
@@ -558,25 +610,45 @@ def views(d, opts):
         return
     warm_first_exterior(d)
     set_sky(d, hour, weather, timescale)
+    fix_camera_and_interface(d)
+    extra = opts.get("views_console") or []
+    if extra:
+        d.console_open()
+        for line in extra:
+            d.console_line(line, 1.5)
+        d.console_close(quiet=1.0, timeout=60)
     for view in plan:
         if not d.alive():
             return
         phase(d, f"view.{view.name}", "start")
-        if not place_view(d, view, settle):
-            d.note(f"{view.name}: not reached")
+        ok, why, stats = place_view(d, view, weather)
+
+        def fail(reason):
+            captures[view.name] = {"failed": reason}
+            d.note(f"view-failed {view.name}: {reason}")
             phase(d, f"view.{view.name}", "end")
-            continue
+            write()
+
         if not d.alive():  # the game stopped on the way: a picture now would be of nothing
-            d.note(f"{view.name}: the game stopped before the picture")
+            d.note(f"view-failed {view.name}: the game stopped before the picture")
             return
+        if not ok:
+            fail(why)
+            continue
         name = f"{viewlib.DIR}/{view.name}.png"
-        if d.capture(os.path.join(run_dir, name)):
-            pos = d.position()
-            captures[view.name] = {"observed": list(pos) if pos else None, "file": name}
-            note_state(d, f"view.{view.name}")
-            d.note(f"view {view.name} file={name}")
-        else:
-            d.note(f"{view.name}: no picture taken")
+        if not d.capture(os.path.join(run_dir, name)):
+            fail("no picture could be taken")
+            continue
+        rows = d.tail(262144)
+        again, why_again, _ = viewlib.standing(rows, view)  # still standing when the picture was taken
+        if not again:
+            os.remove(os.path.join(run_dir, name))
+            fail(f"the player did not stay standing while the picture was taken: {why_again}")
+            continue
+        pos = d.position()
+        captures[view.name] = {"observed": list(pos) if pos else None, "file": name, "frame": rows[-1][0], "stance": viewlib.stance_record(stats)}
+        note_state(d, f"view.{view.name}")
+        d.note(f"view {view.name} file={name} frame={rows[-1][0]}")
         phase(d, f"view.{view.name}", "end")
         write()
 

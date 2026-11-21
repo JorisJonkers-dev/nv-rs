@@ -251,51 +251,77 @@ drivers stopped using scripts altogether.
 
 ### The views scenario
 
-`nv-rs-dev bench run views` shows the same places, at the same headings and the same time of day, every run, with one
-picture per view: for comparing a run with a generated LOD folder against one without it, and for judging distant land and
+`nv-rs-dev bench run views` shows the same places, at the same headings and pitches and the same time of day, every run, with
+one picture per view: for comparing a run with a generated LOD folder against one without it, and for judging distant land and
 water from the pictures. It is a driver like the others (nested headless window, the memory guard, the bench lock).
 
 After the new game and a teleport to Goodsprings (which is how the driver gets into the Mojave exterior), the driver sets the
-sky once, by the console: `set gamehour to H`, `set timescale to 0` (the hour then stays for the whole run) and, unless
-asked not to, `fw <weather>` (a forced weather; the default is the base game's clear day, `0FFC88`). Then, for each view in
-order, it opens the console and sets `player.setpos x/y/z` and `player.setangle z <heading>`, waits for the player to be there
-and the load to end, holds the play screen `--views-settle` seconds (default 15; boxes dismissed), waits for the frame times
-to even out (60 frames none over 100 ms and the player landed), and takes the picture of the nested screen (`grim`, found as
-`NV_BENCH_GRIM` or on `PATH`; without it no picture is taken and the verdict fails). Its position is noted in the log as
-`# driver: state view.<name> x=.. y=.. z=..` after the picture is written.
+sky once, by the console: the game hour (the clock is run on from the new game's start and stopped), `set timescale to 0` (the
+hour then stays for the whole run) and, unless asked not to, `fw <weather>` (a forced weather; the default is the base game's
+clear day, `0FFC88`; the line is sent twice, because a key lost from a console line is not otherwise noticed). Then it fixes the
+camera and the interface once: `setgs fVanityModeAutoDelay 1000000` and `tm`.
+
+- **No idle camera.** The game turns the camera round a player who has stood idle for about nine seconds (its "vanity" camera:
+  third person, the player seen from every side, so pictures taken at different idle times show different angles and a body in
+  a different pose). Its delay is the game setting `fVanityModeAutoDelay` (`fVanityModeDelay`, 0.25, is another setting and
+  does not stop it); set far beyond a run's length, the camera stays in the first person the whole run (`IsPC1stPerson` says 1
+  after a minute of standing), so no body is in the picture and every picture is taken from the eye, along the view's heading and
+  pitch. This holds for every scenario that takes pictures or measures, because it is the scenario's own set-up.
+- **No interface.** `tm` hides the HUD, the crosshair and the opening quest's messages (the pictures show the world only).
+- **Placed in a loaded place, standing.** For each view, in order: the cells around the place are loaded with the game's own
+  centre-on-world command, `cow WastelandNV <cell x> <cell y>` (a loading screen; the cells' land, objects and collision are
+  loaded the way a fast travel loads them: a far `player.setpos` into cells that were never loaded draws their objects at full
+  detail over low-detail land, so objects seem to hang in the air, and the player may float in a lake), the play screen holds
+  `--views-settle` seconds (default 3), and the player is put 40 units above the view's standing height (`player.setpos`), turned
+  with `player.setangle z <heading>` and `player.setangle x <pitch>`, and falls onto the ground.
+- **The picture only when the condition holds.** The picture is taken once the player has stood for 3 seconds of play (the sum of
+  the frames' deltas) on the play screen with no frame over 0.1 s, moved by no more than 0.3 units in all three axes, within 2
+  units of the view's height and within 1 unit of its place. If that does not hold within 120 s, the view FAILS: no picture is
+  taken, the log says `view-failed <name>: <why>`, the manifest says why and the verdict row "every view has its picture, taken
+  standing" fails. The stance is checked again after the picture; a player that moved while it was taken fails the view too.
+  A second row, "the player was not sneaking (no Ctrl reached the game)", fails if a Ctrl press reached the game, the only way
+  into the sneak stance in this scenario; nothing is drawn and no weapon is held, so the stance of every picture is the
+  same: standing, not sneaking, not moving, camera in the first person (the manifest records it per view).
 
 | Option | Meaning |
 | --- | --- |
-| `--views 'name:x:y:z:heading;...'` | The views on the command line (`;` between views). Default: the built-in list below |
-| `--views-file FILE` | The views in a file, one a line `name x y z heading`, `#` comments and blank lines ignored. Not together with `--views` |
+| `--views 'name:x:y:z:heading[:pitch];...'` | The views on the command line (`;` between views). z is the height the player stands at (not a height to fall from), the pitch is in degrees, positive looks down (default 0). Default: the built-in list below |
+| `--views-file FILE` | The views in a file, one a line `name x y z heading [pitch]`, `#` comments and blank lines ignored. Not together with `--views` |
 | `--hour H` | The game hour (0 up to 24, default 12) |
 | `--weather FORMID\|none` | The weather form id in hex to force (default `0FFC88`); `none` leaves the game's own weather, and the manifest then says it is not fixed |
-| `--views-settle S` | Seconds of play at a view before its picture (default 15) |
+| `--views-settle S` | Seconds the play screen holds after a view's cells are loaded, before the player is placed (default 3) |
 
 A view's name is its file name (letters, digits, `-` and `_`), so two runs compare file by file whatever else is on the list;
 the position is in world units of the Mojave Wasteland, the heading in degrees of the game's compass (0 is north, +y; 90 is
-east, +x). The heading is commanded, not read back (the frame log has no heading column), so it is exact; the position
-is the one the frame log showed after the player landed. The built-in views (map markers of the base game, looking far over
-land and water):
+east, +x). The heading and the pitch are commanded, not read back (the frame log has no angle column), so they are exact; the
+position is the one the frame log showed once the player stood. Find a view's standing height by placing the player at its x and
+y (`cow` then `player.setpos x`, `y`) and reading the height the player rests at; a place in water is no place to stand (the
+player floats and the height bobs, so the view fails).
 
-| Name | From | Heading |
-| --- | --- | --- |
-| `goodsprings-valley` | the east edge of Goodsprings, over the valley | 90 |
-| `vegas-from-the-south` | NCR Sharecropper Farms | 0 |
-| `lake-mead` | Boulder Beach | 60 |
-| `colorado-river` | Cottonwood Overlook | 90 |
+The built-in views, the places of the old list moved onto land, each looking at the far land or water it is named for:
 
-The run directory gets `views/<name>.png` and `views.json`: the hour, the clock (stopped), the weather (or that it is not
-set), the settle time and, per view, the commanded and the observed position, the heading and the picture's name. The
-manifest is rewritten after every view. `nv-rs-dev bench views-compare RUN_A RUN_B` checks two runs against the issue's
-acceptance: the same views and sky, positions within 1 unit and headings within 1 degree (exit status 1 and one line per
-difference otherwise). The pictures are game content: they stay on the machine, never in a repository.
+| Name | From | Heading | Pitch |
+| --- | --- | --- | --- |
+| `goodsprings-valley` | the east edge of Goodsprings, over the valley (stands at 8354.8) | 90 | 0 |
+| `vegas-from-the-south` | NCR Sharecropper Farms (stands at 4368.4) | 0 | 0 |
+| `lake-mead` | Boulder Beach, over the lake (stands at 2916.7) | 60 | 0 |
+| `colorado-river` | Cottonwood Overlook, across the river (stands at 17.5) | 90 | 0 |
+| `black-mountain-west` | Black Mountain, over the valley toward Goodsprings (standing height not yet confirmed) | 270 | 0 |
 
-Known limit (nv-rs#455): a far move to some places later in the same session stops the port (`read of unmapped memory at
-00000024` in the game's cell streaming): Hoover Dam, Black Mountain and El Dorado Dry Lake each did after the built-in
-places, and El Dorado Dry Lake as the fourth place too. The four built-in places pass in every run, so the built-in list has
-those four. The driver writes no picture and no state line for a view the game stopped before. For more views, run the
-scenario again with a `--views-file` of the others.
+The run directory gets `views/<name>.png` and `views.json`: the hour, the clock (stopped), the weather (or that it is not set),
+how the camera, the interface and the placement were fixed and, per view, the commanded place, heading and pitch, the observed
+position, the frame of the picture, the stance (pose, sneaking, moving, falling, camera, weapon, with the measured window: seconds
+of frames, the z and x/y ranges, the offset from the view) and the picture's name, or why there is none. The manifest is rewritten
+after every view. `nv-rs-dev bench views-compare RUN_A RUN_B` checks two runs: the same views and sky, positions within 1 unit
+and heights within 2, headings and pitches within 1 degree, the same stance (exit status 1 and one line per difference
+otherwise), and prints per view how far the two pictures are apart (the mean and the largest difference of a colour value, 0 to
+255, over all pixels) next to the position, angle and frame differences. Moving things (people, creatures, dust) differ between
+two runs; the numbers say by how much. The pictures are game content: they stay on the machine, never in a repository.
+
+Known limits: a far `player.setpos` into cells that were never loaded may leave their land unloaded (nv-rs#474), which is why the
+driver loads the cells with `cow` first. A far console move later in a session stopped the port at some places before
+(nv-rs#455); the `cow` moves of this scenario have not been run enough to say they avoid it. The heights of the built-in
+views are those found with the v0.20.1 engine; a place on a slope slides, so the views stand on flat ground.
 
 ### Fixed: the player stopped answering movement and the mouse (nv-rs#324)
 
