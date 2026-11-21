@@ -3,6 +3,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_core::extend::{EXTRA_MISC_STAT_COUNT, EXTRA_MISC_STAT_NAME, EXTRA_MISC_STAT_VALUE};
 
 // Translated from 007df1f0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Unnamed in the engine map (range assigned to `statsmenu.cpp`; `fastcall`/`thiscall`
@@ -1559,6 +1560,32 @@ pub fn fn_007e1110(e: &mut Engine, this: Ptr, tile: u32) -> u32 {
     0
 }
 
+/// Fork-only (nv-rs#307): the rows a built-in extender adds after the game's own `0x2b`
+/// miscellaneous statistics. When it has registered [`EXTRA_MISC_STAT_COUNT`] (and the name and
+/// value natives beside it), each row is added to the general list as a game row is, with the
+/// stat id `0x2b + index`, its name and its value; with none registered nothing is called.
+fn add_extra_misc_stat_rows(e: &mut Engine) {
+    if !e.is_registered(EXTRA_MISC_STAT_COUNT) {
+        return;
+    }
+    let count = e.call(EXTRA_MISC_STAT_COUNT, &args![]).u32();
+    for index in 0..count {
+        let item = list_box_misc_stat_id_add_item(
+            e,
+            Ptr::new(open_menu(e) + 0x210),
+            0x2b + index,
+            0,
+            0,
+            0,
+        );
+        let name = e.call(EXTRA_MISC_STAT_NAME, &args![index]).u32();
+        set_string(e, item, 0xfc4, name);
+        let value = e.call(EXTRA_MISC_STAT_VALUE, &args![index]).u32();
+        set_int(e, item, 0x1005, value);
+        e.call(TILE_SET_NAME_00707E10, &args![item, name]);
+    }
+}
+
 // Translated from 007e1190 (decompiled, FalloutNV.exe 1.4.0.525)
 // Translation incomplete: 007e1190 - the C++ exception frame (FS:[0] chain, unwind states 0 and 1 around the item allocations) is not translated.
 /// `ListBox<enum_MiscStatManager::MiscStatID>::AddItem` (engine map; `RET 0x10`; its
@@ -1815,6 +1842,7 @@ pub fn stats_menu_create(e: &mut Engine) -> u32 {
             e.call(TILE_SET_NAME_00707E10, &args![item, name]);
             fn_007dc0a0(e, Ptr::new(index_slot));
         }
+        add_extra_misc_stat_rows(e);
         let black = e.mem.u32(open_menu(e) + 0x14c);
         set_string(e, black, 0xfcc, SOLID_BLACK_TEXT);
         let black = e.mem.u32(open_menu(e) + 0x14c);
@@ -5117,6 +5145,49 @@ mod b069_tests {
             &args![list, 1u32, 0u32, 0x00ab_cdefu32, 0x4300u32],
         );
         assert_eq!(calls_to(&e, MISC_STAT_SYNCHRONIZE), vec![vec![list]]);
+    }
+
+    #[test]
+    fn an_extenders_misc_stat_rows_follow_the_games_rows() {
+        use std::sync::Mutex;
+        static IDS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+        let mut e = engine();
+        let menu = e.mem.alloc(0x300);
+        e.set_global(OPEN_MENU_011DACE0, menu);
+        e.mem.set_u32(menu + 0x210 + 0xc, 0x3000);
+        e.mem.set_u32(menu + 0x210 + 0x18, 0x4100);
+        e.register(TILE_GET_MENU, |_, _| 0x5000u32.into_ret());
+        e.register(MENU_RENDER_TEMPLATE, |_, _| 0x6000u32.into_ret());
+        e.register(LIST_BOX_HAS_FLAG, |_, _| 1u32.into_ret());
+        e.register(ITEM_CONSTRUCT, |e, a| {
+            IDS.lock().unwrap().push(e.mem.u32(a[2]));
+            a[0].into_ret()
+        });
+        // No extender: nothing is added.
+        e.call_log = Some(vec![]);
+        add_extra_misc_stat_rows(&mut e);
+        assert!(calls_to(&e, TILE_SET_STRING).is_empty());
+        assert!(IDS.lock().unwrap().is_empty());
+        // An extender with two rows: ids after the game's 0x2b, each name and value set.
+        e.register(EXTRA_MISC_STAT_COUNT, |_, _| 2u32.into_ret());
+        e.register(EXTRA_MISC_STAT_NAME, |_, a| (0x9000 + a[0]).into_ret());
+        e.register(EXTRA_MISC_STAT_VALUE, |_, a| (5 + a[0]).into_ret());
+        e.call_log = Some(vec![]);
+        add_extra_misc_stat_rows(&mut e);
+        assert_eq!(*IDS.lock().unwrap(), vec![0x2b, 0x2c]);
+        let names: Vec<u32> = calls_to(&e, TILE_SET_STRING)
+            .iter()
+            .filter(|w| w[1] == 0xfc4)
+            .map(|w| w[2])
+            .filter(|n| *n >= 0x9000)
+            .collect();
+        assert_eq!(names, vec![0x9000, 0x9001]);
+        let values: Vec<u32> = calls_to(&e, TILE_SET_INT)
+            .iter()
+            .filter(|w| w[0] == 0x6000 && w[1] == 0x1005)
+            .map(|w| w[2])
+            .collect();
+        assert_eq!(values, vec![5, 6]);
     }
 
     #[test]

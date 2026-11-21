@@ -242,3 +242,24 @@ fn install_follows_the_switch() {
     crate::install(&mut e);
     assert!(nvse::plugins::built_ins(&e).is_empty());
 }
+
+/// The Stats menu's three natives: how many statistics, and each one's name and value (by name
+/// order); a name past the end is 0 and a value past the end 0; a name is guest text.
+#[test]
+fn the_stats_menu_rows_are_the_initialised_statistics() {
+    use engine_core::extend::{EXTRA_MISC_STAT_COUNT, EXTRA_MISC_STAT_NAME, EXTRA_MISC_STAT_VALUE};
+    let mut e = engine();
+    assert_eq!(e.call(EXTRA_MISC_STAT_COUNT, &args![]).u32(), 0);
+    call(&mut e, INIT_STAT, &[s("Bobbleheads Found")]);
+    call(&mut e, MOD_STAT, &[s("Bobbleheads Found"), int(7)]);
+    call(&mut e, MOD_STAT, &[s("Captives Rescued"), int(-2)]);
+    assert_eq!(e.call(EXTRA_MISC_STAT_COUNT, &args![]).u32(), 2);
+    let first = e.call(EXTRA_MISC_STAT_NAME, &args![0u32]).u32();
+    let second = e.call(EXTRA_MISC_STAT_NAME, &args![1u32]).u32();
+    assert_eq!(nvse::table::guest_text(&e, first), b"Bobbleheads Found");
+    assert_eq!(nvse::table::guest_text(&e, second), b"Captives Rescued");
+    assert_eq!(e.call(EXTRA_MISC_STAT_VALUE, &args![0u32]).u32(), 7);
+    assert_eq!(e.call(EXTRA_MISC_STAT_VALUE, &args![1u32]).u32() as i32, -2);
+    assert_eq!(e.call(EXTRA_MISC_STAT_NAME, &args![2u32]).u32(), 0);
+    assert_eq!(e.call(EXTRA_MISC_STAT_VALUE, &args![2u32]).u32(), 0);
+}
