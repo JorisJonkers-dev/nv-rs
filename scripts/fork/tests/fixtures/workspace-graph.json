@@ -1710,6 +1710,11 @@
     {
      "features": [],
      "kind": "dev",
+     "name": "johnnyguitar"
+    },
+    {
+     "features": [],
+     "kind": "dev",
      "name": "nvse"
     }
    ],
@@ -2006,6 +2011,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "johnnyguitar"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "mcm"
     },
     {
@@ -2130,6 +2140,30 @@
    ],
    "manifest_path": "/ws/crates/jip/Cargo.toml",
    "name": "jip"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "engine-core"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/johnnyguitar/Cargo.toml",
+   "name": "johnnyguitar"
   },
   {
    "dependencies": [
