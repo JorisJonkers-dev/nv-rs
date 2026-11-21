@@ -62,6 +62,22 @@ def read_list(path):
     return out
 
 
+def read_allowed(root="."):
+    """The paths of `.fork/allowed-divergence` (the old list, frozen) and of every file of `.fork/allowed-divergence.d/`
+    (one file per entry, nv-rs#438)."""
+    out = []
+    old = os.path.join(root, ".fork/allowed-divergence")
+    if os.path.exists(old):
+        out += read_list(old)
+    folder = os.path.join(root, ".fork/allowed-divergence.d")
+    if os.path.isdir(folder):
+        for name in sorted(os.listdir(folder)):
+            path = os.path.join(folder, name)
+            if os.path.isfile(path) and not name.startswith("."):
+                out += read_list(path)
+    return out
+
+
 def matches(path, entries):
     return any(path == e or (e.endswith("/") and path.startswith(e)) or ("*" in e and fnmatch.fnmatch(path, e)) for e in entries)
 
@@ -273,7 +289,7 @@ def main(argv=None):
     files = None
     if info.get("reason") == "conflict" and info.get("commit"):
         files = conflict_files(info["commit"])
-    body = build_body(info, files, read_list(".fork/allowed-divergence"), read_list(".fork/overlay-paths"),
+    body = build_body(info, files, read_allowed(), read_list(".fork/overlay-paths"),
                       a.run_url, read_text(a.detail_file), summary(a.dropped_file) if a.dropped_file else "")
     if a.cmd == "body":
         sys.stdout.write(body)

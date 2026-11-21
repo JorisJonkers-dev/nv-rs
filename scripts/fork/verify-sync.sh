@@ -9,7 +9,10 @@ mirror=${MIRROR_REF:-origin/main}
 git fetch --quiet --no-tags origin main
 last=$(git log -1 --format=%B --grep='^Upstream-Commit: [0-9a-f]\{40\}$' HEAD | sed -n 's/^Upstream-Commit: \([0-9a-f]\{40\}\)$/\1/p' | tail -n 1)
 [[ -n $last ]] || last=$(git merge-base HEAD "$mirror")
-mapfile -t skip < <(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*$/d' .fork/overlay-paths .fork/allowed-divergence)
+# allowed-divergence is the old list (frozen) and one file per entry in .fork/allowed-divergence.d/ (nv-rs#438).
+shopt -s nullglob
+mapfile -t skip < <(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*$/d' .fork/overlay-paths .fork/allowed-divergence .fork/allowed-divergence.d/*)
+shopt -u nullglob
 # The fork does not use upstream's workflows (the replay drops their changes), so they are outside the comparison too.
 skip+=(.github/workflows/)
 spec=(); for p in "${skip[@]}"; do spec+=(":(exclude)$p"); done

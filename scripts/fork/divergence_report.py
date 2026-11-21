@@ -145,6 +145,10 @@ def analyse(base, head, root="."):
     os.chdir(root)
     overlay = read_patterns(show(head, ".fork/overlay-paths"))
     allowed = read_patterns(show(head, ".fork/allowed-divergence"))
+    # One file per entry (nv-rs#438): every file of the folder at `head` adds its paths.
+    for name in sorted(git("ls-tree", "--name-only", head, ".fork/allowed-divergence.d/", check=False).split()):
+        if not os.path.basename(name).startswith("."):
+            allowed += read_patterns(show(head, name))
     fork_crates = set(coverage_report.fork_owned_crates("."))
     budget = load_budget(show(head, ".fork/divergence-budget.toml"))
     doc = show(head, "docs/fork/DIVERGENCE.md")

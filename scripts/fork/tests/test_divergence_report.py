@@ -107,23 +107,27 @@ class Repo(unittest.TestCase):
         w("crates/a/src/known.rs", "1\n")
         w(".fork/overlay-paths", "docs/fork/\n.fork/\n")
         w(".fork/allowed-divergence", "crates/a/src/known.rs\n")
+        w(".fork/allowed-divergence.d/second", "crates/a/src/second.rs  # its own file\n")
+        w("crates/a/src/second.rs", "1\n")
         w("docs/fork/DIVERGENCE.md", DOC)
         git("add", "-A")
         git("commit", "-qm", "init\n\nUpstream-Commit: " + "a" * 40)
         git("checkout", "-qb", "pr")
         w("crates/a/src/lib.rs", "1\n2\n3\n4\n5\n")
         w("crates/a/src/known.rs", "1\n2\n")
+        w("crates/a/src/second.rs", "1\n2\n")
         w("docs/fork/NOTE.md", "x\n")
         git("add", "-A")
         git("commit", "-qm", "change")
         res = dr.analyse("fork", "pr", d)
         paths = {f["path"]: f for f in res["files"]}
-        self.assertEqual(sorted(paths), ["crates/a/src/known.rs", "crates/a/src/lib.rs"])
+        self.assertEqual(sorted(paths), ["crates/a/src/known.rs", "crates/a/src/lib.rs", "crates/a/src/second.rs"])
+        self.assertTrue(paths["crates/a/src/second.rs"]["listed"])
         self.assertTrue(paths["crates/a/src/lib.rs"]["new"])
         self.assertEqual(paths["crates/a/src/lib.rs"]["record"], "missing")
         self.assertTrue(paths["crates/a/src/known.rs"]["listed"])
         self.assertEqual(res["fork_files"], 1)
-        self.assertEqual(res["pr_upstream_lines"], 3)
+        self.assertEqual(res["pr_upstream_lines"], 4)  # lib.rs 2, known.rs 1, second.rs 1
 
 
 if __name__ == "__main__":
