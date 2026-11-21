@@ -112,6 +112,29 @@ pub struct State {
     /// That co-save's file list (`MODS`, names as saved), which the kept sections' mod indexes
     /// refer to.
     pub kept_mods: Vec<Vec<u8>>,
+    /// How many new games and loaded saves began, and which was the last: the host's game trace
+    /// (`load.kind`) tells a new game and a save from a door or a fast travel by it.
+    pub starts: u32,
+    pub last_start: Option<Start>,
+}
+
+/// What began a load that the co-save moments see.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Start {
+    NewGame,
+    SaveGame,
+}
+
+/// How many new games and saved games began so far and the last one, for a read-only trace.
+pub fn starts(e: &Engine) -> (u32, Option<Start>) {
+    e.ext_get::<Nvse>()
+        .map_or((0, None), |n| (n.saveload.starts, n.saveload.last_start))
+}
+
+fn note_start(e: &mut Engine, start: Start) {
+    let st = &mut e.ext::<Nvse>().saveload;
+    st.starts = st.starts.wrapping_add(1);
+    st.last_start = Some(start);
 }
 
 /// The fixes preset's row (docs/FIXES.md, "The script extender"): a co-save's sections of
@@ -930,6 +953,7 @@ fn handle_new_game(e: &mut Engine) {
 /// dropped, the handlers that go on a load, the mods' disabled player controls, then
 /// `HandleNewGame`.
 pub fn new_game(e: &mut Engine) {
+    note_start(e, Start::NewGame);
     crate::commands::game::game_loaded(e);
     tick::clear_delayed_calls(e);
     events::clear_flush_on_load(e);
@@ -939,6 +963,7 @@ pub fn new_game(e: &mut Engine) {
 
 /// Before the `.fos` (`Serialization::HandlePreLoadGame`).
 pub fn pre_load(e: &mut Engine, name: u32) {
+    note_start(e, Start::SaveGame);
     events::message(e, events::id::PRE_LOAD_GAME, name);
     plugins::dispatch_guest_text(e, msg::PRE_LOAD_GAME, name);
     // The other plugins' sections kept are the loaded game's, or none.
