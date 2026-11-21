@@ -112,10 +112,18 @@ pub struct State {
     /// That co-save's file list (`MODS`, names as saved), which the kept sections' mod indexes
     /// refer to.
     pub kept_mods: Vec<Vec<u8>>,
-    /// How many new games and loaded saves began, and which was the last: the host's game trace
-    /// (`load.kind`) tells a new game and a save from a door or a fast travel by it.
-    pub starts: u32,
-    pub last_start: Option<Start>,
+}
+
+/// How many new games and loaded saves began, and which was the last: the host's game trace
+/// (`load.kind`) tells a new game and a save from a door or a fast travel by it. A lock-free slot
+/// ([`Engine::ext_free`]), made at [`install`]: the trace reads it on the host's thread every frame,
+/// and the shared `Nvse` slot is one engine's at a time (reading it from the host's thread while
+/// the game's main thread holds it stopped every start with real threads: nv-rs#451).
+#[derive(Default)]
+pub(crate) struct StartCounts {
+    count: std::sync::atomic::AtomicU32,
+    /// 0 none, 1 a new game, 2 a saved game.
+    last: std::sync::atomic::AtomicU8,
 }
 
 /// What began a load that the co-save moments see.
@@ -127,14 +135,22 @@ pub enum Start {
 
 /// How many new games and saved games began so far and the last one, for a read-only trace.
 pub fn starts(e: &Engine) -> (u32, Option<Start>) {
-    e.ext_get::<Nvse>()
-        .map_or((0, None), |n| (n.saveload.starts, n.saveload.last_start))
+    use std::sync::atomic::Ordering::Relaxed;
+    e.ext_get::<StartCounts>().map_or((0, None), |c| {
+        let last = match c.last.load(Relaxed) {
+            1 => Some(Start::NewGame),
+            2 => Some(Start::SaveGame),
+            _ => None,
+        };
+        (c.count.load(Relaxed), last)
+    })
 }
 
 fn note_start(e: &mut Engine, start: Start) {
-    let st = &mut e.ext::<Nvse>().saveload;
-    st.starts = st.starts.wrapping_add(1);
-    st.last_start = Some(start);
+    use std::sync::atomic::Ordering::Relaxed;
+    let c = e.ext_free::<StartCounts>();
+    c.last.store(if start == Start::NewGame { 1 } else { 2 }, Relaxed);
+    c.count.fetch_add(1, Relaxed);
 }
 
 /// The fixes preset's row (docs/FIXES.md, "The script extender"): a co-save's sections of
@@ -1086,6 +1102,8 @@ fn rename_site(e: &mut Engine, a: &[u32]) -> Option<u32> {
 
 /// Installs the seams' handlers.
 pub fn install(e: &mut Engine) {
+    // Made here, before real threads start (their engines copy the lock-free slots then).
+    e.ext_free::<StartCounts>();
     e.on_site(SAVE, save_site);
     e.on_site(PRE_LOAD, pre_load_site);
     e.on_site(LOAD, load_site);
