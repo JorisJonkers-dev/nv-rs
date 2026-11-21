@@ -176,6 +176,32 @@ RE_LOG_FRAME = re.compile(r"^\[f(\d+) ")
 RE_GAME_EVENT = re.compile(r"\[f(\d+) \+\d+ms\] (menu\.stack|menu\.loading|load\.kind|load\.thread|load\.movie): (.*)$")
 
 
+RE_STACK = re.compile(r"^(\d+) open, bottom to top ((?:0x[0-9a-f]+ ?)+)\(menu mode (\d+)\)")
+RE_STACK_EMPTY = re.compile(r"^no menu is open \(menu mode (\d+)\)")
+# What the menu walk of drivers.py reads: the menu stack and load kind of RE_GAME_EVENT, and which film opens.
+RE_WALK_EVENT = re.compile(r"\[f(\d+) \+\d+ms\] (menu\.stack|load\.kind|movie\.open|movie\.close): (.*)$")
+
+
+def parse_menu_stack(text):
+    """A `menu.stack` event's text as (class ids bottom to top, menu mode): `2 open, bottom to top 0x3ef 0x3f5 (menu mode 5)`
+    gives ((0x3ef, 0x3f5), 5), `no menu is open (menu mode 1)` gives ((), 1). None for text that is neither."""
+    m = RE_STACK.match(text)
+    if m:
+        return tuple(int(w, 16) for w in m.group(2).split()), int(m.group(3))
+    m = RE_STACK_EMPTY.match(text)
+    return ((), int(m.group(1))) if m else None
+
+
+def walk_events(text):
+    """The events the menu walk follows in a stretch of viewer log, as (frame, kind, text), in the order logged."""
+    out = []
+    for line in text.splitlines():
+        ev = RE_WALK_EVENT.search(line)
+        if ev:
+            out.append((int(ev.group(1)), ev.group(2), ev.group(3).strip()))
+    return out
+
+
 def parse_log(text):
     """Counters out of a viewer log; the last report of each cumulative counter wins."""
     out = {

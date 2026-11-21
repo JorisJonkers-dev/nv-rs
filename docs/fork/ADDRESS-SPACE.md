@@ -45,8 +45,9 @@ matter).
 | Process virtual size (`VmSize`) | 7.1 GB at the menu (`vm_size=7,097,483,264`): the 4 GiB guest, a 960 MiB anonymous mapping (not attributed) and the rest; irrelevant on a 64-bit host |
 | `rss_anon` | 482 MB of the 613 MB resident at the menu (the rest, 131 MB, is mapped files). Both keys added to `NV_MEMLOG` by this change (appended keys, Linux) so that this split is read without `/proc` by hand |
 
-Not measured: a heavily modded or Tale of Two Wastelands load. Nothing on this machine runs one yet, so **the point at
-which the 3.46 GB heap binds is unknown**; vanilla routes use 6% of it. `heap_peak`, `heap_peak_addr` and
+A Tale of Two Wastelands load (Fallout 3's data merged in, the Goodsprings walk) peaks at about 260 MB, 7.5% of the heap
+(section 7). Not measured: a load order heavier than that. **The point at which the 3.46 GB heap binds is unknown but far
+away**; vanilla routes use 6% of it. `heap_peak`, `heap_peak_addr` and
 `heap_largest_free` in `NV_MEMLOG` are the numbers to read on such a run: pressure shows as `heap_peak_addr` passing
 0x7E000000 (the upper range in use), then `heap_largest_free` falling. A stop on exhaustion prints the live blocks by size
 (`Mem::heap_exhausted`).
@@ -115,8 +116,18 @@ runs need the owner's game data, so they are run on a machine that has it, under
 | --- | --- | --- | --- | --- |
 | goodsprings (new game to the first exterior, the walk) | 2 GiB (`heap_cap` 2147483648) | 206.9 MB (`heap_peak` 206909040) | PASS, no stop lines | bac7a385 |
 | goodsprings | 1 GiB (`heap_cap` 1073741824) | 206.3 MB (`heap_peak` 206261056) | PASS, no stop lines | bac7a385 |
+| goodsprings on a Tale of Two Wastelands Profile (18 plugins, the Fallout 3 content merged in; default thread mode) | 2 GiB (`heap_cap` 2147483648) | 259.6 MB (`heap_peak` 259641112, highest address 862556808) | PASS, no stop lines, player path 2863 units | aa3e645b (v0.19.0) |
+| goodsprings on the same Tale of Two Wastelands Profile | 1 GiB (`heap_cap` 1073741824) | 259.5 MB (`heap_peak` 259500416, highest address 858603808) | PASS, no stop lines, player path 2723 units | aa3e645b (v0.19.0) |
 
 Reading: the vanilla new game to Goodsprings uses about 200 MB of the guest heap, a fifth of even the 1 GiB window, so no family
 depends on the large window in this scenario. The scenario that fills the heap (a modded, merged instance, #265) is the one
 that tells; run it with `NV_GUEST_WINDOW=2GiB` and `1GiB` and add its rows here. A run that does not fit stops with the
 `heap exhausted` text, which names the sizes most live and most free.
+
+The Tale of Two Wastelands rows are that run (nv-rs#265): a Profile with TTW's 18 plugins, so Fallout 3's data merged into
+the New Vegas load, a new game with the Mojave start (the bench driver walks the start choice, [BENCH.md](BENCH.md)) and the
+goodsprings walk. The guest heap peaks at about 260 MB, 50 MB above the vanilla scenario and 12% of the 2 GiB window, 7.5% of
+the whole 3.46 GB heap, and the same at 1 GiB: no family depends on the large window there either, and the run is not
+close to the 2.8 GB at which widening is revisited (section 4, option 3). **Decision: the heap is not widened.** It binds
+nowhere on the routes measured so far, vanilla and TTW; a heavier load order than TTW's, or a longer route than the
+Goodsprings walk, is not measured, and the same two runs with `NV_GUEST_WINDOW` answer it if one appears.
