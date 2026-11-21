@@ -113,3 +113,10 @@ runs need the owner's game data, so they are run on a machine that has it, under
 
 | Scenario | Window | Heap peak | Ended | Commit |
 | --- | --- | --- | --- | --- |
+| goodsprings (new game to the first exterior, the walk) | 2 GiB (`heap_cap` 2147483648) | 206.9 MB (`heap_peak` 206909040) | PASS, no stop lines | bac7a385 |
+| goodsprings | 1 GiB (`heap_cap` 1073741824) | 206.3 MB (`heap_peak` 206261056) | PASS, no stop lines | bac7a385 |
+
+Reading: the vanilla new game to Goodsprings uses about 200 MB of the guest heap, a fifth of even the 1 GiB window, so no family
+depends on the large window in this scenario. The scenario that fills the heap (a modded, merged instance, #265) is the one
+that tells; run it with `NV_GUEST_WINDOW=2GiB` and `1GiB` and add its rows here. A run that does not fit stops with the
+`heap exhausted` text, which names the sizes most live and most free.
