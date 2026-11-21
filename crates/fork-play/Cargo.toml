@@ -20,6 +20,7 @@ fork-presence = { path = "../fork-presence" }
 fork-memlog = { path = "../fork-memlog" }
 d3d9-wgpu = { path = "../d3d9-wgpu" }
 engine-core = { path = "../engine-core" }
+fork-scene-run = { path = "../fork-scene-run" }
 
 [target.'cfg(not(windows))'.dependencies]
 game-folders = { path = "../game-folders" }

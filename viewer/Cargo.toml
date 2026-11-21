@@ -24,6 +24,7 @@ fork-presence = { path = "../crates/fork-presence" }
 
 # The memory timeline behind NV_MEMLOG (docs/fork/MEMLOG.md): off by default, no thread.
 fork-memlog = { path = "../crates/fork-memlog" }
+fork-scene-run = { path = "../crates/fork-scene-run" }
 d3d9-wgpu = { path = "../crates/d3d9-wgpu" }
 engine-core = { path = "../crates/engine-core" }
 

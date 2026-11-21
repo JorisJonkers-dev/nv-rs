@@ -430,6 +430,14 @@ pub fn run() {
             host::end_process(1);
         }
     };
+    // `NV_SCENE=<place file>` (nv-rs#479, docs/fork/SCENE.md): the run goes to the named places itself.
+    let mut scene = match fork_scene_run::Runner::from_env() {
+        Ok(runner) => runner,
+        Err(e) => {
+            fork_log::fatal!(target: "host", "{e}");
+            host::end_process(1);
+        }
+    };
     let mut game = match host::Host::start_with(&data, &choice) {
         Ok(host) => host,
         Err(e) => {
@@ -438,6 +446,9 @@ pub fn run() {
         }
     };
     fork_log::info!(target: "host", "{}", game.describe());
+    if let Some(runner) = scene.take() {
+        fork_scene_run::install(&mut game.engine, runner);
+    }
     game.movement.probe = args.movement_probe;
     // The run ends where the game's `main` ends its frames (`host::Host::at_main_end`), as the
     // original's process does: with main's answer when it returned, with the game's own code
@@ -502,6 +513,11 @@ pub fn run() {
             if let Some(p) = &presence {
                 p.set_state(fork_presence::State::Running);
             }
+        }
+        if let Some(status) = fork_scene_run::exit_status() {
+            game.join();
+            host::run_exit_hooks();
+            host::end_process(status);
         }
         // `NV_REPEATABLE=FRAMES` (a test mode): the run ends after FRAMES of main's frames.
         if game.repeatable_end() {

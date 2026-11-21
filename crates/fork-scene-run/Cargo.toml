@@ -1,0 +1,15 @@
+[package]
+name = "fork-scene-run"
+version = "0.1.0"
+description = "Fork-owned engine side of scene capture: runs a scene request between main's frames (docs/fork/SCENE.md, nv-rs#479)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+fork-scene = { path = "../fork-scene" }
+fork-log = { path = "../fork-log" }
+engine-core = { path = "../engine-core" }
+engine = { path = "../engine" }
+host = { path = "../host" }

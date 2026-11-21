@@ -1,0 +1,10 @@
+[package]
+name = "fork-scene"
+version = "0.1.0"
+description = "Fork-owned scene capture: the place file (versioned TOML subset) and the request the engine reads at start (docs/fork/SCENE.md). Pure: no engine, no game data"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]

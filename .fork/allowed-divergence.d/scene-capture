@@ -1,0 +1,3 @@
+viewer/src/main.rs  # NV_SCENE: the frame loop hands the run to fork_scene_run between main's frames (the player is sent to the place file's places, nv-rs#479)
+viewer/Cargo.toml  # fork-scene-run, the engine side of NV_SCENE
+Cargo.toml  # workspace members fork-scene and fork-scene-run

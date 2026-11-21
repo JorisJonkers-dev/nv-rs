@@ -95,6 +95,13 @@ requires = ["log"]
 runs_on = "both"
 
 [[component]]
+name = "scene"
+purpose = "Scene capture (nv-rs#479): the place file and the request the engine reads at start (NV_SCENE), pure (docs/fork/SCENE.md); the engine side, fork-scene-run, is in integration with the host. Fork-owned"
+crates = ["fork-scene"]
+requires = []
+runs_on = "both"
+
+[[component]]
 name = "memlog"
 purpose = "The NV_MEMLOG memory timeline: one key=value line of guest heap, host RSS and GPU counters, off by default (docs/fork/MEMLOG.md). Fork-owned"
 crates = ["fork-memlog"]
@@ -218,8 +225,8 @@ windows = "required"
 [[component]]
 name = "integration"
 purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
-crates = ["engine", "host", "play-patch", "nv-viewer"]
-requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders", "game-profile", "mod-chooser", "mod-install"]
+crates = ["engine", "host", "play-patch", "fork-scene-run", "nv-viewer"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders", "game-profile", "mod-chooser", "mod-install", "scene"]
 runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not
