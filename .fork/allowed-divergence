@@ -89,6 +89,11 @@ crates/engine-fallout-interface/src/units/fallout_interface/statsmenu.rs  # add_
 # The guest window knob (nv-rs#267): NV_GUEST_WINDOW lowers the heap's two ranges' ends; off by default.
 crates/engine-core/src/mem.rs  # heap_stats reads the heap's own capacity
 crates/engine-core/src/mem/heap.rs  # `low_end` and `end` fields, `window_ends`, `parse_window`, `capacity`, and their tests; grow, cross, release and available use the fields (equal to the constants unless NV_GUEST_WINDOW is set)
+# The file layer's listing cache counters (nv-rs#277).
+crates/engine-platform/src/host_paths.rs  # three counters in folder_matches and forget, their end-of-run line through fork_log::on_finish (target files), and two tests
+# The heap guard (nv-rs#227): NV_HEAP_STOP_FRACTION ends the run gracefully with a stop report.
+crates/host/src/lib.rs  # `pub mod fork_heap;` (the heap guard)
+viewer/src/main.rs  # the heap guard's sample call after the trace's in main's loop
 # The game trace's load kind (nv-rs#297): the co-save moments count the new games and saves that begin, for the host's read-only trace.
 crates/nvse/src/saveload.rs  # `starts`, `Start` and `note_start`: a count and the kind of the last new game or saved game, set at `new_game` and `pre_load`
 crates/nvse/src/saveload_tests.rs  # a test of that count
