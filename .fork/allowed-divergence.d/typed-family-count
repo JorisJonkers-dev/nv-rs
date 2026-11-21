@@ -1,1 +1,1 @@
-crates/engine-typed/src/lib.rs  # the unit tests' family list has 23 entries and its array type said 22 (upstream main at b6f53e35 does not compile that test build); the fork counts 23 until upstream does
+crates/engine-typed/src/lib.rs  # the unit tests' family list has 23 entries: the array type said 22 and the one-family-off tests counted 21 on; upstream main at b6f53e35 does not pass that test build, the fork counts 23 and 22 until upstream does
