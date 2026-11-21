@@ -86,3 +86,6 @@ crates/stewie/src/tests.rs  # tests of that switch
 # JohnnyGuitar's extra miscellaneous statistics in the Pip-Boy (nv-rs#307): the Stats menu asks three natives of a built-in extender for rows after the game's own.
 crates/engine-core/src/extend.rs  # EXTRA_MISC_STAT_COUNT, _NAME and _VALUE: the addresses of those three natives
 crates/engine-fallout-interface/src/units/fallout_interface/statsmenu.rs  # add_extra_misc_stat_rows after the game's 0x2b rows of StatsMenu::Create, only when an extender registered the natives; its test
+# The game trace's load kind (nv-rs#297): the co-save moments count the new games and saves that begin, for the host's read-only trace.
+crates/nvse/src/saveload.rs  # `starts`, `Start` and `note_start`: a count and the kind of the last new game or saved game, set at `new_game` and `pre_load`
+crates/nvse/src/saveload_tests.rs  # a test of that count
