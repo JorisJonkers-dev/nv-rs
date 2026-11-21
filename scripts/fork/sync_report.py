@@ -8,6 +8,10 @@
                                            with a ::warning::, and the command exits 0 so a green sync stays green)
   sync_report.py behind [--mirror REF]     markdown: how many upstream commits the fork is behind (the replay point to REF,
                                            default origin/main) and the files and lines they change, by crate
+  sync_report.py stops --dir D [--sync SHA] [--open-entries]
+                                           markdown: the stop reports (the `stop` final records of the JSON logs, nv-rs#271) of the runs in
+                                           D, counted for this sync (the replay point SHA) by class and by moved family; each family a stop
+                                           names is a tracking entry, opened as an issue labelled stop-family with --open-entries
   sync_report.py summary --dropped-file F  markdown list of the changes the replay left out (the fork owns those paths)
 
 The stop file is written by replay-upstream.sh (reason=, commit=, subject=); without one the failure is "other" (or
@@ -251,15 +255,117 @@ def behind(mirror="origin/main"):
     return "\n".join(lines) + "\n"
 
 
+STOP_LABEL = "stop-family"
+
+
+def read_stop_records(directory):
+    """The `stop` final records of every `*.jsonl` and `*.json` file under `directory` (a run's JSON log; one object a
+    line), as dicts. Lines that are not JSON, and other records, are left out."""
+    out = []
+    for root, _, names in os.walk(directory):
+        for name in sorted(names):
+            if not name.endswith((".jsonl", ".json")):
+                continue
+            try:
+                with open(os.path.join(root, name), encoding="utf-8", errors="replace") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line.startswith("{"):
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except ValueError:
+                            continue
+                        if isinstance(rec, dict) and rec.get("event") == "stop":
+                            out.append(rec)
+            except OSError:
+                continue
+    return out
+
+
+def family_key(rec):
+    """`family N` or `family N field +x` for a stop that names a moved family; None for one that does not."""
+    if rec.get("family") is None:
+        return None
+    key = f"family {rec['family']}"
+    return f"{key} field {rec['field']}" if rec.get("field") else key
+
+
+def stops_summary(records, sync=""):
+    """Markdown: the stop reports counted for one sync, by class and by family, and the tracking entries (one per
+    family or family field a stop names). Pure."""
+    head = f"### Stop reports since the sync at `{sync[:8]}`" if sync else "### Stop reports"
+    out = [head, "", f"{len(records)} stop report(s) from the bench and soak runs read."]
+    if not records:
+        return "\n".join(out) + "\n"
+    classes, families = {}, {}
+    for r in records:
+        classes[r.get("class", "other")] = classes.get(r.get("class", "other"), 0) + 1
+        k = family_key(r)
+        if k:
+            families.setdefault(k, []).append(r)
+    out += ["", "| Class | Stops |", "| --- | ---: |"]
+    out += [f"| {c} | {n} |" for c, n in sorted(classes.items(), key=lambda kv: (-kv[1], kv[0]))]
+    if families:
+        out += ["", "| Family | Stops | First reason |", "| --- | ---: | --- |"]
+        for k, rs in sorted(families.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+            reason = str(rs[0].get("reason", "")).replace("|", "/")[:120]
+            out.append(f"| {k} | {len(rs)} | {reason} |")
+        out += ["", "Tracking entries (a stop that names a family):", ""]
+        out += [f"- {entry_title(k)}" for k in sorted(families)]
+    return "\n".join(out) + "\n"
+
+
+def entry_title(key):
+    return f"Stop names moved {key}"
+
+
+def open_entries(records, sync=""):
+    """One issue labelled stop-family per family key the records name, unless an open issue has that title. Returns
+    the titles opened. Needs gh and Issues; says nothing and opens none otherwise."""
+    keys = {}
+    for r in records:
+        k = family_key(r)
+        if k:
+            keys.setdefault(k, r)
+    if not keys or not issues_enabled():
+        return []
+    opened = []
+    try:
+        gh("label", "create", STOP_LABEL, "--color", "D93F0B", "--description", "A stop report names a moved family", "--force", check=False)
+        have = {i["title"] for i in json.loads(gh("issue", "list", "--label", STOP_LABEL, "--state", "open", "--json", "title").stdout or "[]")}
+        for k, r in sorted(keys.items()):
+            title = entry_title(k)
+            if title in have:
+                continue
+            body = (f"A stop report names {k}.\n\nReason: {str(r.get('reason', ''))[:400]}\n\nClass: {r.get('class', 'other')}, "
+                    f"frame {r.get('frame')}.\n" + (f"First seen with the sync at {sync[:8]}.\n" if sync else ""))
+            gh("issue", "create", "--label", STOP_LABEL, "--title", title, "--body", body)
+            opened.append(title)
+    except subprocess.CalledProcessError as e:
+        warn(f"a stop tracking entry could not be opened ({(e.stderr or '').strip()[:200]}).")
+    return opened
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["body", "open", "close", "summary", "behind"])
+    ap.add_argument("cmd", choices=["body", "open", "close", "summary", "behind", "stops"])
     ap.add_argument("--mirror", default="origin/main")
     ap.add_argument("--stop-file")
     ap.add_argument("--dropped-file")
     ap.add_argument("--detail-file")
     ap.add_argument("--run-url", default="")
+    ap.add_argument("--dir")
+    ap.add_argument("--sync", default="")
+    ap.add_argument("--open-entries", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "stops":
+        records = read_stop_records(a.dir or ".")
+        sys.stdout.write(stops_summary(records, a.sync))
+        if a.open_entries:
+            for t in open_entries(records, a.sync):
+                print(f"opened: {t}")
+        return 0
     if a.cmd == "behind":
         sys.stdout.write(behind(a.mirror))
         return 0
