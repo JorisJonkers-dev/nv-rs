@@ -233,8 +233,10 @@ def over(caps, base, now):
     return None
 
 
-def scope_prefix(limit_bytes):
-    """The systemd-run prefix of a capped transient scope. Refuses when systemd-run cannot make one: no run without it."""
+def scope_prefix(limit_bytes, extra=()):
+    """The systemd-run prefix of a capped transient scope. Refuses when systemd-run cannot make one: no run without it.
+    `extra` are more systemd-run arguments that only the real scope gets (a unit name, a slice, a description: label.scope_args);
+    the probe that checks systemd-run does not get them, so it cannot clash with the real unit's name."""
     if not shutil.which("systemd-run"):
         raise Refused("systemd-run is not here: no run without a host memory cap")
     mib = max(64, limit_bytes // MIB)
@@ -247,7 +249,7 @@ def scope_prefix(limit_bytes):
         ok = False
     if not ok:
         raise Refused("systemd-run could not make a memory-capped scope: no run without a host memory cap")
-    return cmd
+    return cmd + list(extra)
 
 
 # --- the halt file ---------------------------------------------------------------------------------------------------

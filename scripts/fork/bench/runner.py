@@ -7,6 +7,7 @@ The run directory (default ~/.local/state/nv-rs/bench/<scenario>-<time>/) holds 
   samples.tsv   one line a second: RSS, CPU, VRAM, GTT of the card (amdgpu sysfs)
   missing.tsv*  --movement-missing lists
 """
+import atexit
 import glob
 import json
 import os
@@ -20,6 +21,7 @@ from pathlib import Path
 
 import driver
 import guard
+import label as runlabel
 import lock
 import nested
 import record
@@ -281,6 +283,14 @@ def launch(plan, opts, run_dir):
     base = guard.read_gpu(gpu) if gpu else None  # one reading: the caps and the room are judged on the same numbers
     caps = run_caps(opts, base)
     guard.preflight(caps, base)
+    # The run's label (docs/fork/RUN-LABELS.md): the monitor's process name, the scope's name, and a line in the run's files.
+    try:
+        run_label = runlabel.bench_label(plan.name, opts.get("game"), opts.get("preset"), asked=opts.get("label"))
+    except ValueError as e:
+        raise SystemExit(f"bench: {e}")
+    who = os.environ.get("GAMERUN_WHO") or os.environ.get("USER")
+    unit_n = os.getpid()
+    (run_dir / "label.txt").write_text(run_label + "\n")
     kernel_log_ok = guard.kernel_log_readable()
     (run_dir / "caps.json").write_text(json.dumps(caps.as_dict(), indent=1))
     log = run_dir / "viewer.log"
@@ -310,7 +320,8 @@ def launch(plan, opts, run_dir):
         sway = nested.find_sway()
         if not sway:
             raise SystemExit("no sway on PATH (nix shell nixpkgs#sway, or NV_BENCH_SWAY): needed by --nested")
-        comp = nested.Nested(sway, run_dir, opts["resolution"], opts["nested"], scope=guard.scope_prefix(caps.sway_bytes))
+        comp = nested.Nested(sway, run_dir, opts["resolution"], opts["nested"], scope=guard.scope_prefix(caps.sway_bytes, [f"--slice={runlabel.SLICE}", f"--unit=nvsway-{run_label}-{unit_n}.scope",
+                                                                             f"--description=nested compositor of game run {run_label}"]))
         if not comp.start():
             comp.stop()
             raise SystemExit(f"the nested compositor did not start: see {run_dir}/compositor.log")
@@ -334,17 +345,24 @@ def launch(plan, opts, run_dir):
         else:
             print("bench: --record needs --nested headless (nothing to record offscreen)", file=sys.stderr)
     try:
-        scope = guard.scope_prefix(caps.host_bytes)
+        scope = guard.scope_prefix(caps.host_bytes, runlabel.scope_args(run_label, unit_n, who, str(run_dir)))
     except guard.Refused:
         if comp:
             comp.stop()
         raise
-    cmd = scope + [opts["viewer"], opts["game"], "--movement-missing", str(missing)]
+    env["GAMERUN_LABEL"] = run_label
+    env["GAMERUN_WHO"] = who or ""
+    named = runlabel.NamedExe(opts["viewer"], run_label)
+    atexit.register(named.close)  # also when the run ends early through SystemExit
+    if named.how == "none":
+        print(f"bench: the viewer could not be started under the name {run_label}; the monitor shows its own name", file=sys.stderr)
+    cmd = scope + [named.path, opts["game"], "--movement-missing", str(missing)]
     started = time.time()
     desktop = guard.desktop_pids()
     with open(log, "w") as lf:
         lf.write(f"# nv-rs bench {plan.name} {time.strftime('%Y%m%dT%H%M%S')}\n")
         lf.write(f"# keys: {env.get('NV_MOVE_KEYS', '')}\n# mouse: {env.get('NV_MOVE_MOUSE', '')}\n")
+        lf.write(f"# label: {run_label} (process name via {named.how}; scope {runlabel.scope_unit(run_label, unit_n)} in {runlabel.SLICE}; started by {who})\n")
         lf.write(f"# mode: {opts['mode']}, window: {'on screen' if opts['windowed'] else 'offscreen'}, nested: {opts.get('nested') or 'no'}\n")
         lf.write(f"# memory caps: host {caps.host_bytes // guard.MIB} MiB, compositor {caps.sway_bytes // guard.MIB} MiB, VRAM {caps.vram_mib} MiB "
                  f"(engine budget {budget_mib} MiB), GTT {caps.gtt_mib} MiB; kept for the desktop {caps.vram_margin_mib} MiB VRAM, "
@@ -427,7 +445,10 @@ def launch(plan, opts, run_dir):
         vi.close()
     if comp:
         comp.stop()
+    named.close()
     return {
+        "label": run_label,
+        "scope": runlabel.scope_unit(run_label, unit_n),
         "scenario": plan.name,
         "ended_by": reason or "viewer exited",
         "other_viewers_max": others_max,
