@@ -30,6 +30,14 @@ A new upstream-owned file needs a record in this file, in the same pull request,
 
 The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
 
+### Far-object block with several shapes
+- Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`), `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsterrainnode.rs` (`later_block_shapes`, `bgs_terrain_node_update_block_visibility`)
+- Upstream approach: upstream does nothing here; the exe expects one shape per block file: the load task (`006f71e0`) keeps child 0 of the file's root node as the block's mesh, the block's prepare (`006f66e0`) gives only that mesh its shader and registers it with the renderer, and `BGSTerrainNode::UpdateBlockVisibility` (`006fee90`) sets the segments of only that mesh's segmented shape. A segmented shape loads with every segment off, so any later shape draws nothing
+- Fork approach: every leaf child of the root node is prepared, and has its segments set, the same way as the first
+- Decision: keep; the exe's rule gives a file with several shapes only its first shape
+- Reason: far-object files made by xLODGen and lodwright hold one shape per atlas texture (or more, split at the 16-bit limits); the later shapes were not drawn, so the Strip's towers, in the third shape of one block, were missing
+- Evidence: `prepare_reaches_every_shape_of_the_root_node`, `block_visibility_reaches_every_shape_of_the_block`; a modded profile with an xLODGen far-object mod draws the Strip's towers after the change and not before; the plain game's pictures at three views are unchanged (difference 0)
+
 ### Short names on Windows
 - Files: `crates/engine-platform/src/files.rs` (`search_finds_with_short_names`, the soft stops of `find_first_wild`; the fork's save tests in `tests_changed_directories`)
 - Upstream approach: since slaterain/nv-rs#712 and slaterain/nv-rs#718 a search off Windows matches long names only (`search_finds_long_names`, with Windows' `*.*` and trailing-dot rewrites) and the run's files have no short names there (`alternate_name`, `short_name_off_windows`), which is what the fork did off Windows: the fork's own arms were dropped for upstream's in the sync to 1b438957. On Windows upstream's matcher rules out a short name by its first letter only and stops on the rest

@@ -1339,6 +1339,43 @@ fn update_segments(
     e.call(SHAPE_MERGE_ENABLED_SEGMENTS, &args![shape]);
 }
 
+/// `NiNode` child count and child at an index.
+const NODE_CHILD_COUNT: u32 = 0x0045_3470;
+const NODE_CHILD_AT: u32 = 0x0045_bc00;
+
+/// The segmented shapes of a far-object block after its first one: the other leaf children of the block's
+/// node (`spNode`, +8) that answer a segmented shape (slot +0x28). The exe updates the segments of the block's
+/// mesh only (`spMesh`, the first child); a block file made by xLODGen or lodwright has one shape per atlas
+/// texture, and a segmented shape whose segments are never updated stays as loaded, every segment off, so it
+/// draws nothing. Every shape gets the same update here (an allowed divergence, see
+/// `.fork/allowed-divergence.d/distant-block-all-shapes`).
+fn later_block_shapes(e: &mut Engine, block: Ptr, first: u32) -> Vec<Ptr> {
+    let mut out = vec![];
+    if block.is_null() {
+        return out;
+    }
+    let node = typed_call!(
+        leaf::FAMILY,
+        0x0055_9450,
+        leaf::word_at_0(e, block.addr() + 8)
+    );
+    if node == 0 || node == first {
+        return out;
+    }
+    let count = e.call(NODE_CHILD_COUNT, &args![node]).u32();
+    for index in 0..count {
+        let child = e.call(NODE_CHILD_AT, &args![node, index]).u32();
+        if child == 0 || child == first || e.vcall(child, 0xc, &args![]).u32() != 0 {
+            continue;
+        }
+        let shape: Ptr = e.vcall(child, 0x28, &args![]).ptr();
+        if !shape.is_null() && !out.contains(&shape) {
+            out.push(shape);
+        }
+    }
+    out
+}
+
 // Translated from 006fee90 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `BGSTerrainNode::UpdateBlockVisibility` (Xbox PDB): when the node's
 /// block has an object (`fn_006fe280(block, false)`), hides the segments of
@@ -1364,6 +1401,14 @@ pub fn bgs_terrain_node_update_block_visibility(
             }
         } else if !shape.is_null() {
             e.call(SHAPE_ENABLE_ALL_SEGMENTS, &args![shape]);
+        }
+        let block = e.get(this, BGSTerrainNode::pBlock);
+        for shape in later_block_shapes(e, block, object) {
+            if bgs_terrain_node_check_intersects_loaded_range(e, this) {
+                update_segments(e, this, shape, world, true);
+            } else {
+                e.call(SHAPE_ENABLE_ALL_SEGMENTS, &args![shape]);
+            }
         }
     }
     let block = e.get(this, BGSTerrainNode::pBlock);
@@ -2656,6 +2701,79 @@ mod tests {
         assert_eq!(
             w.calls(BLOCK_CALL_006F5A70),
             vec![vec![block.addr(), 0x6666]]
+        );
+    }
+
+    #[test]
+    fn block_visibility_reaches_every_shape_of_the_block() {
+        let mut w = world();
+        let this = w.node(2, 0, 0);
+        let first_shape = shape(&mut w, &[0, 7, 7]);
+        let second_shape = shape(&mut w, &[0, 7, 7]);
+        let third_shape = shape(&mut w, &[0, 7, 7]);
+        // Leaves answer 0 at slot +0xC and their segmented shape (the word at +4) at +0x28; a nested node
+        // answers itself at +0xC.
+        const LEAF_C: u32 = 0x0400_000c;
+        const NODE_C: u32 = 0x0400_100c;
+        const SHAPE_28: u32 = 0x0400_0028;
+        w.e.register(LEAF_C, |_, _| ret(0));
+        w.e.register(NODE_C, |_, a| ret(a[0]));
+        w.e.register(SHAPE_28, |e, a| ret(e.mem.u32(a[0] + 4)));
+        let leaf = |w: &mut World, shape: Ptr, slot_c: u32| -> u32 {
+            let object = w.object(0x10).addr();
+            let vtable = w.e.mem.alloc(0x100);
+            w.e.mem.set_u32(vtable + 0xc, slot_c);
+            w.e.mem.set_u32(vtable + 0x28, SHAPE_28);
+            w.e.mem.set_u32(object, vtable);
+            w.e.mem.set_u32(object + 4, shape.addr());
+            object
+        };
+        let first = leaf(&mut w, first_shape, LEAF_C);
+        let nested = leaf(&mut w, Ptr::new(0), NODE_C);
+        let second = leaf(&mut w, second_shape, LEAF_C);
+        let plain = leaf(&mut w, Ptr::new(0), LEAF_C);
+        let third = leaf(&mut w, third_shape, LEAF_C);
+        let children = [first, nested, 0, second, plain, third];
+        let node = w.object(0x40).addr();
+        w.e.mem.set_u32(node + 8, children.len() as u32);
+        for (i, child) in (0u32..).zip(children) {
+            w.e.mem.set_u32(node + 0xc + 4 * i, child);
+        }
+        w.e.register(NODE_CHILD_COUNT, |e, a| ret(e.mem.u32(a[0] + 8)));
+        w.e.register(NODE_CHILD_AT, |e, a| ret(e.mem.u32(a[0] + 0xc + 4 * a[1])));
+        let block = w.object(0x2c);
+        w.e.mem.set_u32(block.addr() + 4, first);
+        w.e.mem.set_u32(block.addr() + 8, node);
+        w.e.set(this, BGSTerrainNode::pBlock, block);
+        w.e.register(BLOCK_OBJECTS, |_, _| ret(0));
+        w.current_cell(0, 0);
+        w.e.call(0x006f_ee90, &args![this, 0u32]);
+        for shape in [first_shape, second_shape, third_shape] {
+            assert_eq!(
+                segments(&w, shape),
+                (vec![0, 1], vec![2]),
+                "every shape's segments are updated"
+            );
+        }
+        assert_eq!(
+            w.calls(SHAPE_MERGE_ENABLED_SEGMENTS),
+            vec![
+                vec![first_shape.addr()],
+                vec![second_shape.addr()],
+                vec![third_shape.addr()]
+            ]
+        );
+
+        // Outside the loaded range every shape is enabled whole.
+        w.current_cell(100, 100);
+        w.e.call(0x006f_ee90, &args![this, 0u32]);
+        assert_eq!(
+            w.calls(SHAPE_ENABLE_ALL_SEGMENTS),
+            vec![
+                vec![first_shape.addr()],
+                vec![second_shape.addr()],
+                vec![third_shape.addr()]
+            ]
         );
     }
 

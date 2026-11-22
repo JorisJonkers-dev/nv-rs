@@ -766,7 +766,9 @@ pub fn fn_006f66e0(e: &mut Engine, this: Ptr) {
     let do_mesh = needs_prepare(e, base, BLOCK_MESH, BLOCK_OLD_MESH);
     let do_stinger = needs_prepare(e, base, BLOCK_STINGER, BLOCK_OLD_STINGER);
     if do_mesh && mesh(e, base) != 0 {
-        prepare_mesh(e, base);
+        for target in prepared_meshes(e, base) {
+            prepare_mesh(e, base, target);
+        }
     }
     if do_stinger && pointer(e, base + BLOCK_STINGER) != 0 {
         let stinger = pointer(e, base + BLOCK_STINGER);
@@ -777,10 +779,41 @@ pub fn fn_006f66e0(e: &mut Engine, this: Ptr) {
     }
 }
 
-/// The mesh part of [`fn_006f66e0`].
-fn prepare_mesh(e: &mut Engine, base: u32) {
+/// The meshes the prepare reaches: the block's mesh (the first child of the file's root node) and, when the
+/// file's root node has more children, those too. The exe expects one shape: the load task (`006f71e0`) keeps
+/// child 0 of the root node as the block's mesh and this prepare reaches only that mesh; it neither walks the
+/// other children nor merges them. A far-object file made by xLODGen or lodwright holds one shape per atlas
+/// texture (or more, split at the 16-bit limits), and the later shapes were then never given their shader and
+/// were not drawn (an allowed divergence, see `.fork/allowed-divergence.d/distant-block-all-shapes`). A later
+/// child is prepared only when it is a leaf (slot +0xC answers zero) that has a shader property, the two things
+/// the prepare relies on.
+fn prepared_meshes(e: &mut Engine, base: u32) -> Vec<u32> {
+    let first = mesh(e, base);
+    let mut out = vec![first];
+    let node = pointer(e, base + BLOCK_SCENE_NODE);
+    if node != 0 && node != first {
+        let count = e.call(CHILD_COUNT_00453470, &args![node]).u32();
+        for index in 0..count {
+            let child = e.call(NODE_FIND_MESH, &args![node, index]).u32();
+            if child == 0 || out.contains(&child) {
+                continue;
+            }
+            if e.vcall(child, OBJECT_SLOT_C, &args![]).u32() != 0 {
+                continue;
+            }
+            let shader_type = e.call(SHADER_PROPERTY_TYPE, &args![]).u32();
+            if e.call(GET_PROPERTY, &args![child, shader_type]).u32() == 0 {
+                continue;
+            }
+            out.push(child);
+        }
+    }
+    out
+}
+
+/// The mesh part of [`fn_006f66e0`], for one mesh.
+fn prepare_mesh(e: &mut Engine, base: u32, target: u32) {
     let kind = e.call(PROPERTY_TYPE_40DF90, &args![]).u32();
-    let target = mesh(e, base);
     e.call(REMOVE_PROPERTY, &args![target, kind]);
     let block = e.call(NI_ALLOCATE, &args![0x1cu32]).u32();
     let property = if block != 0 {
@@ -792,15 +825,12 @@ fn prepare_mesh(e: &mut Engine, base: u32) {
     e.call(PROPERTY_SET_49ED90, &args![property, 0u32]);
     e.call(PROPERTY_SET_94DB80, &args![property, 0x80u32]);
     e.call(PROPERTY_SET_4393E0, &args![property, 4u32]);
-    let target = mesh(e, base);
     e.call(ATTACH_PROPERTY, &args![target, property]);
     let shader_type = e.call(SHADER_PROPERTY_TYPE, &args![]).u32();
-    let target = mesh(e, base);
     let mut shader_property = e.call(GET_PROPERTY, &args![target, shader_type]).u32();
     e.call(SHADER_SET_FLAG, &args![shader_property, 0x22u32, 1u32]);
     e.call(SHADER_SET_FLAG, &args![shader_property, 0x21u32, 0u32]);
     e.call(SHADER_SET_FLAG, &args![shader_property, 0u32, 0u32]);
-    let target = mesh(e, base);
     let clone = e
         .vcall(
             shader_property,
@@ -809,24 +839,19 @@ fn prepare_mesh(e: &mut Engine, base: u32) {
         )
         .u32();
     if clone != 0 {
-        let target = mesh(e, base);
         e.call(REMOVE_PROPERTY, &args![target, 3u32]);
         shader_property = clone;
-        let target = mesh(e, base);
         e.call(ATTACH_PROPERTY, &args![target, shader_property]);
     }
     let shader_id = e.call(SHADER_ID, &args![shader_property]).u32();
     let shader = e.call(GET_SHADER, &args![shader_id]).u32();
-    let target = mesh(e, base);
     e.call(SET_SHADER, &args![target, shader]);
     e.with_stack(0xc, |e, data| {
         e.call(
             UPDATE_DATA_CONSTRUCT,
             &args![data, 0.0f32.to_bits(), 0u32, 0u32],
         );
-        let target = mesh(e, base);
         e.call(UPDATE_PROPERTIES, &args![target]);
-        let target = mesh(e, base);
         e.call(UPDATE_DOWNWARD, &args![target, data]);
     });
     let terrain = e.mem.u32(base + BLOCK_NODE);
@@ -836,18 +861,14 @@ fn prepare_mesh(e: &mut Engine, base: u32) {
         (DATA_SET_CONSISTENCY, 0x4000),
         (DATA_SET_4410F0, 1),
     ] {
-        let target = mesh(e, base);
         let data = e.call(MESH_DATA, &args![target]).u32();
         e.call(setter, &args![data, value]);
     }
-    let target = mesh(e, base);
     let owner = e.call(MESH_OWNER_4030B0, &args![target]).u32();
     let renderer = e.call(RENDERER, &args![]).u32();
-    let target = mesh(e, base);
     let value = e
         .vcall(owner, OWNER_SLOT_118, &args![target, shader_property])
         .u32();
-    let target = mesh(e, base);
     e.vcall(
         renderer,
         RENDERER_SLOT_EC,
@@ -2297,6 +2318,85 @@ mod tests {
         assert_eq!(calls(&e, MESHES_DIFFER).len(), 2);
         assert!(calls(&e, REMOVE_PROPERTY).is_empty());
         assert!(calls(&e, PREPARE_STINGER).is_empty());
+    }
+
+    #[test]
+    fn prepare_reaches_every_shape_of_the_root_node() {
+        let mut e = engine();
+        let block = e.mem.alloc(0x80);
+        e.mem.set_u32(block + BLOCK_NODE, 0x4300);
+        e.register(CHILD_COUNT_00453470, |e, a| ret(e.mem.u32(a[0] + 8)));
+        e.register(NODE_FIND_MESH, |e, a| ret(e.mem.u32(a[0] + 0xc + 4 * a[1])));
+        const LEAF_SLOT_DOUBLE: u32 = 0xdead_4090;
+        e.register(LEAF_SLOT_DOUBLE, |_, _| ret(0));
+        e.register(OBJECT_SLOT_DOUBLE, |_, _| ret(1));
+        let first = object(&mut e, 8, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        let nested = object(&mut e, 8, &[(OBJECT_SLOT_C, OBJECT_SLOT_DOUBLE)]);
+        let second = object(&mut e, 8, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        let bare = object(&mut e, 8, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        let third = object(&mut e, 8, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        let children = [first, nested, 0, second, bare, third];
+        let node = e.mem.alloc(0x40);
+        e.mem.set_u32(node + 8, children.len() as u32);
+        for (i, child) in (0u32..).zip(children) {
+            e.mem.set_u32(node + 0xc + 4 * i, child);
+        }
+        e.mem.set_u32(block + BLOCK_SCENE_NODE, node);
+        e.mem.set_u32(block + BLOCK_MESH, first);
+        let shader_property = object(&mut e, 8, &[(SHADER_SLOT_CLONE, CLONE_SLOT_DOUBLE)]);
+        let owner = object(&mut e, 8, &[(OWNER_SLOT_118, OWNER_SLOT_DOUBLE)]);
+        let renderer = object(&mut e, 8, &[(RENDERER_SLOT_EC, RENDERER_SLOT_DOUBLE)]);
+        e.register(PROPERTY_TYPE_40DF90, |_, _| ret(9));
+        e.register(NI_ALLOCATE, |_, _| ret(0x6600));
+        e.register(PROPERTY_CONSTRUCT, |_, a| ret(a[0]));
+        e.register(SHADER_PROPERTY_TYPE, |_, _| ret(3));
+        e.register_double(GET_PROPERTY, move |_, a| {
+            ret(if a[0] == bare { 0 } else { shader_property })
+        });
+        e.register(CLONE_SLOT_DOUBLE, |_, _| ret(0));
+        e.register(SHADER_ID, |_, _| ret(0x11));
+        e.register(GET_SHADER, |_, a| ret(a[0] + 0x100));
+        e.register(MESH_DATA, |_, _| ret(0x6800));
+        e.register_double(MESH_OWNER_4030B0, move |_, _| ret(owner));
+        e.register_double(RENDERER, move |_, _| ret(renderer));
+        e.register(OWNER_SLOT_DOUBLE, |_, _| ret(0x55));
+        quiet(
+            &mut e,
+            &[
+                REMOVE_PROPERTY,
+                PROPERTY_SET_4393C0,
+                PROPERTY_SET_49ED90,
+                PROPERTY_SET_94DB80,
+                PROPERTY_SET_4393E0,
+                ATTACH_PROPERTY,
+                SHADER_SET_FLAG,
+                SET_SHADER,
+                UPDATE_DATA_CONSTRUCT,
+                UPDATE_PROPERTIES,
+                UPDATE_DOWNWARD,
+                UPDATE_BLOCK_VISIBILITY,
+                DATA_SET_4410D0,
+                DATA_SET_CONSISTENCY,
+                DATA_SET_4410F0,
+                RENDERER_SLOT_DOUBLE,
+                RENDERER_E74120,
+                MESHES_DIFFER,
+            ],
+        );
+        e.call_log = Some(vec![]);
+        e.call(0x006f_66e0, &args![block]);
+        assert_eq!(
+            calls(&e, SET_SHADER),
+            vec![
+                vec![first, 0x111],
+                vec![second, 0x111],
+                vec![third, 0x111]
+            ],
+            "every shape of the file gets its shader, not only the first; a nested node, an empty slot and a \
+             shape with no shader property are left alone"
+        );
+        assert_eq!(calls(&e, RENDERER_SLOT_DOUBLE).len(), 3);
+        assert_eq!(e.mem.u8(block + BLOCK_PREPARED), 1);
     }
 
     #[test]
