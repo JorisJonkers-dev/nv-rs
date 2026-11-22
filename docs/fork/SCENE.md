@@ -284,7 +284,13 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
   queues a task only above 1). The soak ends at that place: `place lake-mead-setpos was not reached within N s (screen
   Play, player at -72152 643 8291, wanted 53811 38382 3215)`. With `NV_SCENE_TRACE=1` the player is at Goodsprings'
   place (-70200 2560) until the move, then 2,000 units away from it, never near the target: a far `setpos` does not
-  take the player to the new cells, which is what #474 reports (the land of the target never loads). So the soak
+  take the player to the new cells, which is what #474 reports (the land of the target never loads). Measured with
+  the per-call debug line (`scene: setpos AXIS ...`, `NV_LOG_TERM=scene=debug`): after each of the three calls the player's
+  position is exactly the target's coordinate in turn (53811, then 38382, then 3215) and its parent cell is still the
+  start cell; the first traced frame after the third call shows the player at -72152 643 8291, about 2,000 units from the
+  start in x and y, and it then falls to 8268 and stays. So the position is taken back within one frame, before any
+  cell is asked for: something that holds the old position (the character controller, `005c0860` decides whether
+  `SetPosBase` moves it) overwrites the reference's. Not traced further. So the soak
   fails while the defect is there and is the test for its fix. The task queue path (setting above 1) is not
   exercised.
 

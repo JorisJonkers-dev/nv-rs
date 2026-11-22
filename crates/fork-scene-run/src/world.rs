@@ -241,6 +241,7 @@ impl World for EngineWorld<'_> {
             // cell is asked for (nv-rs#474: the land may then not load).
             for (axis, v) in [(b'X', pos[0]), (b'Y', pos[1]), (b'Z', pos[2])] {
                 e.call(SET_POS_BASE, &args![player, u32::from(axis), v as f32]);
+                fork_log::debug!(target: "scene", "scene: setpos {} {v:.1}: the player's position is now {:.1} {:.1} {:.1}, parent cell {:#x}", axis as char, e.mem.f32(player + POSITION), e.mem.f32(player + POSITION + 4), e.mem.f32(player + POSITION + 8), e.mem.u32(player + PARENT_CELL));
             }
             e.call(
                 SET_ANGLE_BASE,
