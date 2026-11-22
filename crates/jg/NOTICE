@@ -43,3 +43,10 @@ its corrections of JIP's co-save is in crates/jip (see crates/jip/NOTICE).
 Unverified: the plugin name handed to xNVSE (JohnnyGuitarNVSE) and the version number
 (525): neither is stated in a public document read so far. They are inert while
 ANSWERS_INSTALLED is false.
+
+Commands built from 2026-11-22 (nv-rs, for the commands the owner's modded profile calls): one file per
+group in `provenance/`, each naming the command pages it was written from, with the page's
+last-edited date and what the page leaves open. Same rule as above: from the plugin's public
+names, parameter lists and the GECK Wiki's behaviour pages (read in the owner's saved copies of
+2026-11-21); no plugin code, no code or example text copied. The wiki pages state no licence of
+their own: the crate takes facts only (names, parameters, described results).
