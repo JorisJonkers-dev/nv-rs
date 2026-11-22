@@ -34,13 +34,17 @@ const SENDER: u32 = 0x34;
 pub const G_LAST: u32 = 0x40;
 pub const G_COUNT: u32 = 0x44;
 pub const G_PID: u32 = 0x48;
+pub const G_EXTRA: u32 = 0x4c;
 const CMD: u32 = 0x50;
 const EXPORTS: u32 = 0x80;
 const IMPORTS: u32 = 0x100;
 const ILT: u32 = 0x130;
 const IAT: u32 = 0x140;
+const ILT2: u32 = 0x138;
+const IAT2: u32 = 0x148;
 const HINT: u32 = 0x150;
 const DLL_NAME: u32 = 0x1c0;
+const DLL_NAME2: u32 = 0x1e0;
 const RELOCS: u32 = 0x200;
 const CODE: u32 = 0x300;
 
@@ -65,6 +69,11 @@ fn abs(off: u32) -> u32 {
 /// Assembles the DLL. `extra_import` adds a second import the host does not provide (to test the
 /// report); `query_ok` false makes the query answer no; `spin` makes the command loop forever.
 pub fn build(extra_import: Option<&str>, spin: bool) -> Vec<u8> {
+    build_from(extra_import.map(|n| ("KERNEL32.dll", n)), spin)
+}
+
+/// [`build`] with the second import from a DLL of its own; its answer is stored in `G_EXTRA`.
+pub fn build_from(extra_import: Option<(&str, &str)>, spin: bool) -> Vec<u8> {
     let mut s = vec![0u8; 0x800];
     let mut relocs: Vec<u32> = Vec::new();
     put_str(&mut s, NAME, "TestPlugin");
@@ -124,9 +133,12 @@ pub fn build(extra_import: Option<&str>, spin: bool) -> Vec<u8> {
     relocs.push(CODE + c.len() as u32);
     c.extend(abs(G_PID).to_le_bytes());
     if extra_import.is_some() {
-        c.extend([0xff, 0x15]); // call [IAT+4]: the import the host does not provide
+        c.extend([0xff, 0x15]); // call [IAT2]: the import the host does not provide
         relocs.push(CODE + c.len() as u32);
-        c.extend(abs(IAT + 4).to_le_bytes());
+        c.extend(abs(IAT2).to_le_bytes());
+        c.push(0xa3); // mov [G_EXTRA],eax
+        relocs.push(CODE + c.len() as u32);
+        c.extend(abs(G_EXTRA).to_le_bytes());
     }
     c.extend([0xb8, 1, 0, 0, 0, 0x5f, 0x5e, 0x5b, 0xc3]); // mov eax,1; pop edi; pop esi; pop ebx; ret
     assert!(CODE + (c.len() as u32) <= execute_at);
@@ -186,10 +198,14 @@ pub fn build(extra_import: Option<&str>, spin: bool) -> Vec<u8> {
     put_str(&mut s, HINT + 2, "GetCurrentProcessId");
     put32(&mut s, ILT, SECTION_RVA + HINT);
     put32(&mut s, IAT, SECTION_RVA + HINT);
-    if let Some(name) = extra_import {
+    if let Some((dll, name)) = extra_import {
+        put_str(&mut s, DLL_NAME2, dll);
         put_str(&mut s, HINT + 0x1a + 2, name);
-        put32(&mut s, ILT + 4, SECTION_RVA + HINT + 0x1a);
-        put32(&mut s, IAT + 4, SECTION_RVA + HINT + 0x1a);
+        put32(&mut s, ILT2, SECTION_RVA + HINT + 0x1a);
+        put32(&mut s, IAT2, SECTION_RVA + HINT + 0x1a);
+        put32(&mut s, IMPORTS + 20, SECTION_RVA + ILT2);
+        put32(&mut s, IMPORTS + 20 + 12, SECTION_RVA + DLL_NAME2);
+        put32(&mut s, IMPORTS + 20 + 16, SECTION_RVA + IAT2);
     }
 
     // Relocations: one block for the page.
@@ -234,9 +250,96 @@ pub fn build(extra_import: Option<&str>, spin: bool) -> Vec<u8> {
     put32(&mut f, dd, SECTION_RVA + EXPORTS);
     put32(&mut f, dd + 4, 0x60);
     put32(&mut f, dd + 8, SECTION_RVA + IMPORTS);
-    put32(&mut f, dd + 12, 40);
+    put32(&mut f, dd + 12, 60);
     put32(&mut f, dd + 40, SECTION_RVA + RELOCS);
     put32(&mut f, dd + 44, reloc_size);
+    let sh = o + 0xe0;
+    put_str(&mut f, sh, ".text");
+    put32(&mut f, sh + 8, s.len() as u32);
+    put32(&mut f, sh + 12, SECTION_RVA);
+    put32(&mut f, sh + 16, raw_size);
+    put32(&mut f, sh + 20, 0x200);
+    put32(&mut f, sh + 36, 0xe000_0060);
+    f[0x200..0x200 + s.len()].copy_from_slice(&s);
+    f
+}
+
+/// A made-up runtime DLL (what a test supplies for `msvcp140.dll`): one section, exports that are
+/// each a few bytes of code, a dummy relocation, and an entry point that counts its calls in the
+/// word at the section's offset 0x10 (`DllMain` answers true).
+pub fn build_runtime(exports: &[(&str, &[u8])]) -> Vec<u8> {
+    let base = 0x2000_0000u32;
+    let mut s = vec![0u8; 0x600];
+    let code0 = 0x300u32;
+    let mut at = code0;
+    let mut addr = Vec::new();
+    // entry: inc dword [base+rva+0x10]; mov eax,1; ret 12
+    let entry = at;
+    s[at as usize..at as usize + 6].copy_from_slice(&[0xff, 0x05, 0, 0, 0, 0]);
+    put32(&mut s, at + 2, base + SECTION_RVA + 0x10);
+    s[at as usize + 6..at as usize + 14].copy_from_slice(&[0xb8, 1, 0, 0, 0, 0xc2, 12, 0]);
+    at += 16;
+    for (_, code) in exports {
+        s[at as usize..at as usize + code.len()].copy_from_slice(code);
+        addr.push(at);
+        at += (code.len() as u32 + 15) & !15;
+    }
+    // Export table: names sorted, in the order given (the caller sorts).
+    let ex = 0x40u32;
+    let n = exports.len() as u32;
+    let funcs = ex + 0x28;
+    let names = funcs + 4 * n;
+    let ords = names + 4 * n;
+    let strs = ords + 2 * n;
+    put32(&mut s, ex + 16, 1);
+    put32(&mut s, ex + 20, n);
+    put32(&mut s, ex + 24, n);
+    put32(&mut s, ex + 28, SECTION_RVA + funcs);
+    put32(&mut s, ex + 32, SECTION_RVA + names);
+    put32(&mut s, ex + 36, SECTION_RVA + ords);
+    let mut sp = strs;
+    for (i, (name, _)) in exports.iter().enumerate() {
+        put32(&mut s, funcs + 4 * i as u32, SECTION_RVA + addr[i]);
+        put32(&mut s, names + 4 * i as u32, SECTION_RVA + sp);
+        put16(&mut s, ords + 2 * i as u32, i as u16);
+        put_str(&mut s, sp, name);
+        sp += name.len() as u32 + 1;
+    }
+    assert!(sp < 0x200);
+    // Relocations: the entry's own absolute address, and one for the page.
+    let relocs = 0x220u32;
+    put32(&mut s, relocs, SECTION_RVA);
+    put32(&mut s, relocs + 4, 12);
+    put16(
+        &mut s,
+        relocs + 8,
+        0x3000 | ((entry + 2 + SECTION_RVA) & 0xfff) as u16,
+    );
+    put16(&mut s, relocs + 10, 0);
+    let raw_size = 0x600u32;
+    let mut f = vec![0u8; 0x200 + raw_size as usize];
+    f[0] = b'M';
+    f[1] = b'Z';
+    put32(&mut f, 0x3c, 0x40);
+    f[0x40..0x44].copy_from_slice(b"PE\0\0");
+    put16(&mut f, 0x44, 0x14c);
+    put16(&mut f, 0x46, 1);
+    put16(&mut f, 0x54, 0xe0);
+    put16(&mut f, 0x56, 0x2102);
+    let o = 0x58;
+    put16(&mut f, o, 0x10b);
+    put32(&mut f, o + 16, SECTION_RVA + entry);
+    put32(&mut f, o + 28, base);
+    put32(&mut f, o + 32, 0x1000);
+    put32(&mut f, o + 36, 0x200);
+    put32(&mut f, o + 56, SECTION_RVA + 0x1000);
+    put32(&mut f, o + 60, 0x200);
+    put32(&mut f, o + 92, 16);
+    let dd = o + 96;
+    put32(&mut f, dd, SECTION_RVA + ex);
+    put32(&mut f, dd + 4, 0x100);
+    put32(&mut f, dd + 40, SECTION_RVA + relocs);
+    put32(&mut f, dd + 44, 12);
     let sh = o + 0xe0;
     put_str(&mut f, sh, ".text");
     put32(&mut f, sh + 8, s.len() as u32);

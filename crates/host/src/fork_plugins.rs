@@ -7,6 +7,10 @@
 use engine_core::prelude::*;
 
 pub const ENV: &str = "NV_PLUGIN_DLLS";
+/// A folder of the user's own copies of the Microsoft C++ runtime DLLs the plugins import
+/// (`msvcp140.dll`): each `.dll` in it is mapped before the plugins, like any other DLL.
+/// Nothing of Microsoft's is shipped with the engine.
+pub const RUNTIME_ENV: &str = "NV_PLUGIN_RUNTIME";
 const FOLDER: &[u8] = b"Data\\NVSE\\Plugins";
 
 /// DLLs whose plugin the engine has built in: not loaded (the built-in answers), by file name
@@ -28,6 +32,42 @@ pub fn built_in(file: &str) -> bool {
 /// Switches the loader on when the variable says so and loads the folder's DLLs. Returns the lines
 /// for the log.
 pub fn load_all(e: &mut Engine, var: Option<&str>) -> Vec<String> {
+    load_with(e, var, std::env::var(RUNTIME_ENV).ok().as_deref())
+}
+
+/// The runtime DLLs of `dir`, mapped: one line for each.
+pub fn load_runtime(e: &mut Engine, dir: &str) -> Vec<String> {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return vec![format!("plugin DLLs: runtime folder {dir} cannot be read")];
+    };
+    let mut files: Vec<_> = read
+        .flatten()
+        .filter(|f| {
+            f.file_name()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .ends_with(".dll")
+        })
+        .collect();
+    files.sort_by_key(|f| f.file_name().to_ascii_lowercase());
+    let mut lines = Vec::new();
+    for f in files {
+        let name = f.file_name().to_string_lossy().into_owned();
+        match std::fs::read(f.path()) {
+            Ok(bytes) => match plugin_host::supply_runtime(e, &name, &bytes) {
+                Ok(()) => lines.push(format!("plugin DLLs: runtime {name}: mapped")),
+                Err(err) => lines.push(format!("plugin DLLs: runtime {name}: not mapped: {err:?}")),
+            },
+            Err(err) => lines.push(format!(
+                "plugin DLLs: runtime {name}: cannot be read: {err}"
+            )),
+        }
+    }
+    lines
+}
+
+/// [`load_all`] with the runtime folder given.
+pub fn load_with(e: &mut Engine, var: Option<&str>, runtime: Option<&str>) -> Vec<String> {
     if !plugin_host::wanted(var) {
         return Vec::new();
     }
@@ -43,6 +83,9 @@ pub fn load_all(e: &mut Engine, var: Option<&str>) -> Vec<String> {
         "plugin DLLs: on ({ENV}), {} in Data\\NVSE\\Plugins",
         files.len()
     )];
+    if let Some(dir) = runtime.filter(|d| !d.is_empty()) {
+        lines.extend(load_runtime(e, dir));
+    }
     for file in files {
         if built_in(&file) {
             lines.push(format!(
@@ -97,6 +140,26 @@ mod tests {
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].contains("0 in Data"), "{lines:?}");
         assert!(plugin_host::plugins_loaded(&mut e).is_empty());
+    }
+
+    #[test]
+    fn a_runtime_folder_is_mapped_before_the_plugins() {
+        let dir = std::env::temp_dir().join(format!("nv-plugin-rt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("notes.txt"), b"not a dll").unwrap();
+        std::fs::write(dir.join("broken.dll"), b"not a dll").unwrap();
+        let mut e = Engine::new();
+        let lines = load_with(&mut e, Some("1"), Some(dir.to_str().unwrap()));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("runtime broken.dll: not mapped")),
+            "{lines:?}"
+        );
+        assert!(!lines.iter().any(|l| l.contains("notes.txt")), "{lines:?}");
+        let gone = load_runtime(&mut e, dir.join("nowhere").to_str().unwrap());
+        assert!(gone[0].contains("cannot be read"), "{gone:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
