@@ -6,6 +6,10 @@
 //!   integer: 1 when bit `n` of the actor base's flags word (`TESActorBaseData::iActorBaseFlags`,
 //!   the `+0x34` of a `TESActorBase`) is set, 0 otherwise. A condition can use it.
 //!
+//! - The commands built since for the mods of a large modded profile, group by group, each in its
+//!   own file with a provenance note in `provenance/`: [`crate::lists`] (`ListAddList`,
+//!   `ListAddArray`).
+//!
 //! No other ShowOff command is built; a script that calls one fails at that line, as without the
 //! plugin.
 
@@ -14,8 +18,41 @@ use nvse::commands::{dynamic_cast, rtti, Read};
 use nvse::table::{self, Param, PluginRecord, Returns};
 use nvse::{handled, CommandArgs, EvalArgs};
 
-/// The command names the capabilities file lists, long names.
-pub const COMMAND_NAMES: [&str; 1] = ["GetActorHasBaseFlag"];
+/// The command names the capabilities file lists, long names: the first is built here, the rest
+/// are the groups' tables in the order of [`all`].
+pub const COMMAND_NAMES: [&str; 3] = ["GetActorHasBaseFlag", "ListAddList", "ListAddArray"];
+
+/// One command as the plugin registers it, for the groups' tables (the first command above is
+/// registered by hand).
+pub struct Cmd {
+    pub opcode: u32,
+    pub name: &'static str,
+    pub short: &'static str,
+    pub params: &'static [Param],
+    pub execute: AbiFn,
+    /// Asks xNVSE's expression parser (`kNVSEParams_*` parameter lists).
+    pub expression: bool,
+    /// What the command answers.
+    pub returns: Returns,
+}
+
+/// Every command of the groups' tables, in the order of the groups' files.
+pub fn all() -> impl Iterator<Item = &'static Cmd> {
+    crate::lists::COMMANDS.iter()
+}
+
+/// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).
+fn guest_params(e: &mut Engine, params: &[Param]) -> u32 {
+    let at = table::alloc(e, 12 * params.len() as u32);
+    for (i, param) in params.iter().enumerate() {
+        let name = table::guest_str(e, param.name.as_bytes());
+        let slot = at + 12 * i as u32;
+        e.mem.set_u32(slot, name);
+        e.mem.set_u32(slot + 4, param.kind);
+        e.mem.set_u32(slot + 8, u32::from(param.optional));
+    }
+    at
+}
 
 /// `ActorHasBaseFlag`'s opcode: the one TTW's compiled scripts call (`0x3CE0`, which is
 /// `identity::OPCODE_BASE` plus `0x4D`).
@@ -66,7 +103,8 @@ fn actor_has_base_flag_eval(e: &mut Engine, w: &[u32]) -> Ret {
 /// Registers the built commands at their opcodes and returns nothing else: the table grown to
 /// reach them, each record with its names, parameter, execute and eval.
 pub fn install(e: &mut Engine) {
-    table::grow_to(e, ACTOR_HAS_BASE_FLAG + 1);
+    let last = all().map(|c| c.opcode).fold(ACTOR_HAS_BASE_FLAG, u32::max);
+    table::grow_to(e, last + 1);
     let param = Param {
         name: "int",
         kind: INT,
@@ -97,6 +135,23 @@ pub fn install(e: &mut Engine) {
             returns: Returns::Default,
         },
     );
+    for c in all() {
+        let execute = table::execute_address(c.opcode);
+        e.register(execute, c.execute);
+        let record = PluginRecord {
+            name: c.name,
+            short: c.short,
+            needs_ref: false,
+            param_count: c.params.len() as u16,
+            params: guest_params(e, c.params),
+            execute,
+            eval: 0,
+            flags: 0,
+            expression: c.expression,
+            returns: c.returns,
+        };
+        table::add_plugin_record(e, c.opcode, &record);
+    }
 }
 
 #[cfg(test)]

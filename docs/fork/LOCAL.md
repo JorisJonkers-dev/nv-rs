@@ -8,14 +8,14 @@ Vulkan) without waiting for a CI Release Build. CI stays the merge gate: this lo
 | Command | What it does |
 | --- | --- |
 | `nv-rs-dev build [--opt] [--clean]` | `cargo build --profile play -p nv-viewer --bin nv-viewer` only; never the whole workspace. `--opt`: profile `play-opt` (every crate at opt-level 3, no incremental; about 4 minutes warm here) for measuring; `nv-rs-dev bench` runs that binary by default (`NV_DEV_PROFILE=play` for the quick one). Release artifacts (`--release` in the release and package workflows) were already optimised, with engine-core as one code unit. `--clean`: a cold build in a fresh `<target>-cold` dir with no compiler cache, timed (the shared dir is never emptied under another worker); every build appends its time to `~/.local/state/nv-rs/build-times.tsv` |
-| `nv-rs-dev matrix [spec.toml] [flags]` | Builds, tests and benchmarks many refs, configurations and hosts, and writes one comparison report: [Matrix runs](#matrix-runs) |
+| `nv-rs-dev matrix [--ref R]... [--baseline R] [--suite S] [flags]` | Builds, tests and benchmarks many refs and writes one comparison report (the Rust tool's `nv-rs-scene matrix`): [Matrix runs](#matrix-runs) |
 | `nv-rs-dev compare <baseline> <candidate>` | A two-ref matrix |
 | `nv-rs-dev clean [--all]` | Removes this loop's own caches, sizes first: [Clean](#clean) |
 | `nv-rs-dev run [args]` | Runs that binary on the Steam game folder as a local wrapper does (`NV_D3D9=wgpu`, Nix-store `LD_LIBRARY_PATH` fallback for wayland, xkbcommon and vulkan, `NV_SOUND=out`, `NV_PULSE_SIMPLE` fallback); log in `~/.local/state/nv-rs/logs/dev-<time>.log` |
 | `nv-rs-dev smoke [--seconds N] [--shot]` | Runs N seconds (default 60) on the real display, stops it with SIGTERM, prints a PASS/FAIL checklist parsed from the log |
-| `nv-rs-dev bench <run\|list\|report\|compare>` | Scripted playthrough runs with frame-time, memory and stability reports: [BENCH.md](BENCH.md) |
+| `nv-rs-dev bench [clear-halt\|compare A B] ...` | The scene tool's bench, same as `scene bench`: [SCENE.md](SCENE.md), [BENCH.md](BENCH.md) |
 | `nv-rs-dev logs [--run ID\|latest\|latest-bad] [--errors\|--hitches\|--tail N\|--grep PAT\|--around FRAME] [--diff A B] [--bundle]` | What happened in a run, in under 40 lines (80 for a bad one): [LOGS.md](LOGS.md). Also `nv-rs-logs` |
-| `nv-rs-dev scene <build\|run\|compare\|soak\|bench\|bench-compare>` | Pictures of fixed places, variants, soak and bench in Rust (`nv-rs-scene`): [SCENE.md](SCENE.md) |
+| `nv-rs-dev scene <build\|run\|compare\|soak\|sweep\|bench\|bench-compare\|guard\|matrix\|clean\|replay\|smoke-report>` | Pictures of fixed places, variants, soak and bench in Rust (`nv-rs-scene`): [SCENE.md](SCENE.md) |
 | `nv-rs-dev replay <build\|run\|info\|pack\|synth\|streams>` | The replay-bench of a recorded Direct3D 9 stream (null, wgpu, raw Vulkan), under the bench lock: [REPLAY.md](REPLAY.md) |
 | `nv-rs-dev test <crate> [args]` | `cargo test -p <crate>`, same cap and target dir |
 | `nv-rs-dev check [crate...]` | `cargo fmt --check` and `cargo clippy --all-targets -D warnings` for the named crates, default the crates changed against `origin/fork` |
@@ -54,6 +54,34 @@ With `--all`: also the sccache dir, matrix reports, bench runs and their scratch
 removes only paths under `~/.cache/nv-rs` and `~/.local/state/nv-rs` (or `NV_DEV_TARGET` when that has `nv-rs` in its
 path), never follows symlinks, never touches your own worktrees (only the `matrix-` prefix), and takes the matrix lock so
 it will not run under a matrix in progress.
+
+## Matrix runs
+
+`nv-rs-dev matrix` (the Rust tool's `nv-rs-scene matrix`) answers "is this PR (or commit, branch, tag) better or worse than
+`fork`" with one command and one report: for each ref it makes a detached worktree
+`~/Projects/<owner>/worktrees/<repo>/matrix-<ref>@<sha>` (a PR number is fetched from `origin`; `working` is this checkout as it
+is), builds `nv-viewer` (profile `play`, behind `capped 10G`, into the shared target dir; the binary is kept per commit in
+`~/.cache/nv-rs/matrix-bin`), runs the affected components' Linux tests (`ci-lite`, against the baseline commit), benches a
+built-in suite (`--suite quick|mojave|soak|capital`, default `quick`) under the exclusive game lock, and compares every
+other ref with the baseline: average fps (5% and 1 fps), 1% low (10% and 1 fps) and p99 (10% and 0.3 ms) are `REGRESSION`
+when worse than both their limit and their noise floor. The report is `~/.local/state/nv-rs/matrix/<time>/matrix.md` and
+`matrix.json`.
+
+```sh
+nv-rs-dev matrix --ref fork --ref 93 --ref v0.3.0 --suite quick       # flags; the first ref is the baseline
+nv-rs-dev compare fork 93                                            # two refs
+nv-rs-dev matrix --ref fork --ref 93 --no-test                        # skip ci-lite
+```
+
+Exit status: 0 all fine, 1 a regression, a failed build, failed tests or a bench that did not pass its checks, 2 a request that
+cannot be carried out. Not carried over from the Python version: other machines over ssh and rsync (`hosts.toml`), the
+configuration axes of the old harness (window sessions and modes), the TOML spec file and the HTML page. Only numbers go in a report.
+
+## Clean
+
+`nv-rs-dev clean` lists what it would remove with sizes: the `matrix-*` worktrees it made and the matrix binary cache; with
+`--all` also the shared cargo target dir and the matrix reports. It removes only with `--yes`, and never touches a worktree
+without the `matrix-` prefix.
 
 ## Matrix runs
 
@@ -139,7 +167,7 @@ time. `--dry-run` prints the resolved plan and the exact ssh and rsync commands 
 
 ## Smoke checklist
 
-Parsed from the log by `smoke_report.py`: real window (no "could not be made" or off-screen line), display line with size and
+Parsed from the log by `nv-rs-scene smoke-report` (`crates/fork-scene/src/smoke.rs`): real window (no "could not be made" or off-screen line), display line with size and
 Hz, frame counters advancing, no wgpu error lines, no `stopped:` line, no "not enough memory" or device-lost line, a sound
 line, no panic. Exit status is 0 only if all pass; the viewer exit status 124 is `timeout` stopping it, as intended. The patterns follow the viewer's current log wording; adjust them in
 that script when the wording changes.

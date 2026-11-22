@@ -81,6 +81,89 @@ The exit status is 0 only when every place passed; `OUT/sweep.md` lists each pla
 other lists: `sweep-mojave-interiors.toml`, `sweep-capital.toml`, `sweep-capital-interiors.toml`. A silent log for `--stall` seconds
 (default 120) counts as a hang: the start is killed.
 
+## Using this from another program
+
+The command-line tool is a thin caller of a library: `fork_scene::tool` (crate `fork-scene`, no engine code, no game data).
+One public function per command, each taking a typed request and returning a typed result:
+
+| command | function | request | result |
+| --- | --- | --- | --- |
+| `compare` | `tool::compare` | `CompareRequest` | `CompareResult` (rows of mean, max, changed %) |
+| `run` | `tool::run` | `RunRequest` (`Start` + variants) | `RunResult` (a `VariantResult` per start, the comparisons) |
+| `soak` | `tool::soak` | `SoakRequest` | `SoakResult` (typed `PlaceRow` timings, stops, errors, warnings) |
+| `sweep` | `tool::sweep` | `SweepRequest` | `SweepResult` (passed and failed places, `sweep.md`) |
+| `bench` | `tool::bench` | `BenchRequest` | `BenchResult` (headlines, `summary.json`, the suite table) |
+| `bench-compare` | `tool::bench_compare` | `BenchCompareRequest` | `BenchCompareResult` |
+
+Rules of the library: it never prints and never ends the process. What the tool prints while it works (the memory cap, a
+start's memory, a hang) goes to a `say: &(dyn Fn(&str) + Sync)` the caller gives (`&|_| {}` to ignore it); what it
+prints at the end is the result's `summary()`. A failure of a start (the engine stopped, hung, was refused) is a field of
+the result; an `Err(String)` is a request that cannot be carried out. `sweep` runs in the calling process; the
+command-line tool runs it in a child of its own so a killed sweep is reported (a program that needs that does the same).
+
+**The game child start is a hook.** The library stages the game folder and decides the environment; a `Launcher` starts the
+engine:
+
+```rust
+pub trait Launcher: Sync {
+    fn describe(&self, concurrent: usize) -> String;                       // one line about the memory cap
+    fn launch(&self, spec: &StartSpec, log: File) -> Result<Launched, String>;
+}
+```
+
+`StartSpec` holds the viewer, the staged game folder (also the working directory), the whole environment, the number of
+starts at once and the game lock to hold (`spec.lock`, shared for pictures, soaks and sweeps, exclusive for a bench). The
+launcher puts the child in its own scope with its own label and memory limit, takes the lock, sends the child's output to
+`log`, and returns the `Child` (and `scope_prefix`, the start of the systemd scope's name, if there is one, so the library
+can read its memory and kill it when the engine hangs). `CappedLauncher` is the command-line tool's: `flock`, then a
+`gamerun` scope with `MemoryMax` and no swap.
+
+A worked example: a soak of a place file in the caller's own child, with the caller's own label and a 10 GiB cap.
+
+```rust
+use fork_scene::tool::{self, Launched, Launcher, SoakRequest, Start, StartSpec};
+use std::{fs::File, path::PathBuf, process::Command};
+
+struct Mine;
+impl Launcher for Mine {
+    fn describe(&self, _concurrent: usize) -> String {
+        "memory: 10G, scope raul-scene".into()
+    }
+    fn launch(&self, spec: &StartSpec, log: File) -> Result<Launched, String> {
+        let mut cmd = Command::new("systemd-run");
+        cmd.args(["--user", "--scope", "--quiet", "--unit", "nvgame-raul-scene-1", "-p", "MemoryMax=10G", "-p", "MemorySwapMax=0", "--"])
+            .arg(&spec.viewer).arg(&spec.game_dir)
+            .current_dir(&spec.game_dir)
+            .envs(spec.env.iter().map(|(k, v)| (k, v)))
+            .stdout(log.try_clone().map_err(|e| e.to_string())?)
+            .stderr(log);
+        let child = cmd.spawn().map_err(|e| e.to_string())?;
+        Ok(Launched { child, scope_prefix: Some("nvgame-raul-scene-".into()) })
+    }
+}
+
+fn main() -> Result<(), String> {
+    let mut start = Start::new(
+        PathBuf::from("/opt/raul/nv-viewer"),
+        PathBuf::from("/games/Fallout New Vegas"),
+        PathBuf::from("places.toml"),
+        PathBuf::from("/tmp/raul-soak"),
+    );
+    start.only = vec!["goodsprings".into()];
+    let mut request = SoakRequest::new(start);
+    request.frames = 300;
+    let result = tool::soak(&request, &Mine, &|line| eprintln!("{line}"))?;
+    for row in &result.timings {
+        println!("{}: avg {:.2} ms, 1% low {:.0} fps", row.place, row.avg_ms, row.low1_fps);
+    }
+    if result.ok { Ok(()) } else { Err(result.summary()) }
+}
+```
+
+`run`, `sweep` and `bench` are called the same way with their own request (`RunRequest::new(start)`, `SweepRequest::new(start)`,
+`BenchRequest::new(start, lock_file)`); `compare` and `bench_compare` need no launcher. The tests in
+`crates/fork-scene/src/tool.rs` use a launcher that starts a shell script in place of the engine.
+
 ## Switches
 
 | Variable | Meaning |
@@ -147,8 +230,7 @@ Tenpenny's lobby a dining room with a cash register and two mugs on a counter. S
 
 ## How the engine goes to a place
 
-The runner (`fork_scene_run::Runner`) runs inside the game's frame, on the game's main thread, at the entry of `Main::OnIdle` (`0086e650`): `fork_scene_run::install` registers a function there that runs the runner and then the translation. (Calling the game's functions from the host's thread between frames does not work: the load waits for loader threads while the host holds the kernel lock, and the call spins.) The game's own start is cut short: no main menu is built (see "No main menu" below), the runner
-waits for the first frames and then calls the game's own
+The runner (`fork_scene_run::Runner`) runs inside the game's frame, on the game's main thread, at the entry of `Main::OnIdle` (`0086e650`): `fork_scene_run::install` registers a function there that runs the runner and then the translation. (Calling the game's functions from the host's thread between frames does not work: the load waits for loader threads while the host holds the kernel lock, and the call spins.) The runner waits for the main menu, then calls the game's own
 `PlayerCharacter::PositionPlayerExterior` (`0093cce0`, the function fast travel and `moveto` end in: it cancels pending
 exterior loads, loads or creates the cell and places the player on its land) with the place's world, position and
 heading, once the screen has been the menu for 120 frames (the game's first frames still start its threads). The place is reached when the screen is the play screen and the player's position lies in the place's grid
@@ -158,7 +240,7 @@ Limits: none for the world: any world space of the load order by editor id (or f
 
 ## No main menu
 
-Since the start went straight to a place (nv-rs#479), the game never builds its main menu in a scene run. `main` (`0086a850`)
+With `NV_SCENE_MENU=0` (`--env NV_SCENE_MENU=0`) the game never builds its main menu in a scene run. This is not the default yet: its pictures differ slightly from the menu route's and between runs (below), so the menu route stays the default until they are identical. `main` (`0086a850`)
 calls `StartMenu::Create(0, 0)` (`007053f0`) once before its message loop when the player has no world space (a fresh start);
 the scene run registers an empty function at that address before the game's code starts (`host::fork_prestart`, a registration made
 at `Host::start_with`, because the game runs up to its first frame inside it). With no menu there is no menu music, no menu
@@ -170,8 +252,7 @@ only called when a menu is up). The new game's quest and item messages are not s
 
 Until the first send the world is held (`Main` +7, the free camera's frozen world flag: the sky, the calendar and the
 animations stop), as the menu's menu mode held it, so the frames before the send change nothing; the first place is sent at
-frame 121 as before. `NV_SCENE_MENU=1` (`--env NV_SCENE_MENU=1`) builds the menu and sends from it, the old route, for
-comparison.
+frame 121 as before. Without the setting the menu is built and the first place is sent from it, the old route.
 
 Measured (one place, wall time from the process start, two starts each, machine shared so the numbers move by seconds):
 
@@ -624,43 +705,44 @@ the default placement is the right one; `setpos` stays only as the test for nv-r
 
 | asked for | command | missing |
 | --- | --- | --- |
-| engine benchmark in Rust | `nv-rs-scene bench --suite quick` (real clock, exclusive game lock, warm-up and median of passes, `summary.json`, suite table with the change against the previous suite and a baseline, `--save-baseline`), `bench-compare A.json B.json`, a walking place (`path`) | see "The old Python harness" below: what is ported, what needs nothing, what remains; the Contract v1 file (nv-rs#231) is not published yet, so the summary follows the old harness's keys plus `schema_version`; one machine's numbers only |
+| engine benchmark in Rust | `nv-rs-scene bench --suite quick` (real clock, exclusive game lock, warm-up and median of passes, `summary.json`, suite table with the change against the previous suite and a baseline, `--save-baseline`), `bench-compare A.json B.json`, a walking place (`path`) | see "The old Python harness is gone" below; the Contract v1 file (nv-rs#231) is not published yet, so the summary follows the old harness's keys plus `schema_version`; one machine's numbers only |
 | spawning in specific locations | `NV_SCENE` place file: world, position, heading, pitch, or a reference with an offset | interiors (no cell by name), places by a worldspace that is not in the load order |
 | loading into places | the runner's placement through the game's own exterior loader; one start for any number of places | no menu or intro is shown; the start is 6 s of data load (12 s on TTW) |
-| no main menu needed | done: no menu is built (`NV_SCENE_MENU=1` brings the old route back); the runner sends the player in frame 121 | the intro movie call in `main` (`00ec16d0`) still runs; the log shows the loading menu and no picture of it; not measured separately |
+| no main menu needed | done: the runner sends the player from the menu in frame 121 | the start screens (intro videos) are not skipped, only passed |
 | stability tests | `nv-rs-scene soak` (places, N frames each, counts stops, errors, warnings, exits non-zero) | no long-run memory growth check; #455 and #474 cases are place files (#474 fails until fixed) |
 | pictures of areas, a frozen frame | `nv-rs-scene run` (variants, same place file, per-view difference) | cloud/brush phase differs by one frame between rare runs (nv-rs#484); `compare --noise` is the workaround |
-| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool, `nv-rs-dev scene <build\|run\|soak\|bench\|compare\|bench-compare>` | `scripts/fork/bench/` Python still runs the window-driven scenarios and the matrix and replay benches (not removed: see "The old Python harness") |
+| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool, `nv-rs-dev scene <build\|run\|soak\|bench\|compare\|bench-compare>` | done: the Python harness is deleted (see "The old Python harness is gone") |
 
-## The old Python harness (`scripts/fork/bench/`): ported, not needed, remaining
+## The old Python harness (`scripts/fork/bench/`) is gone
 
-For nv-rs#328 and #348. Piece by piece:
+For nv-rs#328 and #348. Every piece is in the Rust tool or retired:
 
 | old piece | here |
 | --- | --- |
-| bench lock (`lock.py`) | ported: `--game-lock FILE` (shared) and `bench --lock FILE` (exclusive), the same file `~/Games/"Fallout New Vegas RS"/game.lock` |
-| suites, summary, baselines, compare (`suite.py`, `report.py`) | ported: `bench --suite`, `summary.json`, `--save-baseline`, `--baseline`, `bench-compare` |
-| host memory cap (the guard's systemd scope) | `gamerun` scope, `MemoryMax`, `MemoryHigh`, `MemorySwapMax=0`, per start (`--mem`, `--no-cap`) |
-| VRAM and GTT checks of the guard: the refusal at the start, the engine's budget | ported, `crates/fork-scene/src/guard.rs`: a start is refused when the halt file exists or the card's free VRAM or GTT cannot hold half the VRAM (a quarter of the GTT) plus 2048 (1024) MiB kept for the desktop; the engine gets `NV_GPU_BUDGET_MB`; a card that cannot be read (no amdgpu sysfs) is not refused (`--gpu-sysfs DIR` points at another folder) |
-| nested window session (`nested.py`), input driver (`vinput.py`, `driver.py`) | not needed: the offscreen run has no window and no input; the runner places the player itself |
-| noisy-run scan | ported: `noisy` in `summary.json` (another `nv-viewer` running at the start or end) |
-| scenarios that play the game: new game, character creation, Doc Mitchell's house from the first start, combat, save and continue, the Ctrl (sneak) check, the real-input walk, the 20-minute soak (`scenarios.py`) | not ported. They test input and the game's opening, not places. Places, far moves, walking (`path`) and interiors (`cell`) are covered; the opening is not |
+| bench lock (`lock.py`) | `--game-lock FILE` (shared) and `bench --lock FILE` (exclusive), the file `~/Games/"Fallout New Vegas RS"/game.lock` |
+| suites, summary, baselines, compare (`suite.py`, `report.py`) | `bench --suite`, `summary.json`, `--save-baseline`, `--baseline`, `bench-compare` |
+| host memory cap (the guard's systemd scope) | `gamerun` scope, per start (`--mem`, `--no-cap`) |
+| start check (VRAM and GTT, the engine's budget, the halt file) | `crates/fork-scene/src/guard.rs` (`start_check`) |
+| the 100 ms sampler, the session check, writing the halt file | `guard.rs`: `Watch` (read the card every 100 ms inside every engine start, stop at 90% of the way to the cap; once a second the kernel log and the desktop's compositor and the engine's own budget refusal), `halt`; `nv-rs-scene guard status \| clear-halt` |
+| `nv-rs-dev bench` | forwards to `scene bench`; `bench clear-halt` is `guard clear-halt`, `bench compare` is `bench-compare` |
+| `nv-rs-dev matrix`, `compare`, `clean` (`matrix.py`) | `nv-rs-scene matrix`, `clean` (`crates/fork-scene/src/matrix.rs`); remote hosts, the old harness's configuration axes and the HTML page are not carried over |
+| `nv-rs-dev replay` (`d3d9replay.py`) | `nv-rs-scene replay` (`crates/fork-scene/src/replay.rs`) |
+| `nv-rs-dev smoke`'s checklist (`smoke_report.py`) | `nv-rs-scene smoke-report` (`crates/fork-scene/src/smoke.rs`) |
+| nested window session (`nested.py`), input driver (`vinput.py`, `driver.py`, `drivers.py`), views (`views.py`, `menu_view.py`) | not needed: the offscreen run has no window and no input; the runner places the player itself |
+| noisy-run scan | `noisy` in `summary.json` (another `nv-viewer` running at the start or end) |
+| scenarios that play the game with real input: new game, character creation, Doc Mitchell's house from the first start, combat, save and continue, the Ctrl (sneak) check, the 20-minute walk (`scenarios.py`) | gone, not ported: the tool tests places, not the opening. Release test steps 3 and 5 are done by hand (RELEASE-TEST.md) |
+| log parsing of old run folders (`parse.py`, `timeline.py`, `report.py`, `watch.py`, `record.py`, `replay.py`) | gone; `nv-rs-dev hitches`, `runs` and `logs` read the engine's own logs |
 
-Not ported and not replaced yet:
+The differential test of nv-rs#328 ("on the same recorded run files the Rust and Python versions give equal `summary.json`") cannot
+be done as written: the Rust bench reads the engine's own log, not recorded run files. The Python self-tests were run once
+before the deletion: `python3 -I -m unittest discover -s scripts/fork/tests` 410 tests OK (the 212 of the eight deleted
+modules among them), `test_wif.py`, `check_data_gates.py`, `public_text.py` (and `--selftest`), `setup-anthropic-wif.py --selftest`
+and `create-app.py --selftest` exit 0; after the deletion 198 tests OK.
 
-- the 100 ms sampler that stops a run before the card's use reaches its cap, the kernel-log and desktop-compositor check
-  (the "session is in trouble" test) and writing the halt file; `nv-rs-dev bench clear-halt` (the Rust start check only reads the file);
-- `nv-rs-dev bench list | report | analyze` (reading the run folders of the old harness) and `nv-rs-dev matrix | compare`
-  (builds and benchmarks many refs and hosts; `scripts/fork/local/matrix.py` imports `bench/report.py`);
-- the replay bench (`nv-rs-dev replay`, `d3d9replay.py`, docs/fork/REPLAY.md): it replays a recorded Direct3D 9 stream
-  with its own binary and does not start the game; it needs its own port;
-- the differential test of nv-rs#328 ("on the same recorded run files the Rust and Python versions give equal
-  `summary.json`"): the Rust bench reads the engine's own log, not recorded run files, so it cannot be done as written.
-
-So the directory cannot be deleted yet: `nv-rs-dev` dispatches `bench`, `matrix` and `replay` to it, `matrix.py` imports it,
-the Python tests of `scripts/fork/tests` (`test_bench`, `test_guard`, `test_label`, `test_views`, `test_menu_walk`,
-`test_d3d9replay`, `test_watch`, `test_matrix`) are run by `task` (`unittest discover`), and BENCH.md, RELEASE-TEST.md, LOCAL.md and
-LOGGING.md describe it.
+Python and shell that stay on the game path, and why: `scripts/fork/local/nv-rs-dev` and `lib.sh` (the dev loop: build, `run` and
+`smoke` start the viewer in a window on the real display for a person, `test`, `check`, `ci-lite`; they only set the environment and
+call cargo or the tool); `scripts/fork/hitches.py`, `runs.py`, `logs.py` (read the engine's logs after a run, no game is started);
+`distribution/unix/play.sh`, `packaging/*` (the shipped launcher and installers).
 
 ## Bench
 

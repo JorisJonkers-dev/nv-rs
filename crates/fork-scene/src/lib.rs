@@ -7,10 +7,14 @@ pub mod bench;
 pub mod diff;
 pub mod guard;
 pub mod json_lite;
+pub mod matrix;
 pub mod places;
 pub mod png;
+pub mod replay;
 pub mod request;
+pub mod smoke;
 pub mod stage;
+pub mod tool;
 
 pub use places::{aim, cell_of, path_point, Camera, Place, PlaceFile};
 pub use request::Request;

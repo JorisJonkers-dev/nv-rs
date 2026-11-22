@@ -258,3 +258,42 @@ fn naming_a_form_sizes_the_tables_for_the_load() {
     assert!(st.forms.capacity() >= 50_000, "{}", st.forms.capacity());
     assert!(st.map.capacity() >= 50_000, "{}", st.map.capacity());
 }
+
+/// Two forms with the same editor id from two files: the conflict line names both files. The new
+/// form is a list form, whose own list starts at +0x18 (right after the source files at +0x10):
+/// the line is made from the source files, not from that list's words (a stop on a made-up
+/// address before, with two plugins holding a list form of the same editor id).
+#[test]
+fn a_conflict_between_list_forms_names_the_files() {
+    let mut e = crate::Engine::new();
+    let mut file = |name: &[u8]| {
+        let f = e.mem.alloc(0x60);
+        e.mem.write(f + FILE_NAME, name);
+        let node = e.mem.alloc(8);
+        e.mem.set_u32(node, f);
+        node
+    };
+    let (node_a, node_b) = (file(b"First.esp\0"), file(b"Second.esp\0"));
+    let mut form = |id: u32, node: u32, list_word: u32| {
+        let f = e.mem.alloc(0x40);
+        e.mem.set_u32(f + FORM_ID, id);
+        e.mem.set_u32(f + FORM_FILES, e.mem.u32(node));
+        // The list form's own list: a head whose item is a bare form id, no pointer.
+        e.mem.set_u32(f + 0x18, list_word);
+        f
+    };
+    let a = form(0x1100_4b2c, node_a, 0x0010_4eae);
+    let b = form(0x1200_4b2c, node_b, 0x0010_4eae);
+    let text = e.mem.alloc(16);
+    e.mem.write(text, b"SameName\0");
+    assert!(set_form_editor_id(&mut e, a, text));
+    assert!(set_form_editor_id(&mut e, b, text));
+    let lines = conflict_lines(&mut e);
+    assert_eq!(
+        lines,
+        vec![
+            "12004B2C (\"Second.esp\") steals EDID \"SameName\" from 11004B2C (\"First.esp\")"
+                .to_string()
+        ]
+    );
+}

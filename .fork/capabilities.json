@@ -1798,13 +1798,18 @@
     },
     {
       "commands": {
-        "implemented": 5,
+        "implemented": 10,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
           "GetExtraMiscStat",
           "ModExtraMiscStat",
-          "InitExtraMiscStat"
+          "InitExtraMiscStat",
+          "Clamp",
+          "Lerp",
+          "Sign",
+          "EditorIDToFormID",
+          "GetEditorID"
         ],
         "total": 412
       },
@@ -1816,9 +1821,11 @@
     },
     {
       "commands": {
-        "implemented": 1,
+        "implemented": 3,
         "implemented_names": [
-          "GetActorHasBaseFlag"
+          "GetActorHasBaseFlag",
+          "ListAddList",
+          "ListAddArray"
         ],
         "total": 215
       },

@@ -24,9 +24,18 @@ static EXIT: AtomicI32 = AtomicI32::new(RUNNING);
 const START_MENU_CREATE_AT_START: u32 = 0x0070_53f0;
 
 /// Before the game's code starts ([`host::fork_prestart`]): no main menu is built (so no menu music or menu assets are
-/// loaded either); the runner sends the player to the first place from the first frame. Not called for `NV_SCENE_MENU=1`.
+/// loaded either); the runner sends the player to the first place from the first frame. Only called for `NV_SCENE_MENU=0`.
 pub fn skip_main_menu() {
     host::fork_prestart::add(|e| e.register(START_MENU_CREATE_AT_START, |_, _| Ret::default()));
+}
+
+/// `MoviePlayer::StartSequence` (`00ec16d0`, thiscall): `main`'s start of the intro movie sequence (it creates the sequence thread
+/// and waits for it).
+const MOVIE_START_SEQUENCE: u32 = 0x00ec_16d0;
+
+/// Before the game's code starts: the intro movie sequence is not started. Measured in docs/fork/SCENE.md ("No main menu").
+pub fn skip_intro_movie() {
+    host::fork_prestart::add(|e| e.register(MOVIE_START_SEQUENCE, |_, _| Ret::default()));
 }
 
 /// Registers the runner at `Main::OnIdle`. Call once, after the host started (real threads take the

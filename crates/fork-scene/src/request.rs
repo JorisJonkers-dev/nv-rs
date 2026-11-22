@@ -15,7 +15,8 @@
 //! | `NV_SCENE_SOAK_WARMUP` | frames run at each place before the timed ones, not timed (default 120: the first frames upload textures and compile pipelines) |
 //! | `NV_SCENE_SOAK_PASSES` | timed passes of `NV_SCENE_SOAK_FRAMES` each at a place (default 1); the reported average is the median of the passes' averages |
 //! | `NV_SCENE_CAPTURE_FRAMES` | take the picture exactly this many main frames after the place was sent (when it is ready sooner it waits; later it fails): the picture then does not depend on the frame the place became ready at |
-//! | `NV_SCENE_MENU` | `1` goes the old way: the main menu is built and the first place is sent from it (the default builds no menu: the player is sent to the first place from the first frame the game runs) |
+//! | `NV_SCENE_MENU` | `0` builds no main menu: the player is sent to the first place from the first frame the game runs (not the default for now: its pictures differ slightly from the menu route's and between runs, nv-rs#479); any other value is the menu route: the main menu is built and the first place is sent from it |
+//! | `NV_SCENE_INTRO` | `0` skips the movie player's start of the intro sequence (`MoviePlayer::StartSequence`, `00ec16d0`) in a start without the menu; any other value leaves it (the default) |
 //! | `NV_SCENE_FREEZE` | `0` leaves the world alone (time, weather, AI, interface) |
 
 use crate::places::{Place, PlaceFile};
@@ -30,6 +31,7 @@ pub const HOUR: &str = "NV_SCENE_HOUR";
 pub const WEATHER: &str = "NV_SCENE_WEATHER";
 pub const FREEZE: &str = "NV_SCENE_FREEZE";
 pub const MENU: &str = "NV_SCENE_MENU";
+pub const INTRO: &str = "NV_SCENE_INTRO";
 pub const ACTORS: &str = "NV_SCENE_ACTORS";
 pub const SOAK: &str = "NV_SCENE_SOAK_FRAMES";
 pub const SOAK_WARMUP: &str = "NV_SCENE_SOAK_WARMUP";
@@ -55,8 +57,10 @@ pub struct Request {
     pub soak_passes: u32,
     /// Take the picture this many frames after the place was sent.
     pub capture_frames: Option<u32>,
-    /// Build the main menu and send the first place from it (the old route); false builds no menu.
+    /// Build the main menu and send the first place from it (the default); false builds no menu (`NV_SCENE_MENU=0`).
     pub menu: bool,
+    /// Skip the intro movie call of `main` (only without the menu).
+    pub skip_intro: bool,
 }
 
 impl Request {
@@ -165,7 +169,8 @@ impl Request {
                     .map_err(|_| format!("{SOAK_WARMUP}={v}: a whole number"))?,
             },
             soak_passes: number(SOAK_PASSES, 1)?.max(1),
-            menu: var(MENU).as_deref().map(str::trim) == Some("1"),
+            menu: var(MENU).as_deref().map(str::trim) != Some("0"),
+            skip_intro: var(INTRO).as_deref().map(str::trim) == Some("0"),
             hide_actors: var(ACTORS).as_deref().map(str::trim) != Some("1"),
         }))
     }
@@ -212,18 +217,18 @@ mod tests {
     }
 
     #[test]
-    fn no_menu_is_built_unless_nv_scene_menu_is_1() {
+    fn the_menu_is_built_unless_nv_scene_menu_is_0() {
         let d = tmp("menu");
         let f = file(&d);
-        assert!(!with(&[(FILE, f.clone())]).unwrap().unwrap().menu);
+        assert!(with(&[(FILE, f.clone())]).unwrap().unwrap().menu);
         assert!(
-            !with(&[(FILE, f.clone()), (MENU, "0".into())])
+            with(&[(FILE, f.clone()), (MENU, "1".into())])
                 .unwrap()
                 .unwrap()
                 .menu
         );
         assert!(
-            with(&[(FILE, f), (MENU, "1".into())])
+            !with(&[(FILE, f), (MENU, "0".into())])
                 .unwrap()
                 .unwrap()
                 .menu

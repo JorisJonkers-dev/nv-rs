@@ -58,6 +58,8 @@ pub struct Cmd {
     pub execute: AbiFn,
     /// The condition eval, for the one command that is also a condition function.
     pub eval: Option<AbiFn>,
+    /// What the command answers (a form or a string need their own result handling).
+    pub returns: Returns,
 }
 
 /// The commands, in the order of their opcodes.
@@ -69,6 +71,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: ONE_QUEST,
         execute: get_quest_failed,
         eval: Some(get_quest_failed_eval),
+        returns: Returns::Default,
     },
     Cmd {
         opcode: OPCODE_BASE + 0x7e,
@@ -77,6 +80,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: IS_DLL_LOADED,
         execute: is_dll_loaded,
         eval: None,
+        returns: Returns::Default,
     },
     Cmd {
         opcode: OPCODE_BASE + 0xe4,
@@ -85,6 +89,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: ONE_STRING,
         execute: get_extra_misc_stat,
         eval: None,
+        returns: Returns::Default,
     },
     Cmd {
         opcode: OPCODE_BASE + 0xe5,
@@ -93,6 +98,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: ONE_STRING_ONE_INT,
         execute: mod_extra_misc_stat,
         eval: None,
+        returns: Returns::Default,
     },
     Cmd {
         opcode: OPCODE_BASE + 0xee,
@@ -101,8 +107,17 @@ pub static COMMANDS: [Cmd; 5] = [
         params: ONE_STRING,
         execute: init_extra_misc_stat,
         eval: None,
+        returns: Returns::Default,
     },
 ];
+
+/// Every command this crate builds, group by group, in the order of the groups' files.
+pub fn all() -> impl Iterator<Item = &'static Cmd> {
+    COMMANDS
+        .iter()
+        .chain(crate::math::COMMANDS.iter())
+        .chain(crate::lookups::COMMANDS.iter())
+}
 
 /// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).
 fn guest_params(e: &mut Engine, params: &[Param]) -> u32 {
@@ -119,13 +134,9 @@ fn guest_params(e: &mut Engine, params: &[Param]) -> u32 {
 
 /// Registers the five commands at their opcodes, the table grown to the last of them.
 pub fn install(e: &mut Engine) {
-    let last = COMMANDS
-        .iter()
-        .map(|c| c.opcode)
-        .max()
-        .unwrap_or(OPCODE_BASE);
+    let last = all().map(|c| c.opcode).max().unwrap_or(OPCODE_BASE);
     table::grow_to(e, last + 1);
-    for c in &COMMANDS {
+    for c in all() {
         let execute = table::execute_address(c.opcode);
         e.register(execute, c.execute);
         let eval = c.eval.map_or(0, |f| {
@@ -143,7 +154,7 @@ pub fn install(e: &mut Engine) {
             // A condition-capable command is marked with 1.
             flags: u32::from(c.eval.is_some()),
             expression: false,
-            returns: Returns::Default,
+            returns: c.returns,
         };
         table::add_plugin_record(e, c.opcode, &record);
     }

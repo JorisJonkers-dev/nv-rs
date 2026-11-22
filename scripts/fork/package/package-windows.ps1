@@ -47,8 +47,8 @@ foreach ($pair in $copies) {
         throw "copy of $src to $dest did not make a file"
     }
 }
-# The launchers (the settings are the launcher's own Settings screen), the game-folder chooser and the READ MEs.
-foreach ($file in @('Play with mods.cmd', 'Install mods.cmd', 'Import my saves.cmd', 'READ ME.txt', 'THIRD-PARTY-NOTICES.txt')) {
+# The launcher (Play with mods, Mods, Import saves and Settings are its own start-screen entries), the game-folder chooser and the READ MEs.
+foreach ($file in @('READ ME.txt', 'THIRD-PARTY-NOTICES.txt')) {
     Copy-Item -LiteralPath (Join-Path $root "distribution/$file") -Destination $stage
 }
 foreach ($file in @('Choose game folder.cmd', 'Choose game folder.ps1', 'WINDOWS READ ME.txt')) {

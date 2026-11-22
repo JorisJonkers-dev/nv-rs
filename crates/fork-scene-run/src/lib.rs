@@ -283,6 +283,9 @@ impl Runner {
     pub fn prepare_environment(&self) {
         if !self.request.menu {
             hook::skip_main_menu();
+            if self.request.skip_intro {
+                hook::skip_intro_movie();
+            }
         }
         // The game's own clock on the engine's virtual one (`NV_REPEATABLE`: one fixed step a frame),
         // so clouds, grass and water move the same way in every run: two runs give identical pictures.
@@ -905,6 +908,7 @@ mod tests {
             freeze: None,
             capture_frames: None,
             menu: true,
+            skip_intro: false,
             hide_actors: false,
             soak_frames: None,
             soak_warmup: 0,
