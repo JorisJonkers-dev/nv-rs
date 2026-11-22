@@ -1798,7 +1798,7 @@
     },
     {
       "commands": {
-        "implemented": 10,
+        "implemented": 11,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
@@ -1809,7 +1809,8 @@
           "Lerp",
           "Sign",
           "EditorIDToFormID",
-          "GetEditorID"
+          "GetEditorID",
+          "GetFormOverrideIndex"
         ],
         "total": 412
       },
@@ -1821,7 +1822,7 @@
     },
     {
       "commands": {
-        "implemented": 9,
+        "implemented": 10,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
@@ -1831,7 +1832,8 @@
           "GetINIFloatOrDefault_Cached",
           "GetINIStringOrDefault_Cached",
           "ClearFileCacheShowOff",
-          "SaveCachedIniFile"
+          "SaveCachedIniFile",
+          "IsBaseForm"
         ],
         "total": 215
       },

@@ -153,3 +153,45 @@ fn get_editor_id_answers_the_name_or_an_empty_string() {
     let r = call(&mut e, GET_EDITOR_ID, 0, &[]);
     assert_eq!(string_of(&e, r.1), "");
 }
+
+const GET_FORM_OVERRIDE_INDEX: u32 = 0x316d;
+const FILES: u32 = 0x0300_6000;
+
+/// Gives `form` a list of files with the indices given, the last one last.
+fn give_files(e: &mut Engine, form: u32, indices: &[u8]) {
+    let mut node = form + 0x10;
+    for (i, index) in indices.iter().enumerate() {
+        let file = FILES + 0x1000 * i as u32 + (form & 0xfff);
+        e.mem.set_u8(file + 0x40c, *index);
+        e.mem.set_u32(node, file);
+        e.mem.set_u32(node + 4, 0);
+        if i + 1 < indices.len() {
+            let next = FILES + 0x8000 + 8 * i as u32 + (form & 0xfff) * 4;
+            e.mem.set_u32(node + 4, next);
+            node = next;
+        }
+    }
+}
+
+/// The page's example: the index of the last file that changed the form; a form of one file
+/// answers that file's; a form with no file, and a call with no valid form, answer -1.
+#[test]
+fn get_form_override_index_answers_the_last_file() {
+    let mut e = setup();
+    e.map(FILES, 0x10000);
+    give_files(&mut e, FORM_A, &[0, 5, 0x1c]);
+    give_files(&mut e, FORM_B, &[3]);
+    let record = nvse::table::record_of(&e, GET_FORM_OVERRIDE_INDEX);
+    assert_eq!(
+        nvse::table::guest_text(&e, e.mem.u32(record)),
+        b"GetFormOverrideIndex"
+    );
+    let arg = form_arg(&mut e, FORM_A);
+    assert_eq!(call(&mut e, GET_FORM_OVERRIDE_INDEX, 0, &[arg]), (1, 28.0));
+    let arg = form_arg(&mut e, FORM_B);
+    assert_eq!(call(&mut e, GET_FORM_OVERRIDE_INDEX, 0, &[arg]), (1, 3.0));
+    let arg = form_arg(&mut e, REF_C);
+    assert_eq!(call(&mut e, GET_FORM_OVERRIDE_INDEX, 0, &[arg]), (1, -1.0));
+    let arg = form_arg(&mut e, 0);
+    assert_eq!(call(&mut e, GET_FORM_OVERRIDE_INDEX, 0, &[arg]), (1, -1.0));
+}
