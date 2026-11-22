@@ -102,6 +102,13 @@ requires = []
 runs_on = "both"
 
 [[component]]
+name = "gfx"
+purpose = "Graphics settings (nv-rs#592, ADR-0019): the schema each graphics module declares, the per-profile settings file with layers by place, presets as data and the schema as JSON for raul; pure (no engine, no game data). Fork-owned"
+crates = ["fork-gfx"]
+requires = []
+runs_on = "both"
+
+[[component]]
 name = "memlog"
 purpose = "The NV_MEMLOG memory timeline: one key=value line of guest heap, host RSS and GPU counters, off by default (docs/fork/MEMLOG.md). Fork-owned"
 crates = ["fork-memlog"]

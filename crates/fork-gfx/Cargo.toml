@@ -1,0 +1,10 @@
+[package]
+name = "fork-gfx"
+version = "0.1.0"
+description = "Fork-owned graphics settings (docs/fork/adr/0019-graphics-modules.md): the settings schema each graphics module declares, the per-profile settings file with layers by place (a TOML subset, unknown keys kept), presets as data, resolution for a place, and the schema as JSON for other programs. Pure: no engine, no game data, no dependency"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
