@@ -34,6 +34,11 @@ pub trait World {
     /// Holds the world still (idempotent, called every frame once the player has been sent): the
     /// game hour and a stopped clock, the weather, no AI processing, the interface hidden.
     fn freeze(&mut self, _hour: f32, _weather: u32) {}
+    /// Hides the 3D of every actor but the player in the cells around the player (`NiAVObject`
+    /// culled flag); the number hidden now.
+    fn hide_actors(&mut self) -> u32 {
+        0
+    }
     /// Closes the message box on top (`MessageMenu::ClearMessageQueueHead`); false when the top
     /// menu is not a message box.
     fn dismiss_message(&mut self) -> bool {
@@ -66,6 +71,9 @@ pub enum Step {
     /// A condition failed: the one plain line the run ends with.
     Failed(String),
 }
+
+/// The frame count `NV_REPEATABLE` is given (the run ends before it, at its last place).
+const REPEATABLE_FRAMES: &str = "100000000";
 
 /// How far (game units) the player's height may move from where the count started and still be standing.
 pub const STAND_TOLERANCE: f64 = 0.25;
@@ -104,6 +112,7 @@ pub struct Runner {
     /// Frames the screen has shown the menu (or play, for a later place) since the last send.
     steady: u32,
     tick: u64,
+    hidden: u32,
 }
 
 /// Frames the screen must have been steady before a place is sent: the game's first frames still
@@ -118,6 +127,7 @@ impl Runner {
             phase: Phase::WaitMenu,
             steady: 0,
             tick: 0,
+            hidden: 0,
         }
     }
 
@@ -133,6 +143,14 @@ impl Runner {
     /// readback on (`NV_SHOT`, nothing captured by itself: `NV_SHOT_LIST=0`) so [`Runner::frame`] can
     /// ask for one frame.
     pub fn prepare_environment(&self) {
+        // The game's own clock on the engine's virtual one (`NV_REPEATABLE`: one fixed step a frame),
+        // so clouds, grass and water move the same way in every run: two runs give identical pictures.
+        // `NV_SCENE_REALTIME=1` keeps the real clock.
+        if std::env::var_os("NV_REPEATABLE").is_none()
+            && std::env::var("NV_SCENE_REALTIME").as_deref() != Ok("1")
+        {
+            std::env::set_var("NV_REPEATABLE", REPEATABLE_FRAMES);
+        }
         if let Some(dir) = &self.request.out {
             if std::env::var_os("NV_SHOT").is_none() {
                 std::env::set_var("NV_SHOT", dir);
@@ -190,6 +208,17 @@ impl Runner {
         }
         if let Some((hour, weather)) = self.request.freeze {
             w.freeze(hour, weather);
+        }
+        if self.request.hide_actors && (self.next > 0 || !matches!(self.phase, Phase::WaitMenu)) {
+            // Actors load in with their cells: hide again every 15 frames, and right before the picture.
+            self.tick = self.tick.wrapping_add(1);
+            if self.tick % 15 == 0 || matches!(self.phase, Phase::Waiting { .. }) {
+                let n = w.hide_actors();
+                if n != self.hidden {
+                    fork_log::info!(target: "scene", "scene: {n} actors hidden");
+                    self.hidden = n;
+                }
+            }
         }
         match self.phase {
             Phase::Done => Step::Finished,
@@ -393,6 +422,7 @@ mod tests {
             settle_frames: 1,
             timeout_s,
             freeze: None,
+            hide_actors: false,
         }
     }
 

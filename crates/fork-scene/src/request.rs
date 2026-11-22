@@ -10,6 +10,7 @@
 //! | `NV_SCENE_TIMEOUT_S` | seconds a place may take to be ready before the run fails (default 120) |
 //! | `NV_SCENE_HOUR` | the game hour the frozen world holds (default 12) |
 //! | `NV_SCENE_WEATHER` | the weather's form id in hex the frozen world holds (default 000FFC88) |
+//! | `NV_SCENE_ACTORS` | `1` keeps creatures and people in the picture; by default their 3D is hidden |
 //! | `NV_SCENE_FREEZE` | `0` leaves the world alone (time, weather, AI, interface) |
 
 use crate::places::{Place, PlaceFile};
@@ -23,6 +24,7 @@ pub const TIMEOUT: &str = "NV_SCENE_TIMEOUT_S";
 pub const HOUR: &str = "NV_SCENE_HOUR";
 pub const WEATHER: &str = "NV_SCENE_WEATHER";
 pub const FREEZE: &str = "NV_SCENE_FREEZE";
+pub const ACTORS: &str = "NV_SCENE_ACTORS";
 
 /// A scene run: which places, where the pictures go, and the ready condition's numbers.
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +35,8 @@ pub struct Request {
     pub timeout_s: u32,
     /// The frozen world: `Some((hour, weather form id))`, `None` for the world left alone.
     pub freeze: Option<(f32, u32)>,
+    /// Hide the 3D of every actor (not the player) in the cells around the place.
+    pub hide_actors: bool,
 }
 
 impl Request {
@@ -107,6 +111,7 @@ impl Request {
             settle_frames: number(SETTLE, 30)?,
             timeout_s: number(TIMEOUT, 120)?,
             freeze,
+            hide_actors: var(ACTORS).as_deref().map(str::trim) != Some("1"),
         }))
     }
 
@@ -158,6 +163,7 @@ mod tests {
         assert_eq!(r.places.len(), 2);
         assert_eq!((r.settle_frames, r.timeout_s, r.out), (30, 120, None));
         assert_eq!(r.freeze, Some((12.0, 0x000f_fc88)));
+        assert!(r.hide_actors);
     }
 
     #[test]
@@ -197,6 +203,15 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(off.freeze, None);
+    }
+
+    #[test]
+    fn actors_stay_in_the_picture_only_when_asked() {
+        let d = tmp("actors");
+        let keep = with(&[(FILE, file(&d)), (ACTORS, "1".into())])
+            .unwrap()
+            .unwrap();
+        assert!(!keep.hide_actors);
     }
 
     #[test]

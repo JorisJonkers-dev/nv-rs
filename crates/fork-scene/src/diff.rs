@@ -92,6 +92,20 @@ pub fn compare(a: &Picture, b: &Picture) -> Result<Difference, String> {
     })
 }
 
+/// The absolute difference of two pictures of one size as a picture, each channel times 4 (clipped),
+/// to see where two runs differ.
+pub fn difference_picture(a: &Picture, b: &Picture) -> Result<Picture, String> {
+    if (a.0, a.1) != (b.0, b.1) {
+        return Err("the pictures differ in size".into());
+    }
+    let rgb =
+        a.2.iter()
+            .zip(&b.2)
+            .map(|(x, y)| x.abs_diff(*y).saturating_mul(4))
+            .collect();
+    Ok((a.0, a.1, rgb))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

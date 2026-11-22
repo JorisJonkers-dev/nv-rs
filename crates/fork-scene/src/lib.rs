@@ -7,6 +7,7 @@ pub mod diff;
 pub mod places;
 pub mod png;
 pub mod request;
+pub mod stage;
 
 pub use places::{Place, PlaceFile};
 pub use request::Request;

@@ -26,7 +26,7 @@ Version 1, a small subset of TOML read by `fork-scene` (no dependency):
 version = 1
 [[place]]
 name = "lake-mead"       # letters, digits, - and _ (it names the picture file)
-world = "WastelandNV"    # an editor id this build knows, or the world space's form id in hex
+world = "WastelandNV"    # an editor id of any world space in the load order, or its form id in hex (six digits or more)
 x = 53799.8
 y = 38375.3
 z = 2917.4               # standing height
@@ -87,20 +87,40 @@ the interface hidden (the byte `ToggleMenus` flips, `0118c6f0`, and its change c
 the game's own placement. Not done yet: the idle ("vanity") camera setting (the capture settles well inside its 9 s),
 creatures already standing in the cell keep their idle animation, and the water and cloud animation are not pinned.
 
+## Actors
+
+By default the 3D of every actor but the player in the cells around the player (three cells each way) is hidden
+(`NiAVObject::SetAppCulled`, `00450f90`, on the reference's 3D, slot `0x1d0`), again every 15 frames and right
+before the picture. `NV_SCENE_ACTORS=1` keeps them. The log says how many were hidden.
+
 ## Determinism
 
-`nv-rs-scene compare A B` (a PNG pair, or two folders: same-named PNGs) prints, per picture, the mean absolute
-difference over all channel values (0 to 255), the largest channel difference and the percent of pixels with a
-channel difference above 8. The same five places in two runs started at the same time (frozen world, 200 settle
-frames, offscreen, `play` profile, base game, 1280x720):
+`NV_REPEATABLE` is set by the runner (unless it is set already; `NV_SCENE_REALTIME=1` keeps the real clock): the game's
+clock is the engine's virtual one, one fixed step a frame, so clouds, grass and water move by frame number, not by
+the wall clock. Two runs of the same build then give the same pictures: five places, two runs at the same time,
+mean difference 0.000 and 0.000% of pixels changed on every picture. Between two builds that differ by a frame in
+when a place is ready, the difference is at most 0.074 mean (0.27% of pixels, vegas-from-the-south). Without the
+virtual clock (real clock, frozen world, actors hidden) two runs differed by a mean of 0.5 to 1.8 and 1.7% to 9.9%
+of pixels, from the cloud layer's scroll and swaying grass and brush (`nv-rs-scene compare --diff-out` writes the
+difference picture). The cost: the virtual clock steps the threads, a five-place run takes about 48 s instead of 40 s.
 
-| place | mean | max | changed pixels |
-| --- | --- | --- | --- |
-| black-mountain-west | 1.22 | 145 | 5.9% |
-| colorado-river | 0.67 | 159 | 2.3% |
-| goodsprings-valley | 0.85 | 222 | 2.8% |
-| lake-mead | 2.62 | 198 | 6.2% |
-| vegas-from-the-south | 1.11 | 176 | 6.3% |
+`nv-rs-scene compare [--max-mean N] [--diff-out DIR] A B` prints, per picture (a PNG pair, or two folders: same-named
+PNGs), the mean absolute difference over all channel values (0 to 255), the largest channel difference and the
+percent of pixels with a channel difference above 8.
 
-Without the frozen world the same runs gave a dust tint and the HUD; with it two runs look the same by eye. The
-remaining difference has not been traced (lake-mead has creatures; water and cloud animation are the candidates).
+## Variants and the one command
+
+```
+nv-rs-scene run --viewer BIN --game INSTALL_DIR --places places.toml --out DIR \
+  [--userdata TEMPLATE_DIR] [--variant NAME[=OVERLAY_DIR]]... [--settle N] [--timeout S] [--jobs 3] [--wrap WORD]...
+```
+
+Each `--variant` is the installation's data (no overlay) or with an overlay folder over its `Data` (loose
+`meshes`, `textures`, `lodsettings`, and any `.esp` or `.esm` at the overlay's top, which is put in the plugin list).
+The tool stages a game folder of symbolic links per variant (`fork_scene::stage`: nothing is copied or written in the
+installation, a folder both sides have is merged, the overlay's file wins), starts one engine per variant (up to
+`--jobs` at once, `--wrap` words start the command, for a lock or a label), then prints, per variant, the exit
+status and the seconds it took, and the first variant's pictures against each other variant's. Two variants (the
+game's own LOD and a generated LOD folder), five places: 51 s in all, both engines at once. An overlay mounted by the
+engine's file layer, with no staged folder at all, is not built: the staging takes under a second.
+
