@@ -3,16 +3,16 @@
 #   nv-rs-dev build [--clean]    build only nv-viewer (profile "play") into a shared target dir; --clean: empty it first (cold build, timed)
 #   nv-rs-dev run [args]         run that build against the Steam game folder, log under ~/.local/state/nv-rs/logs
 #   nv-rs-dev smoke [--seconds N] [--shot]   run N seconds (default 60), stop it, print a PASS/FAIL checklist
-#   nv-rs-dev bench <run|list|report|compare|analyze> ...   scripted playthrough and benchmark runs (docs/fork/BENCH.md)
-#   nv-rs-dev scene <build|run|compare|soak|sweep|bench|bench-compare> ...   pictures of fixed places, soak and bench in Rust (docs/fork/SCENE.md); --viewer and --game default to this loop's build and the Steam game
+#   nv-rs-dev bench [clear-halt|compare A B] ...   the scene tool's bench (same as `scene bench`; docs/fork/SCENE.md, docs/fork/BENCH.md)
+#   nv-rs-dev scene <build|run|compare|soak|sweep|bench|bench-compare|guard|matrix|clean|replay|smoke-report> ...   pictures of fixed places, soak, bench, matrix and replay in Rust (docs/fork/SCENE.md); --viewer and --game default to this loop's build and the Steam game
 #   nv-rs-dev hitches <run.jsonl>   ranked hitch causes, triggers, worst frames and a timeline from a JSON log (docs/fork/HITCHES.md)
 #   nv-rs-dev runs [--last N] [--flagged] [--json] | show <id|latest>   recent real runs from their run summaries, with flags and trend
 #   nv-rs-dev logs [--run ID|latest|latest-bad] [--errors|--hitches|--tail N|--grep PAT|--around FRAME] [--diff A B] [--json] [--bundle]   what happened in a run (docs/fork/LOGS.md; also nv-rs-logs)
-#   nv-rs-dev replay <build|run|info|pack|synth|streams> ...   the replay-bench of a recorded Direct3D 9 stream, under the bench lock (docs/fork/REPLAY.md)
+#   nv-rs-dev replay <build|run|info|pack|synth|streams> ...   the replay-bench of a recorded Direct3D 9 stream, under the bench lock (docs/fork/REPLAY.md; `scene replay`)
 #   nv-rs-dev test <crate> [args]  cargo test -p <crate>
 #   nv-rs-dev affected [base]    the crates and components a diff reaches (default base origin/fork), as the pull request's CI selects them
 #   nv-rs-dev ci-lite [base]     fmt, clippy of the changed crates and the Linux test jobs of the affected components, as CI would run them
-#   nv-rs-dev matrix [spec.toml] [--ref R ...] ...   build, test and benchmark many refs, configs and hosts; one comparison report
+#   nv-rs-dev matrix [--ref R ...] [--baseline R] [--suite S] ...   build, test and benchmark many refs; one comparison report (`scene matrix`)
 #   nv-rs-dev compare <baseline-ref> <candidate-ref>  a two-ref matrix
 #   nv-rs-dev clean [--all]      remove this loop's own caches and matrix worktrees (sizes first)
 #   nv-rs-dev check [crate...]   fmt + clippy for the given crates (default: those changed against origin/fork)
@@ -28,17 +28,13 @@ case "$cmd" in
   run) dev_run "$@" ;;
   smoke) dev_smoke "$@" ;;
   bench)
-    # Scripted playthrough runs and their reports (docs/fork/BENCH.md). The run environment is dev_env's;
-    # sound is off unless NV_SOUND is set.
-    # Numbers are measured on the optimised build (`nv-rs-dev build --opt`, profile play-opt: 135.5 fps and a 1% low of 67
-    # on play became 143.4 and 82 in the first room), unless NV_DEV_PROFILE or NV_BENCH_VIEWER says otherwise.
-    # shellcheck disable=SC2034  # read by dev_viewer in lib.sh
-    DEV_PROFILE="${NV_DEV_PROFILE:-play-opt}"
-    [ -x "$(dev_viewer)" ] || [ -n "${NV_BENCH_VIEWER:-}" ] || { echo "no $(dev_viewer): run 'nv-rs-dev build --opt' first (or NV_DEV_PROFILE=play)" >&2; exit 2; }
-    NV_SOUND="${NV_SOUND:-none}"; dev_env
-    unset NV_SOUND   # the runner decides the sound (default: silent)
-    export NV_BENCH_VIEWER="${NV_BENCH_VIEWER:-$(dev_viewer)}" NV_BENCH_GAME="${NV_BENCH_GAME:-$GAME}"
-    exec python3 -I "$HERE/../bench/nvbench.py" "$@" ;;
+    # The scene tool's bench (docs/fork/SCENE.md "Bench"): `bench clear-halt` removes the memory guard's halt file,
+    # `bench compare A.json B.json` is `scene bench-compare`, anything else is `scene bench ...`.
+    case "${1:-}" in
+      clear-halt) shift; exec "$0" scene guard clear-halt "$@" ;;
+      compare) shift; exec "$0" scene bench-compare "$@" ;;
+      *) exec "$0" scene bench "$@" ;;
+    esac ;;
   scene)
     # The scene tool (crates/fork-scene, docs/fork/SCENE.md): `scene build` makes the viewer and the tool; the rest is
     # `nv-rs-scene <args>` with --viewer and --game filled in when the arguments do not give them.
@@ -49,26 +45,30 @@ case "$cmd" in
     [ -x "$tool" ] || { echo "no $tool: run 'nv-rs-dev scene build' first" >&2; exit 2; }
     extra=()
     case "${1:-}" in
-      run|soak|bench|sweep)
+      run|soak|bench|sweep|matrix)
         dev_env
         case " $* " in *" --viewer "*) ;; *) extra+=(--viewer "${NV_BENCH_VIEWER:-$(dev_viewer)}");; esac
-        case " $* " in *" --game "*) ;; *) extra+=(--game "$GAME");; esac ;;
+        case " $* " in *" --game "*) ;; *) extra+=(--game "$GAME");; esac
+        [ "${1:-}" != matrix ] || extra=(--repo "$DEV_REPO" --game "$GAME")
+        case "$*" in *--lock*) ;; *) case "${1:-}" in bench|matrix) extra+=(--lock "$HOME/Games/Fallout New Vegas RS/game.lock");; esac;; esac ;;
     esac
     sub="${1:-}"; [ $# -gt 0 ] && shift
     exec "$tool" "$sub" "${extra[@]}" "$@" ;;
   replay)
-    # The replay-bench (docs/fork/REPLAY.md): `build` makes the release binary; the rest is d3d9replay.py, which takes
+    # The replay-bench (docs/fork/REPLAY.md): `build` makes the release binary; the rest is `nv-rs-scene replay`, which takes
     # the bench lock for a measurement (`run`). Needs a Vulkan loader like the viewer does (dev_env's fallbacks).
     if [ "${1:-}" = build ]; then dev_cargo build --release -p d3d9-replay --bin d3d9-replay-bench; exit $?; fi
     dev_env
-    exec python3 -I "$HERE/../bench/d3d9replay.py" "$@" ;;
+    exec "$0" scene replay "$@" ;;
   test)
     [ $# -ge 1 ] || { echo "usage: nv-rs-dev test <crate> [cargo test args]" >&2; exit 2; }
     c="$1"; shift; dev_cargo test -p "$c" "$@" ;;
   hitches) exec python3 -I "$HERE/../hitches.py" "$@" ;;
   runs) exec python3 -I "$HERE/../runs.py" "$@" ;;
   logs) exec python3 -I "$HERE/../logs.py" "$@" ;;
-  matrix|compare|clean) exec python3 -I "$HERE/matrix.py" "$cmd" "$@" ;;
+  matrix) exec "$0" scene matrix "$@" ;;
+  compare) [ $# -eq 2 ] || { echo "usage: nv-rs-dev compare <baseline-ref> <candidate-ref>" >&2; exit 2; }; exec "$0" scene matrix --baseline "$1" --ref "$1" --ref "$2" ;;
+  clean) exec "$0" scene clean --repo "$DEV_REPO" "$@" ;;
   check) dev_check "$@" ;;
   affected) dev_affected "$@" ;;
   ci-lite) dev_ci_lite "$@" ;;

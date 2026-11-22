@@ -10,8 +10,10 @@
 //!   record, until its records are interpreted (the row `NV_COSAVE_KEEP` keeps it as bytes
 //!   today).
 //!
-//! - [`commands`]: `ActorHasBaseFlag`, the one command Tale of Two Wastelands' scripts call.
-//!   Every other command of the plugin is not built: a script that calls one fails at that line.
+//! - [`commands`]: `ActorHasBaseFlag`, the one command Tale of Two Wastelands' scripts call, and
+//!   the table of the commands built since for the mods of a large modded profile, group by group
+//!   (`provenance/`): [`lists`] (`ListAddList`, `ListAddArray`). Every other command of the plugin
+//!   is not built: a script that calls one fails at that line.
 //!
 //! The plugin answers "installed" only when its commands are ([`ANSWERS_INSTALLED`], or the
 //! switch [`set_answers_installed`] gives): a mod that checks for it then stops with its own
@@ -21,6 +23,9 @@
 pub mod commands;
 pub mod cosave;
 pub mod identity;
+pub mod lists;
+#[cfg(test)]
+mod test_support;
 
 use engine_core::prelude::*;
 
@@ -29,7 +34,7 @@ use engine_core::prelude::*;
 pub const ANSWERS_INSTALLED: bool = false;
 
 /// The command names this crate builds (long names), for the capabilities file.
-pub const COMMAND_NAMES: [&str; 1] = commands::COMMAND_NAMES;
+pub const COMMAND_NAMES: [&str; 3] = commands::COMMAND_NAMES;
 
 /// ShowOff xNVSE built in on this engine: its state, one slot per engine ([`Engine::ext`]).
 #[derive(Default)]

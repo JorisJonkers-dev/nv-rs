@@ -23,6 +23,7 @@ pub mod draw_thread;
 pub mod first_profile;
 pub mod fixes;
 pub mod fork_heap;
+pub mod fork_plugins;
 pub mod fork_trace;
 pub mod fork_ttw;
 pub mod form_types;
@@ -224,6 +225,13 @@ impl Host {
             fork_log::info!(target: "host", "{line}");
         }
         install_rows_and_extenders(&mut engine, choice);
+        // Plugin DLLs of the mods, when NV_PLUGIN_DLLS asks (off by default; ADR-0018).
+        for line in fork_plugins::load_all(
+            &mut engine,
+            std::env::var(fork_plugins::ENV).ok().as_deref(),
+        ) {
+            fork_log::info!(target: "host", "{line}");
+        }
         fork_log::info!(target: "host", "{}", choice.describe());
         // What the mods ship that the engine does not answer: one line per plugin DLL now, the
         // scripts' missing commands as the script runner meets them, a summary and a file at the

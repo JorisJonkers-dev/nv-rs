@@ -23,3 +23,11 @@ name and one integer parameter, how Tale of Two Wastelands' scripts call it (`re
 in conditions of trap scripts, and its opcode 0x3CE0 read from those scripts' compiled form) and the
 engine's own actor base layout (the flags word of TESActorBaseData). It answers 1 when that bit of
 the actor base's flags is set, 0 otherwise.
+
+Commands built from 2026-11-22 (nv-rs, for the commands the owner's modded profile calls): one file per
+group in `provenance/`, each naming the command pages it was written from and what the page leaves
+open. Same rule as above: from the plugin's public names, parameter lists and the GECK Wiki's
+behaviour pages (read in the owner's saved copies of 2026-11-21); the opcodes are the places of the
+names in the plugin's public registration list (names and order only, as above); no plugin code, no
+code or example text copied. The wiki pages state no licence of their own: the crate takes facts only
+(names, parameters, described results).

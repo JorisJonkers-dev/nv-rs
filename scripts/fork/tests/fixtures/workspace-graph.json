@@ -2084,6 +2084,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "plugin-host"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "qos"
     },
     {
@@ -2407,6 +2412,30 @@
    "features": [],
    "manifest_path": "/ws/crates/play-patch/Cargo.toml",
    "name": "play-patch"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/plugin-host/Cargo.toml",
+   "name": "plugin-host"
   },
   {
    "dependencies": [],

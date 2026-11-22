@@ -1,0 +1,4 @@
+Cargo.toml  # workspace member crates/plugin-host (the plugin DLL loader, ADR-0018)
+Cargo.lock  # the plugin-host crate and the host's dependency on it
+crates/host/Cargo.toml  # dependency on plugin-host
+crates/host/src/lib.rs  # `pub mod fork_plugins;` and its one call after install_rows_and_extenders: plugin DLLs of the mods, loaded only when NV_PLUGIN_DLLS asks (off by default)

@@ -1,0 +1,15 @@
+[package]
+name = "plugin-host"
+version = "0.1.0"
+description = "Loads script-extender plugin DLLs (32-bit x86) into the guest address space and runs them in an interpreter (ADR-0018), behind a setting that is off by default"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+nvse = { path = "../nvse" }
+
+[dev-dependencies]
+nvse = { path = "../nvse", features = ["test-support"] }

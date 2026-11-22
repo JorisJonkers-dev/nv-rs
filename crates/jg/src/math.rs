@@ -21,7 +21,7 @@ use crate::commands::Cmd;
 use crate::identity::OPCODE_BASE;
 use engine_core::prelude::*;
 use nvse::commands::Read;
-use nvse::table::Param;
+use nvse::table::{Param, Returns};
 use nvse::{handled, CommandArgs};
 
 const fn float(name: &'static str) -> Param {
@@ -44,6 +44,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: THREE_FLOATS,
         execute: clamp,
         eval: None,
+        returns: Returns::Default,
     },
     Cmd {
         opcode: OPCODE_BASE + 0x57,
@@ -52,6 +53,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: THREE_FLOATS,
         execute: lerp,
         eval: None,
+        returns: Returns::Default,
     },
     Cmd {
         opcode: OPCODE_BASE + 0x5a,
@@ -60,6 +62,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: ONE_FLOAT,
         execute: sign,
         eval: None,
+        returns: Returns::Default,
     },
 ];
 
