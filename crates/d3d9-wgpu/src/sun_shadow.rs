@@ -3567,8 +3567,8 @@ impl Gpu {
                     layer(&self.statics),
                     layer(&self.live),
                     wgpu::Extent3d {
-                        width: SIZE,
-                        height: SIZE,
+                        width: map_size(),
+                        height: map_size(),
                         depth_or_array_layers: 1,
                     },
                 );
