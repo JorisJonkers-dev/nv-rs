@@ -104,6 +104,11 @@ pub static COMMANDS: [Cmd; 5] = [
     },
 ];
 
+/// Every command this crate builds, group by group, in the order of the groups' files.
+pub fn all() -> impl Iterator<Item = &'static Cmd> {
+    COMMANDS.iter().chain(crate::math::COMMANDS.iter())
+}
+
 /// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).
 fn guest_params(e: &mut Engine, params: &[Param]) -> u32 {
     let at = table::alloc(e, 12 * params.len() as u32);
@@ -119,13 +124,9 @@ fn guest_params(e: &mut Engine, params: &[Param]) -> u32 {
 
 /// Registers the five commands at their opcodes, the table grown to the last of them.
 pub fn install(e: &mut Engine) {
-    let last = COMMANDS
-        .iter()
-        .map(|c| c.opcode)
-        .max()
-        .unwrap_or(OPCODE_BASE);
+    let last = all().map(|c| c.opcode).max().unwrap_or(OPCODE_BASE);
     table::grow_to(e, last + 1);
-    for c in &COMMANDS {
+    for c in all() {
         let execute = table::execute_address(c.opcode);
         e.register(execute, c.execute);
         let eval = c.eval.map_or(0, |f| {
