@@ -208,8 +208,10 @@ Worlds are found by editor id (`WastelandNV`, the Capital Wasteland's `Wasteland
 Two defects on the way: a start with the 18 TTW plugins in the fixes preset stopped with `JohnnyGuitarNVSE: registered
 twice` (nv-rs#482: the editor ids crate and the plugin crate both registered the plugin; one record now carries both
 halves); and the second place of a start timed out on the Menu screen (the new game's message boxes, closed by the
-runner now). Five Mojave places on a clean TTW folder in one start: 97 s. `scenes/ttw-capital.toml` has three Capital
-Wasteland views by landmark. Two runs of the same five places gave identical pictures in three places and differed by at most 0.62%
+runner now). Five Mojave places on a clean TTW folder in one start: 97 s. `scenes/ttw-capital.toml` has four Capital
+Wasteland views by landmark (the fourth, `rivet-city-from-the-river-bank`, stands on the river's east bank and looks across the
+water at the carrier with the free camera; a place 12000 units north-east of the marker sat in a loading screen and was not
+reached in 150 s: the engine side of that is not looked into). Two runs of the same five places gave identical pictures in three places and differed by at most 0.62%
 of pixels (brush clumps, mean 0.16) in two; the runs fall in two groups of identical pictures, cause not traced.
 
 ## Places by reference

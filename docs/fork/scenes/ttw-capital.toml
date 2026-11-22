@@ -35,3 +35,21 @@ dx = -10000
 dy = -4000
 dz = 800
 look_at = "TenpennyTowerMapMarker"
+
+# Rivet City from the Potomac's bank: the carrier moored along the river, its island and deck, the bank with the ruined
+# plaza in the foreground, the Jefferson Memorial and the ruins beyond. The map marker sits on the flight deck, so the
+# player stands on the bank 7000 units east of it (the ground there is the rocky slope; the first of the TTW place
+# files that uses the free camera) and the camera hangs 1300 above it, 2000 further east and 6000 north, looking at the
+# marker. (Standing ground levels 7000 east, 12000 east and 9000 north-east of the marker hang in a loading screen or
+# land under the hull: this one was found by looking.)
+[[place]]
+name = "rivet-city-from-the-river-bank"
+world = "Wasteland"
+ref = "RivetCityMapMarker"
+dx = 7000
+dy = 0
+dz = 900
+camera_dx = 2000
+camera_dy = 6000
+camera_dz = 1300
+look_at = "RivetCityMapMarker"
