@@ -1098,4 +1098,34 @@ exit 0
         );
         std::fs::remove_dir_all(&t).unwrap();
     }
+
+    #[test]
+    fn the_guard_smoke_matrix_clean_and_replay_commands_refuse_bad_requests_and_report() {
+        assert_eq!(guard_command(&s(&["status"])), Ok(true));
+        assert!(guard_command(&s(&["bogus"])).unwrap_err().contains("usage"));
+        assert!(guard_command(&[]).is_err());
+        let t = tmp("cmds");
+        let log = t.join("run.log");
+        std::fs::write(&log, "is real window\n").unwrap();
+        let l = log.display().to_string();
+        assert_eq!(smoke_report(&s(&[&l, "0", "5"])), Ok(false));
+        assert!(smoke_report(&s(&[&l])).unwrap_err().contains("usage"));
+        assert!(smoke_report(&s(&[&t.join("none").display().to_string(), "0", "5"])).is_err());
+        assert!(matrix_command(&s(&["--ref", "a"]))
+            .unwrap_err()
+            .contains("usage"));
+        assert!(matrix_command(&s(&["--bogus"]))
+            .unwrap_err()
+            .contains("unknown"));
+        assert!(clean_command(&s(&["--bogus"]))
+            .unwrap_err()
+            .contains("unknown"));
+        assert!(clean_command(&s(&["--repo", &t.display().to_string()])).is_err());
+        assert!(replay_command(&[]).unwrap_err().contains("usage"));
+        assert!(replay_command(&s(&["bogus"]))
+            .unwrap_err()
+            .contains("usage"));
+        assert_eq!(replay_command(&s(&["streams"])), Ok(true));
+        std::fs::remove_dir_all(&t).unwrap();
+    }
 }
