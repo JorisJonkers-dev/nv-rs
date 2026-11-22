@@ -4192,6 +4192,20 @@ mod tests {
     /// The maps look along the light the lit shaders use (the game view's `to_sun`, the way toward
     /// the sun light), at the traced 17:30 direction: from the west, north and 11 degrees up.
     #[test]
+    fn every_map_extent_follows_the_run_map_size() {
+        // A copy or texture sized by the constant [`SIZE`] instead of [`map_size`] fails wgpu's
+        // validation at the other levels (a still-caster copy did, while levels were built).
+        let code = include_str!("sun_shadow.rs");
+        let fixed: Vec<&str> = code
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//") && !l.contains("contains(\""))
+            .filter(|l| l.contains(": SIZE,"))
+            .collect();
+        assert!(fixed.is_empty(), "sized by SIZE, not map_size(): {fixed:?}");
+    }
+
+    #[test]
     fn the_map_size_is_one_of_the_three_levels() {
         // Not set here: the tests share the run's size, the default.
         assert_eq!(map_size(), SIZE);
