@@ -10,6 +10,11 @@
 //!   editor-id store answers for every form when its row is on (`crates/johnnyguitar`); the
 //!   store matches without case, so the found form's own name is compared exactly and a name that
 //!   differs in case answers 0.
+//! - `GetFormOverrideIndex form`: "the index of the last mod overriding a specific form". The
+//!   form's own list of files (`TESForm`'s `+0x10`, a `tList` of file records, the file that made
+//!   it first, the last that changed it last) is walked to its last file, and that file's index
+//!   (`+0x40c`) is the answer. A form without a file (made while the game runs) answers -1, as
+//!   does a call whose form is missing or invalid; the page leaves both open.
 //! - `GetEditorID form`: "the Editor ID of a form as a string; if a reference is passed instead
 //!   of a base form, the editor ID of that specific reference; if none was set, an empty string".
 //!   Asked of the form's `GetName`-slot virtual function (`+0x130`), which is what the store's
@@ -34,6 +39,11 @@ const ONE_STRING: &[Param] = &[Param {
     kind: STRING,
     optional: false,
 }];
+const ONE_FORM: &[Param] = &[Param {
+    name: "form",
+    kind: ANY_FORM,
+    optional: false,
+}];
 const ONE_OPTIONAL_FORM: &[Param] = &[Param {
     name: "form",
     kind: ANY_FORM,
@@ -41,7 +51,7 @@ const ONE_OPTIONAL_FORM: &[Param] = &[Param {
 }];
 
 /// The commands, in the order of their opcodes.
-pub static COMMANDS: [Cmd; 2] = [
+pub static COMMANDS: [Cmd; 3] = [
     Cmd {
         opcode: OPCODE_BASE + 0x14,
         name: "GetEditorID",
@@ -50,6 +60,15 @@ pub static COMMANDS: [Cmd; 2] = [
         execute: get_editor_id,
         eval: None,
         returns: Returns::String,
+    },
+    Cmd {
+        opcode: OPCODE_BASE + 0x6d,
+        name: "GetFormOverrideIndex",
+        short: "",
+        params: ONE_FORM,
+        execute: get_form_override_index,
+        eval: None,
+        returns: Returns::Default,
     },
     Cmd {
         opcode: OPCODE_BASE + 0x28,
@@ -110,6 +129,39 @@ fn editor_id_to_form_id(e: &mut Engine, w: &[u32]) -> Ret {
         if form != 0 {
             let id = e.mem.u32(form + FORM_ID);
             a.set_form_result(e, id);
+        }
+    }
+    handled(true)
+}
+
+/// `TESForm`'s list of files (`+0x10`, nodes of file and next) and `ModInfo`'s file index.
+const FORM_FILES: u32 = 0x10;
+const MOD_INDEX: u32 = 0x40c;
+
+/// The index of the last file in the form's list; `None` for a form with no file.
+fn last_file_index(e: &Engine, form: u32) -> Option<u8> {
+    let mut node = form + FORM_FILES;
+    // A bound on the walk: no load order has more files than a byte can index.
+    for _ in 0..=0x100 {
+        let next = e.mem.u32(node + 4);
+        if next == 0 {
+            break;
+        }
+        node = next;
+    }
+    match e.mem.u32(node) {
+        0 => None,
+        file => Some(e.mem.u8(file + MOD_INDEX)),
+    }
+}
+
+fn get_form_override_index(e: &mut Engine, w: &[u32]) -> Ret {
+    let a = CommandArgs::new(w);
+    a.set_result(e, -1.0);
+    let read = Read::of(e, &a);
+    if read.ok && read.form(0) != 0 {
+        if let Some(index) = last_file_index(e, read.form(0)) {
+            a.set_result(e, f64::from(index));
         }
     }
     handled(true)

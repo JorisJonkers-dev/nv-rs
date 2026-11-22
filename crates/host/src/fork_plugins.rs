@@ -11,6 +11,9 @@ pub const ENV: &str = "NV_PLUGIN_DLLS";
 /// (`msvcp140.dll`): each `.dll` in it is mapped before the plugins, like any other DLL.
 /// Nothing of Microsoft's is shipped with the engine.
 pub const RUNTIME_ENV: &str = "NV_PLUGIN_RUNTIME";
+/// The user's own unpacked `FalloutNV.exe` (1.4.0.525), whose code bytes a plugin that checks
+/// what it patches then reads (the Steam executable's code is encrypted and is refused).
+pub const CODE_ENV: &str = "NV_PLUGIN_CODE";
 const FOLDER: &[u8] = b"Data\\NVSE\\Plugins";
 
 /// DLLs whose plugin the engine has built in: not loaded (the built-in answers), by file name
@@ -86,6 +89,16 @@ pub fn load_with(e: &mut Engine, var: Option<&str>, runtime: Option<&str>) -> Ve
     if let Some(dir) = runtime.filter(|d| !d.is_empty()) {
         lines.extend(load_runtime(e, dir));
     }
+    if let Some(path) = std::env::var(CODE_ENV).ok().filter(|p| !p.is_empty()) {
+        lines.push(match std::fs::read(&path) {
+            Ok(b) => match plugin_host::supply_code_from_exe(e, &b) {
+                Ok(n) => format!("plugin DLLs: the game's code supplied from {path}: {n} bytes"),
+                Err(why) => format!("plugin DLLs: the game's code not supplied from {path}: {why}"),
+            },
+            Err(err) => format!("plugin DLLs: {path} cannot be read: {err}"),
+        });
+    }
+    let mut todo: Vec<(String, Vec<u8>)> = Vec::new();
     for file in files {
         if built_in(&file) {
             lines.push(format!(
@@ -96,11 +109,15 @@ pub fn load_with(e: &mut Engine, var: Option<&str>, runtime: Option<&str>) -> Ve
         let mut path = FOLDER.to_vec();
         path.push(b'\\');
         path.extend_from_slice(file.as_bytes());
-        let Some(bytes) = engine_core::mod_files::read(e, &path) else {
-            lines.push(format!("plugin DLLs: {file}: cannot be read"));
-            continue;
-        };
-        match plugin_host::load(e, &file, &bytes) {
+        match engine_core::mod_files::read(e, &path) {
+            Some(bytes) => todo.push((file, bytes)),
+            None => lines.push(format!("plugin DLLs: {file}: cannot be read")),
+        }
+    }
+    // As xNVSE does: every DLL mapped, then each queried, then each loaded.
+    let results = plugin_host::load_many(e, &todo);
+    for ((file, _), r) in todo.iter().zip(results) {
+        match r {
             Ok(i) => {
                 let p = &plugin_host::plugins_loaded(e)[i];
                 lines.push(format!(

@@ -42,20 +42,36 @@ pub(crate) fn rt(e: &mut Engine) -> &mut Rt {
     &mut state(e).rt
 }
 
-pub(crate) fn rd(e: &Engine, a: u32, n: u32) -> Result<Vec<u8>, Stop> {
+pub(crate) fn rd(e: &mut Engine, a: u32, n: u32) -> Result<Vec<u8>, Stop> {
     let mut v = vec![0u8; n as usize];
-    e.mem.try_read(a, &mut v).map_err(|_| Stop::Fault {
-        addr: a,
-        write: false,
-    })?;
+    if e.mem.try_read(a, &mut v).is_err() {
+        if !crate::patches::in_image(a, n) {
+            return Err(Stop::Fault {
+                addr: a,
+                write: false,
+            });
+        }
+        // The game's code is not here: what the plugin wrote there itself, else the supplied
+        // code image, else zeros.
+        state(e).shadow.borrow_mut().read(a, &mut v);
+    }
     Ok(v)
 }
 
 pub(crate) fn wr(e: &mut Engine, a: u32, d: &[u8]) -> Result<(), Stop> {
-    e.mem.try_write(a, d).map_err(|_| Stop::Fault {
-        addr: a,
-        write: true,
-    })
+    if d.is_empty() {
+        return Ok(());
+    }
+    if e.mem.try_write(a, d).is_err() {
+        if !crate::patches::in_image(a, d.len() as u32) {
+            return Err(Stop::Fault {
+                addr: a,
+                write: true,
+            });
+        }
+        state(e).shadow.borrow_mut().write(a, d);
+    }
+    Ok(())
 }
 
 fn cstr(e: &Engine, a: u32) -> Result<Vec<u8>, Stop> {
