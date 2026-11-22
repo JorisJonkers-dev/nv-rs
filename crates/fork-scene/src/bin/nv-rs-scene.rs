@@ -172,7 +172,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         resolution = "640x360".to_string();
         settle = "100".to_string();
     }
-    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--jobs N] [--wrap WORD]...";
+    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--jobs N] [--game-lock FILE --label NAME [--who NAME]] [--wrap WORD]...";
     let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
         return Err(usage.into());
     };
@@ -521,8 +521,85 @@ fn bench_compare(args: &[String]) -> Result<bool, String> {
     Ok(true)
 }
 
+/// The arguments of `run`, `soak` and `bench` made ready for the viewer's own start: a relative path is resolved against
+/// the current directory (the viewer runs in another one), and `--game-lock FILE`, `--label NAME` and `--who NAME`
+/// become the wrap words that take the shared game lock and label the start (`flock -s FILE gamerun NAME --who WHO --`).
+fn expand_args(args: &[String], cwd: &Path) -> Result<Vec<String>, String> {
+    let absolute = |p: &str| {
+        let path = Path::new(p);
+        if path.is_absolute() {
+            p.to_string()
+        } else {
+            cwd.join(path).display().to_string()
+        }
+    };
+    let (mut out, mut lock, mut label, mut who) = (Vec::new(), None, None, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
+        match a.as_str() {
+            "--viewer" | "--game" | "--places" | "--out" | "--userdata" | "--lock"
+            | "--overlay" => {
+                out.push(a.clone());
+                out.push(absolute(&value(a)?));
+            }
+            "--variant" => {
+                out.push(a.clone());
+                let v = value(a)?;
+                out.push(match v.split_once('=') {
+                    Some((n, o)) => format!(
+                        "{n}={}",
+                        o.split('+').map(&absolute).collect::<Vec<_>>().join("+")
+                    ),
+                    None => v,
+                });
+            }
+            "--game-lock" => lock = Some(absolute(&value(a)?)),
+            "--label" => label = Some(value(a)?),
+            "--who" => who = Some(value(a)?),
+            _ => out.push(a.clone()),
+        }
+    }
+    if who.is_some() && label.is_none() {
+        return Err("--who needs --label".into());
+    }
+    let mut words: Vec<&str> = Vec::new();
+    if let Some(l) = &lock {
+        words.extend(["flock", "-s", l]);
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let gamerun = format!("{home}/.local/bin/gamerun");
+    if let Some(l) = &label {
+        words.extend([
+            gamerun.as_str(),
+            l,
+            "--who",
+            who.as_deref().unwrap_or("engine"),
+            "--",
+        ]);
+    }
+    for w in words {
+        out.push("--wrap".into());
+        out.push(w.into());
+    }
+    Ok(out)
+}
+
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(
+        args.first().map(String::as_str),
+        Some("run" | "soak" | "bench")
+    ) {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        match expand_args(&args[1..], &cwd) {
+            Ok(rest) => args.splice(1.., rest).for_each(drop),
+            Err(e) => {
+                eprintln!("{e}");
+                return ExitCode::from(2);
+            }
+        }
+    }
     let result = match args.first().map(String::as_str) {
         Some("compare") => run(&args[1..]),
         Some("run") => run_variants(&args[1..]),
@@ -675,6 +752,41 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn relative_paths_are_resolved_and_the_lock_and_label_become_wrap_words() {
+        let a = expand_args(
+            &s(&[
+                "--places",
+                "p.toml",
+                "--viewer",
+                "/bin/v",
+                "--variant",
+                "x=o1+/abs",
+                "--game-lock",
+                "g.lock",
+                "--label",
+                "lbl",
+                "--settle",
+                "50",
+            ]),
+            Path::new("/work"),
+        )
+        .unwrap();
+        assert_eq!(&a[..2], ["--places", "/work/p.toml"]);
+        assert_eq!(&a[2..4], ["--viewer", "/bin/v"]);
+        assert_eq!(&a[4..6], ["--variant", "x=/work/o1+/abs"]);
+        assert_eq!(&a[6..8], ["--settle", "50"]);
+        let wraps: Vec<&str> = a[8..]
+            .iter()
+            .filter(|w| *w != "--wrap")
+            .map(String::as_str)
+            .collect();
+        assert_eq!(&wraps[..3], ["flock", "-s", "/work/g.lock"]);
+        assert!(wraps[3].ends_with("/.local/bin/gamerun"));
+        assert_eq!(&wraps[4..], ["lbl", "--who", "engine", "--"]);
+        assert!(expand_args(&s(&["--who", "x"]), Path::new("/")).is_err());
+    }
+
     #[test]
     fn run_stages_each_variant_starts_the_viewer_and_compares_their_pictures() {
         let t = tmp("run");

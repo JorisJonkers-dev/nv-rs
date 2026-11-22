@@ -147,6 +147,10 @@ nv-rs-scene run --viewer BIN --game INSTALL_DIR --places places.toml --out DIR \
   [--userdata TEMPLATE_DIR] [--variant NAME[=OVERLAY_DIR]]... [--settle N] [--timeout S] [--jobs 3] [--wrap WORD]...
 ```
 
+Relative paths (`--places`, `--out`, ...) are taken from the current directory. `--game-lock FILE --label NAME [--who NAME]`
+is the shorthand for the wrap words `flock -s FILE gamerun NAME --who NAME --` (the shared game lock and the Mission Center
+label; `--who` defaults to `engine`); `soak` takes it too, `bench` takes `--lock` (exclusive) and `--label`.
+
 Each `--variant` is the installation's data (no overlay) or with an overlay folder over its `Data` (loose
 `meshes`, `textures`, `lodsettings`, and any `.esp` or `.esm` at the overlay's top, which is put in the plugin list).
 The tool stages a game folder of symbolic links per variant (`fork_scene::stage`: nothing is copied or written in the
