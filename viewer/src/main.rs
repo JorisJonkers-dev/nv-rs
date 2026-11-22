@@ -438,6 +438,9 @@ pub fn run() {
             host::end_process(1);
         }
     };
+    if let Some(runner) = &scene {
+        runner.prepare_environment();
+    }
     let mut game = match host::Host::start_with(&data, &choice) {
         Ok(host) => host,
         Err(e) => {

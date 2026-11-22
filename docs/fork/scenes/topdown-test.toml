@@ -1,0 +1,49 @@
+# Measurement: a straight-down picture of a 4 by 4 cell block (16384 units square), nv-rs#479. The player stands inside the
+# loaded square; the free camera hangs 60000 up over the block's centre, aimed straight down (pitch 89 is the place file's
+# limit, so the camera sits 1047 units off the centre, south, to look at it) with a narrow lens and no fog.
+#
+# The game's field of view is the angle of a 4:3 picture: the vertical half-angle's tangent is 0.75 * tan(fov / 2) whatever
+# the picture's shape, so a square picture (nv-rs-scene run --resolution 1024x1024) shows a square. The ground is
+# not at one height; the fov below was set by looking (23.9 fills a 16384 block at Goodsprings: two pictures with the
+# camera 2048 apart shifted 136 pixels, 15400 units across the picture's ground).
+version = 1
+
+# Mojave: the cells x -20..-17, y -1..2 around Goodsprings (a cell is 4096 units); centre -73728, 4096.
+[[place]]
+name = "mojave-block"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+pitch = 89
+camera = [-73728, 3049, 60000]
+fov = 23.9
+fog = false
+
+# Mojave, Novac: a block centred on the town.
+[[place]]
+name = "mojave-novac-block"
+world = "WastelandNV"
+x = 21836
+y = -31072
+z = 6973
+pitch = 89
+camera = [21836, -32119, 60000]
+fov = 23.9
+fog = false
+
+# Capital Wasteland (a Tale of Two Wastelands load order): the player 10000 west and 4000 south of Tenpenny Tower, the
+# camera 60000 above the tower's marker.
+[[place]]
+name = "capital-block"
+world = "Wasteland"
+ref = "TenpennyTowerMapMarker"
+dx = -10000
+dy = -4000
+dz = 800
+pitch = 89
+camera_dx = 10000
+camera_dy = 2953
+camera_dz = 60000
+fov = 20.4
+fog = false

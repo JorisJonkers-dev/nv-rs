@@ -1,0 +1,22 @@
+# Interiors by the cell's editor id (nv-rs#479): the player is placed into the cell the way a door or `coc` does. With no
+# position a place starts at the cell's own start marker (what `coc` uses) and faces its heading; dx, dy, dz offset from it,
+# or x, y, z are a position in the cell's own coordinates, or `ref` is a marker or door reference placed in the cell.
+version = 1
+
+[[place]]
+name = "docs-house"
+cell = "GSDocMitchellHouse"      # Doc Mitchell's house, a small one
+
+[[place]]
+name = "tops-casino-floor"
+cell = "TOPSCasino"              # The Tops casino main floor, a large one
+
+[[place]]
+name = "lucky38-casino"
+cell = "Lucky38CasinoFloor01"    # Lucky 38 casino floor, the largest of the three
+
+[[place]]
+name = "lucky38-casino-high"     # the same floor from above its start marker (the free camera, the player stands)
+cell = "Lucky38CasinoFloor01"
+camera_dz = 500
+pitch = 25

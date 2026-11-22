@@ -1,0 +1,74 @@
+# nv-rs-scene soak: many far moves in one engine start (nv-rs#455: several far moves in a row stopped the game,
+# nv-rs#479: the old driver hung at the fourth view of a session). Heights are rough: the game's own placement
+# settles the player on the land.
+version = 1
+[[place]]
+name = "goodsprings"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+[[place]]
+name = "ncr-farms"
+world = "WastelandNV"
+x = -9320
+y = 85176
+z = 4368
+heading = 0
+[[place]]
+name = "boulder-beach"
+world = "WastelandNV"
+x = 53808
+y = 38384
+z = 3850
+heading = 60
+[[place]]
+name = "cottonwood-overlook"
+world = "WastelandNV"
+x = 62699
+y = -97604
+z = 20
+heading = 90
+[[place]]
+name = "hoover-dam-road"
+world = "WastelandNV"
+x = 66000
+y = 24000
+z = 2500
+heading = 0
+[[place]]
+name = "black-mountain"
+world = "WastelandNV"
+x = 3171
+y = 11634
+z = 11100
+heading = 270
+[[place]]
+name = "el-dorado-dry-lake"
+world = "WastelandNV"
+x = 31159
+y = 10965
+z = 5400
+heading = 90
+[[place]]
+name = "novac"
+world = "WastelandNV"
+x = 21836
+y = -31072
+z = 6973
+heading = 0
+[[place]]
+name = "goodsprings-again"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 180
+[[place]]
+name = "boulder-beach-again"
+world = "WastelandNV"
+x = 53808
+y = 38384
+z = 3850
+heading = 240

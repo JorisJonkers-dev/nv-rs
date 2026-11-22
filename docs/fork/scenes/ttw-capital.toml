@@ -1,0 +1,60 @@
+# Capital Wasteland far views by landmark, for a Tale of Two Wastelands load order (world editor id "Wasteland"): each
+# stands at a map marker plus an offset (world units) and faces a marker; the game's placement settles the player on
+# the land. Chosen so that missing distant objects show at a glance.
+version = 1
+
+# The ruined skyline of Washington from the south-west with the Washington Monument among the towers: tall far object
+# LOD (the monument is the one thing to look for; the broken towers are the mass).
+[[place]]
+name = "washington-skyline-and-monument"
+world = "Wasteland"
+ref = "WashMonMapMarker"
+dx = 0
+dy = -12000
+dz = 800
+look_at = "WashMonMapMarker"
+
+# The Washington Monument and the Mall across the Potomac, from the bank by the Lincoln Memorial, with the bridge on
+# the right: the monument at distance and the far bank's buildings; the bridge is a mid-distance object.
+[[place]]
+name = "monument-across-the-river"
+world = "Wasteland"
+ref = "LincolnMemorialMapMarker"
+dx = -9000
+dy = 0
+dz = 800
+look_at = "WashMonMapMarker"
+
+# Tenpenny Tower from the plain to the south-west: a tall single building standing alone, the cleanest test of far
+# object LOD for one object, with dead trees (tree LOD) and shacks around it.
+[[place]]
+name = "tenpenny-tower-from-the-plain"
+world = "Wasteland"
+ref = "TenpennyTowerMapMarker"
+dx = -10000
+dy = -4000
+dz = 800
+look_at = "TenpennyTowerMapMarker"
+
+# Rivet City from the Potomac's bank: the carrier moored along the river, its island and deck, the bank with the ruined
+# plaza in the foreground, the Jefferson Memorial and the ruins beyond. The map marker sits on the flight deck, so the
+# player stands on the bank 7000 units east of it (the ground there is the rocky slope; the first of the TTW place
+# files that uses the free camera) and the camera hangs 1300 above it, 2000 further east and 6000 north, looking at the
+# marker. Found by looking: standing 14000 east of the marker put the player under the hull, 12000 north-east of it hung
+# in a loading screen.
+[[place]]
+name = "rivet-city-from-the-river-bank"
+world = "Wasteland"
+ref = "RivetCityMapMarker"
+dx = 7000
+dy = 0
+dz = 900
+camera_dx = 2000
+camera_dy = 6000
+camera_dz = 1300
+look_at = "RivetCityMapMarker"
+
+# An interior of the Capital Wasteland, by the cell's editor id (Tenpenny Tower's lobby): the interior route on the TTW folder.
+[[place]]
+name = "tenpenny-lobby"
+cell = "Tenpenny01"

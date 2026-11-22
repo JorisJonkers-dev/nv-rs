@@ -1085,11 +1085,15 @@ dependencies = [
 [[package]]
 name = "fork-scene"
 version = "0.1.0"
+dependencies = [
+ "flate2",
+]
 
 [[package]]
 name = "fork-scene-run"
 version = "0.1.0"
 dependencies = [
+ "d3d9-wgpu",
  "engine",
  "engine-core",
  "fork-log",
