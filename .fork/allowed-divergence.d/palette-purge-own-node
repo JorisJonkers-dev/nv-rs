@@ -1,0 +1,1 @@
+crates/engine-gamebryo/src/units/nimain/bstexturepalette.rs  # PurgeUnusedTextures removes the purged item's own entry-map node, not the first node with its key, so no node points at freed memory (nv-rs#487 family, modded profile stop in 00a57020)
