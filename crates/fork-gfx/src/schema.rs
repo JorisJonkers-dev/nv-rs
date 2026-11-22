@@ -33,7 +33,27 @@ pub struct Setting {
     pub key: &'static str,
     pub label: &'static str,
     pub help: &'static str,
+    /// When a change takes effect in a running game.
+    pub applies: Applies,
     pub kind: Kind,
+}
+
+/// When a change of a setting takes effect in a running game.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Applies {
+    /// In the next frame.
+    Live,
+    /// At the next start of the game (the overlay and raul say so).
+    NextStart,
+}
+
+impl Applies {
+    pub fn name(self) -> &'static str {
+        match self {
+            Applies::Live => "live",
+            Applies::NextStart => "next_start",
+        }
+    }
 }
 
 /// The type of a setting, with its default: the value that draws the original picture.
@@ -289,6 +309,7 @@ pub(crate) mod tests {
                 key: "quality",
                 label: "Quality",
                 help: "How many samples.",
+                applies: Applies::Live,
                 kind: Kind::Choice {
                     options: &QUALITY,
                     default: "off",
@@ -298,6 +319,7 @@ pub(crate) mod tests {
                 key: "strength",
                 label: "Strength",
                 help: "How dark.",
+                applies: Applies::Live,
                 kind: Kind::Slider {
                     min: 0.1,
                     max: 1.0,
@@ -326,12 +348,14 @@ pub(crate) mod tests {
                 key: "enabled",
                 label: "Fog",
                 help: "Off: no distance fog.",
+                applies: Applies::NextStart,
                 kind: Kind::Toggle { default: true },
             },
             Setting {
                 key: "distance",
                 label: "Distance",
                 help: "Scales the fog's distances.",
+                applies: Applies::Live,
                 kind: Kind::Slider {
                     min: 0.5,
                     max: 4.0,
@@ -392,6 +416,7 @@ pub(crate) mod tests {
                 key: "s",
                 label: "S",
                 help: "s",
+                applies: Applies::Live,
                 kind: Kind::Slider {
                     min: 0.0,
                     max: 1.0,
@@ -426,6 +451,7 @@ pub(crate) mod tests {
                 key: "c",
                 label: "C",
                 help: "c",
+                applies: Applies::Live,
                 kind: Kind::Choice {
                     options: &QUALITY,
                     default: "medium",

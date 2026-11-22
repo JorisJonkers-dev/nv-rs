@@ -19,7 +19,7 @@ pub mod settings;
 pub mod value;
 
 pub use module::{GraphicsModule, Live, Registry};
-pub use schema::{Choice, Insertion, Kind, ModuleSpec, Owns, Setting, Typed};
+pub use schema::{Applies, Choice, Insertion, Kind, ModuleSpec, Owns, Setting, Typed};
 pub use settings::{
     resolve, Inputs, Layer, ModuleSettings, Place, PlaceName, Preset, Presets, Resolved,
     SettingsFile, Source, FILE_NAME, LAYER_WORDS, ORIGINAL,

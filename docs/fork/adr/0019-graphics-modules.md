@@ -40,6 +40,7 @@ plugin DLLs, no scripting), registered in one list. Its declaration is plain dat
 | `id` | its key in the settings file (`ao`, `shadows`, `bloom`, `dof`, `fog`) |
 | `label`, `help` | what the player reads in the overlay and in raul |
 | `settings` | typed entries: a toggle, a slider (range and step) or a choice (named options); each with the value that draws the original picture as its default |
+| `applies` (per setting) | `live` (in the next frame) or `next_start` (some switches are fixed when the game makes its device: the overlay and raul say so) |
 | `owns` | what it switches or adds: a switch of existing code (`NV_AO`), a value of the game's own data it scales (a fog distance, an image-space field), or a pass with its insertion point (after the world, inside the HDR chain, where AO and the sun shadows hook in today; or at the present) |
 | `cost` | where its measured cost is written (`docs/fork/GRAPHICS.md`), filled from `nv-rs-scene bench` |
 
@@ -131,8 +132,8 @@ scene tool's `--env`, and a place file's `gfx = "..."` for one place. A scripted
 - raul's Settings page (Toolbox #556) depends on `fork-gfx` through its engine submodule (a pure crate, no engine closure)
   and uses the same reader and writer, so both programs keep the same keys and comments. It renders from the schema, which
   the engine prints as JSON (`fork_gfx::dump::schema_json`; `nv-viewer --gfx-schema` and a `fork-api` call in slice 4): the
-  file's name and version, the layers, the presets, and per module its settings with type, range, step, options and
-  original value. raul hard-codes no setting.
+  file's name and version, the layers, the presets, and per module its settings with type, range, step, options,
+  original value and whether a change applies live or at the next start. raul hard-codes no setting.
 - A preset importer (later slice) reads a look the player downloaded (an ENB, NVR or ReShade preset) and writes a preset
   file of this format, with what it could not map listed; nothing of the look is shipped.
 

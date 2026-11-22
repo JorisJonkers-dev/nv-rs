@@ -8,7 +8,7 @@
 //! {"format":"nv-rs-graphics-schema","schema_version":1,"file":{"name":"nv-rs-graphics.toml","version":1,
 //!  "layers":["global","worldspace","interior","cell"]},"presets":[{"id":"original","label":"Original"}],
 //!  "modules":[{"id":"ao","label":"...","help":"...","cost":"...","owns":[{"switch":"NV_AO"}],
-//!   "settings":[{"key":"quality","label":"...","help":"...","type":"choice","default":"off",
+//!   "settings":[{"key":"quality","label":"...","help":"...","applies":"live","type":"choice","default":"off",
 //!     "options":[{"id":"off","label":"Off"}]},
 //!    {"key":"strength","type":"slider","min":0.1,"max":1,"step":0.05,"default":0.7}]}]}
 //! ```
@@ -76,10 +76,11 @@ fn module(m: &ModuleSpec) -> String {
         .iter()
         .map(|s| {
             let head = format!(
-                "{{\"key\":{},\"label\":{},\"help\":{}",
+                "{{\"key\":{},\"label\":{},\"help\":{},\"applies\":{}",
                 string(s.key),
                 string(s.label),
-                string(s.help)
+                string(s.help),
+                string(s.applies.name())
             );
             let kind = match &s.kind {
                 Kind::Toggle { default } => format!(",\"type\":\"toggle\",\"default\":{default}"),
@@ -176,14 +177,14 @@ mod tests {
                 "{\"id\":\"ao\",\"label\":\"Ambient occlusion\",\"help\":\"Soft shade in corners.\",\"cost\":\"measured in docs/fork/GRAPHICS.md\",",
                 "\"owns\":[{\"switch\":\"NV_AO\"},{\"pass\":\"gtao\",\"at\":\"after_world\"}],",
                 "\"settings\":[",
-                "{\"key\":\"quality\",\"label\":\"Quality\",\"help\":\"How many samples.\",\"type\":\"choice\",\"default\":\"off\",",
+                "{\"key\":\"quality\",\"label\":\"Quality\",\"help\":\"How many samples.\",\"applies\":\"live\",\"type\":\"choice\",\"default\":\"off\",",
                 "\"options\":[{\"id\":\"off\",\"label\":\"Off\"},{\"id\":\"low\",\"label\":\"Low\"},{\"id\":\"high\",\"label\":\"High\"}]},",
-                "{\"key\":\"strength\",\"label\":\"Strength\",\"help\":\"How dark.\",\"type\":\"slider\",\"min\":0.1,\"max\":1,\"step\":0.05,\"default\":0.7}]},",
+                "{\"key\":\"strength\",\"label\":\"Strength\",\"help\":\"How dark.\",\"applies\":\"live\",\"type\":\"slider\",\"min\":0.1,\"max\":1,\"step\":0.05,\"default\":0.7}]},",
                 "{\"id\":\"fog\",\"label\":\"Fog\",\"help\":\"The weather's distance fog.\",\"cost\":\"none\",",
                 "\"owns\":[{\"game_value\":\"fFogEnd\"}],",
                 "\"settings\":[",
-                "{\"key\":\"enabled\",\"label\":\"Fog\",\"help\":\"Off: no distance fog.\",\"type\":\"toggle\",\"default\":true},",
-                "{\"key\":\"distance\",\"label\":\"Distance\",\"help\":\"Scales the fog's distances.\",\"type\":\"slider\",\"min\":0.5,\"max\":4,\"step\":0.25,\"default\":1}]}",
+                "{\"key\":\"enabled\",\"label\":\"Fog\",\"help\":\"Off: no distance fog.\",\"applies\":\"next_start\",\"type\":\"toggle\",\"default\":true},",
+                "{\"key\":\"distance\",\"label\":\"Distance\",\"help\":\"Scales the fog's distances.\",\"applies\":\"live\",\"type\":\"slider\",\"min\":0.5,\"max\":4,\"step\":0.25,\"default\":1}]}",
                 "]}"
             )
         );
