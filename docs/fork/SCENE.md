@@ -140,6 +140,24 @@ the LOD around it. `scenes/camera-seam.toml` (plain game) and `scenes/camera-sea
 looked at: Goodsprings 6000 and 12000 units up, Tenpenny Tower from 5000 and the Washington Monument from 7000. The
 run is 15 s for the two plain places and 69 s for two Capital places (17 s for one more, `--only`).
 
+## A straight-down picture of a block of land (measurement)
+
+`scenes/topdown-test.toml`: the player stands on the ground (its cells are the loaded ones), the free camera hangs 60000 units
+above a point and looks down (`pitch = 89`, the place file's limit, 1 degree off the vertical). Opened: Goodsprings from
+above (`mojave-block`), and Tenpenny Tower from above on the TTW folder (`capital-block`, the tower, the overpass pieces and
+the far buildings in the corner all in the picture). What it shows and what limits it:
+- It works: nothing falls, the picture is a plan view with the game's own light at noon and the land, roads and objects in
+  place. It is a perspective view at the game's field of view (wide, not a long lens), so the block's edge is farther out
+  than its centre and a 4 by 4 cell block fills only part of the picture.
+- Fog: the mojave picture is hazed toward the left and bottom edges, the distance from the camera, not a limit of the loaded
+  cells. The weather is the clear one forced for the frozen world.
+- Not working yet: a long lens. `NV_SCENE_FOV=15` (written to `fDefaultFOV` and to the player's field of view at `+0x674`),
+  `NV_SCENE_NOFOG=1` (the sky's fog distances) and `NV_SCENE_FAR=400000` (the far-distance settings) gave a picture
+  identical to the one without, so the game recomputes those each frame after the runner's write (or reads them
+  elsewhere). Controlling them needs the writes to move later in the frame or the code that derives them to be found.
+- The loaded square around the player (`uGridsToLoad`, 5 cells by default) is what is real land; at 60000 up the picture
+  holds more than that, the rest is the game's LOD, so a clean 4 by 4 block needs the long lens or a lower camera.
+
 ## Variants and the one command
 
 ```

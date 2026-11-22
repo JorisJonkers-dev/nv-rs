@@ -1,0 +1,27 @@
+# Measurement: a straight-down picture of a 4 by 4 cell block (nv-rs#479). The player stands in the middle cell of the
+# block's loaded square and the camera hangs far above the block centre looking down (pitch 89, the place file's limit).
+# Used with NV_SCENE_FOV, NV_SCENE_FAR and NV_SCENE_NOFOG; see docs/fork/SCENE.md.
+version = 1
+# Mojave: the cells x -20..-17, y -1..2 around Goodsprings (a cell is 4096 units): centre -69632, 4096... camera over the centre.
+[[place]]
+name = "mojave-block"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+pitch = 89
+camera = [-73728, 4096, 60000]
+
+# Capital Wasteland (a Tale of Two Wastelands load order): the player 10000 south-west of Tenpenny Tower, the camera 60000 above
+# the tower's marker looking down.
+[[place]]
+name = "capital-block"
+world = "Wasteland"
+ref = "TenpennyTowerMapMarker"
+dx = -10000
+dy = -4000
+dz = 800
+pitch = 89
+camera_dx = 10000
+camera_dy = 4000
+camera_dz = 60000
