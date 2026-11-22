@@ -43,11 +43,37 @@ exterior loads, loads or creates the cell and places the player on its land) wit
 heading, once the screen has been the menu for 120 frames (the game's first frames still start its threads). The place is reached when the screen is the play screen and the player's position lies in the place's grid
 cell. Later places are sent from the play screen the same way.
 
-Limits of this slice: only `WastelandNV` is known by editor id (others by form id); the picture, the frozen world and
-the ready condition (land and collision present, the player standing) come in the next slices.
+Limits: only `WastelandNV` is known by editor id (others by form id). The frozen world (hour, weather, creatures, interface hidden) is the next slice.
+
+## The picture
+
+With `NV_SCENE_OUT=<dir>` each place ends as `<dir>/<name>.png`. The drawing layer keeps its frame readback on
+(`NV_SHOT=<dir>` with `NV_SHOT_LIST=0`, set by the runner when the variables are not set) and the runner asks for one
+frame with `d3d9_wgpu::shot::ask`; the next present's frame is written as a BMP, the runner converts it to PNG
+(`fork-scene`, no dependency beyond `flate2`) and removes the BMP.
+
+A place is ready when the screen is the play screen, the player is in the place's cell and its height has stayed within
+0.25 units for `NV_SCENE_SETTLE_FRAMES` frames in a row (collision and land present: the player has stopped falling).
+Message boxes the new game's items and quests open (`MessageMenu`, top menu `0x3e9`) are closed with
+`MessageMenu::ClearMessageQueueHead` (`007aa530`) as they appear. Not frozen yet (next slice): the weather, the hour,
+creatures, the HUD and its messages: pictures taken now differ in cloud and dust, and show the HUD.
+
+One command (offscreen, no window session; the game folder is the first argument):
+
+```
+NV_D3D9=wgpu NV_D3D9_OFFSCREEN=1 NV_SOUND=out NV_SOUND_BACKEND=null NV_RESOLUTION=1280x720 \
+NV_SCENE=places.toml NV_SCENE_PLACES=lake-mead,goodsprings-valley NV_SCENE_OUT=out-dir \
+NV_SCENE_SETTLE_FRAMES=200 nv-viewer /path/to/game
+```
+
+All places of the file are taken in one start, in order.
 
 ## Measured
 
 Offscreen (`NV_D3D9_OFFSCREEN=1`, no window session), `play` profile, base game, one place (Goodsprings): the menu is up
 at main frame 120 (about 9 s after the process starts), the place is reached 2 frames and about 2.7 s later, the
 whole run ends with status 0 after 11 s wall time. A run without `NV_SCENE` reaches frame 200 in 9 s.
+
+Five places (the calibrated views of 2026-11-21) in one start, 200 settle frames each: 40 s wall time for the whole run
+(start to the menu 9 s, then about 6 s a place), exit status 0, five PNGs. The old driver hung at the fourth view of a
+session; this path did not (one run). Timing rows not valid: machine shared.

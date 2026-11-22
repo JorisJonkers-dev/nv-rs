@@ -175,6 +175,16 @@ impl Runner {
             self.phase = Phase::Done;
             return Step::Finished;
         };
+        // New-game items and quest messages open message boxes the whole time; they end every
+        // place's wait unless closed (the player is in the world once a place has been sent).
+        if (self.next > 0 || !matches!(self.phase, Phase::WaitMenu))
+            && w.screen() == Screen::Menu
+            && w.dismiss_message()
+        {
+            fork_log::info!(target: "scene", "scene: a message box was closed");
+            self.steady = 0;
+            return Step::Continue;
+        }
         match self.phase {
             Phase::Done => Step::Finished,
             Phase::WaitMenu => {
@@ -241,9 +251,7 @@ impl Runner {
                 let at = match (w.screen(), w.player()) {
                     (Screen::Play, Some(at)) => at,
                     _ => {
-                        if w.screen() == Screen::Menu && w.dismiss_message() {
-                            fork_log::info!(target: "scene", "scene: a message box was closed while the player settled");
-                        } else if self.tick % 60 == 0 {
+                        if self.tick % 60 == 0 {
                             fork_log::debug!(target: "scene", "scene: settling interrupted, screen {:?}, top menu {:#x}", w.screen(), w.top_menu());
                         }
                         self.tick += 1;
