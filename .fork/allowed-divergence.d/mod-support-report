@@ -1,0 +1,3 @@
+crates/jip/src/script_runner.rs  # the runner tells the mod support report which file it compiles and what the compiler said (nv-rs#509)
+crates/jip/Cargo.toml  # jip depends on fork-log for the mod support report (nv-rs#509)
+crates/host/src/lib.rs  # the host starts the mod support report and writes it at the end of the run (nv-rs#509)

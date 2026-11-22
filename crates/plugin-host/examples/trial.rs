@@ -70,6 +70,14 @@ fn show(
             }
         }
     }
+    if let Ok(path) = std::env::var("TRIAL_JSON") {
+        let names: Vec<String> = files.iter().map(|f| f.0.clone()).collect();
+        let v = plugin_host::verdicts::verdicts(e, &names);
+        std::fs::write(&path, plugin_host::verdicts::to_json(&v)).expect("write");
+        for x in &v {
+            println!("   verdict {}: {} ({})", x.file, x.verdict, x.reason);
+        }
+    }
     if std::env::var_os("TRIAL_PATCHES").is_some() {
         for site in plugin_host::patch_sites(e) {
             println!("   {}", site.describe());

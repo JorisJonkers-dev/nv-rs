@@ -1822,7 +1822,7 @@
     },
     {
       "commands": {
-        "implemented": 10,
+        "implemented": 15,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
@@ -1833,7 +1833,12 @@
           "GetINIStringOrDefault_Cached",
           "ClearFileCacheShowOff",
           "SaveCachedIniFile",
-          "IsBaseForm"
+          "IsBaseForm",
+          "IsWeaponMelee",
+          "IsWeaponRanged",
+          "IsEquippedWeaponMelee",
+          "GetWeaponHasFlag",
+          "SetWeaponFlag"
         ],
         "total": 215
       },

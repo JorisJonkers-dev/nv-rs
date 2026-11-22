@@ -319,6 +319,33 @@ pub fn bs_entry_map_remove(e: &mut Engine, this: Ptr<BSEntryMap>, file_entry: u3
     0
 }
 
+/// Fork: [`bs_entry_map_remove`] for one given `item`: unlinks the node of the bucket that holds
+/// this item (the first node with the key may hold another item), frees it, clears the item's
+/// file entry. Falls back to the exe's removal by key when no node holds the item.
+fn entry_map_remove_item(e: &mut Engine, this: Ptr<BSEntryMap>, file_entry: u32, item: u32) {
+    let bucket = this.addr() + (file_entry >> 4) % ENTRY_BUCKETS * 4;
+    let mut previous = 0;
+    let mut node = e.mem.u32(bucket);
+    while node != 0 {
+        if e.mem.u32(node) == item {
+            let next = e.mem.u32(node + 4);
+            if previous == 0 {
+                e.mem.set_u32(bucket, next);
+            } else {
+                e.mem.set_u32(previous + 4, next);
+            }
+            let count = e.get(this, BSEntryMap::iCount);
+            e.set(this, BSEntryMap::iCount, count.wrapping_sub(1));
+            heap_free(e, node);
+            e.mem.set_u32(item + 4, 0);
+            return;
+        }
+        previous = node;
+        node = e.mem.u32(node + 4);
+    }
+    bs_entry_map_remove(e, this, file_entry);
+}
+
 // Translated from 00a616e0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// Starts an iteration over all textures of the seven size classes, from
 /// the largest class down: the iterator gets the first item of the first
@@ -704,7 +731,11 @@ pub fn bs_texture_palette_purge_unused_textures(e: &mut Engine) {
                     let file_entry = e.mem.u32(item + 4);
                     if file_entry != 0 {
                         let entry_map = e.mem.u32(ENTRY_MAP);
-                        bs_entry_map_remove(e, Ptr::new(entry_map), file_entry);
+                        // Fork (nv-rs#487): the exe removes the first node with this key, which
+                        // is another item's when two items hold one file entry (`SetTexture`
+                        // does not look for an existing one), and leaves this item's node behind
+                        // pointing at the memory freed below. This item's own node goes.
+                        entry_map_remove_item(e, Ptr::new(entry_map), file_entry, item);
                     }
                     bs_tex_map_remove(e, Ptr::new(map), item);
                     removed += 1;
@@ -1392,6 +1423,34 @@ mod tests {
         assert_eq!(f.refs(used), 3);
         assert_eq!(f.e.mem.u8(PARTIALLY_PURGED), 0);
         assert_eq!(f.e.mem.u32(ADD_CRIT), 0);
+    }
+
+    #[test]
+    fn purge_removes_its_own_node_when_two_items_hold_one_file_entry() {
+        let mut f = Fixture::new();
+        f.init();
+        // Two textures registered under one file entry (`SetTexture` does not look): the newer
+        // item's node is at the head of the bucket.
+        let older = f.add("older.dds", 64, 0x100);
+        let newer = f.add("newer.dds", 64, 0x100);
+        f.e.mem.set_u32(older + 4, 1);
+        f.e.mem.set_u32(newer + 4, 3);
+        f.e.mem.set_u32(MAX_TEXTURES_TO_PURGE, 10);
+        bs_texture_palette_purge_unused_textures(&mut f.e);
+        assert_eq!(
+            f.deleted.borrow().as_slice(),
+            [older],
+            "only the unused one goes"
+        );
+        assert_eq!(f.count(0), 1);
+        assert_eq!(f.e.mem.u32(f.entry_map() + 0xfa4), 1, "one node left");
+        // The node that is left holds the item that is still in the palette, with its key.
+        let bucket = f.entry_map() + (0x100 >> 4) % ENTRY_BUCKETS * 4;
+        let node = f.e.mem.u32(bucket);
+        let item = f.e.mem.u32(node);
+        assert_eq!(f.e.mem.u32(item), newer, "the live texture's item");
+        assert_eq!(f.e.mem.u32(item + 4), 0x100, "its file entry is kept");
+        assert_eq!(f.e.mem.u32(node + 4), 0, "and nothing stale follows it");
     }
 
     #[test]

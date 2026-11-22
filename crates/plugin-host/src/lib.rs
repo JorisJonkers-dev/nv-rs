@@ -24,6 +24,7 @@
 
 pub mod patches;
 pub mod pe;
+pub mod verdicts;
 pub mod x86;
 
 mod crt;
@@ -91,6 +92,9 @@ pub struct Plugin {
     /// The guest addresses of its `NVSEPlugin_Query` and `NVSEPlugin_Load`.
     pub query_at: u32,
     pub load_at: u32,
+    /// `NVSEPlugin_Query` answered yes / `NVSEPlugin_Load` answered yes.
+    pub queried: bool,
+    pub loaded: bool,
 }
 
 #[derive(Default)]
@@ -1029,6 +1033,7 @@ fn query_one(e: &mut Engine, idx: usize) -> Result<(), LoadError> {
     let p = &mut state(e).plugins[idx];
     p.name = name;
     p.version = version;
+    p.queried = true;
     Ok(())
 }
 
@@ -1047,6 +1052,7 @@ fn load_one(e: &mut Engine, idx: usize) -> Result<(), LoadError> {
             .unwrap_or_else(|| "NVSEPlugin_Load answered no".into());
         return Err(LoadError::Refused(why));
     }
+    state(e).plugins[idx].loaded = true;
     // Its place in xNVSE's list (IsPluginInstalled, GetPluginVersion, its messages).
     let (pname, version, opcode_base) = {
         let p = &state(e).plugins[idx];

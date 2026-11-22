@@ -20,6 +20,7 @@ pub mod game;
 mod sink;
 pub mod stop;
 pub mod stop_after;
+pub mod support;
 pub mod term;
 
 pub use filter::{Filter, Level};
