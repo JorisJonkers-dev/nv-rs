@@ -147,9 +147,22 @@ nv-rs-scene run --viewer BIN --game INSTALL_DIR --places places.toml --out DIR \
   [--userdata TEMPLATE_DIR] [--variant NAME[=OVERLAY_DIR]]... [--settle N] [--timeout S] [--jobs 3] [--wrap WORD]...
 ```
 
-Relative paths (`--places`, `--out`, ...) are taken from the current directory. `--game-lock FILE --label NAME [--who NAME]`
-is the shorthand for the wrap words `flock -s FILE gamerun NAME --who NAME --` (the shared game lock and the Mission Center
+Relative paths (`--places`, `--out`, ...) are taken from the current directory. `--game-lock FILE`
+is the shorthand for the wrap words `flock -s FILE` (the shared game lock), `--label NAME [--who NAME]` names the capped scope (the Mission Center
 label; `--who` defaults to `engine`); `soak` takes it too, `bench` takes `--lock` (exclusive) and `--label`.
+
+### What caps a run's memory
+
+Every engine start of `run`, `soak` and `bench` is a `gamerun` scope by default, with or without `--label`: a transient
+systemd scope in `nv-games.slice` with `MemoryMax` and `MemoryHigh` 10 GiB (the value read from a running scope:
+`systemctl --user show nvgame-<label>-*.scope -p MemoryMax` gives 10737418240), `MemorySwapMax` 0 and an out-of-memory score
+that has the kernel kill the run before the desktop. The slice itself has no limit (`MemoryMax=infinity`); the limit is on
+each scope, so three starts at once may use 30 GiB in all. The tool prints `memory cap: 10G per engine start (...)` first.
+`--label NAME` names the scope (`NAME-<variant>` for a run; the default is `scene-<kind>-...-<pid>`), `--who NAME` says
+who started it, `--mem 6G` changes the limit. `--no-cap` starts the engine with no cap and says so at the start; the
+`--wrap` words that already hold `gamerun` keep their own cap. The tool refuses to start when `~/.local/bin/gamerun` is
+missing and `--no-cap` is not given. The old harness's memory guard (host, VRAM and GTT checks every 100 ms, halt file)
+is not ported: the scope limit is the cap, and the VRAM and GTT checks are not there.
 
 Each `--variant` is the installation's data (no overlay) or with an overlay folder over its `Data` (loose
 `meshes`, `textures`, `lodsettings`, and any `.esp` or `.esm` at the overlay's top, which is put in the plugin list).

@@ -111,8 +111,96 @@ fn run(args: &[String]) -> Result<bool, String> {
     Ok(ok)
 }
 
+/// The memory cap of every engine start: each start is a `gamerun` scope (a systemd scope in `nv-games.slice` with a
+/// hard `MemoryMax` and no swap, labelled in the monitor) unless `--no-cap` is given or the `--wrap` words already
+/// contain `gamerun`. The default limit is gamerun's own (10G).
+#[derive(Clone, Debug, Default)]
+struct Cap {
+    /// `--label`: the base of the scope's name (a run adds its variant's name); empty: `scene-<kind>-<pid>`.
+    label: String,
+    who: String,
+    mem: String,
+    off: bool,
+}
+
+impl Cap {
+    /// Takes `--label`, `--who`, `--mem` or `--no-cap` when `a` is one; false when it is not.
+    fn take(&mut self, a: &str, it: &mut std::slice::Iter<String>) -> Result<bool, String> {
+        match a {
+            "--label" => self.label = it.next().cloned().ok_or("--label needs a value")?,
+            "--who" => self.who = it.next().cloned().ok_or("--who needs a value")?,
+            "--mem" => self.mem = it.next().cloned().ok_or("--mem needs a value (10G)")?,
+            "--no-cap" => self.off = true,
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
+    /// The words that put a command in the scope, for the start named `name` of a run of `kind`; empty when the
+    /// cap is off or the wrap words already hold `gamerun`.
+    fn words(&self, kind: &str, name: &str, wrap: &[String]) -> Result<Vec<String>, String> {
+        if self.off || wrap.iter().any(|w| w.ends_with("gamerun")) {
+            return Ok(Vec::new());
+        }
+        let home = std::env::var("HOME").unwrap_or_default();
+        let gamerun = format!("{home}/.local/bin/gamerun");
+        if !Path::new(&gamerun).exists() {
+            return Err(format!(
+                "{gamerun} is not there: a game run is memory-capped by default; install it or give --no-cap"
+            ));
+        }
+        let clean = |t: &str| {
+            t.chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect::<String>()
+        };
+        let label = if self.label.is_empty() {
+            format!("scene-{kind}-{}-{}", clean(name), std::process::id())
+        } else if name == kind {
+            clean(&self.label)
+        } else {
+            format!("{}-{}", clean(&self.label), clean(name))
+        };
+        let mut w = vec![gamerun, label, "--who".into()];
+        w.push(if self.who.is_empty() {
+            "engine".into()
+        } else {
+            self.who.clone()
+        });
+        if !self.mem.is_empty() {
+            w.push("--mem".into());
+            w.push(self.mem.clone());
+        }
+        w.push("--".into());
+        Ok(w)
+    }
+
+    /// The line printed at the start of a run.
+    fn describe(&self, wrap: &[String]) -> String {
+        if self.off {
+            "memory cap: OFF (--no-cap): the engine can use all the memory of the machine".into()
+        } else if wrap.iter().any(|w| w.ends_with("gamerun")) {
+            "memory cap: the --wrap words start gamerun, which holds the cap".into()
+        } else {
+            format!(
+                "memory cap: {} per engine start (a gamerun scope in nv-games.slice, hard limit, no swap)",
+                if self.mem.is_empty() { "10G" } else { &self.mem }
+            )
+        }
+    }
+}
+
 /// What every variant's run shares.
 struct Opts {
+    cap: Cap,
+    /// `run`, `soak` or `bench`: the default label of a start.
+    kind: String,
     viewer: PathBuf,
     game: PathBuf,
     places: PathBuf,
@@ -141,6 +229,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         3usize,
     );
     let mut resolution = "1280x720".to_string();
+    let mut cap = Cap::default();
     let mut quick = false;
     let mut extra_env: Vec<(String, String)> = Vec::new();
     let (mut plugin_list, mut overlay_skip): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
@@ -164,7 +253,11 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
             "--overlay-skip" => overlay_skip = value(a)?.split(',').map(String::from).collect(),
             "--jobs" => jobs = value(a)?.parse().map_err(|_| "--jobs is a number")?,
-            other => return Err(format!("unknown argument {other}")),
+            other => {
+                if !cap.take(other, &mut it)? {
+                    return Err(format!("unknown argument {other}"));
+                }
+            }
         }
     }
     if quick {
@@ -187,6 +280,8 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         })
         .collect();
     let opts = Opts {
+        cap,
+        kind: "run".into(),
         viewer,
         game,
         places,
@@ -200,6 +295,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         overlay_skip,
         extra_env,
     };
+    println!("{}", opts.cap.describe(&opts.wrap));
     let started = std::time::Instant::now();
     let mut results: Vec<(String, RunResult)> = Vec::new();
     for chunk in variants.chunks(jobs.max(1)) {
@@ -293,6 +389,12 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
     }
     let log = std::fs::File::create(dir.join("run.log")).map_err(|e| e.to_string())?;
     let mut cmd_words: Vec<std::ffi::OsString> = o.wrap.iter().map(Into::into).collect();
+    cmd_words.extend(
+        o.cap
+            .words(&o.kind, name, &o.wrap)?
+            .into_iter()
+            .map(std::ffi::OsString::from),
+    );
     cmd_words.push((&o.viewer).into());
     cmd_words.push((&staged.game).into());
     let mut cmd = std::process::Command::new(&cmd_words[0]);
@@ -387,6 +489,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
     let (mut frames, mut wrap, mut realtime, mut timeout) =
         ("600".to_string(), Vec::new(), false, "300".to_string());
     let mut exclusive = false;
+    let mut cap = Cap::default();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
@@ -407,7 +510,11 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
             "--wrap" => wrap.push(value(a)?),
             "--realtime" => realtime = true,
             "--exclusive" => exclusive = true,
-            other => return Err(format!("unknown argument {other}")),
+            other => {
+                if !cap.take(other, &mut it)? {
+                    return Err(format!("unknown argument {other}"));
+                }
+            }
         }
     }
     let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
@@ -420,6 +527,8 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
     }
     let t = std::time::Instant::now();
     let opts = Opts {
+        cap,
+        kind: if exclusive { "bench" } else { "soak" }.into(),
         viewer,
         game,
         places: places.clone(),
@@ -433,6 +542,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         overlay_skip,
         extra_env: extra,
     };
+    println!("{}", opts.cap.describe(&opts.wrap));
     let overlays: Vec<PathBuf> = overlay.into_iter().collect();
     let code = run_one("soak", &overlays, &opts)?;
     let secs = t.elapsed().as_secs_f64();
@@ -800,8 +910,8 @@ fn bench_compare(args: &[String]) -> Result<bool, String> {
 }
 
 /// The arguments of `run`, `soak` and `bench` made ready for the viewer's own start: a relative path is resolved against
-/// the current directory (the viewer runs in another one), and `--game-lock FILE`, `--label NAME` and `--who NAME`
-/// become the wrap words that take the shared game lock and label the start (`flock -s FILE gamerun NAME --who WHO --`).
+/// the current directory (the viewer runs in another one), and `--game-lock FILE` becomes the wrap words that take the
+/// shared game lock (`flock -s FILE`); `--label`, `--who`, `--mem` and `--no-cap` are the memory cap's ([`Cap`]).
 fn expand_args(args: &[String], cwd: &Path) -> Result<Vec<String>, String> {
     let absolute = |p: &str| {
         let path = Path::new(p);
@@ -811,7 +921,7 @@ fn expand_args(args: &[String], cwd: &Path) -> Result<Vec<String>, String> {
             cwd.join(path).display().to_string()
         }
     };
-    let (mut out, mut lock, mut label, mut who) = (Vec::new(), None, None, None);
+    let (mut out, mut lock) = (Vec::new(), None);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
@@ -833,28 +943,12 @@ fn expand_args(args: &[String], cwd: &Path) -> Result<Vec<String>, String> {
                 });
             }
             "--game-lock" => lock = Some(absolute(&value(a)?)),
-            "--label" => label = Some(value(a)?),
-            "--who" => who = Some(value(a)?),
             _ => out.push(a.clone()),
         }
-    }
-    if who.is_some() && label.is_none() {
-        return Err("--who needs --label".into());
     }
     let mut words: Vec<&str> = Vec::new();
     if let Some(l) = &lock {
         words.extend(["flock", "-s", l]);
-    }
-    let home = std::env::var("HOME").unwrap_or_default();
-    let gamerun = format!("{home}/.local/bin/gamerun");
-    if let Some(l) = &label {
-        words.extend([
-            gamerun.as_str(),
-            l,
-            "--who",
-            who.as_deref().unwrap_or("engine"),
-            "--",
-        ]);
     }
     for w in words {
         out.push("--wrap".into());
@@ -1029,6 +1123,41 @@ mod tests {
         g
     }
 
+    #[test]
+    fn a_start_is_memory_capped_unless_no_cap_or_gamerun_is_wrapped() {
+        let mut cap = Cap::default();
+        let mut it = s(&["--label", "pics", "--who", "me", "--mem", "6G"])
+            .into_iter()
+            .collect::<Vec<_>>();
+        let rest = it.split_off(0);
+        let mut iter = rest.iter();
+        while let Some(a) = iter.next() {
+            assert!(cap.take(a, &mut iter).unwrap());
+        }
+        assert!(!cap.take("--viewer", &mut iter).unwrap());
+        assert!(cap.describe(&[]).contains("6G") || cap.describe(&[]).contains("10G"));
+        // With the cap off, or gamerun among the wrap words, nothing is added.
+        let off = Cap {
+            off: true,
+            ..Cap::default()
+        };
+        assert!(off.words("run", "base", &[]).unwrap().is_empty());
+        assert!(off.describe(&[]).contains("OFF"));
+        let wrapped = s(&["flock", "/x/gamerun"]);
+        assert!(Cap::default()
+            .words("run", "base", &wrapped)
+            .unwrap()
+            .is_empty());
+        // Otherwise gamerun comes with the label, the user and the limit (when gamerun is installed).
+        if let Ok(w) = cap.words("run", "base", &[]) {
+            assert!(w[0].ends_with("/.local/bin/gamerun"));
+            assert_eq!(&w[1..], ["pics-base", "--who", "me", "--mem", "6G", "--"]);
+        }
+        if let Ok(w) = cap.words("soak", "soak", &[]) {
+            assert_eq!(w[1], "pics");
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn relative_paths_are_resolved_and_the_lock_and_label_become_wrap_words() {
@@ -1053,16 +1182,14 @@ mod tests {
         assert_eq!(&a[..2], ["--places", "/work/p.toml"]);
         assert_eq!(&a[2..4], ["--viewer", "/bin/v"]);
         assert_eq!(&a[4..6], ["--variant", "x=/work/o1+/abs"]);
-        assert_eq!(&a[6..8], ["--settle", "50"]);
-        let wraps: Vec<&str> = a[8..]
+        assert_eq!(&a[6..8], ["--label", "lbl"]);
+        assert_eq!(&a[8..10], ["--settle", "50"]);
+        let wraps: Vec<&str> = a[10..]
             .iter()
             .filter(|w| *w != "--wrap")
             .map(String::as_str)
             .collect();
-        assert_eq!(&wraps[..3], ["flock", "-s", "/work/g.lock"]);
-        assert!(wraps[3].ends_with("/.local/bin/gamerun"));
-        assert_eq!(&wraps[4..], ["lbl", "--who", "engine", "--"]);
-        assert!(expand_args(&s(&["--who", "x"]), Path::new("/")).is_err());
+        assert_eq!(wraps, ["flock", "-s", "/work/g.lock"]);
     }
 
     #[test]
@@ -1074,6 +1201,7 @@ mod tests {
         std::fs::write(overlay.join("Lod.esp"), "x").unwrap();
         let viewer = fake_viewer(&t, 0);
         let args = s(&[
+            "--no-cap",
             "--viewer",
             &viewer.display().to_string(),
             "--game",
@@ -1115,6 +1243,7 @@ mod tests {
         let g = install(&t);
         let common = |viewer: &Path| {
             s(&[
+                "--no-cap",
                 "--viewer",
                 &viewer.display().to_string(),
                 "--game",
@@ -1141,6 +1270,7 @@ mod tests {
         let viewer = fake_viewer(&t, 0);
         let args = |out: &str| {
             s(&[
+                "--no-cap",
                 "--viewer",
                 &viewer.display().to_string(),
                 "--game",
