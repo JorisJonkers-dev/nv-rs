@@ -1798,13 +1798,16 @@
     },
     {
       "commands": {
-        "implemented": 5,
+        "implemented": 8,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
           "GetExtraMiscStat",
           "ModExtraMiscStat",
-          "InitExtraMiscStat"
+          "InitExtraMiscStat",
+          "Clamp",
+          "Lerp",
+          "Sign"
         ],
         "total": 412
       },
