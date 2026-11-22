@@ -765,6 +765,97 @@ fn winapi_call(e: &mut Engine, name: &str, args: &[u32]) -> u32 {
     winapi::lookup("kernel32.dll", name).unwrap().0(e, args).unwrap()
 }
 
+mod verdict_tests {
+    use super::*;
+    use crate::verdicts::{self, Class, Observed};
+
+    #[test]
+    fn every_curated_file_is_named_once_in_lower_case() {
+        let mut names: Vec<&str> = verdicts::CURATED.iter().map(|c| c.0).collect();
+        assert!(names.iter().all(|n| *n == n.to_ascii_lowercase()));
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), verdicts::CURATED.len());
+        // The engine's own built-ins (fork_plugins::BUILT_IN) are all "built in" here.
+        for f in [
+            "jip_nvse.dll",
+            "johnnyguitar.dll",
+            "showoffnvse.dll",
+            "nvse_stewie_tweaks.dll",
+            "ttw_nvse.dll",
+            "mcm.dll",
+            "ui_organizer.dll",
+        ] {
+            let v = verdicts::verdict_for(f, None);
+            assert_eq!(v.class, Some(Class::BuiltIn), "{f}");
+            assert_eq!(v.verdict, "built into the engine");
+        }
+    }
+
+    #[test]
+    fn a_plugin_the_host_must_run_is_judged_by_what_the_host_saw() {
+        let loaded = |commands| Observed {
+            mapped: true,
+            queried: true,
+            loaded: true,
+            commands,
+            ..Observed::default()
+        };
+        let serves = verdicts::verdict_for("KNVSE.dll", Some(loaded(3)));
+        assert_eq!(serves.verdict, "serves commands");
+        assert_eq!(serves.ticket, 550);
+        assert_eq!(
+            verdicts::verdict_for("kNVSE.dll", Some(loaded(0))).verdict,
+            "loads"
+        );
+        let stopped = Observed {
+            mapped: true,
+            stopped: Some("instruction not built".into()),
+            ..Observed::default()
+        };
+        let v = verdicts::verdict_for("kNVSE.dll", Some(stopped));
+        assert_eq!(v.verdict, "not working");
+        assert!(v.reason.contains("instruction not built"), "{}", v.reason);
+        assert_eq!(
+            verdicts::verdict_for("kNVSE.dll", None).verdict,
+            "not working"
+        );
+        // a patch-only plugin is "feature missing" whatever the host saw, and says what it saw
+        let fm = verdicts::verdict_for("HighResBloom.dll", Some(loaded(0)));
+        assert_eq!((fm.verdict, fm.ticket), ("feature missing", 528));
+        assert!(fm.reason.contains("dropped"), "{}", fm.reason);
+        // a file nobody has heard of is judged by the run alone
+        let unknown = verdicts::verdict_for("mystery.dll", Some(loaded(1)));
+        assert_eq!((unknown.verdict, unknown.class), ("serves commands", None));
+        assert_eq!(
+            verdicts::verdict_for("mystery.dll", None).verdict,
+            "not working"
+        );
+    }
+
+    #[test]
+    fn the_verdicts_of_a_run_are_written_as_json() {
+        let mut e = engine();
+        set_enabled(&mut e, true);
+        load_many(&mut e, &[("test.dll".to_string(), dll::build_patching())]);
+        let names = vec![
+            "test.dll".to_string(),
+            "mlf.dll".to_string(),
+            "we\"ird.dll".to_string(),
+        ];
+        let v = verdicts::verdicts(&mut e, &names);
+        assert_eq!(v[0].verdict, "serves commands");
+        assert_eq!(v[0].observed.patch_writes, 1);
+        assert_eq!(v[1].verdict, "engine already has the fix");
+        let json = verdicts::to_json(&v);
+        assert!(json.contains("\"file\": \"mlf.dll\""), "{json}");
+        assert!(json.contains("we\\\"ird.dll"), "{json}");
+        assert!(json.contains("\"commands\": 1"), "{json}");
+        assert!(json.trim_end().ends_with('}'));
+        assert_eq!(verdicts::esc_for_test("a\nb\u{1}"), "a\\nb\\u0001");
+    }
+}
+
 #[test]
 fn a_file_that_is_not_a_32_bit_dll_is_refused() {
     let mut e = engine();

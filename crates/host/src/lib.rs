@@ -234,6 +234,13 @@ impl Host {
         ) {
             fork_log::info!(target: "host", "{line}");
         }
+        if let Some(path) = std::env::var(fork_plugins::VERDICTS_ENV)
+            .ok()
+            .filter(|p| !p.is_empty())
+        {
+            let line = fork_plugins::write_verdicts(&mut engine, &path);
+            fork_log::info!(target: "host", "{line}");
+        }
         fork_log::info!(target: "host", "{}", choice.describe());
         let jip_state = {
             let jip = engine.ext::<jip::Jip>();
