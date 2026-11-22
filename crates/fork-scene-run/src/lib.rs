@@ -27,6 +27,17 @@ pub trait World {
     fn go_to(&mut self, place: &Place) -> Result<(), String>;
     /// The player's position and the grid cell of its parent cell's coordinates, when it has a cell.
     fn player(&self) -> Option<Standing>;
+    /// The id of the top menu (`Interface::GetTopMenuID`), 0 for none.
+    fn top_menu(&mut self) -> u32 {
+        0
+    }
+    /// Closes the message box on top (`MessageMenu::ClearMessageQueueHead`); false when the top
+    /// menu is not a message box.
+    fn dismiss_message(&mut self) -> bool {
+        false
+    }
+    /// Asks the drawing layer to write the next present's frame as a BMP at `path`.
+    fn ask_picture(&mut self, path: &std::path::Path);
 }
 
 /// Where the player is.
@@ -40,13 +51,21 @@ pub struct Standing {
 pub enum Step {
     /// Run the next frame.
     Continue,
-    /// The place was reached (logged): its name and the position the player stands at.
-    Reached { place: String, pos: [f64; 3] },
+    /// The place was reached and the world is ready (logged): its name and where the player stands;
+    /// with a picture asked for, the PNG's path.
+    Reached {
+        place: String,
+        pos: [f64; 3],
+        picture: Option<std::path::PathBuf>,
+    },
     /// Every place has been reached.
     Finished,
     /// A condition failed: the one plain line the run ends with.
     Failed(String),
 }
+
+/// How far (game units) the player's height may move from where the count started and still be standing.
+pub const STAND_TOLERANCE: f64 = 0.25;
 
 /// The exit status of a scene run that failed (the table in docs/fork/PLAY-MODE.md).
 pub const EXIT_SCENE_FAILED: i32 = 70;
@@ -59,6 +78,18 @@ enum Phase {
     Going {
         since: f64,
     },
+    /// In the place's cell: ready once the player has stood still for `settle_frames` frames.
+    Settling {
+        since: f64,
+        last_z: f64,
+        stable: u32,
+    },
+    /// The picture was asked for; waiting for the frame's file.
+    Waiting {
+        since: f64,
+        bmp: std::path::PathBuf,
+        pos: [f64; 3],
+    },
     Done,
 }
 
@@ -69,6 +100,7 @@ pub struct Runner {
     phase: Phase,
     /// Frames the screen has shown the menu (or play, for a later place) since the last send.
     steady: u32,
+    tick: u64,
 }
 
 /// Frames the screen must have been steady before a place is sent: the game's first frames still
@@ -82,6 +114,7 @@ impl Runner {
             next: 0,
             phase: Phase::WaitMenu,
             steady: 0,
+            tick: 0,
         }
     }
 
@@ -91,6 +124,18 @@ impl Runner {
 
     pub fn request(&self) -> &Request {
         &self.request
+    }
+
+    /// Before the engine starts: with a picture folder asked for, the drawing layer keeps its frame
+    /// readback on (`NV_SHOT`, nothing captured by itself: `NV_SHOT_LIST=0`) so [`Runner::frame`] can
+    /// ask for one frame.
+    pub fn prepare_environment(&self) {
+        if let Some(dir) = &self.request.out {
+            if std::env::var_os("NV_SHOT").is_none() {
+                std::env::set_var("NV_SHOT", dir);
+                std::env::set_var("NV_SHOT_LIST", "0");
+            }
+        }
     }
 
     /// One call per `Main::OnIdle`, on the game's main thread inside its frame ([`install`]); returns
@@ -104,8 +149,13 @@ impl Runner {
         };
         match self.step(&mut EngineWorld { engine, screen }, now) {
             Step::Continue => None,
-            Step::Reached { place, pos } => {
-                fork_log::info!(target: "scene", "scene: place {place} reached; the player stands at {:.1} {:.1} {:.1}", pos[0], pos[1], pos[2]);
+            Step::Reached {
+                place,
+                pos,
+                picture,
+            } => {
+                fork_log::info!(target: "scene", "scene: place {place} ready; the player stands at {:.1} {:.1} {:.1}{}", pos[0], pos[1], pos[2],
+                    picture.map_or(String::new(), |p| format!("; picture {}", p.display())));
                 None
             }
             Step::Finished => {
@@ -170,14 +220,113 @@ impl Runner {
                 if cell != place.cell() {
                     return Step::Continue;
                 }
-                let name = place.name.clone();
-                self.next += 1;
-                self.phase = Phase::WaitMenu;
-                Step::Reached {
-                    place: name,
-                    pos: at.pos,
+                self.phase = Phase::Settling {
+                    since,
+                    last_z: at.pos[2],
+                    stable: 0,
+                };
+                Step::Continue
+            }
+            Phase::Settling {
+                since,
+                last_z,
+                stable,
+            } => {
+                if now - since > f64::from(self.request.timeout_s) {
+                    return Step::Failed(format!(
+                        "scene: place {} was reached but the player did not stand still for {} frames within {} s",
+                        place.name, self.request.settle_frames, self.request.timeout_s
+                    ));
+                }
+                let at = match (w.screen(), w.player()) {
+                    (Screen::Play, Some(at)) => at,
+                    _ => {
+                        if w.screen() == Screen::Menu && w.dismiss_message() {
+                            fork_log::info!(target: "scene", "scene: a message box was closed while the player settled");
+                        } else if self.tick % 60 == 0 {
+                            fork_log::debug!(target: "scene", "scene: settling interrupted, screen {:?}, top menu {:#x}", w.screen(), w.top_menu());
+                        }
+                        self.tick += 1;
+                        self.phase = Phase::Settling {
+                            since,
+                            last_z,
+                            stable: 0,
+                        };
+                        return Step::Continue;
+                    }
+                };
+                self.tick += 1;
+                if self.tick % 60 == 1 {
+                    fork_log::debug!(target: "scene", "scene: settling at {:.2} {:.2} {:.2}, {stable} steady frames", at.pos[0], at.pos[1], at.pos[2]);
+                }
+                let stable = if (at.pos[2] - last_z).abs() < 0.05 {
+                    stable + 1
+                } else {
+                    0
+                };
+                if stable < self.request.settle_frames {
+                    // The anchor moves only when the count starts again: slow drift is not standing.
+                    let anchor = if stable == 0 { at.pos[2] } else { last_z };
+                    self.phase = Phase::Settling {
+                        since,
+                        last_z: anchor,
+                        stable,
+                    };
+                    return Step::Continue;
+                }
+                match &self.request.out {
+                    None => self.finish(place.name.clone(), at.pos, None),
+                    Some(dir) => {
+                        if let Err(e) = std::fs::create_dir_all(dir) {
+                            return Step::Failed(format!("scene: {}: {e}", dir.display()));
+                        }
+                        let bmp = dir.join(format!("{}.bmp", place.name));
+                        let _ = std::fs::remove_file(&bmp);
+                        w.ask_picture(&bmp);
+                        self.phase = Phase::Waiting {
+                            since,
+                            bmp,
+                            pos: at.pos,
+                        };
+                        Step::Continue
+                    }
                 }
             }
+            Phase::Waiting {
+                since,
+                ref bmp,
+                pos,
+            } => {
+                if now - since > f64::from(self.request.timeout_s) {
+                    return Step::Failed(format!(
+                        "scene: place {}: no picture was written within {} s",
+                        place.name, self.request.timeout_s
+                    ));
+                }
+                // The file is written by the drawing thread; a partly written one reads as truncated.
+                let Ok(bytes) = std::fs::read(bmp) else {
+                    return Step::Continue;
+                };
+                let Ok(png) = fork_scene::png::bmp_to_png(&bytes) else {
+                    return Step::Continue;
+                };
+                let out = bmp.with_extension("png");
+                if let Err(e) = std::fs::write(&out, png) {
+                    return Step::Failed(format!("scene: {}: {e}", out.display()));
+                }
+                let _ = std::fs::remove_file(bmp);
+                self.finish(place.name.clone(), pos, Some(out))
+            }
+        }
+    }
+
+    fn finish(&mut self, name: String, pos: [f64; 3], picture: Option<std::path::PathBuf>) -> Step {
+        self.next += 1;
+        self.phase = Phase::WaitMenu;
+        Step::Reached {
+            place: name,
+            pos,
+            picture,
         }
     }
 }
@@ -192,6 +341,9 @@ mod tests {
         standing: Option<Standing>,
         sent: Vec<String>,
         refuse: bool,
+        asked: Vec<std::path::PathBuf>,
+        /// What the "drawing layer" writes when asked for a picture.
+        draw: Option<Vec<u8>>,
     }
     impl World for Fake {
         fn screen(&self) -> Screen {
@@ -206,6 +358,12 @@ mod tests {
         }
         fn player(&self) -> Option<Standing> {
             self.standing
+        }
+        fn ask_picture(&mut self, path: &std::path::Path) {
+            self.asked.push(path.to_path_buf());
+            if let Some(bytes) = &self.draw {
+                std::fs::write(path, bytes).unwrap();
+            }
         }
     }
 
@@ -236,6 +394,8 @@ mod tests {
             standing: None,
             sent: vec![],
             refuse: false,
+            asked: vec![],
+            draw: None,
         }
     }
 
@@ -273,11 +433,13 @@ mod tests {
         w.standing = Some(Standing {
             pos: [100.0, 100.0, 5.0],
         });
+        assert_eq!(r.step(&mut w, 3.0), Step::Continue, "now settling");
         assert_eq!(
-            r.step(&mut w, 3.0),
+            r.step(&mut w, 4.0),
             Step::Reached {
                 place: "a".into(),
-                pos: [100.0, 100.0, 5.0]
+                pos: [100.0, 100.0, 5.0],
+                picture: None
             }
         );
     }
@@ -291,13 +453,15 @@ mod tests {
         w.standing = Some(Standing {
             pos: [100.0, 100.0, 5.0],
         });
-        assert!(matches!(r.step(&mut w, 1.0), Step::Reached { .. }));
+        r.step(&mut w, 1.0);
+        assert!(matches!(r.step(&mut w, 1.5), Step::Reached { .. }));
         send(&mut r, &mut w, 2.0);
         assert_eq!(w.sent, ["a", "b"]);
         w.standing = Some(Standing {
             pos: [5000.0, 100.0, 5.0],
         });
-        assert!(matches!(r.step(&mut w, 3.0), Step::Reached { place, .. } if place == "b"));
+        r.step(&mut w, 3.0);
+        assert!(matches!(r.step(&mut w, 3.5), Step::Reached { place, .. } if place == "b"));
         assert_eq!(r.step(&mut w, 4.0), Step::Finished);
     }
 
@@ -329,5 +493,95 @@ mod tests {
             r.step(&mut w, 0.0),
             Step::Failed("scene: place a: no world".into())
         );
+    }
+
+    fn bmp_2x1() -> Vec<u8> {
+        let mut b = b"BM".to_vec();
+        b.extend_from_slice(&62u32.to_le_bytes());
+        b.extend_from_slice(&[0; 4]);
+        b.extend_from_slice(&54u32.to_le_bytes());
+        b.extend_from_slice(&40u32.to_le_bytes());
+        b.extend_from_slice(&2i32.to_le_bytes());
+        b.extend_from_slice(&(-1i32).to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&32u16.to_le_bytes());
+        b.extend_from_slice(&[0; 24]);
+        b.extend_from_slice(&[1, 2, 3, 0, 4, 5, 6, 0]);
+        b
+    }
+
+    #[test]
+    fn a_picture_is_asked_for_only_once_the_player_stands_still_and_ends_as_a_png() {
+        let dir = std::env::temp_dir().join(format!("scene-run-png-{}", std::process::id()));
+        let mut req = request(60);
+        req.out = Some(dir.clone());
+        req.settle_frames = 3;
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        r.step(&mut w, 1.0); // in the cell: settling starts
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 9.0],
+        }); // still falling: the count starts again
+        for t in 0..3 {
+            r.step(&mut w, 2.0 + f64::from(t));
+            assert!(w.asked.is_empty(), "not while the height still changes");
+        }
+        // Falls once more, then rests.
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 8.0],
+        });
+        r.step(&mut w, 6.0);
+        for t in 0..2 {
+            assert_eq!(r.step(&mut w, 7.0 + f64::from(t)), Step::Continue);
+            assert!(w.asked.is_empty());
+        }
+        assert_eq!(r.step(&mut w, 9.0), Step::Continue);
+        assert_eq!(w.asked, [dir.join("a.bmp")]);
+        // The drawing layer has not written the frame yet.
+        assert_eq!(r.step(&mut w, 10.0), Step::Continue);
+        std::fs::write(dir.join("a.bmp"), bmp_2x1()).unwrap();
+        let done = r.step(&mut w, 11.0);
+        assert_eq!(
+            done,
+            Step::Reached {
+                place: "a".into(),
+                pos: [100.0, 100.0, 8.0],
+                picture: Some(dir.join("a.png"))
+            }
+        );
+        assert_eq!(&std::fs::read(dir.join("a.png")).unwrap()[..4], b"\x89PNG");
+        assert!(!dir.join("a.bmp").exists(), "the BMP is removed");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn no_picture_in_time_fails_with_one_plain_line() {
+        let dir = std::env::temp_dir().join(format!("scene-run-none-{}", std::process::id()));
+        let mut req = request(10);
+        req.out = Some(dir.clone());
+        req.settle_frames = 1;
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        for t in 1..4 {
+            r.step(&mut w, f64::from(t));
+        }
+        let Step::Failed(line) = r.step(&mut w, 11.0) else {
+            panic!("no failure")
+        };
+        assert!(
+            line.contains("no picture") && line.contains("10 s") && !line.contains('\n'),
+            "{line}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

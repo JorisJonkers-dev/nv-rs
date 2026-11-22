@@ -14,6 +14,9 @@ const PLAYER: u32 = 0x011d_ea3c;
 const POSITION_PLAYER_EXTERIOR: u32 = 0x0093_cce0;
 /// The form lookup by id (`004839c0`).
 const LOOKUP_FORM: u32 = 0x0048_39c0;
+/// `StartMenu::Close` (`007ce7a0`, cdecl, one byte) and the byte `011d8907` `ConfirmNewGame` sets.
+const START_MENU_CLOSE: u32 = 0x007c_e7a0;
+const GAME_RUNNING_FLAG: u32 = 0x011d_8907;
 /// The reference's position (+0x30) and parent cell (+0x40).
 const POSITION: u32 = 0x30;
 const PARENT_CELL: u32 = 0x40;
@@ -69,7 +72,31 @@ impl World for EngineWorld<'_> {
                 0u32
             ],
         );
+        if self.screen == Screen::Menu {
+            // The main menu is still the game's menu: close it as a new game's start does
+            // (`StartMenu::Close`, then the flag `ConfirmNewGame` sets: the game is running).
+            e.call(START_MENU_CLOSE, &args![0u32]);
+            e.mem.set_u8(GAME_RUNNING_FLAG, 1);
+        }
         Ok(())
+    }
+
+    fn top_menu(&mut self) -> u32 {
+        // `Interface::GetTopMenuID`: reads the menu stack.
+        self.engine.call(0x0070_23c0, &args![]).u32()
+    }
+
+    fn dismiss_message(&mut self) -> bool {
+        // 0x3e9: the message menu (xNVSE's kMenuType_Message).
+        if self.engine.call(0x0070_23c0, &args![]).u32() != 0x3e9 {
+            return false;
+        }
+        self.engine.call(0x007a_a530, &args![]);
+        true
+    }
+
+    fn ask_picture(&mut self, path: &std::path::Path) {
+        d3d9_wgpu::shot::ask(path.to_path_buf());
     }
 
     fn player(&self) -> Option<Standing> {
