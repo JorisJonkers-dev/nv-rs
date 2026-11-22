@@ -20,6 +20,15 @@ const RUNNING: i32 = i32::MIN;
 static RUNNER: Mutex<Option<(Runner, Instant)>> = Mutex::new(None);
 static EXIT: AtomicI32 = AtomicI32::new(RUNNING);
 
+/// `main`'s call of `StartMenu::Create(0, 0)` (`007053f0`, no argument) before its message loop.
+const START_MENU_CREATE_AT_START: u32 = 0x0070_53f0;
+
+/// Before the game's code starts ([`host::fork_prestart`]): no main menu is built (so no menu music or menu assets are
+/// loaded either); the runner sends the player to the first place from the first frame. Not called for `NV_SCENE_MENU=1`.
+pub fn skip_main_menu() {
+    host::fork_prestart::add(|e| e.register(START_MENU_CREATE_AT_START, |_, _| Ret::default()));
+}
+
 /// Registers the runner at `Main::OnIdle`. Call once, after the host started (real threads take the
 /// registration too) and before main's next frame.
 pub fn install(e: &mut Engine, runner: Runner) {

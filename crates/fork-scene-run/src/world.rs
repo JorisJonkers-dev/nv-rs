@@ -348,8 +348,9 @@ impl EngineWorld<'_> {
             accept_position_as_good(e, player);
             // The main menu is still the game's menu: close it as a new game's start does.
             e.call(START_MENU_CLOSE, &args![0u32]);
-            e.mem.set_u8(GAME_RUNNING_FLAG, 1);
         }
+        // The flag `ConfirmNewGame` sets: the game is running (also when no menu was built).
+        e.mem.set_u8(GAME_RUNNING_FLAG, 1);
         TARGET_CELL.store(cell, std::sync::atomic::Ordering::Relaxed);
         Ok(Target {
             pos,
@@ -373,6 +374,8 @@ const SET_ANGLE_BASE: u32 = 0x005c_0b10;
 /// `PlayerCharacter::UpdateUFOCamera` places the camera from them (the terrain around the camera follows).
 const MAIN_POINTER: u32 = 0x011d_ea0c;
 const FLY_CAMERA_FLAG: u32 = 6;
+/// `Main` +7: the free camera's frozen world (the sky update, the calendar and the animations stop).
+const FROZEN_WORLD_FLAG: u32 = 7;
 const TOGGLE_FLY_CAM: u32 = 0x0096_1e30;
 const UFO_HEADING: u32 = 0x7e0;
 const UFO_PITCH: u32 = 0x7e4;
@@ -384,6 +387,8 @@ fn fly_camera_on(e: &Engine) -> bool {
     main != 0 && e.mem.u8(main + FLY_CAMERA_FLAG) != 0
 }
 
+/// The cloud layers' scroll offsets, four floats.
+const CLOUD_OFFSETS: u32 = 0x011f_f8b4;
 /// The tree update's time accumulator (the sway's clock, `BSTreeManager::Update`).
 const TREE_TIME_ACCUMULATOR: u32 = 0x011d_5dd4;
 
@@ -719,10 +724,23 @@ impl World for EngineWorld<'_> {
         Ok(())
     }
 
+    fn hold_world(&mut self, on: bool) {
+        let main = self.engine.mem.u32(MAIN_POINTER);
+        if main != 0 {
+            self.engine
+                .mem
+                .set_u8(main + FROZEN_WORLD_FLAG, u8::from(on));
+        }
+    }
+
     fn pin_sway_time(&mut self) {
         // `BSTreeManager::Update` (`006652e0`) adds each frame's time to the float at `011d5dd4` and hands it to the
         // tree library: the sway's clock. Zero at arrival, the same in every run.
         self.engine.mem.set_f32(TREE_TIME_ACCUMULATOR, 0.0);
+        // The four cloud layers' scroll offsets (`011ff8b4`, the floats `006348b0` adds to): the clouds' phase.
+        for layer in 0..4 {
+            self.engine.mem.set_f32(CLOUD_OFFSETS + 4 * layer, 0.0);
+        }
     }
 
     fn top_menu(&mut self) -> u32 {

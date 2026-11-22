@@ -23,6 +23,7 @@ pub mod draw_thread;
 pub mod first_profile;
 pub mod fixes;
 pub mod fork_heap;
+pub mod fork_prestart;
 pub mod fork_trace;
 pub mod fork_ttw;
 pub mod form_types;
@@ -223,6 +224,7 @@ impl Host {
         if let Some(line) = fork_ttw::switch_on(&mut engine, data) {
             fork_log::info!(target: "host", "{line}");
         }
+        fork_prestart::run(&mut engine);
         install_rows_and_extenders(&mut engine, choice);
         fork_log::info!(target: "host", "{}", choice.describe());
         let jip_state = {
