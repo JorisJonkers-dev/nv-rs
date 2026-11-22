@@ -157,14 +157,17 @@ fn the_plugins_tale_of_two_wastelands_asks_for_say_what_they_have() {
             .iter()
             .map(|n| n.as_str().unwrap())
             .collect();
-        assert_eq!(names, built, "{id}");
+        // The commands Tale of Two Wastelands calls come first and are all there; the commands
+        // built since for other mods follow them (their own tests name them), so the list is
+        // not spelled out here a second time.
+        assert_eq!(&names[..built.len()], built, "{id}");
         let commands = &entry["commands"];
         assert_eq!(
             commands["implemented"].as_u64().unwrap(),
-            built.len() as u64
+            names.len() as u64
         );
         assert!(
-            commands["total"].as_u64().unwrap() >= built.len() as u64,
+            commands["total"].as_u64().unwrap() >= names.len() as u64,
             "{id}"
         );
     }

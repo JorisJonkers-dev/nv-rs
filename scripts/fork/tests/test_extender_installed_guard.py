@@ -10,8 +10,10 @@ scripts check each plugin's version and ask for a handful of its commands, and w
 script stops at five message boxes. Those extenders answer "installed" with only the commands TTW calls built (listed
 below with the reason); every other command of them stays missing and a mod that calls one fails at that line.
 
-An exception pins the number of commands built, so building more of an extender's commands forces the exception to be
-updated and, when the set is whole, removed (the test below fails on an exception that no longer applies).
+An exception pins the number of commands TTW needs: the extender must have at least that many built (a command lost
+would bring the five message boxes back), and when the set is whole the exception must be removed (the test below fails
+on an exception that no longer applies). Building more commands for other mods (the commands the owner's modded profile
+calls, built group by group) needs no change here: the answer is only more true with them.
 
 Run: python3 -I -m unittest discover -s scripts/fork/tests -v        (no network, no cargo, nothing created)
 """
@@ -65,7 +67,7 @@ def problems(doc, exceptions=TTW_DEPENDENCY_ANSWERS):
                 out.append(f"{ident}: the exception has no reason")
             if whole:
                 out.append(f"{ident}: its whole set ({total}) is built: remove it from the exceptions")
-            elif built != pinned:
+            elif built < pinned:
                 out.append(f"{ident}: {built} of {total} commands built, the exception was written for {pinned}: check that the installed answer still holds for TTW, then update it")
         elif not whole:
             out.append(f"{ident}: answers installed with {built} of {total} scanned commands built (names listed: {names})")
@@ -128,10 +130,14 @@ class GuardTests(unittest.TestCase):
         d = doc(ext("johnnyguitar", 5, 412), ext("showoff", 1, 215), ext("stewie-tweaks", 0, 8))
         self.assertEqual(problems(d), [])
 
-    def test_building_more_of_an_exception_asks_for_the_exception_to_be_looked_at(self):
-        d = doc(ext("johnnyguitar", 9, 412), ext("showoff", 1, 215), ext("stewie-tweaks", 0, 8))
+    def test_building_fewer_than_the_exception_was_written_for_asks_for_it_to_be_looked_at(self):
+        d = doc(ext("johnnyguitar", 4, 412), ext("showoff", 1, 215), ext("stewie-tweaks", 0, 8))
         self.assertEqual(len(problems(d)), 1)
         self.assertIn("update it", problems(d)[0])
+
+    def test_building_more_than_the_exception_was_written_for_needs_no_change(self):
+        d = doc(ext("johnnyguitar", 9, 412), ext("showoff", 30, 215), ext("stewie-tweaks", 0, 8))
+        self.assertEqual(problems(d), [])
 
     def test_an_exception_that_became_whole_must_be_removed(self):
         d = doc(ext("johnnyguitar", 412, 412), ext("showoff", 1, 215), ext("stewie-tweaks", 0, 8))
