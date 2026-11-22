@@ -1,0 +1,13 @@
+# A walking bench place (`path`): the player is moved 6 units a frame along a loop through Goodsprings' valley during the
+# soak's timed frames (the cells around it stream in as it goes), then the next place. Run as
+# `nv-rs-scene bench --places docs/fork/scenes/bench-walk.toml ...`.
+version = 1
+[[place]]
+name = "goodsprings-walk"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+path = [[-70200, 2560, 8356], [-69000, 2560, 8356], [-69000, 3800, 8356], [-70200, 3800, 8356]]
+path_speed = 6

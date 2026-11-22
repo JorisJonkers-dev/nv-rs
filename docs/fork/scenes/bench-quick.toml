@@ -1,0 +1,26 @@
+# The quick bench suite (`nv-rs-scene bench --suite quick`): the old harness's quick suite without the interior (Doc
+# Mitchell's house: an interior has no place in the place file yet): Goodsprings, Novac and the Strip, the player standing,
+# the world frozen, one place after the other in one start.
+version = 1
+[[place]]
+name = "goodsprings"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+[[place]]
+name = "novac"
+world = "WastelandNV"
+x = 21836
+y = -31072
+z = 6973
+heading = 0
+[[place]]
+name = "strip"
+world = "WastelandNV"
+ref = "SharecropperFarmsMapMarker"
+dx = 0
+dy = -14000
+dz = 800
+look_at = "FreesideMapMarker"

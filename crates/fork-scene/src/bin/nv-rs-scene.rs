@@ -330,6 +330,56 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
 /// `nv-rs-scene soak`: one engine start visits every place of the file and runs `--frames` frames at
 /// each; the verdict counts stops, error lines and warnings and prints the frame times of each place.
 fn soak(args: &[String]) -> Result<bool, String> {
+    Ok(soak_run(args)?.ok)
+}
+
+/// What a soak found.
+struct SoakResult {
+    ok: bool,
+    code: i32,
+    secs: f64,
+    scan: LogScan,
+    warmup: u32,
+    passes: u32,
+}
+
+/// The soak's log: the frame-time rows and the counts the verdict uses.
+#[derive(Default)]
+struct LogScan {
+    rows: Vec<String>,
+    errors: u32,
+    warnings: u32,
+    stops: u32,
+    last_place: String,
+}
+
+fn scan_log(path: &Path) -> LogScan {
+    let log = std::fs::read_to_string(path).unwrap_or_default();
+    let mut s = LogScan::default();
+    for line in log.lines() {
+        let Ok(v) = fork_scene::json_lite::fields(line, &["level", "message"]) else {
+            continue;
+        };
+        let (level, msg) = (&v[0], &v[1]);
+        match level.as_str() {
+            "error" | "fatal" => s.errors += 1,
+            "warn" => s.warnings += 1,
+            _ => {}
+        }
+        if msg.contains("Game's main stopped") {
+            s.stops += 1;
+        }
+        if let Some(r) = msg.strip_prefix("scene: sending the player to ") {
+            s.last_place = r.split_whitespace().next().unwrap_or("").to_string();
+        }
+        if let Some(r) = msg.strip_prefix("scene: soak ") {
+            s.rows.push(r.to_string());
+        }
+    }
+    s
+}
+
+fn soak_run(args: &[String]) -> Result<SoakResult, String> {
     let (mut viewer, mut game, mut places, mut out, mut userdata) = (None, None, None, None, None);
     let (mut plugin_list, mut overlay_skip): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
     let mut overlay: Option<PathBuf> = None;
@@ -389,32 +439,11 @@ fn soak(args: &[String]) -> Result<bool, String> {
     if !exclusive {
         println!("timing rows not valid, machine shared (a bench is run with `bench`, which takes the lock exclusively)");
     }
-    let log = std::fs::read_to_string(out.join("soak").join("log.jsonl")).unwrap_or_default();
-    let (mut errors, mut warnings, mut stops) = (0, 0, 0);
-    let mut rows = Vec::new();
-    let mut last_place = String::new();
-    for line in log.lines() {
-        let Ok(v) = fork_scene::json_lite::fields(line, &["level", "message"]) else {
-            continue;
-        };
-        let (level, msg) = (&v[0], &v[1]);
-        match level.as_str() {
-            "error" | "fatal" => errors += 1,
-            "warn" => warnings += 1,
-            _ => {}
-        }
-        if msg.contains("Game's main stopped") {
-            stops += 1;
-        }
-        if let Some(r) = msg.strip_prefix("scene: sending the player to ") {
-            last_place = r.split_whitespace().next().unwrap_or("").to_string();
-        }
-        if let Some(r) = msg.strip_prefix("scene: soak ") {
-            rows.push(r.to_string());
-        }
-    }
+    let scan = scan_log(&out.join("soak").join("log.jsonl"));
+    let (errors, warnings, stops) = (scan.errors, scan.warnings, scan.stops);
+    let (rows, last_place) = (&scan.rows, scan.last_place.clone());
     println!("place, frames, frame times (ms):");
-    for r in &rows {
+    for r in rows {
         println!("  {r}");
     }
     // `bench.json`: machine-readable numbers per place, for `nv-rs-scene bench-compare`.
@@ -445,18 +474,37 @@ fn soak(args: &[String]) -> Result<bool, String> {
         rows.len(),
         if code != 0 { format!("; ended at place {last_place}, see {}", out.join("soak").join("run.log").display()) } else { String::new() }
     );
-    Ok(code == 0 && stops == 0 && errors == 0 && rows.len() == n_places)
+    let ok = code == 0 && stops == 0 && errors == 0 && rows.len() == n_places;
+    let (warmup, passes) = (
+        env_value(&opts.extra_env, "NV_SCENE_SOAK_WARMUP", 120),
+        env_value(&opts.extra_env, "NV_SCENE_SOAK_PASSES", 1),
+    );
+    Ok(SoakResult {
+        ok,
+        code,
+        secs,
+        scan,
+        warmup,
+        passes,
+    })
+}
+
+fn env_value(env: &[(String, String)], key: &str, default: u32) -> u32 {
+    env.iter()
+        .rev()
+        .find(|(k, _)| k == key)
+        .and_then(|(_, v)| v.parse().ok())
+        .unwrap_or(default)
 }
 
 /// What the machine was doing, as a JSON object for `bench.json`: the CPU frequency governor, the load average, the CPU
 /// model (a bench on a machine that was busy, or on another governor, says so in its own file).
-fn machine_notes() -> String {
+fn machine_fields() -> (String, String, String) {
     let read = |p: &str| {
         std::fs::read_to_string(p)
             .map(|t| t.trim().to_string())
             .unwrap_or_default()
     };
-    let esc = |t: String| t.replace('\\', "\\\\").replace('"', "\\\"");
     let governor = read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor");
     let load = read("/proc/loadavg");
     let load = load
@@ -470,30 +518,105 @@ fn machine_notes() -> String {
         .and_then(|l| l.split_once(':'))
         .map(|(_, v)| v.trim().to_string())
         .unwrap_or_default();
+    (governor, load, model)
+}
+
+fn machine_notes() -> String {
+    let (g, l, c) = machine_fields();
     format!(
-        "{{\"governor\":\"{}\",\"loadavg\":\"{}\",\"cpu\":\"{}\"}}",
-        esc(governor),
-        esc(load),
-        esc(model)
+        "{{\"governor\":{},\"loadavg\":{},\"cpu\":{}}}",
+        fork_scene::bench::esc(&g),
+        fork_scene::bench::esc(&l),
+        fork_scene::bench::esc(&c)
     )
 }
 
+/// The built-in suites: a name and the place file it stands for (the files are in `docs/fork/scenes`).
+const SUITES: [(&str, &str); 4] = [
+    (
+        "quick",
+        include_str!("../../../../docs/fork/scenes/bench-quick.toml"),
+    ),
+    (
+        "mojave",
+        include_str!("../../../../docs/fork/scenes/mojave-far.toml"),
+    ),
+    (
+        "soak",
+        include_str!("../../../../docs/fork/scenes/soak-far-moves.toml"),
+    ),
+    (
+        "capital",
+        include_str!("../../../../docs/fork/scenes/ttw-capital.toml"),
+    ),
+];
+
+/// Other `nv-viewer` processes running now (a bench that shared the machine is marked noisy).
+fn other_viewers() -> u32 {
+    let Ok(dir) = std::fs::read_dir("/proc") else {
+        return 0;
+    };
+    dir.flatten()
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .chars()
+                .all(|c| c.is_ascii_digit())
+        })
+        .filter(|e| {
+            std::fs::read_to_string(e.path().join("comm"))
+                .is_ok_and(|c| c.trim().starts_with("nv-viewer"))
+        })
+        .count() as u32
+}
+
 /// `nv-rs-scene bench`: a soak on the real clock under the exclusive game lock (`--lock FILE`), with the numbers written
-/// to `<out>/soak/bench.json`. Takes the soak's arguments, plus `--lock`.
+/// to `<out>/soak/bench.json` and, in the old harness's shape, `<out>/soak/summary.json` and the suite files:
+/// `--suite NAME` takes a built-in place file (`quick`, `mojave`, `soak`, `capital`) instead of `--places`;
+/// `--state DIR` (default `~/.cache/nv-rs/scene-bench`) keeps the suites and baselines; `--save-baseline NAME` stores this
+/// run's rows, `--baseline NAME` shows the change against a stored one (and the previous suite is always shown).
 fn bench(args: &[String]) -> Result<bool, String> {
     let mut rest = Vec::new();
-    let mut lock = None;
+    let (mut lock, mut suite, mut state) = (None, None, None);
+    let (mut save_baseline, mut baseline): (Option<String>, Option<String>) = (None, None);
+    let mut out_dir = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        if a == "--lock" {
-            lock = Some(it.next().ok_or("--lock needs the game.lock file")?.clone());
-        } else {
-            rest.push(a.clone());
+        let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
+        match a.as_str() {
+            "--lock" => lock = Some(value(a)?),
+            "--suite" => suite = Some(value(a)?),
+            "--state" => state = Some(PathBuf::from(value(a)?)),
+            "--save-baseline" => save_baseline = Some(value(a)?),
+            "--baseline" => baseline = Some(value(a)?),
+            "--out" => {
+                let v = value(a)?;
+                out_dir = Some(PathBuf::from(&v));
+                rest.push(a.clone());
+                rest.push(v);
+            }
+            _ => rest.push(a.clone()),
         }
     }
     let lock = lock.ok_or(
         "bench needs --lock FILE (the shared game lock file: the bench takes it exclusively)",
     )?;
+    let suite_name = suite.clone().unwrap_or_else(|| "places".into());
+    if let Some(name) = &suite {
+        let (_, text) = SUITES.iter().find(|(n, _)| n == name).ok_or_else(|| {
+            let known: Vec<&str> = SUITES.iter().map(|(n, _)| *n).collect();
+            format!(
+                "no suite `{name}` (the built-in ones: {})",
+                known.join(", ")
+            )
+        })?;
+        let out = out_dir.clone().ok_or("--out is needed")?;
+        std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+        let file = out.join(format!("suite-{name}.toml"));
+        std::fs::write(&file, text).map_err(|e| format!("{}: {e}", file.display()))?;
+        rest.push("--places".into());
+        rest.push(file.display().to_string());
+    }
     // The wrap words come first, so the lock is taken before the engine starts and held until it has ended.
     let mut full: Vec<String> = [
         "--realtime",
@@ -511,7 +634,125 @@ fn bench(args: &[String]) -> Result<bool, String> {
     .map(|s| s.to_string())
     .collect();
     full.extend(rest);
-    soak(&full)
+    let noisy_before = other_viewers() > 0;
+    let r = soak_run(&full)?;
+    let out = out_dir.ok_or("--out is needed")?;
+    let noisy = noisy_before || other_viewers() > 0;
+    // The files of the old harness's shape.
+    let name = format!("{suite_name}-{}", stamp());
+    let rows: Vec<fork_scene::bench::PlaceRow> = r
+        .scan
+        .rows
+        .iter()
+        .filter_map(|l| fork_scene::bench::PlaceRow::parse(l))
+        .collect();
+    let notes = machine_fields();
+    let facts = fork_scene::bench::RunFacts {
+        name: name.clone(),
+        scenario: suite_name.clone(),
+        resolution: "1280x720".into(),
+        limiters: fork_scene::bench::limiters_in(|k| std::env::var(k).ok()),
+        wall_s: r.secs,
+        noisy,
+        exit_status: r.code,
+        stops: r.scan.stops,
+        errors: r.scan.errors,
+        warnings: r.scan.warnings,
+        governor: notes.0,
+        loadavg: notes.1,
+        cpu: notes.2,
+        warmup: r.warmup,
+        passes: r.passes,
+    };
+    let summary = fork_scene::bench::summary_json(&suite_name, &rows, &facts);
+    let write = |p: PathBuf, text: &str| {
+        std::fs::write(&p, text).map_err(|e| format!("{}: {e}", p.display()))
+    };
+    write(out.join("soak").join("summary.json"), &summary)?;
+    let heads: Vec<_> = rows
+        .iter()
+        .map(|row| fork_scene::bench::headline(&suite_name, row, &facts))
+        .collect();
+    let state = state.unwrap_or_else(|| {
+        PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cache/nv-rs/scene-bench")
+    });
+    let previous = previous_suite(&state, &name);
+    let base = baseline.as_ref().and_then(|b| {
+        std::fs::read_to_string(state.join("baselines").join(format!("{b}.json")))
+            .ok()
+            .map(|t| fork_scene::bench::known_from(&t))
+    });
+    let md = fork_scene::bench::suite_markdown(
+        &name,
+        &heads,
+        previous.as_ref(),
+        base.as_ref(),
+        baseline.as_deref(),
+        "1280x720",
+    );
+    write(out.join("soak").join("suite.md"), &md)?;
+    let suite_dir = state.join(&name);
+    std::fs::create_dir_all(&suite_dir).map_err(|e| format!("{}: {e}", suite_dir.display()))?;
+    write(
+        suite_dir.join("suite.json"),
+        &fork_scene::bench::suite_json(&name, &heads),
+    )?;
+    write(suite_dir.join("suite.md"), &md)?;
+    if let Some(b) = &save_baseline {
+        let dir = state.join("baselines");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        write(
+            dir.join(format!("{b}.json")),
+            &fork_scene::bench::baseline_json(&heads),
+        )?;
+    }
+    println!("{md}");
+    println!(
+        "summary: {}",
+        out.join("soak").join("summary.json").display()
+    );
+    Ok(r.ok && !heads.iter().any(|h| !h.checks_ok))
+}
+
+/// `YYYYMMDDTHHMMSS` (UTC) for a run's name.
+fn stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let (days, rem) = (secs / 86400, secs % 86400);
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}{m:02}{d:02}T{:02}{:02}{:02}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
+}
+
+/// The rows of the newest suite in `state` older than `name`, or `None`.
+fn previous_suite(state: &Path, name: &str) -> Option<fork_scene::bench::Known> {
+    let prefix = name.split('-').next()?.to_string();
+    let mut dirs: Vec<String> = std::fs::read_dir(state)
+        .ok()?
+        .flatten()
+        .filter(|e| e.path().join("suite.json").exists())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(&format!("{prefix}-")) && n.as_str() < name)
+        .collect();
+    dirs.sort();
+    let last = dirs.pop()?;
+    let text = std::fs::read_to_string(state.join(last).join("suite.json")).ok()?;
+    Some(fork_scene::bench::known_from(&text))
 }
 
 /// `nv-rs-scene bench-compare A.json B.json`: per place, the average frame time, the 1% low and the largest frame of

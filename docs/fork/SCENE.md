@@ -32,7 +32,7 @@ y = 38375.3
 z = 2917.4               # standing height
 heading = 60             # degrees, 0 north, 90 east
 pitch = 0                # degrees, positive looks down
-# path = [[x, y, z], ...]   # optional, for a bench
+# path = [[x, y, z], ...]   # optional, for a bench (see "Bench": the player walks it in a soak)
 ```
 
 ## How the engine goes to a place
@@ -271,13 +271,13 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
 
 | asked for | command | missing |
 | --- | --- | --- |
-| engine benchmark in Rust | `nv-rs-scene bench` (real clock, exclusive game lock, frame times per place to `bench.json`) and `bench-compare A.json B.json` | the Python bench's suites, matrix and summary Contract v1 (nv-rs#328, #348) are not ported; no fixed walking path (`path` in the place file is read and not used); one machine's numbers only |
+| engine benchmark in Rust | `nv-rs-scene bench --suite quick` (real clock, exclusive game lock, warm-up and median of passes, `summary.json`, suite table with the change against the previous suite and a baseline, `--save-baseline`), `bench-compare A.json B.json`, a walking place (`path`) | not ported (no need on this path): the nested window session, the input driver and the memory guard (the offscreen run has no window and no input; `gamerun` caps memory), the matrix of refs and hosts (`nv-rs-dev matrix`), the replay bench; the interior scenarios (Doc's house); the Contract v1 file (nv-rs#231) is not published yet, so the summary follows the old harness's keys plus `schema_version`; one machine's numbers only |
 | spawning in specific locations | `NV_SCENE` place file: world, position, heading, pitch, or a reference with an offset | interiors (no cell by name), places by a worldspace that is not in the load order |
 | loading into places | the runner's placement through the game's own exterior loader; one start for any number of places | no menu or intro is shown; the start is 6 s of data load (12 s on TTW) |
 | no main menu needed | done: the runner sends the player from the menu in frame 121 | the start screens (intro videos) are not skipped, only passed |
 | stability tests | `nv-rs-scene soak` (places, N frames each, counts stops, errors, warnings, exits non-zero) | no long-run memory growth check; #455 and #474 cases are place files (#474 fails until fixed) |
 | pictures of areas, a frozen frame | `nv-rs-scene run` (variants, same place file, per-view difference) | cloud/brush phase differs by one frame between rare runs (nv-rs#484); `compare --noise` is the workaround |
-| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool | `scripts/fork/bench/` Python still runs the old scenarios and suites; no `nv-rs-dev scene` dispatch line |
+| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool, `nv-rs-dev scene <build\|run\|soak\|bench\|compare\|bench-compare>` | `scripts/fork/bench/` Python still runs the old window-driven scenarios (it is not removed: nv-rs#328, #348 stay open for what is not ported) |
 
 ## Bench
 
@@ -292,6 +292,8 @@ median), and for the run the CPU model, the CPU frequency governor and the load 
 of the average in percent (positive: B is slower). A `soak` without `--exclusive` prints "timing rows not valid, machine
 shared".
 
+Suite check: the quick suite twice (second run with `--baseline`), the average fps differed by 1.9, 0.3 and 2.4%.
+
 Noise, the same build started twice, five Mojave places, 500 frames, `play` profile, 1280x720, exclusive lock, one
 machine (Ryzen 7 5800X3D, governor `powersave`, load average 4 to 6 from other work): before (one 500-frame pass, no
 warm-up) the average differed by 0.9, 4.8, 7.6, 5.0 and 1.1% between two runs; after (120 warm-up frames, five passes,
@@ -299,6 +301,30 @@ median) three runs differ by at most 2.6% (0.1 to 2.6% between the first two, 0.
 third). The average itself fell by 0.2 to 1.3 ms at three places: the first frames after arriving were slower. One
 place (the quarry) had a pass spread of 14 to 21% in every run, which the median covers. The remaining noise is the
 machine: a `performance` governor and no other load would narrow it further.
+
+### Suites, summary and baselines
+
+`bench --suite NAME` takes a built-in place file instead of `--places`: `quick` (Goodsprings, Novac and the Strip, the old
+quick suite without Doc's house: no interiors yet; `scenes/bench-quick.toml`), `mojave` (`mojave-far.toml`), `soak` (the far
+moves of `soak-far-moves.toml`, the old `soak` scenario's places) and `capital` (`ttw-capital.toml`, needs the TTW arguments
+of the Tale of Two Wastelands section). Besides `bench.json` the run writes, in the old harness's shape:
+
+- `OUT/soak/summary.json`: `schema_version` 1, `name`, `scenario`, `settings` (mode, resolution, limiters, warm-up and
+  passes), `run` (wall seconds, `noisy`, exit status, governor, load average, CPU), `metrics` (`frame_time_play` with fps,
+  average, p50, p99, 1% and 0.1% low; one phase `PLACE.measured` per place; the metrics the engine path has no source
+  for, main busy, VRAM and hitches, are `null`), `verdict` (the checks: exit status 0, no stop, no error line) and the
+  `headline` of the first place. A run is `noisy` when another `nv-viewer` was running at its start or end.
+- `OUT/soak/suite.md` and `STATE/<suite-name>/suite.json`, `suite.md`: the headline table (the old columns, one row `suite:place`
+  per place, verdict PASS, FAIL or CAPPED: a frame limiter in the environment or a rate within 2% of a usual cap value is
+  not a headline) with the fps change against the previous suite of that name and the baseline.
+- `--save-baseline NAME` stores the rows in `STATE/baselines/NAME.json`, `--baseline NAME` compares with one (the old
+  harness's baseline files are read too). `STATE` is `--state DIR`, default `~/.cache/nv-rs/scene-bench`.
+
+A place with `path` and `path_speed` walks: during the timed frames the player is moved along the points with the game's own
+position setters, `path_speed` units a frame (the loop again at its end), and the cells stream in as for a walking player;
+`scenes/bench-walk.toml` has one. Checked: 600 frames in the Goodsprings valley, the player at -70160..-69000, 2560..3799,
+height within 3 units; the frame times show the streaming (average 13.4 ms against 7 standing, 99th percentile 47 ms,
+largest 104 ms; a soak, so not a valid timing).
 
 ## Where the seconds go, and the speed options
 

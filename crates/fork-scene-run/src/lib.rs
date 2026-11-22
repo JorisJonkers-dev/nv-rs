@@ -44,6 +44,11 @@ pub trait World {
     fn set_float_setting(&mut self, _name: &str, _value: f32) -> Result<bool, String> {
         Ok(true)
     }
+    /// Moves the player to `pos` (the console's `setpos`: the game's own position setters, one frame's step of a walk
+    /// along a place's `path`); the world then streams the cells around it as it does for a walking player.
+    fn move_player(&mut self, _pos: [f64; 3]) -> Result<(), String> {
+        Err("this world cannot move the player".into())
+    }
     /// Closes the message box on top (`MessageMenu::ClearMessageQueueHead`); false when the top
     /// menu is not a message box.
     fn dismiss_message(&mut self) -> bool {
@@ -503,6 +508,17 @@ impl Runner {
                     return Step::Continue;
                 }
                 self.away = 0;
+                if !place.path.is_empty() {
+                    // A walking bench: this frame's step along the path.
+                    let total = self.request.soak_warmup
+                        + self.request.soak_frames.unwrap_or(1) * self.request.soak_passes;
+                    let done = f64::from(total - left);
+                    if let Some(at) = fork_scene::path_point(&place.path, done * place.path_speed) {
+                        if let Err(e) = w.move_player(at) {
+                            return Step::Failed(format!("scene: place {}: {e}", place.name));
+                        }
+                    }
+                }
                 self.ms.push((now - last) * 1000.0);
                 if left > 1 {
                     self.phase = Phase::Soaking {
@@ -532,7 +548,11 @@ impl Runner {
                 let worst = (n / 100).max(1);
                 let low1 =
                     1000.0 / (self.ms[n - worst..].iter().sum::<f64>() / worst as f64).max(1e-9);
-                fork_log::info!(target: "scene", "scene: soak {} frames {} avg_ms {:.3} p99_ms {:.2} max_ms {:.2} low1_fps {:.1} passes {} spread_pct {:.2}", place.name, n, median, st.1, st.2, low1, passes.len(), spread);
+                let worst01 = (n / 1000).max(1);
+                let low01 = 1000.0
+                    / (self.ms[n - worst01..].iter().sum::<f64>() / worst01 as f64).max(1e-9);
+                let p50 = self.ms[n / 2];
+                fork_log::info!(target: "scene", "scene: soak {} frames {} avg_ms {:.3} p99_ms {:.2} max_ms {:.2} low1_fps {:.1} passes {} spread_pct {:.2} p50_ms {:.3} low01_fps {:.1}", place.name, n, median, st.1, st.2, low1, passes.len(), spread, p50, low01);
                 self.after_ready(w, place.name.clone(), since, pos)
             }
             Phase::Holding { since, until, pos } => {
@@ -666,6 +686,8 @@ mod tests {
         draw: Option<Vec<u8>>,
         /// The free camera calls: where the player stood each time.
         cameras: Vec<[f64; 3]>,
+        /// The positions the player was moved to along a path.
+        moves: Vec<[f64; 3]>,
     }
     impl World for Fake {
         fn screen(&self) -> Screen {
@@ -692,6 +714,10 @@ mod tests {
                 heading: p.heading,
                 pitch: p.pitch,
             })
+        }
+        fn move_player(&mut self, pos: [f64; 3]) -> Result<(), String> {
+            self.moves.push(pos);
+            Ok(())
         }
         fn set_float_setting(&mut self, name: &str, value: f32) -> Result<bool, String> {
             self.settings.push((name.to_string(), value));
@@ -742,6 +768,7 @@ mod tests {
             settings: vec![],
             draw: None,
             cameras: Vec::new(),
+            moves: Vec::new(),
         }
     }
 
@@ -996,6 +1023,31 @@ mod tests {
             assert_eq!(r.step(&mut w, 1.2 + f64::from(i) * 0.01), Step::Continue);
         }
         assert!(matches!(r.step(&mut w, 2.0), Step::Reached { .. }));
+    }
+
+    #[test]
+    fn a_soak_of_a_place_with_a_path_walks_it_a_step_a_frame() {
+        let f = PlaceFile::parse(
+            "version = 1\n[[place]]\nname = \"a\"\nworld = \"W\"\nx = 100\ny = 100\nz = 5\npath = [[0, 0, 5], [100, 0, 5]]\npath_speed = 2\n",
+        )
+        .unwrap();
+        let mut req = request(60);
+        req.places = f.places;
+        req.soak_frames = Some(4);
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        let mut t = 1.0;
+        while !matches!(r.step(&mut w, t), Step::Reached { .. }) {
+            t += 0.01;
+            assert!(t < 5.0);
+        }
+        let xs: Vec<f64> = w.moves.iter().map(|p| p[0]).collect();
+        assert_eq!(xs, [0.0, 2.0, 4.0, 6.0]);
     }
 
     #[test]

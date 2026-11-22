@@ -32,6 +32,8 @@
 //! # camera = [x, y, z]             # a world position
 //! look = [x, y, z]                 # look at a point (or `look_at`, or `heading` and `pitch`)
 //! ```
+//! A place for a bench can walk: `path = [[x, y, z], ...]` and `path_speed = 10` (units a frame) move the player along the
+//! points (and back to the first) during the soak's frames.
 //! Supported: `#` comments, `key = value` with a quoted string, a number, or an array of
 //! numbers or of arrays of numbers on one line; `[[place]]` tables; the top-level `version`.
 
@@ -63,8 +65,11 @@ pub struct Place {
     /// Move the player as the console's `player.setpos` / `setangle` do (nv-rs#474), not through the game's own
     /// placement (`move = "setpos"`; the default is `move = "place"`).
     pub setpos: bool,
-    /// Points to walk through (a bench); empty for a still picture.
+    /// Points to walk through (a bench: in a soak or bench the player moves along them, `path_speed` units a frame, the
+    /// whole path again when it ends); empty for a place to stand at.
     pub path: Vec<[f64; 3]>,
+    /// Units the player moves each frame along `path` (default 10, about a run).
+    pub path_speed: f64,
     /// The view is taken from the free camera, not from the player's eyes (the console's `tfc`, with no
     /// console text): the player stands where the place says and the cells around it stay loaded, the camera
     /// is somewhere else. `None` for the player's own view.
@@ -97,6 +102,36 @@ pub fn cell_of(pos: [f64; 3]) -> (i32, i32) {
         (pos[0] / 4096.0).floor() as i32,
         (pos[1] / 4096.0).floor() as i32,
     )
+}
+
+/// The point `dist` units along the polyline `path` (a loop: past its end it starts again from the first point, which
+/// the last point is joined to); the first point for a path of one point or no length.
+pub fn path_point(path: &[[f64; 3]], dist: f64) -> Option<[f64; 3]> {
+    let first = *path.first()?;
+    let n = path.len();
+    let leg = |i: usize| {
+        let (a, b) = (path[i], path[(i + 1) % n]);
+        let d = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
+        (a, b, d)
+    };
+    let total: f64 = (0..n).map(|i| leg(i).2).sum();
+    if n == 1 || total <= 0.0 {
+        return Some(first);
+    }
+    let mut left = dist.rem_euclid(total);
+    for i in 0..n {
+        let (a, b, d) = leg(i);
+        if left <= d {
+            let t = if d > 0.0 { left / d } else { 0.0 };
+            return Some([
+                a[0] + (b[0] - a[0]) * t,
+                a[1] + (b[1] - a[1]) * t,
+                a[2] + (b[2] - a[2]) * t,
+            ]);
+        }
+        left -= d;
+    }
+    Some(first)
 }
 
 /// Heading (0 north, 90 east) and pitch (positive looks down), in degrees, for standing at `from` and
@@ -229,6 +264,7 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
             "dz",
             "look_at",
             "move",
+            "path_speed",
             "camera",
             "camera_dx",
             "camera_dy",
@@ -363,6 +399,7 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         pitch_given: get("pitch").is_some(),
         setpos,
         path,
+        path_speed: num("path_speed", Some(10.0))?,
         camera,
         look,
     })
@@ -610,5 +647,37 @@ path = [[0, 0, 0], [10.5, 0, 0]]
         assert!(PlaceFile::parse(&format!("{base}camera = [5, 6]\n"))
             .unwrap_err()
             .contains("three numbers"));
+    }
+
+    #[test]
+    fn a_path_is_walked_by_distance_and_loops() {
+        let p = [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 10.0, 0.0]];
+        assert_eq!(path_point(&p, 0.0), Some([0.0, 0.0, 0.0]));
+        assert_eq!(path_point(&p, 5.0), Some([5.0, 0.0, 0.0]));
+        assert_eq!(path_point(&p, 15.0), Some([10.0, 5.0, 0.0]));
+        // The loop back to the first point: 20 along the legs, 14.14 back; 25 is 5 into the way home.
+        let back = path_point(&p, 25.0).unwrap();
+        assert!(
+            (back[0] - 10.0 + 5.0 / 2f64.sqrt()).abs() < 1e-9,
+            "{back:?}"
+        );
+        let total = 20.0 + 200f64.sqrt();
+        assert_eq!(path_point(&p, total + 5.0), path_point(&p, 5.0));
+        assert_eq!(path_point(&[[1.0, 2.0, 3.0]], 99.0), Some([1.0, 2.0, 3.0]));
+        assert_eq!(path_point(&[], 1.0), None);
+    }
+
+    #[test]
+    fn a_place_may_walk_a_path_at_a_speed() {
+        let t = "version = 1\n[[place]]\nname = \"a\"\nworld = \"W\"\nx = 1\ny = 2\nz = 3\npath = [[0, 0, 0], [10, 0, 0]]\npath_speed = 4\n";
+        let p = &PlaceFile::parse(t).unwrap().places[0];
+        assert_eq!((p.path.len(), p.path_speed), (2, 4.0));
+        assert_eq!(
+            PlaceFile::parse(&t.replace("path_speed = 4\n", ""))
+                .unwrap()
+                .places[0]
+                .path_speed,
+            10.0
+        );
     }
 }

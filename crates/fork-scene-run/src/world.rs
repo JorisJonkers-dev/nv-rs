@@ -327,6 +327,18 @@ impl World for EngineWorld<'_> {
         })
     }
 
+    fn move_player(&mut self, pos: [f64; 3]) -> Result<(), String> {
+        let e = &mut *self.engine;
+        let player = e.global::<u32>(PLAYER);
+        if player == 0 {
+            return Err("the game has no player yet".into());
+        }
+        for (axis, v) in [(b'X', pos[0]), (b'Y', pos[1]), (b'Z', pos[2])] {
+            e.call(SET_POS_BASE, &args![player, u32::from(axis), v as f32]);
+        }
+        Ok(())
+    }
+
     fn top_menu(&mut self) -> u32 {
         // `Interface::GetTopMenuID`: reads the menu stack.
         self.engine.call(0x0070_23c0, &args![]).u32()

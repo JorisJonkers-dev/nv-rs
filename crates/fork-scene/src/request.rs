@@ -151,7 +151,15 @@ impl Request {
                         .ok_or_else(|| format!("{SOAK}={v}: a whole number above 0"))?,
                 ),
             },
-            soak_warmup: number(SOAK_WARMUP, 120)?,
+            soak_warmup: match var(SOAK_WARMUP)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+            {
+                None => 120,
+                Some(v) => v
+                    .parse::<u32>()
+                    .map_err(|_| format!("{SOAK_WARMUP}={v}: a whole number"))?,
+            },
             soak_passes: number(SOAK_PASSES, 1)?.max(1),
             hide_actors: var(ACTORS).as_deref().map(str::trim) != Some("1"),
         }))
