@@ -271,6 +271,8 @@ struct Opts {
     extra_env: Vec<(String, String)>,
     /// `--ini KEY=VALUE`: lines of the staged `Fallout.ini` rewritten before the start (`--grids N` is `uGridsToLoad=N`).
     ini: Vec<(String, String)>,
+    /// `--gpu-sysfs DIR`: where the card's memory is read for the start check (default `/sys/class/drm`).
+    gpu_sysfs: PathBuf,
 }
 
 /// `nv-rs-scene run`: every variant of the game's data on one place file, one engine start each (in
@@ -289,6 +291,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
     let mut quick = false;
     let mut extra_env: Vec<(String, String)> = Vec::new();
     let mut ini: Vec<(String, String)> = Vec::new();
+    let mut gpu_sysfs = PathBuf::from("/sys/class/drm");
     let (mut plugin_list, mut overlay_skip): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -309,6 +312,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             "--env" => extra_env.push(env_pair(&value(a)?)?),
             "--ini" => ini.push(ini_pair(&value(a)?)?),
             "--grids" => ini.push(("uGridsToLoad".into(), grids_value(&value(a)?)?)),
+            "--gpu-sysfs" => gpu_sysfs = PathBuf::from(value(a)?),
             "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
             "--overlay-skip" => overlay_skip = value(a)?.split(',').map(String::from).collect(),
             "--jobs" => jobs = value(a)?.parse().map_err(|_| "--jobs is a number")?,
@@ -324,7 +328,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         resolution = "640x360".to_string();
         settle = "100".to_string();
     }
-    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--grids N] [--ini KEY=VALUE]... [--jobs N] [--game-lock FILE --label NAME [--who NAME]] [--wrap WORD]...";
+    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--grids N] [--ini KEY=VALUE]... [--gpu-sysfs DIR] [--jobs N] [--game-lock FILE --label NAME [--who NAME]] [--wrap WORD]...";
     let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
         return Err(usage.into());
     };
@@ -355,6 +359,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         overlay_skip,
         extra_env,
         ini,
+        gpu_sysfs,
     };
     println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let started = std::time::Instant::now();
@@ -414,6 +419,12 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
 }
 
 fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
+    // The card's part of the memory guard: refused when the runs are halted or the card has no room for the budget.
+    let halt_file = std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join(".cache/nv-rs/bench.halt"))
+        .unwrap_or_default();
+    let gpu = fork_scene::guard::check(&o.gpu_sysfs, &halt_file)
+        .map_err(|e| format!("refused by the memory guard: {e}"))?;
     let dir = o.out.join(name);
     // A packed overlay names its plugins: every plugin file at its top.
     let mut plugins = Vec::new();
@@ -477,6 +488,9 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
         .env("NV_SCENE_TIMEOUT_S", &o.timeout)
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
+    if let Some(caps) = &gpu {
+        cmd.env("NV_GPU_BUDGET_MB", caps.vram_mib.to_string());
+    }
     for (k, v) in &o.extra_env {
         cmd.env(k, v);
     }
@@ -632,6 +646,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
     let mut overlay: Option<PathBuf> = None;
     let mut extra_env: Vec<(String, String)> = Vec::new();
     let mut ini: Vec<(String, String)> = Vec::new();
+    let mut gpu_sysfs = PathBuf::from("/sys/class/drm");
     let (mut frames, mut wrap, mut realtime, mut timeout) =
         ("600".to_string(), Vec::new(), false, "300".to_string());
     let mut exclusive = false;
@@ -651,6 +666,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
             "--env" => extra_env.push(env_pair(&value(a)?)?),
             "--ini" => ini.push(ini_pair(&value(a)?)?),
             "--grids" => ini.push(("uGridsToLoad".into(), grids_value(&value(a)?)?)),
+            "--gpu-sysfs" => gpu_sysfs = PathBuf::from(value(a)?),
             "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
             "--overlay" => overlay = Some(PathBuf::from(value(a)?)),
             "--overlay-skip" => overlay_skip = value(a)?.split(',').map(String::from).collect(),
@@ -691,6 +707,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         overlay_skip,
         extra_env: extra,
         ini,
+        gpu_sysfs,
     };
     println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let overlays: Vec<PathBuf> = overlay.into_iter().collect();
@@ -1359,6 +1376,8 @@ mod tests {
         let viewer = fake_viewer(&t, 0);
         let args = s(&[
             "--no-cap",
+            "--gpu-sysfs",
+            "/nonexistent",
             "--viewer",
             &viewer.display().to_string(),
             "--game",
@@ -1415,6 +1434,8 @@ mod tests {
         let common = |viewer: &Path| {
             s(&[
                 "--no-cap",
+                "--gpu-sysfs",
+                "/nonexistent",
                 "--viewer",
                 &viewer.display().to_string(),
                 "--game",
@@ -1442,6 +1463,8 @@ mod tests {
         let args = |out: &str| {
             s(&[
                 "--no-cap",
+                "--gpu-sysfs",
+                "/nonexistent",
                 "--viewer",
                 &viewer.display().to_string(),
                 "--game",

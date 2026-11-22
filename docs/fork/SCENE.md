@@ -6,6 +6,68 @@ the world, waits for a real "ready" condition and writes one frame as a picture.
 
 This page describes what is built. The design and the order of the slices are on the issue.
 
+## First use
+
+Once: `nv-rs-dev scene build` (the viewer and the `nv-rs-scene` tool; `NV_DEV_TARGET` is the build folder). `GAME` below is the
+shared game lock, `~/Games/"Fallout New Vegas RS"/game.lock`; every start is a memory-capped, labelled `gamerun` scope. Run
+from the repository. The game's own folders and profile are not written: each start gets its own staged folder under `--out`.
+
+**(a) A picture pair: two variants of the game's data at one place** (here the game's own LOD and a generated one, one
+start each, side by side, the difference printed):
+
+```
+nv-rs-dev scene run --places docs/fork/scenes/camera-seam.toml --only goodsprings-high-east --out /tmp/pair \
+  --variant game --variant lodwright=/path/to/generated/LOD/folder --game-lock "$GAME" --label first-use
+```
+
+```
+game: ok, 13 s, pictures in /tmp/pair/game/pictures
+lodwright: ok, 13 s, pictures in /tmp/pair/lodwright/pictures
+--- lodwright against game
+goodsprings-high-east.png: mean 7.577, max 176, changed 30.595% of pixels (channel difference above 8)
+```
+
+The two PNGs are `/tmp/pair/game/pictures/goodsprings-high-east.png` and `/tmp/pair/lodwright/pictures/...`: open both. (Tried
+with the Mojave's generated overlay of the 2026-11-21 trial: the generated picture lacks the far buildings and rock walls the
+game's own LOD shows and has a flat water sheet where the game has the lake.) Two lenses at one place instead: put both
+in the place file (`scenes/lens-test.toml`) and run with `--only lens-plain,lens-nofog`, one variant.
+
+**(b) A soak: ten far moves, 300 frames at each, counting stops and errors**
+
+```
+nv-rs-dev scene soak --places docs/fork/scenes/soak-far-moves.toml --out /tmp/soak --frames 300 --game-lock "$GAME" --label first-soak
+```
+
+```
+place, frames, frame times (ms):
+  goodsprings frames 300 avg_ms 12.694 p99_ms 34.71 ...
+  ... (one line a place)
+soak: 10 of 10 places soaked for 300 frames, exit status 0, 0 stops, 0 error lines, 1 warnings, 103 s
+```
+
+The exit status is 0 only when every place was reached and nothing stopped. The frame times of a soak are not a measurement
+(the line "timing rows not valid, machine shared" says so).
+
+**(c) A bench against a baseline** (the real clock, the lock taken exclusively, 120 warm-up frames and the median of five
+passes of 600 frames at each place; three places, 90 s):
+
+```
+nv-rs-dev scene bench --suite quick --lock "$GAME" --out /tmp/b1 --save-baseline mine --label first-bench   # once
+nv-rs-dev scene bench --suite quick --lock "$GAME" --out /tmp/b2 --baseline mine --label first-bench       # after a change
+```
+
+```
+| Scenario | avg fps | p50 ms | p99 ms | 1% low | ... | verdict | noisy | fps vs previous | fps vs baseline |
+| quick:goodsprings | 132 | 7.29 | 10.24 | 91 | ... | PASS |  | -2.4% | -2.4% |
+...
+Baseline: mine
+summary: /tmp/b2/soak/summary.json
+```
+
+Two runs of the same build on this machine differed by 2 to 5% in average fps (other work was running): a change smaller than
+that is not a finding. A place at a usual cap value (60, 120, 144 fps) is marked CAPPED and is not a headline number. The
+baselines are under `~/.cache/nv-rs/scene-bench` (`--state DIR` moves them).
+
 ## Switches
 
 | Variable | Meaning |
@@ -413,13 +475,43 @@ the default placement is the right one; `setpos` stays only as the test for nv-r
 
 | asked for | command | missing |
 | --- | --- | --- |
-| engine benchmark in Rust | `nv-rs-scene bench --suite quick` (real clock, exclusive game lock, warm-up and median of passes, `summary.json`, suite table with the change against the previous suite and a baseline, `--save-baseline`), `bench-compare A.json B.json`, a walking place (`path`) | not ported (no need on this path): the nested window session, the input driver and the memory guard (the offscreen run has no window and no input; `gamerun` caps memory), the matrix of refs and hosts (`nv-rs-dev matrix`), the replay bench; the interior scenarios (Doc's house); the Contract v1 file (nv-rs#231) is not published yet, so the summary follows the old harness's keys plus `schema_version`; one machine's numbers only |
+| engine benchmark in Rust | `nv-rs-scene bench --suite quick` (real clock, exclusive game lock, warm-up and median of passes, `summary.json`, suite table with the change against the previous suite and a baseline, `--save-baseline`), `bench-compare A.json B.json`, a walking place (`path`) | see "The old Python harness" below: what is ported, what needs nothing, what remains; the Contract v1 file (nv-rs#231) is not published yet, so the summary follows the old harness's keys plus `schema_version`; one machine's numbers only |
 | spawning in specific locations | `NV_SCENE` place file: world, position, heading, pitch, or a reference with an offset | interiors (no cell by name), places by a worldspace that is not in the load order |
 | loading into places | the runner's placement through the game's own exterior loader; one start for any number of places | no menu or intro is shown; the start is 6 s of data load (12 s on TTW) |
 | no main menu needed | done: the runner sends the player from the menu in frame 121 | the start screens (intro videos) are not skipped, only passed |
 | stability tests | `nv-rs-scene soak` (places, N frames each, counts stops, errors, warnings, exits non-zero) | no long-run memory growth check; #455 and #474 cases are place files (#474 fails until fixed) |
 | pictures of areas, a frozen frame | `nv-rs-scene run` (variants, same place file, per-view difference) | cloud/brush phase differs by one frame between rare runs (nv-rs#484); `compare --noise` is the workaround |
-| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool, `nv-rs-dev scene <build\|run\|soak\|bench\|compare\|bench-compare>` | `scripts/fork/bench/` Python still runs the old window-driven scenarios (it is not removed: nv-rs#328, #348 stay open for what is not ported) |
+| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool, `nv-rs-dev scene <build\|run\|soak\|bench\|compare\|bench-compare>` | `scripts/fork/bench/` Python still runs the window-driven scenarios and the matrix and replay benches (not removed: see "The old Python harness") |
+
+## The old Python harness (`scripts/fork/bench/`): ported, not needed, remaining
+
+For nv-rs#328 and #348. Piece by piece:
+
+| old piece | here |
+| --- | --- |
+| bench lock (`lock.py`) | ported: `--game-lock FILE` (shared) and `bench --lock FILE` (exclusive), the same file `~/Games/"Fallout New Vegas RS"/game.lock` |
+| suites, summary, baselines, compare (`suite.py`, `report.py`) | ported: `bench --suite`, `summary.json`, `--save-baseline`, `--baseline`, `bench-compare` |
+| host memory cap (the guard's systemd scope) | `gamerun` scope, `MemoryMax`, `MemoryHigh`, `MemorySwapMax=0`, per start (`--mem`, `--no-cap`) |
+| VRAM and GTT checks of the guard: the refusal at the start, the engine's budget | ported, `crates/fork-scene/src/guard.rs`: a start is refused when the halt file exists or the card's free VRAM or GTT cannot hold half the VRAM (a quarter of the GTT) plus 2048 (1024) MiB kept for the desktop; the engine gets `NV_GPU_BUDGET_MB`; a card that cannot be read (no amdgpu sysfs) is not refused (`--gpu-sysfs DIR` points at another folder) |
+| nested window session (`nested.py`), input driver (`vinput.py`, `driver.py`) | not needed: the offscreen run has no window and no input; the runner places the player itself |
+| noisy-run scan | ported: `noisy` in `summary.json` (another `nv-viewer` running at the start or end) |
+| scenarios that play the game: new game, character creation, Doc Mitchell's house from the first start, combat, save and continue, the Ctrl (sneak) check, the real-input walk, the 20-minute soak (`scenarios.py`) | not ported. They test input and the game's opening, not places. Places, far moves and walking (`path`) are covered; the opening and interiors are not (no cell by name yet) |
+
+Not ported and not replaced yet:
+
+- the 100 ms sampler that stops a run before the card's use reaches its cap, the kernel-log and desktop-compositor check
+  (the "session is in trouble" test) and writing the halt file; `nv-rs-dev bench clear-halt` (the Rust start check only reads the file);
+- `nv-rs-dev bench list | report | analyze` (reading the run folders of the old harness) and `nv-rs-dev matrix | compare`
+  (builds and benchmarks many refs and hosts; `scripts/fork/local/matrix.py` imports `bench/report.py`);
+- the replay bench (`nv-rs-dev replay`, `d3d9replay.py`, docs/fork/REPLAY.md): it replays a recorded Direct3D 9 stream
+  with its own binary and does not start the game; it needs its own port;
+- the differential test of nv-rs#328 ("on the same recorded run files the Rust and Python versions give equal
+  `summary.json`"): the Rust bench reads the engine's own log, not recorded run files, so it cannot be done as written.
+
+So the directory cannot be deleted yet: `nv-rs-dev` dispatches `bench`, `matrix` and `replay` to it, `matrix.py` imports it,
+the Python tests of `scripts/fork/tests` (`test_bench`, `test_guard`, `test_label`, `test_views`, `test_menu_walk`,
+`test_d3d9replay`, `test_watch`, `test_matrix`) are run by `task` (`unittest discover`), and BENCH.md, RELEASE-TEST.md, LOCAL.md and
+LOGGING.md describe it.
 
 ## Bench
 

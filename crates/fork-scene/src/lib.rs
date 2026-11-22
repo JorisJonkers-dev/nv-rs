@@ -5,6 +5,7 @@
 
 pub mod bench;
 pub mod diff;
+pub mod guard;
 pub mod json_lite;
 pub mod places;
 pub mod png;
