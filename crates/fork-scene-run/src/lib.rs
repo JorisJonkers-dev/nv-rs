@@ -156,6 +156,8 @@ pub struct Runner {
     target: [f64; 3],
     /// The frame times (ms) of the soak in progress.
     ms: Vec<f64>,
+    /// `NV_SCENE_TRACE=1`.
+    trace: bool,
     /// The idle camera's setting is set.
     vanity_off: bool,
     /// Main frames since the current place was sent.
@@ -189,6 +191,7 @@ impl Runner {
             away: 0,
             place_frames: 0,
             vanity_off: false,
+            trace: std::env::var_os("NV_SCENE_TRACE").is_some(),
             tick: 0,
             hidden: 0,
         }
@@ -226,6 +229,15 @@ impl Runner {
     /// the status the run ends with when it ends now (0 when every place was reached,
     /// [`EXIT_SCENE_FAILED`] with the plain line logged when a condition failed).
     pub fn frame(&mut self, engine: &mut engine_core::Engine, now: f64) -> Option<i32> {
+        // `NV_SCENE_TRACE=1`: one log line a frame with the player's position as the bits of its floats, so two
+        // runs can be diffed for the first frame where their game state differs (nv-rs#479, run-to-run noise).
+        if self.trace {
+            let player = engine.mem.u32(world::PLAYER_POINTER);
+            if player != 0 {
+                let bits = |o: u32| engine.mem.u32(player + world::POSITION_OFFSET + o);
+                fork_log::debug!(target: "scenetrace", "t {:08x} {:08x} {:08x}", bits(0), bits(4), bits(8));
+            }
+        }
         let screen = match host::uncap::screen(engine) {
             host::uncap::Screen::Play => Screen::Play,
             host::uncap::Screen::Menu => Screen::Menu,

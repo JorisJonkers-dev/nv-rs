@@ -201,15 +201,22 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
 
 ## The two TTW groups, the fixed capture frame, the idle camera, #474
 
-- Two runs of one TTW build fall in two or three groups of identical pictures; the groups are not the thread mode (real
-  and stepped both run stepped under `NV_REPEATABLE`), not the directory order of the staged folder, not the pipeline
-  cache, and not the frame a picture is taken at: `NV_SCENE_CAPTURE_FRAMES=N` takes it exactly N frames after the place
-  was sent (a place ready sooner waits, later fails), and three runs with it still gave two groups (one of three
-  differed in Goodsprings and two other places by up to 2.8% of pixels). The ready frame itself differs by one between
-  groups, so the simulation differs a little: the candidates left are a host-side hash map whose iteration order is
-  random per process (the standard library's) in a loading or physics path, or an order that depends on the
-  address a buffer was given. Pinning it needs that site found (a trace of the first frame where two runs' game state
-  differ, e.g. the player's height each frame); it was not.
+- Two runs of one TTW build mostly give identical pictures and sometimes differ by brush clumps (at most 0.8% of pixels,
+  mean 0.17; six runs: five identical, one different). `NV_SCENE_TRACE=1` logs the player's position (the bits of
+  the floats) every frame; diffing the log of a differing run with an identical pair finds the first frame where
+  the game state differs. It is the end of the second place's move: the game's own loading screen runs its frames
+  inside the one placement call (about 14,600 of them, 48 s, in the Capital Wasteland), and the player appears at the new
+  place one main frame later in the odd run (frame 15,492 against 15,493, same positions before and after). Everything
+  after is shifted by one frame, which is the brush clumps' phase. So the number of loading-screen frames varies by one
+  between runs although the clock, the threads (stepped) and the order of the files are fixed: something the loading loop
+  polls completes in real time (a host thread's decode or upload, the drawing thread's frame, the loading movie). Not
+  excluded by the trace: that a hash map with a per-process random order sits in that path. Pinning it takes finding the
+  loop's wait (the exit test of the loading screen) and making every host job it polls finish before the frame
+  ends under `NV_REPEATABLE`; that was not done. What works now: `nv-rs-scene compare --noise A2 A B` takes a second
+  run `A2` of the first variant and leaves out the pixels where `A` and `A2` differ by more than the threshold (the
+  noise), so what it prints for `B` is what the variants differ by; it also prints how many percent were left out.
+  Checked on the six TTW runs: with one differing run as the baseline pair, an identical third run differs by mean 0.004
+  (largest channel difference 8) and 0 changed pixels.
 - The idle camera: the runner sets `fVanityModeAutoDelay` to 1,000,000 seconds through the game's own settings collection (looked
   up by name, once, as soon as the collection exists; logged). A picture taken 4000 frames after the send was first
   person with and without it: the delay counts game time, which the frozen world does not advance, so the setting is

@@ -92,6 +92,48 @@ pub fn compare(a: &Picture, b: &Picture) -> Result<Difference, String> {
     })
 }
 
+/// [`compare`] with the pixels left out where two runs of the same variant (`a` and `a_again`) already differ by more
+/// than [`THRESHOLD`]: those are the run-to-run noise, so what remains is what the variants differ by. Also the
+/// percent of pixels left out.
+pub fn compare_without_noise(
+    a: &Picture,
+    a_again: &Picture,
+    b: &Picture,
+) -> Result<(Difference, f64), String> {
+    if (a.0, a.1) != (b.0, b.1) || (a.0, a.1) != (a_again.0, a_again.1) {
+        return Err("the pictures differ in size".into());
+    }
+    let (mut sum, mut max, mut changed, mut kept, mut masked) = (0u64, 0u8, 0u64, 0u64, 0u64);
+    for ((pa, pn), pb) in
+        a.2.chunks_exact(3)
+            .zip(a_again.2.chunks_exact(3))
+            .zip(b.2.chunks_exact(3))
+    {
+        if pa.iter().zip(pn).any(|(x, y)| x.abs_diff(*y) > THRESHOLD) {
+            masked += 1;
+            continue;
+        }
+        kept += 1;
+        let mut worst = 0u8;
+        for (x, y) in pa.iter().zip(pb) {
+            let d = x.abs_diff(*y);
+            sum += u64::from(d);
+            worst = worst.max(d);
+        }
+        max = max.max(worst);
+        changed += u64::from(worst > THRESHOLD);
+    }
+    let pixels = kept.max(1);
+    Ok((
+        Difference {
+            mean: sum as f64 / (pixels * 3) as f64,
+            max,
+            changed_pct: 100.0 * changed as f64 / pixels as f64,
+        },
+        100.0 * masked as f64 / (kept + masked).max(1) as f64,
+    ))
+}
+
 /// The absolute difference of two pictures of one size as a picture, each channel times 4 (clipped),
 /// to see where two runs differ.
 pub fn difference_picture(a: &Picture, b: &Picture) -> Result<Picture, String> {
@@ -136,6 +178,17 @@ mod tests {
             d.changed_pct, 50.0,
             "only the second pixel is over the threshold"
         );
+    }
+
+    #[test]
+    fn pixels_that_differ_between_two_runs_are_left_out_of_the_variant_difference() {
+        let a = (3, 1, vec![0, 0, 0, 10, 10, 10, 50, 50, 50]);
+        let again = (3, 1, vec![0, 0, 0, 10, 10, 10, 90, 90, 90]); // the third pixel is unstable
+        let b = (3, 1, vec![0, 0, 0, 60, 60, 60, 0, 0, 0]); // differs in the second (real) and third (noise)
+        let (d, masked) = compare_without_noise(&a, &again, &b).unwrap();
+        assert!((masked - 100.0 / 3.0).abs() < 1e-9);
+        assert_eq!(d.max, 50);
+        assert_eq!(d.changed_pct, 50.0, "one of the two kept pixels changed");
     }
 
     #[test]

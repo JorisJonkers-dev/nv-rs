@@ -9,6 +9,8 @@ use fork_scene::Place;
 
 /// `PlayerCharacter` (the pointer).
 const PLAYER: u32 = 0x011d_ea3c;
+pub(crate) const PLAYER_POINTER: u32 = PLAYER;
+pub(crate) const POSITION_OFFSET: u32 = 0x30;
 /// `PlayerCharacter::PositionPlayerExterior`: this, position x y z, rotation x y z (radians), the
 /// world space, whether to reset the weather.
 const POSITION_PLAYER_EXTERIOR: u32 = 0x0093_cce0;

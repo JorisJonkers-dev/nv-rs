@@ -47,6 +47,7 @@ fn run(args: &[String]) -> Result<bool, String> {
     let mut paths = Vec::new();
     let mut max_mean = None;
     let mut diff_out: Option<PathBuf> = None;
+    let mut noise: Option<PathBuf> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         if a == "--max-mean" {
@@ -55,6 +56,11 @@ fn run(args: &[String]) -> Result<bool, String> {
                     .and_then(|v| v.parse::<f64>().ok())
                     .ok_or("--max-mean needs a number")?,
             );
+        } else if a == "--noise" {
+            noise = Some(PathBuf::from(
+                it.next()
+                    .ok_or("--noise needs the folder of a second run of A")?,
+            ));
         } else if a == "--diff-out" {
             diff_out = Some(PathBuf::from(it.next().ok_or("--diff-out needs a folder")?));
         } else {
@@ -63,7 +69,7 @@ fn run(args: &[String]) -> Result<bool, String> {
     }
     let [a, b] = paths.as_slice() else {
         return Err(
-            "usage: nv-rs-scene compare [--max-mean N] [--diff-out DIR] A B  (two PNGs or two folders)".into(),
+            "usage: nv-rs-scene compare [--max-mean N] [--diff-out DIR] [--noise A2] A B  (two PNGs or two folders)".into(),
         );
     };
     let mut ok = true;
@@ -81,6 +87,12 @@ fn run(args: &[String]) -> Result<bool, String> {
                 continue;
             }
             let (pic_a, pic_b) = (load(&pa)?, load(&pb)?);
+            if let Some(n) = &noise {
+                let again = load(&n.join(&name))?;
+                let (d, masked) = fork_scene::diff::compare_without_noise(&pic_a, &again, &pic_b)?;
+                check(&format!("{name} (without the {masked:.2}% that differs between the two runs of the first folder)"), d, &mut ok);
+                continue;
+            }
             check(&name, compare(&pic_a, &pic_b)?, &mut ok);
             if let Some(dir) = &diff_out {
                 let (w, h, rgb) = fork_scene::diff::difference_picture(&pic_a, &pic_b)?;
