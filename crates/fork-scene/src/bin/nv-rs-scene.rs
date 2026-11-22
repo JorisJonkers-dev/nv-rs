@@ -275,6 +275,44 @@ struct Opts {
     gpu_sysfs: PathBuf,
     /// Seconds the engine's log may stay silent before the start counts as hung and is killed (0: no watch).
     stall_s: u64,
+    /// A sweep's report: the rows of the places the engine finishes are appended to it as they appear in the log, so a sweep
+    /// that is killed still leaves its record.
+    progress: Option<PathBuf>,
+}
+
+/// Appends a table row to the sweep report for each place the engine has soaked since `offset` (the log's bytes already
+/// read); lines not yet complete are left for the next call.
+fn progress_poll(report: &Path, log: &Path, offset: &mut u64) {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let Ok(mut f) = std::fs::File::open(log) else {
+        return;
+    };
+    if f.seek(SeekFrom::Start(*offset)).is_err() {
+        return;
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return;
+    }
+    let Some(end) = buf.iter().rposition(|b| *b == b'\n') else {
+        return;
+    };
+    *offset += end as u64 + 1;
+    let mut rows = String::new();
+    for line in String::from_utf8_lossy(&buf[..end]).lines() {
+        let Ok(v) = fork_scene::json_lite::fields(line, &["message"]) else {
+            continue;
+        };
+        if let Some(r) = v[0].strip_prefix("scene: soak ") {
+            let name = r.split_whitespace().next().unwrap_or("");
+            rows.push_str(&format!("| {name} | ok: {r} |\n"));
+        }
+    }
+    if !rows.is_empty() {
+        if let Ok(mut out) = std::fs::OpenOptions::new().append(true).open(report) {
+            let _ = out.write_all(rows.as_bytes());
+        }
+    }
 }
 
 /// The exit status [`run_one`] reports for a start it killed because its log went silent.
@@ -366,6 +404,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         ini,
         gpu_sysfs,
         stall_s: 0,
+        progress: None,
     };
     println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let started = std::time::Instant::now();
@@ -510,6 +549,8 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
     let scope_prefix = cap_words.get(1).map(|l| format!("nvgame-{l}-"));
     let mut mem = MemSeen::default();
     let log_path = dir.join("log.jsonl");
+    let mut progress_at = 0u64;
+    let mut progress_clock = std::time::Instant::now();
     let mut last_moved = std::time::Instant::now();
     let mut last_len = 0u64;
     let status = loop {
@@ -518,6 +559,12 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
         }
         if let Some(prefix) = &scope_prefix {
             mem.poll(prefix);
+        }
+        if let Some(report) = &o.progress {
+            if progress_clock.elapsed().as_secs() >= 3 {
+                progress_clock = std::time::Instant::now();
+                progress_poll(report, &log_path, &mut progress_at);
+            }
         }
         if o.stall_s > 0 {
             // A hung engine writes nothing: kill the start (its scope, so the game process goes too) when the log has not
@@ -544,6 +591,9 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     };
+    if let Some(report) = &o.progress {
+        progress_poll(report, &log_path, &mut progress_at);
+    }
     if mem.peak > 0 {
         let line = mem.describe(name);
         println!("{line}");
@@ -683,6 +733,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         ("600".to_string(), Vec::new(), false, "300".to_string());
     let mut exclusive = false;
     let mut stall_s = 0u64;
+    let mut progress: Option<PathBuf> = None;
     let mut cap = Cap::default();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -693,6 +744,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
             "--places" => places = Some(PathBuf::from(value(a)?)),
             "--out" => out = Some(PathBuf::from(value(a)?)),
             "--userdata" => userdata = Some(PathBuf::from(value(a)?)),
+            "--progress" => progress = Some(PathBuf::from(value(a)?)),
             "--stall" => {
                 stall_s = value(a)?
                     .parse()
@@ -747,6 +799,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         ini,
         gpu_sysfs,
         stall_s,
+        progress,
     };
     println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let overlays: Vec<PathBuf> = overlay.into_iter().collect();
@@ -813,6 +866,64 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
 /// log, and the engine is started again at the places after it. The report is `OUT/sweep.md`; the exit status is 0 only
 /// when every place loaded, held its frames and the engine left cleanly.
 fn sweep(args: &[String]) -> Result<bool, String> {
+    // The sweep runs in a child of its own (`--worker`), watched by this process: a child that is killed (a signal, an
+    // out-of-memory kill) or panics is reported here, in the report file and on the last line, with a non-zero status.
+    if !args.iter().any(|a| a == "--worker") {
+        return sweep_supervised(args);
+    }
+    sweep_worker(args)
+}
+
+/// Runs the sweep in a worker child and says plainly how it ended when it did not end with its summary.
+fn sweep_supervised(args: &[String]) -> Result<bool, String> {
+    use std::os::unix::process::ExitStatusExt;
+    let out = args
+        .iter()
+        .position(|a| a == "--out")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from)
+        .ok_or("sweep needs --out DIR")?;
+    // `NV_RS_SCENE_WORKER_EXE` names another program to run as the worker (the tests use it to kill one).
+    let me = match std::env::var_os("NV_RS_SCENE_WORKER_EXE") {
+        Some(p) => PathBuf::from(p),
+        None => std::env::current_exe().map_err(|e| e.to_string())?,
+    };
+    let status = std::process::Command::new(me)
+        .arg("sweep")
+        .args(args)
+        .arg("--worker")
+        .status()
+        .map_err(|e| format!("the sweep could not start its worker: {e}"))?;
+    let finished =
+        std::fs::read_to_string(out.join("sweep.md")).is_ok_and(|t| !t.contains("(in progress"));
+    match (status.code(), status.signal()) {
+        (Some(0), _) if finished => Ok(true),
+        (Some(1), _) if finished => Ok(false),
+        (code, signal) => {
+            let how = match (code, signal) {
+                (_, Some(sig)) => format!("killed by signal {sig}"),
+                (Some(c), _) => format!("exit status {c}"),
+                _ => "an unknown end".to_string(),
+            };
+            let line = format!(
+                "sweep: the sweep ended without its summary ({how}); the places finished before it are in {}",
+                out.join("sweep.md").display()
+            );
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .append(true)
+                .open(out.join("sweep.md"))
+            {
+                let _ = writeln!(f, "\n{line}");
+            }
+            Err(line)
+        }
+    }
+}
+
+fn sweep_worker(args: &[String]) -> Result<bool, String> {
+    let args: Vec<String> = args.iter().filter(|a| *a != "--worker").cloned().collect();
+    let args = &args[..];
     let value_of = |flag: &str| {
         args.iter()
             .position(|a| a == flag)
@@ -860,6 +971,18 @@ fn sweep(args: &[String]) -> Result<bool, String> {
         }
     }
     let total = remaining.len();
+    let report = out.join("sweep.md");
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    std::fs::write(
+        &report,
+        format!(
+            "# Sweep of {} (in progress: a report without a summary line below the title is one that did not finish)\n\n| place | result |\n| --- | --- |\n",
+            places_path.display()
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    base.push("--progress".into());
+    base.push(report.display().to_string());
     let mut passed: Vec<(String, String)> = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
     let mut warnings = 0;
@@ -1760,7 +1883,7 @@ exit 0
             "--frames",
             "10",
         ]);
-        assert_eq!(sweep(&args), Ok(false));
+        assert_eq!(sweep_worker(&args), Ok(false));
         let md = std::fs::read_to_string(out.join("sweep.md")).unwrap();
         assert!(md.contains("3 of 4 places loaded"), "{md}");
         assert!(md.contains("2 engine starts"), "{md}");
@@ -1777,8 +1900,42 @@ exit 0
         let out2 = t.join("out2").display().to_string();
         let pos = only.iter().position(|x| x == "--out").unwrap();
         only[pos + 1] = out2;
-        assert_eq!(sweep(&only), Ok(true));
-        assert!(sweep(&s(&["--out", "x"])).is_err());
+        assert_eq!(sweep_worker(&only), Ok(true));
+        assert!(sweep_worker(&s(&["--out", "x"])).is_err());
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sweep_killed_in_its_worker_says_so_and_leaves_its_rows() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = tmp("sweepkill");
+        let out = t.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        // The worker writes an unfinished report with one row, then dies of SIGKILL.
+        let worker = t.join("worker.sh");
+        std::fs::write(
+            &worker,
+            format!(
+                "#!/bin/sh\nprintf '# Sweep of x (in progress: a\\n| a | ok: a |\\n' > '{}'\nkill -9 $$\n",
+                out.join("sweep.md").display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("NV_RS_SCENE_WORKER_EXE", &worker);
+        let r = sweep(&s(&["--out", &out.display().to_string()]));
+        std::env::remove_var("NV_RS_SCENE_WORKER_EXE");
+        let e = r.unwrap_err();
+        assert!(
+            e.contains("killed by signal 9") && e.contains("without its summary"),
+            "{e}"
+        );
+        let md = std::fs::read_to_string(out.join("sweep.md")).unwrap();
+        assert!(
+            md.contains("| a | ok: a |") && md.contains("killed by signal 9"),
+            "{md}"
+        );
         std::fs::remove_dir_all(&t).unwrap();
     }
 }

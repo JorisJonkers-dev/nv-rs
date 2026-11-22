@@ -335,6 +335,14 @@ and the engine left cleanly. The lists:
 | `sweep-mojave-interiors.toml` | 33 | 18 base-game interiors, 12 add-on interiors, then two doors |
 | `sweep-capital.toml` | 42 | 21 map markers of the Capital Wasteland, 21 world spaces (districts and the add-ons), on the TTW folder |
 | `sweep-capital-interiors.toml` | 31 | 17 Capital interiors, 10 add-on interiors, four more places for two doors, on the TTW folder |
+| `sweep-addons-mojave-interiors.toml` | 76 | the named interior cells of the five Mojave add-ons (Dead Money 15, Honest Hearts 16, Old World Blues 31, Lonesome Road 14, Gun Runners' Arsenal 0), by editor id |
+| `sweep-addons-capital-interiors.toml` | 120 | the same for the five Capital add-ons on the TTW folder (Anchorage 11, The Pitt 11, Broken Steel 23, Point Lookout 54, Mothership Zeta 21) |
+
+The add-on lists are made from the plugins' cell records: every interior cell the plugin itself defines (its own form-id range),
+without those whose editor id or name says test, debug, dummy, prefab, slideshow, encounter and the like, or whose name is "None".
+Against what exists: the Mojave add-ons define 104 interior cells and the list has 76; the Capital add-ons 177 and the list 120.
+The cells left out are the test and holding cells; "has a start marker or a door into it" is not checked, the sweep finds out
+(a cell without a start marker would show as a failing place).
 
 Run on 2026-11-22 (viewer `nv-viewer-scene52`, one start each): `sweep-mojave` 80 of 80 places, exit status 0, 13 min;
 `sweep-capital` 42 of 42, 9 min; the two interior lists 33 of 33 and 31 of 31 (4 min each, viewer 50). No place stopped, hung or
@@ -342,7 +350,16 @@ was put back. The sweeps before the last one stopped twice in the Mojave and onc
 place of one start with the top menu `0x403`, the level-up menu: each far move onto a map marker's land is a location
 discovered, and the experience of about twenty discoveries is a level. Both of those places pass alone. The frozen world now sets
 the experience settings of finding places (`iXPRewardDiscoverMapMarker`, `iXPRewardDiscoverSecretArea`) to 0, and god mode (the
-byte `tgm` flips) on. The first of these is a harness cause, not an engine defect; a player who gains a level sees the same menu.
+byte `tgm` flips) on. That the level-up menu was the cause is an inference: the menu id `0x403` is the level-up menu's class, the stops came at
+different places in different runs, the places pass alone, and the full runs pass once discovery experience is off; no run
+logged the level itself. It is a harness cause, not an engine defect: a player who gains a level sees the same menu. The setting
+belongs to the frozen world (`NV_SCENE_FREEZE` not `0`), which every picture run, soak, bench and sweep has, so a far-view list
+of twenty or more places is protected the same way (the log line `scene: no experience for finding places` shows it).
+
+The sweep's own report is written as it goes: `sweep.md` starts as "(in progress ...)" with the table header, a row is added
+for each place as the engine logs it and for each failure as it is found, and the summary replaces the file at the end. The
+sweep runs in a worker process watched by the command you start: a worker that is killed or panics leaves the rows it had,
+a last line "sweep: the sweep ended without its summary (killed by signal N)" in the report and on stderr, and exit status 2.
 
 ## Variants and the one command
 

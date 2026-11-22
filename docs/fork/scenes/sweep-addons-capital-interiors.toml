@@ -1,0 +1,495 @@
+# Stability sweep, Capital add-on interiors (TTW) (nv-rs#479): every named interior cell of each add-on plugin (the plugin's own cells, by editor id, test,
+# debug and dummy cells left out): 120 places. Each place: does it load, hold 300 frames, and leave cleanly. Run:
+#   nv-rs-dev scene sweep --places docs/fork/scenes/sweep-addons-capital-interiors.toml --out /tmp/sweep-addons-cap <the TTW arguments> --game-lock "$GAME" --label sweep-addons-cap
+version = 1
+
+# ---- anchorage: 11 cells
+
+[[place]]
+name = "dlc02zcbaileystowasteland"
+cell = "DLC02zcBaileysToWasteland"   # Bailey's Crossroads Metro
+
+[[place]]
+name = "dlc02vss01"
+cell = "DLC02VSS01"   # Outcast Outpost
+
+[[place]]
+name = "dlc02zcliffs02"
+cell = "DLC02zCliffs02"   # Field Storage
+
+[[place]]
+name = "dlc02zcliffs01"
+cell = "DLC02zCliffs01"   # Field Storage
+
+[[place]]
+name = "dlc02artillerybase"
+cell = "DLC02ArtilleryBase"   # Chinese Artillery Outpost
+
+[[place]]
+name = "dlc02chimeradepot"
+cell = "DLC02ChimeraDepot"   # Chimera Depot
+
+[[place]]
+name = "dlc02zendglaciercave"
+cell = "DLC02zEndGlacierCave"   # Cave Passage
+
+[[place]]
+name = "dlc02commcenter"
+cell = "DLC02CommCenter"   # Listening Post
+
+[[place]]
+name = "dlc02corpsedump"
+cell = "DLC02CorpseDump"   # Command Tent
+
+[[place]]
+name = "dlc02commandtent"
+cell = "DLC02CommandTent"   # Command Tent
+
+[[place]]
+name = "dlc02glaciercave"
+cell = "DLC02GlacierCave"   # Cave Outpost
+
+# ---- thepitt: 11 cells
+
+[[place]]
+name = "dlc01mideahut"
+cell = "DLC01MideaHut"   # Midea's Quarters
+
+[[place]]
+name = "dlc01steelmill04"
+cell = "DLC01SteelMill04"   # The Hole
+
+[[place]]
+name = "dlc01zuptownapt"
+cell = "DLC01zUptownApt"   # Abandoned Apartments
+
+[[place]]
+name = "dlc01traintunnel"
+cell = "DLC01TrainTunnel"   # Pitt Tunnel
+
+[[place]]
+name = "dlc01wernherhideout"
+cell = "DLC01WernherHideout"   # Wernher's Hideout
+
+[[place]]
+name = "dlc01steelmill02"
+cell = "DLC01SteelMill02"   # Abandoned Area
+
+[[place]]
+name = "dlc01steelmill01"
+cell = "DLC01SteelMill01"   # The Mill
+
+[[place]]
+name = "dlc01ashurpalace"
+cell = "DLC01AshurPalace"   # Haven
+
+[[place]]
+name = "dlc01towerentrance"
+cell = "DLC01TowerEntrance"   # Haven Entrance
+
+[[place]]
+name = "dlc01supplyplant"
+cell = "DLC01SupplyPlant"   # Supply Plant
+
+[[place]]
+name = "dlc01powerplant"
+cell = "DLC01PowerPlant"   # Pitt Underground
+
+# ---- brokensteel: 23 cells
+
+[[place]]
+name = "dlc03raidersilo"
+cell = "DLC03RaiderSilo"   # Silo
+
+[[place]]
+name = "dlc03eternalglowbasement"
+cell = "DLC03EternalGlowBasement"   # Eternal Light Monastery
+
+[[place]]
+name = "dlc03vertibird03"
+cell = "DLC03Vertibird03"   # Vertibird Interior
+
+[[place]]
+name = "dlc03aircontrolstairs01"
+cell = "DLC03AirControlStairs01"   # Air Control Tower
+
+[[place]]
+name = "dlc03ppurity01"
+cell = "DLC03PPurity01"   # Jefferson Memorial Rotunda
+
+[[place]]
+name = "dlc03vertibird01"
+cell = "DLC03Vertibird01"   # Vertibird Interior
+
+[[place]]
+name = "dlc03relaystation01"
+cell = "DLC03RelayStation01"   # Satellite Facility
+
+[[place]]
+name = "dlc03powerworks02"
+cell = "DLC03Powerworks02"   # Old Olney Underground
+
+[[place]]
+name = "dlc03zafb01"
+cell = "DLC03zAFB01"   # Factory
+
+[[place]]
+name = "zdlc03cartunnel"
+cell = "zDLC03CarTunnel"   # Rockland Car Tunnel
+
+[[place]]
+name = "dlc03powerworks03"
+cell = "DLC03Powerworks03"   # Old Olney S. Wilson Building
+
+[[place]]
+name = "dlc03ppurity03"
+cell = "DLC03PPurity03"   # Memorial Sub-Basement
+
+[[place]]
+name = "dlc03jurystraiders"
+cell = "DLC03JuryStRaiders"   # Hank's Electrical Supply
+
+[[place]]
+name = "dlc03presmetro02"
+cell = "DLC03PresMetro02"   # Presidential Metro
+
+[[place]]
+name = "dlc03warehousetraps"
+cell = "DLC03WarehouseTraps"   # Traps Warehouse
+
+[[place]]
+name = "dlc03presmetro03"
+cell = "DLC03PresMetro03"   # Adams AFB Metro Exit
+
+[[place]]
+name = "dlc03ppurity02"
+cell = "DLC03PPurity02"   # Jefferson Museum and Gift Shop
+
+[[place]]
+name = "dlc03presmetro01"
+cell = "DLC03PresMetro01"   # Presidential Sub Level
+
+[[place]]
+name = "dlc03relaystation02"
+cell = "DLC03RelayStation02"   # Relay Station
+
+[[place]]
+name = "dlc03powerworks01"
+cell = "DLC03Powerworks01"   # Olney Powerworks
+
+[[place]]
+name = "dlc03zcitadelpit"
+cell = "DLC03zCitadelPit"   # Citadel Armory
+
+[[place]]
+name = "dlc03vertibird02"
+cell = "DLC03Vertibird02"   # Vertibird Interior
+
+[[place]]
+name = "dlc03ghoulhideout"
+cell = "DLC03GhoulHideout"   # Museum Authority
+
+# ---- pointlookout: 54 cells
+
+[[place]]
+name = "dlc04medicaltent01"
+cell = "DLC04MedicalTent01"   # Marcella's Tent
+
+[[place]]
+name = "dlc04lighthouse"
+cell = "DLC04Lighthouse"   # Lighthouse
+
+[[place]]
+name = "dlc04bank"
+cell = "DLC04Bank"   # People's Bank of Point Lookout
+
+[[place]]
+name = "dlc04barge"
+cell = "DLC04Barge"   # Belowdecks
+
+[[place]]
+name = "dlc04zzcave01"
+cell = "DLC04zzCave01"   # Cave
+
+[[place]]
+name = "dlc04surveyhole03"
+cell = "DLC04surveyHole03"   # Excavated Muck Hole
+
+[[place]]
+name = "dlc04spytunnel"
+cell = "DLC04SpyTunnel"   # Runoff Pipe
+
+[[place]]
+name = "dlc04zzbasement"
+cell = "DLC04zzBasement"   # Basement
+
+[[place]]
+name = "dlc04campshacktorture"
+cell = "DLC04CampShackTorture"   # Interrogation Room A
+
+[[place]]
+name = "dlc04medicaltent04"
+cell = "DLC04MedicalTent04"   # Administration Tent
+
+[[place]]
+name = "dlc04surveyhole02"
+cell = "DLC04surveyHole02"   # Excavated Muck Hole
+
+[[place]]
+name = "dlc04zzcellar"
+cell = "DLC04zzCellar"   # Cellar
+
+[[place]]
+name = "dlc04blackhallmanor01"
+cell = "DLC04BlackhallManor01"   # Blackhall Manor
+
+[[place]]
+name = "dlc04camppipe01"
+cell = "DLC04CampPipe01"   # Septic Tunnel Access
+
+[[place]]
+name = "dlc04medicaltent03"
+cell = "DLC04MedicalTent03"   # Medical Tent
+
+[[place]]
+name = "dlc04shackgrower"
+cell = "DLC04ShackGrower"   # Run-down Shack
+
+[[place]]
+name = "dlc04lab01"
+cell = "DLC04Lab01"   # Underground Lab
+
+[[place]]
+name = "dlc04campshackbunkhouse02"
+cell = "DLC04CampShackBunkhouse02"   # Bunkhouse B
+
+[[place]]
+name = "dlc04zzshack02"
+cell = "DLC04zzShack02"   # Shack
+
+[[place]]
+name = "dlc04submarine"
+cell = "DLC04Submarine"   # SSN-37-1A
+
+[[place]]
+name = "dlc04medicaltent02"
+cell = "DLC04MedicalTent02"   # Medical Tent
+
+[[place]]
+name = "dlc04shackhardwarestore"
+cell = "DLC04ShackHardwareStore"   # Haley's Hardware
+
+[[place]]
+name = "dlc04shacktrapperbasement"
+cell = "DLC04ShackTrapperBasement"   # Cellar
+
+[[place]]
+name = "dlc04campshackbunkhouse01"
+cell = "DLC04CampShackBunkhouse01"   # Bunkhouse A
+
+[[place]]
+name = "dlc04zzshop02"
+cell = "DLC04zzShop02"   # Vacant Shop
+
+[[place]]
+name = "dlc04steamboatint01"
+cell = "DLC04SteamboatInt01"   # Engine Room
+
+[[place]]
+name = "dlc04seacave"
+cell = "DLC04SeaCave"   # Sea Cave
+
+[[place]]
+name = "dlc04ritualsitebasement"
+cell = "DLC04RitualSiteBasement"   # Burned-Out Basement
+
+[[place]]
+name = "dlc04campshacktorture02"
+cell = "DLC04CampShackTorture02"   # Interrogation Room B
+
+[[place]]
+name = "dlc04shacktrapper"
+cell = "DLC04ShackTrapper"   # Trapper's Shack
+
+[[place]]
+name = "dlc04recruiter"
+cell = "DLC04Recruiter"   # Recruitment Station
+
+[[place]]
+name = "dlc04moteloffice"
+cell = "DLC04MotelOffice"   # Homestead Motel Office
+
+[[place]]
+name = "dlc04zzcafe01"
+cell = "DLC04zzCafe01"   # Cafe
+
+[[place]]
+name = "dlc04coastalgrotto01"
+cell = "DLC04CoastalGrotto01"   # Coastal Grotto
+
+[[place]]
+name = "dlc04cathedral01"
+cell = "DLC04Cathedral01"   # Ark & Dove Cathedral
+
+[[place]]
+name = "dlc04shackmoonshiner"
+cell = "DLC04ShackMoonshiner"   # Moonshiner Shack
+
+[[place]]
+name = "dlc04motelroom1g"
+cell = "DLC04MotelRoom1G"   # Room 1G
+
+[[place]]
+name = "dlc04zzshack01"
+cell = "DLC04zzShack01"   # Shack
+
+[[place]]
+name = "dlc04coastalgrotto02"
+cell = "DLC04CoastalGrotto02"   # Plik's Safari
+
+[[place]]
+name = "dlc04motelroom1d"
+cell = "DLC04MotelRoom1D"   # Room 1D
+
+[[place]]
+name = "dlc04bogentrance"
+cell = "DLC04BogEntrance"   # Bog Entrance
+
+[[place]]
+name = "dlc04motelroom1k"
+cell = "DLC04MotelRoom1K"   # Room 1K
+
+[[place]]
+name = "dlc04zzshop01"
+cell = "DLC04zzShop01"   # Abandoned Shop
+
+[[place]]
+name = "dlc04mine02"
+cell = "DLC04Mine02"   # Miner's Rest
+
+[[place]]
+name = "dlc04zzcave02"
+cell = "DLC04zzCave02"   # Cave
+
+[[place]]
+name = "dlc04campoffices"
+cell = "DLC04CampOffices"   # Administration
+
+[[place]]
+name = "dlc04zzwarehouse"
+cell = "DLC04zzWarehouse"   # Warehouse
+
+[[place]]
+name = "dlc04mine01"
+cell = "DLC04Mine01"   # Herzog Mine
+
+[[place]]
+name = "dlc04campmorgue"
+cell = "DLC04CampMorgue"   # Morgue
+
+[[place]]
+name = "dlc04blackhallmanor02"
+cell = "DLC04BlackhallManor02"   # Basement
+
+[[place]]
+name = "dlc04mansion01"
+cell = "DLC04Mansion01"   # Calvert Mansion
+
+[[place]]
+name = "dlc04panicroom"
+cell = "DLC04PanicRoom"   # Panic Room
+
+[[place]]
+name = "dlc04surveyhole01"
+cell = "DLC04surveyHole01"   # Excavated Muck Hole
+
+[[place]]
+name = "dlc04mine03"
+cell = "DLC04Mine03"   # Blackdamp Shaft
+
+# ---- zeta: 21 cells
+
+[[place]]
+name = "dlc05robotassembly"
+cell = "DLC05RobotAssembly"   # Robot Assembly
+
+[[place]]
+name = "dlc05spacebridge02"
+cell = "DLC05SpaceBridge02"   # Space Walk
+
+[[place]]
+name = "dlc05researchlab"
+cell = "DLC05ResearchLab"   # Research Lab
+
+[[place]]
+name = "dlc05sewer01"
+cell = "DLC05sewer01"   # Maintenance Level
+
+[[place]]
+name = "dlc05livingquarters"
+cell = "DLC05LivingQuarters"   # Living Quarters
+
+[[place]]
+name = "dlc05enginecore"
+cell = "DLC05EngineCore"   # Engineering Core
+
+[[place]]
+name = "dlc05exlab03"
+cell = "DLC05ExLab03"   # Experimentation Lab
+
+[[place]]
+name = "dlc05cryolab02"
+cell = "DLC05CryoLab02"   # Cryo Storage
+
+[[place]]
+name = "dlc05engineroom"
+cell = "DLC05EngineRoom"   # Engine Room
+
+[[place]]
+name = "dlc05cargohold"
+cell = "DLC05CargoHold"   # Cargo Hold
+
+[[place]]
+name = "dlc05steamworks"
+cell = "DLC05Steamworks"   # Steamworks
+
+[[place]]
+name = "dlc05deathrayhub02"
+cell = "DLC05DeathRayHub02"   # Death Ray Control
+
+[[place]]
+name = "dlc05exlab04"
+cell = "DLC05ExLab04"   # Biological Research
+
+[[place]]
+name = "dlc05cryolab01"
+cell = "DLC05CryoLab01"   # Cryo Lab
+
+[[place]]
+name = "dlc05deathrayhub01"
+cell = "DLC05DeathRayHub01"   # Death Ray Hub
+
+[[place]]
+name = "dlc05exlab02"
+cell = "DLC05ExLab02"   # Weapons Lab
+
+[[place]]
+name = "dlc05sewer02"
+cell = "DLC05sewer02"   # Waste Disposal
+
+[[place]]
+name = "dlc05bridge"
+cell = "DLC05Bridge"   # The Bridge
+
+[[place]]
+name = "dlc05spacebridge01"
+cell = "DLC05SpaceBridge01"   # Decompression Chamber
+
+[[place]]
+name = "dlc05exlab01"
+cell = "DLC05ExLab01"   # Observation Deck
+
+[[place]]
+name = "dlc05hangar"
+cell = "DLC05Hangar"   # Hangar
+

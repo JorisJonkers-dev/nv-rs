@@ -769,7 +769,7 @@ path = [[0, 0, 0], [10.5, 0, 0]]
                 "{name} has {} places",
                 f.places.len()
             );
-            if name.ends_with("interiors") {
+            if name.ends_with("interiors") && !name.contains("addons") {
                 assert!(
                     f.places.iter().filter(|p| !p.cell.is_empty()).count() >= 3,
                     "{name}"

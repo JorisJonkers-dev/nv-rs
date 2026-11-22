@@ -1,0 +1,319 @@
+# Stability sweep, Mojave add-on interiors (nv-rs#479): every named interior cell of each add-on plugin (the plugin's own cells, by editor id, test,
+# debug and dummy cells left out): 76 places. Each place: does it load, hold 300 frames, and leave cleanly. Run:
+#   nv-rs-dev scene sweep --places docs/fork/scenes/sweep-addons-mojave-interiors.toml --out /tmp/sweep-addons --game-lock "$GAME" --label sweep-addons
+version = 1
+
+# ---- DeadMoney: 15 cells
+
+[[place]]
+name = "nvdlc01gala02"
+cell = "NVDLC01Gala02"   # Puesta del Sol Switching Station
+
+[[place]]
+name = "nvdlc01wtmid"
+cell = "NVDLC01WTMid"   # Ruined Cafe
+
+[[place]]
+name = "nvdlc01clinicmainfloor"
+cell = "NVDLC01ClinicMainFloor"   # Villa Clinic
+
+[[place]]
+name = "nvdlc01lobby"
+cell = "NVDLC01Lobby"   # Sierra Madre Lobby
+
+[[place]]
+name = "nvdlc01policestationbasement"
+cell = "NVDLC01PoliceStationBasement"   # Villa Police Station Basement
+
+[[place]]
+name = "nvdlc01casino"
+cell = "NVDLC01Casino"   # Sierra Madre Casino
+
+[[place]]
+name = "nvdlc01theater"
+cell = "NVDLC01Theater"   # The Tampico
+
+[[place]]
+name = "nvdlc01vault"
+cell = "NVDLC01Vault"   # Sierra Madre Vault
+
+[[place]]
+name = "nvdlc01clinicbasement"
+cell = "NVDLC01ClinicBasement"   # Villa Clinic Basement
+
+[[place]]
+name = "nvdlc01wtsouth"
+cell = "NVDLC01WTSouth"   # Ruined Store
+
+[[place]]
+name = "nvdlc01policestation"
+cell = "NVDLC01PoliceStation"   # Villa Police Station
+
+[[place]]
+name = "nvdlc01wttunnel"
+cell = "NVDLC01WTTunnel"   # Service Route
+
+[[place]]
+name = "nvdlc01suites"
+cell = "NVDLC01Suites"   # Executive Suites
+
+[[place]]
+name = "nvdlc01restaurant"
+cell = "NVDLC01Restaurant"   # Cantina Madrid
+
+[[place]]
+name = "nvdlc01wtnorth"
+cell = "NVDLC01WTNorth"   # Ruined Building
+
+# ---- HonestHearts: 16 cells
+
+[[place]]
+name = "nvdlc02zionscaves"
+cell = "NVDLC02ZionSCaveS"   # Two Skies Cave
+
+[[place]]
+name = "nvdlc02zionyaoguaicave"
+cell = "NVDLC02ZionYaoGuaiCave"   # Yao Guai Cave
+
+[[place]]
+name = "nvdlc02zionsporecave"
+cell = "NVDLC02ZionSporeCave"   # Cueva Guarache
+
+[[place]]
+name = "nvdlc02zionscavew"
+cell = "NVDLC02ZionSCaveW"   # Morning Glory Cave
+
+[[place]]
+name = "nvdlc023maryscave"
+cell = "NVDLC023MarysCave"   # Three Marys' Caverns
+
+[[place]]
+name = "nvdlc02zionstore"
+cell = "NVDLC02ZionStore"   # General Store
+
+[[place]]
+name = "nvdlc02narrowswhitebird"
+cell = "NVDLC02NarrowsWhiteBird"   # White Bird's Cave
+
+[[place]]
+name = "nvdlc02zionstation"
+cell = "NVDLC02ZionStation"   # Ranger Station
+
+[[place]]
+name = "nvdlc02easternvirginsurvivalistcave"
+cell = "NVDLC02EasternVirginSurvivalistCave"   # Fallen Rock Cave
+
+[[place]]
+name = "nvdlc02zionlodge"
+cell = "NVDLC02ZionLodge"   # Fishing Lodge
+
+[[place]]
+name = "nvdlc02easternvirginangelcave"
+cell = "NVDLC02EasternVirginAngelCave"   # Angel Cave
+
+[[place]]
+name = "nvdlc02narrowsabandoned"
+cell = "NVDLC02NarrowsAbandoned"   # Sweet Flower Cave
+
+[[place]]
+name = "nvdlc02survivalist01"
+cell = "NVDLC02Survivalist01"   # Stone Bones Cave
+
+[[place]]
+name = "nvdlc02narrowstunnel"
+cell = "NVDLC02NarrowsTunnel"   # Crossroad Cavern
+
+[[place]]
+name = "nvdlc02narrowssorrows"
+cell = "NVDLC02NarrowsSorrows"   # Half Mouse Cave
+
+[[place]]
+name = "nvdlc02narrowswhitelegs"
+cell = "NVDLC02NarrowsWhiteLegs"   # Glass Chime Cave
+
+# ---- OldWorldBlues: 31 cells
+
+[[place]]
+name = "nvdlc03x8main"
+cell = "NVDLC03X8Main"   # X-8 Central Facility
+
+[[place]]
+name = "nvdlc03forbiddenzone"
+cell = "NVDLC03ForbiddenZone"   # The Forbidden Zone Dome
+
+[[place]]
+name = "nvdlc03slchemicalint"
+cell = "NVDLC03SLChemicalINT"   # Z-43 Innovative Toxins Plant
+
+[[place]]
+name = "nvdlc03slweatherstationint"
+cell = "NVDLC03SLWeatherStationINT"   # X-17 Meteorological Station
+
+[[place]]
+name = "nvdlc03sltunnelwestint"
+cell = "NVDLC03SLTunnelWestINT"   # Big MT West Tunnel
+
+[[place]]
+name = "nvdlc03slcuckoosnestint"
+cell = "NVDLC03SLCuckoosNestINT"   # Cuckoo's Nest
+
+[[place]]
+name = "nvdlc03slsaturniteint"
+cell = "NVDLC03SLSaturniteINT"   # Saturnite Alloy Research Facility
+
+[[place]]
+name = "nvdlc03slh2oint"
+cell = "NVDLC03SLH2OINT"   # Magnetohydraulics Complex
+
+[[place]]
+name = "nvdlc03thesink"
+cell = "NVDLC03TheSink"   # The Sink
+
+[[place]]
+name = "nvdlc03slvillageborousbint"
+cell = "NVDLC03SLVillageBorousBINT"   # Basement
+
+[[place]]
+name = "nvdlc03sltunnelnorthint"
+cell = "NVDLC03SLTunnelNorthINT"   # Big MT North Tunnel
+
+[[place]]
+name = "nvdlc03slnightstalkerint"
+cell = "NVDLC03SLNightstalkerINT"   # Z-9 Crotalus DNA Preservation Lab
+
+[[place]]
+name = "nvdlc03slvillageborousint"
+cell = "NVDLC03SLVillageBorousINT"   # #103
+
+[[place]]
+name = "nvdlc03slsecuritronint"
+cell = "NVDLC03SLSecuritronINT"   # Securitron De-Construction Plant
+
+[[place]]
+name = "nvdlc03slartillerylaunchint"
+cell = "NVDLC03SLArtilleryLaunchINT"   # Artillery Command Center
+
+[[place]]
+name = "nvdlc03slx12int"
+cell = "NVDLC03SLX12INT"   # X-12
+
+[[place]]
+name = "nvdlc03x42"
+cell = "NVDLC03X42"   # X-42 Robo-Warfare Facility
+
+[[place]]
+name = "nvdlc03slcazadorint"
+cell = "NVDLC03SLCazadorINT"   # Z-14 Pepsinae DNA Splicing Lab
+
+[[place]]
+name = "nvdlc03slvillage8int"
+cell = "NVDLC03SLVillage8INT"   # #108
+
+[[place]]
+name = "nvdlc03auralstealthsuitnpccell"
+cell = "NVDLC03AuralStealthSuitNPCCell"   # Voice NPC for Stealth Suit Mk II
+
+[[place]]
+name = "nvdlc03slvillagedalaint"
+cell = "NVDLC03SLVillageDalaINT"   # #104
+
+[[place]]
+name = "nvdlc03slhologramint"
+cell = "NVDLC03SLHologramINT"   # Z-38 Lightwave Dynamics Research
+
+[[place]]
+name = "nvdlc03slmedcenterint"
+cell = "NVDLC03SLMedCenterINT"   # Y-17 Medical Facility
+
+[[place]]
+name = "nvdlc03slcommunicationsint"
+cell = "NVDLC03SLCommunicationsINT"   # Signal Hills Transmitter
+
+[[place]]
+name = "nvdlc03slvillagemobiusint"
+cell = "NVDLC03SLVillageMobiusINT"   # #102
+
+[[place]]
+name = "nvdlc03slulyssespointint"
+cell = "NVDLC03SLUlyssesPointINT"   # Ulysses' Point
+
+[[place]]
+name = "nvdlc03slvillagekleinint"
+cell = "NVDLC03SLVillageKleinINT"   # #101
+
+[[place]]
+name = "nvdlc03slbloatflycave"
+cell = "NVDLC03SLBloatFlyCave"   # Mysterious Cave
+
+[[place]]
+name = "nvdlc03thinktank"
+cell = "NVDLC03ThinkTank"   # Think Tank
+
+[[place]]
+name = "nvdlc03sllittleyangtzetowerint"
+cell = "NVDLC03SLLittleYangtzeTowerINT"   # Little Yangtze Watchtower
+
+[[place]]
+name = "nvdlc03slvillageoint"
+cell = "NVDLC03SLVillageOINT"   # #00
+
+# ---- LonesomeRoad: 14 cells
+
+[[place]]
+name = "nvdlc04slhopevillemensbarracks"
+cell = "NVDLC04SLHopeVilleMensBarracks"   # Hopeville Men's Barracks
+
+[[place]]
+name = "nvdlc04roadtunnel"
+cell = "NVDLC04RoadTunnel"   # Collapsed Overpass Tunnel
+
+[[place]]
+name = "nvdlc04silo02"
+cell = "NVDLC04Silo02"   # Ashton Missile Silo
+
+[[place]]
+name = "nvdlc04silo2elevator"
+cell = "NVDLC04Silo2Elevator"   # Ashton Missile Silo Lift
+
+[[place]]
+name = "nvdlc04divideslwaterplant"
+cell = "NVDLC04DivideSLWaterPlant"   # Wastewater Treatment Plant
+
+[[place]]
+name = "nvdlc04silo01"
+cell = "NVDLC04Silo01"   # Hopeville Missile Silo
+
+[[place]]
+name = "nvdlc04divideslwastedisposal"
+cell = "NVDLC04DivideSLWasteDisposal"   # Waste Disposal Station
+
+[[place]]
+name = "nvdlc04slbasement"
+cell = "NVDLC04SLBasement"   # Basement
+
+[[place]]
+name = "nvdlc04roadhq"
+cell = "NVDLC04RoadHQ"   # Hopeville Missile Base HQ
+
+[[place]]
+name = "nvdlc04slhopevillewomensbarracks"
+cell = "NVDLC04SLHopeVilleWomensBarracks"   # Hopeville Women's Barracks
+
+[[place]]
+name = "nvdlc04dividecavebldg"
+cell = "NVDLC04DivideCaveBldg"   # Buried Buildings
+
+[[place]]
+name = "nvdlc04slarmory01"
+cell = "NVDLC04SLArmory01"   # Hopeville Armory
+
+[[place]]
+name = "nvdlc04divideslsewers"
+cell = "NVDLC04DivideSLSewers"   # Municipal Sewers
+
+[[place]]
+name = "nvdlc04dividestartbldg"
+cell = "NVDLC04DivideStartBldg"   # Sunstone Tower
+
+# ---- GunRunnersArsenal: 0 cells
+
