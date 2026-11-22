@@ -182,7 +182,30 @@ pub fn memory_manager_allocate(e: &mut Engine, _this: Ptr, size: u32) -> Ptr {
 
 // Platform: replaces 00aa4060 (MemoryManager::Deallocate (Xbox PDB), FalloutNV.exe 1.4.0.525)
 /// Frees a block from [`memory_manager_allocate`]; null does nothing.
+///
+/// A block that is not live (freed before, or never allocated) is not freed again: the exe's allocator
+/// does not check and would list the block twice, so the game's own double free (nv-rs#487: the texture
+/// palette's purge leaves a stale entry-map node, a later lookup counts the freed texture up and down
+/// and deletes it a second time) goes on instead of stopping the run. The line names the first few.
 pub fn memory_manager_deallocate(e: &mut Engine, _this: Ptr, block: Ptr) {
+    if block.addr() != 0 && e.mem.block_size(block.addr()).is_none() {
+        static SAID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if SAID.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 8 {
+            let path: Vec<String> = e
+                .call_stack
+                .iter()
+                .rev()
+                .take(8)
+                .map(|a| format!("{a:08x}"))
+                .collect();
+            eprintln!(
+                "heap: the game freed {:08x}, which is not a live block; ignored, as the exe's allocator does not look (in {})",
+                block.addr(),
+                path.join(" < ")
+            );
+        }
+        return;
+    }
     if let (Some(hook), true) = (e.free_hook, block.addr() != 0) {
         hook(e, block.addr());
     }
@@ -2781,6 +2804,36 @@ mod tests {
         assert!(DeviceRef::default().get().is_none());
         // An owned one frees its state when dropped (Miri or a leak checker would see otherwise).
         drop(DeviceRef::new(Some(Box::new(String::from("freed")))));
+    }
+
+    /// The game's `Deallocate` leaves a block that is not live alone (a block freed twice, or one the heap never
+    /// gave out), and frees a live one once; `Mem::free` itself still stops on such a block (nv-rs#487).
+    #[test]
+    fn the_games_deallocate_ignores_a_block_that_is_not_live() {
+        let mut e = Engine::new();
+        let block = memory_manager_allocate(&mut e, Ptr::new(0), 0x48);
+        assert!(e.mem.block_size(block.addr()).is_some());
+        memory_manager_deallocate(&mut e, Ptr::new(0), block);
+        assert!(e.mem.block_size(block.addr()).is_none());
+        // Again: no stop, nothing changes.
+        memory_manager_deallocate(&mut e, Ptr::new(0), block);
+        // An address the heap never gave out, and null.
+        memory_manager_deallocate(&mut e, Ptr::new(0), Ptr::new(0x2b42_2810));
+        memory_manager_deallocate(&mut e, Ptr::new(0), Ptr::new(0));
+        // The block comes back for the next request of its pool, once.
+        let again = memory_manager_allocate(&mut e, Ptr::new(0), 0x48);
+        assert_eq!(again.addr(), block.addr());
+        let other = memory_manager_allocate(&mut e, Ptr::new(0), 0x48);
+        assert_ne!(other.addr(), again.addr());
+    }
+
+    #[test]
+    #[should_panic(expected = "not a live heap block")]
+    fn the_heaps_own_free_still_stops_on_a_block_that_is_not_live() {
+        let mut e = Engine::new();
+        let block = e.mem.alloc(0x48);
+        e.mem.free(block);
+        e.mem.free(block);
     }
 
     #[test]

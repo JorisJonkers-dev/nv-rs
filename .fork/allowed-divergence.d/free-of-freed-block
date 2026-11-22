@@ -1,0 +1,1 @@
+crates/engine-core/src/units/platform.rs  # the game's Deallocate (00aa4060) ignores a block that is not live instead of stopping: the exe's allocator does not look (nv-rs#487)
