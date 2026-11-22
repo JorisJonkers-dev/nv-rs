@@ -4,36 +4,37 @@
 # glance. "world" is needed because the first place of a start is sent before any cell is loaded.
 version = 1
 
-# The Strip's towers and the Freeside wall from the south, over the farm country: the tower (Lucky 38 shape) and the
-# casino blocks are far object LOD, the monorail the long thin one; a bare horizon here means the object blocks are not drawn.
+# The Strip from the south, over the Freeside gate wall: the Lucky 38-shaped tower, the black obelisk and the casino
+# blocks beside it are far object LOD, the monorail the long thin one on the right, the mountains behind far terrain; a
+# bare horizon here means the object blocks are not drawn.
 [[place]]
 name = "strip-skyline-from-south"
 world = "WastelandNV"
 ref = "SharecropperFarmsMapMarker"
-dx = 2000
-dy = -10000
+dx = 0
+dy = -14000
 dz = 800
 look_at = "FreesideMapMarker"
 
-# Hoover Dam from the south-west across the canyon: the dam wall, the penstock towers and the bridge are far objects
-# on the right, Black Canyon's rim is far terrain.
+# Hoover Dam's downstream face from the south: the curved dam wall with its intake towers and the walkway below it
+# are far objects, the canyon wall on the right far terrain.
 [[place]]
-name = "hoover-dam-from-the-south-west"
+name = "hoover-dam-from-the-south"
 world = "WastelandNV"
 ref = "VHDMapMarkerREF"
-dx = -9000
-dy = -7000
-dz = 400
+dx = -6000
+dy = -12000
+dz = 600
 look_at = "VHDMapMarkerREF"
 
-# Black Mountain from the south-west ridge: the four radio masts, the dish and the dome on the summit (the masts are
-# the first thing that goes when object LOD is missing) with the rock walls below them.
+# Black Mountain's summit from the west: the four radio masts and the two dishes on the ridge (the masts are the first
+# thing that goes when object LOD is missing) with the rock walls below them.
 [[place]]
 name = "black-mountain-dishes"
 world = "WastelandNV"
 ref = "BlackMountainMapMarkerREF"
-dx = -14000
-dy = -6000
+dx = -12000
+dy = 5000
 dz = 1500
 look_at = "BlackMountainMapMarkerREF"
 
