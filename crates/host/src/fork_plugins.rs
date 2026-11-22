@@ -90,6 +90,16 @@ mod tests {
     }
 
     #[test]
+    fn on_with_an_empty_folder_says_so_and_loads_nothing() {
+        let mut e = Engine::new();
+        let lines = load_all(&mut e, Some("1"));
+        assert!(plugin_host::enabled(&mut e));
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("0 in Data"), "{lines:?}");
+        assert!(plugin_host::plugins_loaded(&mut e).is_empty());
+    }
+
+    #[test]
     fn off_without_the_variable() {
         let mut e = Engine::new();
         assert!(load_all(&mut e, None).is_empty());

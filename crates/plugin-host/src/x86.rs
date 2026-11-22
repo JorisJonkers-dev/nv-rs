@@ -26,6 +26,8 @@ pub const EDI: usize = 7;
 pub enum Stop {
     /// A read or write of an address that is not mapped.
     Fault { addr: u32, write: bool },
+    /// The same, with the address of the instruction that made it (what [`Cpu::run`] answers).
+    FaultAt { addr: u32, write: bool, eip: u32 },
     /// An instruction this interpreter does not have (the address and its first bytes).
     BadOpcode { eip: u32, bytes: [u8; 4] },
     /// The instruction budget of one call ran out (a loop that does not end).
@@ -44,6 +46,11 @@ impl std::fmt::Display for Stop {
             Stop::Fault { addr, write } => write!(
                 f,
                 "{} of unmapped address {addr:#010x}",
+                if *write { "write" } else { "read" }
+            ),
+            Stop::FaultAt { addr, write, eip } => write!(
+                f,
+                "{} of unmapped address {addr:#010x} at {eip:#010x}",
                 if *write { "write" } else { "read" }
             ),
             Stop::BadOpcode { eip, bytes } => write!(
@@ -867,7 +874,15 @@ impl Cpu {
                 return Err(Stop::Budget);
             }
             self.steps += 1;
-            self.step(e)?;
+            let at = self.eip;
+            self.step(e).map_err(|s| match s {
+                Stop::Fault { addr, write } => Stop::FaultAt {
+                    addr,
+                    write,
+                    eip: at,
+                },
+                other => other,
+            })?;
         }
     }
 }

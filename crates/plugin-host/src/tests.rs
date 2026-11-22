@@ -245,12 +245,171 @@ mod interpreter {
         assert!(
             matches!(
                 r,
-                Err(Stop::Fault {
+                Err(Stop::FaultAt {
                     addr: 0x10,
-                    write: false
+                    write: false,
+                    ..
                 })
             ),
             "{r:?}"
         );
+    }
+
+    use crate::x86::{EBX, EDI, EDX, ESI};
+
+    #[test]
+    fn shifts_and_rotates() {
+        // mov eax,0x80000001; shl eax,1 | shr eax,1 | (mov ebx,0x80000000) sar ebx,4 | rol/ror ecx
+        let code = [
+            0xb8, 1, 0, 0, 0x80, 0xd1, 0xe0, 0x9c, 0xc1, 0xe8, 1, 0xbb, 0, 0, 0, 0x80, 0xc1, 0xfb,
+            4, 0xb9, 1, 0, 0, 0x80, 0xd1, 0xc1,
+        ];
+        // `pushfd` (0x9c) is not built: this also pins the report for it.
+        let (_, r) = run(&code, |_| {});
+        assert!(
+            matches!(
+                r,
+                Err(Stop::BadOpcode {
+                    bytes: [0x9c, ..],
+                    ..
+                })
+            ),
+            "{r:?}"
+        );
+        let code = [
+            0xb8, 1, 0, 0, 0x80, 0xd1, 0xe0, 0xc1, 0xe8, 1, 0xbb, 0, 0, 0, 0x80, 0xc1, 0xfb, 4,
+            0xb9, 1, 0, 0, 0x80, 0xd1, 0xc1, 0x89, 0xca, 0xd1, 0xca,
+        ];
+        let (c, r) = run(&code, |_| {});
+        assert!(r.is_ok(), "{r:?}");
+        assert_eq!(c.r[EAX], 1);
+        assert_eq!(c.r[EBX], 0xf800_0000);
+        assert_eq!(c.r[ECX], 3);
+        assert_eq!(c.r[EDX], 0x8000_0001);
+    }
+
+    #[test]
+    fn zero_and_sign_extension_and_conditional_moves() {
+        // mov eax,0xff80; movzx ecx,al; movsx edx,al; movzx ebx,ax; movsx esi,ax
+        let code = [
+            0xb8, 0x80, 0xff, 0, 0, 0x0f, 0xb6, 0xc8, 0x0f, 0xbe, 0xd0, 0x0f, 0xb7, 0xd8, 0x0f,
+            0xbf, 0xf0,
+        ];
+        let (c, r) = run(&code, |_| {});
+        assert!(r.is_ok(), "{r:?}");
+        assert_eq!(
+            (c.r[ECX], c.r[EDX], c.r[EBX], c.r[ESI]),
+            (0x80, 0xffff_ff80, 0xff80, 0xffff_ff80)
+        );
+        // xor eax,eax; xor ecx,ecx; test eax,eax; sete cl; mov edx,7; cmovne edx,ecx; cmove edx,ecx
+        let code = [
+            0x31, 0xc0, 0x31, 0xc9, 0x85, 0xc0, 0x0f, 0x94, 0xc1, 0xba, 7, 0, 0, 0, 0x0f, 0x45,
+            0xd1, 0x89, 0xd3, 0x0f, 0x44, 0xd1,
+        ];
+        let (c, r) = run(&code, |_| {});
+        assert!(r.is_ok(), "{r:?}");
+        assert_eq!((c.r[ECX], c.r[EBX], c.r[EDX]), (1, 7, 1));
+    }
+
+    #[test]
+    fn byte_swap_negate_not_and_address_arithmetic() {
+        // mov eax,0x12345678; bswap eax; mov ebx,eax
+        let (c, r) = run(&[0xb8, 0x78, 0x56, 0x34, 0x12, 0x0f, 0xc8], |_| {});
+        assert!(r.is_ok());
+        assert_eq!(c.r[EAX], 0x7856_3412);
+        // mov eax,5; neg eax; not eax; cdq; inc eax; dec eax; lea eax,[eax+eax*2]; xchg eax,ecx
+        let code = [
+            0xb8, 5, 0, 0, 0, 0xf7, 0xd8, 0xf7, 0xd0, 0x99, 0x40, 0x48, 0x8d, 0x04, 0x40, 0x91,
+        ];
+        let (c, r) = run(&code, |_| {});
+        assert!(r.is_ok(), "{r:?}");
+        assert_eq!((c.r[ECX], c.r[EDX]), (12, 0));
+    }
+
+    #[test]
+    fn signed_multiply_and_divide() {
+        // mov eax,-1; mov ecx,2; imul eax,ecx; imul eax,eax,3
+        let code = [
+            0xb8, 0xff, 0xff, 0xff, 0xff, 0xb9, 2, 0, 0, 0, 0x0f, 0xaf, 0xc1, 0x6b, 0xc0, 3,
+        ];
+        let (c, r) = run(&code, |_| {});
+        assert!(r.is_ok());
+        assert_eq!(c.r[EAX], 0xffff_fffa);
+        // mov eax,-12; cdq; mov ecx,5; idiv ecx
+        let code = [
+            0xb8, 0xf4, 0xff, 0xff, 0xff, 0x99, 0xb9, 5, 0, 0, 0, 0xf7, 0xf9,
+        ];
+        let (c, r) = run(&code, |_| {});
+        assert!(r.is_ok());
+        assert_eq!((c.r[EAX], c.r[EDX]), (0xffff_fffe, 0xffff_fffe));
+        // div by zero: xor ecx,ecx; div ecx
+        let (_, r) = run(&[0x31, 0xc9, 0xf7, 0xf1], |_| {});
+        assert!(matches!(r, Err(Stop::Divide { .. })), "{r:?}");
+    }
+
+    #[test]
+    fn string_moves_and_fills_with_a_repeat_prefix() {
+        // mov esi,edi; mov ecx,4; mov eax,0xaa; rep stosd; lea edi,[esp-0x300]; mov ecx,4; rep movsd;
+        // mov eax,[edi-4]
+        let code = [
+            0x89, 0xfe, 0xb9, 4, 0, 0, 0, 0xb8, 0xaa, 0, 0, 0, 0xf3, 0xab, 0x8d, 0xbc, 0x24, 0,
+            0xfd, 0xff, 0xff, 0xb9, 4, 0, 0, 0, 0xf3, 0xa5, 0x8b, 0x47, 0xfc,
+        ];
+        let (c, r) = run(&code, |c| c.r[EDI] = c.r[ESP] - 0x400);
+        assert!(r.is_ok(), "{r:?}");
+        assert_eq!(c.r[EAX], 0xaa);
+        assert_eq!(c.r[ECX], 0);
+        assert_eq!(c.r[ESI], c.r[ESP] - 0x400 + 16);
+        assert_eq!(c.r[EDI], c.r[ESP] - 0x300 + 16);
+    }
+
+    #[test]
+    fn a_call_returns_and_an_indirect_call_goes_through_a_register() {
+        // call L; jmp end; L: mov eax,42; ret
+        let code = [0xe8, 2, 0, 0, 0, 0xeb, 6, 0xb8, 42, 0, 0, 0, 0xc3];
+        let (c, r) = run(&code, |_| {});
+        assert!(r.is_ok(), "{r:?}");
+        assert_eq!(c.r[EAX], 42);
+        assert_eq!(c.r[ESP] & 0xf, 0);
+    }
+
+    #[test]
+    fn a_loop_that_never_ends_stops_on_the_budget() {
+        let (_, r) = run(&[0xeb, 0xfe, 0x90], |_| {});
+        assert_eq!(r, Err(Stop::Budget));
+    }
+
+    #[test]
+    fn every_stop_says_what_it_wanted() {
+        for (stop, word) in [
+            (
+                Stop::Fault {
+                    addr: 1,
+                    write: true,
+                },
+                "write",
+            ),
+            (
+                Stop::FaultAt {
+                    addr: 1,
+                    write: false,
+                    eip: 2,
+                },
+                "at 0x00000002",
+            ),
+            (
+                Stop::BadOpcode {
+                    eip: 1,
+                    bytes: [1, 2, 3, 4],
+                },
+                "not built",
+            ),
+            (Stop::Budget, "budget"),
+            (Stop::Missing("x".into()), "wanted x"),
+            (Stop::Exit, "end"),
+            (Stop::Divide { eip: 9 }, "divide"),
+        ] {
+            assert!(stop.to_string().contains(word), "{stop}");
+        }
     }
 }
