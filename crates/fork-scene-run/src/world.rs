@@ -730,6 +730,27 @@ impl World for EngineWorld<'_> {
         self.engine.call(0x0070_23c0, &args![]).u32()
     }
 
+    fn weather_form(&mut self, name: &str) -> Result<u32, String> {
+        let e = &mut *self.engine;
+        let form = match hex_form_id(name) {
+            Some(id) => e.call(LOOKUP_FORM, &args![id]).u32(),
+            None => e.with_stack((name.len() as u32 + 4) & !3, |e, text| {
+                for (i, b) in name.bytes().enumerate() {
+                    e.mem.set_u8(text.addr() + i as u32, b);
+                }
+                e.mem.set_u8(text.addr() + name.len() as u32, 0);
+                e.call(FORM_BY_EDITOR_ID, &args![text]).u32()
+            }),
+        };
+        if form == 0 {
+            return Err(format!(
+                "scene: no weather `{name}` (an editor id, or a form id in hex)"
+            ));
+        }
+        // `freeze` looks the form up by its id: answer the id.
+        Ok(e.mem.u32(form + 0x0c))
+    }
+
     fn freeze(&mut self, hour: f32, weather: u32) {
         let e = &mut *self.engine;
         // The clock: the hour held, the time scale 0 (the calendar's globals, value at +0x24).

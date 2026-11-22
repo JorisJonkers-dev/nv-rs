@@ -1,0 +1,26 @@
+# Night views (the base game): the frozen world holds the game hour each place names (`hour`, 22.5 is half past ten in the
+# evening) and the same clear weather as the day views unless `weather` names another. Street lamps, neon and far lights
+# that the game switches by the hour are read from the calendar by the game's own code every frame, so they show with the
+# clock held; the Strip's far lights are part of the far object LOD.
+version = 1
+
+[[place]]
+name = "night-strip-skyline-from-south"
+world = "WastelandNV"
+ref = "SharecropperFarmsMapMarker"
+dx = 0
+dy = -14000
+dz = 800
+look_at = "FreesideMapMarker"
+hour = 22.5
+
+[[place]]
+name = "night-goodsprings"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+pitch = 5
+camera_dz = 300
+hour = 22.5

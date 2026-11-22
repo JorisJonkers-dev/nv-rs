@@ -35,6 +35,11 @@ pub trait World {
     /// Holds the world still (idempotent, called every frame once the player has been sent): the
     /// game hour and a stopped clock, the weather, no AI processing, the interface hidden.
     fn freeze(&mut self, _hour: f32, _weather: u32) {}
+    /// The form id of the weather `name` (an editor id or a form id in hex).
+    fn weather_form(&mut self, name: &str) -> Result<u32, String> {
+        u32::from_str_radix(name.trim_start_matches("0x"), 16)
+            .map_err(|_| format!("scene: no weather `{name}` (a form id in hex)"))
+    }
     /// Hides the 3D of every actor but the player in the cells around the player (`NiAVObject`
     /// culled flag); the number hidden now.
     fn hide_actors(&mut self) -> u32 {
@@ -216,6 +221,8 @@ pub struct Runner {
     vanity_off: bool,
     /// The experience settings are set.
     xp_off: bool,
+    /// The weather form of the current place's `weather` key: (place index, form id).
+    weather_cache: Option<(usize, u32)>,
     /// Main frames since the current place was sent.
     place_frames: u64,
     /// Frames in a row the soak has not been on the play screen.
@@ -248,6 +255,7 @@ impl Runner {
             place_frames: 0,
             vanity_off: false,
             xp_off: false,
+            weather_cache: None,
             trace: std::env::var_os("NV_SCENE_TRACE").is_some(),
             prev_bits: [0; 3],
             scan: None,
@@ -387,7 +395,24 @@ impl Runner {
                 fork_log::info!(target: "scene", "scene: no experience for finding places");
             }
         }
-        if let Some((hour, weather)) = self.request.freeze {
+        if let Some((mut hour, mut weather)) = self.request.freeze {
+            // A place may hold its own hour and weather.
+            if let Some(h) = place.hour {
+                hour = h as f32;
+            }
+            if let Some(name) = &place.weather {
+                match self.weather_cache {
+                    Some((index, form)) if index == self.next => weather = form,
+                    _ => match w.weather_form(name) {
+                        Ok(form) if form != 0 => {
+                            self.weather_cache = Some((self.next, form));
+                            weather = form;
+                        }
+                        Ok(_) => return Step::Failed(format!("scene: no weather `{name}`")),
+                        Err(e) => return Step::Failed(e),
+                    },
+                }
+            }
             w.freeze(hour, weather);
         }
         if self.request.hide_actors && (self.next > 0 || !matches!(self.phase, Phase::WaitMenu)) {

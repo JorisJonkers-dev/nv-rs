@@ -250,6 +250,16 @@ the LOD around it. `scenes/camera-seam.toml` (plain game) and `scenes/camera-sea
 looked at: Goodsprings 6000 and 12000 units up, Tenpenny Tower from 5000 and the Washington Monument from 7000. The
 run is 15 s for the two plain places and 69 s for two Capital places (17 s for one more, `--only`).
 
+## Night: `hour` and `weather`
+
+A place may hold its own game hour and weather in the frozen world: `hour = 22.5` (from 0 up to 24) and
+`weather = "<editor id or form id in hex>"`; the run's `NV_SCENE_HOUR` (12) and `NV_SCENE_WEATHER` (the clear weather
+`000FFC88`) are the defaults. `scenes/night.toml` has the Strip skyline from the south and Goodsprings at 22.5. Opened:
+the Strip's towers and casino windows lit with the far mountains dark behind, Goodsprings with its street lamp glowing,
+the lit windows of the Prospector Saloon and a neon sign. Lights switched by the hour (street lamps, neon, lit windows)
+come on in the frozen world: the game's lighting reads the hour from the calendar when it draws and updates, which the
+runner holds, and no script or timer is involved. Lights that a script switches on at dusk (a quest's, a mod's) would not.
+
 ## The lens: field of view, far plane, fog
 
 Any place (the player's eyes or the free camera) may set the lens:

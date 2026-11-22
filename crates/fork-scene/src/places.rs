@@ -52,6 +52,8 @@
 //! ```toml
 //! fov = 20          # vertical field of view in degrees (a narrow lens looks at one far thing as if near)
 //! far = 400000      # far plane in units
+//! hour = 22.5      # the game hour the frozen world holds here (default: the run's, 12)
+//! weather = "000FFC88"   # the weather held here: an editor id or a form id in hex (default: the run's clear weather)
 //! fog = false       # no fog: far land and objects at full contrast
 //! ```
 //! A place for a bench can walk: `path = [[x, y, z], ...]` and `path_speed = 10` (units a frame) move the player along the
@@ -122,6 +124,11 @@ pub struct Place {
     /// Fog on (`fog = false`: the sky's fog distances pushed out of reach, so far land and objects show at full
     /// contrast). Default true.
     pub fog: bool,
+    /// The game hour the frozen world holds at this place (`hour = 22.5`); `None`: the run's (`NV_SCENE_HOUR`, 12).
+    pub hour: Option<f64>,
+    /// The weather the frozen world holds at this place: an editor id or a form id in hex (`weather = "000FFC88"`);
+    /// `None`: the run's (`NV_SCENE_WEATHER`, the clear weather).
+    pub weather: Option<String>,
 }
 
 /// Where the free camera is.
@@ -321,6 +328,8 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
             "fov",
             "far",
             "fog",
+            "hour",
+            "weather",
         ]
         .contains(&k.as_str())
         {
@@ -509,6 +518,20 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         Some(Value::Bool(b)) => *b,
         Some(_) => return Err(format!("line {n}: `fog` is true or false")),
     };
+    let hour = match get("hour") {
+        None => None,
+        Some(Value::Num(v)) if (0.0..24.0).contains(v) => Some(*v),
+        Some(_) => return Err(format!("line {n}: `hour` is a game hour from 0 up to 24")),
+    };
+    let weather = match get("weather") {
+        None => None,
+        Some(Value::Str(v)) if !v.is_empty() => Some(v.clone()),
+        Some(_) => {
+            return Err(format!(
+                "line {n}: `weather` is an editor id or a form id in hex, in quotes"
+            ))
+        }
+    };
     let heading = num("heading", Some(0.0))?;
     let pitch = num("pitch", Some(0.0))?;
     if !(-360.0..=360.0).contains(&heading) || !(-89.0..=89.0).contains(&pitch) {
@@ -539,6 +562,8 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         fov,
         far,
         fog,
+        hour,
+        weather,
     })
 }
 
@@ -640,6 +665,18 @@ path = [[0, 0, 0], [10.5, 0, 0]]
         assert_eq!(f.places[0].heading, 60.0);
         assert_eq!(f.places[1].pitch, 0.0);
         assert_eq!(f.places[1].path, vec![[0.0; 3], [10.5, 0.0, 0.0]]);
+    }
+
+    #[test]
+    fn a_place_may_hold_its_own_hour_and_weather() {
+        let text = "version = 1\n[[place]]\nname = \"a\"\nworld = \"WastelandNV\"\nx = 1\ny = 2\nz = 3\nhour = 22.5\nweather = \"000FFC88\"\n[[place]]\nname = \"b\"\nworld = \"WastelandNV\"\nx = 1\ny = 2\nz = 3\n";
+        let f = PlaceFile::parse(text).unwrap();
+        assert_eq!(f.places[0].hour, Some(22.5));
+        assert_eq!(f.places[0].weather.as_deref(), Some("000FFC88"));
+        assert_eq!(f.places[1].hour, None);
+        assert_eq!(f.places[1].weather, None);
+        let bad = text.replace("hour = 22.5", "hour = 24");
+        assert!(PlaceFile::parse(&bad).unwrap_err().contains("`hour`"));
     }
 
     #[test]
