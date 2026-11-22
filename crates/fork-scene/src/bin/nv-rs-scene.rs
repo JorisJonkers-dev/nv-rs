@@ -874,9 +874,20 @@ fn sweep(args: &[String]) -> Result<bool, String> {
     sweep_worker(args)
 }
 
+/// The signal that ended a child (none off Unix, where a process ends only with a status).
+#[cfg(unix)]
+fn killed_by(status: &std::process::ExitStatus) -> Option<i32> {
+    use std::os::unix::process::ExitStatusExt;
+    status.signal()
+}
+
+#[cfg(not(unix))]
+fn killed_by(_: &std::process::ExitStatus) -> Option<i32> {
+    None
+}
+
 /// Runs the sweep in a worker child and says plainly how it ended when it did not end with its summary.
 fn sweep_supervised(args: &[String]) -> Result<bool, String> {
-    use std::os::unix::process::ExitStatusExt;
     let out = args
         .iter()
         .position(|a| a == "--out")
@@ -896,7 +907,7 @@ fn sweep_supervised(args: &[String]) -> Result<bool, String> {
         .map_err(|e| format!("the sweep could not start its worker: {e}"))?;
     let finished =
         std::fs::read_to_string(out.join("sweep.md")).is_ok_and(|t| !t.contains("(in progress"));
-    match (status.code(), status.signal()) {
+    match (status.code(), killed_by(&status)) {
         (Some(0), _) if finished => Ok(true),
         (Some(1), _) if finished => Ok(false),
         (code, signal) => {
@@ -1696,6 +1707,7 @@ mod tests {
         assert_eq!(wraps, ["flock", "-s", "/work/g.lock"]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn run_stages_each_variant_starts_the_viewer_and_compares_their_pictures() {
         let t = tmp("run");
