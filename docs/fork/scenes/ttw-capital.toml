@@ -1,25 +1,37 @@
-# Capital Wasteland places for a Tale of Two Wastelands load order (world editor id "Wasteland"). Provisional:
-# found by looking, not by landmark coordinates; the Washington Monument and the Capitol need their map positions
-# (a place by reference editor id is the next step). Heights are rough: the game's placement settles the player.
+# Capital Wasteland far views by landmark, for a Tale of Two Wastelands load order (world editor id "Wasteland"): each
+# stands at a map marker plus an offset (world units) and faces a marker; the game's placement settles the player on
+# the land. Chosen so that missing distant objects show at a glance.
 version = 1
 
-# A ridge north-east of the world's origin, heading north: a long highway and pylons running to the horizon, ruined
-# towers and a billboard in the middle distance. Meant to show distant structures (pylons, overpass, buildings on
-# the far hills) at a glance: missing object LOD leaves the far hills bare.
+# The ruined skyline of Washington from the south-west with the Washington Monument among the towers: tall far object
+# LOD (the monument is the one thing to look for; the broken towers are the mass).
 [[place]]
-name = "capital-ridge-north"
+name = "washington-skyline-and-monument"
 world = "Wasteland"
-x = 15000
-y = 10000
-z = 12800
-heading = 0
+ref = "WashMonMapMarker"
+dx = 0
+dy = -12000
+dz = 800
+look_at = "WashMonMapMarker"
 
-# Dead trees and a wrecked bus on a road, heading north: tree and rock object LOD near to far, and a distant
-# elevated road on the right horizon.
+# The Washington Monument and the Mall across the Potomac, from the bank by the Lincoln Memorial, with the bridge on
+# the right: the monument at distance and the far bank's buildings; the bridge is a mid-distance object.
 [[place]]
-name = "capital-dead-trees"
+name = "monument-across-the-river"
 world = "Wasteland"
-x = -20000
-y = 20000
-z = 12000
-heading = 0
+ref = "LincolnMemorialMapMarker"
+dx = -9000
+dy = 0
+dz = 800
+look_at = "WashMonMapMarker"
+
+# Tenpenny Tower from the plain to the south-west: a tall single building standing alone, the cleanest test of far
+# object LOD for one object, with dead trees (tree LOD) and shacks around it.
+[[place]]
+name = "tenpenny-tower-from-the-plain"
+world = "Wasteland"
+ref = "TenpennyTowerMapMarker"
+dx = -10000
+dy = -4000
+dz = 800
+look_at = "TenpennyTowerMapMarker"

@@ -24,7 +24,7 @@ pub enum Screen {
 pub trait World {
     fn screen(&self) -> Screen;
     /// Sends the player to the place through the game's own exterior placement.
-    fn go_to(&mut self, place: &Place) -> Result<(), String>;
+    fn go_to(&mut self, place: &Place) -> Result<Target, String>;
     /// The player's position and the grid cell of its parent cell's coordinates, when it has a cell.
     fn player(&self) -> Option<Standing>;
     /// The id of the top menu (`Interface::GetTopMenuID`), 0 for none.
@@ -46,6 +46,14 @@ pub trait World {
     }
     /// Asks the drawing layer to write the next present's frame as a BMP at `path`.
     fn ask_picture(&mut self, path: &std::path::Path);
+}
+
+/// Where a place turned out to be: a place by reference is resolved by the game's data when it is sent.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Target {
+    pub pos: [f64; 3],
+    pub heading: f64,
+    pub pitch: f64,
 }
 
 /// Where the player is.
@@ -129,6 +137,8 @@ pub struct Runner {
     phase: Phase,
     /// Frames the screen has shown the menu (or play, for a later place) since the last send.
     steady: u32,
+    /// Where the place being visited resolved to.
+    target: [f64; 3],
     /// The frame times (ms) of the soak in progress.
     ms: Vec<f64>,
     /// Frames in a row the soak has not been on the play screen.
@@ -151,6 +161,7 @@ impl Runner {
             next: 0,
             phase: Phase::WaitMenu,
             steady: 0,
+            target: [0.0; 3],
             ms: Vec::new(),
             away: 0,
             tick: 0,
@@ -263,7 +274,9 @@ impl Runner {
                 self.steady = 0;
                 fork_log::info!(target: "scene", "scene: sending the player to {} from the {:?} screen", place.name, w.screen());
                 match w.go_to(place) {
-                    Ok(()) => {
+                    Ok(t) => {
+                        self.target = t.pos;
+                        fork_log::info!(target: "scene", "scene: {} resolved to {:.1} {:.1} {:.1}, heading {:.1}, pitch {:.1}", place.name, t.pos[0], t.pos[1], t.pos[2], t.heading, t.pitch);
                         self.phase = Phase::Going { since: now };
                         Step::Continue
                     }
@@ -289,7 +302,7 @@ impl Runner {
                     (at.pos[0] / 4096.0).floor() as i32,
                     (at.pos[1] / 4096.0).floor() as i32,
                 );
-                if cell != place.cell() {
+                if cell != fork_scene::cell_of(self.target) {
                     return Step::Continue;
                 }
                 self.phase = Phase::Settling {
@@ -470,12 +483,16 @@ mod tests {
         fn screen(&self) -> Screen {
             self.screen
         }
-        fn go_to(&mut self, p: &Place) -> Result<(), String> {
+        fn go_to(&mut self, p: &Place) -> Result<Target, String> {
             if self.refuse {
                 return Err("no world".into());
             }
             self.sent.push(p.name.clone());
-            Ok(())
+            Ok(Target {
+                pos: p.pos,
+                heading: p.heading,
+                pitch: p.pitch,
+            })
         }
         fn player(&self) -> Option<Standing> {
             self.standing

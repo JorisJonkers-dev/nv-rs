@@ -10,5 +10,5 @@ pub mod png;
 pub mod request;
 pub mod stage;
 
-pub use places::{Place, PlaceFile};
+pub use places::{aim, cell_of, Place, PlaceFile};
 pub use request::Request;

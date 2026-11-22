@@ -3,7 +3,7 @@
 //! (`0093cce0`), the function fast travel and `moveto` end in, which cancels pending exterior
 //! loads, loads or creates the cell, and places the player on its land. No console text.
 
-use crate::{Screen, Standing, World};
+use crate::{Screen, Standing, Target, World};
 use engine_core::prelude::*;
 use fork_scene::Place;
 
@@ -98,6 +98,55 @@ fn find_world(e: &mut Engine, world: &str) -> Result<u32, String> {
     ))
 }
 
+/// `GetFormByEditorID` (`00483a00`, cdecl: a C string): the form the editor id names (the editor ids
+/// are kept by the fixes preset's JohnnyGuitar row), 0 for none.
+const FORM_BY_EDITOR_ID: u32 = 0x0048_3a00;
+/// Placed references (REFR `3a`, ACHR `3b`, ACRE `3c`) have a position; the form type byte is `FORM_TYPE`.
+const FORM_TYPE_REFR: u8 = 0x3a;
+
+/// A reference found by name.
+struct Found {
+    pos: [f64; 3],
+    /// The world space of its cell; 0 while its cell is not loaded (the first place, from the menu).
+    world: u32,
+}
+
+/// The reference `name` (an editor id, or a form id in hex) with its position and world space.
+fn find_ref(e: &mut Engine, name: &str) -> Result<Found, String> {
+    let form = match hex_form_id(name) {
+        Some(id) => e.call(LOOKUP_FORM, &args![id]).u32(),
+        None => e.with_stack((name.len() as u32 + 4) & !3, |e, text| {
+            for (i, b) in name.bytes().enumerate() {
+                e.mem.set_u8(text.addr() + i as u32, b);
+            }
+            e.mem.set_u8(text.addr() + name.len() as u32, 0);
+            e.call(FORM_BY_EDITOR_ID, &args![text]).u32()
+        }),
+    };
+    if form == 0 {
+        return Err(format!(
+            "no form `{name}` (an editor id of a placed reference, or its form id in hex)"
+        ));
+    }
+    let kind = e.mem.u8(form + FORM_TYPE);
+    if !(FORM_TYPE_REFR..=FORM_TYPE_REFR + 2).contains(&kind) {
+        return Err(format!(
+            "`{name}` is not a placed reference (form type {kind:#x})"
+        ));
+    }
+    let cell = e.mem.u32(form + PARENT_CELL);
+    let world = if cell == 0 {
+        0
+    } else {
+        e.mem.u32(cell + CELL_WORLD_SPACE)
+    };
+    let at = |o: u32| f64::from(e.mem.f32(form + POSITION + o));
+    Ok(Found {
+        pos: [at(0), at(4), at(8)],
+        world,
+    })
+}
+
 /// A running engine as the runner's world.
 pub struct EngineWorld<'a> {
     pub engine: &'a mut Engine,
@@ -109,24 +158,59 @@ impl World for EngineWorld<'_> {
         self.screen
     }
 
-    fn go_to(&mut self, p: &Place) -> Result<(), String> {
+    fn go_to(&mut self, p: &Place) -> Result<Target, String> {
         let e = &mut *self.engine;
         let player = e.global::<u32>(PLAYER);
         if player == 0 {
             return Err("the game has no player yet".into());
         }
-        let world = find_world(e, &p.world)?;
+        // A place by reference: stand at the reference plus the offset, in the reference's world, and
+        // face the other reference when asked.
+        let (world, pos) = match &p.reference {
+            None => (find_world(e, &p.world)?, p.pos),
+            Some(name) => {
+                let r = find_ref(e, name)?;
+                let world = if !p.world.is_empty() {
+                    find_world(e, &p.world)?
+                } else if r.world != 0 {
+                    r.world
+                } else {
+                    return Err(format!(
+                        "`{name}` has no world space yet (its cell is not loaded): give the place a `world`"
+                    ));
+                };
+                (
+                    world,
+                    [
+                        r.pos[0] + p.offset[0],
+                        r.pos[1] + p.offset[1],
+                        r.pos[2] + p.offset[2],
+                    ],
+                )
+            }
+        };
+        let (mut heading, mut pitch) = (p.heading, p.pitch);
+        if let Some(name) = &p.look_at {
+            let t = find_ref(e, name)?;
+            let (h, pi) = fork_scene::aim(pos, t.pos);
+            if !p.heading_given {
+                heading = h;
+            }
+            if !p.pitch_given {
+                pitch = pi.clamp(-89.0, 89.0);
+            }
+        }
         let rad = |d: f64| (d.to_radians()) as f32;
         e.call(
             POSITION_PLAYER_EXTERIOR,
             &args![
                 player,
-                p.pos[0] as f32,
-                p.pos[1] as f32,
-                p.pos[2] as f32,
-                rad(p.pitch),
+                pos[0] as f32,
+                pos[1] as f32,
+                pos[2] as f32,
+                rad(pitch),
                 0.0f32,
-                rad(p.heading),
+                rad(heading),
                 world,
                 0u32
             ],
@@ -137,7 +221,11 @@ impl World for EngineWorld<'_> {
             e.call(START_MENU_CLOSE, &args![0u32]);
             e.mem.set_u8(GAME_RUNNING_FLAG, 1);
         }
-        Ok(())
+        Ok(Target {
+            pos,
+            heading,
+            pitch,
+        })
     }
 
     fn top_menu(&mut self) -> u32 {

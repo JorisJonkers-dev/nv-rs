@@ -1,0 +1,60 @@
+# Mojave far views by landmark (the base game): each stands at a map marker (a persistent reference, so the view survives
+# a load order that moves things around it) plus an offset in world units (4096 a cell), and faces another marker. The
+# game's placement settles the player on the land. Each is chosen so that missing or wrong distant objects show at a
+# glance. "world" is needed because the first place of a start is sent before any cell is loaded.
+version = 1
+
+# The Strip's towers and the Freeside wall from the south, over the farm country: the tower (Lucky 38 shape) and the
+# casino blocks are far object LOD, the monorail the long thin one; a bare horizon here means the object blocks are not drawn.
+[[place]]
+name = "strip-skyline-from-south"
+world = "WastelandNV"
+ref = "SharecropperFarmsMapMarker"
+dx = 2000
+dy = -10000
+dz = 800
+look_at = "FreesideMapMarker"
+
+# Hoover Dam from the south-west across the canyon: the dam wall, the penstock towers and the bridge are far objects
+# on the right, Black Canyon's rim is far terrain.
+[[place]]
+name = "hoover-dam-from-the-south-west"
+world = "WastelandNV"
+ref = "VHDMapMarkerREF"
+dx = -9000
+dy = -7000
+dz = 400
+look_at = "VHDMapMarkerREF"
+
+# Black Mountain from the south-west ridge: the four radio masts, the dish and the dome on the summit (the masts are
+# the first thing that goes when object LOD is missing) with the rock walls below them.
+[[place]]
+name = "black-mountain-dishes"
+world = "WastelandNV"
+ref = "BlackMountainMapMarkerREF"
+dx = -14000
+dy = -6000
+dz = 1500
+look_at = "BlackMountainMapMarkerREF"
+
+# Helios One across the highway from the east: the mirror field, the tower and the dish on the hills behind the road
+# barrier are far objects; the pylons are the mid distance.
+[[place]]
+name = "helios-one-across-the-road"
+world = "WastelandNV"
+ref = "VHeliosONEMapMarkerREF"
+dx = 12000
+dy = -9000
+dz = 800
+look_at = "VHeliosONEMapMarkerREF"
+
+# Quarry Junction from the east, facing the Sloan side: the conveyors and the crusher tower are mid objects, the rock
+# walls and ridges behind (the Sloan cliffs) are the far object LOD that goes missing first.
+[[place]]
+name = "quarry-junction-and-the-sloan-cliffs"
+world = "WastelandNV"
+ref = "QuarryJunctionMapMarker"
+dx = 5000
+dy = 5000
+dz = 500
+look_at = "SloanMapMarker"

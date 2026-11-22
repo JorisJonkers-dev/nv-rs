@@ -159,6 +159,18 @@ Worlds are found by editor id (`WastelandNV`, the Capital Wasteland's `Wasteland
 Two defects on the way: a start with the 18 TTW plugins in the fixes preset stopped with `JohnnyGuitarNVSE: registered
 twice` (nv-rs#482: the editor ids crate and the plugin crate both registered the plugin; one record now carries both
 halves); and the second place of a start timed out on the Menu screen (the new game's message boxes, closed by the
-runner now). Five Mojave places on a clean TTW folder in one start: 97 s. `scenes/ttw-capital.toml` has two Capital
-Wasteland views. Two runs of the same five places gave identical pictures in three places and differed by at most 0.62%
+runner now). Five Mojave places on a clean TTW folder in one start: 97 s. `scenes/ttw-capital.toml` has three Capital
+Wasteland views by landmark. Two runs of the same five places gave identical pictures in three places and differed by at most 0.62%
 of pixels (brush clumps, mean 0.16) in two; the runs fall in two groups of identical pictures, cause not traced.
+
+## Places by reference
+
+A place may stand at a reference (`ref`, an editor id or a form id in hex) plus an offset (`dx`, `dy`, `dz`, world axes)
+and face another (`look_at`; `heading` and `pitch` win when given), so a landmark view needs no hand-found coordinates
+and follows a load order that moves things. Map markers are persistent references with editor ids
+(`WashMonMapMarker`, `TenpennyTowerMapMarker`, `VHeliosONEMapMarkerREF`, `BlackMountainMapMarkerREF`, ...); the
+editor ids of any plugin come from the fixes preset's editor id store. `world` is needed on a place by reference for the first place of a start
+(its cell is not loaded yet, so the reference has no world); the log says where each place resolved to. The default
+files: `scenes/mojave-far.toml` (five Mojave views) and `scenes/ttw-capital.toml` (three Capital views). The offsets
+were found by looking: a reference's own spot is often among rocks or camps, so a landmark view stands thousands of
+units away; one that ends against a hillside needs another offset.
