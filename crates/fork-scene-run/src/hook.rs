@@ -23,6 +23,7 @@ static EXIT: AtomicI32 = AtomicI32::new(RUNNING);
 /// Registers the runner at `Main::OnIdle`. Call once, after the host started (real threads take the
 /// registration too) and before main's next frame.
 pub fn install(e: &mut Engine, runner: Runner) {
+    crate::view::install(e);
     *RUNNER.lock().unwrap_or_else(|p| p.into_inner()) = Some((runner, Instant::now()));
     e.register(ON_IDLE, |e, a| {
         {

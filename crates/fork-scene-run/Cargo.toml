@@ -13,3 +13,4 @@ fork-log = { path = "../fork-log" }
 engine-core = { path = "../engine-core" }
 engine = { path = "../engine" }
 host = { path = "../host" }
+d3d9-wgpu = { path = "../d3d9-wgpu" }

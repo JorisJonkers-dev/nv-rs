@@ -1,0 +1,24 @@
+# The same for a Tale of Two Wastelands load order (world editor id "Wasteland"): the player stands on the plain
+# south-west of Tenpenny Tower, the camera 5000 units above and facing the tower.
+version = 1
+[[place]]
+name = "tenpenny-high"
+world = "Wasteland"
+ref = "TenpennyTowerMapMarker"
+dx = -10000
+dy = -4000
+dz = 800
+camera_dz = 5000
+look_at = "TenpennyTowerMapMarker"
+
+# From 9000 up above the Mall's south side, looking across the Potomac at the skyline.
+[[place]]
+name = "washington-high"
+world = "Wasteland"
+ref = "WashMonMapMarker"
+dx = 0
+dy = -12000
+dz = 800
+camera_dz = 7000
+look_at = "WashMonMapMarker"
+pitch = 9          # heading from look_at, the pitch fixed: a view to the horizon, not down at the monument's foot

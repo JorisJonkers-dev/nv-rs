@@ -1,0 +1,30 @@
+# nv-rs#474: a far console `player.setpos` into cells that are not loaded leaves their land unloaded (the player
+# floats, objects hang over low-detail land). The second place moves the player the way the console does
+# (move = "setpos": the three coordinates and the angles set on the player, no cell asked for); the soak fails with
+# "place lake-mead-setpos was not reached" while the defect is there, and passes once the cells load. The first
+# place is the game's own placement (Goodsprings), the third returns by it.
+version = 1
+[[place]]
+name = "goodsprings"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+
+[[place]]
+name = "lake-mead-setpos"
+world = "WastelandNV"
+x = 53811
+y = 38382
+z = 3215
+heading = 60
+move = "setpos"
+
+[[place]]
+name = "goodsprings-again"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 180
