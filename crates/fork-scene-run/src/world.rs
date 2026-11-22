@@ -147,6 +147,14 @@ fn find_ref(e: &mut Engine, name: &str) -> Result<Found, String> {
     })
 }
 
+/// `g_GameSettingCollection` and the game's `NiTMap` lookup (`00853130`: the map, the key, an out pointer).
+const GAME_SETTINGS: u32 = 0x011c_8048;
+const NI_TMAP_LOOKUP: u32 = 0x0085_3130;
+
+/// `Script::SetPosBase` and `SetAngleBase` (`005c0740`, `005c0b10`: the reference, the axis letter, the value).
+const SET_POS_BASE: u32 = 0x005c_0740;
+const SET_ANGLE_BASE: u32 = 0x005c_0b10;
+
 /// A running engine as the runner's world.
 pub struct EngineWorld<'a> {
     pub engine: &'a mut Engine,
@@ -201,6 +209,27 @@ impl World for EngineWorld<'_> {
             }
         }
         let rad = |d: f64| (d.to_radians()) as f32;
+        if p.setpos && self.screen == Screen::Play {
+            // The console's `player.setpos x/y/z` and `setangle`: the three coordinates and the heading
+            // and pitch set one by one on the player reference (`Script::SetPosBase`, `SetAngleBase`), no
+            // cell is asked for (nv-rs#474: the land may then not load).
+            for (axis, v) in [(b'X', pos[0]), (b'Y', pos[1]), (b'Z', pos[2])] {
+                e.call(SET_POS_BASE, &args![player, u32::from(axis), v as f32]);
+            }
+            e.call(
+                SET_ANGLE_BASE,
+                &args![player, u32::from(b'Z'), heading as f32],
+            );
+            e.call(
+                SET_ANGLE_BASE,
+                &args![player, u32::from(b'X'), pitch as f32],
+            );
+            return Ok(Target {
+                pos,
+                heading,
+                pitch,
+            });
+        }
         e.call(
             POSITION_PLAYER_EXTERIOR,
             &args![
@@ -311,6 +340,42 @@ impl World for EngineWorld<'_> {
             }
         }
         hidden
+    }
+
+    fn set_float_setting(&mut self, name: &str, value: f32) -> Result<bool, String> {
+        let e = &mut *self.engine;
+        let collection = e.mem.u32(GAME_SETTINGS);
+        if collection == 0 {
+            return Ok(false);
+        }
+        let setting = e.with_stack((name.len() as u32 + 4) & !3, |e, text| {
+            for (i, b) in name.bytes().enumerate() {
+                e.mem.set_u8(text.addr() + i as u32, b);
+            }
+            e.mem.set_u8(text.addr() + name.len() as u32, 0);
+            e.with_stack(4, |e, out| {
+                e.mem.set_u32(out.addr(), 0);
+                let found = e
+                    .call(NI_TMAP_LOOKUP, &args![collection + 0x10c, text, out])
+                    .u32()
+                    & 0xff;
+                if found != 0 {
+                    e.mem.u32(out.addr())
+                } else {
+                    0
+                }
+            })
+        });
+        if setting == 0 {
+            return Err(format!("the game has no setting {name}"));
+        }
+        // A setting's name (+8) starts with its type letter: `f` is a float held at +4.
+        let kind_name = e.mem.u32(setting + 8);
+        if kind_name == 0 || e.mem.u8(kind_name) != b'f' {
+            return Err(format!("the game's setting {name} is not a float"));
+        }
+        e.mem.set_f32(setting + 4, value);
+        Ok(true)
     }
 
     fn dismiss_message(&mut self) -> bool {

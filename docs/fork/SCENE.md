@@ -174,3 +174,49 @@ editor ids of any plugin come from the fixes preset's editor id store. `world` i
 files: `scenes/mojave-far.toml` (five Mojave views) and `scenes/ttw-capital.toml` (three Capital views). The offsets
 were found by looking: a reference's own spot is often among rocks or camps, so a landmark view stands thousands of
 units away; one that ends against a hillside needs another offset.
+
+## A generated LOD for a load order as a variant
+
+A variant can name more than one overlay, joined with `+`: later ones are laid over the first (their files win, a folder
+both have is merged). For a Tale of Two Wastelands load order the first is the TTW data folder (left without its own loose
+LOD: `--overlay-skip meshes,textures,lodsettings`, which applies to the first overlay only) and the second is the folder
+lodwright wrote (`meshes/`, `textures/`, `lodsettings/` loose; for a packed result the folder holding the archive and its
+stub plugin). `--plugins` is always given for such a load order: the 18 plugins in order, then the stub plugin after them
+when the LOD is packed (a stub that names a master registers the archive; no other setting).
+
+One command, TTW's own LOD against a generated one, the same place file, per-view difference printed:
+
+```
+nv-rs-scene run --viewer nv-viewer --game "$STEAM/Fallout New Vegas" --places docs/fork/scenes/ttw-capital.toml --out out \
+  --resolution 1920x1080 --userdata "$TEMPLATE" \
+  --plugins "FalloutNV.esm,DeadMoney.esm,HonestHearts.esm,OldWorldBlues.esm,LonesomeRoad.esm,GunRunnersArsenal.esm,Fallout3.esm,Anchorage.esm,ThePitt.esm,BrokenSteel.esm,PointLookout.esm,Zeta.esm,CaravanPack.esm,ClassicPack.esm,MercenaryPack.esm,TribalPack.esm,TaleOfTwoWastelands.esm,YUPTTW.esm" \
+  --overlay-skip meshes,textures,lodsettings \
+  --variant "ttw-own=$TTW_DATA" \
+  --variant "ttw-generated=$TTW_DATA+$GENERATED_LOD_OUT"
+```
+
+For a packed generated LOD add the stub at the end of `--plugins` (`...,YUPTTW.esm,Lodwright LOD.esp`); the stub and its
+archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's generated folder laid over the TTW folder
+(a single Goodsprings place, two variants, 25 s); a complete TTW generated folder was not available to run.
+
+## The two TTW groups, the fixed capture frame, the idle camera, #474
+
+- Two runs of one TTW build fall in two or three groups of identical pictures; the groups are not the thread mode (real
+  and stepped both run stepped under `NV_REPEATABLE`), not the directory order of the staged folder, not the pipeline
+  cache, and not the frame a picture is taken at: `NV_SCENE_CAPTURE_FRAMES=N` takes it exactly N frames after the place
+  was sent (a place ready sooner waits, later fails), and three runs with it still gave two groups (one of three
+  differed in Goodsprings and two other places by up to 2.8% of pixels). The ready frame itself differs by one between
+  groups, so the simulation differs a little: the candidates left are a host-side hash map whose iteration order is
+  random per process (the standard library's) in a loading or physics path, or an order that depends on the
+  address a buffer was given. Pinning it needs that site found (a trace of the first frame where two runs' game state
+  differ, e.g. the player's height each frame); it was not.
+- The idle camera: the runner sets `fVanityModeAutoDelay` to 1,000,000 seconds through the game's own settings collection (looked
+  up by name, once, as soon as the collection exists; logged). A picture taken 4000 frames after the send was first
+  person with and without it: the delay counts game time, which the frozen world does not advance, so the setting is
+  a safeguard, not something the pictures showed.
+- nv-rs#474: `scenes/soak-setpos-474.toml` has a place with `move = "setpos"`, which sets the coordinates and angles
+  on the player one by one as the console's `player.setpos` and `setangle` do (`Script::SetPosBase`, `SetAngleBase`),
+  without asking for a cell. As built it does not reproduce #474 yet: the player did not move to the target (the soak
+  ends with `place lake-mead-setpos was not reached within 40 s (screen Play, player at -72152 643 8268, wanted 53811 38382
+  3215)`), so the call path is not the console's: the console goes through `move_command` and its task queue
+  (`TASK_SET_POSITION`), which this does not.

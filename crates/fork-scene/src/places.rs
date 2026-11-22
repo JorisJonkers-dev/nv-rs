@@ -53,6 +53,9 @@ pub struct Place {
     /// `heading` and `pitch` were given (they then win over `look_at`).
     pub heading_given: bool,
     pub pitch_given: bool,
+    /// Move the player as the console's `player.setpos` / `setangle` do (nv-rs#474), not through the game's own
+    /// placement (`move = "setpos"`; the default is `move = "place"`).
+    pub setpos: bool,
     /// Points to walk through (a bench); empty for a still picture.
     pub path: Vec<[f64; 3]>,
 }
@@ -189,7 +192,7 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
     for (k, _) in t {
         if ![
             "name", "world", "x", "y", "z", "heading", "pitch", "path", "ref", "dx", "dy", "dz",
-            "look_at",
+            "look_at", "move",
         ]
         .contains(&k.as_str())
         {
@@ -229,6 +232,15 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         None => Ok(None),
         Some(Value::Str(s)) if !s.is_empty() => Ok(Some(s.clone())),
         Some(_) => Err(format!("line {n}: `{k}` is a non-empty string")),
+    };
+    let setpos = match optional_string("move")?.as_deref() {
+        None | Some("place") => false,
+        Some("setpos") => true,
+        Some(other) => {
+            return Err(format!(
+                "line {n}: `move` is \"place\" or \"setpos\", not `{other}`"
+            ))
+        }
     };
     let reference = optional_string("ref")?;
     let look_at = optional_string("look_at")?;
@@ -273,6 +285,7 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         look_at,
         heading_given: get("heading").is_some(),
         pitch_given: get("pitch").is_some(),
+        setpos,
         path,
     })
 }
@@ -436,6 +449,21 @@ path = [[0, 0, 0], [10.5, 0, 0]]
         assert!(p.world.is_empty() && !p.heading_given && !p.pitch_given);
         let with_heading = format!("{t}heading = 90\n");
         assert!(PlaceFile::parse(&with_heading).unwrap().places[0].heading_given);
+    }
+
+    #[test]
+    fn the_move_is_the_games_placement_or_the_consoles_setpos() {
+        let base = "version = 1\n[[place]]\nname = \"a\"\nworld = \"W\"\nx = 1\ny = 1\nz = 1\n";
+        assert!(!PlaceFile::parse(base).unwrap().places[0].setpos);
+        assert!(
+            PlaceFile::parse(&format!("{base}move = \"setpos\"\n"))
+                .unwrap()
+                .places[0]
+                .setpos
+        );
+        assert!(PlaceFile::parse(&format!("{base}move = \"teleport\"\n"))
+            .unwrap_err()
+            .contains("setpos"));
     }
 
     #[test]

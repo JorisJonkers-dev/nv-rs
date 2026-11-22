@@ -39,6 +39,11 @@ pub trait World {
     fn hide_actors(&mut self) -> u32 {
         0
     }
+    /// Sets the float game setting `name` (the game's own settings collection, looked up by name);
+    /// `Ok(false)` while the collection does not exist yet, an error for a name or type it does not know.
+    fn set_float_setting(&mut self, _name: &str, _value: f32) -> Result<bool, String> {
+        Ok(true)
+    }
     /// Closes the message box on top (`MessageMenu::ClearMessageQueueHead`); false when the top
     /// menu is not a message box.
     fn dismiss_message(&mut self) -> bool {
@@ -83,6 +88,10 @@ pub enum Step {
 /// The frame count `NV_REPEATABLE` is given (the run ends before it, at its last place).
 const REPEATABLE_FRAMES: &str = "100000000";
 
+/// The game setting that starts the idle camera, and the seconds it is set to.
+pub const VANITY_SETTING: &str = "fVanityModeAutoDelay";
+pub const VANITY_OFF_SECONDS: f32 = 1_000_000.0;
+
 /// How far (game units) the player's height may move from where the count started and still be standing.
 pub const STAND_TOLERANCE: f64 = 0.25;
 
@@ -108,6 +117,12 @@ enum Phase {
         since: f64,
         left: u32,
         last: f64,
+        pos: [f64; 3],
+    },
+    /// Ready; the picture is asked for when `place_frames` reaches `until` (a fixed frame after the send).
+    Holding {
+        since: f64,
+        until: u64,
         pos: [f64; 3],
     },
     /// The picture was asked for; waiting for the frame's file.
@@ -141,6 +156,10 @@ pub struct Runner {
     target: [f64; 3],
     /// The frame times (ms) of the soak in progress.
     ms: Vec<f64>,
+    /// The idle camera's setting is set.
+    vanity_off: bool,
+    /// Main frames since the current place was sent.
+    place_frames: u64,
     /// Frames in a row the soak has not been on the play screen.
     away: u32,
     tick: u64,
@@ -164,6 +183,8 @@ impl Runner {
             target: [0.0; 3],
             ms: Vec::new(),
             away: 0,
+            place_frames: 0,
+            vanity_off: false,
             tick: 0,
             hidden: 0,
         }
@@ -244,6 +265,18 @@ impl Runner {
             self.steady = 0;
             return Step::Continue;
         }
+        if self.request.freeze.is_some() && !self.vanity_off {
+            // The idle ("vanity") camera orbits the player after `fVanityModeAutoDelay` seconds without input: set it
+            // out of reach so a slow machine or a long place file cannot bring the orbit back.
+            match w.set_float_setting(VANITY_SETTING, VANITY_OFF_SECONDS) {
+                Ok(true) => {
+                    self.vanity_off = true;
+                    fork_log::info!(target: "scene", "scene: {VANITY_SETTING} set to {VANITY_OFF_SECONDS}");
+                }
+                Ok(false) => {}
+                Err(e) => return Step::Failed(format!("scene: {e}")),
+            }
+        }
         if let Some((hour, weather)) = self.request.freeze {
             w.freeze(hour, weather);
         }
@@ -257,6 +290,9 @@ impl Runner {
                     self.hidden = n;
                 }
             }
+        }
+        if !matches!(self.phase, Phase::WaitMenu | Phase::Done) {
+            self.place_frames += 1;
         }
         match self.phase {
             Phase::Done => Step::Finished,
@@ -276,6 +312,7 @@ impl Runner {
                 match w.go_to(place) {
                     Ok(t) => {
                         self.target = t.pos;
+                        self.place_frames = 0;
                         fork_log::info!(target: "scene", "scene: {} resolved to {:.1} {:.1} {:.1}, heading {:.1}, pitch {:.1}", place.name, t.pos[0], t.pos[1], t.pos[2], t.heading, t.pitch);
                         self.phase = Phase::Going { since: now };
                         Step::Continue
@@ -285,11 +322,17 @@ impl Runner {
             }
             Phase::Going { since } => {
                 if now - since > f64::from(self.request.timeout_s) {
+                    let at = w.player().map_or("no player cell".to_string(), |a| {
+                        format!("player at {:.0} {:.0} {:.0}", a.pos[0], a.pos[1], a.pos[2])
+                    });
                     return Step::Failed(format!(
-                        "scene: place {} was not reached within {} s (screen {:?})",
+                        "scene: place {} was not reached within {} s (screen {:?}, {at}, wanted {:.0} {:.0} {:.0})",
                         place.name,
                         self.request.timeout_s,
-                        w.screen()
+                        w.screen(),
+                        self.target[0],
+                        self.target[1],
+                        self.target[2]
                     ));
                 }
                 if w.screen() != Screen::Play {
@@ -409,6 +452,18 @@ impl Runner {
                 fork_log::info!(target: "scene", "scene: soak {} frames {} avg_ms {:.2} p99_ms {:.2} max_ms {:.2}", place.name, self.ms.len(), st.0, st.1, st.2);
                 self.after_ready(w, place.name.clone(), since, pos)
             }
+            Phase::Holding { since, until, pos } => {
+                if now - since > f64::from(self.request.timeout_s) {
+                    return Step::Failed(format!(
+                        "scene: place {}: the fixed capture frame was not reached within {} s",
+                        place.name, self.request.timeout_s
+                    ));
+                }
+                if self.place_frames < until {
+                    return Step::Continue;
+                }
+                self.after_hold(w, place.name.clone(), since, pos)
+            }
             Phase::Waiting {
                 since,
                 ref bmp,
@@ -439,6 +494,14 @@ impl Runner {
 
     /// The place is ready (and soaked): ask for the picture, or finish when there is none to take.
     fn after_ready(&mut self, w: &mut dyn World, name: String, since: f64, pos: [f64; 3]) -> Step {
+        if let (Some(n), Some(_)) = (self.request.capture_frames, &self.request.out) {
+            let until = u64::from(n);
+            if self.place_frames > until {
+                return Step::Failed(format!("scene: place {name} was ready after {} frames, later than the fixed capture frame {n}", self.place_frames));
+            }
+            self.phase = Phase::Holding { since, until, pos };
+            return Step::Continue;
+        }
         match &self.request.out {
             None => self.finish(name, pos, None),
             Some(dir) => {
@@ -452,6 +515,21 @@ impl Runner {
                 Step::Continue
             }
         }
+    }
+
+    /// The fixed frame has come: ask for the picture.
+    fn after_hold(&mut self, w: &mut dyn World, name: String, since: f64, pos: [f64; 3]) -> Step {
+        let Some(dir) = &self.request.out else {
+            return self.finish(name, pos, None);
+        };
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            return Step::Failed(format!("scene: {}: {e}", dir.display()));
+        }
+        let bmp = dir.join(format!("{name}.bmp"));
+        let _ = std::fs::remove_file(&bmp);
+        w.ask_picture(&bmp);
+        self.phase = Phase::Waiting { since, bmp, pos };
+        Step::Continue
     }
 
     fn finish(&mut self, name: String, pos: [f64; 3], picture: Option<std::path::PathBuf>) -> Step {
@@ -476,6 +554,7 @@ mod tests {
         sent: Vec<String>,
         refuse: bool,
         asked: Vec<std::path::PathBuf>,
+        settings: Vec<(String, f32)>,
         /// What the "drawing layer" writes when asked for a picture.
         draw: Option<Vec<u8>>,
     }
@@ -497,6 +576,10 @@ mod tests {
         fn player(&self) -> Option<Standing> {
             self.standing
         }
+        fn set_float_setting(&mut self, name: &str, value: f32) -> Result<bool, String> {
+            self.settings.push((name.to_string(), value));
+            Ok(true)
+        }
         fn ask_picture(&mut self, path: &std::path::Path) {
             self.asked.push(path.to_path_buf());
             if let Some(bytes) = &self.draw {
@@ -517,6 +600,7 @@ mod tests {
             settle_frames: 1,
             timeout_s,
             freeze: None,
+            capture_frames: None,
             hide_actors: false,
             soak_frames: None,
         }
@@ -536,6 +620,7 @@ mod tests {
             sent: vec![],
             refuse: false,
             asked: vec![],
+            settings: vec![],
             draw: None,
         }
     }
@@ -649,6 +734,71 @@ mod tests {
         b.extend_from_slice(&[0; 24]);
         b.extend_from_slice(&[1, 2, 3, 0, 4, 5, 6, 0]);
         b
+    }
+
+    #[test]
+    fn a_fixed_capture_frame_asks_for_the_picture_at_that_frame_whenever_the_place_was_ready() {
+        let dir = std::env::temp_dir().join(format!("scene-run-fixed-{}", std::process::id()));
+        let mut req = request(60);
+        req.out = Some(dir.clone());
+        req.capture_frames = Some(20);
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        let mut asked_at = None;
+        for i in 1..=40u32 {
+            r.step(&mut w, f64::from(i) * 0.01);
+            if asked_at.is_none() && !w.asked.is_empty() {
+                asked_at = Some(i);
+            }
+        }
+        // Ready after 3 frames, but asked only at the fixed frame (the send itself is frame 0).
+        assert_eq!(asked_at, Some(20));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_place_ready_after_the_fixed_capture_frame_fails_naming_both() {
+        let dir = std::env::temp_dir().join(format!("scene-run-late-{}", std::process::id()));
+        let mut req = request(600);
+        req.out = Some(dir.clone());
+        req.capture_frames = Some(1);
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        r.step(&mut w, 1.0);
+        r.step(&mut w, 1.1);
+        let Step::Failed(line) = r.step(&mut w, 1.2) else {
+            panic!("no failure")
+        };
+        assert!(
+            line.contains("later than the fixed capture frame 1"),
+            "{line}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_idle_camera_is_set_out_of_reach_once_when_the_world_is_frozen() {
+        let mut req = request(60);
+        req.freeze = Some((12.0, 1));
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        for _ in 0..5 {
+            r.step(&mut w, 0.0);
+        }
+        assert_eq!(
+            w.settings,
+            [(VANITY_SETTING.to_string(), VANITY_OFF_SECONDS)]
+        );
     }
 
     #[test]

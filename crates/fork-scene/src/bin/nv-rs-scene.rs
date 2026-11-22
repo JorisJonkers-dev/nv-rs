@@ -159,11 +159,11 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
     if variants.is_empty() {
         variants.push("base".into());
     }
-    let variants: Vec<(String, Option<PathBuf>)> = variants
+    let variants: Vec<(String, Vec<PathBuf>)> = variants
         .iter()
         .map(|v| match v.split_once('=') {
-            Some((n, o)) => (n.to_string(), Some(PathBuf::from(o))),
-            None => (v.clone(), None),
+            Some((n, o)) => (n.to_string(), o.split('+').map(PathBuf::from).collect()),
+            None => (v.clone(), Vec::new()),
         })
         .collect();
     let opts = Opts {
@@ -190,7 +190,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
                     let opts = &opts;
                     scope.spawn(move || {
                         let t = std::time::Instant::now();
-                        let r = run_one(name, overlay.as_deref(), opts);
+                        let r = run_one(name, overlay, opts);
                         (
                             name.clone(),
                             r.map(|code| (code, t.elapsed().as_secs_f64())),
@@ -236,11 +236,11 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
     Ok(ok)
 }
 
-fn run_one(name: &str, overlay: Option<&Path>, o: &Opts) -> Result<i32, String> {
+fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
     let dir = o.out.join(name);
     // A packed overlay names its plugins: every plugin file at its top.
     let mut plugins = Vec::new();
-    if let Some(o) = overlay {
+    for o in overlays {
         for e in std::fs::read_dir(o)
             .map_err(|e| format!("{}: {e}", o.display()))?
             .flatten()
@@ -258,13 +258,19 @@ fn run_one(name: &str, overlay: Option<&Path>, o: &Opts) -> Result<i32, String> 
     }
     let staged = fork_scene::stage::stage(
         &o.game,
-        overlay,
+        overlays.first().map(PathBuf::as_path),
         &o.overlay_skip,
         &plugins,
         o.userdata.as_deref(),
         &dir,
     )
     .map_err(|e| format!("staging: {e}"))?;
+    // Later overlays (a generated LOD folder over a load order's data folder) are laid over the first, all of
+    // their files, their plugins after it.
+    for later in overlays.iter().skip(1) {
+        fork_scene::stage::merge_over(later, &staged.game.join("Data"), &[])
+            .map_err(|e| format!("staging {}: {e}", later.display()))?;
+    }
     let log = std::fs::File::create(dir.join("run.log")).map_err(|e| e.to_string())?;
     let mut cmd_words: Vec<std::ffi::OsString> = o.wrap.iter().map(Into::into).collect();
     cmd_words.push((&o.viewer).into());
@@ -353,7 +359,8 @@ fn soak(args: &[String]) -> Result<bool, String> {
         overlay_skip,
         extra_env: extra,
     };
-    let code = run_one("soak", overlay.as_deref(), &opts)?;
+    let overlays: Vec<PathBuf> = overlay.into_iter().collect();
+    let code = run_one("soak", &overlays, &opts)?;
     let secs = t.elapsed().as_secs_f64();
     let log = std::fs::read_to_string(out.join("soak").join("log.jsonl")).unwrap_or_default();
     let (mut errors, mut warnings, mut stops) = (0, 0, 0);

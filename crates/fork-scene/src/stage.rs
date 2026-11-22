@@ -50,7 +50,7 @@ fn link_entries(from: &Path, into: &Path, skip: &dyn Fn(&str) -> bool) -> io::Re
 
 /// Links `overlay`'s tree over `target`, a real folder: a file replaces what is there; a folder both
 /// sides have is merged (made real, filled with links to what was there, then the overlay's).
-fn merge_over(overlay: &Path, target: &Path, skip: &[String]) -> io::Result<()> {
+pub fn merge_over(overlay: &Path, target: &Path, skip: &[String]) -> io::Result<()> {
     for entry in fs::read_dir(overlay)? {
         let entry = entry?;
         let name = entry.file_name();

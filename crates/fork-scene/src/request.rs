@@ -12,6 +12,7 @@
 //! | `NV_SCENE_WEATHER` | the weather's form id in hex the frozen world holds (default 000FFC88) |
 //! | `NV_SCENE_ACTORS` | `1` keeps creatures and people in the picture; by default their 3D is hidden |
 //! | `NV_SCENE_SOAK_FRAMES` | frames to keep running at each place after it is ready, timing each (a soak or a bench) |
+//! | `NV_SCENE_CAPTURE_FRAMES` | take the picture exactly this many main frames after the place was sent (when it is ready sooner it waits; later it fails): the picture then does not depend on the frame the place became ready at |
 //! | `NV_SCENE_FREEZE` | `0` leaves the world alone (time, weather, AI, interface) |
 
 use crate::places::{Place, PlaceFile};
@@ -27,6 +28,7 @@ pub const WEATHER: &str = "NV_SCENE_WEATHER";
 pub const FREEZE: &str = "NV_SCENE_FREEZE";
 pub const ACTORS: &str = "NV_SCENE_ACTORS";
 pub const SOAK: &str = "NV_SCENE_SOAK_FRAMES";
+pub const CAPTURE_FRAMES: &str = "NV_SCENE_CAPTURE_FRAMES";
 
 /// A scene run: which places, where the pictures go, and the ready condition's numbers.
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +43,8 @@ pub struct Request {
     pub hide_actors: bool,
     /// Frames to run at each place after it is ready; the frame times are logged.
     pub soak_frames: Option<u32>,
+    /// Take the picture this many frames after the place was sent.
+    pub capture_frames: Option<u32>,
 }
 
 impl Request {
@@ -115,6 +119,18 @@ impl Request {
             settle_frames: number(SETTLE, 30)?,
             timeout_s: number(TIMEOUT, 120)?,
             freeze,
+            capture_frames: match var(CAPTURE_FRAMES)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+            {
+                None => None,
+                Some(v) => Some(
+                    v.parse::<u32>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| format!("{CAPTURE_FRAMES}={v}: a whole number above 0"))?,
+                ),
+            },
             soak_frames: match var(SOAK)
                 .map(|v| v.trim().to_string())
                 .filter(|v| !v.is_empty())
