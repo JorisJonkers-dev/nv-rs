@@ -49,6 +49,13 @@ pub trait World {
     fn dismiss_message(&mut self) -> bool {
         false
     }
+    /// Puts the free camera where the place says (the console's `tfc` without the console: the game's own
+    /// fly camera, the player not simulated, nothing falls or reacts) and aims it; `standing` is where the
+    /// player stands. Idempotent: called again every frame until the picture. Returns where the camera is
+    /// and its heading and pitch.
+    fn camera(&mut self, _place: &Place, _standing: [f64; 3]) -> Result<Target, String> {
+        Err("this world has no free camera".into())
+    }
     /// Asks the drawing layer to write the next present's frame as a BMP at `path`.
     fn ask_picture(&mut self, path: &std::path::Path);
 }
@@ -92,6 +99,9 @@ const REPEATABLE_FRAMES: &str = "100000000";
 pub const VANITY_SETTING: &str = "fVanityModeAutoDelay";
 pub const VANITY_OFF_SECONDS: f32 = 1_000_000.0;
 
+/// Frames the free camera is held before the picture (or the soak) of a place that has one.
+pub const CAMERA_FRAMES: u32 = 30;
+
 /// How far (game units) the player's height may move from where the count started and still be standing.
 pub const STAND_TOLERANCE: f64 = 0.25;
 
@@ -117,6 +127,13 @@ enum Phase {
         since: f64,
         left: u32,
         last: f64,
+        pos: [f64; 3],
+    },
+    /// The player stands; the free camera is held in place for `left` more frames so the world has drawn
+    /// from there (terrain and objects around the camera load on its first frames).
+    Camera {
+        since: f64,
+        left: u32,
         pos: [f64; 3],
     },
     /// Ready; the picture is asked for when `place_frames` reaches `until` (a fixed frame after the send).
@@ -424,17 +441,41 @@ impl Runner {
                     };
                     return Step::Continue;
                 }
-                if let Some(frames) = self.request.soak_frames {
-                    self.ms = Vec::with_capacity(frames as usize);
-                    self.phase = Phase::Soaking {
+                if place.camera.is_some() {
+                    match w.camera(place, at.pos) {
+                        Ok(t) => {
+                            fork_log::info!(target: "scene", "scene: {} free camera at {:.1} {:.1} {:.1}, heading {:.1}, pitch {:.1}", place.name, t.pos[0], t.pos[1], t.pos[2], t.heading, t.pitch);
+                        }
+                        Err(e) => return Step::Failed(format!("scene: place {}: {e}", place.name)),
+                    }
+                    self.phase = Phase::Camera {
                         since,
-                        left: frames,
-                        last: now,
+                        left: CAMERA_FRAMES,
                         pos: at.pos,
                     };
                     return Step::Continue;
                 }
-                self.after_ready(w, place.name.clone(), since, at.pos)
+                self.ready(w, place.name.clone(), since, at.pos, now)
+            }
+            Phase::Camera { since, left, pos } => {
+                if now - since > f64::from(self.request.timeout_s) {
+                    return Step::Failed(format!(
+                        "scene: place {}: the free camera was not held within {} s",
+                        place.name, self.request.timeout_s
+                    ));
+                }
+                if let Err(e) = w.camera(place, pos) {
+                    return Step::Failed(format!("scene: place {}: {e}", place.name));
+                }
+                if left > 1 {
+                    self.phase = Phase::Camera {
+                        since,
+                        left: left - 1,
+                        pos,
+                    };
+                    return Step::Continue;
+                }
+                self.ready(w, place.name.clone(), since, pos, now)
             }
             Phase::Soaking {
                 since,
@@ -521,6 +562,29 @@ impl Runner {
         }
     }
 
+    /// The player stands (and the free camera, when there is one, is in place): a soak starts, or the picture is
+    /// asked for.
+    fn ready(
+        &mut self,
+        w: &mut dyn World,
+        name: String,
+        since: f64,
+        pos: [f64; 3],
+        now: f64,
+    ) -> Step {
+        if let Some(frames) = self.request.soak_frames {
+            self.ms = Vec::with_capacity(frames as usize);
+            self.phase = Phase::Soaking {
+                since,
+                left: frames,
+                last: now,
+                pos,
+            };
+            return Step::Continue;
+        }
+        self.after_ready(w, name, since, pos)
+    }
+
     /// The place is ready (and soaked): ask for the picture, or finish when there is none to take.
     fn after_ready(&mut self, w: &mut dyn World, name: String, since: f64, pos: [f64; 3]) -> Step {
         if let (Some(n), Some(_)) = (self.request.capture_frames, &self.request.out) {
@@ -586,6 +650,8 @@ mod tests {
         settings: Vec<(String, f32)>,
         /// What the "drawing layer" writes when asked for a picture.
         draw: Option<Vec<u8>>,
+        /// The free camera calls: where the player stood each time.
+        cameras: Vec<[f64; 3]>,
     }
     impl World for Fake {
         fn screen(&self) -> Screen {
@@ -604,6 +670,14 @@ mod tests {
         }
         fn player(&self) -> Option<Standing> {
             self.standing
+        }
+        fn camera(&mut self, p: &Place, standing: [f64; 3]) -> Result<Target, String> {
+            self.cameras.push(standing);
+            Ok(Target {
+                pos: [standing[0], standing[1], standing[2] + 100.0],
+                heading: p.heading,
+                pitch: p.pitch,
+            })
         }
         fn set_float_setting(&mut self, name: &str, value: f32) -> Result<bool, String> {
             self.settings.push((name.to_string(), value));
@@ -651,6 +725,7 @@ mod tests {
             asked: vec![],
             settings: vec![],
             draw: None,
+            cameras: Vec::new(),
         }
     }
 
@@ -697,6 +772,35 @@ mod tests {
                 picture: None
             }
         );
+    }
+
+    #[test]
+    fn a_place_with_a_camera_holds_it_for_frames_before_it_is_ready() {
+        let f = PlaceFile::parse(
+            "version = 1\n[[place]]\nname = \"a\"\nworld = \"W\"\nx = 100\ny = 100\nz = 5\ncamera_dz = 500\n",
+        )
+        .unwrap();
+        let mut req = request(60);
+        req.places = f.places;
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        let mut steps = 0;
+        let reached = loop {
+            steps += 1;
+            assert!(steps < 200, "never ready");
+            if let Step::Reached { .. } = r.step(&mut w, 1.0 + f64::from(steps) * 0.01) {
+                break steps;
+            }
+        };
+        // The camera was set when the player stood and held for CAMERA_FRAMES frames more.
+        assert_eq!(w.cameras.len() as u32, CAMERA_FRAMES + 1);
+        assert!(w.cameras.iter().all(|c| c == &[100.0, 100.0, 5.0]));
+        assert!(reached as u32 > CAMERA_FRAMES);
     }
 
     #[test]

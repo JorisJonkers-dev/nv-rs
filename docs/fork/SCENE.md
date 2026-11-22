@@ -108,6 +108,38 @@ difference picture). The cost: the virtual clock steps the threads, a five-place
 PNGs), the mean absolute difference over all channel values (0 to 255), the largest channel difference and the
 percent of pixels with a channel difference above 8.
 
+## The free camera: a view from above or from somewhere else
+
+A place may take its picture from the game's free camera (what the console's `tfc` turns on) instead of the player's
+eyes. The player stands where the place says, as before, and the cells around it are loaded, so they are the near land;
+the camera hangs elsewhere, and everything it sees beyond the loaded cells is LOD. Judging where near land meets far land
+needs this: a player on the ground sees too little of it. When the player has stood still, the runner calls the game's own
+`ToggleFlyCam` (`00961e30`, with no console text) and writes the camera's heading, pitch and position into the player's
+fly-camera fields (`+0x7e0`, `+0x7e4`, `+0x7e8`), again on each of the 30 frames before the picture; the game's own
+`UpdateUFOCamera` places the camera from them every frame, the player is not simulated while the camera is on (it
+cannot fall and nothing reacts to it) and the terrain follows the camera. The next place turns the camera off.
+
+```toml
+[[place]]
+name = "goodsprings-high-east"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356          # where the player stands, as always
+heading = 90      # aims the camera when there is no `look` or `look_at`
+pitch = 8
+camera_dz = 6000  # the camera 6000 units above the player (camera_dx and camera_dy move it sideways), or
+# camera = [x, y, z]      # a world position
+# look = [x, y, z]        # look at a point (or `look_at = "RefEditorId"`; `heading` and `pitch` win when given)
+```
+
+A place by reference works the same (the offsets are from where the player stands). The pictures on the horizon: a
+height of 6000 to 12000 over the standing point looking a few degrees down shows the near land as the loaded patch and
+the LOD around it. `scenes/camera-seam.toml` (plain game) and `scenes/camera-seam-ttw.toml` (the Capital Wasteland,
+`world = "Wasteland"`, on the TTW folder, the command in the Tale of Two Wastelands section) are examples; opened and
+looked at: Goodsprings 6000 and 12000 units up, Tenpenny Tower from 5000 and the Washington Monument from 7000. The
+run is 15 s for the two plain places and 69 s for two Capital places (17 s for one more, `--only`).
+
 ## Variants and the one command
 
 ```

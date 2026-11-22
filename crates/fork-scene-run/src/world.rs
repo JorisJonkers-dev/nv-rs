@@ -157,6 +157,23 @@ const NI_TMAP_LOOKUP: u32 = 0x0085_3130;
 const SET_POS_BASE: u32 = 0x005c_0740;
 const SET_ANGLE_BASE: u32 = 0x005c_0b10;
 
+/// `PlayerCharacter::ToggleFlyCam` (`00961e30`, what the console's `tfc` calls: the player, whether the world
+/// freezes with it) and the flag it flips: the byte at +6 of the object `[011dea0c]` points to. The fly camera's
+/// heading and pitch (radians) and position are the player's fields at +0x7e0, +0x7e4 and +0x7e8; every frame
+/// `PlayerCharacter::UpdateUFOCamera` places the camera from them (the terrain around the camera follows).
+const MAIN_POINTER: u32 = 0x011d_ea0c;
+const FLY_CAMERA_FLAG: u32 = 6;
+const TOGGLE_FLY_CAM: u32 = 0x0096_1e30;
+const UFO_HEADING: u32 = 0x7e0;
+const UFO_PITCH: u32 = 0x7e4;
+const UFO_POSITION: u32 = 0x7e8;
+
+/// Whether the game's fly camera is on.
+fn fly_camera_on(e: &Engine) -> bool {
+    let main = e.mem.u32(MAIN_POINTER);
+    main != 0 && e.mem.u8(main + FLY_CAMERA_FLAG) != 0
+}
+
 /// A running engine as the runner's world.
 pub struct EngineWorld<'a> {
     pub engine: &'a mut Engine,
@@ -173,6 +190,10 @@ impl World for EngineWorld<'_> {
         let player = e.global::<u32>(PLAYER);
         if player == 0 {
             return Err("the game has no player yet".into());
+        }
+        if fly_camera_on(e) {
+            // The previous place's free camera: back to the player's own eyes.
+            e.call(TOGGLE_FLY_CAM, &args![player, 0u32]);
         }
         // A place by reference: stand at the reference plus the offset, in the reference's world, and
         // face the other reference when asked.
@@ -251,6 +272,53 @@ impl World for EngineWorld<'_> {
             // (`StartMenu::Close`, then the flag `ConfirmNewGame` sets: the game is running).
             e.call(START_MENU_CLOSE, &args![0u32]);
             e.mem.set_u8(GAME_RUNNING_FLAG, 1);
+        }
+        Ok(Target {
+            pos,
+            heading,
+            pitch,
+        })
+    }
+
+    fn camera(&mut self, p: &Place, standing: [f64; 3]) -> Result<Target, String> {
+        let e = &mut *self.engine;
+        let player = e.global::<u32>(PLAYER);
+        let Some(camera) = p.camera else {
+            return Err("the place has no camera".into());
+        };
+        if player == 0 || e.mem.u32(MAIN_POINTER) == 0 {
+            return Err("the game has no player yet".into());
+        }
+        if !fly_camera_on(e) {
+            e.call(TOGGLE_FLY_CAM, &args![player, 0u32]);
+        }
+        let pos = match camera {
+            fork_scene::Camera::At(at) => at,
+            fork_scene::Camera::Above(d) => {
+                [standing[0] + d[0], standing[1] + d[1], standing[2] + d[2]]
+            }
+        };
+        let (mut heading, mut pitch) = (p.heading, p.pitch);
+        let target = match (&p.look, &p.look_at) {
+            (Some(point), _) => Some(*point),
+            (None, Some(name)) => Some(find_ref(e, name)?.pos),
+            _ => None,
+        };
+        if let Some(t) = target {
+            let (h, pi) = fork_scene::aim(pos, t);
+            if !p.heading_given {
+                heading = h;
+            }
+            if !p.pitch_given {
+                pitch = pi.clamp(-89.0, 89.0);
+            }
+        }
+        e.mem
+            .set_f32(player + UFO_HEADING, heading.to_radians() as f32);
+        e.mem.set_f32(player + UFO_PITCH, pitch.to_radians() as f32);
+        for (i, v) in pos.iter().enumerate() {
+            e.mem
+                .set_f32(player + UFO_POSITION + 4 * i as u32, *v as f32);
         }
         Ok(Target {
             pos,

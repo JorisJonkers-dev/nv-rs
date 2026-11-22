@@ -25,6 +25,13 @@
 //! dz = 400
 //! look_at = "VHeliosONEMapMarkerREF"   # face this reference (heading and pitch from the two positions)
 //! ```
+//! The view from the free camera (the player stands where the place says, the loaded cells around it are the
+//! near land, the camera is elsewhere; no console text):
+//! ```toml
+//! camera_dz = 6000                 # 6000 units above the player (also camera_dx, camera_dy), or
+//! # camera = [x, y, z]             # a world position
+//! look = [x, y, z]                 # look at a point (or `look_at`, or `heading` and `pitch`)
+//! ```
 //! Supported: `#` comments, `key = value` with a quoted string, a number, or an array of
 //! numbers or of arrays of numbers on one line; `[[place]]` tables; the top-level `version`.
 
@@ -58,6 +65,23 @@ pub struct Place {
     pub setpos: bool,
     /// Points to walk through (a bench); empty for a still picture.
     pub path: Vec<[f64; 3]>,
+    /// The view is taken from the free camera, not from the player's eyes (the console's `tfc`, with no
+    /// console text): the player stands where the place says and the cells around it stay loaded, the camera
+    /// is somewhere else. `None` for the player's own view.
+    pub camera: Option<Camera>,
+    /// With a camera: look at this point (heading and pitch from the camera's position to it); `look_at`
+    /// (a reference) and `heading` / `pitch` are the other ways to aim.
+    pub look: Option<[f64; 3]>,
+}
+
+/// Where the free camera is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Camera {
+    /// A world position (`camera = [x, y, z]`).
+    At([f64; 3]),
+    /// An offset from where the player stands (`camera_dx`, `camera_dy`, `camera_dz`; `camera_dz = 3000`
+    /// is a view from 3000 units above the player).
+    Above([f64; 3]),
 }
 
 impl Place {
@@ -191,8 +215,25 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
     };
     for (k, _) in t {
         if ![
-            "name", "world", "x", "y", "z", "heading", "pitch", "path", "ref", "dx", "dy", "dz",
-            "look_at", "move",
+            "name",
+            "world",
+            "x",
+            "y",
+            "z",
+            "heading",
+            "pitch",
+            "path",
+            "ref",
+            "dx",
+            "dy",
+            "dz",
+            "look_at",
+            "move",
+            "camera",
+            "camera_dx",
+            "camera_dy",
+            "camera_dz",
+            "look",
         ]
         .contains(&k.as_str())
         {
@@ -267,6 +308,41 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
             string("world")?,
         )
     };
+    let point = |k: &str| -> Result<Option<[f64; 3]>, String> {
+        match get(k) {
+            None => Ok(None),
+            Some(Value::List(v)) if v.len() == 3 => {
+                let mut a = [0.0; 3];
+                for (i, c) in v.iter().enumerate() {
+                    match c {
+                        Value::Num(x) => a[i] = *x,
+                        _ => return Err(format!("line {n}: `{k}` is three numbers [x, y, z]")),
+                    }
+                }
+                Ok(Some(a))
+            }
+            Some(_) => Err(format!("line {n}: `{k}` is three numbers [x, y, z]")),
+        }
+    };
+    let offsets = ["camera_dx", "camera_dy", "camera_dz"];
+    let camera = match (point("camera")?, offsets.iter().any(|k| get(k).is_some())) {
+        (Some(_), true) => {
+            return Err(format!(
+                "line {n}: `camera` and camera_dx, camera_dy, camera_dz are two ways to say where the camera is"
+            ))
+        }
+        (Some(at), false) => Some(Camera::At(at)),
+        (None, true) => Some(Camera::Above([
+            num("camera_dx", Some(0.0))?,
+            num("camera_dy", Some(0.0))?,
+            num("camera_dz", Some(0.0))?,
+        ])),
+        (None, false) => None,
+    };
+    let look = point("look")?;
+    if look.is_some() && camera.is_none() {
+        return Err(format!("line {n}: `look` needs a camera"));
+    }
     let heading = num("heading", Some(0.0))?;
     let pitch = num("pitch", Some(0.0))?;
     if !(-360.0..=360.0).contains(&heading) || !(-89.0..=89.0).contains(&pitch) {
@@ -287,6 +363,8 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         pitch_given: get("pitch").is_some(),
         setpos,
         path,
+        camera,
+        look,
     })
 }
 
@@ -505,5 +583,32 @@ path = [[0, 0, 0], [10.5, 0, 0]]
     fn a_hash_inside_a_string_is_not_a_comment() {
         let t = "version = 1\n[[place]]\nname = \"a\"\nworld = \"W#1\"\nx=1\ny=2\nz=3";
         assert_eq!(PlaceFile::parse(t).unwrap().places[0].world, "W#1");
+    }
+
+    #[test]
+    fn a_camera_is_a_world_position_or_an_offset_and_may_look_at_a_point() {
+        let base = "version = 1\n[[place]]\nname = \"a\"\nworld = \"W\"\nx = 1\ny = 2\nz = 3\n";
+        let none = PlaceFile::parse(base).unwrap();
+        assert_eq!(none.places[0].camera, None);
+        let up = PlaceFile::parse(&format!("{base}camera_dz = 6000\ncamera_dx = -10\n")).unwrap();
+        assert_eq!(
+            up.places[0].camera,
+            Some(Camera::Above([-10.0, 0.0, 6000.0]))
+        );
+        let at =
+            PlaceFile::parse(&format!("{base}camera = [5, 6, 7]\nlook = [1, 1, 1]\n")).unwrap();
+        assert_eq!(at.places[0].camera, Some(Camera::At([5.0, 6.0, 7.0])));
+        assert_eq!(at.places[0].look, Some([1.0; 3]));
+        assert!(
+            PlaceFile::parse(&format!("{base}camera = [5, 6, 7]\ncamera_dz = 1\n"))
+                .unwrap_err()
+                .contains("two ways")
+        );
+        assert!(PlaceFile::parse(&format!("{base}look = [1, 1, 1]\n"))
+            .unwrap_err()
+            .contains("needs a camera"));
+        assert!(PlaceFile::parse(&format!("{base}camera = [5, 6]\n"))
+            .unwrap_err()
+            .contains("three numbers"));
     }
 }
