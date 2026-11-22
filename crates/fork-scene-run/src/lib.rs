@@ -394,10 +394,13 @@ impl Runner {
                             fork_log::debug!(target: "scene", "scene: settling interrupted, screen {:?}, top menu {:#x}", w.screen(), w.top_menu());
                         }
                         self.tick += 1;
+                        // A message box or a menu (the new game's item messages) holds the count; only a loading screen
+                        // starts it again: the player is not moving while a box is up.
+                        let keep = w.screen() == Screen::Menu;
                         self.phase = Phase::Settling {
                             since,
                             last_z,
-                            stable: 0,
+                            stable: if keep { stable } else { 0 },
                         };
                         return Step::Continue;
                     }
@@ -470,7 +473,12 @@ impl Runner {
                     return Step::Continue;
                 }
                 let st = frame_stats(&mut self.ms);
-                fork_log::info!(target: "scene", "scene: soak {} frames {} avg_ms {:.2} p99_ms {:.2} max_ms {:.2}", place.name, self.ms.len(), st.0, st.1, st.2);
+                let n = self.ms.len();
+                // The 1% low: the frame rate of the slowest 1% of frames (their mean), as the bench reports it.
+                let worst = (n / 100).max(1);
+                let low1 =
+                    1000.0 / (self.ms[n - worst..].iter().sum::<f64>() / worst as f64).max(1e-9);
+                fork_log::info!(target: "scene", "scene: soak {} frames {} avg_ms {:.2} p99_ms {:.2} max_ms {:.2} low1_fps {:.1}", place.name, n, st.0, st.1, st.2, low1);
                 self.after_ready(w, place.name.clone(), since, pos)
             }
             Phase::Holding { since, until, pos } => {

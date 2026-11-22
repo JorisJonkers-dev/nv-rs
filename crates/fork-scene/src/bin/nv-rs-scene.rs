@@ -336,6 +336,7 @@ fn soak(args: &[String]) -> Result<bool, String> {
     let mut extra_env: Vec<(String, String)> = Vec::new();
     let (mut frames, mut wrap, mut realtime, mut timeout) =
         ("600".to_string(), Vec::new(), false, "300".to_string());
+    let mut exclusive = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
@@ -353,6 +354,7 @@ fn soak(args: &[String]) -> Result<bool, String> {
             "--timeout" => timeout = value(a)?,
             "--wrap" => wrap.push(value(a)?),
             "--realtime" => realtime = true,
+            "--exclusive" => exclusive = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -382,6 +384,9 @@ fn soak(args: &[String]) -> Result<bool, String> {
     let overlays: Vec<PathBuf> = overlay.into_iter().collect();
     let code = run_one("soak", &overlays, &opts)?;
     let secs = t.elapsed().as_secs_f64();
+    if !exclusive {
+        println!("timing rows not valid, machine shared (a bench is run with `bench`, which takes the lock exclusively)");
+    }
     let log = std::fs::read_to_string(out.join("soak").join("log.jsonl")).unwrap_or_default();
     let (mut errors, mut warnings, mut stops) = (0, 0, 0);
     let mut rows = Vec::new();
@@ -410,6 +415,25 @@ fn soak(args: &[String]) -> Result<bool, String> {
     for r in &rows {
         println!("  {r}");
     }
+    // `bench.json`: machine-readable numbers per place, for `nv-rs-scene bench-compare`.
+    let mut json = String::from("{\"schema\":\"nv-rs-scene-bench/1\",\"places\":[");
+    for (i, r) in rows.iter().enumerate() {
+        let w: Vec<&str> = r.split_whitespace().collect();
+        // "<name> frames N avg_ms X p99_ms Y max_ms Z low1_fps W"
+        if w.len() >= 11 {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                "{{\"place\":\"{}\",\"frames\":{},\"avg_ms\":{},\"p99_ms\":{},\"max_ms\":{},\"low1_fps\":{}}}",
+                w[0], w[2], w[4], w[6], w[8], w[10]
+            ));
+        }
+    }
+    json.push_str(&format!(
+        "],\"real_clock\":{realtime},\"exclusive_lock\":{exclusive}}}\n"
+    ));
+    let _ = std::fs::write(out.join("soak").join("bench.json"), &json);
     let n_places = std::fs::read_to_string(&places).map_or(0, |t| t.matches("[[place]]").count());
     println!(
         "soak: {} of {n_places} places soaked for {frames} frames, exit status {code}, {stops} stops, {errors} error lines, {warnings} warnings, {secs:.0} s{}",
@@ -419,12 +443,92 @@ fn soak(args: &[String]) -> Result<bool, String> {
     Ok(code == 0 && stops == 0 && errors == 0 && rows.len() == n_places)
 }
 
+/// `nv-rs-scene bench`: a soak on the real clock under the exclusive game lock (`--lock FILE`), with the numbers written
+/// to `<out>/soak/bench.json`. Takes the soak's arguments, plus `--lock`.
+fn bench(args: &[String]) -> Result<bool, String> {
+    let mut rest = Vec::new();
+    let mut lock = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--lock" {
+            lock = Some(it.next().ok_or("--lock needs the game.lock file")?.clone());
+        } else {
+            rest.push(a.clone());
+        }
+    }
+    let lock = lock.ok_or(
+        "bench needs --lock FILE (the shared game lock file: the bench takes it exclusively)",
+    )?;
+    // The wrap words come first, so the lock is taken before the engine starts and held until it has ended.
+    let mut full: Vec<String> = [
+        "--realtime",
+        "--exclusive",
+        "--wrap",
+        "flock",
+        "--wrap",
+        "-x",
+        "--wrap",
+        &lock,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    full.extend(rest);
+    soak(&full)
+}
+
+/// `nv-rs-scene bench-compare A.json B.json`: per place, the average frame time, the 1% low and the largest frame of
+/// both and the change from A to B in percent (positive: B is slower).
+fn bench_compare(args: &[String]) -> Result<bool, String> {
+    let [a, b] = args else {
+        return Err("usage: nv-rs-scene bench-compare A.json B.json".into());
+    };
+    let rows = |p: &String| -> Result<Vec<(String, f64, f64, f64)>, String> {
+        let text = std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))?;
+        let mut out = Vec::new();
+        for chunk in text.split("{\"place\":\"").skip(1) {
+            let name = chunk.split('"').next().unwrap_or("").to_string();
+            let num = |key: &str| -> Result<f64, String> {
+                let at = chunk
+                    .find(&format!("\"{key}\":"))
+                    .ok_or(format!("{p}: no {key} for {name}"))?;
+                let rest = &chunk[at + key.len() + 3..];
+                let end = rest.find([',', '}']).unwrap_or(rest.len());
+                rest[..end]
+                    .parse::<f64>()
+                    .map_err(|e| format!("{p}: {key}: {e}"))
+            };
+            out.push((
+                name.clone(),
+                num("avg_ms")?,
+                num("low1_fps")?,
+                num("max_ms")?,
+            ));
+        }
+        Ok(out)
+    };
+    let (ra, rb) = (rows(a)?, rows(b)?);
+    println!("place: avg ms A -> B (change), 1% low fps A -> B, worst frame ms A -> B");
+    for (name, avg_a, low_a, max_a) in &ra {
+        match rb.iter().find(|r| &r.0 == name) {
+            Some((_, avg_b, low_b, max_b)) => println!(
+                "{name}: {avg_a:.2} -> {avg_b:.2} ({:+.1}%), {low_a:.1} -> {low_b:.1}, {max_a:.1} -> {max_b:.1}",
+                100.0 * (avg_b - avg_a) / avg_a.max(1e-9)
+            ),
+            None => println!("{name}: not in B"),
+        }
+    }
+    Ok(true)
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         Some("compare") => run(&args[1..]),
         Some("run") => run_variants(&args[1..]),
         Some("soak") => soak(&args[1..]),
+        Some("bench") => bench(&args[1..]),
+        Some("bench-compare") => bench_compare(&args[1..]),
         _ => {
             eprintln!("usage: nv-rs-scene compare [--max-mean N] [--diff-out DIR] A B | run --viewer BIN --game DIR --places FILE --out DIR [--variant NAME[=OVERLAY]]...");
             return ExitCode::from(2);

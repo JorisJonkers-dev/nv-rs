@@ -221,12 +221,38 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
   up by name, once, as soon as the collection exists; logged). A picture taken 4000 frames after the send was first
   person with and without it: the delay counts game time, which the frozen world does not advance, so the setting is
   a safeguard, not something the pictures showed.
-- nv-rs#474: `scenes/soak-setpos-474.toml` has a place with `move = "setpos"`, which sets the coordinates and angles
-  on the player one by one as the console's `player.setpos` and `setangle` do (`Script::SetPosBase`, `SetAngleBase`),
-  without asking for a cell. As built it does not reproduce #474 yet: the player did not move to the target (the soak
-  ends with `place lake-mead-setpos was not reached within 40 s (screen Play, player at -72152 643 8268, wanted 53811 38382
-  3215)`), so the call path is not the console's: the console goes through `move_command` and its task queue
-  (`TASK_SET_POSITION`), which this does not.
+- nv-rs#474: `scenes/soak-setpos-474.toml` has a place with `move = "setpos"`, which sets the three coordinates and
+  the two angles on the player one by one with the console's own functions (`Script::SetPosBase`, `SetAngleBase`; the
+  console calls them directly when the setting `011c3ea4` is not above 1, which is the case here: `move_command`
+  queues a task only above 1). The soak ends at that place: `place lake-mead-setpos was not reached within N s (screen
+  Play, player at -72152 643 8291, wanted 53811 38382 3215)`. With `NV_SCENE_TRACE=1` the player is at Goodsprings'
+  place (-70200 2560) until the move, then 2,000 units away from it, never near the target: a far `setpos` does not
+  take the player to the new cells, which is what #474 reports (the land of the target never loads). So the soak
+  fails while the defect is there and is the test for its fix. The task queue path (setting above 1) is not
+  exercised.
+
+## The owner's list against what exists
+
+| asked for | command | missing |
+| --- | --- | --- |
+| engine benchmark in Rust | `nv-rs-scene bench` (real clock, exclusive game lock, frame times per place to `bench.json`) and `bench-compare A.json B.json` | the Python bench's suites, matrix and summary Contract v1 (nv-rs#328, #348) are not ported; no fixed walking path (`path` in the place file is read and not used); one machine's numbers only |
+| spawning in specific locations | `NV_SCENE` place file: world, position, heading, pitch, or a reference with an offset | interiors (no cell by name), places by a worldspace that is not in the load order |
+| loading into places | the runner's placement through the game's own exterior loader; one start for any number of places | no menu or intro is shown; the start is 6 s of data load (12 s on TTW) |
+| no main menu needed | done: the runner sends the player from the menu in frame 121 | the start screens (intro videos) are not skipped, only passed |
+| stability tests | `nv-rs-scene soak` (places, N frames each, counts stops, errors, warnings, exits non-zero) | no long-run memory growth check; #455 and #474 cases are place files (#474 fails until fixed) |
+| pictures of areas, a frozen frame | `nv-rs-scene run` (variants, same place file, per-view difference) | cloud/brush phase differs by one frame between rare runs (nv-rs#484); `compare --noise` is the workaround |
+| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool | `scripts/fork/bench/` Python still runs the old scenarios and suites; no `nv-rs-dev scene` dispatch line |
+
+## Bench
+
+`nv-rs-scene bench --lock GAME.LOCK --viewer BIN --game DIR --places FILE --out DIR [--frames N]` is a soak on the real
+clock that takes the lock exclusively (`flock -x`, waiting for shared runs to end) and writes `OUT/soak/bench.json`:
+per place the frames, `avg_ms`, `p99_ms`, `max_ms` and `low1_fps` (the frame rate of the slowest 1% of frames).
+`nv-rs-scene bench-compare A.json B.json` prints each place's average, 1% low and worst frame in both and the change
+of the average in percent (positive: B is slower). The same build twice, five Mojave places, 500 frames each: averages
+within 8% (an unloaded machine, one run each; run it more than once before reading a small change). A `soak` without
+`--exclusive` prints "timing rows not valid, machine shared".
+
 
 ## Where the seconds go, and the speed options
 
