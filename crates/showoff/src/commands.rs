@@ -8,7 +8,7 @@
 //!
 //! - The commands built since for the mods of a large modded profile, group by group, each in its
 //!   own file with a provenance note in `provenance/`: [`crate::lists`] (`ListAddList`,
-//!   `ListAddArray`).
+//!   `ListAddArray`), [`crate::ini`] (the cached INI commands).
 //!
 //! No other ShowOff command is built; a script that calls one fails at that line, as without the
 //! plugin.
@@ -20,7 +20,17 @@ use nvse::{handled, CommandArgs, EvalArgs};
 
 /// The command names the capabilities file lists, long names: the first is built here, the rest
 /// are the groups' tables in the order of [`all`].
-pub const COMMAND_NAMES: [&str; 3] = ["GetActorHasBaseFlag", "ListAddList", "ListAddArray"];
+pub const COMMAND_NAMES: [&str; 9] = [
+    "GetActorHasBaseFlag",
+    "ListAddList",
+    "ListAddArray",
+    "SetINIValue_Cached",
+    "GetINIFloatOrCreate_Cached",
+    "GetINIFloatOrDefault_Cached",
+    "GetINIStringOrDefault_Cached",
+    "ClearFileCacheShowOff",
+    "SaveCachedIniFile",
+];
 
 /// One command as the plugin registers it, for the groups' tables (the first command above is
 /// registered by hand).
@@ -38,7 +48,9 @@ pub struct Cmd {
 
 /// Every command of the groups' tables, in the order of the groups' files.
 pub fn all() -> impl Iterator<Item = &'static Cmd> {
-    crate::lists::COMMANDS.iter()
+    crate::lists::COMMANDS
+        .iter()
+        .chain(crate::ini::COMMANDS.iter())
 }
 
 /// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).

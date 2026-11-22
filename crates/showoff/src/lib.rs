@@ -12,7 +12,7 @@
 //!
 //! - [`commands`]: `ActorHasBaseFlag`, the one command Tale of Two Wastelands' scripts call, and
 //!   the table of the commands built since for the mods of a large modded profile, group by group
-//!   (`provenance/`): [`lists`] (`ListAddList`, `ListAddArray`). Every other command of the plugin
+//!   (`provenance/`): [`lists`] (`ListAddList`, `ListAddArray`), [`ini`] (the cached INI commands). Every other command of the plugin
 //!   is not built: a script that calls one fails at that line.
 //!
 //! The plugin answers "installed" only when its commands are ([`ANSWERS_INSTALLED`], or the
@@ -23,6 +23,7 @@
 pub mod commands;
 pub mod cosave;
 pub mod identity;
+pub mod ini;
 pub mod lists;
 #[cfg(test)]
 mod test_support;
@@ -34,7 +35,7 @@ use engine_core::prelude::*;
 pub const ANSWERS_INSTALLED: bool = false;
 
 /// The command names this crate builds (long names), for the capabilities file.
-pub const COMMAND_NAMES: [&str; 3] = commands::COMMAND_NAMES;
+pub const COMMAND_NAMES: [&str; 9] = commands::COMMAND_NAMES;
 
 /// ShowOff xNVSE built in on this engine: its state, one slot per engine ([`Engine::ext`]).
 #[derive(Default)]
@@ -45,6 +46,8 @@ pub struct State {
     pub answers: Option<bool>,
     /// The records of the co-save section, carried ([`cosave`]).
     pub carried: Vec<nvse::cosave::Chunk>,
+    /// The cached INI files ([`ini`]), by their path under `Data\Config\` without case.
+    pub ini: std::collections::BTreeMap<Vec<u8>, ini::IniFile>,
 }
 
 /// Sets whether [`install`] builds the plugin on this engine (before [`install`]); without it
