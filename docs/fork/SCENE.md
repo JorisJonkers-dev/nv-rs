@@ -238,6 +238,50 @@ cell. Later places are sent from the play screen the same way.
 
 Limits: none for the world: any world space of the load order by editor id (or form id in hex). The frozen world (hour, weather, creatures, interface hidden) is the next slice.
 
+## No main menu
+
+With `NV_SCENE_MENU=0` (`--env NV_SCENE_MENU=0`) the game never builds its main menu in a scene run. This is not the default yet: its pictures differ slightly from the menu route's and between runs (below), so the menu route stays the default until they are identical. `main` (`0086a850`)
+calls `StartMenu::Create(0, 0)` (`007053f0`) once before its message loop when the player has no world space (a fresh start);
+the scene run registers an empty function at that address before the game's code starts (`host::fork_prestart`, a registration made
+at `Host::start_with`, because the game runs up to its first frame inside it). With no menu there is no menu music, no menu
+assets and no start screen to close; the game runs its own first frames with a player that has the defaults the data load gave
+it (the default player record, the globals, the calendar), and the runner sends it to the first place with
+`PositionPlayerExterior` as before (the flag `ConfirmNewGame` sets, `011d8907`, is set by the runner; `StartMenu::Close` is
+only called when a menu is up). The new game's quest and item messages are not started (as before: the menu route never ran
+`ConfirmNewGame` either).
+
+Until the first send the world is held (`Main` +7, the free camera's frozen world flag: the sky, the calendar and the
+animations stop), as the menu's menu mode held it, so the frames before the send change nothing; the first place is sent at
+frame 121 as before. Without the setting the menu is built and the first place is sent from it, the old route.
+
+Measured (one place, wall time from the process start, two starts each, machine shared so the numbers move by seconds):
+
+| | plain game, menu | plain game, no menu | TTW folder, menu | TTW folder, no menu |
+| --- | --- | --- | --- | --- |
+| the game's code runs (frame 1) | 5.0, 6.0 s | 4.9, 6.6 s | 16.3, 14.2 s | 16.4, 13.9 s |
+| the player is sent | 5.4, 6.5 s | 5.3, 7.3 s | 17.1, 14.9 s | 16.9, 14.4 s |
+| the picture is written | 12.4, 14.8 s | 13.5, 19.6 s | 25.2, 21.8 s | 23.2, 20.8 s |
+
+The 120 frames before the send take 0.4 to 0.8 s with and without the menu: the menu itself costs nothing measurable here, and the route without it is not
+faster because the first place is still sent at frame 121 (so that the frames before the picture are the same). The seconds
+are the data load (the game's code at 5 s, 14 to 16 s on TTW), the first place's cell load (5 to 6 s, one blocking
+call of the game's own loader) and the settle (2 to 3 s). One part was cut: the drawing layer's pipeline cache and the driver's
+shader cache. Each start used to get an empty cache folder, so the 767 shader modules were compiled again each time (1.4 s);
+`nv-rs-scene` now runs every start with one cache folder kept between starts (`~/.cache/nv-rs/scene-cache`, the pipeline
+cache is written under a temporary name and renamed, so starts at the same time share it; `NV_RS_SCENE_COLD_CACHE=1` or
+`--env XDG_CACHE_HOME=DIR` changes it). Warm: the module step 1376 ms to 149 ms, the picture the same (compare: mean 0.000,
+0 changed pixels, cold against warm). What was not cut: the plugin data (the ESM parse, about 3.7 s of the 5 s on the plain game
+and most of the 14 s on TTW) is the game's own code at its own pace; a cache of the parsed records would have to be written as a
+snapshot of the game's memory after the load, keyed by the plugin files' sizes and times, which is not done.
+
+Pictures against the menu route: the same place taken at the same frame is the same picture within the jitter of a player
+that settles 0.17 units differently (the menu route's player stands still after the placement, the player of the route without a
+menu is simulated): Goodsprings from 6000 units up, plain game: mean 0.06 (0.1% of pixels over 8); a quarry view with the capture frame
+fixed (`NV_SCENE_CAPTURE_FRAMES=700`): mean 1.8, 0.33% of pixels (gravel glitter, opened and looked at); TTW Washington
+skyline: mean 4.0, 1.5% (two pairs gave the same numbers: a fixed difference, not noise). Where the ready frame decides the picture
+(brush sway of places taken after another one, which wait for the new game's message boxes) the two routes differ, as two
+places lists with a different order do: compare pictures made by the same route and the same place list.
+
 ## The picture
 
 With `NV_SCENE_OUT=<dir>` each place ends as `<dir>/<name>.png`. The drawing layer keeps its frame readback on

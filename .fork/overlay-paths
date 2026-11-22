@@ -83,3 +83,4 @@ crates/host/src/native_inflate.rs
 crates/nvse/src/commands/math.rs
 crates/d3d9-wgpu/src/budget.rs
 crates/d3d9-wgpu/src/gputime.rs
+crates/host/src/fork_prestart.rs

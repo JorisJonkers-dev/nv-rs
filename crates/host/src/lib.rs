@@ -24,6 +24,7 @@ pub mod first_profile;
 pub mod fixes;
 pub mod fork_heap;
 pub mod fork_plugins;
+pub mod fork_prestart;
 pub mod fork_trace;
 pub mod fork_ttw;
 pub mod form_types;
@@ -224,6 +225,7 @@ impl Host {
         if let Some(line) = fork_ttw::switch_on(&mut engine, data) {
             fork_log::info!(target: "host", "{line}");
         }
+        fork_prestart::run(&mut engine);
         install_rows_and_extenders(&mut engine, choice);
         // Plugin DLLs of the mods, when NV_PLUGIN_DLLS asks (off by default; ADR-0018).
         for line in fork_plugins::load_all(

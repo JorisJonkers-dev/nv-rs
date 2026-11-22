@@ -541,6 +541,27 @@ fn progress_poll(report: &Path, log: &Path, offset: &mut u64) {
     }
 }
 
+/// The cache folder a start runs with: one folder kept between starts (`~/.cache/nv-rs/scene-cache`), so the drawing layer's
+/// pipeline cache and the driver's shader cache are warm from the second start on (1.4 s of the start, the same pictures);
+/// the engine writes its pipeline cache file under a temporary name and renames it, so starts at the same time share it.
+/// `NV_RS_SCENE_COLD_CACHE=1` gives each start its own empty folder (`own`), as an `XDG_CACHE_HOME` entry of the request's
+/// environment gives it that folder.
+fn cache_home(own: &Path) -> PathBuf {
+    if std::env::var_os("NV_RS_SCENE_COLD_CACHE").is_some() {
+        return own.to_path_buf();
+    }
+    match std::env::var_os("HOME") {
+        Some(home) => {
+            let dir = PathBuf::from(home).join(".cache/nv-rs/scene-cache");
+            if std::fs::create_dir_all(&dir).is_ok() {
+                return dir;
+            }
+            own.to_path_buf()
+        }
+        None => own.to_path_buf(),
+    }
+}
+
 /// The highest memory of a scope seen while it ran: the cgroup's `memory.peak` (it counts the page cache the run read,
 /// which the kernel gives back under pressure) and the largest anonymous memory (`memory.stat`, what the process itself holds).
 #[derive(Default)]
@@ -670,7 +691,10 @@ fn start_one(
     let mut set = |k: &str, v: &str| put(&mut env, k, v);
     set("XDG_DATA_HOME", &staged.xdg[0].display().to_string());
     set("XDG_CONFIG_HOME", &staged.xdg[1].display().to_string());
-    set("XDG_CACHE_HOME", &staged.xdg[2].display().to_string());
+    set(
+        "XDG_CACHE_HOME",
+        &cache_home(&staged.xdg[2]).display().to_string(),
+    );
     set("XDG_STATE_HOME", &staged.xdg[3].display().to_string());
     set("NV_D3D9", "wgpu");
     set("NV_D3D9_OFFSCREEN", "1");

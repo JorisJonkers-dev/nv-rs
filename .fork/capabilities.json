@@ -1821,11 +1821,17 @@
     },
     {
       "commands": {
-        "implemented": 3,
+        "implemented": 9,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
-          "ListAddArray"
+          "ListAddArray",
+          "SetINIValue_Cached",
+          "GetINIFloatOrCreate_Cached",
+          "GetINIFloatOrDefault_Cached",
+          "GetINIStringOrDefault_Cached",
+          "ClearFileCacheShowOff",
+          "SaveCachedIniFile"
         ],
         "total": 215
       },
