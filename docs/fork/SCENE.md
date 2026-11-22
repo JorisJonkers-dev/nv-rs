@@ -344,6 +344,10 @@ Against what exists: the Mojave add-ons define 104 interior cells and the list h
 The cells left out are the test and holding cells; "has a start marker or a door into it" is not checked, the sweep finds out
 (a cell without a start marker would show as a failing place).
 
+Add-on interior lists (viewer 52): the Mojave add-ons 76 of 76; the Capital add-ons 119 of 120, reproducibly (two full runs, the same
+frame): the engine stops moving into `DLC04MedicalTent04` after 64 earlier interior moves, "free of ... which is not a live heap
+block" (nv-rs#487); alone, or after the three places before it, the place loads.
+
 Run on 2026-11-22 (viewer `nv-viewer-scene52`, one start each): `sweep-mojave` 80 of 80 places, exit status 0, 13 min;
 `sweep-capital` 42 of 42, 9 min; the two interior lists 33 of 33 and 31 of 31 (4 min each, viewer 50). No place stopped, hung or
 was put back. The sweeps before the last one stopped twice in the Mojave and once in the Capital list, always at the 21st to 60th
