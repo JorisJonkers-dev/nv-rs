@@ -1282,6 +1282,7 @@ dependencies = [
  "mcm",
  "nvse",
  "play-patch",
+ "plugin-host",
  "qos",
  "showoff",
  "stewie",
@@ -2196,6 +2197,14 @@ name = "play-patch"
 version = "0.1.0"
 dependencies = [
  "engine",
+]
+
+[[package]]
+name = "plugin-host"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "nvse",
 ]
 
 [[package]]
