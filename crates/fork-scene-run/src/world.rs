@@ -184,6 +184,21 @@ const REQUEST_POSITION_PLAYER: u32 = 0x0093_be30;
 const GET_CHAR_CONTROLLER_OF_PLAYER: u32 = 0x0093_06d0;
 const CONTROLLER_SET_HEIGHT: u32 = 0x0057_3f20;
 
+/// The player's border-region rule (`PlayerCharacter`): outside the playable area (the world's border regions) the game
+/// returns the player to `LastKnownGoodPosition` (+0x7a0, three floats) when `bReturnToLastKnownGoodPosition` (+0x79d) is
+/// set. A placement outside the border (a lake's water, the far bank of a river) is undone one frame later without this
+/// (nv-rs#474, #486): the position the player was placed at becomes the last good one and the return is cleared.
+const RETURN_TO_LAST_GOOD: u32 = 0x79d;
+const LAST_GOOD_POSITION: u32 = 0x7a0;
+
+fn accept_position_as_good(e: &mut Engine, player: u32) {
+    for i in 0..3 {
+        let w = e.mem.u32(player + POSITION + 4 * i);
+        e.mem.set_u32(player + LAST_GOOD_POSITION + 4 * i, w);
+    }
+    e.mem.set_u8(player + RETURN_TO_LAST_GOOD, 0);
+}
+
 /// A running engine as the runner's world.
 pub struct EngineWorld<'a> {
     pub engine: &'a mut Engine,
@@ -302,6 +317,7 @@ impl World for EngineWorld<'_> {
                 0u32
             ],
         );
+        accept_position_as_good(e, player);
         if std::env::var_os("NV_SCENE_CONTROLLER_HEIGHT").is_some() {
             // What the game's request handler does after the placement: the character controller gets the target's
             // height (`PlayerCharacter::GetCharacterController` `009306d0`, then `00573f20`).
@@ -407,6 +423,11 @@ impl World for EngineWorld<'_> {
             if form != 0 && e.mem.u32(sky + SKY_WEATHER) != form {
                 e.call(SKY_FORCE_WEATHER, &args![sky, form, 1u32]);
             }
+        }
+        // Not sent back to the last good position (the border regions' rule).
+        let player = e.mem.u32(PLAYER);
+        if player != 0 && e.mem.u32(player + PARENT_CELL) != 0 {
+            accept_position_as_good(e, player);
         }
         // No AI processing (what `tai` toggles) and no interface (what `tm` toggles).
         if e.mem.u8(ALL_AI_FLAG) != 0 {
@@ -545,4 +566,49 @@ mod tests {
         // Editor ids that happen to be hex letters only are still names unless six digits long.
         assert_eq!(hex_form_id("Face"), None);
     }
+}
+
+/// Debug (`NV_SCENE_TRACE=1`): logs every word of the player, its process and its character controller that holds the old
+/// position's x (and a y within 16 bytes after it), with the frames still to scan: who keeps the old position, who writes
+/// it back (nv-rs#474, #486).
+pub(crate) fn scan_for_position(e: &mut Engine, old: [u32; 3], left: u32) {
+    let player = e.mem.u32(PLAYER);
+    if player == 0 || old[0] == 0 {
+        return;
+    }
+    let controller = e.call(GET_CHAR_CONTROLLER_OF_PLAYER, &args![player]).u32();
+    let process = e.mem.u32(player + 0x68);
+    for (name, base, len) in [
+        ("player", player, 0x900u32),
+        ("process", process, 0x600),
+        ("controller", controller, 0x600),
+    ] {
+        if base == 0 {
+            continue;
+        }
+        let mut off = 0;
+        while off < len {
+            if e.mem.u32(base + off) == old[0] {
+                let y = (1..5).any(|k| e.mem.u32(base + off + 4 * k) == old[1]);
+                if y {
+                    fork_log::debug!(target: "scenetrace", "scan {left}: {name}+{off:#x} holds the old position ({:.1} {:.1} {:.1} at the three words after it)", f32::from_bits(old[0]), f32::from_bits(old[1]), f32::from_bits(e.mem.u32(base + off + 8)));
+                }
+            }
+            off += 4;
+        }
+    }
+    let _ = left;
+}
+
+/// Debug: the player's `LastKnownGoodPosition` and whether the game will return the player to it.
+pub(crate) fn last_good_position(e: &Engine) -> Option<(f32, f32, f32, u8)> {
+    let player = e.mem.u32(PLAYER);
+    (player != 0).then(|| {
+        (
+            e.mem.f32(player + LAST_GOOD_POSITION),
+            e.mem.f32(player + LAST_GOOD_POSITION + 4),
+            e.mem.f32(player + LAST_GOOD_POSITION + 8),
+            e.mem.u8(player + RETURN_TO_LAST_GOOD),
+        )
+    })
 }

@@ -184,6 +184,11 @@ pub struct Runner {
     ms: Vec<f64>,
     /// `NV_SCENE_TRACE=1`.
     trace: bool,
+    /// With the trace: the previous frame's player position (bits), and after a send the position it left and the frames
+    /// still to scan for words that hold it (nv-rs#474, #486: who writes the old position back).
+    prev_bits: [u32; 3],
+    scan: Option<([u32; 3], u32)>,
+    just_sent: bool,
     /// The idle camera's setting is set.
     vanity_off: bool,
     /// Main frames since the current place was sent.
@@ -218,6 +223,9 @@ impl Runner {
             place_frames: 0,
             vanity_off: false,
             trace: std::env::var_os("NV_SCENE_TRACE").is_some(),
+            prev_bits: [0; 3],
+            scan: None,
+            just_sent: false,
             tick: 0,
             hidden: 0,
         }
@@ -260,8 +268,20 @@ impl Runner {
         if self.trace {
             let player = engine.mem.u32(world::PLAYER_POINTER);
             if player != 0 {
-                let bits = |o: u32| engine.mem.u32(player + world::POSITION_OFFSET + o);
-                fork_log::debug!(target: "scenetrace", "t {:08x} {:08x} {:08x}", bits(0), bits(4), bits(8));
+                let at = [0, 4, 8].map(|o| engine.mem.u32(player + world::POSITION_OFFSET + o));
+                fork_log::debug!(target: "scenetrace", "t {:08x} {:08x} {:08x}", at[0], at[1], at[2]);
+                if let Some((x, y, z, flag)) = world::last_good_position(engine) {
+                    fork_log::debug!(target: "scenetrace", "lkg {x:.1} {y:.1} {z:.1} return {flag}");
+                }
+                if let Some((old, left)) = self.scan {
+                    world::scan_for_position(engine, old, left);
+                    self.scan = if left > 1 {
+                        Some((old, left - 1))
+                    } else {
+                        None
+                    };
+                }
+                self.prev_bits = at;
             }
         }
         let screen = match host::uncap::screen(engine) {
@@ -269,7 +289,14 @@ impl Runner {
             host::uncap::Screen::Menu => Screen::Menu,
             host::uncap::Screen::Loading => Screen::Loading,
         };
-        match self.step(&mut EngineWorld { engine, screen }, now) {
+        let step = self.step(&mut EngineWorld { engine, screen }, now);
+        if self.just_sent {
+            self.just_sent = false;
+            if self.trace {
+                self.scan = Some((self.prev_bits, 6));
+            }
+        }
+        match step {
             Step::Continue => None,
             Step::Reached {
                 place,
@@ -358,6 +385,7 @@ impl Runner {
                 fork_log::info!(target: "scene", "scene: sending the player to {} from the {:?} screen", place.name, w.screen());
                 match w.go_to(place) {
                     Ok(t) => {
+                        self.just_sent = true;
                         self.target = t.pos;
                         self.place_frames = 0;
                         fork_log::info!(target: "scene", "scene: {} resolved to {:.1} {:.1} {:.1}, heading {:.1}, pitch {:.1}", place.name, t.pos[0], t.pos[1], t.pos[2], t.heading, t.pitch);

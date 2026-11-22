@@ -308,17 +308,36 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
   fails while the defect is there and is the test for its fix. The task queue path (setting above 1) is not
   exercised.
 
-## A placement that does not stick (nv-rs#486)
+## A placement that does not stick (nv-rs#486): the border rule
 
-`scenes/soak-rivet-ne.toml` is a soak case on a TTW load order: the second place, 12000 east and 9000 north of the Rivet City
-marker, is not reached. With `NV_SCENE_TRACE=1` the player is at the target in the first main frame after the placement
-(89583 -60073 10873; the land is there) and in the second at the spot it stood at before (84583 -69073 12578), where it stays.
-It is not a hang (the first try with a 150 s limit looked like one: the limit counts the placement call, which holds the
-game's own loading screen, 64 s here). The same with the exterior placement, with `move = "request"` (the queued
-`PlayerCharacter::RequestPositionPlayer`, the route fast travel and `moveto` take; the player update carries it out) and with
-the character controller's height set after the placement (`NV_SCENE_CONTROLLER_HEIGHT=1`, what the request handler does).
-So something writes the old position back after the placement, on every route. Filed as nv-rs#486 with the trace; the failure
-line now names the top menu.
+`scenes/soak-rivet-ne.toml` is the case: on a TTW load order the second place, 12000 east and 9000 north of the Rivet City
+marker, was not reached. With `NV_SCENE_TRACE=1` the player was at the target in the first main frame after the placement
+(89583 -60073 10873; the land is there) and in the second at the spot it stood at before (84583 -69073 12578), where it
+stayed (the 150 s limit that first looked like a hang counted the placement call, which holds the game's own loading
+screen, 64 s here). The same on every route: the exterior placement, `move = "request"` (the queued
+`RequestPositionPlayer`, the route fast travel and `moveto` take) and with the character controller's height set after.
+
+Cause: `PlayerCharacter` has a border rule. `LastKnownGoodPosition` (+0x7a0, three floats), `bReturnToLastKnownGoodPosition`
+(+0x79d), `bInBorderContainedCell` (+0x79c) and `pBorderRegions` (+0x7b0): outside the world's border regions (the playable
+area) the game puts the player back at the last good position. `NV_SCENE_TRACE=1` now scans the player, its process and its
+character controller for words that hold the position the player left (`scan N: player+0x7a0 holds the old position`) and
+prints `lkg x y z return N` every frame: the one holder of the old position was `player+0x7a0`. A place outside the border,
+here across the Potomac from the marker (the other places and the working ones are inside), is undone one frame later.
+The runner now makes the position the player was placed at the last good one and clears the return flag (in the placement and
+every frame of a frozen world, `accept_position_as_good`): both places of the case are reached and soaked, exit status 0
+(`rivet-north-east` 5.7 ms a frame). It is not an engine defect: the game's rule is what it is, and a scene run turns it off.
+(The case places a player where a player cannot go in the game.)
+
+## The far `setpos` (nv-rs#474) is a different thing
+
+`move = "setpos"` is not the same defect: the return flag stays 0 and the border rule does not fire. The position set by
+`SetPosBase` is undone within the same frame (the player at -72152 643, 2,000 units from the start, in the old cell, while
+`LastKnownGoodPosition` shows the target for that one frame and then follows the player), by something in the game's own
+frame after the runner's hook, which keeps the old cell and the character controller. `PositionPlayerExterior` (what `run`
+uses; what `moveto` and fast travel end in, through `RequestPositionPlayer`) is the game's route for a move to another
+cell: it asks for the target's cells, and it works for every place of the far-moves soak (ten places, Lake Mead among them).
+The console's `setpos` only moves the reference inside the cell it is in. So for a place file, `setpos` is the wrong tool and
+the default placement is the right one; `setpos` stays only as the test for nv-rs#474.
 
 ## The owner's list against what exists
 
