@@ -1,0 +1,5 @@
+crates/d3d9-wgpu/src/scene_light.rs  # ambient occlusion quality levels and a live strength for the graphics settings (nv-rs#592, ADR-0019)
+crates/d3d9-wgpu/src/sun_shadow.rs  # the sun shadow map size chosen by the graphics settings (nv-rs#592)
+crates/d3d9-wgpu/src/device.rs  # the occlusion step takes the live strength and is made again at another quality (nv-rs#592)
+crates/host/src/lib.rs  # `pub mod fork_graphics;` and its start before the rows: the graphics settings applied to the run's choice (nv-rs#592)
+crates/host/Cargo.toml  # fork-gfx, the graphics settings crate (nv-rs#592)

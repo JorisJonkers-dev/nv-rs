@@ -1,0 +1,11 @@
+# The Performance preset: the cheapest effects only. A preset is a settings file
+# (docs/fork/adr/0019-graphics-modules.md); a value set in the profile's own file wins over it.
+version = 1
+
+[global.ao]
+enabled = true
+quality = "low"
+strength = 0.6
+
+[global.shadows]
+enabled = false

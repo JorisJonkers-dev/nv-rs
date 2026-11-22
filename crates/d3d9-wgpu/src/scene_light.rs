@@ -64,8 +64,79 @@ pub const STATE: u32 = u32::from_le_bytes(*b"NVAO");
 pub const RADIUS: f32 = 48.0;
 /// The most the occlusion's reach spans on screen, as a part of the width.
 pub const MAX_RADIUS_SCREEN: f32 = 0.04;
+/// The search of the default quality ([`Quality::Medium`]): slices, and steps a side.
 pub const SLICES: u32 = 2;
 pub const STEPS: u32 = 4;
+
+/// How thorough the occlusion's search is (the graphics module `ao.quality`, nv-rs#592): its
+/// slices and its steps a side. [`Quality::Medium`] is the step as it was before levels existed
+/// ([`SLICES`], [`STEPS`]). A change takes effect in the next frame that runs the step: its
+/// pipelines are made again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quality {
+    Low,
+    Medium,
+    High,
+}
+
+impl Quality {
+    /// Slices and steps a side.
+    pub fn search(self) -> (u32, u32) {
+        match self {
+            Quality::Low => (1, 4),
+            Quality::Medium => (SLICES, STEPS),
+            Quality::High => (3, 6),
+        }
+    }
+
+    /// The level a word names (`low`, `medium`, `high`).
+    pub fn parse(word: &str) -> Option<Quality> {
+        match word.trim().to_ascii_lowercase().as_str() {
+            "low" => Some(Quality::Low),
+            "medium" => Some(Quality::Medium),
+            "high" => Some(Quality::High),
+            _ => None,
+        }
+    }
+}
+
+/// The run's [`Quality`] (0 low, 1 medium, 2 high).
+static QUALITY: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+
+/// Sets the occlusion's quality, for the next frame that runs the step.
+pub fn set_quality(q: Quality) {
+    QUALITY.store(q as u8, Ordering::Relaxed);
+}
+
+/// The occlusion's quality now.
+pub fn quality() -> Quality {
+    match QUALITY.load(Ordering::Relaxed) {
+        0 => Quality::Low,
+        2 => Quality::High,
+        _ => Quality::Medium,
+    }
+}
+
+/// The strength the graphics settings chose while the game runs, as `f32` bits (0: none, the
+/// run's start-up choice stands). Read for each frame's parameters by the platform.
+static LIVE_STRENGTH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Sets the strength from the next frame on (clamped to [`STRENGTH_RANGE`]); `None` goes back to the
+/// run's start-up choice.
+pub fn set_live_strength(strength: Option<f32>) {
+    LIVE_STRENGTH.store(
+        strength.map_or(0, |s| clamp_strength(s).to_bits()),
+        Ordering::Relaxed,
+    );
+}
+
+/// The strength [`set_live_strength`] chose, if any.
+pub fn live_strength() -> Option<f32> {
+    match LIVE_STRENGTH.load(Ordering::Relaxed) {
+        0 => None,
+        bits => Some(f32::from_bits(bits)),
+    }
+}
 /// How much of the occlusion is applied by default ([`Params::strength`]; the run may choose
 /// another in [`STRENGTH_RANGE`]: `[nv-rs Display] fAmbientOcclusionStrength`, `NV_AO_STRENGTH`),
 /// and its curve ([`POWER`]).
@@ -553,8 +624,14 @@ pub enum Stage {
     Apply,
 }
 
-/// The WGSL of `stage`, for a multisampled depth surface or not.
+/// The WGSL of `stage`, for a multisampled depth surface or not, at the run's [`quality`].
 pub fn shader(stage: Stage, multisampled_depth: bool) -> String {
+    shader_at(stage, multisampled_depth, quality())
+}
+
+/// The WGSL of `stage` at `quality`.
+pub fn shader_at(stage: Stage, multisampled_depth: bool, quality: Quality) -> String {
+    let (slices, steps) = quality.search();
     let depth_type = if multisampled_depth {
         "texture_depth_multisampled_2d"
     } else {
@@ -562,7 +639,7 @@ pub fn shader(stage: Stage, multisampled_depth: bool) -> String {
     };
     let constants = format!(
         "const RADIUS: f32 = {RADIUS:?};\nconst MAX_RADIUS_SCREEN: f32 = {MAX_RADIUS_SCREEN:?};\n\
-         const SLICES: i32 = {SLICES};\nconst STEPS: i32 = {STEPS};\n\
+         const SLICES: i32 = {slices};\nconst STEPS: i32 = {steps};\n\
          const POWER: f32 = {POWER:?};\nconst MIN_HEIGHT: f32 = {MIN_HEIGHT:?};\n\
          const THIN: f32 = {THIN:?};\n\
          const FADE_FROM: f32 = {FADE_FROM:?};\nconst FADE_TO: f32 = {FADE_TO:?};\n\
@@ -598,6 +675,8 @@ const Z_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 
 /// The step's GPU objects, made at its first use.
 pub(crate) struct Gpu {
+    /// The quality its pipelines were made at.
+    pub(crate) quality: Quality,
     uniforms: wgpu::Buffer,
     /// The depth step's layout and pipeline by multisampled depth (0 no, 1 yes); the occlusion
     /// step's.
@@ -789,6 +868,7 @@ fn group(
 impl Gpu {
     pub(crate) fn new(device: &wgpu::Device) -> Gpu {
         Gpu {
+            quality: quality(),
             uniforms: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("scene light"),
                 size: 64,
@@ -840,7 +920,7 @@ impl Gpu {
             let p = pipeline(
                 device,
                 &l,
-                shader(Stage::Depth, ms),
+                shader_at(Stage::Depth, ms, self.quality),
                 wgpu::ColorTargetState {
                     format: Z_FORMAT,
                     blend: None,
@@ -855,7 +935,7 @@ impl Gpu {
             let p = pipeline(
                 device,
                 &l,
-                shader(Stage::Occlusion, ms),
+                shader_at(Stage::Occlusion, ms, self.quality),
                 wgpu::ColorTargetState {
                     format: HALF_FORMAT,
                     blend: None,
@@ -871,7 +951,7 @@ impl Gpu {
             let p = pipeline(
                 device,
                 &l,
-                shader(Stage::Apply, ms),
+                shader_at(Stage::Apply, ms, self.quality),
                 wgpu::ColorTargetState {
                     format: t.colour_format,
                     // The scene's colour times the source; its alpha kept (the occlusion alone
@@ -1110,6 +1190,36 @@ mod tests {
     }
 
     /// The uniform block carries the strength after the sun (the shaders' `p.tune.x`).
+    #[test]
+    fn quality_levels_change_only_the_search() {
+        // Medium is the step as it was before levels: the default constants.
+        assert_eq!(Quality::Medium.search(), (SLICES, STEPS));
+        assert_eq!(quality(), Quality::Medium, "the default");
+        for ms in [false, true] {
+            for stage in [Stage::Depth, Stage::Occlusion, Stage::Apply] {
+                assert_eq!(shader(stage, ms), shader_at(stage, ms, Quality::Medium));
+            }
+        }
+        let medium = shader_at(Stage::Occlusion, false, Quality::Medium);
+        assert!(medium.contains("const SLICES: i32 = 2;\nconst STEPS: i32 = 4;"));
+        let low = shader_at(Stage::Occlusion, false, Quality::Low);
+        let high = shader_at(Stage::Occlusion, false, Quality::High);
+        assert!(low.contains("const SLICES: i32 = 1;\nconst STEPS: i32 = 4;"));
+        assert!(high.contains("const SLICES: i32 = 3;\nconst STEPS: i32 = 6;"));
+        assert_eq!(low.replace("SLICES: i32 = 1;", "SLICES: i32 = 2;"), medium);
+        assert_eq!(Quality::parse(" HIGH "), Some(Quality::High));
+        assert_eq!(Quality::parse("ultra"), None);
+    }
+
+    #[test]
+    fn a_live_strength_is_clamped_and_can_be_taken_back() {
+        assert_eq!(live_strength(), None);
+        set_live_strength(Some(5.0));
+        assert_eq!(live_strength(), Some(1.0));
+        set_live_strength(None);
+        assert_eq!(live_strength(), None);
+    }
+
     #[test]
     fn the_uniforms_carry_the_strength() {
         let p = Params {

@@ -1,0 +1,13 @@
+# The Modern preset: the original picture with the engine's own effects on at their middle levels.
+# A preset is a settings file (docs/fork/adr/0019-graphics-modules.md); a value set in the
+# profile's own file wins over it.
+version = 1
+
+[global.ao]
+enabled = true
+quality = "medium"
+strength = 0.7
+
+[global.shadows]
+enabled = true
+quality = "medium"

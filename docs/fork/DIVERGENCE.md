@@ -30,6 +30,14 @@ A new upstream-owned file needs a record in this file, in the same pull request,
 
 The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
 
+### Graphics settings for the port's own effects
+- Files: `crates/d3d9-wgpu/src/scene_light.rs` (`Quality`, `set_quality`, `shader_at`, `set_live_strength`), `crates/d3d9-wgpu/src/sun_shadow.rs` (`MAP_SIZE`, `set_map_size`, `map_size`), `crates/d3d9-wgpu/src/device.rs` (the step takes the live strength and is made again at another quality), `crates/host/src/lib.rs` (`fork_graphics::start` before the rows are installed), `crates/host/Cargo.toml` (`fork-gfx`)
+- Upstream approach: upstream switches ambient occlusion and sun shadows once at start (`bAmbientOcclusion`, `fAmbientOcclusionStrength`, `bSunShadows`) and fixes their quality by constants (`SLICES`, `STEPS`, `SIZE`); checked in the files above at the base
+- Fork approach: the graphics settings (ADR-0019, nv-rs#592) set the same switches from the profile's `nv-rs-graphics.toml`, a preset or `NV_GFX`, and choose a level: the occlusion's search (low 1 x 4, medium 2 x 4 as before, high 3 x 6, changeable while the game runs, with its strength) and the shadow maps' size (1024, 2048 as before, 4096, at start). With no settings, nothing changes: the defaults are upstream's constants
+- Decision: keep; drop the level code when upstream offers levels of its own
+- Reason: the maintainer's graphics modules (nv-rs#591) need quality levels and live changes of the effects the engine has
+- Evidence: `quality_levels_change_only_the_search`, `a_live_strength_is_clamped_and_can_be_taken_back`, `the_map_size_is_one_of_the_three_levels`, `host::fork_graphics` tests; the standard views with no settings against the build before, difference 0 (pull request)
+
 ### Far-object block with several shapes
 - Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`), `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsterrainnode.rs` (`later_block_shapes`, `bgs_terrain_node_update_block_visibility`)
 - Upstream approach: upstream does nothing here; the exe expects one shape per block file: the load task (`006f71e0`) keeps child 0 of the file's root node as the block's mesh, the block's prepare (`006f66e0`) gives only that mesh its shader and registers it with the renderer, and `BGSTerrainNode::UpdateBlockVisibility` (`006fee90`) sets the segments of only that mesh's segmented shape. A segmented shape loads with every segment off, so any later shape draws nothing

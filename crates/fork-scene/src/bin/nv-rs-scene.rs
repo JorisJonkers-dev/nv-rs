@@ -145,11 +145,19 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
     let mut req = RunRequest::new(empty_start());
     let mut launcher = CappedLauncher::default();
     let mut variants: Vec<String> = Vec::new();
+    let mut variant_env: Vec<(String, (String, String))> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
         match a.as_str() {
             "--variant" => variants.push(value(a)?),
+            "--variant-env" => {
+                let v = value(a)?;
+                let (name, pair) = v
+                    .split_once(':')
+                    .ok_or(format!("--variant-env {v}: write NAME:KEY=VALUE"))?;
+                variant_env.push((name.to_string(), env_pair(pair)?));
+            }
             "--settle" => req.settle_frames = number(a, &value(a)?)?,
             "--resolution" => req.resolution = value(a)?,
             "--quick" => req.quick = true,
@@ -161,7 +169,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             }
         }
     }
-    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--grids N] [--ini KEY=VALUE]... [--gpu-sysfs DIR] [--jobs N] [--game-lock FILE --label NAME [--who NAME]] [--wrap WORD]...";
+    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--variant-env NAME:KEY=VALUE]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--grids N] [--ini KEY=VALUE]... [--gpu-sysfs DIR] [--jobs N] [--game-lock FILE --label NAME [--who NAME]] [--wrap WORD]...";
     complete(&req.start, usage)?;
     req.variants = variants
         .iter()
@@ -169,13 +177,23 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             Some((n, o)) => Variant {
                 name: n.to_string(),
                 overlays: o.split('+').map(PathBuf::from).collect(),
+                env: Vec::new(),
             },
             None => Variant {
                 name: v.clone(),
                 overlays: Vec::new(),
+                env: Vec::new(),
             },
         })
         .collect();
+    for (name, pair) in variant_env {
+        let v = req
+            .variants
+            .iter_mut()
+            .find(|v| v.name == name)
+            .ok_or(format!("--variant-env {name}:...: no --variant {name}"))?;
+        v.env.push(pair);
+    }
     let result = tool::run(&req, &launcher, &say)?;
     print!("{}", result.summary());
     Ok(result.ok)
@@ -756,6 +774,7 @@ mod tests {
             &script,
             format!(
                 "#!/bin/sh\nmkdir -p \"$NV_SCENE_OUT\" 2>/dev/null\n[ -n \"$NV_SCENE_OUT\" ] && cp '{}' \"$NV_SCENE_OUT/a.png\"\n\
+                 [ -n \"$NV_SCENE_OUT\" ] && echo \"$NV_GFX_PRESET\" > \"$NV_SCENE_OUT/../gfx.txt\"\n\
                  echo '{{\"level\":\"info\",\"message\":\"scene: sending the player to a from the Menu screen\"}}' >> \"$NV_LOG_JSON\"\n\
                  echo '{{\"level\":\"info\",\"message\":\"scene: soak a frames 10 avg_ms 5.00 p99_ms 6.00 max_ms 7.00 low1_fps 150.0\"}}' >> \"$NV_LOG_JSON\"\n\
                  echo '{{\"level\":\"warn\",\"message\":\"a warning\"}}' >> \"$NV_LOG_JSON\"\nexit {exit}\n",
@@ -887,8 +906,27 @@ mod tests {
             "base",
             "--variant",
             &format!("lod={}", overlay.display()),
+            "--variant-env",
+            "lod:NV_GFX_PRESET=modern",
         ]);
         assert_eq!(run_variants(&args), Ok(true));
+        // A variant's own environment reaches its start only.
+        let gfx = |v: &str| std::fs::read_to_string(t.join(format!("out/{v}/gfx.txt"))).unwrap();
+        assert_eq!(
+            (
+                gfx("base").trim().to_string(),
+                gfx("lod").trim().to_string()
+            ),
+            (String::new(), "modern".to_string())
+        );
+        let mut bad = args.clone();
+        bad.extend(s(&["--variant-env", "nope:A=1"]));
+        assert!(run_variants(&bad)
+            .unwrap_err()
+            .contains("no --variant nope"));
+        let mut bad = args.clone();
+        bad.extend(s(&["--variant-env", "lod"]));
+        assert!(run_variants(&bad).unwrap_err().contains("NAME:KEY=VALUE"));
         assert!(
             t.join("out/base/pictures/a.png").exists() && t.join("out/lod/pictures/a.png").exists()
         );

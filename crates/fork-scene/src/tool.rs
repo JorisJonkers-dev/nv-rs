@@ -460,6 +460,9 @@ pub struct Variant {
     pub name: String,
     /// Overlay folders, the first staged with the game, later ones laid over it.
     pub overlays: Vec<PathBuf>,
+    /// Environment of this variant's start only, over the request's (`--variant-env`): the same
+    /// places drawn with other engine settings, such as a graphics preset (`NV_GFX_PRESET`).
+    pub env: Vec<(String, String)>,
 }
 
 /// The exit status [`SoakResult::exit_status`] holds for a start the tool killed because its log went silent.
@@ -638,6 +641,7 @@ fn kill_start(mem: &MemSeen, child: &mut std::process::Child) {
 fn start_one(
     name: &str,
     overlays: &[PathBuf],
+    variant_env: &[(String, String)],
     o: &Opts,
     launcher: &dyn Launcher,
     say: Say,
@@ -713,7 +717,7 @@ fn start_one(
     if !start.only.is_empty() {
         set("NV_SCENE_PLACES", &start.only.join(","));
     }
-    for (k, v) in o.env.iter().chain(&start.env) {
+    for (k, v) in o.env.iter().chain(&start.env).chain(variant_env) {
         set(k, v);
     }
     if o.pictures {
@@ -899,6 +903,7 @@ pub fn run(req: &RunRequest, launcher: &dyn Launcher, say: Say) -> Result<RunRes
         variants.push(Variant {
             name: "base".into(),
             overlays: Vec::new(),
+            env: Vec::new(),
         });
     }
     let (resolution, settle) = if req.quick {
@@ -933,7 +938,7 @@ pub fn run(req: &RunRequest, launcher: &dyn Launcher, say: Say) -> Result<RunRes
                     let opts = &opts;
                     scope.spawn(move || {
                         let t = std::time::Instant::now();
-                        let end = start_one(&v.name, &v.overlays, opts, launcher, say);
+                        let end = start_one(&v.name, &v.overlays, &v.env, opts, launcher, say);
                         let dir = opts.start.out.join(&v.name);
                         VariantResult {
                             name: v.name.clone(),
@@ -1178,7 +1183,7 @@ pub fn soak(req: &SoakRequest, launcher: &dyn Launcher, say: Say) -> Result<Soak
     };
     say(&launcher.describe(opts.concurrent));
     let overlays: Vec<PathBuf> = req.overlay.iter().cloned().collect();
-    let end = start_one("soak", &overlays, &opts, launcher, say)?;
+    let end = start_one("soak", &overlays, &[], &opts, launcher, say)?;
     let (code, hung, stopped) = match end {
         StartEnd::Exit(c) => (c, false, None),
         StartEnd::Hung => (HUNG, true, None),
@@ -1870,6 +1875,7 @@ done"#;
         req.variants = vec![Variant {
             name: "v".into(),
             overlays: Vec::new(),
+            env: Vec::new(),
         }];
         let engine = r#"mkdir -p "$NV_SCENE_OUT"; exit 3"#;
         let r = run(&req, &Script(engine), &|_| {}).unwrap();
