@@ -95,6 +95,13 @@ enum Phase {
         last_z: f64,
         stable: u32,
     },
+    /// Running `left` more frames at the place, timing each (`last` is the clock at the frame before).
+    Soaking {
+        since: f64,
+        left: u32,
+        last: f64,
+        pos: [f64; 3],
+    },
     /// The picture was asked for; waiting for the frame's file.
     Waiting {
         since: f64,
@@ -104,6 +111,17 @@ enum Phase {
     Done,
 }
 
+/// Average, 99th percentile and largest of the frame times (milliseconds); sorts `ms`.
+fn frame_stats(ms: &mut [f64]) -> (f64, f64, f64) {
+    if ms.is_empty() {
+        return (0.0, 0.0, 0.0);
+    }
+    ms.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let avg = ms.iter().sum::<f64>() / ms.len() as f64;
+    let p99 = ms[((ms.len() - 1) as f64 * 0.99).round() as usize];
+    (avg, p99, ms[ms.len() - 1])
+}
+
 /// Visits the request's places in order.
 pub struct Runner {
     request: Request,
@@ -111,6 +129,10 @@ pub struct Runner {
     phase: Phase,
     /// Frames the screen has shown the menu (or play, for a later place) since the last send.
     steady: u32,
+    /// The frame times (ms) of the soak in progress.
+    ms: Vec<f64>,
+    /// Frames in a row the soak has not been on the play screen.
+    away: u32,
     tick: u64,
     hidden: u32,
 }
@@ -119,6 +141,9 @@ pub struct Runner {
 /// start its threads and read its data.
 pub const STEADY_FRAMES: u32 = 120;
 
+/// Frames a soak may spend off the play screen in a row before it fails.
+pub const AWAY_FRAMES: u32 = 600;
+
 impl Runner {
     pub fn new(request: Request) -> Runner {
         Runner {
@@ -126,6 +151,8 @@ impl Runner {
             next: 0,
             phase: Phase::WaitMenu,
             steady: 0,
+            ms: Vec::new(),
+            away: 0,
             tick: 0,
             hidden: 0,
         }
@@ -317,23 +344,57 @@ impl Runner {
                     };
                     return Step::Continue;
                 }
-                match &self.request.out {
-                    None => self.finish(place.name.clone(), at.pos, None),
-                    Some(dir) => {
-                        if let Err(e) = std::fs::create_dir_all(dir) {
-                            return Step::Failed(format!("scene: {}: {e}", dir.display()));
-                        }
-                        let bmp = dir.join(format!("{}.bmp", place.name));
-                        let _ = std::fs::remove_file(&bmp);
-                        w.ask_picture(&bmp);
-                        self.phase = Phase::Waiting {
-                            since,
-                            bmp,
-                            pos: at.pos,
-                        };
-                        Step::Continue
-                    }
+                if let Some(frames) = self.request.soak_frames {
+                    self.ms = Vec::with_capacity(frames as usize);
+                    self.phase = Phase::Soaking {
+                        since,
+                        left: frames,
+                        last: now,
+                        pos: at.pos,
+                    };
+                    return Step::Continue;
                 }
+                self.after_ready(w, place.name.clone(), since, at.pos)
+            }
+            Phase::Soaking {
+                since,
+                left,
+                last,
+                pos,
+            } => {
+                // A message box or a menu may be up for a moment; a menu that stays is a failure.
+                if w.screen() != Screen::Play {
+                    self.away += 1;
+                    if self.away >= AWAY_FRAMES {
+                        return Step::Failed(format!(
+                            "scene: place {} left the play screen during the soak and did not come back in {AWAY_FRAMES} frames (screen {:?}, top menu {:#x})",
+                            place.name,
+                            w.screen(),
+                            w.top_menu()
+                        ));
+                    }
+                    self.phase = Phase::Soaking {
+                        since,
+                        left,
+                        last: now,
+                        pos,
+                    };
+                    return Step::Continue;
+                }
+                self.away = 0;
+                self.ms.push((now - last) * 1000.0);
+                if left > 1 {
+                    self.phase = Phase::Soaking {
+                        since,
+                        left: left - 1,
+                        last: now,
+                        pos,
+                    };
+                    return Step::Continue;
+                }
+                let st = frame_stats(&mut self.ms);
+                fork_log::info!(target: "scene", "scene: soak {} frames {} avg_ms {:.2} p99_ms {:.2} max_ms {:.2}", place.name, self.ms.len(), st.0, st.1, st.2);
+                self.after_ready(w, place.name.clone(), since, pos)
             }
             Phase::Waiting {
                 since,
@@ -359,6 +420,23 @@ impl Runner {
                 }
                 let _ = std::fs::remove_file(bmp);
                 self.finish(place.name.clone(), pos, Some(out))
+            }
+        }
+    }
+
+    /// The place is ready (and soaked): ask for the picture, or finish when there is none to take.
+    fn after_ready(&mut self, w: &mut dyn World, name: String, since: f64, pos: [f64; 3]) -> Step {
+        match &self.request.out {
+            None => self.finish(name, pos, None),
+            Some(dir) => {
+                if let Err(e) = std::fs::create_dir_all(dir) {
+                    return Step::Failed(format!("scene: {}: {e}", dir.display()));
+                }
+                let bmp = dir.join(format!("{name}.bmp"));
+                let _ = std::fs::remove_file(&bmp);
+                w.ask_picture(&bmp);
+                self.phase = Phase::Waiting { since, bmp, pos };
+                Step::Continue
             }
         }
     }
@@ -423,6 +501,7 @@ mod tests {
             timeout_s,
             freeze: None,
             hide_actors: false,
+            soak_frames: None,
         }
     }
 
@@ -553,6 +632,55 @@ mod tests {
         b.extend_from_slice(&[0; 24]);
         b.extend_from_slice(&[1, 2, 3, 0, 4, 5, 6, 0]);
         b
+    }
+
+    #[test]
+    fn frame_times_are_summarised() {
+        let mut ms = [10.0, 20.0, 30.0, 40.0];
+        assert_eq!(frame_stats(&mut ms), (25.0, 40.0, 40.0));
+        assert_eq!(frame_stats(&mut []), (0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn a_soak_runs_its_frames_at_the_place_before_it_ends() {
+        let mut req = request(60);
+        req.soak_frames = Some(3);
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        r.step(&mut w, 1.0);
+        r.step(&mut w, 1.1);
+        // Three soak frames, then the place is done.
+        assert_eq!(r.step(&mut w, 1.2), Step::Continue);
+        assert_eq!(r.step(&mut w, 1.3), Step::Continue);
+        assert!(matches!(r.step(&mut w, 1.4), Step::Reached { .. }));
+    }
+
+    #[test]
+    fn leaving_the_play_screen_during_a_soak_fails() {
+        let mut req = request(60);
+        req.soak_frames = Some(5);
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        r.step(&mut w, 1.0);
+        r.step(&mut w, 1.1);
+        w.screen = Screen::Menu;
+        for t in 0..AWAY_FRAMES - 1 {
+            assert_eq!(r.step(&mut w, 1.2 + f64::from(t) * 0.001), Step::Continue);
+        }
+        let Step::Failed(line) = r.step(&mut w, 9.0) else {
+            panic!("no failure")
+        };
+        assert!(line.contains("left the play screen"), "{line}");
     }
 
     #[test]

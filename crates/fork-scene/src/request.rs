@@ -11,6 +11,7 @@
 //! | `NV_SCENE_HOUR` | the game hour the frozen world holds (default 12) |
 //! | `NV_SCENE_WEATHER` | the weather's form id in hex the frozen world holds (default 000FFC88) |
 //! | `NV_SCENE_ACTORS` | `1` keeps creatures and people in the picture; by default their 3D is hidden |
+//! | `NV_SCENE_SOAK_FRAMES` | frames to keep running at each place after it is ready, timing each (a soak or a bench) |
 //! | `NV_SCENE_FREEZE` | `0` leaves the world alone (time, weather, AI, interface) |
 
 use crate::places::{Place, PlaceFile};
@@ -25,6 +26,7 @@ pub const HOUR: &str = "NV_SCENE_HOUR";
 pub const WEATHER: &str = "NV_SCENE_WEATHER";
 pub const FREEZE: &str = "NV_SCENE_FREEZE";
 pub const ACTORS: &str = "NV_SCENE_ACTORS";
+pub const SOAK: &str = "NV_SCENE_SOAK_FRAMES";
 
 /// A scene run: which places, where the pictures go, and the ready condition's numbers.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +39,8 @@ pub struct Request {
     pub freeze: Option<(f32, u32)>,
     /// Hide the 3D of every actor (not the player) in the cells around the place.
     pub hide_actors: bool,
+    /// Frames to run at each place after it is ready; the frame times are logged.
+    pub soak_frames: Option<u32>,
 }
 
 impl Request {
@@ -111,6 +115,18 @@ impl Request {
             settle_frames: number(SETTLE, 30)?,
             timeout_s: number(TIMEOUT, 120)?,
             freeze,
+            soak_frames: match var(SOAK)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+            {
+                None => None,
+                Some(v) => Some(
+                    v.parse::<u32>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| format!("{SOAK}={v}: a whole number above 0"))?,
+                ),
+            },
             hide_actors: var(ACTORS).as_deref().map(str::trim) != Some("1"),
         }))
     }
@@ -212,6 +228,18 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(!keep.hide_actors);
+    }
+
+    #[test]
+    fn the_soak_length_is_a_positive_whole_number() {
+        let d = tmp("soak");
+        let r = with(&[(FILE, file(&d)), (SOAK, "500".into())])
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.soak_frames, Some(500));
+        assert!(with(&[(FILE, file(&d)), (SOAK, "0".into())])
+            .unwrap_err()
+            .contains("NV_SCENE_SOAK_FRAMES=0"));
     }
 
     #[test]

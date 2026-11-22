@@ -4,6 +4,7 @@
 //! The engine's side is `fork-scene-run`; both are described in `docs/fork/SCENE.md`.
 
 pub mod diff;
+pub mod json_lite;
 pub mod places;
 pub mod png;
 pub mod request;

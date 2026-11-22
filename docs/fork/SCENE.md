@@ -124,3 +124,27 @@ status and the seconds it took, and the first variant's pictures against each ot
 game's own LOD and a generated LOD folder), five places: 51 s in all, both engines at once. An overlay mounted by the
 engine's file layer, with no staged folder at all, is not built: the staging takes under a second.
 
+
+## Soak and timing
+
+`nv-rs-scene soak --viewer BIN --game DIR --places FILE --out DIR [--frames N] [--timeout S] [--realtime] [--userdata TPL] [--wrap WORD]...`
+starts the engine once, visits every place of the file and runs `--frames` main frames at each after it is ready
+(`NV_SCENE_SOAK_FRAMES`), then prints the average, 99th-percentile and largest frame time of each place and one verdict
+line: places soaked, the engine's exit status, stops (`Game's main stopped`), error lines and warnings of the log. It
+exits 1 when the engine did not end with status 0, when a stop or an error line was logged, or when a place was
+missed; a run that fails ends with `ended at place NAME` and the path of the run log. A menu that stays up for 600
+frames in a row fails the soak naming the top menu. `scenes/soak-far-moves.toml` is the place file: the far moves of
+nv-rs#455 (Goodsprings, the NCR farms, Boulder Beach, Cottonwood Overlook, the Hoover Dam road, Black Mountain, El
+Dorado Dry Lake, Novac) and two returns, ten places in one start: the old driver hung at the fourth view of a
+session.
+
+Result (default clock, shared machine, `play` profile, base game, 600 frames a place): 10 of 10 places, exit
+status 0, 0 stops, 0 error lines, 141 s. The one warning is the engine's own depth stand-in line. `nv-rs#474` (a far
+`player.setpos` typed at the console leaves the land unloaded) is not reproduced by this path: the runner moves the
+player with the game's own placement, which loads the cells; the console `setpos` itself is not called.
+
+Timing: add `--realtime` (the real clock; the default virtual clock steps the threads) and start under the exclusive
+lock (the wrapper `flock -x LOCKFILE`), nothing else running. Ten places, 1000 frames each, offscreen 1280x720,
+`play` profile: 5.7 to 10.3 ms average a frame (97 to 175 frames a second), 99th percentile 7.5 to 13.5 ms, largest
+frame 9.0 to 17.7 ms, exit status 0, 120 s. A timing run under the shared lock is not valid; the same places under it
+gave 9.9 to 17.9 ms.

@@ -167,6 +167,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
                             settle,
                             timeout,
                             resolution,
+                            &[],
                         );
                         (
                             name.clone(),
@@ -226,6 +227,7 @@ fn run_one(
     settle: &str,
     timeout: &str,
     resolution: &str,
+    extra_env: &[(String, String)],
 ) -> Result<i32, String> {
     let dir = out.join(name);
     // A packed overlay names its plugins: every plugin file at its top.
@@ -265,15 +267,102 @@ fn run_one(
         .env("NV_LOG_JSON", dir.join("log.jsonl"))
         .env("NV_LOG_TERM", "warn")
         .env("NV_SCENE", places)
-        .env("NV_SCENE_OUT", dir.join("pictures"))
         .env("NV_SCENE_SETTLE_FRAMES", settle)
         .env("NV_SCENE_TIMEOUT_S", timeout)
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
+    if !extra_env.iter().any(|(k, _)| k == "NV_SCENE_SOAK_FRAMES") {
+        cmd.env("NV_SCENE_OUT", dir.join("pictures"));
+    }
     let status = cmd
         .status()
         .map_err(|e| format!("{}: {e}", cmd_words[0].to_string_lossy()))?;
     Ok(status.code().unwrap_or(-1))
+}
+
+/// `nv-rs-scene soak`: one engine start visits every place of the file and runs `--frames` frames at
+/// each; the verdict counts stops, error lines and warnings and prints the frame times of each place.
+fn soak(args: &[String]) -> Result<bool, String> {
+    let (mut viewer, mut game, mut places, mut out, mut userdata) = (None, None, None, None, None);
+    let (mut frames, mut wrap, mut realtime, mut timeout) =
+        ("600".to_string(), Vec::new(), false, "300".to_string());
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
+        match a.as_str() {
+            "--viewer" => viewer = Some(PathBuf::from(value(a)?)),
+            "--game" => game = Some(PathBuf::from(value(a)?)),
+            "--places" => places = Some(PathBuf::from(value(a)?)),
+            "--out" => out = Some(PathBuf::from(value(a)?)),
+            "--userdata" => userdata = Some(PathBuf::from(value(a)?)),
+            "--frames" => frames = value(a)?,
+            "--timeout" => timeout = value(a)?,
+            "--wrap" => wrap.push(value(a)?),
+            "--realtime" => realtime = true,
+            other => return Err(format!("unknown argument {other}")),
+        }
+    }
+    let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
+        return Err("usage: nv-rs-scene soak --viewer BIN --game DIR --places FILE --out DIR [--frames N] [--timeout S] [--realtime] [--userdata TPL] [--wrap WORD]...".into());
+    };
+    let mut extra = vec![("NV_SCENE_SOAK_FRAMES".to_string(), frames.clone())];
+    if realtime {
+        extra.push(("NV_SCENE_REALTIME".into(), "1".into()));
+    }
+    let t = std::time::Instant::now();
+    let code = run_one(
+        "soak",
+        None,
+        &viewer,
+        &game,
+        &places,
+        &out,
+        userdata.as_deref(),
+        &wrap,
+        "60",
+        &timeout,
+        "1280x720",
+        &extra,
+    )?;
+    let secs = t.elapsed().as_secs_f64();
+    let log = std::fs::read_to_string(out.join("soak").join("log.jsonl")).unwrap_or_default();
+    let (mut errors, mut warnings, mut stops) = (0, 0, 0);
+    let mut rows = Vec::new();
+    let mut last_place = String::new();
+    for line in log.lines() {
+        let Ok(v) = fork_scene::json_lite::fields(line, &["level", "message"]) else {
+            continue;
+        };
+        let (level, msg) = (&v[0], &v[1]);
+        match level.as_str() {
+            "error" | "fatal" => errors += 1,
+            "warn" => warnings += 1,
+            _ => {}
+        }
+        if msg.contains("Game's main stopped") {
+            stops += 1;
+        }
+        if let Some(r) = msg.strip_prefix("scene: sending the player to ") {
+            last_place = r.split_whitespace().next().unwrap_or("").to_string();
+        }
+        if let Some(r) = msg.strip_prefix("scene: soak ") {
+            rows.push(r.to_string());
+        }
+    }
+    println!("place, frames, frame times (ms):");
+    for r in &rows {
+        println!("  {r}");
+    }
+    let n_places = std::fs::read_to_string(&places).map_or(0, |t| t.matches("[[place]]").count());
+    println!(
+        "soak: {} of {n_places} places soaked for {frames} frames, exit status {code}, {stops} stops, {errors} error lines, {warnings} warnings, {secs:.0} s{}",
+        rows.len(),
+        if code != 0 { format!("; ended at place {last_place}, see {}", out.join("soak").join("run.log").display()) } else { String::new() }
+    );
+    Ok(code == 0 && stops == 0 && errors == 0 && rows.len() == n_places)
 }
 
 fn main() -> ExitCode {
@@ -281,6 +370,7 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("compare") => run(&args[1..]),
         Some("run") => run_variants(&args[1..]),
+        Some("soak") => soak(&args[1..]),
         _ => {
             eprintln!("usage: nv-rs-scene compare [--max-mean N] [--diff-out DIR] A B | run --viewer BIN --game DIR --places FILE --out DIR [--variant NAME[=OVERLAY]]...");
             return ExitCode::from(2);
