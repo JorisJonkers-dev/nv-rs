@@ -19,6 +19,18 @@ fn main() {
         e.map(0x0300_0000, 0x1_0000);
         nvse::table::install(&mut e);
         plugin_host::set_enabled(&mut e, true);
+        plugin_host::set_entry_points(&mut e, std::env::var_os("TRIAL_ENTRY").is_some());
+        if let Ok(dir) = std::env::var("TRIAL_RUNTIME") {
+            for f in std::fs::read_dir(dir).expect("runtime folder").flatten() {
+                let name = f.file_name().to_string_lossy().into_owned();
+                let r = plugin_host::supply_runtime(
+                    &mut e,
+                    &name,
+                    &std::fs::read(f.path()).expect("read"),
+                );
+                println!("runtime {name}: {r:?}");
+            }
+        }
         let r = plugin_host::load(&mut e, &file, &bytes);
         println!("== {file}: {r:?}");
         for p in plugin_host::plugins_loaded(&mut e) {

@@ -148,6 +148,513 @@ fn a_command_that_never_ends_stops_after_its_budget_and_the_plugin_is_off() {
 }
 
 #[test]
+fn a_supplied_runtime_dll_is_mapped_and_answers_the_plugins_import_of_it() {
+    let mut e = engine();
+    set_enabled(&mut e, true);
+    // The made-up "msvcp140.dll": ?answer@@YAHXZ returns 42.
+    let rt = dll::build_runtime(&[("?answer@@YAHXZ", &[0xb8, 42, 0, 0, 0, 0xc3])]);
+    supply_runtime(&mut e, "MSVCP140.dll", &rt).expect("runtime maps");
+    let rtbase = plugins_loaded(&mut e)[0].base;
+    // Its entry point ran once (DLL_PROCESS_ATTACH).
+    assert_eq!(e.mem.u32(rtbase + 0x1000 + 0x10), 1);
+    let plugin = build_from_test(("MSVCP140.dll", "?answer@@YAHXZ"));
+    let i = load(&mut e, "test.dll", &plugin).expect("loads");
+    let p = plugins_loaded(&mut e)[i].clone();
+    assert!(p.unresolved.is_empty(), "{:?}", p.unresolved);
+    assert_eq!(e.mem.u32(p.base + 0x1000 + dll::G_EXTRA), 42);
+    assert!(reports(&mut e).is_empty(), "{:?}", reports(&mut e));
+}
+
+fn build_from_test(extra: (&str, &str)) -> Vec<u8> {
+    dll::build_from(Some(extra), false)
+}
+
+#[test]
+fn without_the_runtime_dll_the_import_is_named_in_the_report() {
+    let mut e = engine();
+    set_enabled(&mut e, true);
+    let r = load(
+        &mut e,
+        "test.dll",
+        &build_from_test(("MSVCP140.dll", "?answer@@YAHXZ")),
+    );
+    assert!(matches!(r, Err(LoadError::Refused(_))), "{r:?}");
+    let lines = reports(&mut e);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("msvcp140.dll!?answer@@YAHXZ")),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn the_runtime_loader_is_off_by_default_and_refuses_a_file_that_is_not_a_dll() {
+    let mut e = engine();
+    assert_eq!(supply_runtime(&mut e, "a.dll", b"x"), Err(LoadError::Off));
+    set_enabled(&mut e, true);
+    assert!(matches!(
+        supply_runtime(&mut e, "a.dll", b"x"),
+        Err(LoadError::Pe(_))
+    ));
+}
+
+mod runtime_functions {
+    use super::*;
+    use crate::{crt, winapi};
+    use engine_core::prelude::Engine;
+
+    /// Calls a shim as the interpreter does: the words are its arguments.
+    fn call(e: &mut Engine, f: crate::HostFn, args: &[u32]) -> u32 {
+        f(e, args).expect("answers")
+    }
+
+    fn crt_fn(name: &str, dll: &str) -> (crate::HostFn, u32) {
+        crt::lookup(dll, name).unwrap_or_else(|| panic!("{name}"))
+    }
+
+    fn put(e: &mut Engine, s: &[u8]) -> u32 {
+        let p = e.mem.alloc(s.len() as u32 + 16);
+        e.mem.write(p, s);
+        e.mem.set_u8(p + s.len() as u32, 0);
+        p
+    }
+
+    fn eng() -> Engine {
+        let mut e = Engine::new();
+        let _ = &mut e;
+        e
+    }
+
+    #[test]
+    fn memory_and_string_functions() {
+        let mut e = eng();
+        let (cpy, _) = crt_fn("memcpy", "vcruntime140.dll");
+        let (set, _) = crt_fn("memset", "vcruntime140.dll");
+        let a = put(&mut e, b"hello world");
+        let b = put(&mut e, b"..........");
+        assert_eq!(call(&mut e, cpy, &[b, a, 5]), b);
+        assert_eq!(e.mem.cstr(b), b"hello.....");
+        call(&mut e, set, &[b, b'z' as u32, 3]);
+        assert_eq!(e.mem.cstr(b), b"zzzlo.....");
+        let (len, _) = crt_fn("strlen", "api-ms-win-crt-string-l1-1-0.dll");
+        assert_eq!(call(&mut e, len, &[a]), 11);
+        let (chr, _) = crt_fn("strchr", "vcruntime140.dll");
+        assert_eq!(call(&mut e, chr, &[a, b'w' as u32]), a + 6);
+        let (rchr, _) = crt_fn("strrchr", "vcruntime140.dll");
+        assert_eq!(call(&mut e, rchr, &[a, b'o' as u32]), a + 7);
+        let (str_, _) = crt_fn("strstr", "vcruntime140.dll");
+        let needle = put(&mut e, b"wor");
+        assert_eq!(call(&mut e, str_, &[a, needle]), a + 6);
+        let (cmp, _) = crt_fn("_stricmp", "api-ms-win-crt-string-l1-1-0.dll");
+        let up = put(&mut e, b"HELLO WORLD");
+        assert_eq!(call(&mut e, cmp, &[a, up]), 0);
+        let (ncmp, _) = crt_fn("_strnicmp", "api-ms-win-crt-string-l1-1-0.dll");
+        assert_eq!(call(&mut e, ncmp, &[a, up, 5]), 0);
+        let (mcmp, _) = crt_fn("memcmp", "vcruntime140.dll");
+        assert_eq!(call(&mut e, mcmp, &[a, up, 3]), 1);
+    }
+
+    #[test]
+    fn checked_copies_say_when_the_buffer_is_too_small() {
+        let mut e = eng();
+        let dst = e.mem.alloc(16);
+        let src = put(&mut e, b"abcdef");
+        let (cpy, _) = crt_fn("strcpy_s", "api-ms-win-crt-string-l1-1-0.dll");
+        assert_eq!(call(&mut e, cpy, &[dst, 16, src]), 0);
+        assert_eq!(e.mem.cstr(dst), b"abcdef");
+        assert_eq!(call(&mut e, cpy, &[dst, 4, src]), 34);
+        assert_eq!(e.mem.cstr(dst), b"");
+        let (cat, _) = crt_fn("strcat_s", "api-ms-win-crt-string-l1-1-0.dll");
+        call(&mut e, cpy, &[dst, 16, src]);
+        assert_eq!(call(&mut e, cat, &[dst, 16, src]), 0);
+        assert_eq!(e.mem.cstr(dst), b"abcdefabcdef");
+        assert_eq!(call(&mut e, cat, &[dst, 16, src]), 34);
+        let (ncpy, _) = crt_fn("strncpy_s", "api-ms-win-crt-string-l1-1-0.dll");
+        assert_eq!(call(&mut e, ncpy, &[dst, 4, src, u32::MAX]), 0);
+        assert_eq!(e.mem.cstr(dst), b"abc");
+        let (ncat, _) = crt_fn("strncat_s", "api-ms-win-crt-string-l1-1-0.dll");
+        call(&mut e, cpy, &[dst, 16, src]);
+        assert_eq!(call(&mut e, ncat, &[dst, 16, src, 2]), 0);
+        assert_eq!(e.mem.cstr(dst), b"abcdefab");
+        let (dup, _) = crt_fn("_strdup", "api-ms-win-crt-string-l1-1-0.dll");
+        let d = call(&mut e, dup, &[src]);
+        assert_eq!(e.mem.cstr(d), b"abcdef");
+    }
+
+    #[test]
+    fn the_heap_allocates_grows_and_frees() {
+        let mut e = eng();
+        let h = "api-ms-win-crt-heap-l1-1-0.dll";
+        let (malloc, _) = crt_fn("malloc", h);
+        let (calloc, _) = crt_fn("calloc", h);
+        let (realloc, _) = crt_fn("realloc", h);
+        let (free, _) = crt_fn("free", h);
+        let p = call(&mut e, malloc, &[8]);
+        e.mem.write(p, b"12345678");
+        let q = call(&mut e, realloc, &[p, 64]);
+        assert_eq!(e.mem.bytes(q, 8), b"12345678");
+        let z = call(&mut e, calloc, &[4, 4]);
+        assert_eq!(e.mem.bytes(z, 16), vec![0u8; 16]);
+        call(&mut e, free, &[q]);
+        call(&mut e, free, &[z]);
+        call(&mut e, free, &[0]);
+        let (am, _) = crt_fn("_aligned_malloc", h);
+        let (af, _) = crt_fn("_aligned_free", h);
+        let a = call(&mut e, am, &[100, 64]);
+        assert_eq!(a % 64, 0);
+        call(&mut e, af, &[a]);
+        let r0 = call(&mut e, realloc, &[0, 8]);
+        assert_ne!(r0, 0);
+        assert_eq!(call(&mut e, realloc, &[r0, 0]), 0);
+    }
+
+    #[test]
+    fn numbers_are_read_as_strtol_reads_them() {
+        let mut e = eng();
+        let c = "api-ms-win-crt-convert-l1-1-0.dll";
+        let (strtol, _) = crt_fn("strtol", c);
+        let (strtoul, _) = crt_fn("strtoul", c);
+        let (strtoull, _) = crt_fn("strtoull", c);
+        let s = put(&mut e, b"  -42xyz");
+        let end = e.mem.alloc(4);
+        assert_eq!(call(&mut e, strtol, &[s, end, 10]) as i32, -42);
+        assert_eq!(e.mem.u32(end), s + 5);
+        let h = put(&mut e, b"0xff");
+        assert_eq!(call(&mut e, strtoul, &[h, 0, 0]), 255);
+        assert_eq!(call(&mut e, strtoul, &[h, 0, 16]), 255);
+        let o = put(&mut e, b"017");
+        assert_eq!(call(&mut e, strtoul, &[o, 0, 0]), 15);
+        let big = put(&mut e, b"5000000000");
+        assert_eq!(
+            call(&mut e, strtoull, &[big, 0, 10]),
+            5_000_000_000u64 as u32
+        );
+        assert_eq!(crt::rt(&mut e).hi, Some(1));
+        let none = put(&mut e, b"zz");
+        assert_eq!(call(&mut e, strtol, &[none, end, 10]), 0);
+        assert_eq!(e.mem.u32(end), none);
+    }
+
+    #[test]
+    fn printf_formats_what_plugins_log() {
+        let mut e = eng();
+        let args = e.mem.alloc(64);
+        e.mem.set_u32(args, 42);
+        let s = put(&mut e, b"abc");
+        e.mem.set_u32(args + 4, s);
+        e.mem.set_f64(args + 8, 3.14159);
+        e.mem.set_u32(args + 16, 255);
+        e.mem.set_u32(args + 20, (-7i32) as u32);
+        let fmt = put(&mut e, b"%d|%s|%.2f|%04X|%5d|%-4d|%%|%c");
+        e.mem.set_u32(args + 24, 5);
+        e.mem.set_u32(args + 28, 9);
+        e.mem.set_u32(args + 32, b'q' as u32);
+        // %d %s %.2f %04X %5d(-7)... the %5d reads args+20, %-4d args+24
+        let out = crate::printf::format(&e, &e.mem.cstr(fmt), args).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "42|abc|3.14|00FF|   -7|5   |%|\t"
+        );
+    }
+
+    #[test]
+    fn sprintf_writes_the_buffer_and_says_how_long() {
+        let mut e = eng();
+        let (vs, _) = crt_fn("__stdio_common_vsprintf", "api-ms-win-crt-stdio-l1-1-0.dll");
+        let buf = e.mem.alloc(32);
+        let args = e.mem.alloc(16);
+        e.mem.set_u32(args, 1234);
+        let fmt = put(&mut e, b"n=%u");
+        assert_eq!(call(&mut e, vs, &[0, 0, buf, 32, fmt, 0, args]), 6);
+        assert_eq!(e.mem.cstr(buf), b"n=1234");
+        // too small: the _s form wants to say so
+        assert_eq!(call(&mut e, vs, &[0, 0, buf, 4, fmt, 0, args]), u32::MAX);
+        assert_eq!(e.mem.cstr(buf), b"n=1");
+    }
+
+    #[test]
+    fn files_are_read_and_written_in_memory() {
+        let mut e = eng();
+        let io = "api-ms-win-crt-stdio-l1-1-0.dll";
+        let (fopen, _) = crt_fn("fopen", io);
+        let (fclose, _) = crt_fn("fclose", io);
+        let (fwrite, _) = crt_fn("fwrite", io);
+        let (fputs, _) = crt_fn("fputs", io);
+        let (fputc, _) = crt_fn("fputc", io);
+        let (fread, _) = crt_fn("fread", io);
+        let (fgetc, _) = crt_fn("fgetc", io);
+        let (fseek, _) = crt_fn("fseek", io);
+        let (ftell, _) = crt_fn("ftell", io);
+        let (ungetc, _) = crt_fn("ungetc", io);
+        let (fgetpos, _) = crt_fn("fgetpos", io);
+        let (fsetpos, _) = crt_fn("fsetpos", io);
+        let (fflush, _) = crt_fn("fflush", io);
+        let name = put(&mut e, b"Data\\log.txt");
+        let w = put(&mut e, b"w");
+        let r = put(&mut e, b"r");
+        // a file that is not there is not opened for reading
+        assert_eq!(call(&mut e, fopen, &[name, r]), 0);
+        let f = call(&mut e, fopen, &[name, w]);
+        assert_ne!(f, 0);
+        let text = put(&mut e, b"hello");
+        assert_eq!(call(&mut e, fwrite, &[text, 1, 5, f]), 5);
+        assert_eq!(call(&mut e, fputs, &[text, f]), 0);
+        assert_eq!(call(&mut e, fputc, &[b'!' as u32, f]), b'!' as u32);
+        assert_eq!(call(&mut e, ftell, &[f]), 11);
+        // reading a write-only buffer position: seek back and read
+        assert_eq!(call(&mut e, fseek, &[f, 0, 0]), 0);
+        let buf = e.mem.alloc(32);
+        assert_eq!(call(&mut e, fread, &[buf, 1, 32, f]), 11);
+        assert_eq!(e.mem.bytes(buf, 11), b"hellohello!");
+        assert_eq!(call(&mut e, fgetc, &[f]), u32::MAX);
+        assert_eq!(call(&mut e, fseek, &[f, 2, 0]), 0);
+        assert_eq!(call(&mut e, fgetc, &[f]), b'l' as u32);
+        assert_eq!(call(&mut e, ungetc, &[b'l' as u32, f]), b'l' as u32);
+        let pos = e.mem.alloc(8);
+        assert_eq!(call(&mut e, fgetpos, &[f, pos]), 0);
+        assert_eq!(call(&mut e, fseek, &[f, 0, 2]), 0);
+        assert_eq!(call(&mut e, fsetpos, &[f, pos]), 0);
+        assert_eq!(call(&mut e, ftell, &[f]), 2);
+        assert_eq!(call(&mut e, fflush, &[f]), 0);
+        assert_eq!(call(&mut e, fclose, &[f]), 0);
+        assert_eq!(call(&mut e, fclose, &[f]), u32::MAX);
+        // the three standard streams swallow writes
+        let (iob, _) = crt_fn("__acrt_iob_func", io);
+        let out = call(&mut e, iob, &[1]);
+        assert_eq!(call(&mut e, fwrite, &[text, 1, 5, out]), 5);
+    }
+
+    #[test]
+    fn start_up_tables_run_the_constructors() {
+        let mut e = Engine::new();
+        let rt = dll::build_runtime(&[("a", &[0xb8, 1, 0, 0, 0, 0xc3])]);
+        set_enabled(&mut e, true);
+        supply_runtime(&mut e, "msvcp140.dll", &rt).unwrap();
+        // The table has one entry: the runtime's own function "a"; a zero entry is skipped.
+        let a = state(&mut e).runtime_exports[&("msvcp140.dll".to_string(), "a".to_string())];
+        let table = e.mem.alloc(16);
+        e.mem.set_u32(table, a);
+        e.mem.set_u32(table + 4, 0);
+        let (it, _) = crt_fn("_initterm", "api-ms-win-crt-runtime-l1-1-0.dll");
+        let (ite, _) = crt_fn("_initterm_e", "api-ms-win-crt-runtime-l1-1-0.dll");
+        // Called outside a plugin: stopped, named.
+        assert!(it(&mut e, &[table, table + 8]).is_err());
+        state(&mut e).running.push(0);
+        assert_eq!(it(&mut e, &[table, table + 8]), Ok(0));
+        // `a` answers 1: the checked form stops with it.
+        assert_eq!(ite(&mut e, &[table, table + 8]), Ok(1));
+        state(&mut e).running.pop();
+        let (init, _) = crt_fn(
+            "_initialize_onexit_table",
+            "api-ms-win-crt-runtime-l1-1-0.dll",
+        );
+        let (reg, _) = crt_fn(
+            "_register_onexit_function",
+            "api-ms-win-crt-runtime-l1-1-0.dll",
+        );
+        let t = e.mem.alloc(16);
+        assert_eq!(call(&mut e, init, &[t]), 0);
+        assert_eq!(call(&mut e, reg, &[t, a]), 0);
+        assert_eq!(state(&mut e).rt.onexit, vec![a]);
+        let (errno, _) = crt_fn("_errno", "api-ms-win-crt-runtime-l1-1-0.dll");
+        let p = call(&mut e, errno, &[]);
+        assert_eq!(p, call(&mut e, errno, &[]));
+        let (cur, _) = crt_fn("__current_exception", "vcruntime140.dll");
+        let (ctx, _) = crt_fn("__current_exception_context", "vcruntime140.dll");
+        assert_eq!(call(&mut e, ctx, &[]), call(&mut e, cur, &[]) + 8);
+        let (term, _) = crt_fn("terminate", "api-ms-win-crt-runtime-l1-1-0.dll");
+        assert_eq!(term(&mut e, &[]), Err(Stop::Exit));
+    }
+
+    #[test]
+    fn environment_and_exception_helpers() {
+        let mut e = eng();
+        let env = "api-ms-win-crt-environment-l1-1-0.dll";
+        let (put_env, _) = crt_fn("_putenv_s", env);
+        let (get_env, _) = crt_fn("getenv_s", env);
+        let (n, v) = (put(&mut e, b"NV"), put(&mut e, b"1"));
+        assert_eq!(call(&mut e, put_env, &[n, v]), 0);
+        let (len, buf) = (e.mem.alloc(4), e.mem.alloc(16));
+        assert_eq!(call(&mut e, get_env, &[len, buf, 16, n]), 0);
+        assert_eq!((e.mem.u32(len), e.mem.cstr(buf)), (2, b"1".to_vec()));
+        assert_eq!(call(&mut e, get_env, &[len, buf, 1, n]), 34);
+        let missing = put(&mut e, b"NOPE");
+        assert_eq!(call(&mut e, get_env, &[len, buf, 16, missing]), 0);
+        assert_eq!(e.mem.u32(len), 0);
+        let (copy, _) = crt_fn("__std_exception_copy", "vcruntime140.dll");
+        let (src, dst) = (e.mem.alloc(8), e.mem.alloc(8));
+        e.mem.set_u32(src, 0x1234);
+        e.mem.set_u32(src + 4, 1);
+        call(&mut e, copy, &[src, dst]);
+        assert_eq!((e.mem.u32(dst), e.mem.u32(dst + 4)), (0x1234, 0));
+    }
+
+    #[test]
+    fn kernel32_last_error_time_conversion_and_locals() {
+        let mut e = eng();
+        let k = |n: &str| {
+            winapi::lookup("KERNEL32.dll", n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .0
+        };
+        call(&mut e, k("SetLastError"), &[5]);
+        assert_eq!(call(&mut e, k("GetLastError"), &[]), 5);
+        let slot = call(&mut e, k("TlsAlloc"), &[]);
+        assert_eq!(call(&mut e, k("TlsGetValue"), &[slot]), 0);
+        assert_eq!(call(&mut e, k("TlsSetValue"), &[slot, 77]), 1);
+        assert_eq!(call(&mut e, k("TlsGetValue"), &[slot]), 77);
+        assert_eq!(call(&mut e, k("TlsSetValue"), &[99, 1]), 0);
+        // 64-bit answers set edx
+        call(&mut e, k("GetTickCount64"), &[]);
+        assert_eq!(crt::rt(&mut e).hi.take(), Some(0));
+        let ft = e.mem.alloc(8);
+        call(&mut e, k("GetSystemTimeAsFileTime"), &[ft]);
+        assert!(e.mem.u64(ft) > 132_000_000_000_000_000);
+        // MultiByteToWideChar then back
+        let s = put(&mut e, b"abc");
+        assert_eq!(
+            call(&mut e, k("MultiByteToWideChar"), &[0, 0, s, u32::MAX, 0, 0]),
+            4
+        );
+        let w = e.mem.alloc(32);
+        assert_eq!(
+            call(
+                &mut e,
+                k("MultiByteToWideChar"),
+                &[0, 0, s, u32::MAX, w, 16]
+            ),
+            4
+        );
+        assert_eq!(e.mem.u16(w + 2), b'b' as u16);
+        assert_eq!(
+            call(&mut e, k("MultiByteToWideChar"), &[0, 0, s, u32::MAX, w, 2]),
+            0
+        );
+        let back = e.mem.alloc(16);
+        assert_eq!(
+            call(
+                &mut e,
+                k("WideCharToMultiByte"),
+                &[0, 0, w, u32::MAX, back, 16, 0, 0]
+            ),
+            4
+        );
+        assert_eq!(e.mem.cstr(back), b"abc");
+        assert_eq!(
+            call(
+                &mut e,
+                k("WideCharToMultiByte"),
+                &[0, 0, w, u32::MAX, 0, 0, 0, 0]
+            ),
+            4
+        );
+        // heap
+        let h = call(&mut e, k("GetProcessHeap"), &[]);
+        let p = call(&mut e, k("HeapAlloc"), &[h, 8, 16]);
+        assert_eq!(e.mem.bytes(p, 4), vec![0; 4]);
+        assert_eq!(call(&mut e, k("HeapFree"), &[h, 0, p]), 1);
+        let q = call(&mut e, k("HeapAlloc"), &[h, 0, 16]);
+        assert_eq!(call(&mut e, k("LocalFree"), &[q]), 0);
+        // the directory and the module name
+        let buf = e.mem.alloc(64);
+        assert_eq!(call(&mut e, k("GetCurrentDirectoryA"), &[64, buf]), 1);
+        assert_eq!(call(&mut e, k("GetModuleFileNameA"), &[0, buf, 64]), 13);
+        assert_eq!(e.mem.cstr(buf), b"FalloutNV.exe");
+        assert_eq!(call(&mut e, k("GetPrivateProfileIntA"), &[0, 0, 7, 0]), 7);
+        // the list head is cleared; locks and sleeps do nothing
+        let l = e.mem.alloc(8);
+        e.mem.set_u32(l, 5);
+        call(&mut e, k("InitializeSListHead"), &[l]);
+        assert_eq!(e.mem.u32(l), 0);
+        assert_eq!(call(&mut e, k("EnterCriticalSection"), &[l]), 0);
+        assert_eq!(call(&mut e, k("TryEnterCriticalSection"), &[l]), 1);
+    }
+
+    #[test]
+    fn exit_pointers_console_writes_and_module_lookup() {
+        let mut e = eng();
+        let k = |n: &str| {
+            winapi::lookup("kernel32.dll", n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .0
+        };
+        assert_eq!(k("ExitProcess")(&mut e, &[0]), Err(Stop::Exit));
+        assert_eq!(call(&mut e, k("DecodePointer"), &[0x1234]), 0x1234);
+        assert_eq!(call(&mut e, k("EncodePointer"), &[0x1234]), 0x1234);
+        let (buf, wrote) = (put(&mut e, b"abc"), e.mem.alloc(4));
+        // a console handle swallows the write; an unknown handle fails
+        assert_eq!(call(&mut e, k("WriteFile"), &[7, buf, 3, wrote, 0]), 1);
+        assert_eq!(e.mem.u32(wrote), 3);
+        assert_eq!(
+            call(&mut e, k("WriteFile"), &[0x5000_0000, buf, 3, wrote, 0]),
+            0
+        );
+        // a file opened for writing keeps it
+        let name = put(&mut e, b"Data\\w.log");
+        let h = call(
+            &mut e,
+            k("CreateFileA"),
+            &[name, 0x4000_0000, 1, 0, 2, 0, 0],
+        );
+        assert_eq!(call(&mut e, k("WriteFile"), &[h, buf, 3, wrote, 0]), 1);
+        assert_eq!(crt::rt(&mut e).files[&h].data, b"abc");
+        let m = e.mem.alloc(4);
+        assert_eq!(
+            call(&mut e, k("GetModuleHandleExA"), &[4, 0x2000_0000, m]),
+            1
+        );
+        assert_eq!(e.mem.u32(m), 0x0040_0000);
+    }
+
+    #[test]
+    fn file_handles_read_and_write_through_the_same_files() {
+        let mut e = eng();
+        let k = |n: &str| {
+            winapi::lookup("kernel32.dll", n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .0
+        };
+        let name = put(&mut e, b"Data\\x.ini");
+        // missing: INVALID_HANDLE_VALUE and the error
+        assert_eq!(
+            call(
+                &mut e,
+                k("CreateFileA"),
+                &[name, 0x8000_0000, 1, 0, 3, 0, 0]
+            ),
+            u32::MAX
+        );
+        assert_eq!(call(&mut e, k("GetLastError"), &[]), 2);
+        let h = call(
+            &mut e,
+            k("CreateFileA"),
+            &[name, 0x4000_0000, 1, 0, 2, 0, 0],
+        );
+        assert_ne!(h, u32::MAX);
+        let f = crt::rt(&mut e).files.get_mut(&h).unwrap();
+        f.data = b"0123456789".to_vec();
+        f.pos = 0;
+        assert_eq!(call(&mut e, k("GetFileSize"), &[h, 0]), 10);
+        let sz = e.mem.alloc(8);
+        assert_eq!(call(&mut e, k("GetFileSizeEx"), &[h, sz]), 1);
+        assert_eq!(e.mem.u64(sz), 10);
+        assert_eq!(call(&mut e, k("SetFilePointer"), &[h, 4, 0, 0]), 4);
+        let (buf, got) = (e.mem.alloc(16), e.mem.alloc(4));
+        assert_eq!(call(&mut e, k("ReadFile"), &[h, buf, 100, got, 0]), 1);
+        assert_eq!(
+            (e.mem.u32(got), e.mem.bytes(buf, 6)),
+            (6, b"456789".to_vec())
+        );
+        assert_eq!(call(&mut e, k("CloseHandle"), &[h]), 1);
+        assert_eq!(call(&mut e, k("GetFileSize"), &[h, 0]), u32::MAX);
+        assert_eq!(call(&mut e, k("ReadFile"), &[h, buf, 1, got, 0]), 0);
+        let m = call(&mut e, k("GetModuleFileNameA"), &[0x1234, buf, 64]);
+        assert_eq!(m, 13);
+    }
+}
+
+#[test]
 fn a_file_that_is_not_a_32_bit_dll_is_refused() {
     let mut e = engine();
     set_enabled(&mut e, true);

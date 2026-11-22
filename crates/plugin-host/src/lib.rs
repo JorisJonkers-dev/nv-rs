@@ -25,11 +25,15 @@
 pub mod pe;
 pub mod x86;
 
+mod crt;
+mod printf;
+mod winapi;
+
 use engine_core::prelude::*;
 use nvse::plugins::{self, BuiltIn, Listener, Message};
 use nvse::table::{self, PluginRecord, Returns};
 use std::collections::HashMap;
-use x86::{Bridge, Cpu, Stop, EAX, ESP};
+use x86::{Bridge, Cpu, Stop, EAX, EDX, ESP};
 
 /// Thunk addresses: 16 bytes a thunk, never mapped (the interpreter asks the host at an address
 /// before it fetches), in the extender range's unused middle (`EXTENDER_CODE` is
@@ -81,6 +85,8 @@ pub struct Plugin {
     pub unresolved: Vec<String>,
     /// Why it stopped working, once it has.
     pub failed: Option<String>,
+    /// A runtime DLL the user supplied (msvcp140), not a plugin.
+    pub runtime: bool,
 }
 
 #[derive(Default)]
@@ -98,6 +104,11 @@ pub struct State {
     running: Vec<usize>,
     /// Host-side counters the tests read.
     pub reports: Vec<String>,
+    pub(crate) rt: crt::Rt,
+    /// Whether a plugin's entry point runs (`DllMain`) before its `NVSEPlugin_Query`.
+    entry_points: bool,
+    /// Exports of the runtime DLLs the user supplied: (DLL file name lower case, name) -> address.
+    runtime_exports: HashMap<(String, String), u32>,
 }
 
 fn state(e: &mut Engine) -> &mut State {
@@ -111,6 +122,12 @@ pub fn set_enabled(e: &mut Engine, on: bool) {
 /// Sets the most instructions one call into a plugin may run (0: the default, [`CALL_BUDGET`]).
 pub fn set_budget(e: &mut Engine, n: u64) {
     state(e).budget = n;
+}
+
+/// Runs each plugin's entry point (`DllMain`, which makes its C++ globals) before its query.
+/// Off until the interpreter has the instructions the C runtime's start-up code uses.
+pub fn set_entry_points(e: &mut Engine, on: bool) {
+    state(e).entry_points = on;
 }
 
 pub fn enabled(e: &mut Engine) -> bool {
@@ -202,6 +219,9 @@ impl Bridge for Host {
         match f(e, &args) {
             Ok(v) => {
                 cpu.r[EAX] = v;
+                if let Some(hi) = state(e).rt.hi.take() {
+                    cpu.r[EDX] = hi;
+                }
                 cpu.eip = ret;
                 cpu.r[ESP] =
                     sp.wrapping_add(4)
@@ -216,7 +236,12 @@ impl Bridge for Host {
 /// Runs the plugin function at `addr` with cdecl `args`, returning `eax`. The caller says which
 /// plugin owns the code (for the report); nested calls (a host function that calls a plugin
 /// again) go on the same stack below the outer frame.
-fn call_guest(e: &mut Engine, plugin: usize, addr: u32, args: &[u32]) -> Result<u32, Stop> {
+pub(crate) fn call_guest(
+    e: &mut Engine,
+    plugin: usize,
+    addr: u32,
+    args: &[u32],
+) -> Result<u32, Stop> {
     if state(e).stack_top == 0 {
         let size = 1 << 20;
         let base = e.mem.alloc(size);
@@ -396,9 +421,23 @@ const SHIMS: &[(&str, &str, HostFn, u32, bool)] = &[
 
 fn bind_import(e: &mut Engine, dll: &str, name: &str) -> (u32, bool) {
     let key = format!("{dll}!{name}");
+    if let Some(&addr) = state(e)
+        .runtime_exports
+        .get(&(dll.to_ascii_lowercase(), name.to_string()))
+    {
+        return (addr, true);
+    }
     match SHIMS.iter().find(|s| s.0 == dll && s.1 == name) {
         Some(&(_, _, f, argc, stdcall)) => (thunk(e, &key, Some(f), argc, stdcall), true),
-        None => (thunk(e, &key, None, 0, true), false),
+        None => {
+            if let Some((f, argc)) = winapi::lookup(dll, name) {
+                return (thunk(e, &key, Some(f), argc, true), true);
+            }
+            if let Some((f, argc)) = crt::lookup(dll, name) {
+                return (thunk(e, &key, Some(f), argc, false), true);
+            }
+            (thunk(e, &key, None, 0, true), false)
+        }
     }
 }
 
@@ -683,6 +722,69 @@ pub enum LoadError {
     Refused(String),
 }
 
+/// Maps a runtime DLL the user supplied (`msvcp140.dll`: the C++ library the plugins import),
+/// binds its own imports, runs its entry point and makes its exports answer a plugin's imports of
+/// that DLL name. Nothing of Microsoft's is shipped: the file is the user's own (or fetched on
+/// request), and a test supplies a made-up one. With the loader off nothing happens.
+pub fn supply_runtime(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<(), LoadError> {
+    if !state(e).on {
+        return Err(LoadError::Off);
+    }
+    let image = pe::Pe::parse(bytes).map_err(|x| LoadError::Pe(x.to_string()))?;
+    build_interfaces(e);
+    let mut unresolved = Vec::new();
+    let mut bound = Vec::new();
+    for i in &image.imports {
+        bound.push(bind_import(e, &i.dll, &i.name));
+    }
+    let mut it = bound.iter();
+    let base = image
+        .map(e, bytes, |i| {
+            let (addr, ok) = it.next().expect("one binding for each import");
+            if !ok {
+                unresolved.push(format!("{}!{}", i.dll, i.name));
+            }
+            *addr
+        })
+        .map_err(|x| LoadError::Pe(x.to_string()))?;
+    let idx = state(e).plugins.len();
+    state(e).plugins.push(Plugin {
+        file: file.to_string(),
+        name: file.to_string(),
+        base,
+        unresolved: unresolved.clone(),
+        runtime: true,
+        ..Plugin::default()
+    });
+    if !unresolved.is_empty() {
+        report(
+            e,
+            format!(
+                "{file}: runtime DLL imports the host does not provide: {}",
+                unresolved.join(", ")
+            ),
+        );
+    }
+    let key = file.to_ascii_lowercase();
+    for (name, rva) in &image.exports {
+        state(e)
+            .runtime_exports
+            .insert((key.clone(), name.clone()), base + rva);
+    }
+    if image.entry != 0 {
+        let r = guarded(e, idx, "DllMain", base + image.entry, &[base, 1, 0]);
+        if r.is_some_and(|v| v & 0xff == 0) {
+            let why = "DllMain answered no".to_string();
+            state(e).plugins[idx].failed = Some(why.clone());
+            return Err(LoadError::Refused(why));
+        }
+        if let Some(why) = state(e).plugins[idx].failed.clone() {
+            return Err(LoadError::Refused(why));
+        }
+    }
+    Ok(())
+}
+
 /// Maps a plugin DLL's bytes, binds its imports, runs `NVSEPlugin_Query` and `NVSEPlugin_Load`
 /// and puts it in xNVSE's plugin list. `file` is the DLL's file name (xNVSE's order of plugins
 /// is by it). Returns the plugin's index. With the loader off nothing happens ([`LoadError::Off`]).
@@ -732,6 +834,17 @@ pub fn load(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError
         p.failed = Some("no NVSEPlugin_Query or NVSEPlugin_Load export".into());
         return Err(LoadError::NoQuery);
     };
+    // The DLL's entry point, as the loader runs it: C++ globals are made here.
+    if image.entry != 0 && state(e).entry_points {
+        let r = guarded(e, idx, "DllMain", base + image.entry, &[base, 1, 0]);
+        if r.is_some_and(|v| v & 0xff == 0) {
+            let p = &mut state(e).plugins[idx];
+            p.failed = Some("DllMain answered no".into());
+        }
+        if let Some(why) = state(e).plugins[idx].failed.clone() {
+            return Err(LoadError::Refused(why));
+        }
+    }
     let nvse = state(e).nvse;
     // NVSEPlugin_Query(nvse, info*)
     let info = e.mem.alloc(16);
