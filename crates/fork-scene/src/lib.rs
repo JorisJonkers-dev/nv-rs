@@ -11,6 +11,7 @@ pub mod places;
 pub mod png;
 pub mod request;
 pub mod stage;
+pub mod tool;
 
 pub use places::{aim, cell_of, path_point, Camera, Place, PlaceFile};
 pub use request::Request;
