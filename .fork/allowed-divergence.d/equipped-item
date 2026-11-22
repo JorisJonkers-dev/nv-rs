@@ -1,0 +1,1 @@
+crates/nvse/src/commands/inventory_forms.rs  # `find_equipped` and `mask_for_slot` public, for ShowOff's equipped-weapon commands (crates/showoff)

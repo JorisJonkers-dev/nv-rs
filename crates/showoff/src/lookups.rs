@@ -30,6 +30,8 @@ pub static COMMANDS: [Cmd; 1] = [Cmd {
     short: "IsBasedForm",
     params: ONE_FORM,
     execute: is_base_form,
+    eval: None,
+    needs_ref: false,
     expression: false,
     returns: Returns::Default,
 }];

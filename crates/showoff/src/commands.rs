@@ -8,7 +8,7 @@
 //!
 //! - The commands built since for the mods of a large modded profile, group by group, each in its
 //!   own file with a provenance note in `provenance/`: [`crate::lists`] (`ListAddList`,
-//!   `ListAddArray`), [`crate::ini`] (the cached INI commands), [`crate::lookups`] (`IsBaseForm`).
+//!   `ListAddArray`), [`crate::ini`] (the cached INI commands), [`crate::lookups`] (`IsBaseForm`), [`crate::weapons`] (weapon type and flags).
 //!
 //! No other ShowOff command is built; a script that calls one fails at that line, as without the
 //! plugin.
@@ -20,7 +20,7 @@ use nvse::{handled, CommandArgs, EvalArgs};
 
 /// The command names the capabilities file lists, long names: the first is built here, the rest
 /// are the groups' tables in the order of [`all`].
-pub const COMMAND_NAMES: [&str; 10] = [
+pub const COMMAND_NAMES: [&str; 15] = [
     "GetActorHasBaseFlag",
     "ListAddList",
     "ListAddArray",
@@ -31,6 +31,11 @@ pub const COMMAND_NAMES: [&str; 10] = [
     "ClearFileCacheShowOff",
     "SaveCachedIniFile",
     "IsBaseForm",
+    "IsWeaponMelee",
+    "IsWeaponRanged",
+    "IsEquippedWeaponMelee",
+    "GetWeaponHasFlag",
+    "SetWeaponFlag",
 ];
 
 /// One command as the plugin registers it, for the groups' tables (the first command above is
@@ -41,6 +46,10 @@ pub struct Cmd {
     pub short: &'static str,
     pub params: &'static [Param],
     pub execute: AbiFn,
+    /// The condition eval, for a command that is also a condition function.
+    pub eval: Option<AbiFn>,
+    /// Whether a calling reference is required.
+    pub needs_ref: bool,
     /// Asks xNVSE's expression parser (`kNVSEParams_*` parameter lists).
     pub expression: bool,
     /// What the command answers.
@@ -53,6 +62,7 @@ pub fn all() -> impl Iterator<Item = &'static Cmd> {
         .iter()
         .chain(crate::ini::COMMANDS.iter())
         .chain(crate::lookups::COMMANDS.iter())
+        .chain(crate::weapons::COMMANDS.iter())
 }
 
 /// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).
@@ -152,15 +162,23 @@ pub fn install(e: &mut Engine) {
     for c in all() {
         let execute = table::execute_address(c.opcode);
         e.register(execute, c.execute);
+        let eval = match c.eval {
+            Some(f) => {
+                let at = table::eval_address(c.opcode);
+                e.register(at, f);
+                at
+            }
+            None => 0,
+        };
         let record = PluginRecord {
             name: c.name,
             short: c.short,
-            needs_ref: false,
+            needs_ref: c.needs_ref,
             param_count: c.params.len() as u16,
             params: guest_params(e, c.params),
             execute,
-            eval: 0,
-            flags: 0,
+            eval,
+            flags: if c.eval.is_some() { CONDITION } else { 0 },
             expression: c.expression,
             returns: c.returns,
         };
