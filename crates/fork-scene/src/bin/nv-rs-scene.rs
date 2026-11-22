@@ -102,6 +102,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         "120".to_string(),
         3usize,
     );
+    let mut resolution = "1280x720".to_string();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
@@ -115,11 +116,12 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             "--wrap" => wrap.push(value(a)?),
             "--settle" => settle = value(a)?,
             "--timeout" => timeout = value(a)?,
+            "--resolution" => resolution = value(a)?,
             "--jobs" => jobs = value(a)?.parse().map_err(|_| "--jobs is a number")?,
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--jobs N] [--wrap WORD]...";
+    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--jobs N] [--wrap WORD]...";
     let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
         return Err(usage.into());
     };
@@ -140,8 +142,16 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             let handles: Vec<_> = chunk
                 .iter()
                 .map(|(name, overlay)| {
-                    let (viewer, game, places, out, userdata, wrap, settle, timeout) = (
-                        &viewer, &game, &places, &out, &userdata, &wrap, &settle, &timeout,
+                    let (viewer, game, places, out, userdata, wrap, settle, timeout, resolution) = (
+                        &viewer,
+                        &game,
+                        &places,
+                        &out,
+                        &userdata,
+                        &wrap,
+                        &settle,
+                        &timeout,
+                        &resolution,
                     );
                     scope.spawn(move || {
                         let t = std::time::Instant::now();
@@ -156,6 +166,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
                             wrap,
                             settle,
                             timeout,
+                            resolution,
                         );
                         (
                             name.clone(),
@@ -214,6 +225,7 @@ fn run_one(
     wrap: &[String],
     settle: &str,
     timeout: &str,
+    resolution: &str,
 ) -> Result<i32, String> {
     let dir = out.join(name);
     // A packed overlay names its plugins: every plugin file at its top.
@@ -248,7 +260,7 @@ fn run_one(
         .env("NV_D3D9_OFFSCREEN", "1")
         .env("NV_SOUND", "out")
         .env("NV_SOUND_BACKEND", "null")
-        .env("NV_RESOLUTION", "1280x720")
+        .env("NV_RESOLUTION", resolution)
         .env("NV_THREADS", "real")
         .env("NV_LOG_JSON", dir.join("log.jsonl"))
         .env("NV_LOG_TERM", "warn")
