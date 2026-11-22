@@ -28,6 +28,13 @@ pub enum Stop {
     Fault { addr: u32, write: bool },
     /// The same, with the address of the instruction that made it (what [`Cpu::run`] answers).
     FaultAt { addr: u32, write: bool, eip: u32 },
+    /// A host function (an import or interface call, named) reached an unmapped address with an
+    /// argument it was given.
+    HostFault {
+        func: String,
+        addr: u32,
+        write: bool,
+    },
     /// An instruction this interpreter does not have (the address and its first bytes).
     BadOpcode { eip: u32, bytes: [u8; 4] },
     /// The instruction budget of one call ran out (a loop that does not end).
@@ -51,6 +58,11 @@ impl std::fmt::Display for Stop {
             Stop::FaultAt { addr, write, eip } => write!(
                 f,
                 "{} of unmapped address {addr:#010x} at {eip:#010x}",
+                if *write { "write" } else { "read" }
+            ),
+            Stop::HostFault { func, addr, write } => write!(
+                f,
+                "{func} was given unmapped address {addr:#010x} to {}",
                 if *write { "write" } else { "read" }
             ),
             Stop::BadOpcode { eip, bytes } => write!(
@@ -88,6 +100,8 @@ pub struct Cpu {
     pub df: bool,
     /// Instructions run, for the budget.
     pub steps: u64,
+    /// Where writes into the game's code go ([`crate::patches`]).
+    pub shadow: Option<crate::patches::Shared>,
 }
 
 #[derive(Clone, Copy)]
@@ -129,22 +143,36 @@ impl Cpu {
     // ---- memory ----
     fn rd(&self, e: &Engine, a: u32, size: u32) -> R<u32> {
         let mut b = [0u8; 4];
-        e.mem
-            .try_read(a, &mut b[..size as usize])
-            .map_err(|_| Stop::Fault {
-                addr: a,
-                write: false,
-            })?;
+        if e.mem.try_read(a, &mut b[..size as usize]).is_err() {
+            match &self.shadow {
+                Some(s) if crate::patches::in_image(a, size) => {
+                    s.borrow_mut().read(a, &mut b[..size as usize]);
+                }
+                _ => {
+                    return Err(Stop::Fault {
+                        addr: a,
+                        write: false,
+                    })
+                }
+            }
+        }
         Ok(u32::from_le_bytes(b))
     }
 
     fn wr(&self, e: &mut Engine, a: u32, size: u32, v: u32) -> R<()> {
-        e.mem
-            .try_write(a, &v.to_le_bytes()[..size as usize])
-            .map_err(|_| Stop::Fault {
-                addr: a,
-                write: true,
-            })
+        let bytes = &v.to_le_bytes()[..size as usize];
+        if e.mem.try_write(a, bytes).is_err() {
+            match &self.shadow {
+                Some(s) if crate::patches::in_image(a, size) => s.borrow_mut().write(a, bytes),
+                _ => {
+                    return Err(Stop::Fault {
+                        addr: a,
+                        write: true,
+                    })
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn push(&mut self, e: &mut Engine, v: u32) -> R<()> {

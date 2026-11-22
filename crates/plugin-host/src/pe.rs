@@ -31,6 +31,7 @@ impl std::fmt::Display for PeError {
 
 #[derive(Debug, Clone)]
 pub struct Section {
+    pub name: String,
     pub va: u32,
     pub vsize: u32,
     pub raw: u32,
@@ -98,7 +99,13 @@ impl Pe {
         let mut sections = Vec::new();
         for i in 0..nsec {
             let o = so + 40 * i;
+            let raw_name = b.get(o..o + 8).unwrap_or(&[]);
+            let end = raw_name
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(raw_name.len());
             sections.push(Section {
+                name: String::from_utf8_lossy(&raw_name[..end]).into_owned(),
                 vsize: u32_at(b, o + 8)?,
                 va: u32_at(b, o + 12)?,
                 raw_size: u32_at(b, o + 16)?,

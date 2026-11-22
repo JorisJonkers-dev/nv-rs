@@ -281,9 +281,70 @@ fn module_handle_ex(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     Ok(1)
 }
 
+/// The base of the plugin or runtime DLL a file name (or path) names, compared without case;
+/// the game's own module for its executable's name or none.
+fn module_by_name(e: &mut Engine, name: &[u8]) -> u32 {
+    let name = String::from_utf8_lossy(name).to_ascii_lowercase();
+    let leaf = name.rsplit(['\\', '/']).next().unwrap_or("");
+    if leaf.is_empty() || leaf == "falloutnv.exe" {
+        return 0x0040_0000;
+    }
+    state(e)
+        .plugins
+        .iter()
+        .find(|p| p.base != 0 && p.file.eq_ignore_ascii_case(leaf))
+        .map_or(0, |p| p.base)
+}
+fn get_module_handle(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
+    if a[0] == 0 {
+        return Ok(0x0040_0000);
+    }
+    let n = e.mem.cstr(a[0]);
+    Ok(module_by_name(e, &n))
+}
+fn get_module_handle_w(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
+    if a[0] == 0 {
+        return Ok(0x0040_0000);
+    }
+    let mut n = Vec::new();
+    let mut p = a[0];
+    loop {
+        let c = e.mem.u16(p);
+        if c == 0 {
+            break;
+        }
+        n.push(if c < 0x80 { c as u8 } else { b'?' });
+        p += 2;
+    }
+    Ok(module_by_name(e, &n))
+}
+fn get_proc_address(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
+    // The host has no export table of its own to look in: a function asked for by name is
+    // reported once and answered null, which a plugin takes as "not there".
+    let name = if a[1] > 0xffff {
+        String::from_utf8_lossy(&e.mem.cstr(a[1])).into_owned()
+    } else {
+        format!("#{}", a[1])
+    };
+    let who = state(e).running.last().copied();
+    let file = who.map_or(String::new(), |i| state(e).plugins[i].file.clone());
+    report(e, format!("{file}: GetProcAddress({name}) answered null"));
+    Ok(0)
+}
+fn debug_break(_: &mut Engine, _: &[u32]) -> Result<u32, Stop> {
+    Err(Stop::Missing(
+        "a breakpoint (DebugBreak): the plugin saw something it refuses".into(),
+    ))
+}
+
 /// (name, function, argument words); all stdcall.
 pub const KERNEL32: &[(&str, HostFn, u32)] = &[
     ("ExitProcess", exit_process, 1),
+    ("GetModuleHandleA", get_module_handle, 1),
+    ("GetModuleHandleW", get_module_handle_w, 1),
+    ("LoadLibraryA", get_module_handle, 1),
+    ("GetProcAddress", get_proc_address, 2),
+    ("DebugBreak", debug_break, 0),
     ("DecodePointer", identity, 1),
     ("EncodePointer", identity, 1),
     ("WriteFile", write_file, 5),
