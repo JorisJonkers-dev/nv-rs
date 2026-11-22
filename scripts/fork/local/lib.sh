@@ -102,7 +102,9 @@ dev_smoke() {
       if command -v grim >/dev/null; then grim "$f"; elif command -v spectacle >/dev/null; then spectacle -b -n -o "$f"; fi ) &
   fi
   dev_run_viewer "$secs"
-  python3 "$HERE/smoke_report.py" "$LOG" "$RC" "$secs"
+  local tool="$DEV_TARGET/debug/nv-rs-scene"
+  [ -x "$tool" ] || { echo "no $tool: run 'nv-rs-dev scene build' first" >&2; return 2; }
+  "$tool" smoke-report "$LOG" "$RC" "$secs"
 }
 
 dev_check() {

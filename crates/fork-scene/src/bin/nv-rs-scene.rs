@@ -349,6 +349,216 @@ fn bench(args: &[String]) -> Result<bool, String> {
     Ok(result.ok)
 }
 
+/// `nv-rs-scene guard status | clear-halt`: the halt file the memory guard writes when it stops a run.
+fn guard_command(args: &[String]) -> Result<bool, String> {
+    let file = fork_scene::guard::halt_path();
+    match args.first().map(String::as_str) {
+        Some("status") => {
+            match fork_scene::guard::halted(&file) {
+                Some(reason) => println!("runs are halted: {reason} ({})", file.display()),
+                None => println!("runs are not halted"),
+            }
+            Ok(true)
+        }
+        Some("clear-halt") => {
+            println!(
+                "{}",
+                if fork_scene::guard::clear_halt(&file) {
+                    "the halt is cleared"
+                } else {
+                    "runs were not halted"
+                }
+            );
+            Ok(true)
+        }
+        _ => Err("usage: nv-rs-scene guard status | clear-halt".into()),
+    }
+}
+
+fn home() -> PathBuf {
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+}
+
+fn dev_target() -> PathBuf {
+    std::env::var_os("NV_DEV_TARGET")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".cache/nv-rs/target"))
+}
+
+/// `nv-rs-scene matrix --ref R ... [--baseline R] [--suite quick] --game DIR --lock FILE [--repo DIR] [--out DIR]
+/// [--no-test] [--no-bench]`: builds, tests and benches many refs and compares each with the baseline.
+fn matrix_command(args: &[String]) -> Result<bool, String> {
+    let mut launcher = CappedLauncher::default();
+    let mut req = fork_scene::matrix::MatrixRequest {
+        repo: std::env::current_dir().unwrap_or_default(),
+        refs: Vec::new(),
+        baseline: None,
+        suite: "quick".into(),
+        game: PathBuf::new(),
+        lock: PathBuf::new(),
+        out: home().join(".local/state/nv-rs/matrix").join(tool::stamp()),
+        bin_cache: home().join(".cache/nv-rs/matrix-bin"),
+        target: dev_target(),
+        test: true,
+        bench: true,
+        userdata: None,
+        gpu_sysfs: PathBuf::from("/sys/class/drm"),
+    };
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
+        match a.as_str() {
+            "--ref" => req.refs.push(value(a)?),
+            "--baseline" => req.baseline = Some(value(a)?),
+            "--suite" => req.suite = value(a)?,
+            "--game" => req.game = PathBuf::from(value(a)?),
+            "--lock" => req.lock = PathBuf::from(value(a)?),
+            "--repo" => req.repo = PathBuf::from(value(a)?),
+            "--out" => req.out = PathBuf::from(value(a)?),
+            "--userdata" => req.userdata = Some(PathBuf::from(value(a)?)),
+            "--gpu-sysfs" => req.gpu_sysfs = PathBuf::from(value(a)?),
+            "--no-test" => req.test = false,
+            "--no-bench" => req.bench = false,
+            other => {
+                if !take_cap(&mut launcher.cap, other, &mut it)? {
+                    return Err(format!("unknown argument {other}"));
+                }
+            }
+        }
+    }
+    if req.bench && (req.game.as_os_str().is_empty() || req.lock.as_os_str().is_empty()) {
+        return Err("usage: nv-rs-scene matrix --ref R [--ref R]... [--baseline R] [--suite quick|mojave|soak|capital] --game DIR --lock FILE [--repo DIR] [--out DIR] [--no-test] [--no-bench]".into());
+    }
+    let result = fork_scene::matrix::matrix(&req, &launcher, &say)?;
+    println!("{}", result.markdown);
+    println!("report: {}", result.dir.join("matrix.md").display());
+    Ok(result.ok)
+}
+
+/// `nv-rs-scene clean [--all] [--yes] [--repo DIR]`: lists what it would remove with sizes; `--yes` removes it.
+fn clean_command(args: &[String]) -> Result<bool, String> {
+    let mut repo = std::env::current_dir().unwrap_or_default();
+    let (mut all, mut apply) = (false, false);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--all" => all = true,
+            "--yes" => apply = true,
+            "--repo" => repo = PathBuf::from(it.next().ok_or("--repo needs a value")?),
+            other => return Err(format!("unknown argument {other}")),
+        }
+    }
+    let lines = fork_scene::matrix::clean(
+        &repo,
+        &home().join(".cache/nv-rs/matrix-bin"),
+        &dev_target(),
+        &home().join(".local/state/nv-rs/matrix"),
+        all,
+        apply,
+    )?;
+    for l in &lines {
+        println!("{}{l}", if apply { "removed " } else { "would remove " });
+    }
+    if lines.is_empty() {
+        println!("nothing to remove");
+    } else if !apply {
+        println!("nothing was removed: give --yes to remove these");
+    }
+    Ok(true)
+}
+
+/// `nv-rs-scene replay streams | info|pack|synth ARGS | run STREAM [ARGS] [--lock FILE] [--wait-timeout S] [--no-lock]`.
+fn replay_command(args: &[String]) -> Result<bool, String> {
+    use fork_scene::replay as r;
+    let usage = "usage: nv-rs-scene replay streams | info|pack|synth ARGS | run STREAM [ARGS] [--lock FILE] [--wait-timeout SECONDS] [--no-lock] [--label NAME] [--no-cap]";
+    let (cmd, rest) = args.split_first().ok_or(usage)?;
+    if cmd == "streams" {
+        for (name, size) in r::listing(&r::streams_dir()) {
+            println!("{name}\t{size} bytes");
+        }
+        return Ok(true);
+    }
+    if !["info", "pack", "synth", "run"].contains(&cmd.as_str()) {
+        return Err(usage.into());
+    }
+    let mut cap = Cap::default();
+    let (mut lock, mut wait, mut use_lock, mut passed) = (
+        home().join("Games/Fallout New Vegas RS/game.lock"),
+        None,
+        true,
+        Vec::new(),
+    );
+    let mut it = rest.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--lock" if cmd == "run" => {
+                lock = PathBuf::from(it.next().ok_or("--lock needs a value")?)
+            }
+            "--wait-timeout" if cmd == "run" => {
+                wait = Some(number(
+                    "--wait-timeout",
+                    it.next().ok_or("--wait-timeout needs a value")?,
+                )?)
+            }
+            "--no-lock" if cmd == "run" => use_lock = false,
+            "--label" | "--who" | "--mem" | "--no-cap" if cmd == "run" => {
+                take_cap(&mut cap, a, &mut it)?;
+            }
+            _ => passed.push(a.clone()),
+        }
+    }
+    if matches!(cmd.as_str(), "info" | "run") {
+        if let Some(first) = passed.first_mut() {
+            let found = r::resolve(first, &r::streams_dir()).ok_or(format!(
+                "no stream {first:?} (path, or a name in {})",
+                r::streams_dir().display()
+            ))?;
+            *first = found.display().to_string();
+        }
+    }
+    let binary = r::binary();
+    if !binary.exists() {
+        return Err(format!(
+            "no {}: run `nv-rs-dev replay build`",
+            binary.display()
+        ));
+    }
+    if cmd != "run" {
+        let status = std::process::Command::new(&binary)
+            .arg(cmd)
+            .args(&passed)
+            .status()
+            .map_err(|e| e.to_string())?;
+        return Ok(status.success());
+    }
+    passed.insert(0, "run".into());
+    let code = r::run(
+        &r::ReplayRun {
+            binary,
+            args: passed,
+            lock: use_lock.then_some(lock),
+            wait_timeout_s: wait,
+            timeout_s: 300,
+            gpu_sysfs: PathBuf::from("/sys/class/drm"),
+            cap,
+        },
+        &say,
+    )?;
+    Ok(code == 0)
+}
+
+/// `nv-rs-scene smoke-report LOG RC SECONDS`: the checklist of `nv-rs-dev smoke`.
+fn smoke_report(args: &[String]) -> Result<bool, String> {
+    let [log, rc, secs] = args else {
+        return Err("usage: nv-rs-scene smoke-report LOG RC SECONDS".into());
+    };
+    let text = String::from_utf8_lossy(&std::fs::read(log).map_err(|e| format!("{log}: {e}"))?)
+        .into_owned();
+    let (out, ok) = fork_scene::smoke::report(&text, log, rc, secs);
+    print!("{out}");
+    Ok(ok)
+}
+
 fn bench_compare(args: &[String]) -> Result<bool, String> {
     let [a, b] = args else {
         return Err("usage: nv-rs-scene bench-compare A.json B.json".into());
@@ -404,7 +614,7 @@ fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if matches!(
         args.first().map(String::as_str),
-        Some("run" | "soak" | "bench" | "sweep")
+        Some("run" | "soak" | "bench" | "sweep" | "matrix")
     ) {
         let cwd = std::env::current_dir().unwrap_or_default();
         match expand_args(&args[1..], &cwd) {
@@ -422,6 +632,11 @@ fn main() -> ExitCode {
         Some("bench") => bench(&args[1..]),
         Some("sweep") => sweep(&args[1..]),
         Some("bench-compare") => bench_compare(&args[1..]),
+        Some("guard") => guard_command(&args[1..]),
+        Some("matrix") => matrix_command(&args[1..]),
+        Some("smoke-report") => smoke_report(&args[1..]),
+        Some("clean") => clean_command(&args[1..]),
+        Some("replay") => replay_command(&args[1..]),
         _ => {
             eprintln!("usage: nv-rs-scene compare [--max-mean N] [--diff-out DIR] A B | run --viewer BIN --game DIR --places FILE --out DIR [--variant NAME[=OVERLAY]]...");
             return ExitCode::from(2);

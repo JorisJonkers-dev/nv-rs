@@ -661,43 +661,44 @@ the default placement is the right one; `setpos` stays only as the test for nv-r
 
 | asked for | command | missing |
 | --- | --- | --- |
-| engine benchmark in Rust | `nv-rs-scene bench --suite quick` (real clock, exclusive game lock, warm-up and median of passes, `summary.json`, suite table with the change against the previous suite and a baseline, `--save-baseline`), `bench-compare A.json B.json`, a walking place (`path`) | see "The old Python harness" below: what is ported, what needs nothing, what remains; the Contract v1 file (nv-rs#231) is not published yet, so the summary follows the old harness's keys plus `schema_version`; one machine's numbers only |
+| engine benchmark in Rust | `nv-rs-scene bench --suite quick` (real clock, exclusive game lock, warm-up and median of passes, `summary.json`, suite table with the change against the previous suite and a baseline, `--save-baseline`), `bench-compare A.json B.json`, a walking place (`path`) | see "The old Python harness is gone" below; the Contract v1 file (nv-rs#231) is not published yet, so the summary follows the old harness's keys plus `schema_version`; one machine's numbers only |
 | spawning in specific locations | `NV_SCENE` place file: world, position, heading, pitch, or a reference with an offset | interiors (no cell by name), places by a worldspace that is not in the load order |
 | loading into places | the runner's placement through the game's own exterior loader; one start for any number of places | no menu or intro is shown; the start is 6 s of data load (12 s on TTW) |
 | no main menu needed | done: the runner sends the player from the menu in frame 121 | the start screens (intro videos) are not skipped, only passed |
 | stability tests | `nv-rs-scene soak` (places, N frames each, counts stops, errors, warnings, exits non-zero) | no long-run memory growth check; #455 and #474 cases are place files (#474 fails until fixed) |
 | pictures of areas, a frozen frame | `nv-rs-scene run` (variants, same place file, per-view difference) | cloud/brush phase differs by one frame between rare runs (nv-rs#484); `compare --noise` is the workaround |
-| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool, `nv-rs-dev scene <build\|run\|soak\|bench\|compare\|bench-compare>` | `scripts/fork/bench/` Python still runs the window-driven scenarios and the matrix and replay benches (not removed: see "The old Python harness") |
+| all in Rust, no shell/Python | `fork-scene` and `fork-scene-run` crates, the `nv-rs-scene` tool, `nv-rs-dev scene <build\|run\|soak\|bench\|compare\|bench-compare>` | done: the Python harness is deleted (see "The old Python harness is gone") |
 
-## The old Python harness (`scripts/fork/bench/`): ported, not needed, remaining
+## The old Python harness (`scripts/fork/bench/`) is gone
 
-For nv-rs#328 and #348. Piece by piece:
+For nv-rs#328 and #348. Every piece is in the Rust tool or retired:
 
 | old piece | here |
 | --- | --- |
-| bench lock (`lock.py`) | ported: `--game-lock FILE` (shared) and `bench --lock FILE` (exclusive), the same file `~/Games/"Fallout New Vegas RS"/game.lock` |
-| suites, summary, baselines, compare (`suite.py`, `report.py`) | ported: `bench --suite`, `summary.json`, `--save-baseline`, `--baseline`, `bench-compare` |
-| host memory cap (the guard's systemd scope) | `gamerun` scope, `MemoryMax`, `MemoryHigh`, `MemorySwapMax=0`, per start (`--mem`, `--no-cap`) |
-| VRAM and GTT checks of the guard: the refusal at the start, the engine's budget | ported, `crates/fork-scene/src/guard.rs`: a start is refused when the halt file exists or the card's free VRAM or GTT cannot hold half the VRAM (a quarter of the GTT) plus 2048 (1024) MiB kept for the desktop; the engine gets `NV_GPU_BUDGET_MB`; a card that cannot be read (no amdgpu sysfs) is not refused (`--gpu-sysfs DIR` points at another folder) |
-| nested window session (`nested.py`), input driver (`vinput.py`, `driver.py`) | not needed: the offscreen run has no window and no input; the runner places the player itself |
-| noisy-run scan | ported: `noisy` in `summary.json` (another `nv-viewer` running at the start or end) |
-| scenarios that play the game: new game, character creation, Doc Mitchell's house from the first start, combat, save and continue, the Ctrl (sneak) check, the real-input walk, the 20-minute soak (`scenarios.py`) | not ported. They test input and the game's opening, not places. Places, far moves, walking (`path`) and interiors (`cell`) are covered; the opening is not |
+| bench lock (`lock.py`) | `--game-lock FILE` (shared) and `bench --lock FILE` (exclusive), the file `~/Games/"Fallout New Vegas RS"/game.lock` |
+| suites, summary, baselines, compare (`suite.py`, `report.py`) | `bench --suite`, `summary.json`, `--save-baseline`, `--baseline`, `bench-compare` |
+| host memory cap (the guard's systemd scope) | `gamerun` scope, per start (`--mem`, `--no-cap`) |
+| start check (VRAM and GTT, the engine's budget, the halt file) | `crates/fork-scene/src/guard.rs` (`start_check`) |
+| the 100 ms sampler, the session check, writing the halt file | `guard.rs`: `Watch` (read the card every 100 ms inside every engine start, stop at 90% of the way to the cap; once a second the kernel log and the desktop's compositor and the engine's own budget refusal), `halt`; `nv-rs-scene guard status \| clear-halt` |
+| `nv-rs-dev bench` | forwards to `scene bench`; `bench clear-halt` is `guard clear-halt`, `bench compare` is `bench-compare` |
+| `nv-rs-dev matrix`, `compare`, `clean` (`matrix.py`) | `nv-rs-scene matrix`, `clean` (`crates/fork-scene/src/matrix.rs`); remote hosts, the old harness's configuration axes and the HTML page are not carried over |
+| `nv-rs-dev replay` (`d3d9replay.py`) | `nv-rs-scene replay` (`crates/fork-scene/src/replay.rs`) |
+| `nv-rs-dev smoke`'s checklist (`smoke_report.py`) | `nv-rs-scene smoke-report` (`crates/fork-scene/src/smoke.rs`) |
+| nested window session (`nested.py`), input driver (`vinput.py`, `driver.py`, `drivers.py`), views (`views.py`, `menu_view.py`) | not needed: the offscreen run has no window and no input; the runner places the player itself |
+| noisy-run scan | `noisy` in `summary.json` (another `nv-viewer` running at the start or end) |
+| scenarios that play the game with real input: new game, character creation, Doc Mitchell's house from the first start, combat, save and continue, the Ctrl (sneak) check, the 20-minute walk (`scenarios.py`) | gone, not ported: the tool tests places, not the opening. Release test steps 3 and 5 are done by hand (RELEASE-TEST.md) |
+| log parsing of old run folders (`parse.py`, `timeline.py`, `report.py`, `watch.py`, `record.py`, `replay.py`) | gone; `nv-rs-dev hitches`, `runs` and `logs` read the engine's own logs |
 
-Not ported and not replaced yet:
+The differential test of nv-rs#328 ("on the same recorded run files the Rust and Python versions give equal `summary.json`") cannot
+be done as written: the Rust bench reads the engine's own log, not recorded run files. The Python self-tests were run once
+before the deletion: `python3 -I -m unittest discover -s scripts/fork/tests` 410 tests OK (the 212 of the eight deleted
+modules among them), `test_wif.py`, `check_data_gates.py`, `public_text.py` (and `--selftest`), `setup-anthropic-wif.py --selftest`
+and `create-app.py --selftest` exit 0; after the deletion 198 tests OK.
 
-- the 100 ms sampler that stops a run before the card's use reaches its cap, the kernel-log and desktop-compositor check
-  (the "session is in trouble" test) and writing the halt file; `nv-rs-dev bench clear-halt` (the Rust start check only reads the file);
-- `nv-rs-dev bench list | report | analyze` (reading the run folders of the old harness) and `nv-rs-dev matrix | compare`
-  (builds and benchmarks many refs and hosts; `scripts/fork/local/matrix.py` imports `bench/report.py`);
-- the replay bench (`nv-rs-dev replay`, `d3d9replay.py`, docs/fork/REPLAY.md): it replays a recorded Direct3D 9 stream
-  with its own binary and does not start the game; it needs its own port;
-- the differential test of nv-rs#328 ("on the same recorded run files the Rust and Python versions give equal
-  `summary.json`"): the Rust bench reads the engine's own log, not recorded run files, so it cannot be done as written.
-
-So the directory cannot be deleted yet: `nv-rs-dev` dispatches `bench`, `matrix` and `replay` to it, `matrix.py` imports it,
-the Python tests of `scripts/fork/tests` (`test_bench`, `test_guard`, `test_label`, `test_views`, `test_menu_walk`,
-`test_d3d9replay`, `test_watch`, `test_matrix`) are run by `task` (`unittest discover`), and BENCH.md, RELEASE-TEST.md, LOCAL.md and
-LOGGING.md describe it.
+Python and shell that stay on the game path, and why: `scripts/fork/local/nv-rs-dev` and `lib.sh` (the dev loop: build, `run` and
+`smoke` start the viewer in a window on the real display for a person, `test`, `check`, `ci-lite`; they only set the environment and
+call cargo or the tool); `scripts/fork/hitches.py`, `runs.py`, `logs.py` (read the engine's logs after a run, no game is started);
+`distribution/unix/play.sh`, `packaging/*` (the shipped launcher and installers).
 
 ## Bench
 

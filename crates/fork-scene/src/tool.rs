@@ -465,12 +465,18 @@ pub struct Variant {
 /// The exit status [`SoakResult::exit_status`] holds for a start the tool killed because its log went silent.
 pub const HUNG: i32 = -99;
 
+/// The exit status [`SoakResult::exit_status`] holds for a start the memory guard stopped.
+pub const GUARD_STOPPED: i32 = -98;
+
 /// How an engine start ended.
 #[derive(Clone, Debug, PartialEq)]
 pub enum StartEnd {
     Exit(i32),
     /// The engine's log stayed silent for the stall limit and the start was killed.
     Hung,
+    /// The memory guard stopped the start (the card's use neared its cap, the session was in trouble, or the engine
+    /// refused an allocation past its budget): the reason. The bench runs are halted until `guard clear-halt`.
+    Stopped(String),
 }
 
 struct Opts<'a> {
@@ -596,6 +602,18 @@ impl MemSeen {
     }
 }
 
+/// Kills an engine start: its whole scope when it runs in one (so the game process goes too), then the child.
+fn kill_start(mem: &MemSeen, child: &mut std::process::Child) {
+    if let Some(scope) = mem.dir.as_ref().and_then(|d| d.file_name()) {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "kill", "--signal=SIGKILL"])
+            .arg(scope)
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn start_one(
     name: &str,
     overlays: &[PathBuf],
@@ -605,11 +623,10 @@ fn start_one(
 ) -> Result<StartEnd, String> {
     let start = o.start;
     // The card's part of the memory guard: refused when the runs are halted or the card has no room for the budget.
-    let halt_file = std::env::var_os("HOME")
-        .map(|h| PathBuf::from(h).join(".cache/nv-rs/bench.halt"))
-        .unwrap_or_default();
-    let gpu = crate::guard::check(&start.gpu_sysfs, &halt_file)
+    let halt_file = crate::guard::halt_path();
+    let guarded = crate::guard::start_check(&start.gpu_sysfs, &halt_file)
         .map_err(|e| format!("refused by the memory guard: {e}"))?;
+    let gpu = guarded.as_ref().map(|g| g.caps);
     let dir = start.out.join(name);
     // A packed overlay names its plugins: every plugin file at its top.
     let mut plugins = Vec::new();
@@ -693,6 +710,7 @@ fn start_one(
     } = launcher.launch(&spec, log)?;
     // The scope's memory, read while the engine runs (the scope is gone when it ends).
     let mut mem = MemSeen::default();
+    let mut watch = guarded.map(crate::guard::Watch::new);
     let mut progress_at = 0u64;
     let mut progress_clock = std::time::Instant::now();
     let mut last_moved = std::time::Instant::now();
@@ -703,6 +721,16 @@ fn start_one(
         }
         if let Some(prefix) = &scope_prefix {
             mem.poll(prefix);
+        }
+        if let Some(w) = watch.as_mut() {
+            if let Some(why) = w.step(&dir.join("run.log"), &[child.id()]) {
+                kill_start(&mem, &mut child);
+                let _ = crate::guard::halt(&halt_file, &why);
+                say(&format!(
+                    "{name}: memory guard: {why}: the start was stopped; later runs are halted (`nv-rs-scene guard clear-halt`)"
+                ));
+                return Ok(StartEnd::Stopped(why));
+            }
         }
         if let Some(report) = o.progress {
             if progress_clock.elapsed().as_secs() >= 3 {
@@ -718,14 +746,7 @@ fn start_one(
                 last_len = len;
                 last_moved = std::time::Instant::now();
             } else if last_moved.elapsed().as_secs() >= o.stall_s {
-                if let Some(scope) = mem.dir.as_ref().and_then(|d| d.file_name()) {
-                    let _ = std::process::Command::new("systemctl")
-                        .args(["--user", "kill", "--signal=SIGKILL"])
-                        .arg(scope)
-                        .status();
-                }
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_start(&mem, &mut child);
                 say(&format!(
                     "{name}: hung: the log was silent for {} s, the start was killed",
                     o.stall_s
@@ -733,7 +754,7 @@ fn start_one(
                 return Ok(StartEnd::Hung);
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     };
     if let Some(report) = o.progress {
         progress_poll(report, &log_path, &mut progress_at);
@@ -830,6 +851,9 @@ impl RunResult {
                 )),
                 Ok(StartEnd::Hung) => {
                     s.push_str(&format!("{}: hung, see {}\n", v.name, v.log.display()))
+                }
+                Ok(StartEnd::Stopped(why)) => {
+                    s.push_str(&format!("{}: stopped by the memory guard: {why}\n", v.name))
                 }
                 Err(e) => s.push_str(&format!("{}: {e}\n", v.name)),
             }
@@ -1016,6 +1040,8 @@ pub struct SoakResult {
     /// The engine's exit status ([`HUNG`] when the tool killed it for a silent log).
     pub exit_status: i32,
     pub hung: bool,
+    /// Why the memory guard stopped the start ([`GUARD_STOPPED`] is the exit status then).
+    pub stopped: Option<String>,
     pub seconds: f64,
     pub scan: LogScan,
     /// `scan.rows` parsed.
@@ -1129,9 +1155,10 @@ pub fn soak(req: &SoakRequest, launcher: &dyn Launcher, say: Say) -> Result<Soak
     say(&launcher.describe(opts.concurrent));
     let overlays: Vec<PathBuf> = req.overlay.iter().cloned().collect();
     let end = start_one("soak", &overlays, &opts, launcher, say)?;
-    let (code, hung) = match end {
-        StartEnd::Exit(c) => (c, false),
-        StartEnd::Hung => (HUNG, true),
+    let (code, hung, stopped) = match end {
+        StartEnd::Exit(c) => (c, false, None),
+        StartEnd::Hung => (HUNG, true, None),
+        StartEnd::Stopped(why) => (GUARD_STOPPED, false, Some(why)),
     };
     let secs = t.elapsed().as_secs_f64();
     let dir = req.start.out.join("soak");
@@ -1175,6 +1202,7 @@ pub fn soak(req: &SoakRequest, launcher: &dyn Launcher, say: Say) -> Result<Soak
         ok,
         exit_status: code,
         hung,
+        stopped,
         seconds: secs,
         timings,
         places_expected,
@@ -1323,6 +1351,8 @@ pub fn sweep(req: &SweepRequest, launcher: &dyn Launcher, say: Say) -> Result<Sw
         }
         let why = if r.hung {
             "hung (the engine's log went silent past the stall limit)".to_string()
+        } else if let Some(g) = &r.stopped {
+            format!("stopped by the memory guard: {g}")
         } else {
             format!(
                 "exit status {}, {} stops, {} error lines",
@@ -1391,7 +1421,7 @@ pub const SUITES: [(&str, &str); 4] = [
 ];
 
 /// Other `nv-viewer` processes running now (a bench that shared the machine is marked noisy).
-fn other_viewers() -> u32 {
+pub fn other_viewers() -> u32 {
     let Ok(dir) = std::fs::read_dir("/proc") else {
         return 0;
     };

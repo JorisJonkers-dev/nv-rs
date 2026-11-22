@@ -21,8 +21,9 @@ is kept as a container (`*.nvrs`, `crates/d3d9-replay/src/container.rs`): a magi
 was recorded with (a stream of another build is refused with both hashes in the message), a few numbers about it and
 the wire file compressed.
 
-1. Record a run with the viewer, through the bench, at 640x480 at the most:
-   `NV_D3D9_RECORD=~/.local/share/nv-rs-research/streams/raw/newgame.d3d9s nv-rs-dev bench run newgame --threads real --resolution 640x480`.
+1. Record a run with the viewer, through the scene tool, at 640x480 at the most:
+   `nv-rs-dev scene soak --places PLACES.toml --out OUT --env NV_D3D9_RECORD=~/.local/share/nv-rs-research/streams/raw/newgame.d3d9s --env NV_RESOLUTION=640x480`
+   (or start the viewer by hand with `NV_D3D9_RECORD` set).
    The file holds every command of the run from the first (the whole run's resources), so it is large.
 2. `nv-rs-dev replay info FILE` lists the commands and the draws a frame in runs of 100 frames, to choose a window.
 3. `nv-rs-dev replay pack RAW OUT --scene doc-room --from 2400 --frames 60` cuts the window out
@@ -33,7 +34,7 @@ the wire file compressed.
 ## Measuring
 
 `nv-rs-dev replay build` makes the release binary in the loop's target dir. `nv-rs-dev replay run doc-room --backend all
---runs 5` takes the machine-wide bench lock (`~/.cache/nv-rs/bench.lock`, as `bench run`: nobody else measures while it
+--runs 5` takes the machine-wide game lock exclusively (`~/Games/Fallout New Vegas RS/game.lock`, `--lock FILE` names another; as `bench`: nobody else measures while it
 runs) and prints, for each run of each backend:
 
 - `us/draw`: the commands of a frame up to its present over the frame's draws (state, binds and constants included:
@@ -60,4 +61,4 @@ run never does. `nv-rs-dev replay synth OUT` writes a made-up scene (no game dat
 
 `cargo test -p d3d9-replay`: the container round trip and its refusals, the cut of a window, the rescale, the null
 backend's determinism, and the synthetic scene replayed into wgpu (on lavapipe in CI; it skips without an adapter).
-`scripts/fork/tests/test_d3d9replay.py`: the wrapper and the lock.
+`cargo test -p fork-scene replay`: the wrapper (the stream names, the lock, the status codes, the timeout).

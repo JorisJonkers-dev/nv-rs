@@ -16,14 +16,10 @@ Mission Center does not show cgroups or user units; only the executable's file n
 through a hard link named after the label, next to the real file (libraries and data found beside the program are found),
 or a copy where a link cannot be made. The link is removed when the run ends.
 
-## The bench
+## The scene tool
 
-`nv-rs-dev bench run` labels the viewer by default: `bench-<scenario>-<variant>`, the variant being the game folder's name
-(its parent's when the folder is called `game`) and the preset when it is not `fixes`. To choose the label, set
-`NV_BENCH_LABEL=<label>` in the environment. The label is written to `label.txt` and a `# label:` line in `viewer.log` of the
-run directory and to `label` and `scope` in the run's record, so results and monitor rows can be matched. The nested
-compositor's scope is `nvsway-<label>-<n>.scope` in the same slice. The check for other viewers during a measurement
-counts a labelled viewer (the first process of an `nvgame-*` scope) as well as a process called `nv-viewer*`.
+`nv-rs-scene` starts every engine as a `gamerun` scope labelled `<--label>-<variant>` (`scene-<kind>-<variant>-<pid>` without
+`--label`), with `--who` as the owner and a memory limit (docs/fork/SCENE.md, "What caps a run's memory").
 
 ## Other runs: `gamerun`
 
