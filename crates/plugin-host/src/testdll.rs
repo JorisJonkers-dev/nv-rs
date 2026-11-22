@@ -74,6 +74,16 @@ pub fn build(extra_import: Option<&str>, spin: bool) -> Vec<u8> {
 
 /// [`build`] with the second import from a DLL of its own; its answer is stored in `G_EXTRA`.
 pub fn build_from(extra_import: Option<(&str, &str)>, spin: bool) -> Vec<u8> {
+    assemble(extra_import, spin, false)
+}
+
+/// [`build`] whose `Load` also writes `0xCAFEBABE` to the game's address `0x00500123` and keeps
+/// the word it reads from `0x00500200` in `G_EXTRA`.
+pub fn build_patching() -> Vec<u8> {
+    assemble(None, false, true)
+}
+
+fn assemble(extra_import: Option<(&str, &str)>, spin: bool, patch: bool) -> Vec<u8> {
     let mut s = vec![0u8; 0x800];
     let mut relocs: Vec<u32> = Vec::new();
     put_str(&mut s, NAME, "TestPlugin");
@@ -136,6 +146,16 @@ pub fn build_from(extra_import: Option<(&str, &str)>, spin: bool) -> Vec<u8> {
         c.extend([0xff, 0x15]); // call [IAT2]: the import the host does not provide
         relocs.push(CODE + c.len() as u32);
         c.extend(abs(IAT2).to_le_bytes());
+        c.push(0xa3); // mov [G_EXTRA],eax
+        relocs.push(CODE + c.len() as u32);
+        c.extend(abs(G_EXTRA).to_le_bytes());
+    }
+    if patch {
+        c.extend([0xc7, 0x05]); // mov dword [0x00500123],0xCAFEBABE
+        c.extend(0x0050_0123u32.to_le_bytes());
+        c.extend(0xCAFE_BABEu32.to_le_bytes());
+        c.push(0xa1); // mov eax,[0x00500200]
+        c.extend(0x0050_0200u32.to_le_bytes());
         c.push(0xa3); // mov [G_EXTRA],eax
         relocs.push(CODE + c.len() as u32);
         c.extend(abs(G_EXTRA).to_le_bytes());
@@ -348,5 +368,42 @@ pub fn build_runtime(exports: &[(&str, &[u8])]) -> Vec<u8> {
     put32(&mut f, sh + 20, 0x200);
     put32(&mut f, sh + 36, 0xe000_0060);
     f[0x200..0x200 + s.len()].copy_from_slice(&s);
+    f
+}
+
+/// A made-up executable for the code-image tests: image base 0x400000, a `.text` of `text`
+/// at 0x401000 (and a `.bind` section when `packed`), nothing else.
+pub fn build_exe(text: &[u8], packed: bool) -> Vec<u8> {
+    let base = 0x0040_0000u32;
+    let nsec = if packed { 2 } else { 1 };
+    let raw = (text.len() as u32 + 0x1ff) & !0x1ff;
+    let mut f = vec![0u8; 0x200 + (raw as usize) * nsec];
+    f[0] = b'M';
+    f[1] = b'Z';
+    put32(&mut f, 0x3c, 0x40);
+    f[0x40..0x44].copy_from_slice(b"PE\0\0");
+    put16(&mut f, 0x44, 0x14c);
+    put16(&mut f, 0x46, nsec as u16);
+    put16(&mut f, 0x54, 0xe0);
+    put16(&mut f, 0x56, 0x0102);
+    let o = 0x58;
+    put16(&mut f, o, 0x10b);
+    put32(&mut f, o + 16, 0x1000);
+    put32(&mut f, o + 28, base);
+    put32(&mut f, o + 32, 0x1000);
+    put32(&mut f, o + 36, 0x200);
+    put32(&mut f, o + 56, 0x1000 + 0x1000 * nsec as u32);
+    put32(&mut f, o + 60, 0x200);
+    put32(&mut f, o + 92, 16);
+    for (i, name) in [".text", ".bind"].iter().take(nsec).enumerate() {
+        let sh = o + 0xe0 + 40 * i as u32;
+        put_str(&mut f, sh, name);
+        put32(&mut f, sh + 8, text.len() as u32);
+        put32(&mut f, sh + 12, 0x1000 + 0x1000 * i as u32);
+        put32(&mut f, sh + 16, raw);
+        put32(&mut f, sh + 20, 0x200 + raw * i as u32);
+        let at = 0x200 + (raw as usize) * i;
+        f[at..at + text.len()].copy_from_slice(text);
+    }
     f
 }

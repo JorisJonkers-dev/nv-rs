@@ -655,6 +655,117 @@ mod runtime_functions {
 }
 
 #[test]
+fn a_write_into_the_games_code_is_kept_as_a_site_and_a_read_gives_zero() {
+    let mut e = engine();
+    set_enabled(&mut e, true);
+    let i = load(&mut e, "patcher.dll", &dll::build_patching()).expect("loads");
+    let p = plugins_loaded(&mut e)[i].clone();
+    // The read of the game's code (not supplied) answered zero.
+    assert_eq!(e.mem.u32(p.base + 0x1000 + dll::G_EXTRA), 0);
+    let sites = patch_sites(&mut e);
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert_eq!(
+        (
+            sites[0].plugin.as_str(),
+            sites[0].addr,
+            sites[0].bytes.clone()
+        ),
+        (
+            "patcher.dll",
+            0x0050_0123,
+            0xCAFE_BABEu32.to_le_bytes().to_vec()
+        )
+    );
+    // No function is translated at that address: the inside of one.
+    assert!(!sites[0].function_entry);
+    assert!(sites[0].describe().contains("inside a function"));
+    assert_eq!(code_reads(&mut e), vec![("patcher.dll".to_string(), 4)]);
+    let lines = reports(&mut e);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("patches the game's code: 1 write(s), 4 byte(s), dropped")),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn a_supplied_code_image_is_what_a_plugin_reads_and_a_packed_one_is_refused() {
+    let mut e = engine();
+    set_enabled(&mut e, true);
+    let mut text = vec![0u8; 0x400];
+    text[0x1ff] = 0xE8; // the game's byte at 0x4011ff... and the plugin reads 0x500200 below
+    assert_eq!(
+        supply_code_from_exe(&mut e, &dll::build_exe(&text, false)),
+        Ok(0x400)
+    );
+    assert!(supply_code_from_exe(&mut e, &dll::build_exe(&text, true)).is_err());
+    assert!(supply_code_from_exe(&mut e, b"MZ").is_err());
+    let mut other = dll::build_exe(&text, false);
+    other[0x58 + 28..0x58 + 32].copy_from_slice(&0x1000_0000u32.to_le_bytes());
+    assert!(supply_code_from_exe(&mut e, &other)
+        .unwrap_err()
+        .contains("image base"));
+    // Reads inside the image come back as the game has them; a plugin's own write wins.
+    let sh = state(&mut e).shadow.clone();
+    let mut b = [0u8; 2];
+    sh.borrow_mut().read(0x0040_11ff, &mut b);
+    assert_eq!(b, [0xE8, 0]);
+    sh.borrow_mut().write(0x0040_11ff, &[0x90]);
+    sh.borrow_mut().read(0x0040_11ff, &mut b);
+    assert_eq!(b, [0x90, 0]);
+    assert!(sh.borrow().reads.is_empty());
+    sh.borrow_mut().read(0x0050_0000, &mut b);
+    assert_eq!(sh.borrow().reads.len(), 2);
+}
+
+#[test]
+fn plugins_are_found_by_file_name_once_all_are_mapped() {
+    let mut e = engine();
+    set_enabled(&mut e, true);
+    let rt = dll::build_runtime(&[("f", &[0xc3])]);
+    supply_runtime(&mut e, "b.dll", &rt).unwrap();
+    let files = vec![("a.dll".to_string(), build(None, false))];
+    let r = load_many(&mut e, &files);
+    assert!(r.iter().all(Result::is_ok), "{r:?}");
+    let bases: Vec<u32> = plugins_loaded(&mut e).iter().map(|p| p.base).collect();
+    let bases = [bases[0], bases[1]];
+    let k = |e: &mut Engine, name: &[u8]| {
+        let s = e.mem.alloc(32);
+        e.mem.set_cstr(s, name);
+        winapi_call(e, "GetModuleHandleA", &[s])
+    };
+    assert_eq!(k(&mut e, b"A.DLL"), bases[1]);
+    assert_eq!(k(&mut e, b"Data\\NVSE\\Plugins\\b.dll"), bases[0]);
+    assert_eq!(k(&mut e, b"FalloutNV.exe"), 0x0040_0000);
+    assert_eq!(k(&mut e, b"nothing.dll"), 0);
+    assert_eq!(winapi_call(&mut e, "GetModuleHandleA", &[0]), 0x0040_0000);
+    // the wide form
+    let w = e.mem.alloc(32);
+    for (i, c) in "a.dll".encode_utf16().chain([0]).enumerate() {
+        e.mem.set_u16(w + 2 * i as u32, c);
+    }
+    assert_eq!(winapi_call(&mut e, "GetModuleHandleW", &[w]), bases[1]);
+    assert_eq!(winapi_call(&mut e, "GetModuleHandleW", &[0]), 0x0040_0000);
+    // GetProcAddress is reported and answers null; DebugBreak stops
+    assert_eq!(
+        winapi_call(&mut e, "GetProcAddress", &[bases[0], 0x1234]),
+        0
+    );
+    assert!(reports(&mut e)
+        .iter()
+        .any(|l| l.contains("GetProcAddress(#4660)")));
+    let name = e.mem.alloc(16);
+    e.mem.set_cstr(name, b"Func");
+    assert_eq!(winapi_call(&mut e, "GetProcAddress", &[bases[0], name]), 0);
+    assert!(winapi::lookup("kernel32.dll", "DebugBreak").unwrap().0(&mut e, &[]).is_err());
+}
+
+fn winapi_call(e: &mut Engine, name: &str, args: &[u32]) -> u32 {
+    winapi::lookup("kernel32.dll", name).unwrap().0(e, args).unwrap()
+}
+
+#[test]
 fn a_file_that_is_not_a_32_bit_dll_is_refused() {
     let mut e = engine();
     set_enabled(&mut e, true);
@@ -915,6 +1026,14 @@ mod interpreter {
             (Stop::Missing("x".into()), "wanted x"),
             (Stop::Exit, "end"),
             (Stop::Divide { eip: 9 }, "divide"),
+            (
+                Stop::HostFault {
+                    func: "memcpy".into(),
+                    addr: 3,
+                    write: true,
+                },
+                "memcpy was given",
+            ),
         ] {
             assert!(stop.to_string().contains(word), "{stop}");
         }

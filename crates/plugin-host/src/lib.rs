@@ -22,6 +22,7 @@
 //! plugin's place in xNVSE's plugin list. What is not built yet is listed in ADR-0018 and in the
 //! report of [`x86`].
 
+pub mod patches;
 pub mod pe;
 pub mod x86;
 
@@ -87,6 +88,9 @@ pub struct Plugin {
     pub failed: Option<String>,
     /// A runtime DLL the user supplied (msvcp140), not a plugin.
     pub runtime: bool,
+    /// The guest addresses of its `NVSEPlugin_Query` and `NVSEPlugin_Load`.
+    pub query_at: u32,
+    pub load_at: u32,
 }
 
 #[derive(Default)]
@@ -107,6 +111,8 @@ pub struct State {
     pub(crate) rt: crt::Rt,
     /// Whether a plugin's entry point runs (`DllMain`) before its `NVSEPlugin_Query`.
     entry_points: bool,
+    /// Writes into the game's code, kept ([`patches`]).
+    shadow: patches::Shared,
     /// Exports of the runtime DLLs the user supplied: (DLL file name lower case, name) -> address.
     runtime_exports: HashMap<(String, String), u32>,
 }
@@ -137,6 +143,81 @@ pub fn enabled(e: &mut Engine) -> bool {
 /// The report lines so far: one for each plugin that failed or wanted something missing.
 pub fn reports(e: &mut Engine) -> Vec<String> {
     state(e).reports.clone()
+}
+
+/// Supplies the executable's code: the sections of an unpacked FalloutNV.exe (1.4.0.525), which
+/// a plugin that checks the bytes it is about to patch then reads as the game has them. The
+/// Steam executable's code is encrypted and is refused (the unpacked file is the user's own, a
+/// GOG executable or one unpacked on their machine; nothing of it is kept or shipped). Without
+/// it the code reads as zeros and such a plugin refuses to patch. Returns the bytes supplied.
+pub fn supply_code_from_exe(e: &mut Engine, bytes: &[u8]) -> Result<usize, String> {
+    let image = pe::Pe::parse(bytes).map_err(|x| x.to_string())?;
+    if image.image_base != 0x0040_0000 {
+        return Err(format!(
+            "not the game's executable (image base {:#x})",
+            image.image_base
+        ));
+    }
+    if image.sections.iter().any(|s| s.name == ".bind") {
+        return Err("a packed executable (its code is encrypted): unpack it first".into());
+    }
+    let mut total = 0;
+    for s in image.sections.iter().filter(|s| s.name == ".text") {
+        let from = s.raw as usize;
+        let len = s.raw_size.min(s.vsize) as usize;
+        let data = bytes
+            .get(from..from + len)
+            .ok_or("the code section is cut short")?;
+        state(e)
+            .shadow
+            .borrow_mut()
+            .image
+            .push((0x0040_0000 + s.va, data.to_vec()));
+        total += len;
+    }
+    if total == 0 {
+        return Err("no .text section".into());
+    }
+    Ok(total)
+}
+
+/// The patch sites of every plugin so far, as it wrote them (merged where one write goes on
+/// where the last ended), each with whether it is the entry of a function the engine has.
+pub fn patch_sites(e: &mut Engine) -> Vec<patches::Site> {
+    let writes = state(e).shadow.borrow().writes.clone();
+    writes
+        .into_iter()
+        .map(|w| patches::Site {
+            plugin: state(e)
+                .plugins
+                .get(w.plugin)
+                .map_or_else(String::new, |p| p.file.clone()),
+            function_entry: e.is_translated(w.addr),
+            addr: w.addr,
+            bytes: w.bytes,
+        })
+        .collect()
+}
+
+/// How many distinct bytes of the game's code each plugin read (the file name, the count): the
+/// bytes are not available, so a plugin that checks them before it patches sees zeros.
+pub fn code_reads(e: &mut Engine) -> Vec<(String, usize)> {
+    let reads = state(e).shadow.borrow().reads.clone();
+    let mut by: std::collections::BTreeMap<usize, usize> = Default::default();
+    for (p, _) in reads {
+        *by.entry(p).or_default() += 1;
+    }
+    by.into_iter()
+        .map(|(p, n)| {
+            (
+                state(e)
+                    .plugins
+                    .get(p)
+                    .map_or_else(String::new, |p| p.file.clone()),
+                n,
+            )
+        })
+        .collect()
 }
 
 pub fn plugins_loaded(e: &mut Engine) -> Vec<Plugin> {
@@ -228,6 +309,11 @@ impl Bridge for Host {
                         .wrapping_add(if t.stdcall { 4 * t.argc } else { 0 });
                 Some(Ok(()))
             }
+            Err(Stop::Fault { addr, write }) => Some(Err(Stop::HostFault {
+                func: t.name,
+                addr,
+                write,
+            })),
             Err(stop) => Some(Err(stop)),
         }
     }
@@ -261,6 +347,8 @@ pub(crate) fn call_guest(
     cpu.push(e, RETURN_MAGIC)?;
     cpu.eip = addr;
     let st = state(e);
+    cpu.shadow = Some(st.shadow.clone());
+    let prior = std::mem::replace(&mut st.shadow.borrow_mut().who, plugin);
     st.sp = cpu.r[ESP].wrapping_sub(256);
     st.running.push(plugin);
     let budget = match state(e).budget {
@@ -269,6 +357,7 @@ pub(crate) fn call_guest(
     };
     let r = cpu.run(e, &mut Host, RETURN_MAGIC, budget);
     let st = state(e);
+    st.shadow.borrow_mut().who = prior;
     st.running.pop();
     st.sp = saved;
     r.map(|()| cpu.r[EAX])
@@ -329,19 +418,18 @@ fn k32_pid(_: &mut Engine, _: &[u32]) -> Result<u32, Stop> {
 fn k32_pseudo_handle(_: &mut Engine, _: &[u32]) -> Result<u32, Stop> {
     Ok(u32::MAX)
 }
-fn k32_module(_: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
-    // The game's own module: the exe's image base. Others are not provided.
-    Ok(if a[0] == 0 { 0x0040_0000 } else { 0 })
-}
 fn k32_virtual_protect(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     // `VirtualProtect(addr, size, new, *old)`: the model has no page rights to change.
     if a[3] != 0 {
-        e.mem
-            .try_write(a[3], &0x40u32.to_le_bytes())
-            .map_err(|_| Stop::Fault {
+        let wrote = e.mem.try_write(a[3], &0x40u32.to_le_bytes()).is_ok();
+        // A plugin that hands the game's own code as the place for the old rights is not
+        // patching it: nothing is kept.
+        if !wrote && !patches::in_image(a[3], 4) {
+            return Err(Stop::Fault {
                 addr: a[3],
                 write: true,
-            })?;
+            });
+        }
     }
     Ok(1)
 }
@@ -383,7 +471,6 @@ const SHIMS: &[(&str, &str, HostFn, u32, bool)] = &[
         0,
         true,
     ),
-    ("kernel32.dll", "GetModuleHandleA", k32_module, 1, true),
     (
         "kernel32.dll",
         "VirtualProtect",
@@ -788,7 +875,70 @@ pub fn supply_runtime(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<(), Lo
 /// Maps a plugin DLL's bytes, binds its imports, runs `NVSEPlugin_Query` and `NVSEPlugin_Load`
 /// and puts it in xNVSE's plugin list. `file` is the DLL's file name (xNVSE's order of plugins
 /// is by it). Returns the plugin's index. With the loader off nothing happens ([`LoadError::Off`]).
+/// A plugin that asks for another by its file name (`GetModuleHandle`) needs [`load_many`].
 pub fn load(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError> {
+    load_many(e, &[(file.to_string(), bytes.to_vec())])
+        .pop()
+        .unwrap_or(Err(LoadError::Off))
+}
+
+/// Loads plugins as xNVSE does: every DLL is mapped first (so a plugin can find another by its
+/// file name), then each is queried in the given order, then each is loaded. The answers are in
+/// the order of `files`.
+pub fn load_many(e: &mut Engine, files: &[(String, Vec<u8>)]) -> Vec<Result<usize, LoadError>> {
+    let mut mapped: Vec<Result<usize, LoadError>> = files
+        .iter()
+        .map(|(file, bytes)| map_one(e, file, bytes))
+        .collect();
+    for r in &mut mapped {
+        if let Ok(idx) = *r {
+            if let Err(x) = query_one(e, idx) {
+                *r = Err(x);
+            }
+        }
+    }
+    let mut queried: Vec<Option<usize>> = mapped.iter().map(|r| r.as_ref().ok().copied()).collect();
+    for (r, q) in mapped.iter_mut().zip(queried.iter_mut()) {
+        if let Some(idx) = *q {
+            if let Err(x) = load_one(e, idx) {
+                *r = Err(x);
+            }
+        }
+    }
+    // What each wrote into the game's code is reported once, as a count; the sites are in
+    // `patch_sites`.
+    for p in 0..state(e).plugins.len() {
+        report_patches(e, p);
+    }
+    mapped
+}
+
+fn report_patches(e: &mut Engine, idx: usize) {
+    let (writes, bytes) = {
+        let sh = state(e).shadow.borrow();
+        let mine = sh.writes.iter().filter(|w| w.plugin == idx);
+        (
+            mine.clone().count(),
+            mine.map(|w| w.bytes.len()).sum::<usize>(),
+        )
+    };
+    let file = state(e).plugins[idx].file.clone();
+    let reads = code_reads(e)
+        .into_iter()
+        .find(|(f, _)| *f == file)
+        .map_or(0, |r| r.1);
+    if writes > 0 || reads > 0 {
+        report(
+            e,
+            format!(
+                "{file}: patches the game's code: {writes} write(s), {bytes} byte(s), dropped (the code runs as translated Rust); read {reads} byte(s) of it"
+            ),
+        );
+    }
+}
+
+/// Phase 1: the file mapped, relocated, its imports bound, its entry point run when asked.
+fn map_one(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError> {
     if !state(e).on {
         return Err(LoadError::Off);
     }
@@ -813,11 +963,15 @@ pub fn load(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError
         })
         .map_err(|x| LoadError::Pe(x.to_string()))?;
     let idx = state(e).plugins.len();
+    let query = image.export("NVSEPlugin_Query").map(|r| base + r);
+    let load_fn = image.export("NVSEPlugin_Load").map(|r| base + r);
     state(e).plugins.push(Plugin {
         file: file.to_string(),
         name: file.to_string(),
         base,
         unresolved: unresolved.clone(),
+        query_at: query.unwrap_or(0),
+        load_at: load_fn.unwrap_or(0),
         ..Plugin::default()
     });
     if !unresolved.is_empty() {
@@ -827,13 +981,11 @@ pub fn load(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError
         );
         report(e, line);
     }
-    let query = image.export("NVSEPlugin_Query").map(|r| base + r);
-    let load_fn = image.export("NVSEPlugin_Load").map(|r| base + r);
-    let (Some(query), Some(load_fn)) = (query, load_fn) else {
+    if query.is_none() || load_fn.is_none() {
         let p = &mut state(e).plugins[idx];
         p.failed = Some("no NVSEPlugin_Query or NVSEPlugin_Load export".into());
         return Err(LoadError::NoQuery);
-    };
+    }
     // The DLL's entry point, as the loader runs it: C++ globals are made here.
     if image.entry != 0 && state(e).entry_points {
         let r = guarded(e, idx, "DllMain", base + image.entry, &[base, 1, 0]);
@@ -845,8 +997,16 @@ pub fn load(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError
             return Err(LoadError::Refused(why));
         }
     }
+    Ok(idx)
+}
+
+/// Phase 2: `NVSEPlugin_Query(nvse, info)`.
+fn query_one(e: &mut Engine, idx: usize) -> Result<(), LoadError> {
+    let (file, query) = {
+        let p = &state(e).plugins[idx];
+        (p.file.clone(), p.query_at)
+    };
     let nvse = state(e).nvse;
-    // NVSEPlugin_Query(nvse, info*)
     let info = e.mem.alloc(16);
     e.mem.zero(info, 16);
     let ok = guarded(e, idx, "NVSEPlugin_Query", query, &[nvse, info]);
@@ -862,15 +1022,23 @@ pub fn load(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError
     let name = if name != 0 {
         String::from_utf8_lossy(&e.mem.cstr(name)).into_owned()
     } else {
-        file.to_string()
+        file
     };
     let version = e.mem.u32(info + 8);
     e.mem.free(info);
-    {
-        let p = &mut state(e).plugins[idx];
-        p.name = name;
-        p.version = version;
-    }
+    let p = &mut state(e).plugins[idx];
+    p.name = name;
+    p.version = version;
+    Ok(())
+}
+
+/// Phase 3: `NVSEPlugin_Load(nvse)`, then the plugin's place in xNVSE's list.
+fn load_one(e: &mut Engine, idx: usize) -> Result<(), LoadError> {
+    let (file, load_fn) = {
+        let p = &state(e).plugins[idx];
+        (p.file.clone(), p.load_at)
+    };
+    let nvse = state(e).nvse;
     let ok = guarded(e, idx, "NVSEPlugin_Load", load_fn, &[nvse]);
     if ok.map(|v| v & 0xff) != Some(1) {
         let why = state(e).plugins[idx]
@@ -887,7 +1055,7 @@ pub fn load(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError
     plugins::register(
         e,
         BuiltIn {
-            file: Box::leak(file.to_string().into_boxed_str()),
+            file: Box::leak(file.into_boxed_str()),
             name: Box::leak(pname.into_boxed_str()),
             version,
             // A plugin with no commands has no opcode base: a base no opcode reaches.
@@ -904,7 +1072,7 @@ pub fn load(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError
             new_game: None,
         },
     );
-    Ok(idx)
+    Ok(())
 }
 
 #[cfg(test)]
