@@ -31,12 +31,12 @@ A new upstream-owned file needs a record in this file, in the same pull request,
 The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
 
 ### Far-object block with several shapes
-- Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`)
-- Upstream approach: upstream does nothing here; the block's prepare (`006f66e0` in the exe) gives the first child of the file's root node its shader and registers it with the renderer, and no other child
-- Fork approach: every child of the root node is prepared the same way
+- Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`), `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsterrainnode.rs` (`later_block_shapes`, `bgs_terrain_node_update_block_visibility`)
+- Upstream approach: upstream does nothing here; the exe expects one shape per block file: the load task (`006f71e0`) keeps child 0 of the file's root node as the block's mesh, the block's prepare (`006f66e0`) gives only that mesh its shader and registers it with the renderer, and `BGSTerrainNode::UpdateBlockVisibility` (`006fee90`) sets the segments of only that mesh's segmented shape. A segmented shape loads with every segment off, so any later shape draws nothing
+- Fork approach: every leaf child of the root node is prepared, and has its segments set, the same way as the first
 - Decision: keep; the exe's rule gives a file with several shapes only its first shape
-- Reason: far-object files made by xLODGen hold one shape per atlas texture; the later shapes were not drawn, so towers placed in them were missing
-- Evidence: `prepare_reaches_every_shape_of_the_root_node`; a run of a modded profile where the Strip's towers, in the third shape of one block, show after the change and not before
+- Reason: far-object files made by xLODGen and lodwright hold one shape per atlas texture (or more, split at the 16-bit limits); the later shapes were not drawn, so the Strip's towers, in the third shape of one block, were missing
+- Evidence: `prepare_reaches_every_shape_of_the_root_node`, `block_visibility_reaches_every_shape_of_the_block`; a modded profile with an xLODGen far-object mod draws the Strip's towers after the change and not before; the plain game's pictures at three views are unchanged (difference 0)
 
 ### Short names on Windows
 - Files: `crates/engine-platform/src/files.rs` (`search_finds_with_short_names`, the soft stops of `find_first_wild`; the fork's save tests in `tests_changed_directories`)
