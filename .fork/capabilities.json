@@ -1798,7 +1798,7 @@
     },
     {
       "commands": {
-        "implemented": 8,
+        "implemented": 10,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
@@ -1807,7 +1807,9 @@
           "InitExtraMiscStat",
           "Clamp",
           "Lerp",
-          "Sign"
+          "Sign",
+          "EditorIDToFormID",
+          "GetEditorID"
         ],
         "total": 412
       },
