@@ -10,6 +10,14 @@ use std::process::ExitCode;
 /// A variant's run: the engine's exit status and the seconds it took, or why it did not start.
 type RunResult = Result<(i32, f64), String>;
 
+/// `NAME=VALUE` for `--env`.
+fn env_pair(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .filter(|(k, _)| !k.is_empty())
+        .ok_or(format!("--env wants NAME=VALUE, got {s}"))
+}
+
 fn load(p: &Path) -> Result<fork_scene::diff::Picture, String> {
     decode_png(&std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?)
         .map_err(|e| format!("{}: {e}", p.display()))
@@ -91,6 +99,24 @@ fn run(args: &[String]) -> Result<bool, String> {
     Ok(ok)
 }
 
+/// What every variant's run shares.
+struct Opts {
+    viewer: PathBuf,
+    game: PathBuf,
+    places: PathBuf,
+    out: PathBuf,
+    userdata: Option<PathBuf>,
+    wrap: Vec<String>,
+    settle: String,
+    timeout: String,
+    resolution: String,
+    /// The plugin list, in load order; empty: the plugins found at the overlay's top, sorted.
+    plugin_list: Vec<String>,
+    /// Top-level entries of an overlay left out (such as `meshes`, `textures`, `lodsettings`).
+    overlay_skip: Vec<String>,
+    extra_env: Vec<(String, String)>,
+}
+
 /// `nv-rs-scene run`: every variant of the game's data on one place file, one engine start each (in
 /// parallel up to `--jobs`), then the first variant's pictures against every other's.
 fn run_variants(args: &[String]) -> Result<bool, String> {
@@ -103,6 +129,8 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         3usize,
     );
     let mut resolution = "1280x720".to_string();
+    let mut extra_env: Vec<(String, String)> = Vec::new();
+    let (mut plugin_list, mut overlay_skip): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = |what: &str| it.next().cloned().ok_or(format!("{what} needs a value"));
@@ -117,6 +145,9 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             "--settle" => settle = value(a)?,
             "--timeout" => timeout = value(a)?,
             "--resolution" => resolution = value(a)?,
+            "--env" => extra_env.push(env_pair(&value(a)?)?),
+            "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
+            "--overlay-skip" => overlay_skip = value(a)?.split(',').map(String::from).collect(),
             "--jobs" => jobs = value(a)?.parse().map_err(|_| "--jobs is a number")?,
             other => return Err(format!("unknown argument {other}")),
         }
@@ -135,6 +166,20 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             None => (v.clone(), None),
         })
         .collect();
+    let opts = Opts {
+        viewer,
+        game,
+        places,
+        out: out.clone(),
+        userdata,
+        wrap,
+        settle,
+        timeout,
+        resolution,
+        plugin_list,
+        overlay_skip,
+        extra_env,
+    };
     let started = std::time::Instant::now();
     let mut results: Vec<(String, RunResult)> = Vec::new();
     for chunk in variants.chunks(jobs.max(1)) {
@@ -142,33 +187,10 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             let handles: Vec<_> = chunk
                 .iter()
                 .map(|(name, overlay)| {
-                    let (viewer, game, places, out, userdata, wrap, settle, timeout, resolution) = (
-                        &viewer,
-                        &game,
-                        &places,
-                        &out,
-                        &userdata,
-                        &wrap,
-                        &settle,
-                        &timeout,
-                        &resolution,
-                    );
+                    let opts = &opts;
                     scope.spawn(move || {
                         let t = std::time::Instant::now();
-                        let r = run_one(
-                            name,
-                            overlay.as_deref(),
-                            viewer,
-                            game,
-                            places,
-                            out,
-                            userdata.as_deref(),
-                            wrap,
-                            settle,
-                            timeout,
-                            resolution,
-                            &[],
-                        );
+                        let r = run_one(name, overlay.as_deref(), opts);
                         (
                             name.clone(),
                             r.map(|code| (code, t.elapsed().as_secs_f64())),
@@ -214,22 +236,8 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
     Ok(ok)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_one(
-    name: &str,
-    overlay: Option<&Path>,
-    viewer: &Path,
-    game: &Path,
-    places: &Path,
-    out: &Path,
-    userdata: Option<&Path>,
-    wrap: &[String],
-    settle: &str,
-    timeout: &str,
-    resolution: &str,
-    extra_env: &[(String, String)],
-) -> Result<i32, String> {
-    let dir = out.join(name);
+fn run_one(name: &str, overlay: Option<&Path>, o: &Opts) -> Result<i32, String> {
+    let dir = o.out.join(name);
     // A packed overlay names its plugins: every plugin file at its top.
     let mut plugins = Vec::new();
     if let Some(o) = overlay {
@@ -245,11 +253,21 @@ fn run_one(
         }
         plugins.sort();
     }
-    let staged = fork_scene::stage::stage(game, overlay, &plugins, userdata, &dir)
-        .map_err(|e| format!("staging: {e}"))?;
+    if !o.plugin_list.is_empty() {
+        plugins = o.plugin_list.clone();
+    }
+    let staged = fork_scene::stage::stage(
+        &o.game,
+        overlay,
+        &o.overlay_skip,
+        &plugins,
+        o.userdata.as_deref(),
+        &dir,
+    )
+    .map_err(|e| format!("staging: {e}"))?;
     let log = std::fs::File::create(dir.join("run.log")).map_err(|e| e.to_string())?;
-    let mut cmd_words: Vec<std::ffi::OsString> = wrap.iter().map(Into::into).collect();
-    cmd_words.push(viewer.into());
+    let mut cmd_words: Vec<std::ffi::OsString> = o.wrap.iter().map(Into::into).collect();
+    cmd_words.push((&o.viewer).into());
     cmd_words.push((&staged.game).into());
     let mut cmd = std::process::Command::new(&cmd_words[0]);
     cmd.args(&cmd_words[1..])
@@ -262,19 +280,19 @@ fn run_one(
         .env("NV_D3D9_OFFSCREEN", "1")
         .env("NV_SOUND", "out")
         .env("NV_SOUND_BACKEND", "null")
-        .env("NV_RESOLUTION", resolution)
+        .env("NV_RESOLUTION", &o.resolution)
         .env("NV_THREADS", "real")
         .env("NV_LOG_JSON", dir.join("log.jsonl"))
         .env("NV_LOG_TERM", "warn")
-        .env("NV_SCENE", places)
-        .env("NV_SCENE_SETTLE_FRAMES", settle)
-        .env("NV_SCENE_TIMEOUT_S", timeout)
+        .env("NV_SCENE", &o.places)
+        .env("NV_SCENE_SETTLE_FRAMES", &o.settle)
+        .env("NV_SCENE_TIMEOUT_S", &o.timeout)
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
-    for (k, v) in extra_env {
+    for (k, v) in &o.extra_env {
         cmd.env(k, v);
     }
-    if !extra_env.iter().any(|(k, _)| k == "NV_SCENE_SOAK_FRAMES") {
+    if !o.extra_env.iter().any(|(k, _)| k == "NV_SCENE_SOAK_FRAMES") {
         cmd.env("NV_SCENE_OUT", dir.join("pictures"));
     }
     let status = cmd
@@ -287,6 +305,9 @@ fn run_one(
 /// each; the verdict counts stops, error lines and warnings and prints the frame times of each place.
 fn soak(args: &[String]) -> Result<bool, String> {
     let (mut viewer, mut game, mut places, mut out, mut userdata) = (None, None, None, None, None);
+    let (mut plugin_list, mut overlay_skip): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+    let mut overlay: Option<PathBuf> = None;
+    let mut extra_env: Vec<(String, String)> = Vec::new();
     let (mut frames, mut wrap, mut realtime, mut timeout) =
         ("600".to_string(), Vec::new(), false, "300".to_string());
     let mut it = args.iter();
@@ -299,6 +320,10 @@ fn soak(args: &[String]) -> Result<bool, String> {
             "--out" => out = Some(PathBuf::from(value(a)?)),
             "--userdata" => userdata = Some(PathBuf::from(value(a)?)),
             "--frames" => frames = value(a)?,
+            "--env" => extra_env.push(env_pair(&value(a)?)?),
+            "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
+            "--overlay" => overlay = Some(PathBuf::from(value(a)?)),
+            "--overlay-skip" => overlay_skip = value(a)?.split(',').map(String::from).collect(),
             "--timeout" => timeout = value(a)?,
             "--wrap" => wrap.push(value(a)?),
             "--realtime" => realtime = true,
@@ -309,24 +334,26 @@ fn soak(args: &[String]) -> Result<bool, String> {
         return Err("usage: nv-rs-scene soak --viewer BIN --game DIR --places FILE --out DIR [--frames N] [--timeout S] [--realtime] [--userdata TPL] [--wrap WORD]...".into());
     };
     let mut extra = vec![("NV_SCENE_SOAK_FRAMES".to_string(), frames.clone())];
+    extra.extend(extra_env);
     if realtime {
         extra.push(("NV_SCENE_REALTIME".into(), "1".into()));
     }
     let t = std::time::Instant::now();
-    let code = run_one(
-        "soak",
-        None,
-        &viewer,
-        &game,
-        &places,
-        &out,
-        userdata.as_deref(),
-        &wrap,
-        "60",
-        &timeout,
-        "1280x720",
-        &extra,
-    )?;
+    let opts = Opts {
+        viewer,
+        game,
+        places: places.clone(),
+        out: out.clone(),
+        userdata,
+        wrap,
+        settle: "60".into(),
+        timeout,
+        resolution: "1280x720".into(),
+        plugin_list,
+        overlay_skip,
+        extra_env: extra,
+    };
+    let code = run_one("soak", overlay.as_deref(), &opts)?;
     let secs = t.elapsed().as_secs_f64();
     let log = std::fs::read_to_string(out.join("soak").join("log.jsonl")).unwrap_or_default();
     let (mut errors, mut warnings, mut stops) = (0, 0, 0);

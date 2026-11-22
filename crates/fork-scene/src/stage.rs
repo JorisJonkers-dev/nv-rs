@@ -50,10 +50,16 @@ fn link_entries(from: &Path, into: &Path, skip: &dyn Fn(&str) -> bool) -> io::Re
 
 /// Links `overlay`'s tree over `target`, a real folder: a file replaces what is there; a folder both
 /// sides have is merged (made real, filled with links to what was there, then the overlay's).
-fn merge_over(overlay: &Path, target: &Path) -> io::Result<()> {
+fn merge_over(overlay: &Path, target: &Path, skip: &[String]) -> io::Result<()> {
     for entry in fs::read_dir(overlay)? {
         let entry = entry?;
         let name = entry.file_name();
+        if skip
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(&name.to_string_lossy()))
+        {
+            continue;
+        }
         let dest = target.join(&name);
         let is_dir = entry.file_type()?.is_dir() || entry.path().is_dir();
         match fs::symlink_metadata(&dest) {
@@ -64,7 +70,7 @@ fn merge_over(overlay: &Path, target: &Path) -> io::Result<()> {
                 fs::remove_file(&dest).or_else(|_| fs::remove_dir(&dest))?;
                 fs::create_dir(&dest)?;
                 link_entries(&old, &dest, &|_| false)?;
-                merge_over(&entry.path(), &dest)?;
+                merge_over(&entry.path(), &dest, &[])?;
             }
             Ok(_) => {
                 fs::remove_file(&dest)?;
@@ -77,10 +83,11 @@ fn merge_over(overlay: &Path, target: &Path) -> io::Result<()> {
 
 /// Makes `<dir>/game` (links to `install`, its `Data` merged with `overlay`) and `<dir>/xdg`
 /// (the user data: `userdata_template`'s `Documents` copied in when given, a plugin list naming
-/// `plugins` when any). `dir` must not exist yet.
+/// `plugins` when any). `overlay_skip` names top-level entries of the overlay left out. `dir` must not exist yet.
 pub fn stage(
     install: &Path,
     overlay: Option<&Path>,
+    overlay_skip: &[String],
     plugins: &[String],
     userdata_template: Option<&Path>,
     dir: &Path,
@@ -101,7 +108,7 @@ pub fn stage(
     link_entries(install, &game, &skip)?;
     link_entries(&install.join("Data"), &game.join("Data"), &|_| false)?;
     if let Some(overlay) = overlay {
-        merge_over(overlay, &game.join("Data"))?;
+        merge_over(overlay, &game.join("Data"), overlay_skip)?;
     }
     let xdg = ["data", "config", "cache", "state"].map(|n| dir.join("xdg").join(n));
     for x in &xdg {
@@ -158,7 +165,7 @@ mod tests {
         write(&install.join("Data/FalloutNV.esm"), "esm");
         write(&install.join("Data/lodsettings/a.dlodsettings"), "orig");
         write(&install.join("falloutnv.log"), "log");
-        let s = stage(&install, None, &[], None, &t.join("v")).unwrap();
+        let s = stage(&install, None, &[], &[], None, &t.join("v")).unwrap();
         assert_eq!(
             fs::read_to_string(s.game.join("FalloutNV.exe")).unwrap(),
             "exe"
@@ -192,6 +199,7 @@ mod tests {
         let s = stage(
             &install,
             Some(&overlay),
+            &[],
             &["Lod.esp".into()],
             None,
             &t.join("v"),
@@ -221,6 +229,31 @@ mod tests {
     }
 
     #[test]
+    fn skipped_overlay_entries_are_left_out() {
+        let t = tmp("skip");
+        let install = t.join("install");
+        write(&install.join("Data/FalloutNV.esm"), "esm");
+        let overlay = t.join("overlay");
+        write(&overlay.join("meshes/a.nif"), "nif");
+        write(&overlay.join("Extra.esm"), "x");
+        let s = stage(
+            &install,
+            Some(&overlay),
+            &["Meshes".into()],
+            &[],
+            None,
+            &t.join("v"),
+        )
+        .unwrap();
+        assert!(!s.game.join("Data/meshes").exists());
+        assert_eq!(
+            fs::read_to_string(s.game.join("Data/Extra.esm")).unwrap(),
+            "x"
+        );
+        fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
     fn the_user_data_template_is_copied_and_an_existing_folder_is_refused() {
         let t = tmp("user");
         let install = t.join("install");
@@ -228,12 +261,12 @@ mod tests {
         let template = t.join("tpl");
         write(&template.join("Documents/My Games/x.ini"), "ini");
         let v = t.join("v");
-        let s = stage(&install, None, &[], Some(&template), &v).unwrap();
+        let s = stage(&install, None, &[], &[], Some(&template), &v).unwrap();
         assert_eq!(
             fs::read_to_string(s.xdg[0].join("nv-rs/userdata/Documents/My Games/x.ini")).unwrap(),
             "ini"
         );
-        assert!(stage(&install, None, &[], None, &v).is_err());
+        assert!(stage(&install, None, &[], &[], None, &v).is_err());
         fs::remove_dir_all(&t).unwrap();
     }
 }
