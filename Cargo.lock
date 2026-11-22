@@ -1041,6 +1041,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "fork-gfx"
+version = "0.1.0"
+
+[[package]]
 name = "fork-hitch"
 version = "0.1.0"
 dependencies = [

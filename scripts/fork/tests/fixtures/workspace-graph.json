@@ -1777,6 +1777,12 @@
    "name": "fork-api"
   },
   {
+   "dependencies": [],
+   "features": [],
+   "manifest_path": "/ws/crates/fork-gfx/Cargo.toml",
+   "name": "fork-gfx"
+  },
+  {
    "dependencies": [
     {
      "features": [],
