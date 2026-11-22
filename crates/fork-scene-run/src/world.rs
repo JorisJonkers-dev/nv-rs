@@ -159,6 +159,95 @@ fn find_ref(e: &mut Engine, name: &str) -> Result<Found, String> {
     })
 }
 
+impl EngineWorld<'_> {
+    /// An interior place: the player is put into the cell through the game's own placement into a cell
+    /// (`PlayerCharacter::PositionPlayer`, what a door and `coc` end in; from the play screen the request the game queues for
+    /// a door, handled by its player update with the character controller's height).
+    fn go_to_interior(&mut self, p: &Place, player: u32) -> Result<Target, String> {
+        let e = &mut *self.engine;
+        let cell = find_interior(e, &p.cell)?;
+        let (start, start_rot) = cell_start(e, cell);
+        let mut pos = if p.at_start {
+            [
+                start[0] + p.offset[0],
+                start[1] + p.offset[1],
+                start[2] + p.offset[2],
+            ]
+        } else {
+            p.pos
+        };
+        if let Some(name) = &p.reference {
+            let r = find_ref(e, name).map_err(|m| {
+                format!("{m} (a reference of an interior is a form only while its cell is loaded: use the cell's start marker, or x, y, z)")
+            })?;
+            pos = [
+                r.pos[0] + p.offset[0],
+                r.pos[1] + p.offset[1],
+                r.pos[2] + p.offset[2],
+            ];
+        }
+        let mut heading = if p.heading_given || !p.at_start {
+            p.heading
+        } else {
+            start_rot[2].to_degrees()
+        };
+        let mut pitch = p.pitch;
+        if let Some(name) = &p.look_at {
+            let t = find_ref(e, name)?;
+            let (h, pi) = fork_scene::aim(pos, t.pos);
+            if !p.heading_given {
+                heading = h;
+            }
+            if !p.pitch_given {
+                pitch = pi.clamp(-89.0, 89.0);
+            }
+        }
+        let rad = |d: f64| (d.to_radians()) as f32;
+        if self.screen == Screen::Play {
+            let request = e.call(OPERATOR_NEW, &args![0x34u32]).u32();
+            for off in (0..0x34).step_by(4) {
+                e.mem.set_u32(request + off, 0);
+            }
+            e.mem.set_u32(request + 0x04, cell);
+            for (i, v) in [pos[0] as f32, pos[1] as f32, pos[2] as f32]
+                .iter()
+                .enumerate()
+            {
+                e.mem.set_f32(request + 0x08 + 4 * i as u32, *v);
+            }
+            for (i, v) in [rad(pitch), 0.0f32, rad(heading)].iter().enumerate() {
+                e.mem.set_f32(request + 0x14 + 4 * i as u32, *v);
+            }
+            e.call(REQUEST_POSITION_PLAYER, &args![player, request]);
+        } else {
+            e.call(
+                POSITION_PLAYER,
+                &args![
+                    player,
+                    pos[0] as f32,
+                    pos[1] as f32,
+                    pos[2] as f32,
+                    rad(pitch),
+                    0.0f32,
+                    rad(heading),
+                    cell,
+                    0u32
+                ],
+            );
+            accept_position_as_good(e, player);
+            // The main menu is still the game's menu: close it as a new game's start does.
+            e.call(START_MENU_CLOSE, &args![0u32]);
+            e.mem.set_u8(GAME_RUNNING_FLAG, 1);
+        }
+        TARGET_CELL.store(cell, std::sync::atomic::Ordering::Relaxed);
+        Ok(Target {
+            pos,
+            heading,
+            pitch,
+        })
+    }
+}
+
 /// `g_GameSettingCollection` and the game's `NiTMap` lookup (`00853130`: the map, the key, an out pointer).
 const GAME_SETTINGS: u32 = 0x011c_8048;
 const NI_TMAP_LOOKUP: u32 = 0x0085_3130;
@@ -209,11 +298,63 @@ fn accept_position_as_good(e: &mut Engine, player: u32) {
     e.mem.set_u8(player + RETURN_TO_LAST_GOOD, 0);
 }
 
+/// `TESDataHandler::GetCellByEditorID` (`00461ae0`: the handler, a C string; interior cells first, then each world's), the
+/// cell's interior test (`00425fd0`) and the cell's start placement (`0054cfd0`: the cell, a position and a rotation out,
+/// what `coc` stands the player at).
+const GET_CELL_BY_EDITOR_ID: u32 = 0x0046_1ae0;
+const CELL_IS_INTERIOR: u32 = 0x0042_5fd0;
+const CELL_START_PLACEMENT: u32 = 0x0054_cfd0;
+/// `PlayerCharacter::PositionPlayer` (`0093c200`): this, position x y z, rotation x y z (radians), the cell, whether to
+/// reset the weather. What a door or `coc` ends in for an interior.
+const POSITION_PLAYER: u32 = 0x0093_c200;
+
+/// The interior cell named `name` (an editor id): its address.
+fn find_interior(e: &mut Engine, name: &str) -> Result<u32, String> {
+    let handler = e.global::<u32>(DATA_HANDLER);
+    let cell = e.with_stack((name.len() as u32 + 4) & !3, |e, text| {
+        for (i, b) in name.bytes().enumerate() {
+            e.mem.set_u8(text.addr() + i as u32, b);
+        }
+        e.mem.set_u8(text.addr() + name.len() as u32, 0);
+        e.call(GET_CELL_BY_EDITOR_ID, &args![handler, text]).u32()
+    });
+    if cell == 0 {
+        return Err(format!(
+            "no cell `{name}` in the load order (an editor id of an interior cell)"
+        ));
+    }
+    if e.call(CELL_IS_INTERIOR, &args![cell]).u32() & 0xff == 0 {
+        return Err(format!(
+            "`{name}` is an exterior cell: a place in a world space takes `world` and x, y, z"
+        ));
+    }
+    Ok(cell)
+}
+
+/// The cell's start placement: position and rotation (radians).
+fn cell_start(e: &mut Engine, cell: u32) -> ([f64; 3], [f64; 3]) {
+    e.with_stack(0x18, |e, words| {
+        let (pos, rot) = (words.addr(), words.addr() + 12);
+        for i in 0..6 {
+            e.mem.set_u32(pos + 4 * i, 0);
+        }
+        e.call(CELL_START_PLACEMENT, &args![cell, pos, rot]);
+        let at = |a: u32| f64::from(e.mem.f32(a));
+        (
+            [at(pos), at(pos + 4), at(pos + 8)],
+            [at(rot), at(rot + 4), at(rot + 8)],
+        )
+    })
+}
+
 /// A running engine as the runner's world.
 pub struct EngineWorld<'a> {
     pub engine: &'a mut Engine,
     pub screen: Screen,
 }
+
+/// The interior cell the last `go_to` sent the player to (0: an exterior), for the arrival check.
+static TARGET_CELL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 impl World for EngineWorld<'_> {
     fn loaded_cells(&mut self) -> Option<String> {
@@ -265,6 +406,10 @@ impl World for EngineWorld<'_> {
         if fly_camera_on(e) {
             // The previous place's free camera: back to the player's own eyes.
             e.call(TOGGLE_FLY_CAM, &args![player, 0u32]);
+        }
+        TARGET_CELL.store(0, std::sync::atomic::Ordering::Relaxed);
+        if !p.cell.is_empty() {
+            return self.go_to_interior(p, player);
         }
         // A place by reference: stand at the reference plus the offset, in the reference's world, and
         // face the other reference when asked.
@@ -381,6 +526,20 @@ impl World for EngineWorld<'_> {
             heading,
             pitch,
         })
+    }
+
+    fn target_cell(&self) -> u32 {
+        TARGET_CELL.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn player_cell(&self) -> u32 {
+        let e = &*self.engine;
+        let player = e.mem.u32(PLAYER);
+        if player == 0 {
+            0
+        } else {
+            e.mem.u32(player + PARENT_CELL)
+        }
     }
 
     fn camera(&mut self, p: &Place, standing: [f64; 3]) -> Result<Target, String> {

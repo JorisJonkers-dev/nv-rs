@@ -97,6 +97,35 @@ pitch = 0                # degrees, positive looks down
 # path = [[x, y, z], ...]   # optional, for a bench (see "Bench": the player walks it in a soak)
 ```
 
+## Interiors
+
+A place with `cell` instead of `world` is an interior: the editor id of the cell. The runner finds the cell
+(`TESDataHandler::GetCellByEditorID`, `00461ae0`, the lookup `coc` uses) and puts the player in it with the game's own
+placement into a cell, `PlayerCharacter::PositionPlayer` (`0093c200`), the function a door and `coc` end in; from the play
+screen the game's queued request for it (`RequestPositionPlayer`, the way a door's teleport goes: the player update places the
+player and sets the character controller's height). The place is reached when the player's parent cell is that cell; the
+frozen world, the hidden actors, the free camera (`camera_dz`), soak and bench work the same as outdoors (the grid of
+loaded cells is empty: the one cell is the world).
+
+```toml
+[[place]]
+name = "docs-house"
+cell = "GSDocMitchellHouse"   # alone: the cell's own start marker (what `coc` uses), facing its heading
+# dx = 0  dy = 0  dz = 0      # an offset from that marker, or
+# x = 0   y = 0   z = 0       # a position in the cell's own coordinates, or
+# ref = "SomeMarkerRef"       # a marker or door reference placed in the cell (editor id or form id in hex) plus dx, dy, dz
+```
+
+A `ref` in an interior is a form only while its cell is loaded: for a cell not yet entered the lookup fails with a line saying
+so, and the cell's start marker or coordinates are the way in. A `cell` that names an exterior cell is refused with a plain line.
+Files: `scenes/interiors.toml` (Doc Mitchell's house, the Tops casino floor, the Lucky 38 casino floor from the marker and
+from above), `scenes/ttw-interiors.toml` (Tenpenny Tower's lobby, Moriarty's saloon, Vault 101's atrium: needs the TTW
+arguments); the quick suite holds Doc's house and the Tops floor, the capital suite Tenpenny's lobby. Opened: all of them;
+Doc's house is a panelled hall with a carpet and two wall lamps, the Tops floor a round reception with a counter and a
+neon treble clef, the Lucky 38 floor its arch with the slot machines (from the start marker and from 500 units above it),
+Tenpenny's lobby a dining room with a cash register and two mugs on a counter. Soak of `interiors.toml`, 300 frames each:
+4 of 4 places, 0 stops, 0 errors; 7.5 ms average in Doc's house and 15 to 19 ms in the casinos (a shared machine).
+
 ## How the engine goes to a place
 
 The runner (`fork_scene_run::Runner`) runs inside the game's frame, on the game's main thread, at the entry of `Main::OnIdle` (`0086e650`): `fork_scene_run::install` registers a function there that runs the runner and then the translation. (Calling the game's functions from the host's thread between frames does not work: the load waits for loader threads while the host holds the kernel lock, and the call spins.) The runner waits for the main menu, then calls the game's own
@@ -105,7 +134,7 @@ exterior loads, loads or creates the cell and places the player on its land) wit
 heading, once the screen has been the menu for 120 frames (the game's first frames still start its threads). The place is reached when the screen is the play screen and the player's position lies in the place's grid
 cell. Later places are sent from the play screen the same way.
 
-Limits: only `WastelandNV` is known by editor id (others by form id). The frozen world (hour, weather, creatures, interface hidden) is the next slice.
+Limits: none for the world: any world space of the load order by editor id (or form id in hex). The frozen world (hour, weather, creatures, interface hidden) is the next slice.
 
 ## The picture
 
@@ -495,7 +524,7 @@ For nv-rs#328 and #348. Piece by piece:
 | VRAM and GTT checks of the guard: the refusal at the start, the engine's budget | ported, `crates/fork-scene/src/guard.rs`: a start is refused when the halt file exists or the card's free VRAM or GTT cannot hold half the VRAM (a quarter of the GTT) plus 2048 (1024) MiB kept for the desktop; the engine gets `NV_GPU_BUDGET_MB`; a card that cannot be read (no amdgpu sysfs) is not refused (`--gpu-sysfs DIR` points at another folder) |
 | nested window session (`nested.py`), input driver (`vinput.py`, `driver.py`) | not needed: the offscreen run has no window and no input; the runner places the player itself |
 | noisy-run scan | ported: `noisy` in `summary.json` (another `nv-viewer` running at the start or end) |
-| scenarios that play the game: new game, character creation, Doc Mitchell's house from the first start, combat, save and continue, the Ctrl (sneak) check, the real-input walk, the 20-minute soak (`scenarios.py`) | not ported. They test input and the game's opening, not places. Places, far moves and walking (`path`) are covered; the opening and interiors are not (no cell by name yet) |
+| scenarios that play the game: new game, character creation, Doc Mitchell's house from the first start, combat, save and continue, the Ctrl (sneak) check, the real-input walk, the 20-minute soak (`scenarios.py`) | not ported. They test input and the game's opening, not places. Places, far moves, walking (`path`) and interiors (`cell`) are covered; the opening is not |
 
 Not ported and not replaced yet:
 
@@ -538,8 +567,8 @@ machine: a `performance` governor and no other load would narrow it further.
 
 ### Suites, summary and baselines
 
-`bench --suite NAME` takes a built-in place file instead of `--places`: `quick` (Goodsprings, Novac and the Strip, the old
-quick suite without Doc's house: no interiors yet; `scenes/bench-quick.toml`), `mojave` (`mojave-far.toml`), `soak` (the far
+`bench --suite NAME` takes a built-in place file instead of `--places`: `quick` (Goodsprings, Novac and the Strip, then Doc Mitchell's house and the Tops casino floor,
+the old quick suite; `scenes/bench-quick.toml`), `mojave` (`mojave-far.toml`), `soak` (the far
 moves of `soak-far-moves.toml`, the old `soak` scenario's places) and `capital` (`ttw-capital.toml`, needs the TTW arguments
 of the Tale of Two Wastelands section). Besides `bench.json` the run writes, in the old harness's shape:
 

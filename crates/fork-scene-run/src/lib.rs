@@ -45,6 +45,14 @@ pub trait World {
     fn set_float_setting(&mut self, _name: &str, _value: f32) -> Result<bool, String> {
         Ok(true)
     }
+    /// The interior cell the last `go_to` sent the player into (an opaque id), 0 for an exterior place.
+    fn target_cell(&self) -> u32 {
+        0
+    }
+    /// The player's parent cell (the same id), 0 when it has none.
+    fn player_cell(&self) -> u32 {
+        0
+    }
     /// Moves the player to `pos` (the console's `setpos`: the game's own position setters, one frame's step of a walk
     /// along a place's `path`); the world then streams the cells around it as it does for a walking player.
     fn move_player(&mut self, _pos: [f64; 3]) -> Result<(), String> {
@@ -422,12 +430,20 @@ impl Runner {
                 let Some(at) = w.player() else {
                     return Step::Continue;
                 };
-                let cell = (
-                    (at.pos[0] / 4096.0).floor() as i32,
-                    (at.pos[1] / 4096.0).floor() as i32,
-                );
-                if cell != fork_scene::cell_of(self.target) {
-                    return Step::Continue;
+                let interior = w.target_cell();
+                if interior != 0 {
+                    // An interior: arrived when the player's parent cell is the cell (its coordinates are not a grid).
+                    if w.player_cell() != interior {
+                        return Step::Continue;
+                    }
+                } else {
+                    let cell = (
+                        (at.pos[0] / 4096.0).floor() as i32,
+                        (at.pos[1] / 4096.0).floor() as i32,
+                    );
+                    if cell != fork_scene::cell_of(self.target) {
+                        return Step::Continue;
+                    }
                 }
                 if self.request.freeze.is_some() {
                     w.pin_sway_time();
@@ -732,6 +748,9 @@ mod tests {
         cameras: Vec<[f64; 3]>,
         /// The positions the player was moved to along a path.
         moves: Vec<[f64; 3]>,
+        /// The interior the last place was sent into and the cell the player is in (0: none, an exterior).
+        interior: u32,
+        in_cell: u32,
     }
     impl World for Fake {
         fn screen(&self) -> Screen {
@@ -758,6 +777,12 @@ mod tests {
                 heading: p.heading,
                 pitch: p.pitch,
             })
+        }
+        fn target_cell(&self) -> u32 {
+            self.interior
+        }
+        fn player_cell(&self) -> u32 {
+            self.in_cell
         }
         fn move_player(&mut self, pos: [f64; 3]) -> Result<(), String> {
             self.moves.push(pos);
@@ -813,6 +838,8 @@ mod tests {
             draw: None,
             cameras: Vec::new(),
             moves: Vec::new(),
+            interior: 0,
+            in_cell: 0,
         }
     }
 
@@ -859,6 +886,29 @@ mod tests {
                 picture: None
             }
         );
+    }
+
+    #[test]
+    fn an_interior_place_is_reached_when_the_player_is_in_its_cell_wherever_it_stands() {
+        let f =
+            PlaceFile::parse("version = 1\n[[place]]\nname = \"i\"\ncell = \"Room\"\n").unwrap();
+        let mut req = request(60);
+        req.places = f.places;
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        w.interior = 7;
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        // Standing at coordinates that are in no exterior grid cell of the target, in another cell: not there yet.
+        w.in_cell = 3;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        assert_eq!(r.step(&mut w, 1.0), Step::Continue);
+        assert_eq!(r.step(&mut w, 1.1), Step::Continue);
+        w.in_cell = 7;
+        assert_eq!(r.step(&mut w, 2.0), Step::Continue, "now settling");
+        assert!(matches!(r.step(&mut w, 3.0), Step::Reached { .. }));
     }
 
     #[test]

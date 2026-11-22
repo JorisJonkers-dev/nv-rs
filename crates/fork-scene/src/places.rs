@@ -25,6 +25,15 @@
 //! dz = 400
 //! look_at = "VHeliosONEMapMarkerREF"   # face this reference (heading and pitch from the two positions)
 //! ```
+//! An interior, by the cell's editor id (the player is placed into the cell the way a door or `coc` does; no world space):
+//! ```toml
+//! [[place]]
+//! name = "docs-house"
+//! cell = "GSDocMitchellHouse"     # alone: at the cell's own start marker (what `coc` uses), facing its heading
+//! # dx = 0  dy = 0  dz = 0        # ... plus an offset, or
+//! # x = 0   y = 0   z = 0         # a position in the cell's own coordinates, or
+//! # ref = "SomeMarkerRef"         # a marker or door reference placed in the cell (editor id or form id in hex), plus dx, dy, dz
+//! ```
 //! The view from the free camera (the player stands where the place says, the loaded cells around it are the
 //! near land, the camera is elsewhere; no console text):
 //! ```toml
@@ -59,6 +68,12 @@ pub struct Place {
     pub heading: f64,
     /// Degrees: positive looks down. With `look_at`: the default is the angle to it.
     pub pitch: f64,
+    /// An interior: the editor id of the cell (`cell = "GSDocMitchellHouse"`). The player is sent there through the game's
+    /// own placement into a cell (what a door or `coc` ends in); there is no world space. Empty for an exterior.
+    pub cell: String,
+    /// An interior place with no `x`, `y`, `z` and no `ref`: it starts at the cell's own start marker (the one `coc` uses),
+    /// plus [`Place::offset`].
+    pub at_start: bool,
     /// Stand at this reference (editor id, or form id in hex) plus [`Place::offset`].
     pub reference: Option<String>,
     /// The offset from the reference, world axes.
@@ -272,6 +287,7 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         if ![
             "name",
             "world",
+            "cell",
             "x",
             "y",
             "z",
@@ -345,8 +361,55 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
     };
     let reference = optional_string("ref")?;
     let look_at = optional_string("look_at")?;
-    let (pos, offset, world) = if reference.is_some() {
-        if ["x", "y", "z"].iter().any(|k| get(k).is_some()) {
+    let cell = optional_string("cell")?.unwrap_or_default();
+    let xyz = ["x", "y", "z"].iter().filter(|k| get(k).is_some()).count();
+    let mut at_start = false;
+    let (pos, offset, world) = if !cell.is_empty() {
+        if get("world").is_some() {
+            return Err(format!(
+                "line {n}: a place has a `world` (an exterior) or a `cell` (an interior), not both"
+            ));
+        }
+        if reference.is_some() {
+            if xyz != 0 {
+                return Err(format!(
+                    "line {n}: a place by `ref` takes dx, dy, dz, not x, y, z"
+                ));
+            }
+            (
+                [0.0; 3],
+                [
+                    num("dx", Some(0.0))?,
+                    num("dy", Some(0.0))?,
+                    num("dz", Some(0.0))?,
+                ],
+                String::new(),
+            )
+        } else if xyz == 0 {
+            at_start = true;
+            (
+                [0.0; 3],
+                [
+                    num("dx", Some(0.0))?,
+                    num("dy", Some(0.0))?,
+                    num("dz", Some(0.0))?,
+                ],
+                String::new(),
+            )
+        } else {
+            if ["dx", "dy", "dz"].iter().any(|k| get(k).is_some()) {
+                return Err(format!(
+                    "line {n}: dx, dy and dz need a `ref` or no x, y, z"
+                ));
+            }
+            (
+                [num("x", None)?, num("y", None)?, num("z", None)?],
+                [0.0; 3],
+                String::new(),
+            )
+        }
+    } else if reference.is_some() {
+        if xyz != 0 {
             return Err(format!(
                 "line {n}: a place by `ref` takes dx, dy, dz, not x, y, z"
             ));
@@ -430,6 +493,8 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
     Ok(Place {
         name,
         world,
+        cell,
+        at_start,
         pos,
         heading,
         pitch,
@@ -614,6 +679,37 @@ path = [[0, 0, 0], [10.5, 0, 0]]
         assert!(p.world.is_empty() && !p.heading_given && !p.pitch_given);
         let with_heading = format!("{t}heading = 90\n");
         assert!(PlaceFile::parse(&with_heading).unwrap().places[0].heading_given);
+    }
+
+    #[test]
+    fn an_interior_is_a_cell_by_editor_id_alone_with_an_offset_or_with_coordinates() {
+        let head = "version = 1\n[[place]]\nname = \"a\"\ncell = \"GSDocMitchellHouse\"\n";
+        let p = &PlaceFile::parse(head).unwrap().places[0];
+        assert_eq!(p.cell, "GSDocMitchellHouse");
+        assert!(p.at_start && p.world.is_empty());
+        let p = &PlaceFile::parse(&format!("{head}dz = 50\n"))
+            .unwrap()
+            .places[0];
+        assert!(p.at_start);
+        assert_eq!(p.offset, [0.0, 0.0, 50.0]);
+        let p = &PlaceFile::parse(&format!("{head}x = 1\ny = 2\nz = 3\n"))
+            .unwrap()
+            .places[0];
+        assert!(!p.at_start);
+        assert_eq!(p.pos, [1.0, 2.0, 3.0]);
+        let p = &PlaceFile::parse(&format!("{head}ref = \"Marker\"\ndy = 5\n"))
+            .unwrap()
+            .places[0];
+        assert!(!p.at_start && p.reference.as_deref() == Some("Marker"));
+        for (extra, want) in [
+            ("world = \"W\"\n", "not both"),
+            ("x = 1\ny = 2\nz = 3\ndz = 4\n", "need a `ref`"),
+            ("ref = \"M\"\nx = 1\ny = 2\nz = 3\n", "takes dx"),
+            ("x = 1\n", "no `y`"),
+        ] {
+            let e = PlaceFile::parse(&format!("{head}{extra}")).unwrap_err();
+            assert!(e.contains(want), "{extra:?} gave {e}");
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
-# The quick bench suite (`nv-rs-scene bench --suite quick`): the old harness's quick suite without the interior (Doc
-# Mitchell's house: an interior has no place in the place file yet): Goodsprings, Novac and the Strip, the player standing,
-# the world frozen, one place after the other in one start.
+# The quick bench suite (`nv-rs-scene bench --suite quick`): Goodsprings, Novac and the Strip, then two interiors (Doc
+# Mitchell's house and the Tops casino floor, a large one), the player standing, the world frozen, one place after the
+# other in one start.
 version = 1
 [[place]]
 name = "goodsprings"
@@ -24,3 +24,11 @@ dx = 0
 dy = -14000
 dz = 800
 look_at = "FreesideMapMarker"
+
+[[place]]
+name = "docs-house"
+cell = "GSDocMitchellHouse"
+
+[[place]]
+name = "tops-casino-floor"
+cell = "TOPSCasino"

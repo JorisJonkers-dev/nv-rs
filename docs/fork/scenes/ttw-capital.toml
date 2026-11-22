@@ -53,3 +53,8 @@ camera_dx = 2000
 camera_dy = 6000
 camera_dz = 1300
 look_at = "RivetCityMapMarker"
+
+# An interior of the Capital Wasteland, by the cell's editor id (Tenpenny Tower's lobby): the interior route on the TTW folder.
+[[place]]
+name = "tenpenny-lobby"
+cell = "Tenpenny01"
