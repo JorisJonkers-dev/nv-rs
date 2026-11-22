@@ -77,6 +77,8 @@ const fn cmd(
         short,
         params,
         execute,
+        eval: None,
+        needs_ref: false,
         expression: true,
         returns,
     }
