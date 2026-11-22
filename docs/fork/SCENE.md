@@ -148,3 +148,17 @@ lock (the wrapper `flock -x LOCKFILE`), nothing else running. Ten places, 1000 f
 `play` profile: 5.7 to 10.3 ms average a frame (97 to 175 frames a second), 99th percentile 7.5 to 13.5 ms, largest
 frame 9.0 to 17.7 ms, exit status 0, 120 s. A timing run under the shared lock is not valid; the same places under it
 gave 9.9 to 17.9 ms.
+
+## Tale of Two Wastelands
+
+A load order is a variant like any other: `--game` is the base installation, the overlay is the TTW data folder
+(`--overlay-skip meshes,textures,lodsettings` leaves its loose LOD out, so TTW's own archived LOD is the control),
+`--plugins` is the load order (`FalloutNV.esm,...,TaleOfTwoWastelands.esm,YUPTTW.esm`, as `plugins.txt` holds it).
+Worlds are found by editor id (`WastelandNV`, the Capital Wasteland's `Wasteland`).
+
+Two defects on the way: a start with the 18 TTW plugins in the fixes preset stopped with `JohnnyGuitarNVSE: registered
+twice` (nv-rs#482: the editor ids crate and the plugin crate both registered the plugin; one record now carries both
+halves); and the second place of a start timed out on the Menu screen (the new game's message boxes, closed by the
+runner now). Five Mojave places on a clean TTW folder in one start: 97 s. `scenes/ttw-capital.toml` has two Capital
+Wasteland views. Two runs of the same five places gave identical pictures in three places and differed by at most 0.62%
+of pixels (brush clumps, mean 0.16) in two; the runs fall in two groups of identical pictures, cause not traced.

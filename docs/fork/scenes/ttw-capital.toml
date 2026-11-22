@@ -1,0 +1,25 @@
+# Capital Wasteland places for a Tale of Two Wastelands load order (world editor id "Wasteland"). Provisional:
+# found by looking, not by landmark coordinates; the Washington Monument and the Capitol need their map positions
+# (a place by reference editor id is the next step). Heights are rough: the game's placement settles the player.
+version = 1
+
+# A ridge north-east of the world's origin, heading north: a long highway and pylons running to the horizon, ruined
+# towers and a billboard in the middle distance. Meant to show distant structures (pylons, overpass, buildings on
+# the far hills) at a glance: missing object LOD leaves the far hills bare.
+[[place]]
+name = "capital-ridge-north"
+world = "Wasteland"
+x = 15000
+y = 10000
+z = 12800
+heading = 0
+
+# Dead trees and a wrecked bus on a road, heading north: tree and rock object LOD near to far, and a distant
+# elevated road on the right horizon.
+[[place]]
+name = "capital-dead-trees"
+world = "Wasteland"
+x = -20000
+y = 20000
+z = 12000
+heading = 0
