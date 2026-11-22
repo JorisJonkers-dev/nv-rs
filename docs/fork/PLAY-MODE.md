@@ -44,6 +44,7 @@ A launcher may scrub the environment, so the caller passes these on purpose:
 | `NV_WGPU_CACHE` | the folder that keeps the driver's compiled pipelines between runs |
 | `NV_STOP_FILE` | the stop file (see Stop below) |
 | `NV_STOP_AFTER_FRAMES` | a start check: the run ends with exit status 0 after this many of main's frames (a positive whole number), with the real threads kept (unlike `NV_REPEATABLE`, which steps them). Off unless set; any other value is refused at start (exit 1, a plain message). When it ends the run it logs `NV_STOP_AFTER_FRAMES: ended by the switch after N main frames (limit N); exit status 0` (target `host`, the log files; add `NV_LOG_TERM=warn,host=info` for stdout). A build that stops earlier ends with the stop's own status (3), never 0. See "Start check" below |
+| `NV_SCENE` | a scene run (nv-rs#479, [SCENE.md](SCENE.md)): a place file; the engine goes to its places without the main menu. Also `NV_SCENE_PLACES`, `NV_SCENE_OUT`, `NV_SCENE_SETTLE_FRAMES`, `NV_SCENE_TIMEOUT_S`. A place not reached in time ends the run with status 70 |
 
 On Linux the caller also passes `HOME`, `XDG_*`, `DISPLAY`, `WAYLAND_DISPLAY` and `XAUTHORITY`, so the window opens.
 

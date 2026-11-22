@@ -52,3 +52,5 @@ play-patch
 qos
 stewie
 vorbis
+fork-scene
+fork-scene-run

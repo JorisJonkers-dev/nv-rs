@@ -1066,6 +1066,7 @@ dependencies = [
  "fork-log",
  "fork-memlog",
  "fork-presence",
+ "fork-scene-run",
  "game-folders",
  "host",
  "mod-chooser",
@@ -1079,6 +1080,21 @@ version = "0.1.0"
 dependencies = [
  "discord-rich-presence",
  "fork-log",
+]
+
+[[package]]
+name = "fork-scene"
+version = "0.1.0"
+
+[[package]]
+name = "fork-scene-run"
+version = "0.1.0"
+dependencies = [
+ "engine",
+ "engine-core",
+ "fork-log",
+ "fork-scene",
+ "host",
 ]
 
 [[package]]
@@ -1689,6 +1705,7 @@ dependencies = [
  "fork-log",
  "fork-memlog",
  "fork-presence",
+ "fork-scene-run",
  "game-folders",
  "host",
  "mod-chooser",

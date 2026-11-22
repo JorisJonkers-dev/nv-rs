@@ -45,6 +45,8 @@ crates/fork-window/
 crates/d3dx-shader/
 crates/fork-api/
 crates/fork-play/
+crates/fork-scene/
+crates/fork-scene-run/
 # The built-in JohnnyGuitar NVSE and ShowOff xNVSE (fork-only crates).
 crates/jg/
 crates/showoff/
