@@ -250,6 +250,12 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
 
 ## The two TTW groups, the fixed capture frame, the idle camera, #474
 
+- Cheap fix (nv-rs#484): as a place is reached the runner sets the tree update's time accumulator (`011d5dd4`, the sway's clock
+  `BSTreeManager::Update` adds each frame's time to) to 0, so the sway's phase at the picture no longer depends on how many
+  loading-screen frames the move took. Six runs of `scenes/ttw-capital.toml` (two batches of three, three engines at once),
+  all pictures identical (mean 0.000, 0 changed pixels, every pair), where one run in six differed before. One batch of six
+  is not proof of a rare event (about a third of the time six identical runs happen by chance); the pin follows from the
+  cause, and the loading loop itself is not pinned. The explanation below is the state before the fix.
 - Two runs of one TTW build mostly give identical pictures and sometimes differ by brush clumps (at most 0.8% of pixels,
   mean 0.17; six runs: five identical, one different). `NV_SCENE_TRACE=1` logs the player's position (the bits of
   the floats) every frame; diffing the log of a differing run with an identical pair finds the first frame where

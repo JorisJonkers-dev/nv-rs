@@ -174,6 +174,9 @@ fn fly_camera_on(e: &Engine) -> bool {
     main != 0 && e.mem.u8(main + FLY_CAMERA_FLAG) != 0
 }
 
+/// The tree update's time accumulator (the sway's clock, `BSTreeManager::Update`).
+const TREE_TIME_ACCUMULATOR: u32 = 0x011d_5dd4;
+
 /// A running engine as the runner's world.
 pub struct EngineWorld<'a> {
     pub engine: &'a mut Engine,
@@ -337,6 +340,12 @@ impl World for EngineWorld<'_> {
             e.call(SET_POS_BASE, &args![player, u32::from(axis), v as f32]);
         }
         Ok(())
+    }
+
+    fn pin_sway_time(&mut self) {
+        // `BSTreeManager::Update` (`006652e0`) adds each frame's time to the float at `011d5dd4` and hands it to the
+        // tree library: the sway's clock. Zero at arrival, the same in every run.
+        self.engine.mem.set_f32(TREE_TIME_ACCUMULATOR, 0.0);
     }
 
     fn top_menu(&mut self) -> u32 {

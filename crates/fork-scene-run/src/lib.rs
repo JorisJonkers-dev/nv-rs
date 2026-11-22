@@ -54,6 +54,10 @@ pub trait World {
     fn dismiss_message(&mut self) -> bool {
         false
     }
+    /// Sets the time that drives the trees' and brush's sway to a fixed value (once, as the place is reached): the
+    /// accumulator the tree update adds each frame's time to. Without it the phase of the sway at the picture depends
+    /// on how many loading-screen frames the move took, which varies by one between runs (nv-rs#484).
+    fn pin_sway_time(&mut self) {}
     /// Puts the free camera where the place says (the console's `tfc` without the console: the game's own
     /// fly camera, the player not simulated, nothing falls or reacts) and aims it; `standing` is where the
     /// player stands. Idempotent: called again every frame until the picture. Returns where the camera is
@@ -390,6 +394,9 @@ impl Runner {
                 );
                 if cell != fork_scene::cell_of(self.target) {
                     return Step::Continue;
+                }
+                if self.request.freeze.is_some() {
+                    w.pin_sway_time();
                 }
                 self.phase = Phase::Settling {
                     since,
