@@ -1,0 +1,34 @@
+# The quick bench suite (`nv-rs-scene bench --suite quick`): Goodsprings, Novac and the Strip, then two interiors (Doc
+# Mitchell's house and the Tops casino floor, a large one), the player standing, the world frozen, one place after the
+# other in one start.
+version = 1
+[[place]]
+name = "goodsprings"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+[[place]]
+name = "novac"
+world = "WastelandNV"
+x = 21836
+y = -31072
+z = 6973
+heading = 0
+[[place]]
+name = "strip"
+world = "WastelandNV"
+ref = "SharecropperFarmsMapMarker"
+dx = 0
+dy = -14000
+dz = 800
+look_at = "FreesideMapMarker"
+
+[[place]]
+name = "docs-house"
+cell = "GSDocMitchellHouse"
+
+[[place]]
+name = "tops-casino-floor"
+cell = "TOPSCasino"

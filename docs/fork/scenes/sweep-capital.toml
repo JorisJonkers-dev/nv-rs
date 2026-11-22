@@ -1,0 +1,367 @@
+# Stability sweep, Capital Wasteland on the Tale of Two Wastelands folder (nv-rs#479): ~21 exteriors of the Wasteland and its
+# districts, then the world spaces of the add-ons. Each place: does it load, hold 300 frames, and leave cleanly. Run (the
+# TTW arguments are in SCENE.md, "Tale of Two Wastelands"):
+#   nv-rs-dev scene sweep --places docs/fork/scenes/sweep-capital.toml --out /tmp/sweep-cap <the TTW arguments> --game-lock "$GAME" --label sweep-capital
+version = 1
+
+# ---- the Wasteland and the district worlds: map markers, 600 units above
+
+[[place]]
+name = "megaton"
+world = "MegatonWorld"
+x = -3091
+y = -22746
+z = 13474
+heading = 0
+
+[[place]]
+name = "rivetcity"
+world = "Wasteland"
+x = 77583
+y = -69073
+z = 12416
+heading = 0
+
+[[place]]
+name = "tenpennytower"
+world = "Wasteland"
+x = -63562
+y = -70106
+z = 15116
+heading = 0
+
+[[place]]
+name = "washmon"
+world = "DCworld09"
+x = 65944
+y = -38905
+z = 12980
+heading = 0
+
+[[place]]
+name = "lincolnmemorial"
+world = "DCworld09"
+x = 46966
+y = -38943
+z = 13183
+heading = 0
+
+[[place]]
+name = "nationalarchives"
+world = "DCworld09"
+x = 80592
+y = -31496
+z = 13340
+heading = 0
+
+[[place]]
+name = "paradisefalls"
+world = "Wasteland"
+x = -35675
+y = 65451
+z = 12243
+heading = 0
+
+[[place]]
+name = "ravenrock"
+world = "Wasteland"
+x = -113009
+y = 116675
+z = 17750
+heading = 0
+
+[[place]]
+name = "arefu"
+world = "Wasteland"
+x = -43384
+y = 28505
+z = 14306
+heading = 0
+
+[[place]]
+name = "vault87"
+world = "Wasteland"
+x = -111375
+y = 26424
+z = 16636
+heading = 0
+
+[[place]]
+name = "vault106"
+world = "Wasteland"
+x = -34738
+y = 5856
+z = 13566
+heading = 0
+
+[[place]]
+name = "bigtown"
+world = "Wasteland"
+x = -15488
+y = 16418
+z = 12670
+heading = 0
+
+[[place]]
+name = "oasis"
+world = "Wasteland"
+x = -10868
+y = 117842
+z = 18583
+heading = 0
+
+[[place]]
+name = "fortconstantine"
+world = "Wasteland"
+x = -68187
+y = 109942
+z = 16241
+heading = 0
+
+[[place]]
+name = "repdave"
+world = "Wasteland"
+x = 79458
+y = 110826
+z = 16277
+heading = 0
+
+[[place]]
+name = "canterburycommons"
+world = "Wasteland"
+x = 73965
+y = 46036
+z = 14557
+heading = 0
+
+[[place]]
+name = "bethesdaruins"
+world = "Wasteland"
+x = 24064
+y = 12608
+z = 13670
+heading = 0
+
+[[place]]
+name = "anacostiacrossing"
+world = "Wasteland"
+x = 77771
+y = -64664
+z = 11743
+heading = 0
+
+[[place]]
+name = "friendshipheights"
+world = "Wasteland"
+x = 59640
+y = -9568
+z = 12520
+heading = 0
+
+[[place]]
+name = "robco"
+world = "Wasteland"
+x = -55450
+y = -59985
+z = 14425
+heading = 0
+
+[[place]]
+name = "gnr"
+world = "DCworld01"
+x = 54994
+y = -26463
+z = 12394
+heading = 0
+
+# ---- other world spaces and the add-ons
+
+# MegatonWorld: xMS11LucasPatrolBomb03
+[[place]]
+name = "megatonworld"
+world = "MegatonWorld"
+x = -2925
+y = -25390
+z = 12065
+heading = 0
+
+# CitadelWorld: DLC03VertibirdPlayerLoadMarkerREF
+[[place]]
+name = "citadelworld"
+world = "CitadelWorld"
+x = 36426
+y = -53463
+z = 305
+heading = 0
+
+# ParadiseFalls: BronsonRef
+[[place]]
+name = "paradisefalls-world"
+world = "ParadiseFalls"
+x = -31040
+y = 61056
+z = 11995
+heading = 0
+
+# TranquilityLane: MQ04ExitDoorActRef
+[[place]]
+name = "tranquilitylane"
+world = "TranquilityLane"
+x = 2269
+y = 3177
+z = -1695
+heading = 0
+
+# OasisHarold: MS10HaroldDeadRef
+[[place]]
+name = "oasisharold"
+world = "OasisHarold"
+x = -5537
+y = 115185
+z = 18280
+heading = 0
+
+# DLC02AnchorageBattle: DLC02ChineseBaseGateREF
+[[place]]
+name = "dlc02anchoragebattle"
+world = "DLC02AnchorageBattle"
+x = 3504
+y = 14976
+z = 12620
+heading = 0
+
+# DLC02BaileysCrossroads: DL2MutantIntro04
+[[place]]
+name = "dlc02baileyscrossroads"
+world = "DLC02BaileysCrossroads"
+x = 37086
+y = -26555
+z = 13132
+heading = 0
+
+# DLC02Overlook: DLC02ControlBoxC
+[[place]]
+name = "dlc02overlook"
+world = "DLC02Overlook"
+x = 22049
+y = 1191
+z = 16721
+heading = 0
+
+# DLC02ChineseHQ: DLC02ChineseHQAmericanSpawnXMRK
+[[place]]
+name = "dlc02chinesehq"
+world = "DLC02ChineseHQ"
+x = 2192
+y = 16176
+z = 12602
+heading = 0
+
+# DLC01PittWorld: DLC01BridgeDog01REF
+[[place]]
+name = "dlc01pittworld"
+world = "DLC01PittWorld"
+x = 2723
+y = 2095
+z = -775
+heading = 0
+
+# DLC01MarketSquare: DLC01FF006Patrol5Shoot
+[[place]]
+name = "dlc01marketsquare"
+world = "DLC01MarketSquare"
+x = 3510
+y = 418
+z = 12598
+heading = 0
+
+# DLC01Haven: DLC01SquillReplacement
+[[place]]
+name = "dlc01haven"
+world = "DLC01Haven"
+x = 7413
+y = 1179
+z = 13932
+heading = 0
+
+# DLC01SteelMillExterior: DLC01FF007TrogMarkB3
+[[place]]
+name = "dlc01steelmillexterior"
+world = "DLC01SteelMillExterior"
+x = 2235
+y = 1361
+z = 12704
+heading = 0
+
+# DLC03AdamsAFB: DLC03AFBVertibirdBomber02REF
+[[place]]
+name = "dlc03adamsafb"
+world = "DLC03AdamsAFB"
+x = -3770
+y = -5488
+z = 13430
+heading = 0
+
+# DLC03RelayStation: DLC03PrimeWalkTowerBTurretE
+[[place]]
+name = "dlc03relaystation"
+world = "DLC03RelayStation"
+x = 4639
+y = 1135
+z = 13051
+heading = 0
+
+# DLC4Pointlookout: DLC04FF05SubmarineREF
+[[place]]
+name = "dlc4pointlookout"
+world = "DLC4Pointlookout"
+x = 8810
+y = -20557
+z = -1799
+heading = 0
+
+# DLC4Bog: DLC04BogNukaFruit5
+[[place]]
+name = "dlc4bog"
+world = "DLC4Bog"
+x = 20982
+y = 11089
+z = 658
+heading = 0
+
+# DCworld09: DLC03MalltoGhoulHideout01REF
+[[place]]
+name = "dcworld09"
+world = "DCworld09"
+x = 57067
+y = -43449
+z = 12826
+heading = 0
+
+# DCworld06: xmrkCorridorPatrolerC1
+[[place]]
+name = "dcworld06"
+world = "DCworld06"
+x = 77801
+y = -18305
+z = 12636
+heading = 0
+
+# DCworld17: FallsChurchBoSLeader02REF
+[[place]]
+name = "dcworld17"
+world = "DCworld17"
+x = 27415
+y = -49274
+z = 12637
+heading = 0
+
+# DCworld01: MQ01SarahBehemothStation
+[[place]]
+name = "dcworld01"
+world = "DCworld01"
+x = 54065
+y = -26017
+z = 11876
+heading = 0
+

@@ -1,0 +1,143 @@
+# Stability sweep, Mojave interiors (nv-rs#479): ~30 interior cells by editor id (the base game's casinos, vaults and houses, then
+# the add-ons' interiors), then two doors entered the way the game enters them (an exterior place first, so the door's cell
+# is loaded). Each place: does it load, hold 300 frames, and leave cleanly. Run:
+#   nv-rs-dev scene sweep --places docs/fork/scenes/sweep-mojave-interiors.toml --out /tmp/sweep-int --game-lock "$GAME" --label sweep-interiors
+version = 1
+
+[[place]]
+name = "docs-house"
+cell = "GSDocMitchellHouse"
+
+[[place]]
+name = "tops-casino"
+cell = "TOPSCasino"
+
+[[place]]
+name = "lucky38-casino"
+cell = "Lucky38CasinoFloor01"
+
+[[place]]
+name = "ultra-luxe-casino"
+cell = "ULCasino"
+
+[[place]]
+name = "gomorrah-main"
+cell = "Gomorrah01"
+
+[[place]]
+name = "vikki-and-vance"
+cell = "VikkiAndVance"
+
+[[place]]
+name = "vault22-entrance"
+cell = "Vault22a"
+
+[[place]]
+name = "vault34-first-floor"
+cell = "Vault34a"
+
+[[place]]
+name = "vault11"
+cell = "Vault11a"
+
+[[place]]
+name = "vault19-first-floor"
+cell = "Vault19a"
+
+[[place]]
+name = "securitron-vault"
+cell = "SecuritronVault"
+
+[[place]]
+name = "aces-theater"
+cell = "TOPSAcesTheater"
+
+[[place]]
+name = "lucky38-penthouse"
+cell = "Lucky38Penthouse"
+
+[[place]]
+name = "vault21"
+cell = "2EOVault21"
+
+[[place]]
+name = "lucky-jim-mine-house"
+cell = "SLLuckyJimMineHouseINT"
+
+[[place]]
+name = "sierra-petrovitas-home"
+cell = "GirderShadeSierraHouse"
+
+[[place]]
+name = "techatticup-mine"
+cell = "TechatticupMineInterior"
+
+[[place]]
+name = "bison-steve-hotel"
+cell = "BisonSteve02"
+
+[[place]]
+name = "sierra-madre-lobby"
+cell = "NVDLC01Lobby"
+
+[[place]]
+name = "sierra-madre-casino"
+cell = "NVDLC01Casino"
+
+[[place]]
+name = "sierra-madre-vault"
+cell = "NVDLC01Vault"
+
+[[place]]
+name = "tampico-theater"
+cell = "NVDLC01Theater"
+
+[[place]]
+name = "villa-clinic"
+cell = "NVDLC01ClinicMainFloor"
+
+[[place]]
+name = "zion-lodge"
+cell = "NVDLC02ZionLodge"
+
+[[place]]
+name = "zion-store"
+cell = "NVDLC02ZionStore"
+
+[[place]]
+name = "zion-three-marys"
+cell = "NVDLC023MarysCave"
+
+[[place]]
+name = "x8-central"
+cell = "NVDLC03X8Main"
+
+[[place]]
+name = "cuckoos-nest"
+cell = "NVDLC03SLCuckoosNestINT"
+
+[[place]]
+name = "the-sink"
+cell = "NVDLC03TheSink"
+
+[[place]]
+name = "x13-testing"
+cell = "NVDLC03X13"
+
+# A door reference as the way in: stand by the Goodsprings saloon, then go through its door and the gas station's.
+[[place]]
+name = "goodsprings-street"
+world = "WastelandNV"
+x = -68500
+y = 3300
+z = 8600
+heading = 90
+
+[[place]]
+name = "door-prospector-saloon"
+door = "ProspectorSaloonDoor"
+
+[[place]]
+name = "door-gas-station"
+door = "GSGasStationDoorRef"
+

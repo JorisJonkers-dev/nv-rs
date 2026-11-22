@@ -70,6 +70,27 @@ pub fn install(e: &mut Engine) {
     install_as(e, on);
 }
 
+/// Puts JohnnyGuitar NVSE's record in xNVSE's list. The editor ids' crate (`johnnyguitar`, in the
+/// fixes preset) registers the same plugin first (same name, same opcode base) with its deferred-start
+/// listener; a second registration panicked ("registered twice", nv-rs#482) for a game with Tale of Two
+/// Wastelands in the fixes preset. It is one plugin, so there is one record carrying both halves: the
+/// first one's listener, this one's co-save, listed.
+fn register_plugin(e: &mut engine_core::Engine) {
+    let mine = identity::plugin();
+    let list = &mut e.ext::<nvse::Nvse>().plugins.built_ins;
+    match list.iter_mut().find(|p| p.opcode_base == mine.opcode_base) {
+        Some(first) => {
+            first.listed |= mine.listed;
+            first.listener = first.listener.or(mine.listener);
+            first.save = first.save.or(mine.save);
+            first.load = first.load.or(mine.load);
+            first.pre_load = first.pre_load.or(mine.pre_load);
+            first.new_game = first.new_game.or(mine.new_game);
+        }
+        None => nvse::plugins::register(e, mine),
+    }
+}
+
 /// [`install`] with the flag given (the tests check both answers).
 pub fn install_as(e: &mut Engine, answers_installed: bool) {
     if e.ext::<State>().installed {
@@ -78,7 +99,7 @@ pub fn install_as(e: &mut Engine, answers_installed: bool) {
     e.ext::<State>().installed = true;
     if answers_installed {
         commands::install(e);
-        nvse::plugins::register(e, identity::plugin());
+        register_plugin(e);
     }
     // The game's state, not one engine's: real threads' engines share it.
     e.share_ext::<State>();

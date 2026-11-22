@@ -1,0 +1,101 @@
+# nv-rs#487: the 23 places that leave a stale texture-palette entry behind and stop in the last one (Tale of Two Wastelands load order):
+# places 33 to 55 of sweep-addons-capital-interiors.toml. Before nv-rs#488 the soak stopped at the 23rd place (free of a block that is not live).
+#   nv-rs-dev scene soak --places docs/fork/scenes/soak-palette-double-free.toml <the TTW arguments> --out /tmp/soak --frames 300
+version = 1
+
+# ---- anchorage: 11 cells
+
+[[place]]
+name = "dlc03powerworks03"
+cell = "DLC03Powerworks03"   # Old Olney S. Wilson Building
+
+[[place]]
+name = "dlc03ppurity03"
+cell = "DLC03PPurity03"   # Memorial Sub-Basement
+
+[[place]]
+name = "dlc03jurystraiders"
+cell = "DLC03JuryStRaiders"   # Hank's Electrical Supply
+
+[[place]]
+name = "dlc03presmetro02"
+cell = "DLC03PresMetro02"   # Presidential Metro
+
+[[place]]
+name = "dlc03warehousetraps"
+cell = "DLC03WarehouseTraps"   # Traps Warehouse
+
+[[place]]
+name = "dlc03presmetro03"
+cell = "DLC03PresMetro03"   # Adams AFB Metro Exit
+
+[[place]]
+name = "dlc03ppurity02"
+cell = "DLC03PPurity02"   # Jefferson Museum and Gift Shop
+
+[[place]]
+name = "dlc03presmetro01"
+cell = "DLC03PresMetro01"   # Presidential Sub Level
+
+[[place]]
+name = "dlc03relaystation02"
+cell = "DLC03RelayStation02"   # Relay Station
+
+[[place]]
+name = "dlc03powerworks01"
+cell = "DLC03Powerworks01"   # Olney Powerworks
+
+[[place]]
+name = "dlc03zcitadelpit"
+cell = "DLC03zCitadelPit"   # Citadel Armory
+
+[[place]]
+name = "dlc03vertibird02"
+cell = "DLC03Vertibird02"   # Vertibird Interior
+
+[[place]]
+name = "dlc03ghoulhideout"
+cell = "DLC03GhoulHideout"   # Museum Authority
+
+# ---- pointlookout: 54 cells
+
+[[place]]
+name = "dlc04medicaltent01"
+cell = "DLC04MedicalTent01"   # Marcella's Tent
+
+[[place]]
+name = "dlc04lighthouse"
+cell = "DLC04Lighthouse"   # Lighthouse
+
+[[place]]
+name = "dlc04bank"
+cell = "DLC04Bank"   # People's Bank of Point Lookout
+
+[[place]]
+name = "dlc04barge"
+cell = "DLC04Barge"   # Belowdecks
+
+[[place]]
+name = "dlc04zzcave01"
+cell = "DLC04zzCave01"   # Cave
+
+[[place]]
+name = "dlc04surveyhole03"
+cell = "DLC04surveyHole03"   # Excavated Muck Hole
+
+[[place]]
+name = "dlc04spytunnel"
+cell = "DLC04SpyTunnel"   # Runoff Pipe
+
+[[place]]
+name = "dlc04zzbasement"
+cell = "DLC04zzBasement"   # Basement
+
+[[place]]
+name = "dlc04campshacktorture"
+cell = "DLC04CampShackTorture"   # Interrogation Room A
+
+[[place]]
+name = "dlc04medicaltent04"
+cell = "DLC04MedicalTent04"   # Administration Tent
+
