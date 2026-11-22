@@ -177,6 +177,13 @@ fn fly_camera_on(e: &Engine) -> bool {
 /// The tree update's time accumulator (the sway's clock, `BSTreeManager::Update`).
 const TREE_TIME_ACCUMULATOR: u32 = 0x011d_5dd4;
 
+/// `operator new` (`00401000`), `PlayerCharacter::RequestPositionPlayer` (`0093be30`: the player, a 0x34-byte request the
+/// game frees), the player's character controller (`009306d0`) and the controller's height setter (`00573f20`).
+const OPERATOR_NEW: u32 = 0x0040_1000;
+const REQUEST_POSITION_PLAYER: u32 = 0x0093_be30;
+const GET_CHAR_CONTROLLER_OF_PLAYER: u32 = 0x0093_06d0;
+const CONTROLLER_SET_HEIGHT: u32 = 0x0057_3f20;
+
 /// A running engine as the runner's world.
 pub struct EngineWorld<'a> {
     pub engine: &'a mut Engine,
@@ -257,6 +264,30 @@ impl World for EngineWorld<'_> {
                 pitch,
             });
         }
+        if p.request && self.screen == Screen::Play {
+            // The game's own route for a far move: a queued request the player update carries out (the exterior
+            // placement, then the character controller's height, then the callback).
+            let request = e.call(OPERATOR_NEW, &args![0x34u32]).u32();
+            for off in (0..0x34).step_by(4) {
+                e.mem.set_u32(request + off, 0);
+            }
+            e.mem.set_u32(request, world);
+            for (i, v) in [pos[0] as f32, pos[1] as f32, pos[2] as f32]
+                .iter()
+                .enumerate()
+            {
+                e.mem.set_f32(request + 0x08 + 4 * i as u32, *v);
+            }
+            for (i, v) in [rad(pitch), 0.0f32, rad(heading)].iter().enumerate() {
+                e.mem.set_f32(request + 0x14 + 4 * i as u32, *v);
+            }
+            e.call(REQUEST_POSITION_PLAYER, &args![player, request]);
+            return Ok(Target {
+                pos,
+                heading,
+                pitch,
+            });
+        }
         e.call(
             POSITION_PLAYER_EXTERIOR,
             &args![
@@ -271,6 +302,12 @@ impl World for EngineWorld<'_> {
                 0u32
             ],
         );
+        if std::env::var_os("NV_SCENE_CONTROLLER_HEIGHT").is_some() {
+            // What the game's request handler does after the placement: the character controller gets the target's
+            // height (`PlayerCharacter::GetCharacterController` `009306d0`, then `00573f20`).
+            let controller = e.call(GET_CHAR_CONTROLLER_OF_PLAYER, &args![player]).u32();
+            e.call(CONTROLLER_SET_HEIGHT, &args![controller, pos[2] as f32]);
+        }
         if self.screen == Screen::Menu {
             // The main menu is still the game's menu: close it as a new game's start does
             // (`StartMenu::Close`, then the flag `ConfirmNewGame` sets: the game is running).

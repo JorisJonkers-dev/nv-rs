@@ -1,0 +1,20 @@
+# A stability case on a Tale of Two Wastelands load order (world "Wasteland"): the second place, 12000 units
+# north-east of the Rivet City map marker, was not reached in 150 s (the engine sat on a loading screen with no player
+# cell). The first place is the river bank view that loads; `nv-rs-scene soak` with the TTW arguments ends at the
+# second while the defect is there.
+version = 1
+[[place]]
+name = "rivet-bank"
+world = "Wasteland"
+ref = "RivetCityMapMarker"
+dx = 7000
+dy = 0
+dz = 900
+
+[[place]]
+name = "rivet-north-east"
+world = "Wasteland"
+ref = "RivetCityMapMarker"
+dx = 12000
+dy = 9000
+dz = 900

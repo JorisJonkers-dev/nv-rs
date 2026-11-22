@@ -373,10 +373,11 @@ impl Runner {
                         format!("player at {:.0} {:.0} {:.0}", a.pos[0], a.pos[1], a.pos[2])
                     });
                     return Step::Failed(format!(
-                        "scene: place {} was not reached within {} s (screen {:?}, {at}, wanted {:.0} {:.0} {:.0})",
+                        "scene: place {} was not reached within {} s (screen {:?}, top menu {:#x}, {at}, wanted {:.0} {:.0} {:.0})",
                         place.name,
                         self.request.timeout_s,
                         w.screen(),
+                        w.top_menu(),
                         self.target[0],
                         self.target[1],
                         self.target[2]

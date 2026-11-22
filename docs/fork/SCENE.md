@@ -154,15 +154,29 @@ label; `--who` defaults to `engine`); `soak` takes it too, `bench` takes `--lock
 ### What caps a run's memory
 
 Every engine start of `run`, `soak` and `bench` is a `gamerun` scope by default, with or without `--label`: a transient
-systemd scope in `nv-games.slice` with `MemoryMax` and `MemoryHigh` 10 GiB (the value read from a running scope:
-`systemctl --user show nvgame-<label>-*.scope -p MemoryMax` gives 10737418240), `MemorySwapMax` 0 and an out-of-memory score
-that has the kernel kill the run before the desktop. The slice itself has no limit (`MemoryMax=infinity`); the limit is on
-each scope, so three starts at once may use 30 GiB in all. The tool prints `memory cap: 10G per engine start (...)` first.
-`--label NAME` names the scope (`NAME-<variant>` for a run; the default is `scene-<kind>-...-<pid>`), `--who NAME` says
-who started it, `--mem 6G` changes the limit. `--no-cap` starts the engine with no cap and says so at the start; the
-`--wrap` words that already hold `gamerun` keep their own cap. The tool refuses to start when `~/.local/bin/gamerun` is
-missing and `--no-cap` is not given. The old harness's memory guard (host, VRAM and GTT checks every 100 ms, halt file)
-is not ported: the scope limit is the cap, and the VRAM and GTT checks are not there.
+systemd scope in `nv-games.slice` with a hard `MemoryMax` and `MemoryHigh`, `MemorySwapMax` 0 and an out-of-memory score that
+has the kernel kill the run before the desktop. The slice itself has no limit; the limit is on each scope.
+
+What a start really uses (the scope's `memory.peak` and its anonymous memory, read every 200 ms while it runs and printed
+at the end of each start as `memory NAME: peak ... MiB ..., ... MiB anonymous at most`, with the same text in
+`OUT/NAME/memory.txt`): the plain game, five Mojave places at 1920x1080, peak 1700 MiB, 1340 MiB anonymous; a Tale of Two
+Wastelands folder, four Capital places, peak 1934 MiB, 1827 MiB anonymous; a bench (quick suite, three places, 3000 timed frames each), peak 1490 MiB, 1363 MiB anonymous. The peak counts the page cache of the files
+the run read, which the kernel gives back under pressure.
+
+The default is a total budget for the invocation: 12 GiB, shared evenly by the starts that run together (`run` starts up
+to `--jobs` variants at once, `soak` and `bench` one), never below 4 GiB (twice the largest peak) and never above 6 GiB
+(three times) for one start. So one start gets 6 GiB, two get 6 GiB each, three get 4 GiB each (12 GiB in all). The tool
+prints the numbers first (`memory cap: 4096M per engine start (the budget of 12288 MiB for the whole invocation shared by 3
+start(s) at once, between 4096 and 6144 MiB each; ...)`). `--mem 8G` sets the limit of each start, `--label NAME` names the
+scope (`NAME-<variant>` for a run; default `scene-<kind>-...-<pid>`), `--who NAME` says who started it, `--no-cap` starts the
+engine with no cap and says so at the start; `--wrap` words that already hold `gamerun` keep their own cap. The tool
+refuses to start when `~/.local/bin/gamerun` is missing and `--no-cap` is not given.
+
+The machine here has 46 GiB of memory (about 38 GiB available with the desktop up) and a 24 GiB card; at most three games run
+at once by the lane rule, so three starts under the default hold at most 12 GiB, which leaves the rest (about 34 GiB) to
+the desktop, and a second invocation under the shared lock another 12 GiB at most. The old harness's memory guard (host,
+VRAM and GTT checks every 100 ms, halt file) is not ported: the scope limit is the cap and the VRAM and GTT checks are not
+there.
 
 Each `--variant` is the installation's data (no overlay) or with an overlay folder over its `Data` (loose
 `meshes`, `textures`, `lodsettings`, and any `.esp` or `.esm` at the overlay's top, which is put in the plugin list).
@@ -293,6 +307,18 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
   `SetPosBase` moves it) overwrites the reference's. Not traced further. So the soak
   fails while the defect is there and is the test for its fix. The task queue path (setting above 1) is not
   exercised.
+
+## A placement that does not stick (nv-rs#486)
+
+`scenes/soak-rivet-ne.toml` is a soak case on a TTW load order: the second place, 12000 east and 9000 north of the Rivet City
+marker, is not reached. With `NV_SCENE_TRACE=1` the player is at the target in the first main frame after the placement
+(89583 -60073 10873; the land is there) and in the second at the spot it stood at before (84583 -69073 12578), where it stays.
+It is not a hang (the first try with a 150 s limit looked like one: the limit counts the placement call, which holds the
+game's own loading screen, 64 s here). The same with the exterior placement, with `move = "request"` (the queued
+`PlayerCharacter::RequestPositionPlayer`, the route fast travel and `moveto` take; the player update carries it out) and with
+the character controller's height set after the placement (`NV_SCENE_CONTROLLER_HEIGHT=1`, what the request handler does).
+So something writes the old position back after the placement, on every route. Filed as nv-rs#486 with the trace; the failure
+line now names the top menu.
 
 ## The owner's list against what exists
 

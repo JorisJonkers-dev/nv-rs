@@ -65,6 +65,10 @@ pub struct Place {
     /// Move the player as the console's `player.setpos` / `setangle` do (nv-rs#474), not through the game's own
     /// placement (`move = "setpos"`; the default is `move = "place"`).
     pub setpos: bool,
+    /// Move the player the way the game's own far moves do (`move = "request"`): a queued position request
+    /// (`PlayerCharacter::RequestPositionPlayer`, `0093be30`), handled by the game's own player update, which places the
+    /// player in the world, sets the character controller's height and runs its callback.
+    pub request: bool,
     /// Points to walk through (a bench: in a soak or bench the player moves along them, `path_speed` units a frame, the
     /// whole path again when it ends); empty for a place to stand at.
     pub path: Vec<[f64; 3]>,
@@ -310,12 +314,13 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         Some(Value::Str(s)) if !s.is_empty() => Ok(Some(s.clone())),
         Some(_) => Err(format!("line {n}: `{k}` is a non-empty string")),
     };
-    let setpos = match optional_string("move")?.as_deref() {
-        None | Some("place") => false,
-        Some("setpos") => true,
+    let (setpos, request) = match optional_string("move")?.as_deref() {
+        None | Some("place") => (false, false),
+        Some("setpos") => (true, false),
+        Some("request") => (false, true),
         Some(other) => {
             return Err(format!(
-                "line {n}: `move` is \"place\" or \"setpos\", not `{other}`"
+                "line {n}: `move` is \"place\", \"request\" or \"setpos\", not `{other}`"
             ))
         }
     };
@@ -398,6 +403,7 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         heading_given: get("heading").is_some(),
         pitch_given: get("pitch").is_some(),
         setpos,
+        request,
         path,
         path_speed: num("path_speed", Some(10.0))?,
         camera,
@@ -679,5 +685,15 @@ path = [[0, 0, 0], [10.5, 0, 0]]
                 .path_speed,
             10.0
         );
+    }
+
+    #[test]
+    fn the_move_may_be_a_queued_request_like_the_games_own() {
+        let t = "version = 1\n[[place]]\nname = \"a\"\nworld = \"W\"\nx = 1\ny = 2\nz = 3\nmove = \"request\"\n";
+        let p = &PlaceFile::parse(t).unwrap().places[0];
+        assert!(p.request && !p.setpos);
+        assert!(PlaceFile::parse(&t.replace("request", "teleport"))
+            .unwrap_err()
+            .contains("request"));
     }
 }

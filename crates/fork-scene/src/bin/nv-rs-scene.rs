@@ -113,7 +113,7 @@ fn run(args: &[String]) -> Result<bool, String> {
 
 /// The memory cap of every engine start: each start is a `gamerun` scope (a systemd scope in `nv-games.slice` with a
 /// hard `MemoryMax` and no swap, labelled in the monitor) unless `--no-cap` is given or the `--wrap` words already
-/// contain `gamerun`. The default limit is gamerun's own (10G).
+/// contain `gamerun`. The default limit is a share of a total budget (`TOTAL_BUDGET_MIB`), `--mem` overrides it.
 #[derive(Clone, Debug, Default)]
 struct Cap {
     /// `--label`: the base of the scope's name (a run adds its variant's name); empty: `scene-<kind>-<pid>`.
@@ -138,7 +138,13 @@ impl Cap {
 
     /// The words that put a command in the scope, for the start named `name` of a run of `kind`; empty when the
     /// cap is off or the wrap words already hold `gamerun`.
-    fn words(&self, kind: &str, name: &str, wrap: &[String]) -> Result<Vec<String>, String> {
+    fn words(
+        &self,
+        kind: &str,
+        name: &str,
+        wrap: &[String],
+        concurrent: usize,
+    ) -> Result<Vec<String>, String> {
         if self.off || wrap.iter().any(|w| w.ends_with("gamerun")) {
             return Ok(Vec::new());
         }
@@ -173,34 +179,66 @@ impl Cap {
         } else {
             self.who.clone()
         });
-        if !self.mem.is_empty() {
-            w.push("--mem".into());
-            w.push(self.mem.clone());
-        }
+        w.push("--mem".into());
+        w.push(self.limit(concurrent));
         w.push("--".into());
         Ok(w)
     }
 
+    /// The limit of each start (gamerun's `--mem` value): `--mem` as given, else the total budget shared by the starts
+    /// that run together, never below what one start needs.
+    fn limit(&self, concurrent: usize) -> String {
+        if !self.mem.is_empty() {
+            return self.mem.clone();
+        }
+        let n = concurrent.max(1) as u64;
+        format!(
+            "{}M",
+            (TOTAL_BUDGET_MIB / n).clamp(ONE_START_MIB, ONE_START_MAX_MIB)
+        )
+    }
+
     /// The line printed at the start of a run.
-    fn describe(&self, wrap: &[String]) -> String {
+    fn describe(&self, wrap: &[String], concurrent: usize) -> String {
         if self.off {
             "memory cap: OFF (--no-cap): the engine can use all the memory of the machine".into()
         } else if wrap.iter().any(|w| w.ends_with("gamerun")) {
             "memory cap: the --wrap words start gamerun, which holds the cap".into()
         } else {
+            let per = self.limit(concurrent);
+            let how = if self.mem.is_empty() {
+                format!(
+                    "the budget of {} MiB for the whole invocation shared by {} start(s) at once, between {ONE_START_MIB} and {ONE_START_MAX_MIB} MiB each",
+                    TOTAL_BUDGET_MIB,
+                    concurrent.max(1)
+                )
+            } else {
+                "from --mem".to_string()
+            };
             format!(
-                "memory cap: {} per engine start (a gamerun scope in nv-games.slice, hard limit, no swap)",
-                if self.mem.is_empty() { "10G" } else { &self.mem }
+                "memory cap: {per} per engine start ({how}; a gamerun scope in nv-games.slice, hard limit, no swap)"
             )
         }
     }
 }
+
+/// The default memory budget of one invocation (MiB), shared by the starts that run together: the owner's desktop once
+/// failed from about 12 GiB in one process, so no run is allowed more in all by default. `--mem` overrides it per start.
+const TOTAL_BUDGET_MIB: u64 = 12288;
+/// What one start needs at least (MiB): the cap never goes below it. Measured peaks are about 1.7 GiB (the plain game) and
+/// 1.9 GiB (a Tale of Two Wastelands folder), docs/fork/SCENE.md: twice that.
+const ONE_START_MIB: u64 = 4096;
+/// The most one start gets by default (MiB): three times the measured peak, so a start that grows out of bounds is
+/// stopped long before the desktop notices.
+const ONE_START_MAX_MIB: u64 = 6144;
 
 /// What every variant's run shares.
 struct Opts {
     cap: Cap,
     /// `run`, `soak` or `bench`: the default label of a start.
     kind: String,
+    /// Engine starts running at once (`--jobs` for a run, 1 for a soak or bench).
+    concurrent: usize,
     viewer: PathBuf,
     game: PathBuf,
     places: PathBuf,
@@ -282,6 +320,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
     let opts = Opts {
         cap,
         kind: "run".into(),
+        concurrent: variants.len().min(jobs.max(1)),
         viewer,
         game,
         places,
@@ -295,7 +334,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         overlay_skip,
         extra_env,
     };
-    println!("{}", opts.cap.describe(&opts.wrap));
+    println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let started = std::time::Instant::now();
     let mut results: Vec<(String, RunResult)> = Vec::new();
     for chunk in variants.chunks(jobs.max(1)) {
@@ -389,12 +428,8 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
     }
     let log = std::fs::File::create(dir.join("run.log")).map_err(|e| e.to_string())?;
     let mut cmd_words: Vec<std::ffi::OsString> = o.wrap.iter().map(Into::into).collect();
-    cmd_words.extend(
-        o.cap
-            .words(&o.kind, name, &o.wrap)?
-            .into_iter()
-            .map(std::ffi::OsString::from),
-    );
+    let cap_words = o.cap.words(&o.kind, name, &o.wrap, o.concurrent)?;
+    cmd_words.extend(cap_words.iter().cloned().map(std::ffi::OsString::from));
     cmd_words.push((&o.viewer).into());
     cmd_words.push((&staged.game).into());
     let mut cmd = std::process::Command::new(&cmd_words[0]);
@@ -423,10 +458,95 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
     if !o.extra_env.iter().any(|(k, _)| k == "NV_SCENE_SOAK_FRAMES") {
         cmd.env("NV_SCENE_OUT", dir.join("pictures"));
     }
-    let status = cmd
-        .status()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("{}: {e}", cmd_words[0].to_string_lossy()))?;
+    // The scope's memory, read while the engine runs (the scope is gone when it ends).
+    let scope_prefix = cap_words.get(1).map(|l| format!("nvgame-{l}-"));
+    let mut mem = MemSeen::default();
+    let status = loop {
+        if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
+            break st;
+        }
+        if let Some(prefix) = &scope_prefix {
+            mem.poll(prefix);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+    if mem.peak > 0 {
+        let line = mem.describe(name);
+        println!("{line}");
+        let _ = std::fs::write(
+            dir.join("memory.txt"),
+            format!(
+                "{line}\npeak_mib {}\nanon_mib {}\n",
+                mem.peak >> 20,
+                mem.anon >> 20
+            ),
+        );
+    }
     Ok(status.code().unwrap_or(-1))
+}
+
+/// The highest memory of a scope seen while it ran: the cgroup's `memory.peak` (it counts the page cache the run read,
+/// which the kernel gives back under pressure) and the largest anonymous memory (`memory.stat`, what the process itself holds).
+#[derive(Default)]
+struct MemSeen {
+    peak: u64,
+    anon: u64,
+    dir: Option<PathBuf>,
+}
+
+impl MemSeen {
+    fn find(prefix: &str) -> Option<PathBuf> {
+        let uid = std::fs::read_to_string("/proc/self/loginuid")
+            .ok()?
+            .trim()
+            .to_string();
+        let root = PathBuf::from(format!(
+            "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"
+        ));
+        let mut stack = vec![(root, 0)];
+        while let Some((d, depth)) = stack.pop() {
+            for e in std::fs::read_dir(&d).ok()?.flatten() {
+                let n = e.file_name().to_string_lossy().into_owned();
+                if n.starts_with(prefix) && n.ends_with(".scope") {
+                    return Some(e.path());
+                }
+                if depth < 3 && n.ends_with(".slice") {
+                    stack.push((e.path(), depth + 1));
+                }
+            }
+        }
+        None
+    }
+
+    fn poll(&mut self, prefix: &str) {
+        if self.dir.is_none() {
+            self.dir = Self::find(prefix);
+        }
+        let Some(d) = &self.dir else { return };
+        let read = |f: &str| std::fs::read_to_string(d.join(f)).ok();
+        if let Some(p) = read("memory.peak").and_then(|t| t.trim().parse::<u64>().ok()) {
+            self.peak = self.peak.max(p);
+        }
+        if let Some(a) = read("memory.stat").and_then(|t| {
+            t.lines().find_map(|l| {
+                l.strip_prefix("anon ")
+                    .and_then(|v| v.trim().parse::<u64>().ok())
+            })
+        }) {
+            self.anon = self.anon.max(a);
+        }
+    }
+
+    fn describe(&self, name: &str) -> String {
+        format!(
+            "memory {name}: peak {} MiB of the scope (with the page cache the run read), {} MiB anonymous at most",
+            self.peak >> 20,
+            self.anon >> 20
+        )
+    }
 }
 
 /// `nv-rs-scene soak`: one engine start visits every place of the file and runs `--frames` frames at
@@ -528,6 +648,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
     let t = std::time::Instant::now();
     let opts = Opts {
         cap,
+        concurrent: 1,
         kind: if exclusive { "bench" } else { "soak" }.into(),
         viewer,
         game,
@@ -542,7 +663,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         overlay_skip,
         extra_env: extra,
     };
-    println!("{}", opts.cap.describe(&opts.wrap));
+    println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let overlays: Vec<PathBuf> = overlay.into_iter().collect();
     let code = run_one("soak", &overlays, &opts)?;
     let secs = t.elapsed().as_secs_f64();
@@ -1135,25 +1256,32 @@ mod tests {
             assert!(cap.take(a, &mut iter).unwrap());
         }
         assert!(!cap.take("--viewer", &mut iter).unwrap());
-        assert!(cap.describe(&[]).contains("6G") || cap.describe(&[]).contains("10G"));
+        assert!(cap.describe(&[], 1).contains("6G"));
+        // The default: the budget shared by the starts at once, between the floor and the ceiling.
+        let d = Cap::default();
+        assert_eq!(d.limit(1), "6144M");
+        assert_eq!(d.limit(2), "6144M");
+        assert_eq!(d.limit(3), "4096M");
+        assert_eq!(d.limit(6), "4096M");
+        assert!(d.describe(&[], 3).contains("4096M per engine start"));
         // With the cap off, or gamerun among the wrap words, nothing is added.
         let off = Cap {
             off: true,
             ..Cap::default()
         };
-        assert!(off.words("run", "base", &[]).unwrap().is_empty());
-        assert!(off.describe(&[]).contains("OFF"));
+        assert!(off.words("run", "base", &[], 1).unwrap().is_empty());
+        assert!(off.describe(&[], 1).contains("OFF"));
         let wrapped = s(&["flock", "/x/gamerun"]);
         assert!(Cap::default()
-            .words("run", "base", &wrapped)
+            .words("run", "base", &wrapped, 1)
             .unwrap()
             .is_empty());
         // Otherwise gamerun comes with the label, the user and the limit (when gamerun is installed).
-        if let Ok(w) = cap.words("run", "base", &[]) {
+        if let Ok(w) = cap.words("run", "base", &[], 1) {
             assert!(w[0].ends_with("/.local/bin/gamerun"));
             assert_eq!(&w[1..], ["pics-base", "--who", "me", "--mem", "6G", "--"]);
         }
-        if let Ok(w) = cap.words("soak", "soak", &[]) {
+        if let Ok(w) = cap.words("soak", "soak", &[], 1) {
             assert_eq!(w[1], "pics");
         }
     }
