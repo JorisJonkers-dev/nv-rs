@@ -140,23 +140,75 @@ the LOD around it. `scenes/camera-seam.toml` (plain game) and `scenes/camera-sea
 looked at: Goodsprings 6000 and 12000 units up, Tenpenny Tower from 5000 and the Washington Monument from 7000. The
 run is 15 s for the two plain places and 69 s for two Capital places (17 s for one more, `--only`).
 
+## The lens: field of view, far plane, fog
+
+Any place (the player's eyes or the free camera) may set the lens:
+
+```toml
+fov = 20        # degrees; a narrow lens looks at one far thing as if it were near
+far = 150000    # the far plane's distance in units
+fog = false     # no fog: far land and objects at full contrast
+```
+
+Why a plain write does not work, and where each is set: the game derives all three every frame, so each is taken at its
+source (`crates/fork-scene-run/src/view.rs`).
+
+- `fov`: the world camera's angle is the player's `fWorldFOV` (`+0x670`; `+0x674` is the first-person weapon's), moved each
+  frame toward the setting `fDefaultWorldFOV` by `0095de30`. The place's value is written after that function and, while the
+  free camera is up (the player is not simulated then), by the runner each frame. The game's `fov` is the angle of a 4:3
+  picture: the vertical half-angle's tangent is `0.75 * tan(fov / 2)` whatever the picture's shape, so a square picture
+  (`--resolution 1024x1024`) shows a square and a 16:9 one is wider than 4:3 would be.
+- `far`: in an exterior with distant terrain the scene graph's far distance (`SceneGraph::GetFarDistance`, `008786b0`) is one
+  fixed number, 353840 units in this game, not the `fNoLODFarDistance` settings; the place's value replaces the answer, and the
+  game's own sky and atmosphere updates then move the frustum's far plane and the fog's far distance to it.
+- `fog`: the sky recomputes its fog distances from the weather every frame and the atmosphere reads them through `00923000`
+  (a folded accessor other classes share); with `fog = false` the sky's own call is answered with distances of 1e8 and 2e8.
+
+Proved by pictures, opened: `scenes/lens-test.toml`, Goodsprings from 6000 up looking east, the same view with each key
+(1280x720). `fov = 20` shows the Goodsprings cross and a far tower filling the frame; `fog = false` shows the far
+mountains and the lake in full colour, where the plain picture fades them into haze; `far = 15000` ends the land at a
+line with a bright haze (the fog pulled in to the far plane) between it and the sky; `far = 400000` looks like the plain one (the game's own is 353840).
+Earlier tries wrote `fDefaultFOV`, `fNoLODFarDistance*` and the sky's fields once from the runner: pictures identical to
+the plain ones, and the environment switches `NV_SCENE_FOV`, `NV_SCENE_FAR`, `NV_SCENE_NOFOG` that did that are gone.
+
 ## A straight-down picture of a block of land (measurement)
 
-`scenes/topdown-test.toml`: the player stands on the ground (its cells are the loaded ones), the free camera hangs 60000 units
-above a point and looks down (`pitch = 89`, the place file's limit, 1 degree off the vertical). Opened: Goodsprings from
-above (`mojave-block`), and Tenpenny Tower from above on the TTW folder (`capital-block`, the tower, the overpass pieces and
-the far buildings in the corner all in the picture). What it shows and what limits it:
-- It works: nothing falls, the picture is a plan view with the game's own light at noon and the land, roads and objects in
-  place. It is a perspective view at the game's field of view (wide, not a long lens), so the block's edge is farther out
-  than its centre and a 4 by 4 cell block fills only part of the picture.
-- Fog: the mojave picture is hazed toward the left and bottom edges, the distance from the camera, not a limit of the loaded
-  cells. The weather is the clear one forced for the frozen world.
-- Not working yet: a long lens. `NV_SCENE_FOV=15` (written to `fDefaultFOV` and to the player's field of view at `+0x674`),
-  `NV_SCENE_NOFOG=1` (the sky's fog distances) and `NV_SCENE_FAR=400000` (the far-distance settings) gave a picture
-  identical to the one without, so the game recomputes those each frame after the runner's write (or reads them
-  elsewhere). Controlling them needs the writes to move later in the frame or the code that derives them to be found.
-- The loaded square around the player (`uGridsToLoad`, 5 cells by default) is what is real land; at 60000 up the picture
-  holds more than that, the rest is the game's LOD, so a clean 4 by 4 block needs the long lens or a lower camera.
+`scenes/topdown-test.toml`: the player stands on the ground (its cells are the loaded ones), the free camera hangs 60000
+units above the block's centre and looks straight down (`pitch = 89`, the place file's limit, so the camera sits 1047 units
+south of the centre), `fog = false`, and a narrow lens, `fov = 23.9` for the Mojave and 20.4 for the Capital Wasteland,
+so a 4 by 4 cell block (16384 units) fills a square picture (`--resolution 1024x1024`). Not a feature: a measurement.
+
+```
+nv-rs-scene run --viewer BIN --game INSTALL --places docs/fork/scenes/topdown-test.toml --only mojave-block \
+  --out OUT --resolution 1024x1024 --userdata TEMPLATE --game-lock GAME.LOCK --label topdown
+```
+
+Opened: `mojave-block` (Goodsprings: road bend, houses, the cliffs west), `mojave-novac-block` (Novac: the dinosaur and the
+buildings around it) and `capital-block` (Tenpenny Tower and its plain, TTW folder, the command in the Tale of Two
+Wastelands section). Each is a plan view with the game's light and a square 16384-unit edge to within a few percent.
+Calibration, the only measure used: two Goodsprings pictures with the camera 2048 units apart shifted the road bend by
+136 pixels, that is 15400 units across 1024 pixels at the ground (the fov was then raised from 22.5 to 23.9). The ground
+is not flat, so a tall hill or a roof is nearer the lens and larger.
+
+- Loaded cells: the game loads a square of `uGridsToLoad` by `uGridsToLoad` cells around the player's cell (5 by 5 = 25 by
+  default; the runner logs it at each picture, `scene: NAME: uGridsToLoad 5: cells x -20..-16 y -2..2, 25 of 25 hold a
+  cell`). Beyond it only the distant terrain and the object LOD are drawn.
+- Can a place raise it? No. `uGridsToLoad` is read once when the game starts (`TES` sizes its cell arrays from it), so it is
+  a property of the engine start, not of a place. A run can: `nv-rs-scene run|soak|bench --grids 9` (an odd number, 3 to
+  21) or `--ini KEY=VALUE` rewrites the line in the staged copy of `Fallout.ini` (the template and the owner's profile
+  are not touched). Measured with 5, 7 and 9: 25, 49 and 81 cells loaded, one place 12 s, 14 s and 14-16 s from process
+  start to the picture, memory of the start 1.2 to 1.4 GB, 1.3 GB and 1.3 to 1.6 GB.
+- Does it matter for a 4 by 4 block? Not when the block lies inside the loaded square: the Goodsprings block with 5, 7 and 9
+  differs by a mean of 0.04 of 255 (0.17% of pixels). A 12 by 12 cell view (`fov = 61`, camera 60000 up) does: with 5 the objects
+  (roads, houses, rock walls) end at the loaded square's edge and the rest is distant terrain; with 9 more of them are there
+  (mean difference 6.5, 34% of pixels), and `--grids 9` gives the same picture as the INI edited by hand (difference 0.000).
+- Cost of a tile, wall time from the process start (Ryzen 7 5800X3D, 1024x1024, shared machine): one tile in one start 12-13 s
+  (the first 6 s are the game's data load) and 20 s for the Capital Wasteland (12 s data load); each further tile in the
+  same start 6 s (18 s for Goodsprings then Novac). A far move is a cell load: tiles near each other cost less.
+- Limits: the camera cannot look exactly down (89 of 90 degrees), the picture is a perspective view (a block's edge is
+  farther from the lens than its centre, and objects stand out of the plane: roofs are larger than their feet), the fov that
+  fits a block depends on the ground's height (calibrate once per area by moving the camera a known distance), and weather
+  and light are the frozen world's. Baking a tile into anything is not built and not decided.
 
 ## Variants and the one command
 

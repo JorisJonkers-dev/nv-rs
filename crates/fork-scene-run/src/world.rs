@@ -48,6 +48,16 @@ const GRID: i32 = 3;
 const POSITION: u32 = 0x30;
 const PARENT_CELL: u32 = 0x40;
 
+/// The `TES` singleton (`011dea10`, a pointer): its current grid cell (`+0x24`, `+0x28`), the grid cell array (`+0x08`),
+/// `GridCellArray::Get(x, y)` (`004ba490`: the address of the slot) and `uGridsToLoad:General`'s setting (`011c63cc`, the value
+/// at +4).
+const TES_SINGLETON: u32 = 0x011d_ea10;
+const TES_GRID_X: u32 = 0x24;
+const TES_GRID_Y: u32 = 0x28;
+const TES_GRID_ARRAY: u32 = 0x08;
+const GRID_CELL_ARRAY_GET: u32 = 0x004b_a490;
+const GRIDS_TO_LOAD: u32 = 0x011c_63cc;
+
 /// The data handler (`011c3f2c`, a pointer) and `DataHandler::GetWorldSpaces` (`00460140`: the list of
 /// every world space of the load order, a `tList` whose first node is the pointer's value).
 const DATA_HANDLER: u32 = 0x011c_3f2c;
@@ -206,11 +216,47 @@ pub struct EngineWorld<'a> {
 }
 
 impl World for EngineWorld<'_> {
+    fn loaded_cells(&mut self) -> Option<String> {
+        let e = &mut *self.engine;
+        let tes = e.mem.u32(TES_SINGLETON);
+        if tes == 0 {
+            return None;
+        }
+        let grids = e.mem.u32(GRIDS_TO_LOAD + 4);
+        let array = e.mem.u32(tes + TES_GRID_ARRAY);
+        if array == 0 || grids == 0 || grids > 64 {
+            return None;
+        }
+        let origin = (
+            e.mem.u32(tes + TES_GRID_X) as i32 - (grids / 2) as i32,
+            e.mem.u32(tes + TES_GRID_Y) as i32 - (grids / 2) as i32,
+        );
+        let mut present = 0;
+        for x in 0..grids {
+            for y in 0..grids {
+                let slot = e.call(GRID_CELL_ARRAY_GET, &args![array, x, y]).u32();
+                if slot != 0 && e.mem.u32(slot) != 0 {
+                    present += 1;
+                }
+            }
+        }
+        let n = grids as i32;
+        Some(format!(
+            "uGridsToLoad {grids}: cells x {}..{} y {}..{}, {present} of {} hold a cell",
+            origin.0,
+            origin.0 + n - 1,
+            origin.1,
+            origin.1 + n - 1,
+            grids * grids
+        ))
+    }
+
     fn screen(&self) -> Screen {
         self.screen
     }
 
     fn go_to(&mut self, p: &Place) -> Result<Target, String> {
+        crate::view::set(p);
         let e = &mut *self.engine;
         let player = e.global::<u32>(PLAYER);
         if player == 0 {
@@ -370,7 +416,8 @@ impl World for EngineWorld<'_> {
                 pitch = pi.clamp(-89.0, 89.0);
             }
         }
-        measure_overrides(e, player);
+        crate::view::write_fov(e);
+        crate::view::write_fog(e);
         e.mem
             .set_f32(player + UFO_HEADING, heading.to_radians() as f32);
         e.mem.set_f32(player + UFO_PITCH, pitch.to_radians() as f32);
@@ -612,34 +659,4 @@ pub(crate) fn last_good_position(e: &Engine) -> Option<(f32, f32, f32, u8)> {
             e.mem.u8(player + RETURN_TO_LAST_GOOD),
         )
     })
-}
-
-/// Measurement only (a straight-down picture of a block of land, nv-rs#479): `NV_SCENE_FOV` (degrees) is written to the
-/// display setting `fDefaultFOV` (`01203150`, value at +4), `NV_SCENE_FAR` (units) to the far distance settings
-/// (`fNoLODFarDistanceMin` and `Max`, `01203124`, `01203130`, percentage 1), and `NV_SCENE_NOFOG=1` pushes the sky's fog
-/// distances out. The runner calls it each frame while a free camera is up.
-fn measure_overrides(e: &mut Engine, player: u32) {
-    if let Some(fov) = std::env::var("NV_SCENE_FOV")
-        .ok()
-        .and_then(|v| v.parse::<f32>().ok())
-    {
-        e.mem.set_f32(0x0120_3154, fov);
-        // The field of view the draw routines pass to `SetCameraFOV`: the player's float at +0x674.
-        e.mem.set_f32(player + 0x674, fov);
-    }
-    if let Some(far) = std::env::var("NV_SCENE_FAR")
-        .ok()
-        .and_then(|v| v.parse::<f32>().ok())
-    {
-        e.mem.set_f32(0x0120_3124, far);
-        e.mem.set_f32(0x0120_3130, far);
-        e.mem.set_f32(0x0120_313c, 1.0);
-    }
-    if std::env::var_os("NV_SCENE_NOFOG").is_some() {
-        let sky = e.mem.u32(SKY);
-        if sky != 0 {
-            e.mem.set_f32(sky + 0xd4, 1.0e8);
-            e.mem.set_f32(sky + 0xd8, 2.0e8);
-        }
-    }
 }

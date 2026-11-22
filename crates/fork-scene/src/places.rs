@@ -32,9 +32,15 @@
 //! # camera = [x, y, z]             # a world position
 //! look = [x, y, z]                 # look at a point (or `look_at`, or `heading` and `pitch`)
 //! ```
+//! The lens (any place, with the player's eyes or the free camera):
+//! ```toml
+//! fov = 20          # vertical field of view in degrees (a narrow lens looks at one far thing as if near)
+//! far = 400000      # far plane in units
+//! fog = false       # no fog: far land and objects at full contrast
+//! ```
 //! A place for a bench can walk: `path = [[x, y, z], ...]` and `path_speed = 10` (units a frame) move the player along the
 //! points (and back to the first) during the soak's frames.
-//! Supported: `#` comments, `key = value` with a quoted string, a number, or an array of
+//! Supported: `#` comments, `key = value` with a quoted string, a number, true or false, or an array of
 //! numbers or of arrays of numbers on one line; `[[place]]` tables; the top-level `version`.
 
 /// The newest format version this build reads.
@@ -81,6 +87,15 @@ pub struct Place {
     /// With a camera: look at this point (heading and pitch from the camera's position to it); `look_at`
     /// (a reference) and `heading` / `pitch` are the other ways to aim.
     pub look: Option<[f64; 3]>,
+    /// The field of view in degrees (`fov = 20` is a narrow lens), for the player's eyes or the free camera. `None`:
+    /// the game's own.
+    pub fov: Option<f64>,
+    /// The far plane's distance in units (`far = 400000`): the game's own `fNoLODFarDistance` settings' value.
+    /// `None`: the game's own.
+    pub far: Option<f64>,
+    /// Fog on (`fog = false`: the sky's fog distances pushed out of reach, so far land and objects show at full
+    /// contrast). Default true.
+    pub fog: bool,
 }
 
 /// Where the free camera is.
@@ -157,6 +172,7 @@ pub struct PlaceFile {
 #[derive(Clone, Debug, PartialEq)]
 enum Value {
     Str(String),
+    Bool(bool),
     Num(f64),
     List(Vec<Value>),
 }
@@ -274,6 +290,9 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
             "camera_dy",
             "camera_dz",
             "look",
+            "fov",
+            "far",
+            "fog",
         ]
         .contains(&k.as_str())
         {
@@ -384,6 +403,23 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
     if look.is_some() && camera.is_none() {
         return Err(format!("line {n}: `look` needs a camera"));
     }
+    let optional_num = |k: &str| match get(k) {
+        None => Ok(None),
+        Some(Value::Num(v)) if *v > 0.0 => Ok(Some(*v)),
+        Some(_) => Err(format!("line {n}: `{k}` is a number above 0")),
+    };
+    let fov = optional_num("fov")?;
+    if fov.is_some_and(|v| v >= 180.0) {
+        return Err(format!(
+            "line {n}: `fov` is the vertical angle in degrees, below 180"
+        ));
+    }
+    let far = optional_num("far")?;
+    let fog = match get("fog") {
+        None => true,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(format!("line {n}: `fog` is true or false")),
+    };
     let heading = num("heading", Some(0.0))?;
     let pitch = num("pitch", Some(0.0))?;
     if !(-360.0..=360.0).contains(&heading) || !(-89.0..=89.0).contains(&pitch) {
@@ -408,6 +444,9 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         path_speed: num("path_speed", Some(10.0))?,
         camera,
         look,
+        fov,
+        far,
+        fog,
     })
 }
 
@@ -460,11 +499,16 @@ fn parse_value(s: &str) -> Result<Value, String> {
             .collect::<Result<_, _>>()
             .map(Value::List);
     }
+    match s {
+        "true" => return Ok(Value::Bool(true)),
+        "false" => return Ok(Value::Bool(false)),
+        _ => {}
+    }
     s.parse::<f64>()
         .ok()
         .filter(|v| v.is_finite())
         .map(Value::Num)
-        .ok_or_else(|| format!("`{s}` is not a number, a quoted string or a list"))
+        .ok_or_else(|| format!("`{s}` is not a number, true, false, a quoted string or a list"))
 }
 
 #[cfg(test)]

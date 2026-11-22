@@ -18,6 +18,22 @@ fn env_pair(s: &str) -> Result<(String, String), String> {
         .ok_or(format!("--env wants NAME=VALUE, got {s}"))
 }
 
+/// `KEY=VALUE` for `--ini`.
+fn ini_pair(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .filter(|(k, _)| !k.is_empty())
+        .ok_or(format!("--ini wants KEY=VALUE, got {s}"))
+}
+
+/// `--grids N`: the loaded square is N by N cells (an odd number, 3 to 21).
+fn grids_value(s: &str) -> Result<String, String> {
+    match s.parse::<u32>() {
+        Ok(n) if n % 2 == 1 && (3..=21).contains(&n) => Ok(n.to_string()),
+        _ => Err(format!("--grids is an odd number from 3 to 21, not {s}")),
+    }
+}
+
 fn load(p: &Path) -> Result<fork_scene::diff::Picture, String> {
     decode_png(&std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?)
         .map_err(|e| format!("{}: {e}", p.display()))
@@ -253,6 +269,8 @@ struct Opts {
     /// Top-level entries of an overlay left out (such as `meshes`, `textures`, `lodsettings`).
     overlay_skip: Vec<String>,
     extra_env: Vec<(String, String)>,
+    /// `--ini KEY=VALUE`: lines of the staged `Fallout.ini` rewritten before the start (`--grids N` is `uGridsToLoad=N`).
+    ini: Vec<(String, String)>,
 }
 
 /// `nv-rs-scene run`: every variant of the game's data on one place file, one engine start each (in
@@ -270,6 +288,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
     let mut cap = Cap::default();
     let mut quick = false;
     let mut extra_env: Vec<(String, String)> = Vec::new();
+    let mut ini: Vec<(String, String)> = Vec::new();
     let (mut plugin_list, mut overlay_skip): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -288,6 +307,8 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             "--only" => extra_env.push(("NV_SCENE_PLACES".to_string(), value(a)?)),
             "--quick" => quick = true,
             "--env" => extra_env.push(env_pair(&value(a)?)?),
+            "--ini" => ini.push(ini_pair(&value(a)?)?),
+            "--grids" => ini.push(("uGridsToLoad".into(), grids_value(&value(a)?)?)),
             "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
             "--overlay-skip" => overlay_skip = value(a)?.split(',').map(String::from).collect(),
             "--jobs" => jobs = value(a)?.parse().map_err(|_| "--jobs is a number")?,
@@ -303,7 +324,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         resolution = "640x360".to_string();
         settle = "100".to_string();
     }
-    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--jobs N] [--game-lock FILE --label NAME [--who NAME]] [--wrap WORD]...";
+    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--grids N] [--ini KEY=VALUE]... [--jobs N] [--game-lock FILE --label NAME [--who NAME]] [--wrap WORD]...";
     let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
         return Err(usage.into());
     };
@@ -333,6 +354,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         plugin_list,
         overlay_skip,
         extra_env,
+        ini,
     };
     println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let started = std::time::Instant::now();
@@ -420,6 +442,9 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
         &dir,
     )
     .map_err(|e| format!("staging: {e}"))?;
+    for (key, value) in &o.ini {
+        fork_scene::stage::set_ini(&staged, key, value).map_err(|e| format!("staging: {e}"))?;
+    }
     // Later overlays (a generated LOD folder over a load order's data folder) are laid over the first, all of
     // their files, their plugins after it.
     for later in overlays.iter().skip(1) {
@@ -606,6 +631,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
     let (mut plugin_list, mut overlay_skip): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
     let mut overlay: Option<PathBuf> = None;
     let mut extra_env: Vec<(String, String)> = Vec::new();
+    let mut ini: Vec<(String, String)> = Vec::new();
     let (mut frames, mut wrap, mut realtime, mut timeout) =
         ("600".to_string(), Vec::new(), false, "300".to_string());
     let mut exclusive = false;
@@ -623,6 +649,8 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
             "--warmup" => extra_env.push(("NV_SCENE_SOAK_WARMUP".into(), value(a)?)),
             "--passes" => extra_env.push(("NV_SCENE_SOAK_PASSES".into(), value(a)?)),
             "--env" => extra_env.push(env_pair(&value(a)?)?),
+            "--ini" => ini.push(ini_pair(&value(a)?)?),
+            "--grids" => ini.push(("uGridsToLoad".into(), grids_value(&value(a)?)?)),
             "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
             "--overlay" => overlay = Some(PathBuf::from(value(a)?)),
             "--overlay-skip" => overlay_skip = value(a)?.split(',').map(String::from).collect(),
@@ -638,7 +666,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         }
     }
     let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
-        return Err("usage: nv-rs-scene soak --viewer BIN --game DIR --places FILE --out DIR [--frames N] [--warmup N] [--passes N] [--timeout S] [--realtime] [--userdata TPL] [--wrap WORD]...".into());
+        return Err("usage: nv-rs-scene soak --viewer BIN --game DIR --places FILE --out DIR [--frames N] [--warmup N] [--passes N] [--timeout S] [--realtime] [--userdata TPL] [--grids N] [--ini KEY=VALUE]... [--wrap WORD]...".into());
     };
     let mut extra = vec![("NV_SCENE_SOAK_FRAMES".to_string(), frames.clone())];
     extra.extend(extra_env);
@@ -662,6 +690,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         plugin_list,
         overlay_skip,
         extra_env: extra,
+        ini,
     };
     println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let overlays: Vec<PathBuf> = overlay.into_iter().collect();
@@ -1362,6 +1391,20 @@ mod tests {
         assert!(run_variants(&s(&["--viewer"])).is_err());
         assert!(run_variants(&s(&["--bogus"])).is_err());
         std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn ini_options_and_the_grid_shorthand_are_checked() {
+        assert_eq!(
+            ini_pair("uGridsToLoad = 7").unwrap(),
+            ("uGridsToLoad".into(), "7".into())
+        );
+        assert!(ini_pair("noequals").is_err());
+        assert!(ini_pair("=1").is_err());
+        assert_eq!(grids_value("9").unwrap(), "9");
+        for bad in ["4", "1", "23", "x", "-3"] {
+            assert!(grids_value(bad).is_err(), "{bad}");
+        }
     }
 
     #[cfg(unix)]

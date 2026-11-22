@@ -1,0 +1,56 @@
+# The lens keys (fov, far, fog) at one place: the same view without and with each, to be compared by eye (nv-rs#479).
+version = 1
+
+[[place]]
+name = "lens-plain"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+pitch = 8
+camera_dz = 6000
+
+[[place]]
+name = "lens-fov20"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+pitch = 8
+camera_dz = 6000
+fov = 20
+
+[[place]]
+name = "lens-nofog"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+pitch = 8
+camera_dz = 6000
+fog = false
+
+[[place]]
+name = "lens-far15000"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+pitch = 8
+camera_dz = 6000
+far = 15000
+
+[[place]]
+name = "lens-far400000"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+pitch = 8
+camera_dz = 6000
+far = 400000

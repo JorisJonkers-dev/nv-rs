@@ -5,6 +5,7 @@
 //! calls the game's functions.
 
 mod hook;
+mod view;
 mod world;
 
 pub use hook::{exit_status, install};
@@ -66,6 +67,10 @@ pub trait World {
         Err("this world has no free camera".into())
     }
     /// Asks the drawing layer to write the next present's frame as a BMP at `path`.
+    /// The loaded square of cells around the player, in one line, for the log (nothing for a fake).
+    fn loaded_cells(&mut self) -> Option<String> {
+        None
+    }
     fn ask_picture(&mut self, path: &std::path::Path);
 }
 
@@ -657,6 +662,9 @@ impl Runner {
 
     /// The place is ready (and soaked): ask for the picture, or finish when there is none to take.
     fn after_ready(&mut self, w: &mut dyn World, name: String, since: f64, pos: [f64; 3]) -> Step {
+        if let Some(cells) = w.loaded_cells() {
+            fork_log::info!(target: "scene", "scene: {name}: {cells}");
+        }
         if let (Some(n), Some(_)) = (self.request.capture_frames, &self.request.out) {
             let until = u64::from(n);
             if self.place_frames > until {

@@ -125,6 +125,47 @@ pub fn stage(
     Ok(Staged { game, xdg })
 }
 
+/// Sets `key` (a name in `Fallout.ini`, any section) to `value` in the staged copy of the user data: the first
+/// line `key=...` (the name compared without case) is rewritten. A key the file does not have is an error (the
+/// staged copy is the template's: change the template or use a key it has). Returns the line it replaced.
+pub fn set_ini(staged: &Staged, key: &str, value: &str) -> io::Result<String> {
+    let path = staged.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV/Fallout.ini");
+    let text = fs::read_to_string(&path).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!(
+                "{}: {e} (--ini needs a --userdata template with a Fallout.ini)",
+                path.display()
+            ),
+        )
+    })?;
+    let mut done = None;
+    let lines: Vec<String> = text
+        .lines()
+        .map(|l| {
+            let name = l.split_once('=').map(|(k, _)| k.trim());
+            if done.is_none() && name.is_some_and(|k| k.eq_ignore_ascii_case(key)) {
+                done = Some(l.to_string());
+                format!(
+                    "{}={value}",
+                    l.split_once('=').map_or(key, |(k, _)| k.trim())
+                )
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+    let Some(old) = done else {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("--ini {key}: {} has no line `{key}=`", path.display()),
+        ));
+    };
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    fs::write(&path, lines.join(eol) + eol)?;
+    Ok(old)
+}
+
 fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
@@ -268,5 +309,31 @@ mod tests {
         );
         assert!(stage(&install, None, &[], &[], None, &v).is_err());
         fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn an_ini_value_is_set_in_the_staged_copy_only() {
+        let t = tmp("ini");
+        let install = t.join("install");
+        fs::create_dir_all(install.join("Data")).unwrap();
+        let template = t.join("tpl");
+        let docs = template.join("Documents/My Games/FalloutNV");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(
+            docs.join("Fallout.ini"),
+            "[General]\r\nuGridsToLoad=5\r\nbFoo=1\r\n",
+        )
+        .unwrap();
+        let s = stage(&install, None, &[], &[], Some(&template), &t.join("v")).unwrap();
+        assert_eq!(set_ini(&s, "ugridstoload", "9").unwrap(), "uGridsToLoad=5");
+        let staged = s.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV/Fallout.ini");
+        assert_eq!(
+            fs::read_to_string(staged).unwrap(),
+            "[General]\r\nuGridsToLoad=9\r\nbFoo=1\r\n"
+        );
+        assert!(fs::read_to_string(docs.join("Fallout.ini"))
+            .unwrap()
+            .contains("uGridsToLoad=5"));
+        assert!(set_ini(&s, "iNothing", "1").is_err());
     }
 }
