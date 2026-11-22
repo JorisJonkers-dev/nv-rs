@@ -110,7 +110,7 @@ fn records_sit_at_the_opcodes_with_their_names() {
 #[test]
 fn the_names_are_listed_after_the_other_groups() {
     let names: Vec<&str> = COMMANDS.iter().map(|c| c.name).collect();
-    assert_eq!(names, crate::COMMAND_NAMES[10..]);
+    assert_eq!(names, crate::COMMAND_NAMES[10..15]);
 }
 
 /// The type decides: 1 is melee, 5 ranged; a form that is not a weapon is neither; a reference is

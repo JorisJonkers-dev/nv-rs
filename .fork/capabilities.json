@@ -1822,7 +1822,7 @@
     },
     {
       "commands": {
-        "implemented": 15,
+        "implemented": 16,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
@@ -1838,7 +1838,8 @@
           "IsWeaponRanged",
           "IsEquippedWeaponMelee",
           "GetWeaponHasFlag",
-          "SetWeaponFlag"
+          "SetWeaponFlag",
+          "SetOwnershipTemp"
         ],
         "total": 215
       },
