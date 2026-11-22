@@ -73,6 +73,10 @@ pub trait World {
     fn dismiss_message(&mut self) -> bool {
         false
     }
+    /// Holds the world still (the game's own flag of the free camera's frozen world: the sky, the calendar and the
+    /// animations do not advance) or lets it run. The first place of a start without the main menu waits for its
+    /// send with the world held, as the menu's own menu mode held it: so the frames before the send change nothing.
+    fn hold_world(&mut self, _on: bool) {}
     /// Sets the time that drives the trees' and brush's sway to a fixed value (once, as the place is reached): the
     /// accumulator the tree update adds each frame's time to. Without it the phase of the sway at the picture depends
     /// on how many loading-screen frames the move took, which varies by one between runs (nv-rs#484).
@@ -277,6 +281,12 @@ impl Runner {
     /// readback on (`NV_SHOT`, nothing captured by itself: `NV_SHOT_LIST=0`) so [`Runner::frame`] can
     /// ask for one frame.
     pub fn prepare_environment(&self) {
+        if !self.request.menu {
+            hook::skip_main_menu();
+            if self.request.skip_intro {
+                hook::skip_intro_movie();
+            }
+        }
         // The game's own clock on the engine's virtual one (`NV_REPEATABLE`: one fixed step a frame),
         // so clouds, grass and water move the same way in every run: two runs give identical pictures.
         // `NV_SCENE_REALTIME=1` keeps the real clock.
@@ -429,15 +439,35 @@ impl Runner {
         if !matches!(self.phase, Phase::WaitMenu | Phase::Done) {
             self.place_frames += 1;
         }
+        if self.request.freeze.is_some()
+            && matches!(
+                self.phase,
+                Phase::Settling { .. }
+                    | Phase::Camera { .. }
+                    | Phase::Holding { .. }
+                    | Phase::Waiting { .. }
+            )
+        {
+            // From the arrival to the picture the animation clocks stay where they were pinned: how many frames the
+            // player took to stand still (the controller's settling differs between routes and runs) no longer
+            // shows in the clouds and the sway.
+            w.pin_sway_time();
+        }
         match self.phase {
             Phase::Done => Step::Finished,
             Phase::WaitMenu => {
                 // The first place is sent from the main menu; a later one from play.
-                let ready = if self.next == 0 {
+                let ready = if self.next == 0 && self.request.menu {
                     w.screen() == Screen::Menu
+                } else if self.next == 0 {
+                    // No menu is built: the game runs its world from its first frame on.
+                    w.screen() != Screen::Loading
                 } else {
                     w.screen() == Screen::Play
                 };
+                if self.next == 0 && !self.request.menu {
+                    w.hold_world(true);
+                }
                 self.steady = if ready { self.steady + 1 } else { 0 };
                 let need = if self.next == 0 {
                     STEADY_FRAMES
@@ -448,6 +478,7 @@ impl Runner {
                     return Step::Continue;
                 }
                 self.steady = 0;
+                w.hold_world(false);
                 fork_log::info!(target: "scene", "scene: sending the player to {} from the {:?} screen", place.name, w.screen());
                 match w.go_to(place) {
                     Ok(t) => {
@@ -805,8 +836,13 @@ mod tests {
         /// The interior the last place was sent into and the cell the player is in (0: none, an exterior).
         interior: u32,
         in_cell: u32,
+        /// Every `hold_world` call.
+        held: Vec<bool>,
     }
     impl World for Fake {
+        fn hold_world(&mut self, on: bool) {
+            self.held.push(on);
+        }
         fn screen(&self) -> Screen {
             self.screen
         }
@@ -871,6 +907,8 @@ mod tests {
             timeout_s,
             freeze: None,
             capture_frames: None,
+            menu: true,
+            skip_intro: false,
             hide_actors: false,
             soak_frames: None,
             soak_warmup: 0,
@@ -899,6 +937,7 @@ mod tests {
             moves: Vec::new(),
             interior: 0,
             in_cell: 0,
+            held: Vec::new(),
         }
     }
 
@@ -916,6 +955,40 @@ mod tests {
         assert_eq!(r.step(&mut w, 2.0), Step::Continue);
         assert_eq!(r.step(&mut w, 2.0), Step::Continue);
         assert_eq!(w.sent, ["a"]);
+    }
+
+    #[test]
+    fn without_a_menu_the_first_place_is_sent_from_the_play_screen_with_the_world_held_until_then()
+    {
+        let mut req = request(60);
+        req.menu = false;
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Loading);
+        assert_eq!(r.step(&mut w, 0.0), Step::Continue);
+        assert!(w.sent.is_empty(), "not while the game is loading");
+        w.screen = Screen::Play;
+        for _ in 0..STEADY_FRAMES + 1 {
+            r.step(&mut w, 1.0);
+        }
+        assert_eq!(w.sent, ["a"]);
+        let sent_at = w
+            .held
+            .iter()
+            .rposition(|on| !on)
+            .expect("released at the send");
+        assert!(
+            w.held[..sent_at].iter().all(|on| *on),
+            "held every frame before"
+        );
+        assert_eq!(sent_at, w.held.len() - 1, "and not held again");
+    }
+
+    #[test]
+    fn with_the_menu_the_world_is_never_held() {
+        let mut r = Runner::new(request(60));
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 1.0);
+        assert!(w.held.iter().all(|on| !on));
     }
 
     #[test]
