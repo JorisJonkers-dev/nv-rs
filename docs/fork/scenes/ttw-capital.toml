@@ -40,8 +40,8 @@ look_at = "TenpennyTowerMapMarker"
 # plaza in the foreground, the Jefferson Memorial and the ruins beyond. The map marker sits on the flight deck, so the
 # player stands on the bank 7000 units east of it (the ground there is the rocky slope; the first of the TTW place
 # files that uses the free camera) and the camera hangs 1300 above it, 2000 further east and 6000 north, looking at the
-# marker. (Standing ground levels 7000 east, 12000 east and 9000 north-east of the marker hang in a loading screen or
-# land under the hull: this one was found by looking.)
+# marker. Found by looking: standing 14000 east of the marker put the player under the hull, 12000 north-east of it hung
+# in a loading screen.
 [[place]]
 name = "rivet-city-from-the-river-bank"
 world = "Wasteland"
