@@ -81,6 +81,89 @@ The exit status is 0 only when every place passed; `OUT/sweep.md` lists each pla
 other lists: `sweep-mojave-interiors.toml`, `sweep-capital.toml`, `sweep-capital-interiors.toml`. A silent log for `--stall` seconds
 (default 120) counts as a hang: the start is killed.
 
+## Using this from another program
+
+The command-line tool is a thin caller of a library: `fork_scene::tool` (crate `fork-scene`, no engine code, no game data).
+One public function per command, each taking a typed request and returning a typed result:
+
+| command | function | request | result |
+| --- | --- | --- | --- |
+| `compare` | `tool::compare` | `CompareRequest` | `CompareResult` (rows of mean, max, changed %) |
+| `run` | `tool::run` | `RunRequest` (`Start` + variants) | `RunResult` (a `VariantResult` per start, the comparisons) |
+| `soak` | `tool::soak` | `SoakRequest` | `SoakResult` (typed `PlaceRow` timings, stops, errors, warnings) |
+| `sweep` | `tool::sweep` | `SweepRequest` | `SweepResult` (passed and failed places, `sweep.md`) |
+| `bench` | `tool::bench` | `BenchRequest` | `BenchResult` (headlines, `summary.json`, the suite table) |
+| `bench-compare` | `tool::bench_compare` | `BenchCompareRequest` | `BenchCompareResult` |
+
+Rules of the library: it never prints and never ends the process. What the tool prints while it works (the memory cap, a
+start's memory, a hang) goes to a `say: &(dyn Fn(&str) + Sync)` the caller gives (`&|_| {}` to ignore it); what it
+prints at the end is the result's `summary()`. A failure of a start (the engine stopped, hung, was refused) is a field of
+the result; an `Err(String)` is a request that cannot be carried out. `sweep` runs in the calling process; the
+command-line tool runs it in a child of its own so a killed sweep is reported (a program that needs that does the same).
+
+**The game child start is a hook.** The library stages the game folder and decides the environment; a `Launcher` starts the
+engine:
+
+```rust
+pub trait Launcher: Sync {
+    fn describe(&self, concurrent: usize) -> String;                       // one line about the memory cap
+    fn launch(&self, spec: &StartSpec, log: File) -> Result<Launched, String>;
+}
+```
+
+`StartSpec` holds the viewer, the staged game folder (also the working directory), the whole environment, the number of
+starts at once and the game lock to hold (`spec.lock`, shared for pictures, soaks and sweeps, exclusive for a bench). The
+launcher puts the child in its own scope with its own label and memory limit, takes the lock, sends the child's output to
+`log`, and returns the `Child` (and `scope_prefix`, the start of the systemd scope's name, if there is one, so the library
+can read its memory and kill it when the engine hangs). `CappedLauncher` is the command-line tool's: `flock`, then a
+`gamerun` scope with `MemoryMax` and no swap.
+
+A worked example: a soak of a place file in the caller's own child, with the caller's own label and a 10 GiB cap.
+
+```rust
+use fork_scene::tool::{self, Launched, Launcher, SoakRequest, Start, StartSpec};
+use std::{fs::File, path::PathBuf, process::Command};
+
+struct Mine;
+impl Launcher for Mine {
+    fn describe(&self, _concurrent: usize) -> String {
+        "memory: 10G, scope raul-scene".into()
+    }
+    fn launch(&self, spec: &StartSpec, log: File) -> Result<Launched, String> {
+        let mut cmd = Command::new("systemd-run");
+        cmd.args(["--user", "--scope", "--quiet", "--unit", "nvgame-raul-scene-1", "-p", "MemoryMax=10G", "-p", "MemorySwapMax=0", "--"])
+            .arg(&spec.viewer).arg(&spec.game_dir)
+            .current_dir(&spec.game_dir)
+            .envs(spec.env.iter().map(|(k, v)| (k, v)))
+            .stdout(log.try_clone().map_err(|e| e.to_string())?)
+            .stderr(log);
+        let child = cmd.spawn().map_err(|e| e.to_string())?;
+        Ok(Launched { child, scope_prefix: Some("nvgame-raul-scene-".into()) })
+    }
+}
+
+fn main() -> Result<(), String> {
+    let mut start = Start::new(
+        PathBuf::from("/opt/raul/nv-viewer"),
+        PathBuf::from("/games/Fallout New Vegas"),
+        PathBuf::from("places.toml"),
+        PathBuf::from("/tmp/raul-soak"),
+    );
+    start.only = vec!["goodsprings".into()];
+    let mut request = SoakRequest::new(start);
+    request.frames = 300;
+    let result = tool::soak(&request, &Mine, &|line| eprintln!("{line}"))?;
+    for row in &result.timings {
+        println!("{}: avg {:.2} ms, 1% low {:.0} fps", row.place, row.avg_ms, row.low1_fps);
+    }
+    if result.ok { Ok(()) } else { Err(result.summary()) }
+}
+```
+
+`run`, `sweep` and `bench` are called the same way with their own request (`RunRequest::new(start)`, `SweepRequest::new(start)`,
+`BenchRequest::new(start, lock_file)`); `compare` and `bench_compare` need no launcher. The tests in
+`crates/fork-scene/src/tool.rs` use a launcher that starts a shell script in place of the engine.
+
 ## Switches
 
 | Variable | Meaning |
