@@ -189,6 +189,14 @@ fn add_at_temp(e: &mut Engine, list: u32, form: u32, index: i32, dupes: bool) ->
     res
 }
 
+/// `ListAddForm`'s add for another built-in extender (ShowOff's `ListAddList` and `ListAddArray`
+/// "do the same changes as multiple ListAddForms"): `form` added to `list` at `index` (-2 the end),
+/// duplicates allowed, as [`list_add_form`] adds it without its fourth argument. The index it went
+/// to, -1 for none. Not a translation of xNVSE's code: a name for the call above.
+pub fn script_add_form(e: &mut Engine, list: u32, form: u32, index: i32) -> i32 {
+    add_at_temp(e, list, form, index, false)
+}
+
 // Translated from xNVSE 6.4.9 (xNVSE/NVSE at 0ccd23a), GameForms.h: BGSListForm::RemoveNthForm.
 fn remove_nth_form(e: &mut Engine, list: u32, n: i32) -> u32 {
     let form = remove_nth(e, forms(list), n);
