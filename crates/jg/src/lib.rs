@@ -58,7 +58,7 @@ pub fn set_answers_installed(e: &mut Engine, on: bool) {
 }
 
 /// The long names of the commands this crate builds, for the capabilities report.
-pub const COMMAND_NAMES: [&str; 10] = [
+pub const COMMAND_NAMES: [&str; 11] = [
     "GetQuestFailed",
     "IsDLLLoaded",
     "GetExtraMiscStat",
@@ -69,6 +69,7 @@ pub const COMMAND_NAMES: [&str; 10] = [
     "Sign",
     "EditorIDToFormID",
     "GetEditorID",
+    "GetFormOverrideIndex",
 ];
 
 /// Builds the plugin into the engine, after xNVSE, when it answers "installed"
