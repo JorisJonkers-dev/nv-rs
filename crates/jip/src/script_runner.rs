@@ -180,7 +180,12 @@ fn compile_error(e: &mut Engine, w: &[u32]) -> Option<u32> {
     let text = e
         .mem
         .bytes(data + MESSAGE_PREFIX as u32, (len - MESSAGE_PREFIX) as u32);
-    eprintln!("{}", String::from_utf8_lossy(&text));
+    let message = String::from_utf8_lossy(&text);
+    eprintln!("{message}");
+    // The mod that ships the file and the missing command, one line each (nv-rs mod support).
+    for line in fork_log::support::script_message(&message) {
+        eprintln!("{line}");
+    }
     None
 }
 
@@ -190,6 +195,16 @@ fn skipped(name: &[u8]) {
         "JIP script runner: {} did not compile; skipped",
         String::from_utf8_lossy(name)
     );
+    fork_log::support::script_skipped(&support_path(name));
+}
+
+/// The file's path below `Data` with `/`, as the mod support report names it (`name` is a file
+/// of the scripts folder, or a path below it with `\`).
+fn support_path(name: &[u8]) -> String {
+    format!(
+        "NVSE/plugins/scripts/{}",
+        String::from_utf8_lossy(name).replace('\\', "/")
+    )
 }
 
 /// A script file's bytes, as `FileToBuffer` reads them: at most `STR_BUFFER_SIZE - 1`, `None` for
@@ -425,6 +440,7 @@ pub fn init_files(e: &mut Engine) {
         let Some(text) = read_file(e, &path) else {
             continue;
         };
+        fork_log::support::script_begin(&support_path(&name));
         if run_on == RunOn::RestartGame {
             if !run_script_source(e, &text, &name, true) {
                 skipped(&name);
@@ -442,6 +458,7 @@ pub fn init_files(e: &mut Engine) {
                 });
             }
         }
+        fork_log::support::script_end();
     }
     state(e).init_in_progress = 0;
 }
@@ -474,11 +491,14 @@ pub fn register(e: &mut Engine, rel_path: &[u8]) -> bool {
     let Some(text) = read_file(e, &path) else {
         return false;
     };
+    fork_log::support::script_begin(&support_path(&rel));
     let script = create(e, &text, &name);
     if script == 0 {
         skipped(&rel);
+        fork_log::support::script_end();
         return false;
     }
+    fork_log::support::script_end();
     state(e).cached.emplace_with(Name(name), || Cached {
         script,
         run_on: Some(run_on),

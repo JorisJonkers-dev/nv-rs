@@ -11,6 +11,8 @@ engine-core = { path = "../engine-core" }
 nvse = { path = "../nvse" }
 # The built-in UI Organizer, which InjectUIComponent calls (JIP calls UIO's export).
 uio = { path = "../uio" }
+# The mod support report: which mod ships a script that does not compile (nv-rs mod support).
+fork-log = { path = "../fork-log" }
 
 [dev-dependencies]
 # Every command test checks that each argument is read as its parameter type stores it; lambda helpers.

@@ -167,6 +167,24 @@ A site is converted only when the game's own code checks that call's result. `ID
 run without a device, and the stop names why. The file layer (`FindFirstFileA`, short names, directory listings) is converted by
 the change that fixes it, with the same helper. `fork_log::stop::with_policy` forces a policy on one thread for tests.
 
+## The mod support report
+
+What a mod ships that this engine does not answer, said per mod (`fork_log::support`, nv-rs#509):
+
+- one line per plugin DLL in `Data/NVSE/Plugins` that the engine has nothing or only part for, at start:
+  `[MOD SUPPORT] mod 'X' ships the plugin Y.dll: the engine has no answer for it: it is not loaded (...)`;
+- one line per script file of the script runner (`Data/NVSE/plugins/scripts`, `gl_*`, `gr_*`, `ln_*`, ...) and missing
+  command: `[MOD SUPPORT] mod 'X' ships the script NVSE/plugins/scripts/gl_a.txt, line 7: the command C is not available,
+  the script is skipped`, next to the runner's own `did not compile; skipped` line;
+- at the end of the run a summary (counts, then one line per plugin and per command with the plugin that owns the command,
+  found by the command's name in the plugin DLLs of the data folder) and the file `<json log>.mod-support.json` (or
+  `mod-support.json` in the log folder), `version` 1: `plugins`, `scripts` (one record per problem), `missing_commands`,
+  `missing_plugins`, `skipped_script_files`.
+
+The mod is the folder a linked file points into (the data folder of a Profile links each file into its mod's folder); a file
+that is a copy names no mod and the line says "a mod". Missing commands that compiled scripts of plugins (not runner files)
+meet at run time are not in this report.
+
 ## Converted and not yet
 
 Converted to levels: the window layer (`window`), `d3d9-wgpu`'s device (`d3d9`: per-present reports and pipeline timings are
