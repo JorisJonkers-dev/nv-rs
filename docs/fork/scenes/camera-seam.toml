@@ -1,0 +1,26 @@
+# Views from the free camera, to judge where the loaded near land meets the far (LOD) land: the player stands on the
+# ground (the cells around it are loaded, they are the near land), the camera hangs above it and looks at the horizon;
+# everything the camera sees beyond the loaded cells is LOD. See docs/fork/SCENE.md ("The free camera").
+version = 1
+
+# Plain game: Goodsprings from 6000 units up, looking east along the valley, a little downward.
+[[place]]
+name = "goodsprings-high-east"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 90
+pitch = 8
+camera_dz = 6000
+
+# Plain game: the same ground, 12000 up and looking south-east at the far plain.
+[[place]]
+name = "goodsprings-very-high"
+world = "WastelandNV"
+x = -70200
+y = 2560
+z = 8356
+heading = 120
+pitch = 14
+camera_dz = 12000

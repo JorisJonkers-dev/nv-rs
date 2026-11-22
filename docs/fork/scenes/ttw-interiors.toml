@@ -1,0 +1,15 @@
+# Capital Wasteland interiors by the cell's editor id, for a Tale of Two Wastelands load order (the cells come from
+# Fallout3.esm); see interiors.toml for the keys.
+version = 1
+
+[[place]]
+name = "tenpenny-lobby"
+cell = "Tenpenny01"
+
+[[place]]
+name = "moriartys-saloon"
+cell = "MegatonMoriartysSaloon"
+
+[[place]]
+name = "vault101-atrium"
+cell = "Vault101b"

@@ -1896,6 +1896,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "d3d9-wgpu"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "engine"
     },
     {
@@ -1924,7 +1929,12 @@
    "name": "fork-scene-run"
   },
   {
-   "dependencies": [],
+   "dependencies": [
+    {
+     "kind": null,
+     "name": "flate2"
+    }
+   ],
    "features": [],
    "manifest_path": "/ws/crates/fork-scene/Cargo.toml",
    "name": "fork-scene"

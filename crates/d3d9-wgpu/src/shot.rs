@@ -5,6 +5,16 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// A picture asked for while the game runs (`ask`): the file the next present's frame goes to
+/// (a scene run, nv-rs#479). Taken by [`Shots::take`], which needs `NV_SHOT` set so the device keeps
+/// its readback copies on (with `NV_SHOT_LIST=0` nothing else is captured).
+static ASKED: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// Asks for the next present's frame to be written as a BMP at `path`.
+pub fn ask(path: PathBuf) {
+    *ASKED.lock().unwrap_or_else(|p| p.into_inner()) = Some(path);
+}
+
 /// Where and which frames to capture.
 #[derive(Debug, Clone)]
 pub struct Shots {
@@ -13,6 +23,8 @@ pub struct Shots {
     pub frames: Option<(u64, u64)>,
     /// `NV_SHOT_LIST=N,N,..`: exactly these presents (to match another run's captures).
     pub list: Option<Vec<u64>>,
+    /// The file the frame just taken goes to when it was asked for ([`ask`]).
+    asked: Option<PathBuf>,
     /// The loading screen's frames captured so far (`wgpu-loading-N.bmp`, N from 1).
     pub loading: u64,
     last: Option<Instant>,
@@ -41,6 +53,11 @@ impl Shots {
 
     /// Whether present `frame` (counted from 1) is taken.
     pub fn take(&mut self, frame: u64) -> bool {
+        if let Some(path) = ASKED.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            self.asked = Some(path);
+            return true;
+        }
+        self.asked = None;
         if let Some(list) = &self.list {
             return list.contains(&frame);
         }
@@ -58,6 +75,9 @@ impl Shots {
     }
 
     pub fn path(&self, frame: u64) -> PathBuf {
+        if let Some(path) = &self.asked {
+            return path.clone();
+        }
         self.dir.join(format!("wgpu-frame-{frame:06}.bmp"))
     }
 }
@@ -81,6 +101,7 @@ pub fn parse(value: &str) -> Option<Shots> {
         frames: None,
         list: None,
         loading: 0,
+        asked: None,
         last: None,
     })
 }

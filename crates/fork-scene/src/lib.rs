@@ -3,8 +3,14 @@
 //! picture. This crate is the pure part: the place file and the request the engine reads at start.
 //! The engine's side is `fork-scene-run`; both are described in `docs/fork/SCENE.md`.
 
+pub mod bench;
+pub mod diff;
+pub mod guard;
+pub mod json_lite;
 pub mod places;
+pub mod png;
 pub mod request;
+pub mod stage;
 
-pub use places::{Place, PlaceFile};
+pub use places::{aim, cell_of, path_point, Camera, Place, PlaceFile};
 pub use request::Request;

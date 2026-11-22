@@ -243,6 +243,42 @@ fn install_follows_the_switch() {
     assert!(nvse::plugins::built_ins(&e).is_empty());
 }
 
+fn deferred_start(_: &mut Engine, _: &nvse::plugins::Message) {}
+
+/// With the editor ids' record already in xNVSE's list (the fixes preset, `johnnyguitar`), the plugin
+/// answering installed (Tale of Two Wastelands) made a second record and stopped the start with
+/// "registered twice" (nv-rs#482): there is one record, carrying the first one's listener and this one's co-save.
+#[test]
+fn the_editor_ids_record_and_the_plugin_are_one_record() {
+    let mut e = Engine::new();
+    e.map(0x0118_e000, 0x9000);
+    nvse::table::install(&mut e);
+    let first = nvse::plugins::BuiltIn {
+        listed: false,
+        listener: Some(deferred_start),
+        save: None,
+        load: None,
+        pre_load: None,
+        new_game: None,
+        ..identity::plugin()
+    };
+    nvse::plugins::register(&mut e, first);
+    crate::set_answers_installed(&mut e, true);
+    crate::install(&mut e);
+    let all = nvse::plugins::built_ins(&e);
+    assert_eq!(all.len(), 1, "one record for one plugin");
+    assert!(
+        all[0].listed
+            && all[0].listener.is_some()
+            && all[0].save.is_some()
+            && all[0].load.is_some()
+    );
+    assert_eq!(
+        nvse::plugins::listed(&e, identity::NAME.as_bytes()),
+        Some((identity::NAME, identity::VERSION_INT))
+    );
+}
+
 /// The Stats menu's three natives: how many statistics, and each one's name and value (by name
 /// order); a name past the end is 0 and a value past the end 0; a name is guest text.
 #[test]
