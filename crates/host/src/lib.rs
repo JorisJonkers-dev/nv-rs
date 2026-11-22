@@ -225,6 +225,14 @@ impl Host {
         }
         install_rows_and_extenders(&mut engine, choice);
         fork_log::info!(target: "host", "{}", choice.describe());
+        // What the mods ship that the engine does not answer: one line per plugin DLL now, the
+        // scripts' missing commands as the script runner meets them, a summary and a file at the
+        // end of the run (`fork_log::support`).
+        fork_log::support::set_data_dir(data);
+        for line in fork_log::support::scan_plugins() {
+            eprintln!("{line}");
+        }
+        fork_log::on_finish(mod_support_report);
         let jip_state = {
             let jip = engine.ext::<jip::Jip>();
             (jip.row_on, jip.answers_installed)
@@ -818,6 +826,18 @@ pub fn texture_cache_path() -> Option<PathBuf> {
     std::env::var_os("NV_D3DX_CACHE")
         .map(PathBuf::from)
         .or_else(|| engine_platform::fork_platform::data_dir().map(|d| d.join("d3dx-cache")))
+}
+
+/// The end of a run: the mod support summary in the log and `<log>.mod-support.json` beside it
+/// (`fork_log::support::finish`; said once, written each time).
+fn mod_support_report(_how: &str) {
+    let path = fork_log::support::report_path(
+        fork_log::json_path().as_deref(),
+        fork_log::log_dir().as_deref(),
+    );
+    for line in fork_log::support::finish(path.as_deref()) {
+        eprintln!("{line}");
+    }
 }
 
 /// Runs what the platform layer runs before it ends the process itself (`engine_platform::on_exit`:

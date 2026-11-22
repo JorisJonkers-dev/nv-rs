@@ -74,7 +74,7 @@ runs_on = "both"
 name = "scripting"
 purpose = "The script extenders built in: xNVSE's commands, JIP LN NVSE's commands, UI Organizer, the mod settings menu's plugin, lStewieAl's Tweaks and the identities of JohnnyGuitar NVSE and ShowOff xNVSE"
 crates = ["nvse", "jip", "johnnyguitar", "jg", "showoff", "stewie", "uio", "mcm", "ttw-nvse"]
-requires = ["core"]
+requires = ["core", "log"]
 runs_on = "both"
 # The recorded real-game math results include tan and tanh cases that only Windows' libm reproduces bit for bit
 # (nvse commands/math.rs); they are ignored elsewhere, so the component also runs on Windows.

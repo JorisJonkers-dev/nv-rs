@@ -1319,6 +1319,7 @@ name = "jip"
 version = "0.1.0"
 dependencies = [
  "engine-core",
+ "fork-log",
  "nvse",
  "uio",
 ]
