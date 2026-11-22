@@ -8,6 +8,9 @@
 //! | `NV_SCENE_OUT` | the folder the pictures and `scene.json` go to (made if missing) |
 //! | `NV_SCENE_SETTLE_FRAMES` | frames rendered after "ready" before the picture (default 30) |
 //! | `NV_SCENE_TIMEOUT_S` | seconds a place may take to be ready before the run fails (default 120) |
+//! | `NV_SCENE_HOUR` | the game hour the frozen world holds (default 12) |
+//! | `NV_SCENE_WEATHER` | the weather's form id in hex the frozen world holds (default 000FFC88) |
+//! | `NV_SCENE_FREEZE` | `0` leaves the world alone (time, weather, AI, interface) |
 
 use crate::places::{Place, PlaceFile};
 use std::path::PathBuf;
@@ -17,6 +20,9 @@ pub const PLACES: &str = "NV_SCENE_PLACES";
 pub const OUT: &str = "NV_SCENE_OUT";
 pub const SETTLE: &str = "NV_SCENE_SETTLE_FRAMES";
 pub const TIMEOUT: &str = "NV_SCENE_TIMEOUT_S";
+pub const HOUR: &str = "NV_SCENE_HOUR";
+pub const WEATHER: &str = "NV_SCENE_WEATHER";
+pub const FREEZE: &str = "NV_SCENE_FREEZE";
 
 /// A scene run: which places, where the pictures go, and the ready condition's numbers.
 #[derive(Clone, Debug, PartialEq)]
@@ -25,6 +31,8 @@ pub struct Request {
     pub out: Option<PathBuf>,
     pub settle_frames: u32,
     pub timeout_s: u32,
+    /// The frozen world: `Some((hour, weather form id))`, `None` for the world left alone.
+    pub freeze: Option<(f32, u32)>,
 }
 
 impl Request {
@@ -63,6 +71,33 @@ impl Request {
                 .filter(|n| *n > 0)
                 .ok_or_else(|| format!("{name}={v}: a whole number above 0")),
         };
+        let freeze = match var(FREEZE).as_deref().map(str::trim) {
+            Some("0") => None,
+            _ => {
+                let hour = match var(HOUR)
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                {
+                    None => 12.0,
+                    Some(v) => v
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|h| (0.0..24.0).contains(h))
+                        .ok_or_else(|| format!("{HOUR}={v}: an hour from 0 up to 24"))?,
+                };
+                let weather = match var(WEATHER)
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                {
+                    None => 0x000f_fc88,
+                    Some(v) => u32::from_str_radix(v.trim_start_matches("0x"), 16)
+                        .ok()
+                        .filter(|w| *w != 0)
+                        .ok_or_else(|| format!("{WEATHER}={v}: a form id in hex"))?,
+                };
+                Some((hour, weather))
+            }
+        };
         Ok(Some(Request {
             places,
             out: var(OUT)
@@ -71,6 +106,7 @@ impl Request {
                 .map(PathBuf::from),
             settle_frames: number(SETTLE, 30)?,
             timeout_s: number(TIMEOUT, 120)?,
+            freeze,
         }))
     }
 
@@ -121,6 +157,7 @@ mod tests {
         let r = with(&[(FILE, file(&d))]).unwrap().unwrap();
         assert_eq!(r.places.len(), 2);
         assert_eq!((r.settle_frames, r.timeout_s, r.out), (30, 120, None));
+        assert_eq!(r.freeze, Some((12.0, 0x000f_fc88)));
     }
 
     #[test]
@@ -143,6 +180,23 @@ mod tests {
             (r.settle_frames, r.timeout_s, r.out),
             (5, 9, Some(PathBuf::from("/x")))
         );
+    }
+
+    #[test]
+    fn the_frozen_world_has_its_hour_and_weather_or_is_off() {
+        let d = tmp("freeze");
+        let r = with(&[
+            (FILE, file(&d)),
+            (HOUR, "6.5".into()),
+            (WEATHER, "0x1234".into()),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(r.freeze, Some((6.5, 0x1234)));
+        let off = with(&[(FILE, file(&d)), (FREEZE, "0".into())])
+            .unwrap()
+            .unwrap();
+        assert_eq!(off.freeze, None);
     }
 
     #[test]

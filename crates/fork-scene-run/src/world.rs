@@ -17,6 +17,19 @@ const LOOKUP_FORM: u32 = 0x0048_39c0;
 /// `StartMenu::Close` (`007ce7a0`, cdecl, one byte) and the byte `011d8907` `ConfirmNewGame` sets.
 const START_MENU_CLOSE: u32 = 0x007c_e7a0;
 const GAME_RUNNING_FLAG: u32 = 0x011d_8907;
+/// The calendar object (`011de7b8`, not a pointer): its hour and time scale globals, the global's value at +0x24.
+const CALENDAR: u32 = 0x011d_e7b8;
+const CALENDAR_HOUR: u32 = 0x0c;
+const CALENDAR_TIME_SCALE: u32 = 0x14;
+const GLOBAL_VALUE: u32 = 0x24;
+/// `Sky::pInstance` (`011ccb78`), its current weather (+0x10) and `Sky::ForceWeather` (`0063d0e0`).
+const SKY: u32 = 0x011c_cb78;
+const SKY_WEATHER: u32 = 0x10;
+const SKY_FORCE_WEATHER: u32 = 0x0063_d0e0;
+/// The bytes `ToggleAI` (all AI processing) and `ToggleMenus` flip, and what `ToggleMenus` calls.
+const ALL_AI_FLAG: u32 = 0x011f_1220;
+const MENUS_FLAG: u32 = 0x0118_c6f0;
+const MENUS_CHANGED: u32 = 0x0070_3810;
 /// The reference's position (+0x30) and parent cell (+0x40).
 const POSITION: u32 = 0x30;
 const PARENT_CELL: u32 = 0x40;
@@ -84,6 +97,33 @@ impl World for EngineWorld<'_> {
     fn top_menu(&mut self) -> u32 {
         // `Interface::GetTopMenuID`: reads the menu stack.
         self.engine.call(0x0070_23c0, &args![]).u32()
+    }
+
+    fn freeze(&mut self, hour: f32, weather: u32) {
+        let e = &mut *self.engine;
+        // The clock: the hour held, the time scale 0 (the calendar's globals, value at +0x24).
+        for (slot, want) in [(CALENDAR_HOUR, hour), (CALENDAR_TIME_SCALE, 0.0)] {
+            let global = e.mem.u32(CALENDAR + slot);
+            if global != 0 && (e.mem.f32(global + GLOBAL_VALUE) - want).abs() > 0.001 {
+                e.mem.set_f32(global + GLOBAL_VALUE, want);
+            }
+        }
+        // The weather, forced as an override (held), again after every load that changed it.
+        let sky = e.mem.u32(SKY);
+        if sky != 0 && e.mem.u32(sky + SKY_WEATHER) != 0 {
+            let form = e.call(LOOKUP_FORM, &args![weather]).u32();
+            if form != 0 && e.mem.u32(sky + SKY_WEATHER) != form {
+                e.call(SKY_FORCE_WEATHER, &args![sky, form, 1u32]);
+            }
+        }
+        // No AI processing (what `tai` toggles) and no interface (what `tm` toggles).
+        if e.mem.u8(ALL_AI_FLAG) != 0 {
+            e.mem.set_u8(ALL_AI_FLAG, 0);
+        }
+        if e.mem.u8(MENUS_FLAG) != 0 {
+            e.mem.set_u8(MENUS_FLAG, 0);
+            e.call(MENUS_CHANGED, &args![0u32]);
+        }
     }
 
     fn dismiss_message(&mut self) -> bool {

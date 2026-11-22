@@ -31,6 +31,9 @@ pub trait World {
     fn top_menu(&mut self) -> u32 {
         0
     }
+    /// Holds the world still (idempotent, called every frame once the player has been sent): the
+    /// game hour and a stopped clock, the weather, no AI processing, the interface hidden.
+    fn freeze(&mut self, _hour: f32, _weather: u32) {}
     /// Closes the message box on top (`MessageMenu::ClearMessageQueueHead`); false when the top
     /// menu is not a message box.
     fn dismiss_message(&mut self) -> bool {
@@ -184,6 +187,9 @@ impl Runner {
             fork_log::info!(target: "scene", "scene: a message box was closed");
             self.steady = 0;
             return Step::Continue;
+        }
+        if let Some((hour, weather)) = self.request.freeze {
+            w.freeze(hour, weather);
         }
         match self.phase {
             Phase::Done => Step::Finished,
@@ -386,6 +392,7 @@ mod tests {
             out: None,
             settle_frames: 1,
             timeout_s,
+            freeze: None,
         }
     }
 
