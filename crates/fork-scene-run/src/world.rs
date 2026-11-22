@@ -32,6 +32,10 @@ const SKY_FORCE_WEATHER: u32 = 0x0063_d0e0;
 const ALL_AI_FLAG: u32 = 0x011f_1220;
 const MENUS_FLAG: u32 = 0x0118_c6f0;
 const MENUS_CHANGED: u32 = 0x0070_3810;
+/// The byte `tgm` flips: god mode. A placement drops the player onto the land from a few hundred units, and a frozen world does
+/// not heal it: after a score of far moves in one start the player dies and the game goes back to the main menu (the sweep's
+/// two failures at the 22nd and the 61st place of a list, both fine alone). God mode is part of the frozen world.
+const GOD_MODE: u32 = 0x011e_07ba;
 /// A cell's object list (a `tList` whose first node is inline at +0xac), its worldspace, a
 /// reference's form type byte (+4; ACHR `3b`, ACRE `3c`), `NiAVObject::SetAppCulled` and
 /// `TESWorldSpace::GetCell(x, y)` (`005875a0`).
@@ -118,6 +122,8 @@ const FORM_TYPE_REFR: u8 = 0x3a;
 
 /// A reference found by name.
 struct Found {
+    /// The reference's form.
+    form: u32,
     pos: [f64; 3],
     /// The world space of its cell; 0 while its cell is not loaded (the first place, from the menu).
     world: u32,
@@ -154,17 +160,122 @@ fn find_ref(e: &mut Engine, name: &str) -> Result<Found, String> {
     };
     let at = |o: u32| f64::from(e.mem.f32(form + POSITION + o));
     Ok(Found {
+        form,
         pos: [at(0), at(4), at(8)],
         world,
     })
 }
 
 impl EngineWorld<'_> {
+    /// Sets the game setting `name` (the game's settings collection, looked up by name) of the type letter `kind` (`f`
+    /// or `i`: the first letter of its name) to the word `bits`; `Ok(false)` while the collection does not exist yet.
+    fn set_setting(&mut self, name: &str, kind: u8, bits: u32) -> Result<bool, String> {
+        let e = &mut *self.engine;
+        let collection = e.mem.u32(GAME_SETTINGS);
+        if collection == 0 {
+            return Ok(false);
+        }
+        let setting = e.with_stack((name.len() as u32 + 4) & !3, |e, text| {
+            for (i, b) in name.bytes().enumerate() {
+                e.mem.set_u8(text.addr() + i as u32, b);
+            }
+            e.mem.set_u8(text.addr() + name.len() as u32, 0);
+            e.with_stack(4, |e, out| {
+                e.mem.set_u32(out.addr(), 0);
+                let found = e
+                    .call(NI_TMAP_LOOKUP, &args![collection + 0x10c, text, out])
+                    .u32()
+                    & 0xff;
+                if found != 0 {
+                    e.mem.u32(out.addr())
+                } else {
+                    0
+                }
+            })
+        });
+        if setting == 0 {
+            return Err(format!("the game has no setting {name}"));
+        }
+        // A setting's name (+8) starts with its type letter; the value is the word at +4.
+        let kind_name = e.mem.u32(setting + 8);
+        if kind_name == 0 || e.mem.u8(kind_name) != kind {
+            return Err(format!(
+                "the game's setting {name} is not a {}",
+                if kind == b'f' {
+                    "float"
+                } else {
+                    "whole number"
+                }
+            ));
+        }
+        e.mem.set_u32(setting + 4, bits);
+        Ok(true)
+    }
+
+    /// A door reference's own way: the destination its teleport data names (an interior cell or a world space), the
+    /// position and rotation it gives, placed the way the game places a door's traveller.
+    fn go_through_door(&mut self, p: &Place, player: u32, name: &str) -> Result<Target, String> {
+        let e = &mut *self.engine;
+        let door = find_ref(e, name)?;
+        let data = e.call(REFERENCE_GET_TELEPORT_DATA, &args![door.form]).u32();
+        if data == 0 {
+            return Err(format!(
+                "`{name}` is not a door that leads anywhere (it has no teleport)"
+            ));
+        }
+        let world = e.call(TELEPORT_GET_WORLD_SPACE, &args![data]).u32();
+        let cell = e.call(TELEPORT_GET_CELL, &args![data]).u32();
+        if world == 0 && cell == 0 {
+            return Err(format!(
+                "the teleport of `{name}` names no cell and no world space"
+            ));
+        }
+        let at = |o: u32| f64::from(e.mem.f32(data + o));
+        let pos = [at(4), at(8), at(12)];
+        let rot = [at(0x10), at(0x14), at(0x18)];
+        let heading = if p.heading_given {
+            p.heading
+        } else {
+            rot[2].to_degrees()
+        };
+        let rad = |d: f64| (d.to_radians()) as f32;
+        let request = e.call(OPERATOR_NEW, &args![0x34u32]).u32();
+        for off in (0..0x34).step_by(4) {
+            e.mem.set_u32(request + off, 0);
+        }
+        if world != 0 {
+            e.mem.set_u32(request, world);
+        } else {
+            e.mem.set_u32(request + 0x04, cell);
+        }
+        for (i, v) in pos.iter().enumerate() {
+            e.mem.set_f32(request + 0x08 + 4 * i as u32, *v as f32);
+        }
+        for (i, v) in [rad(p.pitch), 0.0f32, rad(heading)].iter().enumerate() {
+            e.mem.set_f32(request + 0x14 + 4 * i as u32, *v);
+        }
+        if self.screen != Screen::Play {
+            return Err(format!(
+                "a place by door is sent from the play screen: put a place before it in the file (the door `{name}` is a form of a loaded cell)"
+            ));
+        }
+        e.call(REQUEST_POSITION_PLAYER, &args![player, request]);
+        TARGET_CELL.store(cell, std::sync::atomic::Ordering::Relaxed);
+        Ok(Target {
+            pos,
+            heading,
+            pitch: p.pitch,
+        })
+    }
+
     /// An interior place: the player is put into the cell through the game's own placement into a cell
     /// (`PlayerCharacter::PositionPlayer`, what a door and `coc` end in; from the play screen the request the game queues for
     /// a door, handled by its player update with the character controller's height).
     fn go_to_interior(&mut self, p: &Place, player: u32) -> Result<Target, String> {
         let e = &mut *self.engine;
+        if let Some(name) = &p.door {
+            return self.go_through_door(p, player, name);
+        }
         let cell = find_interior(e, &p.cell)?;
         let (start, start_rot) = cell_start(e, cell);
         let mut pos = if p.at_start {
@@ -307,6 +418,11 @@ const CELL_START_PLACEMENT: u32 = 0x0054_cfd0;
 /// `PlayerCharacter::PositionPlayer` (`0093c200`): this, position x y z, rotation x y z (radians), the cell, whether to
 /// reset the weather. What a door or `coc` ends in for an interior.
 const POSITION_PLAYER: u32 = 0x0093_c200;
+/// A door reference's teleport data (`00568e50`; 0 for a reference that leads nowhere), its destination's world space
+/// (`0043a320`) and cell (`0043a2b0`; the linked door's), and the destination position (+4) and rotation (+0x10).
+const REFERENCE_GET_TELEPORT_DATA: u32 = 0x0056_8e50;
+const TELEPORT_GET_WORLD_SPACE: u32 = 0x0043_a320;
+const TELEPORT_GET_CELL: u32 = 0x0043_a2b0;
 
 /// The interior cell named `name` (an editor id): its address.
 fn find_interior(e: &mut Engine, name: &str) -> Result<u32, String> {
@@ -408,7 +524,7 @@ impl World for EngineWorld<'_> {
             e.call(TOGGLE_FLY_CAM, &args![player, 0u32]);
         }
         TARGET_CELL.store(0, std::sync::atomic::Ordering::Relaxed);
-        if !p.cell.is_empty() {
+        if !p.cell.is_empty() || p.door.is_some() {
             return self.go_to_interior(p, player);
         }
         // A place by reference: stand at the reference plus the offset, in the reference's world, and
@@ -631,6 +747,9 @@ impl World for EngineWorld<'_> {
                 e.call(SKY_FORCE_WEATHER, &args![sky, form, 1u32]);
             }
         }
+        if e.mem.u8(GOD_MODE) == 0 {
+            e.mem.set_u8(GOD_MODE, 1);
+        }
         // Not sent back to the last good position (the border regions' rule).
         let player = e.mem.u32(PLAYER);
         if player != 0 && e.mem.u32(player + PARENT_CELL) != 0 {
@@ -700,39 +819,11 @@ impl World for EngineWorld<'_> {
     }
 
     fn set_float_setting(&mut self, name: &str, value: f32) -> Result<bool, String> {
-        let e = &mut *self.engine;
-        let collection = e.mem.u32(GAME_SETTINGS);
-        if collection == 0 {
-            return Ok(false);
-        }
-        let setting = e.with_stack((name.len() as u32 + 4) & !3, |e, text| {
-            for (i, b) in name.bytes().enumerate() {
-                e.mem.set_u8(text.addr() + i as u32, b);
-            }
-            e.mem.set_u8(text.addr() + name.len() as u32, 0);
-            e.with_stack(4, |e, out| {
-                e.mem.set_u32(out.addr(), 0);
-                let found = e
-                    .call(NI_TMAP_LOOKUP, &args![collection + 0x10c, text, out])
-                    .u32()
-                    & 0xff;
-                if found != 0 {
-                    e.mem.u32(out.addr())
-                } else {
-                    0
-                }
-            })
-        });
-        if setting == 0 {
-            return Err(format!("the game has no setting {name}"));
-        }
-        // A setting's name (+8) starts with its type letter: `f` is a float held at +4.
-        let kind_name = e.mem.u32(setting + 8);
-        if kind_name == 0 || e.mem.u8(kind_name) != b'f' {
-            return Err(format!("the game's setting {name} is not a float"));
-        }
-        e.mem.set_f32(setting + 4, value);
-        Ok(true)
+        self.set_setting(name, b'f', value.to_bits())
+    }
+
+    fn set_int_setting(&mut self, name: &str, value: i32) -> Result<bool, String> {
+        self.set_setting(name, b'i', value as u32)
     }
 
     fn dismiss_message(&mut self) -> bool {
@@ -758,20 +849,6 @@ impl World for EngineWorld<'_> {
         Some(Standing {
             pos: [at(0), at(4), at(8)],
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_world_is_an_editor_id_or_a_form_id_of_six_or_more_hex_digits() {
-        assert_eq!(hex_form_id("0x000DA726"), Some(0x000d_a726));
-        assert_eq!(hex_form_id("0DA726"), Some(0x000d_a726));
-        assert_eq!(hex_form_id("WastelandNV"), None);
-        // Editor ids that happen to be hex letters only are still names unless six digits long.
-        assert_eq!(hex_form_id("Face"), None);
     }
 }
 
@@ -818,4 +895,18 @@ pub(crate) fn last_good_position(e: &Engine) -> Option<(f32, f32, f32, u8)> {
             e.mem.u8(player + RETURN_TO_LAST_GOOD),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_world_is_an_editor_id_or_a_form_id_of_six_or_more_hex_digits() {
+        assert_eq!(hex_form_id("0x000DA726"), Some(0x000d_a726));
+        assert_eq!(hex_form_id("0DA726"), Some(0x000d_a726));
+        assert_eq!(hex_form_id("WastelandNV"), None);
+        // Editor ids that happen to be hex letters only are still names unless six digits long.
+        assert_eq!(hex_form_id("Face"), None);
+    }
 }

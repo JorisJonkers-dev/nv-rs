@@ -1,0 +1,694 @@
+# Stability sweep, Mojave (nv-rs#479): ~36 exteriors, then every add-on and small world of the base game and the add-ons that
+# loads by a position alone. Each place: does it load, hold 300 frames, and leave cleanly. Run:
+#   nv-rs-dev scene sweep --places docs/fork/scenes/sweep-mojave.toml --out /tmp/sweep --game-lock "$GAME" --label sweep-mojave
+# Positions are the map markers' (and, in the add-on worlds, a placed reference's) own, plus a drop onto the land.
+version = 1
+
+# ---- the Mojave Wasteland: map markers, 600 units above
+
+[[place]]
+name = "goodspringscemetery"
+world = "WastelandNV"
+x = -62219
+y = 12673
+z = 11093
+heading = 0
+
+[[place]]
+name = "primm"
+world = "WastelandNV"
+x = -56752
+y = -52992
+z = 6424
+heading = 0
+
+[[place]]
+name = "nipton"
+world = "WastelandNV"
+x = -32672
+y = -93824
+z = 7528
+heading = 0
+
+[[place]]
+name = "novac"
+world = "WastelandNV"
+x = 22205
+y = -32624
+z = 7657
+heading = 0
+
+[[place]]
+name = "sloan"
+world = "WastelandNV"
+x = -29580
+y = 7734
+z = 6765
+heading = 0
+
+[[place]]
+name = "jacobstown"
+world = "WastelandNV"
+x = -108427
+y = 96470
+z = 16328
+heading = 0
+
+[[place]]
+name = "nellis"
+world = "WastelandNV"
+x = 34322
+y = 125976
+z = 4973
+heading = 0
+
+[[place]]
+name = "clarkfield"
+world = "WastelandNV"
+x = 32560
+y = -48448
+z = 7432
+heading = 0
+
+[[place]]
+name = "campmccarran"
+world = "WastelandNV"
+x = -19736
+y = 75896
+z = 5040
+heading = 0
+
+[[place]]
+name = "campgolf"
+world = "WastelandNV"
+x = 31040
+y = 62864
+z = 4072
+heading = 0
+
+[[place]]
+name = "bouldercity"
+world = "WastelandNV"
+x = 51202
+y = 22127
+z = 8637
+heading = 0
+
+[[place]]
+name = "nelson"
+world = "WastelandNV"
+x = 53312
+y = -33632
+z = 5768
+heading = 0
+
+[[place]]
+name = "searchlight"
+world = "WastelandNV"
+x = 26319
+y = -96652
+z = 7591
+heading = 0
+
+[[place]]
+name = "mojaveoutpost"
+world = "WastelandNV"
+x = -83001
+y = -101871
+z = 11621
+heading = 0
+
+[[place]]
+name = "freeside"
+world = "WastelandNV"
+x = -9670
+y = 111810
+z = 4956
+heading = 0
+
+[[place]]
+name = "thefort"
+world = "WastelandNV"
+x = 90975
+y = 45082
+z = 8370
+heading = 0
+
+[[place]]
+name = "sharecropperfarms"
+world = "WastelandNV"
+x = -9320
+y = 85176
+z = 5464
+heading = 0
+
+[[place]]
+name = "gunrunner"
+world = "WastelandNV"
+x = -11920
+y = 99776
+z = 5400
+heading = 0
+
+[[place]]
+name = "cottonwoodcove"
+world = "WastelandNV"
+x = 63127
+y = -89233
+z = 114
+heading = 0
+
+[[place]]
+name = "cottonwoodoverlook"
+world = "WastelandNV"
+x = 62699
+y = -97604
+z = 653
+heading = 0
+
+[[place]]
+name = "quarryjunction"
+world = "WastelandNV"
+x = -35778
+y = 16256
+z = 6307
+heading = 0
+
+[[place]]
+name = "ivanpahracetrack"
+world = "WastelandNV"
+x = -52608
+y = -84240
+z = 6088
+heading = 0
+
+[[place]]
+name = "elreymotel"
+world = "WastelandNV"
+x = -23464
+y = 74436
+z = 5057
+heading = 0
+
+[[place]]
+name = "deadwindcavern"
+world = "WastelandNV"
+x = -13521
+y = -58697
+z = 12374
+heading = 0
+
+[[place]]
+name = "blackmountain"
+world = "WastelandNV"
+x = 3171
+y = 11634
+z = 11576
+heading = 0
+
+[[place]]
+name = "repcon"
+world = "WastelandNV"
+x = -8472
+y = -29784
+z = 7931
+heading = 0
+
+[[place]]
+name = "northvegassquare"
+world = "WastelandNV"
+x = -14891
+y = 114578
+z = 4984
+heading = 0
+
+[[place]]
+name = "vhdhooverdamstartref"
+world = "WastelandNV"
+x = 65408
+y = 20392
+z = 5041
+heading = 0
+
+[[place]]
+name = "rockcrushingplant"
+world = "WastelandNV"
+x = -31712
+y = 50896
+z = 5624
+heading = 0
+
+[[place]]
+name = "vault22"
+world = "WastelandNV"
+x = -63491
+y = 107405
+z = 5404
+heading = 0
+
+[[place]]
+name = "vault19"
+world = "WastelandNV"
+x = -43680
+y = 38208
+z = 5352
+heading = 0
+
+[[place]]
+name = "vault34"
+world = "WastelandNV"
+x = 20332
+y = 82751
+z = 5621
+heading = 0
+
+[[place]]
+name = "vcampforlornhope"
+world = "WastelandNV"
+x = 59452
+y = -11007
+z = 7825
+heading = 0
+
+[[place]]
+name = "greatkhanencampment"
+world = "WastelandNV"
+x = -49268
+y = 16769
+z = 8979
+heading = 0
+
+[[place]]
+name = "ncrcf"
+world = "WastelandNV"
+x = -33225
+y = -26213
+z = 6891
+heading = 0
+
+[[place]]
+name = "sshq"
+world = "WastelandNV"
+x = -37418
+y = 85151
+z = 5938
+heading = 0
+
+# ---- the other world spaces of the base game and the add-ons, each at the middle one of its named references and at one far from it
+
+# FreesideWorld: VFSComingFromSideDoorMarker
+[[place]]
+name = "freesideworld"
+world = "FreesideWorld"
+x = -2032
+y = 3567
+z = 1353
+heading = 0
+
+# FreesideWorld: VFSNCRFightMine02REF
+[[place]]
+name = "freesideworld-b"
+world = "FreesideWorld"
+x = -4847
+y = 7581
+z = 1322
+heading = 0
+
+# FreesideNorthWorld: VFSRatChasingChild01REF
+[[place]]
+name = "freesidenorthworld"
+world = "FreesideNorthWorld"
+x = 5328
+y = 912
+z = 1340
+heading = 0
+
+# FreesideNorthWorld: VFSOffdutyNCR01REF
+[[place]]
+name = "freesidenorthworld-b"
+world = "FreesideNorthWorld"
+x = -4960
+y = 1088
+z = 1340
+heading = 0
+
+# FreesideFortWorld: VFSBeatrixREF
+[[place]]
+name = "freesidefortworld"
+world = "FreesideFortWorld"
+x = 7322
+y = 2622
+z = 1308
+heading = 0
+
+# FreesideFortWorld: VFSRoyREF
+[[place]]
+name = "freesidefortworld-b"
+world = "FreesideFortWorld"
+x = 6725
+y = 1875
+z = 1300
+heading = 0
+
+# TheStripWorldNew: VStripSS2MiddleTrooperCMarkerREF
+[[place]]
+name = "thestripworldnew"
+world = "TheStripWorldNew"
+x = -43
+y = 6804
+z = 1316
+heading = 0
+
+# TheStripWorldNew: VStripFluffVaultRoute1b
+[[place]]
+name = "thestripworldnew-b"
+world = "TheStripWorldNew"
+x = -957
+y = -5036
+z = 1324
+heading = 0
+
+# Lucky38World: HouseInnerSecretDoor
+[[place]]
+name = "lucky38world"
+world = "Lucky38World"
+x = -1376
+y = 6902
+z = 20075
+heading = 0
+
+# Lucky38World: MRHouseRef
+[[place]]
+name = "lucky38world-b"
+world = "Lucky38World"
+x = -2086
+y = 6480
+z = 19225
+heading = 0
+
+# TheFortWorld: FortCaesarRef
+[[place]]
+name = "thefortworld"
+world = "TheFortWorld"
+x = 1662
+y = 2151
+z = 2485
+heading = 0
+
+# TheFortWorld: FortLuciusVigilMarker
+[[place]]
+name = "thefortworld-b"
+world = "TheFortWorld"
+x = 915
+y = 2181
+z = 2486
+heading = 0
+
+# BoulderCityWorld: BCGreatKhanCMRef
+[[place]]
+name = "bouldercityworld"
+world = "BoulderCityWorld"
+x = 979
+y = 4491
+z = 2252
+heading = 0
+
+# BoulderCityWorld: BCGreatKhanAAFRef
+[[place]]
+name = "bouldercityworld-b"
+world = "BoulderCityWorld"
+x = 740
+y = 4658
+z = 1916
+heading = 0
+
+# GamorrahWorld: VMS21aJoanaFirstMeetMarker
+[[place]]
+name = "gamorrahworld"
+world = "GamorrahWorld"
+x = 2900
+y = 1131
+z = 1307
+heading = 0
+
+# NVDLC01Villa: NVDLC01MojaveGateRef
+[[place]]
+name = "nvdlc01villa"
+world = "NVDLC01Villa"
+x = -10432
+y = 8592
+z = 1324
+heading = 0
+
+# NVDLC01Villa: NVDLC01VillaHologram01Ref
+[[place]]
+name = "nvdlc01villa-b"
+world = "NVDLC01Villa"
+x = -16624
+y = 7888
+z = 1916
+heading = 0
+
+# NVDLC01EastTownN: GalaGauntletSpeaker02
+[[place]]
+name = "nvdlc01easttownn"
+world = "NVDLC01EastTownN"
+x = 5824
+y = 8800
+z = 2524
+heading = 0
+
+# NVDLC01EastTownN: ETNGhost02
+[[place]]
+name = "nvdlc01easttownn-b"
+world = "NVDLC01EastTownN"
+x = 5138
+y = 1405
+z = 1338
+heading = 0
+
+# NVDLC01EastTownS: ETSGhost07
+[[place]]
+name = "nvdlc01easttowns"
+world = "NVDLC01EastTownS"
+x = 2131
+y = -3014
+z = 1324
+heading = 0
+
+# NVDLC01EastTownS: ETSGhost09
+[[place]]
+name = "nvdlc01easttowns-b"
+world = "NVDLC01EastTownS"
+x = 312
+y = -2345
+z = 1332
+heading = 0
+
+# NVDLC01WestTownN: NVDLC01Gala02ElevatorTopsidePlayerDestinationMarker
+[[place]]
+name = "nvdlc01westtownn"
+world = "NVDLC01WestTownN"
+x = 144
+y = 4000
+z = 1584
+heading = 0
+
+# NVDLC01WestTownN: NVDLC01PostChristineGalaWTHarvester01REF
+[[place]]
+name = "nvdlc01westtownn-b"
+world = "NVDLC01WestTownN"
+x = -2186
+y = 2048
+z = 1324
+heading = 0
+
+# NVDLC01WestTownS: wtGala01patrol02
+[[place]]
+name = "nvdlc01westtowns"
+world = "NVDLC01WestTownS"
+x = 1120
+y = -2176
+z = 1324
+heading = 0
+
+# NVDLC01WestTownS: planterTerminalOff
+[[place]]
+name = "nvdlc01westtowns-b"
+world = "NVDLC01WestTownS"
+x = -2331
+y = -3572
+z = 1416
+heading = 0
+
+# NVDLC01VillaDean: NVDLC01DeanREF
+[[place]]
+name = "nvdlc01villadean"
+world = "NVDLC01VillaDean"
+x = -7077
+y = 3976
+z = 1840
+heading = 0
+
+# NVDLC01VillaChristine: GalaBeamSound04
+[[place]]
+name = "nvdlc01villachristine"
+world = "NVDLC01VillaChristine"
+x = -1724
+y = -757
+z = 1341
+heading = 0
+
+# NVDLC01VillaChristine: NVDLC01PostChristineMedicalHarvester02REF
+[[place]]
+name = "nvdlc01villachristine-b"
+world = "NVDLC01VillaChristine"
+x = -2270
+y = 3181
+z = 1332
+heading = 0
+
+# NVDLC02ZionCanyon: CuevadelaRamaNegraMarker
+[[place]]
+name = "nvdlc02zioncanyon"
+world = "NVDLC02ZionCanyon"
+x = 1615
+y = -14613
+z = 6205
+heading = 0
+
+# NVDLC02ZionCanyon: ThreeMarysState01Marker
+[[place]]
+name = "nvdlc02zioncanyon-b"
+world = "NVDLC02ZionCanyon"
+x = -20717
+y = -26696
+z = 5323
+heading = 0
+
+# NVDLC03BigMT: NVDLC03EncBox06REF
+[[place]]
+name = "nvdlc03bigmt"
+world = "NVDLC03BigMT"
+x = 1865
+y = -32605
+z = 1504
+heading = 0
+
+# NVDLC03BigMT: NVDLC03ChristineRifleSpawnREF
+[[place]]
+name = "nvdlc03bigmt-b"
+world = "NVDLC03BigMT"
+x = -11361
+y = -2281
+z = 377
+heading = 0
+
+# NVDLC03Higgs: NVDLC03GabesBowlREF
+[[place]]
+name = "nvdlc03higgs"
+world = "NVDLC03Higgs"
+x = 4066
+y = 492
+z = 311
+heading = 0
+
+# NVDLC04Road01World: NVDLC04Road01Camp02Guard01REF
+[[place]]
+name = "nvdlc04road01world"
+world = "NVDLC04Road01World"
+x = 7176
+y = -302
+z = 14372
+heading = 0
+
+# NVDLC04Road01World: NVDLC04Road01PostMQMarkerREF
+[[place]]
+name = "nvdlc04road01world-b"
+world = "NVDLC04Road01World"
+x = 1697
+y = 3140
+z = 15088
+heading = 0
+
+# NVDLC04DivideWorld: DivideBldgRockslide02REF
+[[place]]
+name = "nvdlc04divideworld"
+world = "NVDLC04DivideWorld"
+x = 8674
+y = 1361
+z = 1920
+heading = 0
+
+# NVDLC04DivideWorld: DivideWarhead05REF
+[[place]]
+name = "nvdlc04divideworld-b"
+world = "NVDLC04DivideWorld"
+x = -11597
+y = -626
+z = 1606
+heading = 0
+
+# NVDLC04Road02World: NVDLC04TerminalMissileButtonREF
+[[place]]
+name = "nvdlc04road02world"
+world = "NVDLC04Road02World"
+x = 27996
+y = 6233
+z = 19324
+heading = 0
+
+# NVDLC04Road02World: NVDLC04Road02OverpassDeathclawREF
+[[place]]
+name = "nvdlc04road02world-b"
+world = "NVDLC04Road02World"
+x = 12509
+y = 7390
+z = 19037
+heading = 0
+
+# NVDLC04DivideVistaWorld: NVDLC04DVWorldBunkerMapMarkerREF
+[[place]]
+name = "nvdlc04dividevistaworld"
+world = "NVDLC04DivideVistaWorld"
+x = 89983
+y = -17661
+z = 20761
+heading = 0
+
+# NVDLC04DivideVistaWorld: NVDLC04RadioTower03REF
+[[place]]
+name = "nvdlc04dividevistaworld-b"
+world = "NVDLC04DivideVistaWorld"
+x = 17503
+y = 16268
+z = 10093
+heading = 0
+
+# NVDLC04NukeNCR: NVDLC04NukeNCRStartMarker
+[[place]]
+name = "nvdlc04nukencr"
+world = "NVDLC04NukeNCR"
+x = 14498
+y = 9881
+z = 1531
+heading = 0
+
+# NVDLC04NukeLegion: NVDLC04NukedLegionMapMarkerREF
+[[place]]
+name = "nvdlc04nukelegion"
+world = "NVDLC04NukeLegion"
+x = 3783
+y = -5365
+z = 999
+heading = 0
+
+# NVDLC04NukeSilo2: NVDLC04BloodNapStaticREF
+[[place]]
+name = "nvdlc04nukesilo2"
+world = "NVDLC04NukeSilo2"
+x = -2465
+y = 2958
+z = 1865
+heading = 0
+

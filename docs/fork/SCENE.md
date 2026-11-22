@@ -68,6 +68,19 @@ Two runs of the same build on this machine differed by 2 to 5% in average fps (o
 that is not a finding. A place at a usual cap value (60, 120, 144 fps) is marked CAPPED and is not a headline number. The
 baselines are under `~/.cache/nv-rs/scene-bench` (`--state DIR` moves them).
 
+**(d) The stability sweep, before every engine release:** every place of a list loads, holds 300 frames and leaves cleanly;
+a place that stops, hangs or is put back is recorded with the end of the log and the sweep goes on from the next place
+(the engine is started again). One command a list (`scenes/sweep-*.toml`; the Capital lists need the TTW arguments of the
+Tale of Two Wastelands section):
+
+```
+nv-rs-dev scene sweep --places docs/fork/scenes/sweep-mojave.toml --out /tmp/sweep --game-lock "$GAME" --label sweep-mojave
+```
+
+The exit status is 0 only when every place passed; `OUT/sweep.md` lists each place with its frame times or its failure. The
+other lists: `sweep-mojave-interiors.toml`, `sweep-capital.toml`, `sweep-capital-interiors.toml`. A silent log for `--stall` seconds
+(default 120) counts as a hang: the start is killed.
+
 ## Switches
 
 | Variable | Meaning |
@@ -115,6 +128,12 @@ cell = "GSDocMitchellHouse"   # alone: the cell's own start marker (what `coc` u
 # x = 0   y = 0   z = 0       # a position in the cell's own coordinates, or
 # ref = "SomeMarkerRef"       # a marker or door reference placed in the cell (editor id or form id in hex) plus dx, dy, dz
 ```
+
+A door is the other way in: `door = "ProspectorSaloonDoor"` (a door reference placed in the world, editor id or form id in hex)
+goes where the door's teleport leads, an interior cell or another world space, with the position and facing the door gives,
+through the game's request for it. The door must be a form, which it is while its cell is loaded: put an exterior place near it
+before it in the file (`scenes/sweep-mojave-interiors.toml` does: Goodsprings, then the Prospector Saloon's door and the gas
+station's, both opened). From the menu a door place is refused with a line saying so.
 
 A `ref` in an interior is a form only while its cell is loaded: for a cell not yet entered the lookup fails with a line saying
 so, and the cell's start marker or coordinates are the way in. A `cell` that names an exterior cell is refused with a plain line.
@@ -300,6 +319,30 @@ is not flat, so a tall hill or a roof is nearer the lens and larger.
   farther from the lens than its centre, and objects stand out of the plane: roofs are larger than their feet), the fov that
   fits a block depends on the ground's height (calibrate once per area by moving the camera a known distance), and weather
   and light are the frozen world's. Baking a tile into anything is not built and not decided.
+
+## The stability sweep
+
+`nv-rs-scene sweep` (`nv-rs-dev scene sweep`) takes the arguments of `soak` (300 frames, `--timeout 120` a place, `--stall 120`
+unless given) and runs every place of a list. A place that does not load, stops, is put back or leaves the play screen ends that
+engine start with a plain line; the sweep records the place with the engine's error lines and starts the engine again at the
+places after it, so one run says which places fail, not only the first. A start whose log stays silent for `--stall` seconds is
+a hang: its scope is killed and the place recorded. `OUT/sweep.md` is the report, the exit status 0 only if every place passed
+and the engine left cleanly. The lists:
+
+| list | places | what |
+| --- | --- | --- |
+| `sweep-mojave.toml` | 80 | 36 map markers of the Mojave Wasteland, then the other worlds of the base game and the add-ons by a placed reference (Freeside, the Strip, Lucky 38, the Fort, Boulder City, Gomorrah, the Villa and its towns, Zion, Big MT, the Lonesome Road worlds) |
+| `sweep-mojave-interiors.toml` | 33 | 18 base-game interiors, 12 add-on interiors, then two doors |
+| `sweep-capital.toml` | 42 | 21 map markers of the Capital Wasteland, 21 world spaces (districts and the add-ons), on the TTW folder |
+| `sweep-capital-interiors.toml` | 31 | 17 Capital interiors, 10 add-on interiors, four more places for two doors, on the TTW folder |
+
+Run on 2026-11-22 (viewer `nv-viewer-scene52`, one start each): `sweep-mojave` 80 of 80 places, exit status 0, 13 min;
+`sweep-capital` 42 of 42, 9 min; the two interior lists 33 of 33 and 31 of 31 (4 min each, viewer 50). No place stopped, hung or
+was put back. The sweeps before the last one stopped twice in the Mojave and once in the Capital list, always at the 21st to 60th
+place of one start with the top menu `0x403`, the level-up menu: each far move onto a map marker's land is a location
+discovered, and the experience of about twenty discoveries is a level. Both of those places pass alone. The frozen world now sets
+the experience settings of finding places (`iXPRewardDiscoverMapMarker`, `iXPRewardDiscoverSecretArea`) to 0, and god mode (the
+byte `tgm` flips) on. The first of these is a harness cause, not an engine defect; a player who gains a level sees the same menu.
 
 ## Variants and the one command
 

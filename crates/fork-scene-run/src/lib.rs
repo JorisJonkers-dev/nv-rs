@@ -58,6 +58,11 @@ pub trait World {
     fn move_player(&mut self, _pos: [f64; 3]) -> Result<(), String> {
         Err("this world cannot move the player".into())
     }
+    /// Sets the whole-number game setting `name`; `Ok(false)` while the settings do not exist yet, an error for a name or
+    /// type it does not know.
+    fn set_int_setting(&mut self, _name: &str, _value: i32) -> Result<bool, String> {
+        Ok(true)
+    }
     /// Closes the message box on top (`MessageMenu::ClearMessageQueueHead`); false when the top
     /// menu is not a message box.
     fn dismiss_message(&mut self) -> bool {
@@ -120,6 +125,11 @@ const REPEATABLE_FRAMES: &str = "100000000";
 /// The game setting that starts the idle camera, and the seconds it is set to.
 pub const VANITY_SETTING: &str = "fVanityModeAutoDelay";
 pub const VANITY_OFF_SECONDS: f32 = 1_000_000.0;
+
+/// The settings that give the player experience for finding a place: set to 0 in a frozen world. Each far move onto a map
+/// marker's land is a discovery; a score of them in one start earned a level, whose menu (`LevelUpMenu`, class `0x403`) then
+/// stood over the world and ended the soak (the sweep, nv-rs#479).
+pub const XP_SETTINGS: [&str; 2] = ["iXPRewardDiscoverMapMarker", "iXPRewardDiscoverSecretArea"];
 
 /// Frames the free camera is held before the picture (or the soak) of a place that has one.
 pub const CAMERA_FRAMES: u32 = 30;
@@ -204,6 +214,8 @@ pub struct Runner {
     just_sent: bool,
     /// The idle camera's setting is set.
     vanity_off: bool,
+    /// The experience settings are set.
+    xp_off: bool,
     /// Main frames since the current place was sent.
     place_frames: u64,
     /// Frames in a row the soak has not been on the play screen.
@@ -235,6 +247,7 @@ impl Runner {
             away: 0,
             place_frames: 0,
             vanity_off: false,
+            xp_off: false,
             trace: std::env::var_os("NV_SCENE_TRACE").is_some(),
             prev_bits: [0; 3],
             scan: None,
@@ -357,6 +370,21 @@ impl Runner {
                 }
                 Ok(false) => {}
                 Err(e) => return Step::Failed(format!("scene: {e}")),
+            }
+        }
+        if self.request.freeze.is_some() && !self.xp_off {
+            let mut all = true;
+            for name in XP_SETTINGS {
+                match w.set_int_setting(name, 0) {
+                    Ok(true) => {}
+                    Ok(false) => all = false,
+                    // A game without the setting (a load order that does not have it) has nothing to switch off.
+                    Err(e) => fork_log::debug!(target: "scene", "scene: {e}"),
+                }
+            }
+            if all {
+                self.xp_off = true;
+                fork_log::info!(target: "scene", "scene: no experience for finding places");
             }
         }
         if let Some((hour, weather)) = self.request.freeze {
@@ -742,6 +770,7 @@ mod tests {
         refuse: bool,
         asked: Vec<std::path::PathBuf>,
         settings: Vec<(String, f32)>,
+        ints: Vec<(String, i32)>,
         /// What the "drawing layer" writes when asked for a picture.
         draw: Option<Vec<u8>>,
         /// The free camera calls: where the player stood each time.
@@ -787,6 +816,10 @@ mod tests {
         fn move_player(&mut self, pos: [f64; 3]) -> Result<(), String> {
             self.moves.push(pos);
             Ok(())
+        }
+        fn set_int_setting(&mut self, name: &str, value: i32) -> Result<bool, String> {
+            self.ints.push((name.to_string(), value));
+            Ok(true)
         }
         fn set_float_setting(&mut self, name: &str, value: f32) -> Result<bool, String> {
             self.settings.push((name.to_string(), value));
@@ -835,6 +868,7 @@ mod tests {
             refuse: false,
             asked: vec![],
             settings: vec![],
+            ints: vec![],
             draw: None,
             cameras: Vec::new(),
             moves: Vec::new(),
@@ -1069,6 +1103,19 @@ mod tests {
             w.settings,
             [(VANITY_SETTING.to_string(), VANITY_OFF_SECONDS)]
         );
+    }
+
+    #[test]
+    fn finding_places_gives_no_experience_in_a_frozen_world_and_only_once() {
+        let mut req = request(60);
+        req.freeze = Some((12.0, 1));
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        for _ in 0..5 {
+            r.step(&mut w, 0.0);
+        }
+        let want: Vec<(String, i32)> = XP_SETTINGS.iter().map(|n| (n.to_string(), 0)).collect();
+        assert_eq!(w.ints, want);
     }
 
     #[test]

@@ -34,6 +34,13 @@
 //! # x = 0   y = 0   z = 0         # a position in the cell's own coordinates, or
 //! # ref = "SomeMarkerRef"         # a marker or door reference placed in the cell (editor id or form id in hex), plus dx, dy, dz
 //! ```
+//! Or through a door: a door reference placed in the world (its editor id, or its form id in hex), entered the way the game
+//! enters it: the place is where the door's teleport leads (an interior cell or a world space).
+//! ```toml
+//! [[place]]
+//! name = "saloon-by-the-door"
+//! door = "ProspectorSaloonDoor"
+//! ```
 //! The view from the free camera (the player stands where the place says, the loaded cells around it are the
 //! near land, the camera is elsewhere; no console text):
 //! ```toml
@@ -71,6 +78,10 @@ pub struct Place {
     /// An interior: the editor id of the cell (`cell = "GSDocMitchellHouse"`). The player is sent there through the game's
     /// own placement into a cell (what a door or `coc` ends in); there is no world space. Empty for an exterior.
     pub cell: String,
+    /// A way in through a door reference (editor id or form id in hex of a door placed in the world): the place is where
+    /// the door's teleport leads, entered through the game's placement the way a door does it (an interior cell or a
+    /// world space). Nothing but the view keys goes with it.
+    pub door: Option<String>,
     /// An interior place with no `x`, `y`, `z` and no `ref`: it starts at the cell's own start marker (the one `coc` uses),
     /// plus [`Place::offset`].
     pub at_start: bool,
@@ -288,6 +299,7 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
             "name",
             "world",
             "cell",
+            "door",
             "x",
             "y",
             "z",
@@ -361,10 +373,24 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
     };
     let reference = optional_string("ref")?;
     let look_at = optional_string("look_at")?;
+    let door = optional_string("door")?;
+    if door.is_some()
+        && [
+            "world", "cell", "ref", "x", "y", "z", "dx", "dy", "dz", "move",
+        ]
+        .iter()
+        .any(|k| get(k).is_some())
+    {
+        return Err(format!(
+            "line {n}: a place by `door` is where the door leads: it takes no world, cell, ref, x, y, z, dx, dy, dz or move"
+        ));
+    }
     let cell = optional_string("cell")?.unwrap_or_default();
     let xyz = ["x", "y", "z"].iter().filter(|k| get(k).is_some()).count();
     let mut at_start = false;
-    let (pos, offset, world) = if !cell.is_empty() {
+    let (pos, offset, world) = if door.is_some() {
+        ([0.0; 3], [0.0; 3], String::new())
+    } else if !cell.is_empty() {
         if get("world").is_some() {
             return Err(format!(
                 "line {n}: a place has a `world` (an exterior) or a `cell` (an interior), not both"
@@ -494,6 +520,7 @@ fn place_of(n: usize, t: &[(String, Value)]) -> Result<Place, String> {
         name,
         world,
         cell,
+        door,
         at_start,
         pos,
         heading,
@@ -709,6 +736,64 @@ path = [[0, 0, 0], [10.5, 0, 0]]
         ] {
             let e = PlaceFile::parse(&format!("{head}{extra}")).unwrap_err();
             assert!(e.contains(want), "{extra:?} gave {e}");
+        }
+    }
+
+    #[test]
+    fn the_sweep_lists_parse_and_hold_what_the_sweep_needs() {
+        for (name, text, least) in [
+            (
+                "sweep-mojave",
+                include_str!("../../../docs/fork/scenes/sweep-mojave.toml"),
+                30,
+            ),
+            (
+                "sweep-mojave-interiors",
+                include_str!("../../../docs/fork/scenes/sweep-mojave-interiors.toml"),
+                10,
+            ),
+            (
+                "sweep-capital",
+                include_str!("../../../docs/fork/scenes/sweep-capital.toml"),
+                15,
+            ),
+            (
+                "sweep-capital-interiors",
+                include_str!("../../../docs/fork/scenes/sweep-capital-interiors.toml"),
+                10,
+            ),
+        ] {
+            let f = PlaceFile::parse(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(
+                f.places.len() >= least,
+                "{name} has {} places",
+                f.places.len()
+            );
+            if name.ends_with("interiors") {
+                assert!(
+                    f.places.iter().filter(|p| !p.cell.is_empty()).count() >= 3,
+                    "{name}"
+                );
+                assert!(f.places.iter().any(|p| p.door.is_some()), "{name}: a door");
+            }
+        }
+    }
+
+    #[test]
+    fn a_door_is_a_way_in_that_takes_no_position() {
+        let head = "version = 1\n[[place]]\nname = \"a\"\ndoor = \"SomeDoor\"\n";
+        let p = &PlaceFile::parse(head).unwrap().places[0];
+        assert_eq!(p.door.as_deref(), Some("SomeDoor"));
+        assert!(p.world.is_empty() && p.cell.is_empty());
+        assert!(PlaceFile::parse(&format!("{head}heading = 90\ncamera_dz = 10\n")).is_ok());
+        for extra in [
+            "world = \"W\"\n",
+            "cell = \"C\"\n",
+            "x = 1\n",
+            "ref = \"R\"\n",
+        ] {
+            let e = PlaceFile::parse(&format!("{head}{extra}")).unwrap_err();
+            assert!(e.contains("door"), "{extra:?} gave {e}");
         }
     }
 

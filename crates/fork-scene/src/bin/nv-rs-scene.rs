@@ -273,7 +273,12 @@ struct Opts {
     ini: Vec<(String, String)>,
     /// `--gpu-sysfs DIR`: where the card's memory is read for the start check (default `/sys/class/drm`).
     gpu_sysfs: PathBuf,
+    /// Seconds the engine's log may stay silent before the start counts as hung and is killed (0: no watch).
+    stall_s: u64,
 }
+
+/// The exit status [`run_one`] reports for a start it killed because its log went silent.
+const HUNG: i32 = -99;
 
 /// `nv-rs-scene run`: every variant of the game's data on one place file, one engine start each (in
 /// parallel up to `--jobs`), then the first variant's pictures against every other's.
@@ -360,6 +365,7 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
         extra_env,
         ini,
         gpu_sysfs,
+        stall_s: 0,
     };
     println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let started = std::time::Instant::now();
@@ -503,12 +509,38 @@ fn run_one(name: &str, overlays: &[PathBuf], o: &Opts) -> Result<i32, String> {
     // The scope's memory, read while the engine runs (the scope is gone when it ends).
     let scope_prefix = cap_words.get(1).map(|l| format!("nvgame-{l}-"));
     let mut mem = MemSeen::default();
+    let log_path = dir.join("log.jsonl");
+    let mut last_moved = std::time::Instant::now();
+    let mut last_len = 0u64;
     let status = loop {
         if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
             break st;
         }
         if let Some(prefix) = &scope_prefix {
             mem.poll(prefix);
+        }
+        if o.stall_s > 0 {
+            // A hung engine writes nothing: kill the start (its scope, so the game process goes too) when the log has not
+            // grown for the stall limit.
+            let len = std::fs::metadata(&log_path).map_or(0, |m| m.len());
+            if len != last_len {
+                last_len = len;
+                last_moved = std::time::Instant::now();
+            } else if last_moved.elapsed().as_secs() >= o.stall_s {
+                if let Some(scope) = mem.dir.as_ref().and_then(|d| d.file_name()) {
+                    let _ = std::process::Command::new("systemctl")
+                        .args(["--user", "kill", "--signal=SIGKILL"])
+                        .arg(scope)
+                        .status();
+                }
+                let _ = child.kill();
+                let _ = child.wait();
+                println!(
+                    "{name}: hung: the log was silent for {} s, the start was killed",
+                    o.stall_s
+                );
+                return Ok(HUNG);
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     };
@@ -650,6 +682,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
     let (mut frames, mut wrap, mut realtime, mut timeout) =
         ("600".to_string(), Vec::new(), false, "300".to_string());
     let mut exclusive = false;
+    let mut stall_s = 0u64;
     let mut cap = Cap::default();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -660,6 +693,11 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
             "--places" => places = Some(PathBuf::from(value(a)?)),
             "--out" => out = Some(PathBuf::from(value(a)?)),
             "--userdata" => userdata = Some(PathBuf::from(value(a)?)),
+            "--stall" => {
+                stall_s = value(a)?
+                    .parse()
+                    .map_err(|_| "--stall is a number of seconds".to_string())?
+            }
             "--frames" => frames = value(a)?,
             "--warmup" => extra_env.push(("NV_SCENE_SOAK_WARMUP".into(), value(a)?)),
             "--passes" => extra_env.push(("NV_SCENE_SOAK_PASSES".into(), value(a)?)),
@@ -708,6 +746,7 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         extra_env: extra,
         ini,
         gpu_sysfs,
+        stall_s,
     };
     println!("{}", opts.cap.describe(&opts.wrap, opts.concurrent));
     let overlays: Vec<PathBuf> = overlay.into_iter().collect();
@@ -745,7 +784,10 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         machine_notes()
     ));
     let _ = std::fs::write(out.join("soak").join("bench.json"), &json);
-    let n_places = std::fs::read_to_string(&places).map_or(0, |t| t.matches("[[place]]").count());
+    let n_places = match opts.extra_env.iter().find(|(k, _)| k == "NV_SCENE_PLACES") {
+        Some((_, names)) => names.split(',').count(),
+        None => std::fs::read_to_string(&places).map_or(0, |t| t.matches("[[place]]").count()),
+    };
     println!(
         "soak: {} of {n_places} places soaked for {frames} frames, exit status {code}, {stops} stops, {errors} error lines, {warnings} warnings, {secs:.0} s{}",
         rows.len(),
@@ -764,6 +806,170 @@ fn soak_run(args: &[String]) -> Result<SoakResult, String> {
         warmup,
         passes,
     })
+}
+
+/// `nv-rs-scene sweep`: the stability sweep. Like `soak` (same arguments, `--frames` 300 and `--timeout` 120 unless given,
+/// `--stall` 120), but a place that stops, hangs or is put back does not end it: the failure is recorded with the end of the
+/// log, and the engine is started again at the places after it. The report is `OUT/sweep.md`; the exit status is 0 only
+/// when every place loaded, held its frames and the engine left cleanly.
+fn sweep(args: &[String]) -> Result<bool, String> {
+    let value_of = |flag: &str| {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let places_path = PathBuf::from(value_of("--places").ok_or("sweep needs --places FILE")?);
+    let out = PathBuf::from(value_of("--out").ok_or("sweep needs --out DIR")?);
+    let all: Vec<String> = fork_scene::PlaceFile::parse(
+        &std::fs::read_to_string(&places_path)
+            .map_err(|e| format!("{}: {e}", places_path.display()))?,
+    )?
+    .places
+    .into_iter()
+    .map(|p| p.name)
+    .collect();
+    // `--only a,b` narrows the sweep, as for `run`.
+    let mut remaining: Vec<String> = match value_of("--only") {
+        Some(only) => {
+            let want: Vec<&str> = only.split(',').collect();
+            all.iter()
+                .filter(|n| want.contains(&n.as_str()))
+                .cloned()
+                .collect()
+        }
+        None => all,
+    };
+    let mut base: Vec<String> = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--out" || a == "--only" {
+            it.next();
+        } else {
+            base.push(a.clone());
+        }
+    }
+    for (flag, default) in [
+        ("--frames", "300"),
+        ("--timeout", "120"),
+        ("--stall", "120"),
+    ] {
+        if !base.iter().any(|a| a == flag) {
+            base.push(flag.into());
+            base.push(default.into());
+        }
+    }
+    let total = remaining.len();
+    let mut passed: Vec<(String, String)> = Vec::new();
+    let mut failed: Vec<(String, String)> = Vec::new();
+    let mut warnings = 0;
+    let mut starts = 0;
+    let t = std::time::Instant::now();
+    while !remaining.is_empty() {
+        starts += 1;
+        if starts > total + 1 {
+            return Err("the sweep started more engines than it has places: stopped".into());
+        }
+        let mut a = base.clone();
+        a.extend([
+            "--out".into(),
+            out.join(format!("run{starts}")).display().to_string(),
+        ]);
+        a.extend([
+            "--env".into(),
+            format!("NV_SCENE_PLACES={}", remaining.join(",")),
+        ]);
+        let r = soak_run(&a)?;
+        warnings += r.scan.warnings;
+        let done = r.scan.rows.len().min(remaining.len());
+        for (name, row) in remaining.iter().zip(&r.scan.rows) {
+            passed.push((name.clone(), row.clone()));
+        }
+        remaining.drain(..done);
+        if r.ok || remaining.is_empty() {
+            if !r.ok {
+                // Every place held its frames, but the engine did not leave cleanly or logged errors.
+                failed.push((
+                    "(after the last place)".into(),
+                    format!(
+                        "exit status {}, {} stops, {} error lines",
+                        r.code, r.scan.stops, r.scan.errors
+                    ),
+                ));
+            }
+            break;
+        }
+        let bad = remaining.remove(0);
+        let log = out
+            .join(format!("run{starts}"))
+            .join("soak")
+            .join("run.log");
+        // What the engine said: its error lines (the log's), else the last lines of its output.
+        let said = |path: &Path, keep: &dyn Fn(&str) -> bool, n: usize| -> Vec<String> {
+            let mut v: Vec<String> = std::fs::read_to_string(path)
+                .unwrap_or_default()
+                .lines()
+                .filter(|l| keep(l))
+                .map(|l| l.chars().take(300).collect())
+                .collect();
+            let skip = v.len().saturating_sub(n);
+            v.drain(..skip);
+            v
+        };
+        let jsonl = std::fs::read_to_string(
+            out.join(format!("run{starts}"))
+                .join("soak")
+                .join("log.jsonl"),
+        )
+        .unwrap_or_default();
+        let mut tail: Vec<String> = jsonl
+            .lines()
+            .filter_map(|l| fork_scene::json_lite::fields(l, &["level", "message"]).ok())
+            .filter(|v| v[0] == "error" || v[0] == "fatal")
+            .map(|v| v[1].chars().take(300).collect())
+            .collect();
+        let skip = tail.len().saturating_sub(3);
+        tail.drain(..skip);
+        if tail.is_empty() {
+            tail = said(&log, &|l| !l.starts_with("hitch:"), 4);
+        }
+        let why = if r.code == HUNG {
+            "hung (the engine's log went silent past the stall limit)".to_string()
+        } else {
+            format!(
+                "exit status {}, {} stops, {} error lines",
+                r.code, r.scan.stops, r.scan.errors
+            )
+        };
+        failed.push((
+            bad,
+            format!(
+                "{why}; log {}; last lines: {}",
+                log.display(),
+                tail.join(" | ")
+            ),
+        ));
+    }
+    let mut md = format!(
+        "# Sweep of {}\n\n{} of {total} places loaded and held {} frames; {} failed; {warnings} warnings; {starts} engine starts, {:.0} s.\n\n",
+        places_path.display(),
+        passed.len(),
+        value_of("--frames").unwrap_or_else(|| "300".into()),
+        failed.len(),
+        t.elapsed().as_secs_f64()
+    );
+    md.push_str("| place | result |\n| --- | --- |\n");
+    for (n, row) in &passed {
+        md.push_str(&format!("| {n} | ok: {row} |\n"));
+    }
+    for (n, why) in &failed {
+        md.push_str(&format!("| {n} | FAILED: {why} |\n"));
+    }
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    std::fs::write(out.join("sweep.md"), &md).map_err(|e| e.to_string())?;
+    println!("{md}");
+    println!("sweep report: {}", out.join("sweep.md").display());
+    Ok(failed.is_empty())
 }
 
 fn env_value(env: &[(String, String)], key: &str, default: u32) -> u32 {
@@ -1128,7 +1334,7 @@ fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if matches!(
         args.first().map(String::as_str),
-        Some("run" | "soak" | "bench")
+        Some("run" | "soak" | "bench" | "sweep")
     ) {
         let cwd = std::env::current_dir().unwrap_or_default();
         match expand_args(&args[1..], &cwd) {
@@ -1144,6 +1350,7 @@ fn main() -> ExitCode {
         Some("run") => run_variants(&args[1..]),
         Some("soak") => soak(&args[1..]),
         Some("bench") => bench(&args[1..]),
+        Some("sweep") => sweep(&args[1..]),
         Some("bench-compare") => bench_compare(&args[1..]),
         _ => {
             eprintln!("usage: nv-rs-scene compare [--max-mean N] [--diff-out DIR] A B | run --viewer BIN --game DIR --places FILE --out DIR [--variant NAME[=OVERLAY]]...");
@@ -1490,6 +1697,88 @@ mod tests {
             .contains("--lock"));
         assert!(soak(&s(&["--bogus"])).is_err());
         assert!(soak(&s(&["--frames", "5"])).is_err());
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    /// A viewer that soaks every place it is given except `bad`, where it logs an error and ends with status 70.
+    #[cfg(unix)]
+    fn picky_viewer(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("picky.sh");
+        std::fs::write(
+            &script,
+            r#"#!/bin/sh
+for p in $(echo "$NV_SCENE_PLACES" | tr ',' ' '); do
+  echo '{"level":"info","message":"scene: sending the player to '$p' from the Menu screen"}' >> "$NV_LOG_JSON"
+  if [ "$p" = bad ]; then
+    echo '{"level":"error","message":"scene: place bad: no cell"}' >> "$NV_LOG_JSON"
+    exit 70
+  fi
+  echo '{"level":"info","message":"scene: soak '$p' frames 10 avg_ms 5.00 p99_ms 6.00 max_ms 7.00 low1_fps 150.0"}' >> "$NV_LOG_JSON"
+done
+exit 0
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sweep_records_a_failing_place_and_goes_on_from_the_next() {
+        let t = tmp("sweep");
+        let g = install(&t);
+        let places = t.join("sweep.toml");
+        let place =
+            |n: &str| format!("[[place]]\nname = \"{n}\"\nworld = \"W\"\nx = 1\ny = 2\nz = 3\n");
+        std::fs::write(
+            &places,
+            format!(
+                "version = 1\n{}{}{}{}",
+                place("a"),
+                place("bad"),
+                place("c"),
+                place("d")
+            ),
+        )
+        .unwrap();
+        let viewer = picky_viewer(&t);
+        let out = t.join("out");
+        let args = s(&[
+            "--no-cap",
+            "--gpu-sysfs",
+            "/nonexistent",
+            "--viewer",
+            &viewer.display().to_string(),
+            "--game",
+            &g.display().to_string(),
+            "--places",
+            &places.display().to_string(),
+            "--out",
+            &out.display().to_string(),
+            "--frames",
+            "10",
+        ]);
+        assert_eq!(sweep(&args), Ok(false));
+        let md = std::fs::read_to_string(out.join("sweep.md")).unwrap();
+        assert!(md.contains("3 of 4 places loaded"), "{md}");
+        assert!(md.contains("2 engine starts"), "{md}");
+        for ok in ["| a | ok", "| c | ok", "| d | ok"] {
+            assert!(md.contains(ok), "{ok} in {md}");
+        }
+        assert!(
+            md.contains("| bad | FAILED: exit status 70") && md.contains("no cell"),
+            "{md}"
+        );
+        // --only narrows the list; all good places: the sweep passes.
+        let mut only = args.clone();
+        only.extend(s(&["--only", "a,c"]));
+        let out2 = t.join("out2").display().to_string();
+        let pos = only.iter().position(|x| x == "--out").unwrap();
+        only[pos + 1] = out2;
+        assert_eq!(sweep(&only), Ok(true));
+        assert!(sweep(&s(&["--out", "x"])).is_err());
         std::fs::remove_dir_all(&t).unwrap();
     }
 }

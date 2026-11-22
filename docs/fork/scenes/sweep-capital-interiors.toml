@@ -1,0 +1,139 @@
+# Stability sweep, Capital Wasteland interiors on the Tale of Two Wastelands folder (nv-rs#479): ~27 interior cells by editor id
+# (Megaton, Tenpenny Tower, Vault 101, Rivet City, the museums, the Citadel, then the add-ons' interiors), then two doors.
+# Each place: does it load, hold 300 frames, and leave cleanly. Run (the TTW arguments are in SCENE.md):
+#   nv-rs-dev scene sweep --places docs/fork/scenes/sweep-capital-interiors.toml --out /tmp/sweep-capint <the TTW arguments> --game-lock "$GAME" --label sweep-capint
+version = 1
+
+[[place]]
+name = "megaton-moriartys-saloon"
+cell = "MegatonMoriartysSaloon"
+
+[[place]]
+name = "megaton-clinic"
+cell = "MegatonClinic"
+
+[[place]]
+name = "megaton-craterside-supply"
+cell = "MegatonCratersideSupply"
+
+[[place]]
+name = "megaton-armory"
+cell = "MegatonTheArmory"
+
+[[place]]
+name = "megaton-brass-lantern"
+cell = "MegatonTheBrassLantern"
+
+[[place]]
+name = "tenpenny-lobby"
+cell = "Tenpenny01"
+
+[[place]]
+name = "tenpenny-penthouse"
+cell = "Tenpenny03"
+
+[[place]]
+name = "vault101-atrium"
+cell = "Vault101b"
+
+[[place]]
+name = "vault101-reactor"
+cell = "Vault101Reactor"
+
+[[place]]
+name = "rivet-city-market"
+cell = "RCHangar"
+
+[[place]]
+name = "big-town-hall"
+cell = "BigTownTownHall"
+
+[[place]]
+name = "citadel-a-ring"
+cell = "CitadelARing"
+
+[[place]]
+name = "capitol-hall-of-columns"
+cell = "CapitolBuilding02"
+
+[[place]]
+name = "museum-of-history-lower"
+cell = "MuseumAmerican01"
+
+[[place]]
+name = "museum-of-technology-atrium"
+cell = "MuseumTech01NEW"
+
+[[place]]
+name = "museum-station"
+cell = "MetroCenter07"
+
+[[place]]
+name = "lincoln-memorial-maintenance"
+cell = "LincolnMuseum"
+
+[[place]]
+name = "anchorage-command-tent"
+cell = "TestPhil"
+
+[[place]]
+name = "anchorage-outcast-outpost"
+cell = "DLC02VSS01"
+
+[[place]]
+name = "pitt-wernher-hideout"
+cell = "DLC01WernherHideout"
+
+[[place]]
+name = "pitt-midea-hut"
+cell = "DLC01MideaHut"
+
+[[place]]
+name = "adams-dunwich-building"
+cell = "DunwichBuilding01"
+
+[[place]]
+name = "adams-raider-silo"
+cell = "DLC03RaiderSilo"
+
+[[place]]
+name = "point-lookout-lighthouse"
+cell = "DLC04Lighthouse"
+
+[[place]]
+name = "point-lookout-bank"
+cell = "DLC04Bank"
+
+[[place]]
+name = "zeta-research-lab"
+cell = "DLC05ResearchLab"
+
+[[place]]
+name = "zeta-living-quarters"
+cell = "DLC05LivingQuarters"
+
+# A door reference as the way in: stand in Megaton, then go through the door of the player's house and Moriarty's.
+[[place]]
+name = "megaton-street"
+world = "MegatonWorld"
+x = -1789
+y = -23500
+z = 13200
+heading = 180
+
+[[place]]
+name = "door-megaton-player-house"
+door = "MegPlayerHouseDoorRef"
+
+[[place]]
+name = "megaton-street-again"
+world = "MegatonWorld"
+x = -2939
+y = -27300
+z = 13600
+heading = 180
+
+[[place]]
+name = "door-megaton-moriartys"
+door = "MegMoriartysMainDoorExRef"
+
