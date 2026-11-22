@@ -170,6 +170,10 @@ pub struct Runner {
 /// start its threads and read its data.
 pub const STEADY_FRAMES: u32 = 120;
 
+/// Frames the play screen must be steady before a later place is sent (the first is sent from the menu,
+/// whose first frames start the game's threads; the next ones from a world that is running).
+pub const LATER_STEADY_FRAMES: u32 = 5;
+
 /// Frames a soak may spend off the play screen in a row before it fails.
 pub const AWAY_FRAMES: u32 = 600;
 
@@ -304,7 +308,12 @@ impl Runner {
                     w.screen() == Screen::Play
                 };
                 self.steady = if ready { self.steady + 1 } else { 0 };
-                if self.steady < STEADY_FRAMES {
+                let need = if self.next == 0 {
+                    STEADY_FRAMES
+                } else {
+                    LATER_STEADY_FRAMES
+                };
+                if self.steady < need {
                     return Step::Continue;
                 }
                 self.steady = 0;

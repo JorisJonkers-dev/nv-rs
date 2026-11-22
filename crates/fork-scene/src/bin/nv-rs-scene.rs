@@ -124,11 +124,12 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
     let (mut variants, mut wrap, mut settle, mut timeout, mut jobs) = (
         Vec::new(),
         Vec::new(),
-        "200".to_string(),
+        "120".to_string(),
         "120".to_string(),
         3usize,
     );
     let mut resolution = "1280x720".to_string();
+    let mut quick = false;
     let mut extra_env: Vec<(String, String)> = Vec::new();
     let (mut plugin_list, mut overlay_skip): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
     let mut it = args.iter();
@@ -145,6 +146,8 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             "--settle" => settle = value(a)?,
             "--timeout" => timeout = value(a)?,
             "--resolution" => resolution = value(a)?,
+            "--only" => extra_env.push(("NV_SCENE_PLACES".to_string(), value(a)?)),
+            "--quick" => quick = true,
             "--env" => extra_env.push(env_pair(&value(a)?)?),
             "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
             "--overlay-skip" => overlay_skip = value(a)?.split(',').map(String::from).collect(),
@@ -152,7 +155,12 @@ fn run_variants(args: &[String]) -> Result<bool, String> {
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--jobs N] [--wrap WORD]...";
+    if quick {
+        // A quick look: small pictures and a short settle (the picture is not the one to judge; it shows what a change did).
+        resolution = "640x360".to_string();
+        settle = "100".to_string();
+    }
+    let usage = "usage: nv-rs-scene run --viewer BIN --game DIR --places FILE --out DIR [--userdata TEMPLATE] [--variant NAME[=OVERLAY]]... [--settle N] [--timeout S] [--resolution WxH] [--only a,b] [--quick] [--jobs N] [--wrap WORD]...";
     let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
         return Err(usage.into());
     };

@@ -220,3 +220,27 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
   ends with `place lake-mead-setpos was not reached within 40 s (screen Play, player at -72152 643 8268, wanted 53811 38382
   3215)`), so the call path is not the console's: the console goes through `move_command` and its task queue
   (`TASK_SET_POSITION`), which this does not.
+
+## Where the seconds go, and the speed options
+
+One `run` of five Mojave views (`scenes/mojave-far.toml`), plain game, 1280x720, wall time from the log's timestamps:
+the process start to the game's code 6 s (data load: nothing to cut), the menu 0.4 s (120 frames), the first place
+about 5 s to load its cells plus 7 s to settle (the new game's item messages open message boxes each 75 frames, each
+closed and each restarting the settle), then each further place 2 to 5 s to move and 3 to 9 s to settle, 1 to 2.5 s
+before the next one (it waited 120 steady frames and wrote the PNG), the PNG itself well under 0.1 s. On the TTW folder
+the start is 12 s and a far move inside the Capital Wasteland (28,000 units) took 48 s in one call, the game's own cell
+load with its loading screen: the one large cost that is the engine's, so put places that are close to each other next to each
+other in a place file (a far move costs what loading the new cells costs).
+
+What changed, five Mojave views, two variants (the game's own LOD and a generated one, both started at once):
+
+| | before | after |
+| --- | --- | --- |
+| default (the later places wait 5 steady frames, not 120; the settle is 120 frames, not 200) | 56 s | 39 s |
+| `--quick` (640x360, settle 100) | | 35 s |
+| `--only helios-one-across-the-road` (one view, to retake it) | | 17 s |
+
+Variants already run side by side (`--jobs 3`, the game lock allows three); a variant costs no more than one. A settle of 60
+frames is too short: the load's blur and the mouse cursor are still in the picture (opened and looked at), 100 is sharp;
+the default 120 leaves a margin, and `--settle N` sets it. Pictures taken at different settle frames differ in the
+clouds, so compare only pictures made with the same settings. `--only a,b` retakes the named places of the file.
