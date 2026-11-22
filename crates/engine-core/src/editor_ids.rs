@@ -423,11 +423,11 @@ pub fn form_gone(e: &mut crate::Engine, form: u32) {
 
 // ---- JohnnyGuitar's setter (`TESFormEx::hk_SetFormEditorID`), shared with JIP's light names ----
 
-/// A form's flags (+8: 0x4000 temporary), id (+0xC), files (+0x18, a `tList` of `ModInfo`, its
-/// name at +0x20); the game's form type name (`00440e30`, `thiscall`).
+/// A form's flags (+8: 0x4000 temporary), id (+0xC), source files (+0x10 on PC: `TESForm::pSourceFiles`,
+/// a list of `TESFile *`; its name at +0x20); the game's form type name (`00440e30`, `thiscall`).
 const FORM_FLAGS: u32 = 0x08;
 const FORM_ID: u32 = 0x0c;
-const FORM_FILES: u32 = 0x18;
+const FORM_FILES: u32 = 0x10;
 const FILE_NAME: u32 = 0x20;
 const TEMPORARY: u32 = 0x4000;
 const FORM_TYPE_NAME: u32 = 0x0044_0e30;
@@ -505,8 +505,11 @@ fn file_name(e: &crate::Engine, form: u32, last: bool) -> String {
     let mut file = 0;
     let mut steps = 0;
     while node != 0 && steps < 0x1000 {
+        if !e.mem.is_mapped(node) {
+            break;
+        }
         let data = e.mem.u32(node);
-        if data != 0 {
+        if data != 0 && e.mem.is_mapped(data.wrapping_add(FILE_NAME)) {
             file = data;
             if !last {
                 break;
