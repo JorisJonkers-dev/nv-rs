@@ -1501,6 +1501,7 @@ impl VulkanTarget {
                 clip: wgsl::Clip::Off,
                 count: false,
                 fixed,
+                storage: false,
             };
             let src = wgsl::convert(&self.shaders[vs].program, &l);
             let m = self.module(src, naga::ShaderStage::Vertex);
@@ -1514,6 +1515,7 @@ impl VulkanTarget {
                 clip: wgsl::Clip::Off,
                 count: false,
                 fixed,
+                storage: false,
             };
             let src = wgsl::convert(&self.shaders[ps].program, &l);
             let m = self.module(src, naga::ShaderStage::Fragment);
