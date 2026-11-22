@@ -14,6 +14,8 @@ pub const RUNTIME_ENV: &str = "NV_PLUGIN_RUNTIME";
 /// The user's own unpacked `FalloutNV.exe` (1.4.0.525), whose code bytes a plugin that checks
 /// what it patches then reads (the Steam executable's code is encrypted and is refused).
 pub const CODE_ENV: &str = "NV_PLUGIN_CODE";
+/// Where the verdicts of the plugin DLLs are written (`mod-support.json`, for raul).
+pub const VERDICTS_ENV: &str = "NV_PLUGIN_VERDICTS";
 const FOLDER: &[u8] = b"Data\\NVSE\\Plugins";
 
 /// DLLs whose plugin the engine has built in: not loaded (the built-in answers), by file name
@@ -30,6 +32,30 @@ pub const BUILT_IN: &[&str] = &[
 
 pub fn built_in(file: &str) -> bool {
     BUILT_IN.contains(&file.to_ascii_lowercase().as_str())
+}
+
+/// The folder's DLL names, by file name without case.
+fn dll_names(e: &Engine) -> Vec<String> {
+    let mut files: Vec<String> = engine_core::mod_files::list(e, FOLDER)
+        .into_iter()
+        .filter(|f| !f.is_folder)
+        .map(|f| String::from_utf8_lossy(&f.name).into_owned())
+        .filter(|n| n.to_ascii_lowercase().ends_with(".dll"))
+        .collect();
+    files.sort_by_key(|n| n.to_ascii_lowercase());
+    files
+}
+
+/// Writes the verdict of every plugin DLL of the folder (what the engine does with it and why)
+/// to `path` as JSON, whether or not the loader is on: a plugin the engine builds in or has the
+/// fix for needs no run. Returns the line for the log.
+pub fn write_verdicts(e: &mut Engine, path: &str) -> String {
+    let names = dll_names(e);
+    let v = plugin_host::verdicts::verdicts(e, &names);
+    match std::fs::write(path, plugin_host::verdicts::to_json(&v)) {
+        Ok(()) => format!("plugin DLLs: {} verdict(s) written to {path}", v.len()),
+        Err(err) => format!("plugin DLLs: verdicts not written to {path}: {err}"),
+    }
 }
 
 /// Switches the loader on when the variable says so and loads the folder's DLLs. Returns the lines
@@ -75,13 +101,7 @@ pub fn load_with(e: &mut Engine, var: Option<&str>, runtime: Option<&str>) -> Ve
         return Vec::new();
     }
     plugin_host::set_enabled(e, true);
-    let mut files: Vec<String> = engine_core::mod_files::list(e, FOLDER)
-        .into_iter()
-        .filter(|f| !f.is_folder)
-        .map(|f| String::from_utf8_lossy(&f.name).into_owned())
-        .filter(|n| n.to_ascii_lowercase().ends_with(".dll"))
-        .collect();
-    files.sort_by_key(|n| n.to_ascii_lowercase());
+    let files = dll_names(e);
     let mut lines = vec![format!(
         "plugin DLLs: on ({ENV}), {} in Data\\NVSE\\Plugins",
         files.len()
@@ -177,6 +197,21 @@ mod tests {
         let gone = load_runtime(&mut e, dir.join("nowhere").to_str().unwrap());
         assert!(gone[0].contains("cannot be read"), "{gone:?}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_verdicts_are_written_with_the_loader_off() {
+        let path =
+            std::env::temp_dir().join(format!("nv-plugin-verdicts-{}.json", std::process::id()));
+        let mut e = Engine::new();
+        let line = write_verdicts(&mut e, path.to_str().unwrap());
+        assert!(line.contains("0 verdict(s) written"), "{line}");
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("\"plugins\""));
+        std::fs::remove_file(&path).unwrap();
+        let bad = write_verdicts(&mut e, "/nonexistent-folder/x.json");
+        assert!(bad.contains("not written"), "{bad}");
     }
 
     #[test]

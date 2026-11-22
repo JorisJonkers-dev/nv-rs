@@ -234,6 +234,13 @@ impl Host {
         ) {
             fork_log::info!(target: "host", "{line}");
         }
+        if let Some(path) = std::env::var(fork_plugins::VERDICTS_ENV)
+            .ok()
+            .filter(|p| !p.is_empty())
+        {
+            let line = fork_plugins::write_verdicts(&mut engine, &path);
+            fork_log::info!(target: "host", "{line}");
+        }
         fork_log::info!(target: "host", "{}", choice.describe());
         // What the mods ship that the engine does not answer: one line per plugin DLL now, the
         // scripts' missing commands as the script runner meets them, a summary and a file at the
