@@ -281,14 +281,24 @@ archive sit at the top of `$GENERATED_LOD_OUT`. Checked with the plain game's ge
 
 ## Bench
 
-`nv-rs-scene bench --lock GAME.LOCK --viewer BIN --game DIR --places FILE --out DIR [--frames N]` is a soak on the real
-clock that takes the lock exclusively (`flock -x`, waiting for shared runs to end) and writes `OUT/soak/bench.json`:
-per place the frames, `avg_ms`, `p99_ms`, `max_ms` and `low1_fps` (the frame rate of the slowest 1% of frames).
+`nv-rs-scene bench --lock GAME.LOCK --viewer BIN --game DIR --places FILE --out DIR [--frames N] [--warmup N] [--passes N]`
+is a soak on the real clock that takes the lock exclusively (`flock -x`, waiting for shared runs to end) and writes
+`OUT/soak/bench.json`. At each place the engine runs `--warmup` frames that are not timed (default 120: texture uploads
+and pipeline compiles), then `--passes` timed passes (default 5) of `--frames` frames each (default 600). Per place the
+file holds the frames, `avg_ms` (the median of the passes' averages: one pass slowed by outside load does not move it),
+`p99_ms` and `max_ms` over all timed frames, `low1_fps`, `passes` and `spread_pct` (slowest pass against fastest, over the
+median), and for the run the CPU model, the CPU frequency governor and the load average at the end (`machine`).
 `nv-rs-scene bench-compare A.json B.json` prints each place's average, 1% low and worst frame in both and the change
-of the average in percent (positive: B is slower). The same build twice, five Mojave places, 500 frames each: averages
-within 8% (an unloaded machine, one run each; run it more than once before reading a small change). A `soak` without
-`--exclusive` prints "timing rows not valid, machine shared".
+of the average in percent (positive: B is slower). A `soak` without `--exclusive` prints "timing rows not valid, machine
+shared".
 
+Noise, the same build started twice, five Mojave places, 500 frames, `play` profile, 1280x720, exclusive lock, one
+machine (Ryzen 7 5800X3D, governor `powersave`, load average 4 to 6 from other work): before (one 500-frame pass, no
+warm-up) the average differed by 0.9, 4.8, 7.6, 5.0 and 1.1% between two runs; after (120 warm-up frames, five passes,
+median) three runs differ by at most 2.6% (0.1 to 2.6% between the first two, 0.6 to 2.4% between the second and
+third). The average itself fell by 0.2 to 1.3 ms at three places: the first frames after arriving were slower. One
+place (the quarry) had a pass spread of 14 to 21% in every run, which the median covers. The remaining noise is the
+machine: a `performance` governor and no other load would narrow it further.
 
 ## Where the seconds go, and the speed options
 

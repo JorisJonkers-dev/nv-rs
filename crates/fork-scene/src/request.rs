@@ -12,6 +12,8 @@
 //! | `NV_SCENE_WEATHER` | the weather's form id in hex the frozen world holds (default 000FFC88) |
 //! | `NV_SCENE_ACTORS` | `1` keeps creatures and people in the picture; by default their 3D is hidden |
 //! | `NV_SCENE_SOAK_FRAMES` | frames to keep running at each place after it is ready, timing each (a soak or a bench) |
+//! | `NV_SCENE_SOAK_WARMUP` | frames run at each place before the timed ones, not timed (default 120: the first frames upload textures and compile pipelines) |
+//! | `NV_SCENE_SOAK_PASSES` | timed passes of `NV_SCENE_SOAK_FRAMES` each at a place (default 1); the reported average is the median of the passes' averages |
 //! | `NV_SCENE_CAPTURE_FRAMES` | take the picture exactly this many main frames after the place was sent (when it is ready sooner it waits; later it fails): the picture then does not depend on the frame the place became ready at |
 //! | `NV_SCENE_FREEZE` | `0` leaves the world alone (time, weather, AI, interface) |
 
@@ -28,6 +30,8 @@ pub const WEATHER: &str = "NV_SCENE_WEATHER";
 pub const FREEZE: &str = "NV_SCENE_FREEZE";
 pub const ACTORS: &str = "NV_SCENE_ACTORS";
 pub const SOAK: &str = "NV_SCENE_SOAK_FRAMES";
+pub const SOAK_WARMUP: &str = "NV_SCENE_SOAK_WARMUP";
+pub const SOAK_PASSES: &str = "NV_SCENE_SOAK_PASSES";
 pub const CAPTURE_FRAMES: &str = "NV_SCENE_CAPTURE_FRAMES";
 
 /// A scene run: which places, where the pictures go, and the ready condition's numbers.
@@ -43,6 +47,10 @@ pub struct Request {
     pub hide_actors: bool,
     /// Frames to run at each place after it is ready; the frame times are logged.
     pub soak_frames: Option<u32>,
+    /// Frames before the timed ones that are not timed.
+    pub soak_warmup: u32,
+    /// Timed passes of `soak_frames` frames each.
+    pub soak_passes: u32,
     /// Take the picture this many frames after the place was sent.
     pub capture_frames: Option<u32>,
 }
@@ -143,6 +151,8 @@ impl Request {
                         .ok_or_else(|| format!("{SOAK}={v}: a whole number above 0"))?,
                 ),
             },
+            soak_warmup: number(SOAK_WARMUP, 120)?,
+            soak_passes: number(SOAK_PASSES, 1)?.max(1),
             hide_actors: var(ACTORS).as_deref().map(str::trim) != Some("1"),
         }))
     }

@@ -347,6 +347,8 @@ fn soak(args: &[String]) -> Result<bool, String> {
             "--out" => out = Some(PathBuf::from(value(a)?)),
             "--userdata" => userdata = Some(PathBuf::from(value(a)?)),
             "--frames" => frames = value(a)?,
+            "--warmup" => extra_env.push(("NV_SCENE_SOAK_WARMUP".into(), value(a)?)),
+            "--passes" => extra_env.push(("NV_SCENE_SOAK_PASSES".into(), value(a)?)),
             "--env" => extra_env.push(env_pair(&value(a)?)?),
             "--plugins" => plugin_list = value(a)?.split(',').map(String::from).collect(),
             "--overlay" => overlay = Some(PathBuf::from(value(a)?)),
@@ -359,7 +361,7 @@ fn soak(args: &[String]) -> Result<bool, String> {
         }
     }
     let (Some(viewer), Some(game), Some(places), Some(out)) = (viewer, game, places, out) else {
-        return Err("usage: nv-rs-scene soak --viewer BIN --game DIR --places FILE --out DIR [--frames N] [--timeout S] [--realtime] [--userdata TPL] [--wrap WORD]...".into());
+        return Err("usage: nv-rs-scene soak --viewer BIN --game DIR --places FILE --out DIR [--frames N] [--warmup N] [--passes N] [--timeout S] [--realtime] [--userdata TPL] [--wrap WORD]...".into());
     };
     let mut extra = vec![("NV_SCENE_SOAK_FRAMES".to_string(), frames.clone())];
     extra.extend(extra_env);
@@ -425,13 +427,16 @@ fn soak(args: &[String]) -> Result<bool, String> {
                 json.push(',');
             }
             json.push_str(&format!(
-                "{{\"place\":\"{}\",\"frames\":{},\"avg_ms\":{},\"p99_ms\":{},\"max_ms\":{},\"low1_fps\":{}}}",
-                w[0], w[2], w[4], w[6], w[8], w[10]
+                "{{\"place\":\"{}\",\"frames\":{},\"avg_ms\":{},\"p99_ms\":{},\"max_ms\":{},\"low1_fps\":{},\"passes\":{},\"spread_pct\":{}}}",
+                w[0], w[2], w[4], w[6], w[8], w[10],
+                w.get(12).unwrap_or(&"1"),
+                w.get(14).unwrap_or(&"0")
             ));
         }
     }
     json.push_str(&format!(
-        "],\"real_clock\":{realtime},\"exclusive_lock\":{exclusive}}}\n"
+        "],\"real_clock\":{realtime},\"exclusive_lock\":{exclusive},\"machine\":{}}}\n",
+        machine_notes()
     ));
     let _ = std::fs::write(out.join("soak").join("bench.json"), &json);
     let n_places = std::fs::read_to_string(&places).map_or(0, |t| t.matches("[[place]]").count());
@@ -441,6 +446,36 @@ fn soak(args: &[String]) -> Result<bool, String> {
         if code != 0 { format!("; ended at place {last_place}, see {}", out.join("soak").join("run.log").display()) } else { String::new() }
     );
     Ok(code == 0 && stops == 0 && errors == 0 && rows.len() == n_places)
+}
+
+/// What the machine was doing, as a JSON object for `bench.json`: the CPU frequency governor, the load average, the CPU
+/// model (a bench on a machine that was busy, or on another governor, says so in its own file).
+fn machine_notes() -> String {
+    let read = |p: &str| {
+        std::fs::read_to_string(p)
+            .map(|t| t.trim().to_string())
+            .unwrap_or_default()
+    };
+    let esc = |t: String| t.replace('\\', "\\\\").replace('"', "\\\"");
+    let governor = read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor");
+    let load = read("/proc/loadavg");
+    let load = load
+        .split_whitespace()
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let model = read("/proc/cpuinfo")
+        .lines()
+        .find(|l| l.starts_with("model name"))
+        .and_then(|l| l.split_once(':'))
+        .map(|(_, v)| v.trim().to_string())
+        .unwrap_or_default();
+    format!(
+        "{{\"governor\":\"{}\",\"loadavg\":\"{}\",\"cpu\":\"{}\"}}",
+        esc(governor),
+        esc(load),
+        esc(model)
+    )
 }
 
 /// `nv-rs-scene bench`: a soak on the real clock under the exclusive game lock (`--lock FILE`), with the numbers written
@@ -463,6 +498,8 @@ fn bench(args: &[String]) -> Result<bool, String> {
     let mut full: Vec<String> = [
         "--realtime",
         "--exclusive",
+        "--passes",
+        "5",
         "--wrap",
         "flock",
         "--wrap",

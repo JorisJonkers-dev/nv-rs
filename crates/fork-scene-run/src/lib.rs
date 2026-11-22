@@ -513,13 +513,26 @@ impl Runner {
                     };
                     return Step::Continue;
                 }
+                // The warm-up frames are not timed; each pass of `soak_frames` frames has its own average, and the average
+                // reported is the median of them (one slow pass from outside load does not move it).
+                let frames = self.request.soak_frames.unwrap_or(1) as usize;
+                let warm = (self.request.soak_warmup as usize).min(self.ms.len());
+                self.ms.drain(..warm);
+                let mut passes: Vec<f64> = self
+                    .ms
+                    .chunks(frames)
+                    .map(|c| c.iter().sum::<f64>() / c.len() as f64)
+                    .collect();
+                passes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let median = passes[passes.len() / 2];
+                let spread = (passes[passes.len() - 1] - passes[0]) / median.max(1e-9) * 100.0;
                 let st = frame_stats(&mut self.ms);
                 let n = self.ms.len();
                 // The 1% low: the frame rate of the slowest 1% of frames (their mean), as the bench reports it.
                 let worst = (n / 100).max(1);
                 let low1 =
                     1000.0 / (self.ms[n - worst..].iter().sum::<f64>() / worst as f64).max(1e-9);
-                fork_log::info!(target: "scene", "scene: soak {} frames {} avg_ms {:.2} p99_ms {:.2} max_ms {:.2} low1_fps {:.1}", place.name, n, st.0, st.1, st.2, low1);
+                fork_log::info!(target: "scene", "scene: soak {} frames {} avg_ms {:.3} p99_ms {:.2} max_ms {:.2} low1_fps {:.1} passes {} spread_pct {:.2}", place.name, n, median, st.1, st.2, low1, passes.len(), spread);
                 self.after_ready(w, place.name.clone(), since, pos)
             }
             Phase::Holding { since, until, pos } => {
@@ -573,10 +586,11 @@ impl Runner {
         now: f64,
     ) -> Step {
         if let Some(frames) = self.request.soak_frames {
-            self.ms = Vec::with_capacity(frames as usize);
+            let total = self.request.soak_warmup + frames * self.request.soak_passes;
+            self.ms = Vec::with_capacity(total as usize);
             self.phase = Phase::Soaking {
                 since,
-                left: frames,
+                left: total,
                 last: now,
                 pos,
             };
@@ -706,6 +720,8 @@ mod tests {
             capture_frames: None,
             hide_actors: false,
             soak_frames: None,
+            soak_warmup: 0,
+            soak_passes: 1,
         }
     }
 
@@ -958,6 +974,28 @@ mod tests {
         assert_eq!(r.step(&mut w, 1.2), Step::Continue);
         assert_eq!(r.step(&mut w, 1.3), Step::Continue);
         assert!(matches!(r.step(&mut w, 1.4), Step::Reached { .. }));
+    }
+
+    #[test]
+    fn a_soak_runs_its_warm_up_and_every_pass_before_it_ends() {
+        let mut req = request(60);
+        req.soak_frames = Some(3);
+        req.soak_warmup = 2;
+        req.soak_passes = 2;
+        let mut r = Runner::new(req);
+        let mut w = fake(Screen::Menu);
+        send(&mut r, &mut w, 0.0);
+        w.screen = Screen::Play;
+        w.standing = Some(Standing {
+            pos: [100.0, 100.0, 5.0],
+        });
+        r.step(&mut w, 1.0);
+        r.step(&mut w, 1.1);
+        // 2 + 2 * 3 = 8 frames; the eighth ends the soak.
+        for i in 0..7 {
+            assert_eq!(r.step(&mut w, 1.2 + f64::from(i) * 0.01), Step::Continue);
+        }
+        assert!(matches!(r.step(&mut w, 2.0), Step::Reached { .. }));
     }
 
     #[test]
