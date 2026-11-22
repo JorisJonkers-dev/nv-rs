@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.21.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.20.1...v0.21.0) (2026-11-22)
+
+
+### Features
+
+* **bench:** label every viewer the bench starts ([#476](https://github.com/JorisJonkers-dev/nv-rs/issues/476)) ([514470b](https://github.com/JorisJonkers-dev/nv-rs/commit/514470b77c92bb4b17c76050a3f61e5dbe77bd42))
+* **fork-log:** NV_STOP_AFTER_FRAMES ends a run with status 0 after N main frames ([#470](https://github.com/JorisJonkers-dev/nv-rs/issues/470)) ([f6283df](https://github.com/JorisJonkers-dev/nv-rs/commit/f6283df0822785f6444edf00b5d6540cd7a79aa4))
+* **jg:** Clamp, Lerp and Sign from the plugin's wiki pages ([#496](https://github.com/JorisJonkers-dev/nv-rs/issues/496)) ([bd6745e](https://github.com/JorisJonkers-dev/nv-rs/commit/bd6745ef999d424dbe879198af34826f1b62161a))
+* **jg:** EditorIDToFormID and GetEditorID from the plugin's wiki pages ([#503](https://github.com/JorisJonkers-dev/nv-rs/issues/503)) ([09070e8](https://github.com/JorisJonkers-dev/nv-rs/commit/09070e804cc1b5df3a5552d6030214f939cdc93f))
+* **plugin-host:** plugin DLLs loaded into the guest and run in an x86 interpreter, off by default (ADR-0018 draft) ([#491](https://github.com/JorisJonkers-dev/nv-rs/issues/491)) ([37353bb](https://github.com/JorisJonkers-dev/nv-rs/commit/37353bbf05963117e1245185ec8f95910b082ada))
+* **plugin-host:** the C runtime and kernel32 functions plugins import, and a runtime DLL the user supplies ([#571](https://github.com/JorisJonkers-dev/nv-rs/issues/571)) ([f78abd3](https://github.com/JorisJonkers-dev/nv-rs/commit/f78abd34a009f09287759a33542fcee8474142dd))
+* **scene:** a start without the main menu behind NV_SCENE_MENU=0; the menu route stays the default ([#493](https://github.com/JorisJonkers-dev/nv-rs/issues/493)) ([dfd6283](https://github.com/JorisJonkers-dev/nv-rs/commit/dfd628319feb0e7c41d83c93d9224790a1f87db2))
+* **scene:** NV_SCENE sends the player to the place file's places without the main menu ([#480](https://github.com/JorisJonkers-dev/nv-rs/issues/480)) ([a20190c](https://github.com/JorisJonkers-dev/nv-rs/commit/a20190cbcd26868c11362c8d24018cc8b1a1b1dd))
+* **scene:** pictures, soak, sweep and bench of fixed places without the main menu ([#489](https://github.com/JorisJonkers-dev/nv-rs/issues/489)) ([1808440](https://github.com/JorisJonkers-dev/nv-rs/commit/1808440545826e87b139c8129cffc6ec54ac1931))
+* **scene:** the engine tooling in Rust only, the Python bench harness deleted ([#500](https://github.com/JorisJonkers-dev/nv-rs/issues/500)) ([2a8c49a](https://github.com/JorisJonkers-dev/nv-rs/commit/2a8c49ad3387583db3926a97fc82f339561efbd6))
+* **scene:** the scene tool as a library, one typed function per command, the engine start a hook ([#498](https://github.com/JorisJonkers-dev/nv-rs/issues/498)) ([74ce6e8](https://github.com/JorisJonkers-dev/nv-rs/commit/74ce6e87ff6dcc65ead54f7f7df5286fe7876e0c))
+* **showoff:** ListAddList and ListAddArray from the plugin's wiki pages ([#569](https://github.com/JorisJonkers-dev/nv-rs/issues/569)) ([d2f3265](https://github.com/JorisJonkers-dev/nv-rs/commit/d2f32652b6c6c4c9cd10d3028628d9dac43ec1bc))
+* **showoff:** the cached INI commands from the plugin's wiki pages ([#570](https://github.com/JorisJonkers-dev/nv-rs/issues/570)) ([24a4663](https://github.com/JorisJonkers-dev/nv-rs/commit/24a4663e6fd32ac7f0516ee7db6b20495f80754b))
+* **sync:** set-up drivers, typed draw writer, script runner, lights, MCM setters, menus (upstream to f159fe43) ([#478](https://github.com/JorisJonkers-dev/nv-rs/issues/478)) ([ae43f3b](https://github.com/JorisJonkers-dev/nv-rs/commit/ae43f3b9f1b6a5c4b686fbe7d826baa4bb0a3d6a))
+
+
+### Bug Fixes
+
+* **bench:** views are taken standing, at a fixed angle, with the idle camera off ([#477](https://github.com/JorisJonkers-dev/nv-rs/issues/477)) ([f0b9238](https://github.com/JorisJonkers-dev/nv-rs/commit/f0b9238bc843c4208257fff1c7a60e96f5838e2d))
+* **editor-ids:** a name conflict reads the forms' source files at +0x10, not a list form's own list ([#497](https://github.com/JorisJonkers-dev/nv-rs/issues/497)) ([51d9bd6](https://github.com/JorisJonkers-dev/nv-rs/commit/51d9bd640f388495bcb052caa7109417c2dc1df4))
+* **engine:** the game's Deallocate leaves a block that is not live alone instead of stopping the run ([#487](https://github.com/JorisJonkers-dev/nv-rs/issues/487)) ([#488](https://github.com/JorisJonkers-dev/nv-rs/issues/488)) ([c66ef0a](https://github.com/JorisJonkers-dev/nv-rs/commit/c66ef0a8a72b1795997446dd083a520a3ec90ce4))
+* fix publication of reused scrap-heap buffers ([295d5aa](https://github.com/JorisJonkers-dev/nv-rs/commit/295d5aaf4e36cfdf0d693f524b7d7786b20b068d))
+* fixes row: loads finished in small steps (the loader's walk and the finish budget at 1 ms while ([6c2cdfa](https://github.com/JorisJonkers-dev/nv-rs/commit/6c2cdfad04ea9c088a171921eb971f1b73b68a56))
+* **fork:** the engine-typed unit tests count 23 families, 22 on with one off ([e102889](https://github.com/JorisJonkers-dev/nv-rs/commit/e102889f929344663d8ec3f55f20648a5a3f64ac))
+* **fork:** the engine-typed unit tests' family list is 23 long, its array type said 22 ([630b5ba](https://github.com/JorisJonkers-dev/nv-rs/commit/630b5bae18939abcf94ba53681e4f488b77af910))
+* **fork:** the UIO and TTW detection tests no longer assume the extenders are off in the fixes preset ([aedf033](https://github.com/JorisJonkers-dev/nv-rs/commit/aedf03327bc1fd6b45b4f1cc6874a8ed9d32b812))
+* **package:** the Windows package no longer ships the three .cmd files upstream removed ([f841fc8](https://github.com/JorisJonkers-dev/nv-rs/commit/f841fc8f59df99a55634d74dd7d4ebab00d15162))
+* **replay:** d3d9-replay's shader links say the registers are not read from storage ([5d4ea0c](https://github.com/JorisJonkers-dev/nv-rs/commit/5d4ea0cf84f217bbad50bcc39b6fa6a2ccd3627a))
+
 ## [0.20.1](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.20.0...v0.20.1) (2026-11-21)
 
 

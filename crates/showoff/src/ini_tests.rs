@@ -140,7 +140,7 @@ fn the_commands_are_registered_where_the_plugin_lists_them() {
         assert_eq!(e.mem.u32(record + 0x1c), nvse::table::EXPRESSION_PARSE);
     }
     let names: Vec<&str> = COMMANDS.iter().map(|c| c.name).collect();
-    assert_eq!(names, crate::COMMAND_NAMES[3..]);
+    assert_eq!(names, crate::COMMAND_NAMES[3..9]);
 }
 
 #[test]
