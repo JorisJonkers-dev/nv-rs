@@ -1821,9 +1821,11 @@
     },
     {
       "commands": {
-        "implemented": 1,
+        "implemented": 3,
         "implemented_names": [
-          "GetActorHasBaseFlag"
+          "GetActorHasBaseFlag",
+          "ListAddList",
+          "ListAddArray"
         ],
         "total": 215
       },

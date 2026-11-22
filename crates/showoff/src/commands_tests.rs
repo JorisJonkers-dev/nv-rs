@@ -79,7 +79,7 @@ fn eval(e: &mut Engine, this_obj: u32, bit: u32) -> f64 {
 fn the_command_is_registered_where_ttw_calls_it() {
     let e = engine(0);
     assert_eq!(ACTOR_HAS_BASE_FLAG, OPCODE_BASE + 0x4d);
-    assert_eq!(COMMAND_NAMES, ["GetActorHasBaseFlag"]);
+    assert_eq!(COMMAND_NAMES[0], "GetActorHasBaseFlag");
     assert_eq!(crate::COMMAND_NAMES, COMMAND_NAMES);
     let record = nvse::table::record_of(&e, ACTOR_HAS_BASE_FLAG);
     let text = |at: u32| nvse::table::guest_text(&e, e.mem.u32(at));

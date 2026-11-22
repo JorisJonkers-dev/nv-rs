@@ -1,0 +1,1 @@
+crates/nvse/src/commands/list.rs  # `script_add_form`: `ListAddForm`'s add as a public function, for ShowOff's `ListAddList` and `ListAddArray` (crates/showoff)
