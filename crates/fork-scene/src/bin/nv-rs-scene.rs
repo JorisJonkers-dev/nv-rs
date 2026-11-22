@@ -543,3 +543,239 @@ fn main() -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fork_scene::png::encode_rgb;
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("nv-rs-scene-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn picture(dir: &Path, name: &str, rgb: [u8; 3], odd: u8) {
+        std::fs::create_dir_all(dir).unwrap();
+        let mut px = Vec::new();
+        for i in 0..4 {
+            let v = if i == 3 { [odd; 3] } else { rgb };
+            px.extend_from_slice(&v);
+        }
+        std::fs::write(dir.join(name), encode_rgb(2, 2, &px).unwrap()).unwrap();
+    }
+
+    fn s(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn env_pairs_need_a_name_and_an_equals_sign() {
+        assert_eq!(env_pair("A=b=c").unwrap(), ("A".into(), "b=c".into()));
+        assert!(env_pair("novalue").is_err());
+        assert!(env_pair("=x").is_err());
+    }
+
+    #[test]
+    fn compare_of_two_folders_reports_each_picture_and_a_missing_one() {
+        let t = tmp("cmp");
+        picture(&t.join("a"), "one.png", [10, 10, 10], 10);
+        picture(&t.join("a"), "two.png", [10, 10, 10], 10);
+        picture(&t.join("b"), "one.png", [10, 10, 10], 200);
+        let a = t.join("a").display().to_string();
+        let b = t.join("b").display().to_string();
+        // two.png is missing in b: not ok.
+        assert_eq!(run(&[a.clone(), b.clone()]), Ok(false));
+        // Over the mean limit: not ok; the diff pictures are written.
+        let d = t.join("d").display().to_string();
+        assert_eq!(
+            run(&s(&["--max-mean", "0.1", "--diff-out", &d, &a, &b])),
+            Ok(false)
+        );
+        assert!(t.join("d/one.png").exists());
+        // Two single files with a generous limit: ok.
+        let (fa, fb) = (
+            t.join("a/one.png").display().to_string(),
+            t.join("b/one.png").display().to_string(),
+        );
+        assert_eq!(run(&s(&["--max-mean", "100", &fa, &fb])), Ok(true));
+        assert!(run(&s(&["--max-mean", "x", &fa, &fb])).is_err());
+        assert!(run(&s(&[&fa])).unwrap_err().contains("usage"));
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn compare_with_a_noise_run_leaves_the_unstable_pixel_out() {
+        let t = tmp("noise");
+        picture(&t.join("a"), "p.png", [10, 10, 10], 10);
+        picture(&t.join("a2"), "p.png", [10, 10, 10], 100); // the last pixel is unstable
+        picture(&t.join("b"), "p.png", [10, 10, 10], 255);
+        let p = |n: &str| t.join(n).display().to_string();
+        assert_eq!(run(&s(&["--noise", &p("a2"), &p("a"), &p("b")])), Ok(true));
+        assert!(run(&s(&["--noise", &p("nowhere"), &p("a"), &p("b")])).is_err());
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn bench_compare_prints_the_change_and_refuses_bad_files() {
+        let t = tmp("bench");
+        let row = |p: &str, avg: f64| {
+            format!("{{\"place\":\"{p}\",\"frames\":10,\"avg_ms\":{avg},\"p99_ms\":9,\"max_ms\":10,\"low1_fps\":100}}")
+        };
+        let a = format!("{{\"places\":[{},{}]}}", row("x", 5.0), row("y", 6.0));
+        let b = format!("{{\"places\":[{}]}}", row("x", 5.5));
+        std::fs::write(t.join("a.json"), a).unwrap();
+        std::fs::write(t.join("b.json"), b).unwrap();
+        let (pa, pb) = (
+            t.join("a.json").display().to_string(),
+            t.join("b.json").display().to_string(),
+        );
+        assert_eq!(bench_compare(&[pa.clone(), pb.clone()]), Ok(true));
+        assert!(bench_compare(std::slice::from_ref(&pa)).is_err());
+        assert!(bench_compare(&[pa, t.join("none.json").display().to_string()]).is_err());
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    /// A viewer made of a shell script: it writes the log lines a scene run writes and a picture per place.
+    #[cfg(unix)]
+    fn fake_viewer(dir: &Path, exit: i32) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let png = dir.join("one.png");
+        std::fs::write(&png, encode_rgb(2, 2, &[7; 12]).unwrap()).unwrap();
+        let script = dir.join("viewer.sh");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nmkdir -p \"$NV_SCENE_OUT\" 2>/dev/null\n[ -n \"$NV_SCENE_OUT\" ] && cp '{}' \"$NV_SCENE_OUT/a.png\"\n\
+                 echo '{{\"level\":\"info\",\"message\":\"scene: sending the player to a from the Menu screen\"}}' >> \"$NV_LOG_JSON\"\n\
+                 echo '{{\"level\":\"info\",\"message\":\"scene: soak a frames 10 avg_ms 5.00 p99_ms 6.00 max_ms 7.00 low1_fps 150.0\"}}' >> \"$NV_LOG_JSON\"\n\
+                 echo '{{\"level\":\"warn\",\"message\":\"a warning\"}}' >> \"$NV_LOG_JSON\"\nexit {exit}\n",
+                png.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    #[cfg(unix)]
+    fn install(t: &Path) -> PathBuf {
+        let g = t.join("install");
+        std::fs::create_dir_all(g.join("Data")).unwrap();
+        std::fs::write(g.join("FalloutNV.exe"), "x").unwrap();
+        std::fs::write(g.join("Data/FalloutNV.esm"), "x").unwrap();
+        let places = t.join("places.toml");
+        std::fs::write(
+            &places,
+            "version = 1\n[[place]]\nname = \"a\"\nworld = \"W\"\nx = 1\ny = 2\nz = 3\n",
+        )
+        .unwrap();
+        g
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_stages_each_variant_starts_the_viewer_and_compares_their_pictures() {
+        let t = tmp("run");
+        let g = install(&t);
+        let overlay = t.join("overlay");
+        std::fs::create_dir_all(overlay.join("meshes")).unwrap();
+        std::fs::write(overlay.join("Lod.esp"), "x").unwrap();
+        let viewer = fake_viewer(&t, 0);
+        let args = s(&[
+            "--viewer",
+            &viewer.display().to_string(),
+            "--game",
+            &g.display().to_string(),
+            "--places",
+            &t.join("places.toml").display().to_string(),
+            "--out",
+            &t.join("out").display().to_string(),
+            "--quick",
+            "--only",
+            "a",
+            "--env",
+            "NV_X=1",
+            "--plugins",
+            "FalloutNV.esm,Lod.esp",
+            "--variant",
+            "base",
+            "--variant",
+            &format!("lod={}", overlay.display()),
+        ]);
+        assert_eq!(run_variants(&args), Ok(true));
+        assert!(
+            t.join("out/base/pictures/a.png").exists() && t.join("out/lod/pictures/a.png").exists()
+        );
+        let list = t.join("out/lod/xdg/data/nv-rs/userdata/AppData/Local/FalloutNV/plugins.txt");
+        assert_eq!(
+            std::fs::read_to_string(list).unwrap(),
+            "FalloutNV.esm\nLod.esp\n"
+        );
+        assert!(run_variants(&s(&["--viewer"])).is_err());
+        assert!(run_variants(&s(&["--bogus"])).is_err());
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_viewer_makes_the_run_fail_and_a_missing_one_is_an_error() {
+        let t = tmp("fail");
+        let g = install(&t);
+        let common = |viewer: &Path| {
+            s(&[
+                "--viewer",
+                &viewer.display().to_string(),
+                "--game",
+                &g.display().to_string(),
+                "--places",
+                &t.join("places.toml").display().to_string(),
+                "--out",
+                &t.join("o").display().to_string(),
+                "--variant",
+                "v",
+            ])
+        };
+        assert_eq!(run_variants(&common(&fake_viewer(&t, 70))), Ok(false));
+        let _ = std::fs::remove_dir_all(t.join("o"));
+        assert_eq!(run_variants(&common(&t.join("no-such-viewer"))), Ok(false));
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn soak_and_bench_read_the_log_count_and_write_bench_json() {
+        let t = tmp("soak");
+        let g = install(&t);
+        let viewer = fake_viewer(&t, 0);
+        let args = |out: &str| {
+            s(&[
+                "--viewer",
+                &viewer.display().to_string(),
+                "--game",
+                &g.display().to_string(),
+                "--places",
+                &t.join("places.toml").display().to_string(),
+                "--out",
+                out,
+                "--frames",
+                "10",
+            ])
+        };
+        let out = t.join("soakout").display().to_string();
+        assert_eq!(soak(&args(&out)), Ok(true));
+        let json = std::fs::read_to_string(t.join("soakout/soak/bench.json")).unwrap();
+        assert!(
+            json.contains("\"place\":\"a\"") && json.contains("\"low1_fps\":150.0"),
+            "{json}"
+        );
+        // bench: needs a lock file; the fake `flock` is the real one when present, so only the argument checks run here.
+        assert!(bench(&args(&t.join("b").display().to_string()))
+            .unwrap_err()
+            .contains("--lock"));
+        assert!(soak(&s(&["--bogus"])).is_err());
+        assert!(soak(&s(&["--frames", "5"])).is_err());
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+}
