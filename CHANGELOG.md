@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.22.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.21.0...v0.22.0) (2026-11-23)
+
+
+### Features
+
+* **gfx:** ambient occlusion and sun shadows as graphics modules, with presets and scripted selection ([#760](https://github.com/JorisJonkers-dev/nv-rs/issues/760)) ([20e082b](https://github.com/JorisJonkers-dev/nv-rs/commit/20e082b7ee694ac88be8f5c974e583781575f0a7))
+* **gfx:** graphics settings file with layers by place, and the graphics modules decision record ([#595](https://github.com/JorisJonkers-dev/nv-rs/issues/595)) ([b292f5a](https://github.com/JorisJonkers-dev/nv-rs/commit/b292f5ae813021221e9d2f4030d54ca5ccc6e6a0))
+* **log:** name the mod, script and command for a script that does not compile, and the plugin DLLs with no answer ([#568](https://github.com/JorisJonkers-dev/nv-rs/issues/568)) ([6d5b9ac](https://github.com/JorisJonkers-dev/nv-rs/commit/6d5b9acf60903cc40c0c34bec4cc22b2f762afd7))
+* **plugin-host:** a verdict for each plugin DLL written as mod-support.json ([#582](https://github.com/JorisJonkers-dev/nv-rs/issues/582)) ([28c3735](https://github.com/JorisJonkers-dev/nv-rs/commit/28c3735709b91c8b9bf8d67f3d53e34dac4c1f98))
+* **plugin-host:** writes into the game's code kept as a patch-site table, plugins loaded as xNVSE does, the code image the user supplies ([#579](https://github.com/JorisJonkers-dev/nv-rs/issues/579)) ([99c5910](https://github.com/JorisJonkers-dev/nv-rs/commit/99c5910290645708646b6d1468a3a6bc3912c35c))
+* **showoff:** IsBaseForm, and JohnnyGuitar's GetFormOverrideIndex, from the plugins' wiki pages ([#573](https://github.com/JorisJonkers-dev/nv-rs/issues/573)) ([0542eb3](https://github.com/JorisJonkers-dev/nv-rs/commit/0542eb3ce3e34c6aa8c82476753aaae64cebb5fc))
+* **showoff:** SetOwnershipTemp, from the plugin's wiki page ([#596](https://github.com/JorisJonkers-dev/nv-rs/issues/596)) ([6d3fbc8](https://github.com/JorisJonkers-dev/nv-rs/commit/6d3fbc86e671514b77a0241ccc3399ae4b4fd8f2))
+* **showoff:** the weapon type and flag commands from the plugin's wiki pages ([#578](https://github.com/JorisJonkers-dev/nv-rs/issues/578)) ([b49a612](https://github.com/JorisJonkers-dev/nv-rs/commit/b49a612a07463eed0507fe2e0f79910697fb03da))
+
+
+### Bug Fixes
+
+* **engine:** a far-object block draws every shape of its file, not only the first ([#583](https://github.com/JorisJonkers-dev/nv-rs/issues/583)) ([8e31903](https://github.com/JorisJonkers-dev/nv-rs/commit/8e3190335e6a6b6a580ed41e7d1baf8ef66a4fcf))
+* **engine:** a texture purge removes its own entry-map node, not the first node with its key ([#581](https://github.com/JorisJonkers-dev/nv-rs/issues/581)) ([6f3b8db](https://github.com/JorisJonkers-dev/nv-rs/commit/6f3b8db6516f392289c5aee80f4135195c653183))
+
 ## [0.21.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.20.1...v0.21.0) (2026-11-22)
 
 
