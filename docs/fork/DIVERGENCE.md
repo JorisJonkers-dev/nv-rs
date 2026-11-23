@@ -175,3 +175,11 @@ folder beside the native saves. New records: "Machine table off Windows", `game_
 - Decision: keep; drop when upstream's tests no longer depend on the machine's load
 - Reason: upstream's half fails on a loaded two-core machine (the coverage job, `taskset -c 0,1`: 78 ms of 252 ms), whatever the code does
 - Evidence: the two tests, run on two cores (failed before, pass after) and on all cores
+
+### The stale R1 clause in the Memory paragraph
+- Files: `docs/ENGINE_CRATE.md` (the removed clause "ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem` is `Send`, not `Sync`, until then)" in the "Memory" paragraph of "The model in one page")
+- Upstream approach: "Every guest load and store takes `&self`, ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem` is `Send`, not `Sync`, until then): guest values are plain host loads and stores through raw pointers ..."; R1 is cited inside a clause about sharing, where the atomics rule does not belong
+- Fork approach: the stale R1 citation, the "until then" clause and "ready for the thread host to share one `Mem`" are removed and `Mem` is `Send`, not `Sync` stays as a plain clause, so the sentence reads "Every guest load and store takes `&self` (`Mem` is `Send`, not `Sync`); guest values are plain host loads and stores through raw pointers ..."; the following view sentence (`NV_THREADS=real`, `Mem::start_sharing`) is unchanged
+- Decision: drop when upstream removes the R1 citation
+- Reason: R1 was the plan's rule that guest loads and stores be atomic (acquire for loads, release for stores), abandoned on measured cost, not on sharing (ADR-0015, "Guest memory stays plain"); real-thread views shipped (`Mem::start_sharing`), so citing R1 for why sharing had not happened is stale (nv-rs#783, PR #794)
+- Evidence: `docs/adr/0015-hand-typing-to-the-end-with-real-threads.md:45-53` (R1 was atomics, abandoned at about 6% cost); `crates/engine-core/src/mem.rs:538,1301,1326` (the one `Mem` every thread's view shares, `start_sharing` and `view`); `docs/ENGINE_CRATE.md` (`Mem::start_sharing` in the following, unchanged view sentence). The "with real threads no `Mem` is shared" wording in `crates/engine-core/src/mem.rs:37-38` contradicts `mem.rs:538`; it is left unchanged here and tracked separately.

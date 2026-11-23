@@ -56,7 +56,7 @@ away**; vanilla routes use 6% of it. `heap_peak`, `heap_peak_addr` and
 
 | Limit | Locked by | Upstream |
 | --- | --- | --- |
-| Guest pointers are 32 bits: 4 GiB total | the translated exe | Lifted only by the typed migration (README "Native 64-bit code: Started"; ten typed families on). Upstream's work and in flight; the fork imports it, does not duplicate it. |
+| Guest pointers are 32 bits: 4 GiB total | the translated exe | Lifted only by the typed migration (README "Native 64-bit code: Started"; 27 typed families on by default: 24 in `crates/engine-typed/src/lib.rs:104-127`, `leaves` in `crates/engine-core/src/typed/mod.rs:143`, `topic_search` and `topic_order` in `crates/engine-fallout-forms/src/units/mod.rs:34,36`). Upstream's work and in flight; the fork imports it, does not duplicate it. |
 | Heap 3.46 GB of those 4 GiB | `HEAP_BASE`, `HEAP_LOW_END`, `HEAP_HIGH_BASE`, `HEAP_END` constants | Upstream's stopgap (branch `claude/heap-4gb`, described in docs/HANDOFF.md). Unchanged since. |
 | Textures, vertex and index buffers, sound samples | now host memory outside the guest | Done upstream, the main host-side relocation so far |
 | Slab handles and buffer tokens for moved objects | 256 MB reserved in `0x10000000..0x20000000` | Upstream (stage 2 of the typed migration), still growing family by family |
