@@ -2470,9 +2470,13 @@ pub(crate) fn format_blocks(format: u32) -> Option<(u32, u32)> {
     const DXT3: u32 = u32::from_le_bytes(*b"DXT3");
     const DXT4: u32 = u32::from_le_bytes(*b"DXT4");
     const DXT5: u32 = u32::from_le_bytes(*b"DXT5");
+    const ATI1: u32 = u32::from_le_bytes(*b"ATI1");
+    const ATI2: u32 = u32::from_le_bytes(*b"ATI2");
+    const BC7: u32 = u32::from_le_bytes(*b"BC7U");
     Some(match format {
-        DXT1 => (4, 8),
-        DXT2 | DXT3 | DXT4 | DXT5 => (4, 16),
+        // ATI1 (BC4) and the 16-byte ATI2 (BC5) and BC7 (`BC7U`, d3dx_tex::fork_modern_dds).
+        DXT1 | ATI1 => (4, 8),
+        DXT2 | DXT3 | DXT4 | DXT5 | ATI2 | BC7 => (4, 16),
         // R8G8B8.
         20 => (1, 3),
         // A8R8G8B8, X8R8G8B8, A2B10G10R10, A8B8G8R8, X8B8G8R8, G16R16, A2R10G10B10,

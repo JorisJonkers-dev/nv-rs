@@ -63,6 +63,7 @@ mod device;
 pub mod dxt;
 #[doc(hidden)]
 pub mod filter;
+pub mod fork_modern_dds;
 pub mod load;
 #[doc(hidden)]
 pub mod num;
@@ -76,9 +77,10 @@ pub use device::choose;
 pub use device::table_formats;
 pub use filter::set_max_threads;
 pub use load::{
-    create_cube_texture_from_file_in_memory, create_texture_from_file_in_memory,
-    get_image_info_from_file_in_memory, Caps, Error, ImageInfo, Surface, Texture, Untranslated,
-    REFERENCE_CUBE_FORMATS, REFERENCE_TEXTURE_FORMATS,
+    create_cube_texture_from_file_in_memory, create_cube_texture_from_file_in_memory_modern,
+    create_texture_from_file_in_memory, create_texture_from_file_in_memory_modern,
+    get_image_info_from_file_in_memory, get_image_info_from_file_in_memory_modern, Caps, Error,
+    ImageInfo, Surface, Texture, Untranslated, REFERENCE_CUBE_FORMATS, REFERENCE_TEXTURE_FORMATS,
 };
 pub use num::Precision;
 

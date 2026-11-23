@@ -207,7 +207,13 @@ fn is_dds(data: &[u8]) -> bool {
 
 /// Reads a file the way D3DX's image reader does. Only DDS files are translated; any other
 /// image file format D3DX reads is [`Error::NotProvided`].
-fn read(data: &[u8]) -> Result<dds::Image, Error> {
+fn read(data: &[u8], modern: bool) -> Result<dds::Image, Error> {
+    // The modern files (nv-rs#750), only where the caller asked: D3DX refuses them.
+    if modern {
+        if let Some(img) = crate::fork_modern_dds::parse(data) {
+            return Ok(img);
+        }
+    }
     if data.len() >= 4 && &data[1..4] == b"DS " && !is_dds(data) {
         // A broken magic: D3DX's other readers refuse it too (measured, 2026-10-22).
         return Err(Error::D3dx(crate::D3DXERR_INVALIDDATA));
@@ -226,10 +232,20 @@ fn read(data: &[u8]) -> Result<dds::Image, Error> {
 
 /// `D3DXGetImageInfoFromFileInMemory`.
 pub fn get_image_info_from_file_in_memory(data: &[u8]) -> Result<ImageInfo, Error> {
+    get_image_info(data, false)
+}
+
+/// [`get_image_info_from_file_in_memory`] that also reads the modern DDS files
+/// ([`crate::fork_modern_dds`]: DX10-header BC4, BC5 and BC7, `ATI1`, `ATI2`).
+pub fn get_image_info_from_file_in_memory_modern(data: &[u8]) -> Result<ImageInfo, Error> {
+    get_image_info(data, true)
+}
+
+fn get_image_info(data: &[u8], modern: bool) -> Result<ImageInfo, Error> {
     if data.is_empty() {
         return Err(Error::D3dx(crate::D3DERR_INVALIDCALL));
     }
-    let img = read(data)?;
+    let img = read(data, modern)?;
     Ok(ImageInfo {
         width: img.width,
         height: img.height,
@@ -248,7 +264,18 @@ pub fn create_texture_from_file_in_memory(
     caps: &Caps,
     precision: Precision,
 ) -> Result<Texture, Error> {
-    create(data, caps, RTYPE_TEXTURE, precision)
+    create(data, caps, RTYPE_TEXTURE, precision, None)
+}
+
+/// [`create_texture_from_file_in_memory`] that also makes the modern DDS files
+/// ([`crate::fork_modern_dds`]) in the formats `modern` lists (the ones the device takes).
+pub fn create_texture_from_file_in_memory_modern(
+    data: &[u8],
+    caps: &Caps,
+    precision: Precision,
+    modern: &[u32],
+) -> Result<Texture, Error> {
+    create(data, caps, RTYPE_TEXTURE, precision, Some(modern))
 }
 
 /// `D3DXCreateCubeTextureFromFileInMemory(device, data, size, &texture)`, called on a thread
@@ -258,7 +285,17 @@ pub fn create_cube_texture_from_file_in_memory(
     caps: &Caps,
     precision: Precision,
 ) -> Result<Texture, Error> {
-    create(data, caps, RTYPE_CUBE, precision)
+    create(data, caps, RTYPE_CUBE, precision, None)
+}
+
+/// [`create_cube_texture_from_file_in_memory`] that also makes the modern DDS files.
+pub fn create_cube_texture_from_file_in_memory_modern(
+    data: &[u8],
+    caps: &Caps,
+    precision: Precision,
+    modern: &[u32],
+) -> Result<Texture, Error> {
+    create(data, caps, RTYPE_CUBE, precision, Some(modern))
 }
 
 /// A side as `D3DX_DEFAULT` makes it (0x61025e): 0 and 1 give 1, a side up to 2^31 the next
@@ -281,11 +318,20 @@ fn bit_count(mut v: u32) -> u32 {
     n
 }
 
-fn create(data: &[u8], caps: &Caps, rtype: u32, precision: Precision) -> Result<Texture, Error> {
+fn create(
+    data: &[u8],
+    caps: &Caps,
+    rtype: u32,
+    precision: Precision,
+    modern: Option<&[u32]>,
+) -> Result<Texture, Error> {
     if data.is_empty() {
         return Err(Error::D3dx(crate::D3DERR_INVALIDCALL));
     }
-    let img = read(data)?;
+    let img = read(data, modern.is_some())?;
+    if let Some(takes) = modern.filter(|_| crate::fork_modern_dds::is_modern(img.format)) {
+        return crate::fork_modern_dds::create(&img, data, rtype, caps, takes);
+    }
     if img.resource_type == dds::RTYPE_VOLUME {
         return Err(Error::NotProvided(
             Untranslated::Volume,
