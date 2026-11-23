@@ -870,6 +870,92 @@ fn a_file_that_is_not_a_32_bit_dll_is_refused() {
     assert!(matches!(load(&mut e, "a.dll", &b), Err(LoadError::Pe(_))));
 }
 
+/// The three hex numbers the refusal prints: mapped base, signed delta, declared base.
+fn no_reloc_numbers(msg: &str) -> (&str, &str, &str) {
+    let after = |needle: &str| {
+        msg.split_once(needle)
+            .unwrap_or_else(|| panic!("missing {needle:?} in {msg}"))
+            .1
+            .split_whitespace()
+            .next()
+            .expect("a hex number")
+            .trim_end_matches(|c: char| !c.is_ascii_hexdigit())
+    };
+    (
+        after("mapped at "),
+        after("a delta of "),
+        after("declared base "),
+    )
+}
+
+#[test]
+fn a_no_relocation_image_names_the_load_delta_not_a_busy_base() {
+    let bytes = dll::build_no_relocs();
+    let image = crate::pe::Pe::parse(&bytes).expect("parses");
+    assert!(image.relocs.is_empty(), "the image declares no relocations");
+    let declared_hex = format!("{:#x}", dll::IMAGE_BASE);
+
+    let mut e = engine();
+    // Take the first heap block so the load delta is not the declared base again.
+    let _ = e.mem.alloc(0x100);
+    let err = image
+        .map(&mut e, &bytes, |_| 0)
+        .expect_err("a nonzero load delta with no relocations is refused");
+    let crate::pe::PeError::NoRelocations {
+        wanted_base,
+        allocated_base,
+    } = &err
+    else {
+        panic!("expected NoRelocations, got {err:?}");
+    };
+    assert_eq!(*wanted_base, dll::IMAGE_BASE);
+    assert_ne!(allocated_base, wanted_base, "the load delta is nonzero");
+    let msg = err.to_string();
+    assert!(msg.contains("no relocations"), "{msg}");
+    assert!(!msg.contains("not free"), "{msg}");
+    assert!(msg.contains(&format!("{wanted_base:#x}")), "{msg}");
+    assert!(msg.contains(&format!("{allocated_base:#x}")), "{msg}");
+
+    let (mapped_hex, delta_word, msg_declared) = no_reloc_numbers(&msg);
+    let (sign, delta_hex) = delta_word.split_at(1);
+    let allocated_hex = format!("{allocated_base:#x}");
+    assert!(matches!(sign, "+" | "-"), "{msg}");
+    assert!(delta_hex.starts_with("0x"), "{msg}");
+    assert_eq!(mapped_hex, allocated_hex.as_str(), "{msg}");
+    assert_eq!(msg_declared, declared_hex.as_str(), "{msg}");
+    assert_ne!(delta_hex, "0x0", "{msg}");
+    assert_ne!(delta_hex, declared_hex.as_str(), "{msg}");
+    assert_ne!(delta_hex, mapped_hex, "{msg}");
+    let magnitude = u32::from_str_radix(&delta_hex[2..], 16).expect("hex delta");
+    if *allocated_base >= *wanted_base {
+        assert_eq!(sign, "+", "{msg}");
+        assert_eq!(magnitude, *allocated_base - *wanted_base, "{msg}");
+    } else {
+        assert_eq!(sign, "-", "{msg}");
+        assert_eq!(magnitude, *wanted_base - *allocated_base, "{msg}");
+    }
+
+    // The same wording (with that mapping's own base) reaches the caller of `load`.
+    let mut e = engine();
+    set_enabled(&mut e, true);
+    let _ = e.mem.alloc(0x100);
+    let m = match load(&mut e, "noreloc.dll", &bytes) {
+        Err(LoadError::Pe(m)) => m,
+        other => panic!("expected a Pe error, got {other:?}"),
+    };
+    assert!(m.contains("no relocations"), "{m}");
+    assert!(!m.contains("not free"), "{m}");
+    assert!(m.contains(&declared_hex), "{m}");
+    let (mapped_hex, delta_word, msg_declared) = no_reloc_numbers(&m);
+    let (sign, delta_hex) = delta_word.split_at(1);
+    assert!(matches!(sign, "+" | "-"), "{m}");
+    assert!(delta_hex.starts_with("0x"), "{m}");
+    assert_eq!(msg_declared, declared_hex.as_str(), "{m}");
+    assert_ne!(delta_hex, "0x0", "{m}");
+    assert_ne!(delta_hex, declared_hex.as_str(), "{m}");
+    assert_ne!(delta_hex, mapped_hex, "{m}");
+}
+
 mod interpreter {
     use super::*;
     use crate::x86::{Cpu, Stop, EAX, ECX, ESP};
