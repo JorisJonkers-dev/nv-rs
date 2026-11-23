@@ -903,38 +903,6 @@ pub fn read_whole_or_error(e: &Engine, path: &[u8]) -> Result<Vec<u8>, u32> {
     std::fs::read(real_path(path)).map_err(|err| host_error(&err))
 }
 
-/// The whole file at the full path `path` replaced by `bytes` in the run's files, as a profile
-/// write (`WritePrivateProfileStringA`, `crate::ini`) leaves it: a player's file is taken into
-/// the run first (its directory entry kept), a missing one is made; then its size, last access
-/// and last write are now and it is stamped ([`Disk::changed`]), so the host's copy-out
-/// (`NV_PREFS_OUT`) sees the change. The player's own file is never touched.
-///
-/// Based on Lhomer's nv-rs commit 8f4cc9ba (GPL-3.0,
-/// https://github.com/Lhomer/nv-rs/commit/8f4cc9ba7fa66fe5855a828150343ec86e5ef60b).
-pub fn write_whole(e: &mut Engine, path: &[u8], bytes: Vec<u8>) {
-    let k = key(path);
-    if !state_ref!(e).disk.files.contains_key(&k) {
-        let players = !state_ref!(e).disk.deleted.contains(&k)
-            && std::fs::metadata(real_path(path)).is_ok_and(|m| m.is_file());
-        if players {
-            // Its bytes are not read (`read` false, which cannot fail): they are replaced below.
-            let _ = adopt(e, path, &k, false);
-        } else {
-            made(e, path, &k);
-        }
-    }
-    let now = file_clock(e);
-    let size = bytes.len() as u64;
-    state!(e).disk.files.insert(k.clone(), bytes);
-    state!(e).disk.changed(&k);
-    if let Some(entry) = state!(e).disk.entries.get_mut(&k) {
-        entry.size = size;
-        entry.accessed = now;
-        entry.written = now;
-        entry.attributes |= FILE_ATTRIBUTE_ARCHIVE;
-    }
-}
-
 /// The first `max` bytes of [`read_whole_or_error`]'s file, with its answers; only those bytes
 /// are read from the disk (`fread` of at most `max`).
 pub fn read_head_or_error(e: &Engine, path: &[u8], max: usize) -> Result<Vec<u8>, u32> {

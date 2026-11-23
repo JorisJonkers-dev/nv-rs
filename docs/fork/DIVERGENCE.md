@@ -120,14 +120,6 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: the Linux play path starts without `NV_SAVE_OUT`, and mods' settings must last between sessions there as on the launcher's Windows path.
 - Evidence: `mod_files::tests::the_native_build_keeps_mod_files_beside_its_own_saves` (host) and `fork_platform::tests::mod_files_on_a_unix_host_read_the_game_and_keep_writes_in_the_ports_folder` (engine-platform).
 
-### Profile writes of the game's own settings
-- Files: `crates/engine-platform/src/ini.rs` (`write_private_profile_string_a` and its tests), `crates/engine-platform/src/files.rs` (`write_whole`, and `directory_exists` visible in the crate)
-- Upstream approach: `WritePrivateProfileStringA` answers 1 and writes nothing, so the choices the game saves from its Settings menu to `FalloutPrefs.ini` are gone at the next start (checked on `upstream/main` at 72037d26, 2026-11-17)
-- Fork approach: the call edits the run's copy of the file with the measured text rules of `engine_core::mod_files` (`written_profile`, `removed_key`, `removed_section`) and `files::write_whole`, which takes the player's file into the run and stamps it, so `NV_PREFS_OUT` copies it out; the player's file is never written. Based on Lhomer's nv-rs commit 8f4cc9ba (GPL-3.0, https://github.com/Lhomer/nv-rs/commit/8f4cc9ba7fa66fe5855a828150343ec86e5ef60b)
-- Decision: drop when upstream writes the run's copy of the file itself
-- Reason: a setting changed in the game's own menu must still be set at the next start
-- Evidence: the tests in `ini.rs` (`a_written_value_replaces_the_key_in_place`, `a_new_key_follows_its_sections_last_key`, `a_new_section_is_appended`, `a_null_value_deletes_the_key_and_a_null_key_the_section`, `a_missing_file_in_an_existing_folder_is_made`, `a_profile_write_is_read_back_and_stamped`, `the_players_file_is_never_written`)
-
 ### Toolchain
 - Files: `rust-toolchain.toml`, the `rust-version` of `Cargo.toml`, `crates/game-profile/Cargo.toml` and the research crates (`research/nv-oracle`, `research/nv-oracle/nv-pure`, `research/nv-trace`); `.cargo/config.toml` and `renovate.json` (fork-owned)
 - Upstream approach: Rust 1.99.1 (`rust-toolchain.toml` on `origin/main`, 1b438957); `rust-version` 1.75 for the workspace, 1.88 for game-profile, 1.82 and 1.87 for the research crates
