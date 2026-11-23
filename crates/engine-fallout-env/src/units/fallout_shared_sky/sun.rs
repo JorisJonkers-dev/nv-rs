@@ -697,6 +697,7 @@ fn set_light_colors(e: &mut Engine, base: u32, sky: u32, day: f32) {
                     s.direct_with_moon(m, day, moon),
                 ),
                 shade: s.usable_shade() * sky_light::shade_share(day, moon),
+                highlight: s.highlight(day, moon),
                 ..sky_light::fill(colour(e, SKY_UPPER), colour(e, 0x6c), dome, day)
             }
         } else {
@@ -741,6 +742,9 @@ pub struct AmbientShares {
     /// The highest the moons climb, in degrees above the horizon (90: the game's own path). The
     /// drawn moon and its light move together ([`moon_tilt_bits`]).
     pub moon_height: f32,
+    /// How strongly glossy materials catch the moon, over the game's highlight (1: the game's).
+    /// The highlight is made from the moon's light colour, so it follows its strength and phase.
+    pub moon_specular: f32,
 }
 
 /// The sky light's colours for the renderer, as multipliers of the ambient colour.
@@ -758,6 +762,8 @@ pub struct SkyFill {
     /// How much more sky light a surface takes where the direct light does not reach it (0: the
     /// same everywhere). A sunlit surface is not changed by it.
     pub shade: f32,
+    /// The strength of the direct light's specular highlight (1: the game's).
+    pub highlight: f32,
 }
 
 impl SkyFill {
@@ -768,6 +774,7 @@ impl SkyFill {
         dome: 0.0,
         ambient_over_direct: 0.0,
         shade: 0.0,
+        highlight: 1.0,
     };
 }
 
@@ -782,6 +789,7 @@ impl AmbientShares {
         dome: 0.0,
         shade: 0.0,
         moon_height: 90.0,
+        moon_specular: 1.0,
     };
 
     fn is_original(self) -> bool {
@@ -860,6 +868,15 @@ impl AmbientShares {
                 Self::between(Self::usable(self.moon) * m.clamp(0.0, 1.0), self.sun, day)
             }
             _ => self.direct(mode, day),
+        }
+    }
+
+    /// The strength of the direct light's highlight: `moon_specular` at night, the game's by day,
+    /// and the game's wherever the light does not follow the moon.
+    pub fn highlight(self, day: f32, moon: Option<f32>) -> f32 {
+        match moon {
+            Some(_) => Self::between(self.moon_specular, 1.0, day),
+            None => 1.0,
         }
     }
 }
@@ -1517,6 +1534,7 @@ pub mod sky_light {
             dome,
             ambient_over_direct: 0.0,
             shade: 0.0,
+            highlight: 1.0,
         }
     }
 
@@ -2574,6 +2592,30 @@ mod tests {
 
     /// nv-rs#772: a moonless night keeps its starlight and has no direct light or shadow pattern;
     /// without the moon's strength the shares are the plain ones.
+    #[test]
+    fn the_moon_highlight_is_for_the_night_and_the_moon_only() {
+        let s = AmbientShares {
+            moon_specular: 3.0,
+            ..AmbientShares::ORIGINAL
+        };
+        assert_eq!(s.highlight(0.0, Some(0.5)), 3.0);
+        assert_eq!(s.highlight(0.5, Some(0.5)), 2.0);
+        // By day the sun's highlight is the game's.
+        assert_eq!(s.highlight(1.0, Some(0.5)), 1.0);
+        // The light does not follow the moon: the game's.
+        assert_eq!(s.highlight(0.0, None), 1.0);
+        // The original's value changes nothing at any hour.
+        for day in [0.0, 0.3, 1.0] {
+            assert_eq!(AmbientShares::ORIGINAL.highlight(day, Some(1.0)), 1.0);
+        }
+        // No moon: its light colour is 0, and the highlight is made from it.
+        let dark = AmbientShares { moon: 0.75, ..s };
+        assert_eq!(
+            dark.direct_with_moon(2, 0.0, Some(0.0)) * dark.highlight(0.0, Some(0.0)),
+            0.0
+        );
+    }
+
     #[test]
     fn a_moonless_night_is_starlight_alone() {
         let s = AmbientShares {

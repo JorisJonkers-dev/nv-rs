@@ -627,6 +627,11 @@ struct Gen<'a> {
     /// The same variant's `AmbientColor` register: every read takes the sky light's share for the
     /// pixel's facing (`sky_fill`, `crate::sun_shadow::set_sky_fill`).
     ambient: Option<u32>,
+    /// The same variant's instructions that multiply the sun's colour by its specular highlight
+    /// ([`specular_reads`]): there the read also takes the highlight's strength (`SL.highlight`).
+    highlights: BTreeSet<usize>,
+    /// Whether the instruction being converted is one of them.
+    in_highlight: bool,
     /// The sun shadows' variant with the characters cast ([`convert_with_sun`]): the sampler of the
     /// game's own projected actor shadows (`ShadowMap`), read as lit (white) so a character casts
     /// one shadow, the sun's.
@@ -653,6 +658,57 @@ pub fn sun_register(p: &Program) -> Option<u32> {
         Stage::Vertex => "DiffuseColor",
     };
     float(sun).map(|c| u32::from(c.index))
+}
+
+/// The instructions of a lit pixel shader that multiply the sun's light colour (register `sun`,
+/// [`sun_register`]) by its specular highlight: a `mul` or `mad` of that register and a value
+/// computed from the shader's `pow`. The value is followed through the temporaries component by
+/// component, in program order, so the diffuse term that reuses a register before the highlight
+/// is written to it is not taken. Indices into `p.ins`.
+pub fn specular_reads(p: &Program, sun: u32) -> Vec<usize> {
+    let mut from_pow = [0u8; 32];
+    let mut found = Vec::new();
+    let is_sun = |s: &Src| s.reg.ty == reg::CONST && s.reg.n == sun && s.rel.is_none();
+    for (at, ins) in p.ins.iter().enumerate() {
+        let Some(d) = ins.dst else { continue };
+        // The components of source `s` that write component `k` of the destination.
+        let reads = |s: &Src, k: usize| -> u8 {
+            match ins.op {
+                op::DP3 | op::NRM => {
+                    (1 << s.component(0)) | (1 << s.component(1)) | (1 << s.component(2))
+                }
+                op::DP4 => (0..4).fold(0, |m, c| m | (1 << s.component(c))),
+                _ => 1 << s.component(k),
+            }
+        };
+        let tainted = |s: &Src, k: usize| {
+            s.reg.ty == reg::TEMP
+                && from_pow
+                    .get(s.reg.n as usize)
+                    .is_some_and(|m| m & reads(s, k) != 0)
+        };
+        if matches!(ins.op, op::MUL | op::MAD) && ins.src.len() >= 2 {
+            let (a, b) = (&ins.src[0], &ins.src[1]);
+            let mask = (0..4).filter(|k| d.mask & (1 << k) != 0);
+            if mask
+                .clone()
+                .any(|k| (is_sun(a) && tainted(b, k)) || (is_sun(b) && tainted(a, k)))
+            {
+                found.push(at);
+            }
+        }
+        if d.reg.ty != reg::TEMP || d.reg.n as usize >= from_pow.len() {
+            continue;
+        }
+        let mut next = from_pow[d.reg.n as usize] & !d.mask;
+        for k in (0..4).filter(|k| d.mask & (1 << k) != 0) {
+            if ins.op == op::POW || ins.src.iter().any(|s| tainted(s, k)) {
+                next |= 1 << k;
+            }
+        }
+        from_pow[d.reg.n as usize] = next;
+    }
+    found
 }
 
 /// [`convert`] of a lit pixel shader as the sun shadows' variant: its sun light colour
@@ -752,6 +808,11 @@ fn convert_inner(
                 .find(|c| c.name == "AmbientColor" && c.set == 2)
                 .map(|c| u32::from(c.index))
         }),
+        highlights: sun
+            .filter(|_| p.stage == Stage::Pixel)
+            .map(|sun| specular_reads(p, sun).into_iter().collect())
+            .unwrap_or_default(),
+        in_highlight: false,
         blank,
         skinned,
     };
@@ -1243,6 +1304,12 @@ impl Gen<'_> {
                         float(v[3])
                     ),
                     None => match self.sun {
+                        Some(sun) if sun == n && self.in_highlight => {
+                            format!(
+                                "({} * vec4<f32>(vec3<f32>(sun_lit * SL.highlight.x), 1.0))",
+                                const_read(self.link, &n.to_string())
+                            )
+                        }
                         Some(sun) if sun == n => {
                             format!(
                                 "({} * vec4<f32>(vec3<f32>(sun_lit), 1.0))",
@@ -1507,6 +1574,13 @@ impl Gen<'_> {
     }
 
     fn instruction(&mut self, ins: &Ins) -> Result<(), Error> {
+        self.in_highlight = !self.highlights.is_empty()
+            && self
+                .p
+                .ins
+                .iter()
+                .position(|x| std::ptr::eq(x, ins))
+                .is_some_and(|at| self.highlights.contains(&at));
         let s = ins.src.clone();
         // Every instruction has the parameters it reads (malformed bytecode is an error, never a
         // panic).
@@ -1845,8 +1919,130 @@ fn in_name(r: Reg) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{parse, tests::small_vertex_shader};
+    use super::super::{parse, tests::small_vertex_shader, Constant};
     use super::*;
+
+    /// `op dst, sources` on temporaries and constants: `(type, number, swizzle)`.
+    fn ins(op: u16, dst: (u32, u8), src: &[(u8, u32, u8)]) -> Ins {
+        Ins {
+            op,
+            controls: 0,
+            dst: Some(Dst {
+                reg: Reg {
+                    ty: reg::TEMP,
+                    n: dst.0,
+                },
+                mask: dst.1,
+                sat: false,
+                pp: false,
+                centroid: false,
+                shift: 0,
+                rel: None,
+            }),
+            predicate: None,
+            src: src
+                .iter()
+                .map(|&(ty, n, swizzle)| Src {
+                    reg: Reg { ty, n },
+                    swizzle,
+                    modifier: 0,
+                    rel: None,
+                })
+                .collect(),
+            decl: None,
+            values: [0; 4],
+        }
+    }
+
+    fn program(body: Vec<Ins>) -> Program {
+        Program {
+            stage: Stage::Pixel,
+            major: 2,
+            minor: 1,
+            ins: body,
+            constants: Vec::new(),
+            creator: None,
+        }
+    }
+
+    const XYZW: u8 = 0xe4;
+    const WWWW: u8 = 0xff;
+    const XXXX: u8 = 0x00;
+
+    /// The game's order (`SLS2017`): the diffuse term reads `r1.w` before the highlight is written
+    /// to that same register; only the second read of the sun's colour is the highlight.
+    #[test]
+    fn only_the_highlights_read_of_the_sun_colour_is_found() {
+        let t = reg::TEMP;
+        let c = reg::CONST;
+        let p = program(vec![
+            ins(op::DP3, (1, 8), &[(t, 5, XYZW), (t, 6, XYZW)]),
+            ins(op::POW, (3, 1), &[(t, 0, WWWW), (c, 27, 0xaa)]),
+            ins(op::MAD, (0, 7), &[(c, 3, XYZW), (t, 1, WWWW), (t, 0, XYZW)]),
+            ins(op::MUL, (1, 8), &[(t, 2, WWWW), (t, 3, XXXX)]),
+            ins(op::MUL, (0, 7), &[(t, 1, WWWW), (c, 3, XYZW)]),
+        ]);
+        assert_eq!(specular_reads(&p, 3), vec![4]);
+        // Another light's colour is not the sun's.
+        assert_eq!(specular_reads(&p, 4), Vec::<usize>::new());
+    }
+
+    /// Only the highlight's read of the sun's colour takes the strength: the diffuse read beside
+    /// it, and so a matte surface, stays as the game has it.
+    #[test]
+    fn the_highlight_strength_is_on_the_highlight_read_alone() {
+        let (t, c) = (reg::TEMP, reg::CONST);
+        let mut out = ins(op::MOV, (0, 15), &[(t, 0, XYZW)]);
+        out.dst.as_mut().unwrap().reg = Reg {
+            ty: reg::COLOROUT,
+            n: 0,
+        };
+        let mut p = program(vec![
+            ins(op::DP3, (1, 8), &[(c, 5, XYZW), (c, 6, XYZW)]),
+            ins(op::POW, (3, 1), &[(c, 7, WWWW), (c, 27, 0xaa)]),
+            ins(op::MUL, (0, 15), &[(c, 3, XYZW), (t, 1, WWWW)]),
+            ins(op::MUL, (2, 7), &[(t, 3, XXXX), (c, 3, XYZW)]),
+            out,
+        ]);
+        p.constants = [("AmbientColor", 1), ("PSLightColor", 3)]
+            .map(|(name, index)| Constant {
+                name: name.into(),
+                set: 2,
+                index,
+                count: 1,
+            })
+            .to_vec();
+        let link = Link {
+            fixed: true,
+            ..Link::default()
+        };
+        let source = convert_with_sun(&p, &link, false, false).unwrap();
+        assert_eq!(
+            source.matches("sun_lit * SL.highlight.x").count(),
+            1,
+            "{source}"
+        );
+        assert_eq!(
+            source
+                .matches("* vec4<f32>(vec3<f32>(sun_lit), 1.0)")
+                .count(),
+            1,
+            "{source}"
+        );
+        validate(&source);
+        // The shader without the sun's variant has no strength at all.
+        assert!(!convert(&p, &link).unwrap().contains("highlight"));
+    }
+
+    #[test]
+    fn a_shader_without_a_highlight_has_no_highlight_read() {
+        let (t, c) = (reg::TEMP, reg::CONST);
+        let p = program(vec![
+            ins(op::DP3, (1, 8), &[(t, 5, XYZW), (t, 6, XYZW)]),
+            ins(op::MUL, (0, 7), &[(t, 1, WWWW), (c, 3, XYZW)]),
+        ]);
+        assert!(specular_reads(&p, 3).is_empty());
+    }
 
     pub(crate) fn validate(source: &str) {
         let module = naga::front::wgsl::parse_str(source)
