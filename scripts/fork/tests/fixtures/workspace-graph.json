@@ -91,6 +91,11 @@
      "name": "fork-log"
     },
     {
+     "features": [],
+     "kind": null,
+     "name": "fork-overlay"
+    },
+    {
      "kind": null,
      "name": "naga"
     },
@@ -106,6 +111,11 @@
     {
      "kind": null,
      "name": "wgpu"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "fork-gfx"
     },
     {
      "kind": "dev",
@@ -1810,6 +1820,34 @@
    "features": [],
    "manifest_path": "/ws/crates/fork-memlog/Cargo.toml",
    "name": "fork-memlog"
+  },
+  {
+   "dependencies": [
+    {
+     "kind": null,
+     "name": "egui"
+    },
+    {
+     "kind": null,
+     "name": "egui-wgpu"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "fork-gfx"
+    },
+    {
+     "kind": null,
+     "name": "wgpu"
+    },
+    {
+     "kind": "dev",
+     "name": "wgpu"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/fork-overlay/Cargo.toml",
+   "name": "fork-overlay"
   },
   {
    "dependencies": [
