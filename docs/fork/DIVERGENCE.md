@@ -62,6 +62,14 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: the fill cut of nv-rs#769 left shade and night without readable shapes
 - Evidence: `docs/regressions/2026-11-23-modern-too-dark.md`; the 11 standard views under `original` against v0.23.0: 10 identical, night Goodsprings differs by at most 16 of 255 on under 0.001% of pixels, as two runs of v0.23.0 differ from each other (pull request)
 
+### The moon highlight
+- Files: `crates/d3d9-wgpu/src/sm/wgsl.rs` (`specular_reads`), `crates/d3d9-wgpu/src/sun_shadow.rs` (`SL.highlight`), `crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs` (`AmbientShares::highlight`), `crates/host/src/fork_graphics.rs`
+- Upstream approach: the game's lit shaders make the highlight from the light's colour, at the game's strength
+- Fork approach: in the sun-shadow variants of those shaders, `light.moon_specular` (nv-rs#821) scales that one read at night. At its default of 1, and in shaders without the variant, the result is the game's
+- Decision: keep
+- Reason: the maintainer's `modern` preset wants a slight moon reflection on glossy materials
+- Evidence: `the_highlight_strength_is_on_the_highlight_read_alone`, `only_the_highlights_read_of_the_sun_colour_is_found`, `the_moon_highlight_is_for_the_night_and_the_moon_only`; the standard views under `original` against v0.23.0 (pull request)
+
 ### DDS files in A8B8G8R8 and X8B8G8R8
 - Files: `crates/d3dx-tex/src/pixel.rs` (`encodes`, `decode_row`, `encode_row`, `box_integer`, `has_integer_box`), `crates/d3dx-tex/tests/fork_abgr.rs`
 - Upstream approach: `d3dx-tex` leaves these two formats to the player's DLL (`NotProvided`)
