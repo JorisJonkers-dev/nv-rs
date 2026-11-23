@@ -206,7 +206,7 @@ const IS_SHOWN: u32 = 0x0063_66b0;
 const SET_HIDDEN: u32 = 0x0045_0f90;
 const PROPERTY_TYPE: u32 = 0x0044_1110;
 const SKY_COLOR: u32 = 0x005a_8080;
-const PHASE_INDEX: u32 = 0x011c_ca80;
+pub(crate) const PHASE_INDEX: u32 = 0x011c_ca80;
 
 /// The word an `NiPointer` at `slot` holds (through `00559450`).
 fn pointer(e: &mut Engine, slot: u32) -> u32 {

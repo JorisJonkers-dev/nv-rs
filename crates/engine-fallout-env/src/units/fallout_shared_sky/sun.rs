@@ -13,7 +13,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::units::fallout_shared_sky::moon::Moon;
+use crate::units::fallout_shared_sky::moon::{Moon, PHASE_INDEX as MOON_PHASE_INDEX};
 use crate::units::fallout_shared_sky::skyobject::{
     pointer_assign, pointer_get, NI_ALLOCATE, NI_POINTER_DESTRUCT, NI_POINTER_FROM_RAW,
     NODE_SET_FLAG_004902F0,
@@ -645,6 +645,16 @@ fn set_light_colors(e: &mut Engine, base: u32, sky: u32, day: f32) {
         Some(shares) if !shares.is_original() => Some(e.call(SKY_GET_MODE, &args![sky]).u32()),
         _ => None,
     };
+    // The moon's real light, only with the sky dome and the light turned to the discs.
+    let moon = match (shares, mode) {
+        (Some(s), Some(2 | 3))
+            if s.usable_dome() > 0.0
+                && e.ext_get::<LightFromSky>().is_some_and(LightFromSky::on) =>
+        {
+            Some(moon_strength(e, sky))
+        }
+        _ => None,
+    };
     for (getter, setter) in [
         (SKY_COLOR_60, LIGHT_SET_COLOR_004BC280),
         (SKY_COLOR_6C, LIGHT_SET_COLOR_004BC2E0),
@@ -654,9 +664,9 @@ fn set_light_colors(e: &mut Engine, base: u32, sky: u32, day: f32) {
         let light = pointer_get(e, base + 0x1c);
         let share = match (shares, mode) {
             (Some(shares), Some(mode)) if setter == LIGHT_SET_COLOR_004BC280 => {
-                shares.ambient(mode, day)
+                shares.ambient_with_moon(mode, day, moon)
             }
-            (Some(shares), Some(mode)) => shares.direct(mode, day),
+            (Some(shares), Some(mode)) => shares.direct_with_moon(mode, day, moon),
             _ => 1.0,
         };
         if share == 1.0 {
@@ -682,11 +692,11 @@ fn set_light_colors(e: &mut Engine, base: u32, sky: u32, day: f32) {
             SkyFill {
                 ambient_over_direct: sky_light::ambient_over_direct(
                     colour(e, 0x60),
-                    s.ambient(m, day),
+                    s.ambient_with_moon(m, day, moon),
                     colour(e, 0x6c),
-                    s.direct(m, day),
+                    s.direct_with_moon(m, day, moon),
                 ),
-                shade: s.usable_shade(),
+                shade: s.usable_shade() * sky_light::shade_share(day, moon),
                 ..sky_light::fill(colour(e, SKY_UPPER), colour(e, 0x6c), dome, day)
             }
         } else {
@@ -823,6 +833,29 @@ impl AmbientShares {
         match mode {
             2 | 3 => Self::between(self.moon, self.sun, day),
             _ => 1.0,
+        }
+    }
+
+    /// [`Self::ambient`] with the night's fill as starlight plus what the moon adds to the sky;
+    /// `moon` is [`sky_light::moon_strength`], `None` when the light does not follow the moon.
+    pub fn ambient_with_moon(self, mode: u32, day: f32, moon: Option<f32>) -> f32 {
+        match (mode, moon) {
+            (2 | 3, Some(m)) => Self::between(
+                Self::usable(self.night) * sky_light::night_fill_share(m),
+                self.exterior,
+                day,
+            ),
+            _ => self.ambient(mode, day),
+        }
+    }
+
+    /// [`Self::direct`] with the moon's direct light scaled by its real strength.
+    pub fn direct_with_moon(self, mode: u32, day: f32, moon: Option<f32>) -> f32 {
+        match (mode, moon) {
+            (2 | 3, Some(m)) => {
+                Self::between(Self::usable(self.moon) * m.clamp(0.0, 1.0), self.sun, day)
+            }
+            _ => self.direct(mode, day),
         }
     }
 }
@@ -1322,6 +1355,29 @@ fn light_from_sky(e: &Engine, sky: u32, disc: &[u32; 3], brightness: u32) -> Opt
     Some(toward.map(|v| -v))
 }
 
+/// How strong the moon's direct light is now, 0 to 1 ([`sky_light::moon_strength`]): from the
+/// game's phase index, Masser's fade and its height. No usable moon gives 0: starlight alone.
+fn moon_strength(e: &Engine, sky: u32) -> f32 {
+    let masser = e.mem.u32(sky + SKY_MASSER);
+    if masser == 0 || !e.mem.is_mapped(masser) || !e.mem.is_mapped(MOON_PHASE_INDEX) {
+        return 0.0;
+    }
+    let moon = Ptr::<Moon>::new(masser);
+    if f32::from_bits(e.get(moon, Moon::fLastPosUpdate)) == f32::MAX {
+        return 0.0;
+    }
+    let pos = f32::from_bits(e.get(moon, Moon::fPos));
+    let Some(way) = sky_light::toward_moon(pos, f32::from_bits(e.get(moon, Moon::fZOffset))) else {
+        return 0.0;
+    };
+    let shown = sky_light::moon_share(
+        pos,
+        f32::from_bits(e.get(moon, Moon::fAngleFadeStart)),
+        f32::from_bits(e.get(moon, Moon::fAngleFadeEnd)),
+    );
+    sky_light::moon_strength(e.mem.u32(MOON_PHASE_INDEX), shown, way[2])
+}
+
 /// The maths of [`LightFromSky`] (world axes: +x east, +y north, +z up).
 pub mod sky_light {
     use super::SkyFill;
@@ -1336,6 +1392,58 @@ pub mod sky_light {
     /// How far a face toward the ground takes the sun's hue by day (the sunlit ground's warm
     /// bounce). None at night: the moon's colour is in the ambient already.
     pub const BOUNCE_TINT: f32 = 0.6;
+
+    /// The night's sky light is starlight: a face straight up takes the most, a face straight
+    /// down less (the dark ground returns little), a wall the middle. Below the flat value, so
+    /// open ground does not lift into a haze.
+    pub const STAR_TOP: f32 = 0.85;
+    pub const STAR_GROUND: f32 = 0.75;
+    /// What the night's weather colour is multiplied by: it is strongly blue already, and this
+    /// keeps it cool while taking the haze out (luminance about 1).
+    pub const STAR_TINT: [f32; 3] = [1.1, 1.0, 0.78];
+    /// The share of the night's fill that remains without any moon: the rest is the moon's light
+    /// scattered by the sky.
+    pub const STARLIGHT: f32 = 0.8;
+    /// The moon's light is full from this height above the horizon (degrees), less below it: the
+    /// air takes more of a low moon's light.
+    pub const MOON_FULL_DEGREES: f32 = 40.0;
+
+    /// The lit share of the moon's disc for the game's phase index (the order of the moon's
+    /// textures: 0 full, 1 three quarters waning, 2 half, 3 one quarter, 4 new, 5 to 7 waxing).
+    /// An index outside the eight counts as a half moon: neither full nor absent.
+    pub fn moon_phase_light(phase: u32) -> f32 {
+        if phase > 7 {
+            return 0.5;
+        }
+        0.5 + 0.5 * (phase as f32 * std::f32::consts::FRAC_PI_4).cos()
+    }
+
+    /// The moon's direct light, 0 to 1: its phase, the game's fade of it (`shown`,
+    /// [`moon_share`]) and its height (`up`, the z of the unit way toward it).
+    pub fn moon_strength(phase: u32, shown: f32, up: f32) -> f32 {
+        if !(shown.is_finite() && up.is_finite()) {
+            return 0.0;
+        }
+        let height = up.max(0.0) / MOON_FULL_DEGREES.to_radians().sin();
+        (moon_phase_light(phase) * eased(shown) * eased(height)).clamp(0.0, 1.0)
+    }
+
+    /// The share of the night's fill at moon strength `moon`: starlight, plus the moon's.
+    pub fn night_fill_share(moon: f32) -> f32 {
+        let moon = if moon.is_finite() { moon.clamp(0.0, 1.0) } else { 0.0 };
+        STARLIGHT + (1.0 - STARLIGHT) * moon
+    }
+
+    /// How much of the shade's extra sky light applies: all by day; at night only as far as the
+    /// moon really casts a shade, so a moonless night has no shadow pattern in its fill.
+    pub fn shade_share(day: f32, moon: Option<f32>) -> f32 {
+        let day = if day.is_nan() { 1.0 } else { day.clamp(0.0, 1.0) };
+        match moon {
+            Some(m) if m.is_finite() => day + (1.0 - day) * m.clamp(0.0, 1.0),
+            Some(_) => day,
+            None => 1.0,
+        }
+    }
 
     /// A colour's hue at luminance 1, `amount` of the way from white (a sky colour lends its tint,
     /// not its strength: the weather's ambient colour says how strong the fill is). A black colour
@@ -1355,9 +1463,14 @@ pub mod sky_light {
     /// `day` (1 by day, 0 at night).
     pub fn fill(sky: [f32; 3], sun: [f32; 3], dome: f32, day: f32) -> SkyFill {
         let day = if day.is_nan() { 1.0 } else { day.clamp(0.0, 1.0) };
+        let by_day = |c: [f32; 3], strength: f32, star: f32| -> [f32; 3] {
+            std::array::from_fn(|i| {
+                day * c[i] * strength + (1.0 - day) * STAR_TINT[i] * star
+            })
+        };
         SkyFill {
-            top: tint(sky, SKY_TINT * day).map(|v| v * DOME_TOP),
-            ground: tint(sun, BOUNCE_TINT * day).map(|v| v * DOME_GROUND),
+            top: by_day(tint(sky, SKY_TINT * day), DOME_TOP, STAR_TOP),
+            ground: by_day(tint(sun, BOUNCE_TINT * day), DOME_GROUND, STAR_GROUND),
             dome,
             ambient_over_direct: 0.0,
             shade: 0.0,
@@ -2333,17 +2446,58 @@ mod tests {
         assert_eq!(sky_light::ambient_over_direct([f32::NAN; 3], 1.0, [1.0; 3], 1.0), 0.0);
         let black = sky_light::fill([0.0; 3], [0.0; 3], 1.0, 1.0);
         assert_eq!(black.top, [sky_light::DOME_TOP; 3]);
-        // nv-rs#772: a blue night sky must not turn the ground violet.
+        // nv-rs#772: the night's fill is starlight: from above, cool, whatever the sky's colour.
         let night = sky_light::fill([0.05, 0.08, 0.3], [0.2, 0.25, 0.6], 1.0, 0.0);
-        for (got, want) in [
-            (night.top, sky_light::DOME_TOP),
-            (night.ground, sky_light::DOME_GROUND),
-        ] {
-            assert!(
-                got.iter().all(|v| (v - want).abs() < 1e-5),
-                "no hue of its own at night: {got:?}"
-            );
+        for i in 0..3 {
+            let tint = sky_light::STAR_TINT[i];
+            assert!((night.top[i] - tint * sky_light::STAR_TOP).abs() < 1e-5);
+            assert!((night.ground[i] - tint * sky_light::STAR_GROUND).abs() < 1e-5);
         }
+        assert!(luma(night.ground) < luma(night.top), "a face down takes less starlight");
+    }
+
+    /// nv-rs#772: the moon's direct light follows the game's phase, fade and height.
+    #[test]
+    fn the_moon_light_follows_phase_fade_and_height() {
+        use sky_light::{moon_phase_light, moon_strength};
+        assert!((moon_phase_light(0) - 1.0).abs() < 1e-6, "full");
+        assert!((moon_phase_light(2) - 0.5).abs() < 1e-6, "half");
+        assert!(moon_phase_light(4).abs() < 1e-6, "new");
+        assert!((moon_phase_light(1) - moon_phase_light(7)).abs() < 1e-6, "waning as waxing");
+        assert_eq!(moon_phase_light(99), 0.5, "an unknown phase is no full moon");
+        assert!((moon_strength(0, 1.0, 1.0) - 1.0).abs() < 1e-6);
+        assert_eq!(moon_strength(4, 1.0, 1.0), 0.0, "a new moon lights nothing");
+        assert_eq!(moon_strength(0, 0.0, 1.0), 0.0, "a moon the game hides lights nothing");
+        assert_eq!(moon_strength(0, 1.0, -0.2), 0.0, "below the horizon");
+        assert!(moon_strength(0, 1.0, 0.3) < moon_strength(0, 1.0, 0.6), "low is weaker");
+        assert_eq!(moon_strength(0, f32::NAN, 1.0), 0.0);
+    }
+
+    /// nv-rs#772: a moonless night keeps its starlight and has no direct light or shadow pattern;
+    /// without the moon's strength the shares are the plain ones.
+    #[test]
+    fn a_moonless_night_is_starlight_alone() {
+        let s = AmbientShares {
+            night: 0.8,
+            moon: 0.9,
+            exterior: 0.7,
+            sun: 0.65,
+            dome: 1.0,
+            shade: 0.3,
+            ..AmbientShares::ORIGINAL
+        };
+        assert_eq!(s.direct_with_moon(3, 0.0, Some(0.0)), 0.0);
+        let dark = s.ambient_with_moon(3, 0.0, Some(0.0));
+        assert!((dark - 0.8 * sky_light::STARLIGHT).abs() < 1e-6);
+        assert!((s.ambient_with_moon(3, 0.0, Some(1.0)) - 0.8).abs() < 1e-6);
+        assert!((s.direct_with_moon(3, 0.0, Some(1.0)) - 0.9).abs() < 1e-6);
+        assert_eq!(sky_light::shade_share(0.0, Some(0.0)), 0.0);
+        assert_eq!(sky_light::shade_share(1.0, Some(0.0)), 1.0);
+        // By day the moon changes nothing; indoors neither.
+        assert_eq!(s.ambient_with_moon(3, 1.0, Some(0.0)), s.ambient(3, 1.0));
+        assert_eq!(s.direct_with_moon(3, 1.0, Some(0.0)), s.direct(3, 1.0));
+        assert_eq!(s.ambient_with_moon(1, 0.0, Some(0.0)), s.ambient(1, 0.0));
+        assert_eq!(s.direct_with_moon(3, 0.0, None), s.direct(3, 0.0));
     }
 
     #[test]

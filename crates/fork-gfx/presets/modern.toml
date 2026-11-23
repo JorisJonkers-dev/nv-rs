@@ -15,8 +15,8 @@ quality = "medium"
 [global.light]
 ambient_exterior = 0.7
 ambient_interior = 1.0
-ambient_night = 0.95
+ambient_night = 1.0
 sun = 0.65
-moon = 0.7
+moon = 0.75
 sky_dome = 1.0
-shade_fill = 0.35
+shade_fill = 0.2
