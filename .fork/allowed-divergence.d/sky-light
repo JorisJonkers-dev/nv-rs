@@ -1,0 +1,2 @@
+crates/d3d9-wgpu/src/sm/wgsl.rs  # the lit shaders take the sky light by surface direction (nv-rs#772, ADR-0019)
+crates/engine-fallout-env/src/units/fallout_shared_sky/moon.rs  # the moon's path takes the setting's highest climb; the same bits without it (nv-rs#772)
