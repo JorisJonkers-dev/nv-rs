@@ -5,8 +5,8 @@
 //! pair's mean difference is above N. Every command exits 2 for a request it cannot carry out.
 
 use fork_scene::tool::{
-    self, BenchCompareRequest, BenchRequest, Cap, CappedLauncher, CompareRequest, RunRequest,
-    SoakRequest, Start, SweepRequest, Variant,
+    self, BenchCompareRequest, BenchRequest, Cap, CappedLauncher, CompareRequest, LightRequest,
+    RunRequest, SoakRequest, Start, SweepRequest, Variant,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -74,6 +74,33 @@ fn run(args: &[String]) -> Result<bool, String> {
     };
     (req.a, req.b) = (a.clone(), b.clone());
     let result = tool::compare(&req)?;
+    println!("{}", result.summary());
+    Ok(result.ok)
+}
+
+/// `light [--within PCT] A B`: the light on the ground of B's pictures against A's (exit 1 when the mean sunlit ratio is
+/// more than PCT per cent from 1, or a picture is missing).
+fn light(args: &[String]) -> Result<bool, String> {
+    let mut paths = Vec::new();
+    let mut req = LightRequest::default();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--within" {
+            req.within_pct = Some(number(
+                "--within",
+                it.next().ok_or("--within needs a number")?,
+            )?);
+        } else {
+            paths.push(PathBuf::from(a));
+        }
+    }
+    let [a, b] = paths.as_slice() else {
+        return Err(
+            "usage: nv-rs-scene light [--within PCT] A B  (two folders of pictures)".into(),
+        );
+    };
+    (req.a, req.b) = (a.clone(), b.clone());
+    let result = tool::light(&req)?;
     println!("{}", result.summary());
     Ok(result.ok)
 }
@@ -645,6 +672,7 @@ fn main() -> ExitCode {
     }
     let result = match args.first().map(String::as_str) {
         Some("compare") => run(&args[1..]),
+        Some("light") => light(&args[1..]),
         Some("run") => run_variants(&args[1..]),
         Some("soak") => soak(&args[1..]),
         Some("bench") => bench(&args[1..]),
@@ -701,6 +729,26 @@ mod tests {
         assert_eq!(env_pair("A=b=c").unwrap(), ("A".into(), "b=c".into()));
         assert!(env_pair("novalue").is_err());
         assert!(env_pair("=x").is_err());
+    }
+
+    #[test]
+    fn light_compares_the_ground_of_two_folders_within_a_limit() {
+        let t = tmp("light");
+        picture(&t.join("a"), "day.png", [100, 100, 100], 100);
+        picture(&t.join("same"), "day.png", [100, 100, 100], 100);
+        picture(&t.join("bright"), "day.png", [140, 140, 140], 140);
+        let (a, same, bright) = (
+            t.join("a").display().to_string(),
+            t.join("same").display().to_string(),
+            t.join("bright").display().to_string(),
+        );
+        assert_eq!(light(&s(&["--within", "5", &a, &same])), Ok(true));
+        assert_eq!(light(&s(&["--within", "5", &a, &bright])), Ok(false));
+        // Without a limit only a missing picture fails.
+        assert_eq!(light(&[a.clone(), bright.clone()]), Ok(true));
+        picture(&t.join("a"), "other.png", [100, 100, 100], 100);
+        assert_eq!(light(&[a.clone(), same]), Ok(false));
+        assert!(light(&s(&["--within", "x", &a, &bright])).is_err());
     }
 
     #[test]

@@ -230,6 +230,9 @@ impl Host {
             fork_log::info!(target: "host", "{line}");
         }
         let choice = &detected;
+        // The light balance (`light.ambient_*`, nv-rs#768): the sun light takes the share of the
+        // game's ambient colour the settings give (both 1, the exe's code, unless set).
+        engine::sky_sun::want_ambient_share(&mut engine, fork_graphics::ambient_shares);
         if let Some(line) = ttw_line {
             fork_log::info!(target: "host", "{line}");
         }

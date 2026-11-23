@@ -10,8 +10,10 @@
 //! and no `NV_GFX` nothing here changes anything.
 
 use crate::fixes::Choice;
+use engine::sky_sun::AmbientShares;
 use fork_gfx::{builtin, resolve, Inputs, Place, Resolved, SettingsFile, Source};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Names a settings file for any run (also a scripted one): read instead of the profile's.
 pub const FILE_ENV: &str = "NV_GFX_FILE";
@@ -111,6 +113,27 @@ pub struct Levels {
     pub ao_quality: d3d9_wgpu::scene_light::Quality,
     /// `shadows.quality`: the map size.
     pub shadow_map_size: u32,
+    /// `light.ambient_exterior` and `light.ambient_interior` (set while the game runs too).
+    pub ambient: AmbientShares,
+}
+
+/// The light balance's shares as `f32` bits (1.0 each: the original), read by the sky's sun light
+/// once a frame ([`ambient_shares`]) and set at start and by the overlay ([`set_ambient_shares`]).
+static AMBIENT_EXTERIOR: AtomicU32 = AtomicU32::new(0x3f80_0000);
+static AMBIENT_INTERIOR: AtomicU32 = AtomicU32::new(0x3f80_0000);
+
+/// The shares the sun light takes now (`engine::sky_sun::want_ambient_share`).
+pub fn ambient_shares() -> AmbientShares {
+    AmbientShares {
+        exterior: f32::from_bits(AMBIENT_EXTERIOR.load(Ordering::Relaxed)),
+        interior: f32::from_bits(AMBIENT_INTERIOR.load(Ordering::Relaxed)),
+    }
+}
+
+/// Sets the shares the sun light takes from the next frame on.
+pub fn set_ambient_shares(shares: AmbientShares) {
+    AMBIENT_EXTERIOR.store(shares.exterior.to_bits(), Ordering::Relaxed);
+    AMBIENT_INTERIOR.store(shares.interior.to_bits(), Ordering::Relaxed);
 }
 
 /// The run's choice with the modules' values over it, and the levels. A value whose source is the
@@ -150,11 +173,17 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
         "high" => d3d9_wgpu::sun_shadow::MAP_SIZES[2],
         _ => d3d9_wgpu::sun_shadow::MAP_SIZES[1],
     };
+    let light = r.module("light").expect("built in");
+    let ambient = AmbientShares {
+        exterior: light.slider("ambient_exterior") as f32,
+        interior: light.slider("ambient_interior") as f32,
+    };
     (
         choice,
         Levels {
             ao_quality,
             shadow_map_size,
+            ambient,
         },
     )
 }
@@ -208,9 +237,10 @@ pub fn start(
     d3d9_wgpu::gfx_overlay::install(Some(session(read, path, started)));
     d3d9_wgpu::scene_light::set_quality(levels.ao_quality);
     d3d9_wgpu::sun_shadow::set_map_size(levels.shadow_map_size)?;
+    set_ambient_shares(levels.ambient);
     if !r.is_original() {
         lines.push(format!(
-            "nv-rs: graphics: ambient occlusion {} ({:?}, strength {}), sun shadows {} (maps {})",
+            "nv-rs: graphics: ambient occlusion {} ({:?}, strength {}), sun shadows {} (maps {}), fill light outdoors {} indoors {}",
             if choice.ambient_occlusion {
                 "on"
             } else {
@@ -219,7 +249,9 @@ pub fn start(
             levels.ao_quality,
             choice.ambient_occlusion_strength,
             if choice.sun_shadows { "on" } else { "off" },
-            levels.shadow_map_size
+            levels.shadow_map_size,
+            levels.ambient.exterior,
+            levels.ambient.interior
         ));
     }
     Ok((choice, lines))
@@ -242,6 +274,7 @@ pub fn session(
             let (c, l) = apply(choice.clone(), r);
             d3d9_wgpu::scene_light::set_quality(l.ao_quality);
             d3d9_wgpu::scene_light::set_live_strength(Some(c.ambient_occlusion_strength));
+            set_ambient_shares(l.ambient);
         }),
     )
 }
@@ -264,6 +297,7 @@ mod tests {
         Levels {
             ao_quality: ao,
             shadow_map_size: size,
+            ambient: AmbientShares::ORIGINAL,
         }
     }
 
@@ -305,7 +339,9 @@ mod tests {
         let (c, l) = apply(Choice::vanilla(), &r);
         assert!(c.ambient_occlusion && c.sun_shadows);
         assert_eq!(c.ambient_occlusion_strength, 0.7);
-        assert_eq!(l, levels(Quality::Medium, 2048));
+        assert_eq!((l.ao_quality, l.shadow_map_size), (Quality::Medium, 2048));
+        // Modern takes less of the game's fill light, outdoors more than indoors (nv-rs#768).
+        assert!(l.ambient.exterior < l.ambient.interior && l.ambient.interior < 1.0);
         let r = resolve_at(
             &read(
                 env(&[
@@ -376,9 +412,40 @@ mod tests {
     }
 
     #[test]
+    fn the_light_balance_reaches_the_sun_lights_shares() {
+        // Nothing chosen: the original's shares, whole.
+        let r = resolve_at(&read(env(&[]), None).unwrap(), &Place::default());
+        assert_eq!(
+            apply(Choice::vanilla(), &r).1.ambient,
+            AmbientShares::ORIGINAL
+        );
+        let r = resolve_at(
+            &read(
+                env(&[(
+                    "NV_GFX",
+                    "light.ambient_exterior=0.35,light.ambient_interior=0.9",
+                )]),
+                None,
+            )
+            .unwrap(),
+            &Place::default(),
+        );
+        assert!(!r.is_original());
+        let (c, l) = apply(Choice::vanilla(), &r);
+        assert_eq!(c, Choice::vanilla(), "the light balance owns no older key");
+        assert_eq!(
+            l.ambient,
+            AmbientShares {
+                exterior: 0.35,
+                interior: 0.9
+            }
+        );
+    }
+
+    #[test]
     fn every_built_in_module_is_applied() {
         // A module added to fork_gfx::builtin needs its switches here: this list is the check.
         let ids: Vec<&str> = builtin::specs().iter().map(|s| s.id).collect();
-        assert_eq!(ids, ["ao", "shadows"]);
+        assert_eq!(ids, ["ao", "shadows", "light"]);
     }
 }

@@ -631,7 +631,15 @@ fn update_interior_light(e: &mut Engine, base: u32, sky: u32) {
 }
 
 /// The light's three colours from the sky (`+0x60`, `+0x6c`, `SunSpecularColor`).
+///
+/// Port-added seam ([`AmbientShare`]): with a share other than 1 the light's ambient colour (the
+/// first, the sky's `+0x60`: the weather's ambient outdoors, the cell's indoors) is that share of
+/// the sky's; the sky's own colour is not changed. Without the slot, or with both shares at 1, this
+/// is the exe's code, call for call.
 fn set_light_colors(e: &mut Engine, base: u32, sky: u32) {
+    let shares = e
+        .ext_get::<AmbientShare>()
+        .and_then(|s| s.shares.get().map(|f| f()));
     for (getter, setter) in [
         (SKY_COLOR_60, LIGHT_SET_COLOR_004BC280),
         (SKY_COLOR_6C, LIGHT_SET_COLOR_004BC2E0),
@@ -639,8 +647,82 @@ fn set_light_colors(e: &mut Engine, base: u32, sky: u32) {
     ] {
         let color = e.call(getter, &args![sky]).u32();
         let light = pointer_get(e, base + 0x1c);
-        e.call(setter, &args![light, color]);
+        let share = match shares {
+            Some(shares) if setter == LIGHT_SET_COLOR_004BC280 && !shares.is_original() => {
+                shares.at(e.call(SKY_GET_MODE, &args![sky]).u32())
+            }
+            _ => 1.0,
+        };
+        if share == 1.0 {
+            e.call(setter, &args![light, color]);
+            continue;
+        }
+        e.with_stack(0xc, |e, scaled| {
+            let scaled = scaled.addr();
+            for word in 0..3u32 {
+                let value = e.mem.f32(color + 4 * word) * share;
+                e.mem.set_f32(scaled + 4 * word, value);
+            }
+            e.call(setter, &args![light, scaled]);
+        });
     }
+}
+
+/// Port-added, not in the original (the graphics settings' `light.ambient_exterior` and
+/// `light.ambient_interior`, nv-rs#768; the host makes this slot with [`want_ambient_share`] before
+/// the threads start): the share of the game's ambient colour the sun light hands to the lit
+/// shaders. The game lifts every surface by the weather's (outdoors) or the cell's (indoors)
+/// ambient colour, a fill light that stands in for the bounce light and the shade it has no other
+/// way to draw; with the port's own shade (ambient occlusion, sun shadows, the light from the sky)
+/// a lower share keeps the picture from washing out. Every reader of the light's ambient follows
+/// (the lit shaders, grass, the far view's lit shapes); the sky's colours, fog and water do not.
+#[derive(Default)]
+pub struct AmbientShare {
+    shares: std::sync::OnceLock<fn() -> AmbientShares>,
+}
+
+/// The two shares, asked once a frame (each 1.0 is the original).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AmbientShares {
+    /// Outdoors (sky modes 2 and 3).
+    pub exterior: f32,
+    /// Indoors (sky mode 1, an interior cell).
+    pub interior: f32,
+}
+
+impl AmbientShares {
+    /// Both at 1: the game's own ambient.
+    pub const ORIGINAL: AmbientShares = AmbientShares {
+        exterior: 1.0,
+        interior: 1.0,
+    };
+
+    fn is_original(self) -> bool {
+        self == Self::ORIGINAL
+    }
+
+    /// The share for sky mode `mode`: 1 (an interior cell) the interior's, 2 and 3 (the world) the
+    /// exterior's, 0 (no sky, the menus) none (1). A share that is not a number or below 0 counts
+    /// as 1.
+    pub fn at(self, mode: u32) -> f32 {
+        let share = match mode {
+            1 => self.interior,
+            2 | 3 => self.exterior,
+            _ => 1.0,
+        };
+        if share.is_finite() && share >= 0.0 {
+            share
+        } else {
+            1.0
+        }
+    }
+}
+
+/// Turns [`AmbientShare`] on for this engine and every real thread's engine made from it
+/// afterwards; `shares` is asked once a frame (the graphics overlay changes it while the game runs).
+pub fn want_ambient_share(e: &mut Engine, shares: fn() -> AmbientShares) {
+    // A second call keeps the first answer (the host calls this once, before the threads start).
+    let _ = e.ext_free::<AmbientShare>().shares.set(shares);
 }
 
 /// A quad's sky shader property (property 3 of type 0xd), else 0, read as the code does.
@@ -1961,6 +2043,108 @@ mod tests {
         want_light_from_sky(&mut on.e, || true);
         run(&mut on);
         assert_eq!(off.e.call_log, on.e.call_log);
+    }
+
+    /// The ambient share's rig: the sky's ambient colour (0.4, 0.5, 0.6) at `+0x60`, and the light's
+    /// colour setters copying what they are handed to the light (`+0xc8`, `+0xd4`, `+0xe0`), as the
+    /// exe's do. Indoors (modes 0 and 1) the interior's angle is mapped.
+    fn ambient_rig(mode: u32, shares: Option<fn() -> AmbientShares>) -> Update {
+        let mut u = update_rig(mode, 12.5);
+        u.e.map(INTERIOR_ANGLE, 4);
+        u.e.set_global(INTERIOR_ANGLE, -0.5f32);
+        for (word, value) in [0.4f32, 0.5, 0.6].iter().enumerate() {
+            u.e.mem.set_f32(u.sky + 0x60 + 4 * word as u32, *value);
+        }
+        for (setter, offset) in [
+            (LIGHT_SET_COLOR_004BC280, 0xc8u32),
+            (LIGHT_SET_COLOR_004BC2E0, 0xd4),
+            (LIGHT_SET_COLOR_0050DD50, 0xe0),
+        ] {
+            u.e.register_double(setter, move |e, a| {
+                for word in 0..3 {
+                    let value = e.mem.u32(a[1] + 4 * word);
+                    e.mem.set_u32(a[0] + offset + 4 * word, value);
+                }
+                answer(0)
+            });
+        }
+        if let Some(shares) = shares {
+            want_ambient_share(&mut u.e, shares);
+        }
+        run(&mut u);
+        u
+    }
+
+    fn light_ambient(u: &Update) -> [f32; 3] {
+        std::array::from_fn(|i| u.e.mem.f32(u.light + 0xc8 + 4 * i as u32))
+    }
+
+    /// Both shares at 1 (the original): the same calls with the same words as without the slot,
+    /// outdoors and indoors, and the light's ambient is the sky's.
+    #[test]
+    fn the_ambient_share_at_one_is_the_exes_code() {
+        for mode in [0u32, 1, 2, 3] {
+            let off = ambient_rig(mode, None);
+            let on = ambient_rig(mode, Some(|| AmbientShares::ORIGINAL));
+            assert_eq!(off.e.call_log, on.e.call_log, "mode {mode}");
+            assert_eq!(light_ambient(&on), [0.4, 0.5, 0.6], "mode {mode}");
+            assert_eq!(
+                calls(&on.e, LIGHT_SET_COLOR_004BC280),
+                vec![vec![on.light, on.sky + 0x60]]
+            );
+        }
+    }
+
+    /// Outdoors the exterior share scales the light's ambient, indoors the interior share; the
+    /// menus' sky (mode 0) keeps it whole. The sky's own colour, the light's other two colours and
+    /// the light's way do not change.
+    #[test]
+    fn the_ambient_share_scales_the_lights_ambient_only() {
+        fn shares() -> AmbientShares {
+            AmbientShares {
+                exterior: 0.5,
+                interior: 0.25,
+            }
+        }
+        for (mode, share) in [(0u32, 1.0f32), (1, 0.25), (2, 0.5), (3, 0.5)] {
+            let off = ambient_rig(mode, None);
+            let on = ambient_rig(mode, Some(shares));
+            let want = [0.4f32, 0.5, 0.6].map(|c| c * share);
+            assert_eq!(light_ambient(&on), want, "mode {mode}");
+            for offset in [0x60u32, 0x64, 0x68] {
+                assert_eq!(
+                    on.e.mem.u32(on.sky + offset),
+                    off.e.mem.u32(off.sky + offset),
+                    "mode {mode}: the sky's colour is kept"
+                );
+            }
+            for offset in (0xd4u32..0xec).step_by(4) {
+                assert_eq!(
+                    on.e.mem.u32(on.light + offset),
+                    off.e.mem.u32(off.light + offset),
+                    "mode {mode}: the other colours"
+                );
+            }
+            if mode >= 2 {
+                assert_eq!(light_way(&on), light_way(&off), "mode {mode}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_ambient_share_that_is_not_usable_counts_as_one() {
+        for bad in [f32::NAN, f32::INFINITY, -0.5] {
+            let s = AmbientShares {
+                exterior: bad,
+                interior: bad,
+            };
+            assert_eq!((s.at(1), s.at(2), s.at(3)), (1.0, 1.0, 1.0));
+        }
+        let s = AmbientShares {
+            exterior: 0.0,
+            interior: 0.6,
+        };
+        assert_eq!((s.at(0), s.at(1), s.at(3), s.at(7)), (1.0, 0.6, 0.0, 1.0));
     }
 
     /// At night the light comes from Masser, wherever its angle has it (hidden or shown); a sky

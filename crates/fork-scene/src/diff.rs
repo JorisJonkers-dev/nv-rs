@@ -148,6 +148,61 @@ pub fn difference_picture(a: &Picture, b: &Picture) -> Result<Picture, String> {
     Ok((a.0, a.1, rgb))
 }
 
+/// The light on a picture's ground, for the light balance's check (nv-rs#768): the linear relative luminance (sRGB
+/// decoded, Rec. 709 weights, 0 to 1) of the lower [`GROUND_BAND`] of the picture, where the standard day views show
+/// ground and walls. `sunlit` is the mean of the band's brightest [`SUNLIT_SHARE`], `shade` of its darkest
+/// [`SHADE_SHARE`], `band` of all of it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Light {
+    pub band: f64,
+    pub sunlit: f64,
+    pub shade: f64,
+}
+
+/// The share of the picture's height, from the bottom, that [`light`] reads.
+pub const GROUND_BAND: f64 = 0.45;
+/// The brightest share of the band counted as sunlit, and the darkest counted as shade.
+pub const SUNLIT_SHARE: f64 = 0.4;
+pub const SHADE_SHARE: f64 = 0.2;
+
+/// An 8-bit sRGB value as linear light.
+fn linear(v: u8) -> f64 {
+    let c = f64::from(v) / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// [`Light`] of a picture. A picture without a pixel in its band is an `Err`.
+pub fn light(p: &Picture) -> Result<Light, String> {
+    let (w, h, rgb) = (p.0 as usize, p.1 as usize, &p.2);
+    let table: Vec<f64> = (0..=255u8).map(linear).collect();
+    let first = h - (h as f64 * GROUND_BAND).round() as usize;
+    let mut values: Vec<f64> = rgb[first * w * 3..h * w * 3]
+        .chunks_exact(3)
+        .map(|px| {
+            0.2126 * table[px[0] as usize]
+                + 0.7152 * table[px[1] as usize]
+                + 0.0722 * table[px[2] as usize]
+        })
+        .collect();
+    if values.is_empty() {
+        return Err("a picture without a ground band".into());
+    }
+    values.sort_by(f64::total_cmp);
+    let n = values.len();
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
+    let shade_end = ((n as f64 * SHADE_SHARE) as usize).max(1);
+    let sunlit_start = (n - ((n as f64 * SUNLIT_SHARE) as usize).max(1)).min(n - 1);
+    Ok(Light {
+        band: mean(&values),
+        sunlit: mean(&values[sunlit_start..]),
+        shade: mean(&values[..shade_end]),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +250,24 @@ mod tests {
     fn sizes_must_match_and_junk_is_refused() {
         assert!(compare(&(1, 1, vec![0; 3]), &(2, 1, vec![0; 6])).is_err());
         assert!(decode_png(b"nope").is_err());
+    }
+
+    #[test]
+    fn the_light_of_the_ground_band_is_linear_and_split_into_sunlit_and_shade() {
+        // 1 x 20: the top 11 rows (sky) are white, the lower 9 (the band, 45%) hold 0, 128 and 255 in thirds.
+        let mut px = vec![255u8; 11 * 3];
+        for v in [0u8, 0, 0, 128, 128, 128, 255, 255, 255] {
+            px.extend_from_slice(&[v; 3]);
+        }
+        let l = light(&(1, 20, px)).unwrap();
+        let mid = linear(128);
+        assert!((mid - 0.2158).abs() < 1e-3, "{mid}");
+        assert!((l.band - (3.0 * mid + 3.0) / 9.0).abs() < 1e-9);
+        // The brightest 40% (3 of 9 values): white; the darkest 20% (1 of 9): black.
+        assert!((l.sunlit - 1.0).abs() < 1e-9 && l.shade == 0.0);
+        // Twice the light in linear terms is not twice the 8-bit value.
+        let a = light(&(1, 2, vec![255, 255, 255, 50, 50, 50])).unwrap();
+        let b = light(&(1, 2, vec![255, 255, 255, 100, 100, 100])).unwrap();
+        assert!(b.band / a.band > 3.0);
     }
 }

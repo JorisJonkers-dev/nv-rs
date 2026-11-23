@@ -118,9 +118,37 @@ pub static SHADOWS: ModuleSpec = ModuleSpec {
     cost: "docs/fork/GRAPHICS.md, sun shadows",
 };
 
+/// The game's own light, rebalanced (nv-rs#768): its ambient fill (`engine::sky_sun::AmbientShare`).
+pub static LIGHT: ModuleSpec = ModuleSpec {
+    id: "light",
+    label: "Light balance",
+    help: "How much of the game's flat fill light (its ambient colour) reaches surfaces. The original lifts everything by it; with ambient occlusion, sun shadows and the light from the sky less of it keeps the picture from washing out.",
+    settings: &[
+        Setting {
+            key: "ambient_exterior",
+            label: "Fill light outdoors",
+            help: "The share of the weather's ambient colour, from 0 (none: only the sun, the moon and lamps light) to 1 (the original).",
+            applies: Applies::Live,
+            kind: Kind::Slider { min: 0.0, max: 1.0, step: 0.05, default: 1.0 },
+        },
+        Setting {
+            key: "ambient_interior",
+            label: "Fill light indoors",
+            help: "The share of the cell's ambient colour, from 0 (none: only the cell's directional light and lamps light) to 1 (the original).",
+            applies: Applies::Live,
+            kind: Kind::Slider { min: 0.0, max: 1.0, step: 0.05, default: 1.0 },
+        },
+    ],
+    owns: &[
+        Owns::GameValue("the weather's ambient colour as the sun light hands it to the shaders (outdoors)"),
+        Owns::GameValue("the cell's ambient colour as the cell's light hands it to the shaders (indoors)"),
+    ],
+    cost: "docs/fork/GRAPHICS.md, light balance",
+};
+
 /// The engine's modules, in the order the overlay shows them.
 pub fn specs() -> Vec<&'static ModuleSpec> {
-    vec![&AO, &SHADOWS]
+    vec![&AO, &SHADOWS, &LIGHT]
 }
 
 /// The built-in presets' files: id, label, text.
