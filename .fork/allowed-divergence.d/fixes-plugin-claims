@@ -1,0 +1,1 @@
+docs/FIXES.md  # the plugin paragraph of the xNVSE section no longer says no plugin DLL ever loads, and the JohnnyGuitar row states the command count and crate of the generated capability table (nv-rs#786)
