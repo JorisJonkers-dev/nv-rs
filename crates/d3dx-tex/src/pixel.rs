@@ -14,7 +14,9 @@ use crate::num::{
 
 /// The formats this crate reads row by row: files of them load.
 pub fn decodes(f: u32) -> bool {
-    f == format::R8G8B8 || encodes(f)
+    // Port-added (nv-rs#823): A8B8G8R8 and X8B8G8R8 are read only. A device that does not take
+    // them gets A8R8G8B8 and X8R8G8B8 from D3DX's pick (`data/device_formats_32bit.tsv`).
+    matches!(f, format::R8G8B8 | format::A8B8G8R8 | format::X8B8G8R8) || encodes(f)
 }
 
 /// The formats this crate writes row by row: textures of them are made (R8G8B8 never is: D3DX
@@ -62,6 +64,28 @@ pub fn decode_row(f: u32, row: &[u8], w: usize, out: &mut [Color]) {
                     f32::from(p[2]) * INV255,
                     f32::from(p[1]) * INV255,
                     f32::from(p[0]) * INV255,
+                    1.0,
+                ];
+            }
+        }
+        // Port-added (nv-rs#823): red in the low byte.
+        format::A8B8G8R8 => {
+            for (o, p) in out[..w].iter_mut().zip(row.chunks_exact(4)) {
+                *o = [
+                    f32::from(p[0]) * INV255,
+                    f32::from(p[1]) * INV255,
+                    f32::from(p[2]) * INV255,
+                    f32::from(p[3]) * INV255,
+                ];
+            }
+        }
+        // Port-added (nv-rs#823): the top byte is not read.
+        format::X8B8G8R8 => {
+            for (o, p) in out[..w].iter_mut().zip(row.chunks_exact(4)) {
+                *o = [
+                    f32::from(p[0]) * INV255,
+                    f32::from(p[1]) * INV255,
+                    f32::from(p[2]) * INV255,
                     1.0,
                 ];
             }

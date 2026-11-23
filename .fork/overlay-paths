@@ -61,6 +61,7 @@ crates/d3d9-wgpu/src/perf.rs
 crates/d3d9-wgpu/src/precompile.rs
 crates/d3d9-wgpu/src/shader_cache.rs
 crates/d3dx-tex/src/fork_modern_dds.rs
+crates/d3dx-tex/tests/fork_abgr.rs
 crates/engine-platform/examples/linux_tables.rs
 crates/engine-platform/src/d3dxshader.rs
 crates/engine-platform/src/fork_d3d9rec.rs
