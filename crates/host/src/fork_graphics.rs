@@ -119,9 +119,19 @@ pub struct Levels {
 
 /// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
 /// frame ([`ambient_shares`]) and set at start and by the overlay ([`set_ambient_shares`]).
-static AMBIENT: [AtomicU32; 7] = {
+static AMBIENT: [AtomicU32; 8] = {
     const ONE: AtomicU32 = AtomicU32::new(0x3f80_0000);
-    [ONE, ONE, ONE, ONE, ONE, AtomicU32::new(0), AtomicU32::new(0)]
+    [
+        ONE,
+        ONE,
+        ONE,
+        ONE,
+        ONE,
+        AtomicU32::new(0),
+        AtomicU32::new(0),
+        // 90 degrees: the moons' own path.
+        AtomicU32::new(0x42b4_0000),
+    ]
 };
 
 /// The shares the sun light takes now (`engine::sky_sun::want_ambient_share`).
@@ -135,6 +145,7 @@ pub fn ambient_shares() -> AmbientShares {
         moon: at(4),
         dome: at(5),
         shade: at(6),
+        moon_height: at(7),
     }
 }
 
@@ -142,7 +153,16 @@ pub fn ambient_shares() -> AmbientShares {
 pub fn set_ambient_shares(s: AmbientShares) {
     for (slot, v) in AMBIENT
         .iter()
-        .zip([s.exterior, s.interior, s.night, s.sun, s.moon, s.dome, s.shade])
+        .zip([
+            s.exterior,
+            s.interior,
+            s.night,
+            s.sun,
+            s.moon,
+            s.dome,
+            s.shade,
+            s.moon_height,
+        ])
     {
         slot.store(v.to_bits(), Ordering::Relaxed);
     }
@@ -199,6 +219,7 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
         moon: light.slider("moon") as f32,
         dome: light.slider("sky_dome") as f32,
         shade: light.slider("shade_fill") as f32,
+        moon_height: light.slider("moon_max_height") as f32,
     };
     (
         choice,
@@ -362,8 +383,8 @@ mod tests {
         assert!(c.ambient_occlusion && c.sun_shadows);
         assert_eq!(c.ambient_occlusion_strength, 0.7);
         assert_eq!((l.ao_quality, l.shadow_map_size), (Quality::Medium, 2048));
-        // Modern takes less of the game's fill light, outdoors more than indoors (nv-rs#768).
-        assert!(l.ambient.exterior < l.ambient.interior && l.ambient.interior < 1.0);
+        // Modern takes less of the game's fill light outdoors than indoors (nv-rs#768, #772).
+        assert!(l.ambient.exterior < l.ambient.interior && l.ambient.interior <= 1.0);
         let r = resolve_at(
             &read(
                 env(&[

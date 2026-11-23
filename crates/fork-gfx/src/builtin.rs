@@ -173,8 +173,16 @@ pub static LIGHT: ModuleSpec = ModuleSpec {
             applies: Applies::Live,
             kind: Kind::Slider { min: 0.0, max: 2.0, step: 0.05, default: 0.0 },
         },
+        Setting {
+            key: "moon_max_height",
+            label: "Highest moon",
+            help: "How high the moon climbs, in degrees above the horizon. The drawn moon and its light move together. 90 is the game's own path. Needs the light from the sun and moon discs.",
+            applies: Applies::Live,
+            kind: Kind::Slider { min: 15.0, max: 90.0, step: 5.0, default: 90.0 },
+        },
     ],
     owns: &[
+        Owns::GameValue("the moons' path across the sky (only below the game's own height)"),
         Owns::GameValue("the sun light's direct colours outdoors"),
         Owns::GameValue("the weather's ambient colour as the sun light hands it to the shaders (outdoors)"),
         Owns::GameValue("the cell's ambient colour as the cell's light hands it to the shaders (indoors)"),

@@ -761,6 +761,8 @@ pub fn moon_update(e: &mut Engine, this: Ptr<Moon>, sky: Ptr, time: f32) {
             ));
             e.call(MAKE_X_ROTATION, &args![rotation, x87_quiet_bits(angle)]);
             let offset = e.get(this, Moon::fZOffset);
+            // Port-added: the setting's lower moon path; the same bits without it.
+            let offset = crate::units::fallout_shared_sky::sun::moon_tilt_bits(e, offset);
             let angle = x87_store32(x87_mul(
                 x87_load32(offset),
                 e.global::<f64>(DEGREES_TO_RADIANS),

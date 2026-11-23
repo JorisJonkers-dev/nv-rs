@@ -738,6 +738,9 @@ pub struct AmbientShares {
     pub dome: f32,
     /// How much more of the sky's light reaches a surface the direct light does not (0 to 2).
     pub shade: f32,
+    /// The highest the moons climb, in degrees above the horizon (90: the game's own path). The
+    /// drawn moon and its light move together ([`moon_tilt_bits`]).
+    pub moon_height: f32,
 }
 
 /// The sky light's colours for the renderer, as multipliers of the ambient colour.
@@ -778,6 +781,7 @@ impl AmbientShares {
         moon: 1.0,
         dome: 0.0,
         shade: 0.0,
+        moon_height: 90.0,
     };
 
     fn is_original(self) -> bool {
@@ -1339,7 +1343,8 @@ fn light_from_sky(e: &Engine, sky: u32, disc: &[u32; 3], brightness: u32) -> Opt
             return None;
         }
         let pos = f32::from_bits(e.get(moon, Moon::fPos));
-        let way = sky_light::toward_moon(pos, f32::from_bits(e.get(moon, Moon::fZOffset)))?;
+        let tilt = f32::from_bits(moon_tilt_bits(e, e.get(moon, Moon::fZOffset)));
+        let way = sky_light::toward_moon(pos, tilt)?;
         let shown = sky_light::moon_share(
             pos,
             f32::from_bits(e.get(moon, Moon::fAngleFadeStart)),
@@ -1355,6 +1360,25 @@ fn light_from_sky(e: &Engine, sky: u32, disc: &[u32; 3], brightness: u32) -> Opt
     Some(toward.map(|v| -v))
 }
 
+/// A moon's tilt (`Moon::fZOffset`, its bits) with the setting's highest climb
+/// ([`AmbientShares::moon_height`]), for the drawn moon and its light alike. The same bits while
+/// the light does not follow the discs or the setting leaves the game's path.
+pub(crate) fn moon_tilt_bits(e: &Engine, bits: u32) -> u32 {
+    let Some(shares) = e.ext_get::<AmbientShare>().and_then(|s| s.shares.get().map(|f| f())) else {
+        return bits;
+    };
+    if !e.ext_get::<LightFromSky>().is_some_and(LightFromSky::on) {
+        return bits;
+    }
+    let tilt = f32::from_bits(bits);
+    let lowered = sky_light::moon_tilt(tilt, shares.moon_height);
+    if lowered == tilt {
+        bits
+    } else {
+        lowered.to_bits()
+    }
+}
+
 /// How strong the moon's direct light is now, 0 to 1 ([`sky_light::moon_strength`]): from the
 /// game's phase index, Masser's fade and its height. No usable moon gives 0: starlight alone.
 fn moon_strength(e: &Engine, sky: u32) -> f32 {
@@ -1367,7 +1391,8 @@ fn moon_strength(e: &Engine, sky: u32) -> f32 {
         return 0.0;
     }
     let pos = f32::from_bits(e.get(moon, Moon::fPos));
-    let Some(way) = sky_light::toward_moon(pos, f32::from_bits(e.get(moon, Moon::fZOffset))) else {
+    let tilt = f32::from_bits(moon_tilt_bits(e, e.get(moon, Moon::fZOffset)));
+    let Some(way) = sky_light::toward_moon(pos, tilt) else {
         return 0.0;
     };
     let shown = sky_light::moon_share(
@@ -1511,6 +1536,23 @@ pub mod sky_light {
     pub fn unit(v: [f32; 3]) -> Option<[f32; 3]> {
         let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
         (len.is_finite() && len > 1e-6).then(|| v.map(|c| c / len))
+    }
+
+    /// The tilt that keeps a moon's path at or below `max_height` degrees: its path is a circle
+    /// whose highest point is `90 - |tilt|` above the horizon. A tilt already low enough, a limit
+    /// of 90 or more and numbers that are not usable keep `tilt`.
+    pub fn moon_tilt(tilt: f32, max_height: f32) -> f32 {
+        if !(tilt.is_finite() && max_height.is_finite()) || max_height >= 90.0 {
+            return tilt;
+        }
+        let need = 90.0 - max_height.max(0.0);
+        if tilt.abs() >= need {
+            tilt
+        } else if tilt < 0.0 {
+            -need
+        } else {
+            need
+        }
     }
 
     /// The way toward the moon from its angle `pos` and tilt `z_offset` (degrees, `Moon::fPos` and
@@ -2476,6 +2518,24 @@ mod tests {
         assert_eq!(moon_strength(0, 1.0, -0.2), 0.0, "below the horizon");
         assert!(moon_strength(0, 1.0, 0.3) < moon_strength(0, 1.0, 0.6), "low is weaker");
         assert_eq!(moon_strength(0, f32::NAN, 1.0), 0.0);
+    }
+
+    /// nv-rs#772: a lower moon path is a larger tilt, on the same side; the game's path is kept
+    /// without a limit.
+    #[test]
+    fn the_moon_path_stays_below_its_highest_climb() {
+        use sky_light::{moon_tilt, toward_moon};
+        assert_eq!(moon_tilt(35.0, 90.0), 35.0);
+        assert_eq!(moon_tilt(35.0, 60.0), 35.0, "already below the limit");
+        assert_eq!(moon_tilt(35.0, 25.0), 65.0);
+        assert_eq!(moon_tilt(-35.0, 25.0), -65.0);
+        assert_eq!(moon_tilt(0.0, 35.0), 55.0);
+        assert_eq!(moon_tilt(f32::NAN, 25.0).is_nan(), true);
+        assert_eq!(moon_tilt(35.0, f32::NAN), 35.0);
+        for pos in [30.0, 67.5, 90.0, 140.0] {
+            let up = toward_moon(pos, moon_tilt(35.0, 25.0)).unwrap()[2];
+            assert!(up <= 25f32.to_radians().sin() + 1e-5, "at {pos}: {up}");
+        }
     }
 
     /// nv-rs#772: a moonless night keeps its starlight and has no direct light or shadow pattern;
