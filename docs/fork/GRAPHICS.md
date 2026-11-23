@@ -120,6 +120,9 @@ direction is the fill.
 `original`: sunlit light 0.83 and shade 0.91 over the 22 day exteriors; moonlit light 0.82 and shade 0.96 over the 7 night
 views. 45 degrees is the lowest moon height tested that keeps the detail check below at the night Strip skyline.
 
+The sky light costs the card under 0.1 ms a frame at 2560x1440 on a high-end AMD card (`modern` with and without
+`sky_dome` and `shade_fill`, 11 standard views, two runs: +0.03 and +0.08 ms), less than the difference between runs.
+
 Known limits: glow is not separated from the occlusion; surfaces turned away from the true sun or moon can be much darker
 than under `original` (a rock wall at Hoover Dam by day has 0.26 of its shade light); a single night view can differ
 between runs of one build.
