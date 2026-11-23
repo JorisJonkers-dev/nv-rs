@@ -202,6 +202,113 @@ pub fn compare(req: &CompareRequest) -> Result<CompareResult, String> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// light
+
+/// `light`: how the light on the ground of the same-named pictures of two folders compares (the light balance's
+/// picture case, nv-rs#768): per picture the ratios B / A of [`crate::diff::Light`], and their means.
+#[derive(Clone, Debug, Default)]
+pub struct LightRequest {
+    pub a: PathBuf,
+    pub b: PathBuf,
+    /// The mean sunlit ratio passes when it is within this many percent of 1.
+    pub within_pct: Option<f64>,
+}
+
+/// One picture's ratios B / A.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LightRow {
+    pub name: String,
+    pub sunlit: f64,
+    pub shade: f64,
+    pub band: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LightResult {
+    pub rows: Vec<LightRow>,
+    /// The means of the rows' ratios.
+    pub sunlit: f64,
+    pub shade: f64,
+    pub band: f64,
+    /// Every picture of A was in B and the mean sunlit ratio is within the request's limit (when given).
+    pub ok: bool,
+}
+
+impl LightResult {
+    pub fn summary(&self) -> String {
+        let mut lines: Vec<String> = self
+            .rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}: sunlit {:.3}, shade {:.3}, ground {:.3}",
+                    r.name, r.sunlit, r.shade, r.band
+                )
+            })
+            .collect();
+        lines.push(format!(
+            "mean of {} pictures (B / A, linear light of the lower 45%): sunlit {:.3}, shade {:.3}, ground {:.3}",
+            self.rows.len(),
+            self.sunlit,
+            self.shade,
+            self.band
+        ));
+        lines.join("\n")
+    }
+}
+
+/// Compares the light of two folders' pictures. A picture of A missing in B fails the result.
+pub fn light(req: &LightRequest) -> Result<LightResult, String> {
+    let ratio = |b: f64, a: f64| if a > 0.0 { b / a } else { f64::NAN };
+    let mut rows = Vec::new();
+    let mut missing = false;
+    for pa in pngs(&req.a)? {
+        let name = pa
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let pb = req.b.join(&name);
+        if !pb.exists() {
+            missing = true;
+            continue;
+        }
+        let (la, lb) = (
+            crate::diff::light(&load(&pa)?)?,
+            crate::diff::light(&load(&pb)?)?,
+        );
+        rows.push(LightRow {
+            name,
+            sunlit: ratio(lb.sunlit, la.sunlit),
+            shade: ratio(lb.shade, la.shade),
+            band: ratio(lb.band, la.band),
+        });
+    }
+    if rows.is_empty() {
+        return Err(format!(
+            "no picture of {} is in {}",
+            req.a.display(),
+            req.b.display()
+        ));
+    }
+    let mean = |f: fn(&LightRow) -> f64| {
+        let v: Vec<f64> = rows.iter().map(f).filter(|x| x.is_finite()).collect();
+        v.iter().sum::<f64>() / v.len().max(1) as f64
+    };
+    let (sunlit, shade, band) = (mean(|r| r.sunlit), mean(|r| r.shade), mean(|r| r.band));
+    let within = req
+        .within_pct
+        .is_none_or(|pct| (sunlit - 1.0).abs() * 100.0 <= pct);
+    Ok(LightResult {
+        ok: !missing && within,
+        rows,
+        sunlit,
+        shade,
+        band,
+    })
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // the engine start: the hook
 
 /// The shared (pictures, soaks, sweeps) or exclusive (bench) lock a start must hold while the engine runs.

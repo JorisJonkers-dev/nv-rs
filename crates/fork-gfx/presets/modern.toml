@@ -11,3 +11,7 @@ strength = 0.7
 [global.shadows]
 enabled = true
 quality = "medium"
+
+[global.light]
+ambient_exterior = 0.25
+ambient_interior = 0.9

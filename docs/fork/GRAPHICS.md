@@ -34,11 +34,11 @@ cell layers take effect while playing in the next slice; until then the start an
 
 ## Presets
 
-| Preset | Ambient occlusion | Sun shadows |
-| --- | --- | --- |
-| `original` | off | off |
-| `modern` | on, medium, strength 0.7 | on, medium (2048) |
-| `performance` | on, low, strength 0.6 | off |
+| Preset | Ambient occlusion | Sun shadows | Light balance (fill light outdoors, indoors) |
+| --- | --- | --- | --- |
+| `original` | off | off | 1, 1 |
+| `modern` | on, medium, strength 0.7 | on, medium (2048) | 0.25, 0.9 |
+| `performance` | on, low, strength 0.6 | off | 1, 1 |
 
 A preset is a settings file (`crates/fork-gfx/presets/`); a value set in the profile's file wins over it.
 
@@ -88,6 +88,37 @@ Objects cast shadows from the game's sun and moon light in four cascades out to 
 The older keys (`[nv-rs Display] bAmbientOcclusion`, `fAmbientOcclusionStrength`, `bSunShadows`,
 `bSunShadowsCharacters`, `bSunLightFromSky` and their `NV_*` variables) still work; a value set in the graphics settings
 wins over them.
+
+### Light balance (`light`)
+
+The game lifts every lit surface by a flat fill light: the weather's ambient colour outdoors, the cell's indoors. It
+stands in for the light the sky and the ground bounce into shade. With the port's own shade (ambient occlusion, sun
+shadows) and the light from the sky (the sun light comes from the disc, so ground at midday faces it squarely) the whole
+fill on top washes the picture out: under `modern` with the whole fill, sunlit ground at the standard day views was 1.7
+times as bright as under `original` on the plain game and 1.45 times on a 312-mod profile (nv-rs#768). The light balance
+hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs`,
+`AmbientShare`); the sky's own colours, the fog and water are unchanged. Far objects take the same share.
+
+| Setting | Values | Original | Applies |
+| --- | --- | --- | --- |
+| `ambient_exterior` | 0 (no fill: sun, moon and lamps only) to 1 | 1 | live |
+| `ambient_interior` | 0 (no fill: the cell's directional light and lamps only) to 1 | 1 | live |
+
+`modern` takes 0.25 outdoors: sunlit ground at the standard day views comes back to within a few per cent of `original`
+while shade keeps more contrast than the original had. Indoors it takes 0.9: interiors were not too bright, ambient
+occlusion already darkens them. A lighting mod that lowers the weathers' ambient colours itself leaves less fill to
+take away, so the share lowers the picture less there (measured on a 312-mod profile with such mods: the same share
+moves sunlit ground by less than on the plain game), and the two do not stack into a much darker picture.
+
+The picture case: draw the standard day views (`docs/fork/scenes/mojave-far.toml`) with `--variant original --variant
+modern --variant-env modern:NV_GFX_PRESET=modern` in one run, then
+
+```
+nv-rs-scene light OUT/original/pictures OUT/modern/pictures --within 5
+```
+
+prints, per view, the sunlit, shade and ground light of `modern` against `original` (linear light of the lower 45% of
+the picture; sunlit its brightest 40%, shade its darkest 20%) and exits 1 when the mean sunlit ratio is more than 5% from 1.
 
 ## Scripted runs
 

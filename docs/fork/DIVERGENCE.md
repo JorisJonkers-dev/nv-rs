@@ -46,6 +46,14 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: the maintainer's graphics modules (nv-rs#591) need quality levels and live changes of the effects the engine has
 - Evidence: `quality_levels_change_only_the_search`, `a_live_strength_is_clamped_and_can_be_taken_back`, `the_map_size_is_one_of_the_three_levels`, `every_map_extent_follows_the_run_map_size`, `host::fork_graphics` tests; the standard views with no settings against the build before, difference 0 (pull request)
 
+### The light balance: the game's ambient share
+- Files: `crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs` (`set_light_colors` takes the share; `AmbientShare`, `AmbientShares`, `want_ambient_share`), `crates/host/src/lib.rs` (`want_ambient_share` with `fork_graphics::ambient_shares` at start)
+- Upstream approach: the sun light takes the sky's ambient colour (the weather's outdoors, the cell's indoors) whole every frame, as the exe does; checked in `sun.rs` at the base
+- Fork approach: the graphics settings' `light.ambient_exterior` and `light.ambient_interior` (nv-rs#768) hand the light that share of the sky's ambient colour; the sky's own colours are not changed. At 1 (the default and the `original` preset) the code is the exe's, call for call
+- Decision: keep; offer upstream the seam if it wants a fill-light setting for its own lighting
+- Reason: the maintainer's `modern` preset (nv-rs#591) adds shade and the light from the sky; the game's flat fill light on top of it washes the picture out
+- Evidence: `the_ambient_share_at_one_is_the_exes_code`, `the_ambient_share_scales_the_lights_ambient_only`, `an_ambient_share_that_is_not_usable_counts_as_one` (`sun.rs`), `the_light_balance_reaches_the_sun_lights_shares` (`host::fork_graphics`); the standard views under `original` against the build before, difference 0 (pull request)
+
 ### Far-object block with several shapes
 - Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`), `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsterrainnode.rs` (`later_block_shapes`, `bgs_terrain_node_update_block_visibility`)
 - Upstream approach: upstream does nothing here; the exe expects one shape per block file: the load task (`006f71e0`) keeps child 0 of the file's root node as the block's mesh, the block's prepare (`006f66e0`) gives only that mesh its shader and registers it with the renderer, and `BGSTerrainNode::UpdateBlockVisibility` (`006fee90`) sets the segments of only that mesh's segmented shape. A segmented shape loads with every segment off, so any later shape draws nothing

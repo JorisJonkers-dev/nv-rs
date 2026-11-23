@@ -1,0 +1,2 @@
+crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs  # the light balance: the sun light takes the settings' share of the sky's ambient colour (nv-rs#768, ADR-0019)
+crates/host/src/lib.rs  # the light balance's shares handed to the sun light at start (nv-rs#768)
