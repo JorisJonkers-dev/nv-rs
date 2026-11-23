@@ -37,6 +37,7 @@ mod fingerprint;
 pub mod format;
 pub mod frame_rate;
 mod fxhash;
+pub mod gfx_overlay;
 pub mod gpu_times;
 mod gputime;
 pub mod identity;

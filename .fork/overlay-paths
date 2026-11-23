@@ -48,6 +48,7 @@ crates/fork-play/
 crates/fork-scene/
 crates/fork-scene-run/
 crates/fork-gfx/
+crates/fork-overlay/
 # The built-in JohnnyGuitar NVSE and ShowOff xNVSE (fork-only crates).
 crates/jg/
 crates/showoff/
@@ -86,3 +87,5 @@ crates/nvse/src/commands/math.rs
 crates/d3d9-wgpu/src/budget.rs
 crates/d3d9-wgpu/src/gputime.rs
 crates/host/src/fork_prestart.rs
+crates/d3d9-wgpu/src/gfx_overlay.rs
+crates/d3d9-wgpu/tests/gfx_overlay.rs

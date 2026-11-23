@@ -123,9 +123,9 @@ scene tool's `--env`, and a place file's `gfx = "..."` for one place. A scripted
   from and which layer an edit goes to (global by default; the current world space, interior or cell on request).
 - A change is applied in the next frame and written to the profile's file at once (written to a new file beside it, then
   renamed over it). The engine also reads the file again when another program (raul) changes it, checked about once a second.
-- Drawn with the port's own bitmap font and quad list at the present, as the F11 counter is. No interface crate is added:
-  an immediate-mode toolkit (egui) would need an egui-wgpu release for the tree's wgpu 30.0.1 and its own input path, for a
-  list of a few dozen lines. If the overlay later needs more (mouse, text input, pictures), the choice is made again then.
+- Drawn at the present, after the window's capture is taken, as the F11 counter is. Superseded by Amendment 1: the panel
+  is egui, drawn by egui-wgpu, with a font made from the port's bitmap glyphs. (The first text said: the bitmap font and
+  quad list, no interface crate, because no egui-wgpu release supported wgpu 30.0.1. That is no longer so.)
 
 ### 7. raul and the preset importer
 
@@ -134,8 +134,10 @@ scene tool's `--env`, and a place file's `gfx = "..."` for one place. A scripted
   the engine prints as JSON (`fork_gfx::dump::schema_json`; `nv-viewer --gfx-schema` and a `fork-api` call in slice 4): the
   file's name and version, the layers, the presets, and per module its settings with type, range, step, options,
   original value and whether a change applies live or at the next start. raul hard-codes no setting.
-- A preset importer (later slice) reads a look the player downloaded (an ENB, NVR or ReShade preset) and writes a preset
-  file of this format, with what it could not map listed; nothing of the look is shipped.
+- A preset importer (later slice) reads a look the player downloaded (a New Vegas Reloaded preset or an open ReShade
+  shader preset) and writes a preset file of this format, with what it could not map listed; nothing of the look is
+  shipped. ENB presets, shaders and bitmaps are never loaded, parsed or converted (maintainer's decision on nv-rs#663,
+  2026-11-23: the ENBSeries licence forbids it).
 
 ### 8. Cost
 
@@ -167,3 +169,46 @@ The levels and ranges are settled in the slice that wires each module, after its
 - The real Direct3D 9 fallback has no modules and no overlay.
 - Every later module (tone curve, grading, anti-aliasing, the shader path, upscaling, traced effects) uses the same schema,
   file, layers and overlay, and carries a picture case per level and a bench number.
+
+## Amendment 1 (2026-11-23): the overlay is an egui panel (nv-rs#730)
+
+**Issue:** nv-rs#730 (spike), for nv-rs#592.
+
+The reason in section 6 for a bitmap-font panel no longer holds: egui-wgpu 0.36.0 (2026-08-05) moved to wgpu 30, and
+0.37.0 (2026-10-15) needs `wgpu ^30.0`, which resolves to the tree's pinned 30.0.1 beside the vendored wgpu-hal. The
+spike built the smallest overlay on it and compared it with the bitmap-font route.
+
+### What was built
+
+- `crates/fork-overlay` (fork-owned): `egui 0.37.0` and `egui-wgpu 0.37.0`, both without default features, pinned with
+  `=` as wgpu is. Resolved through the package mirror under the 7-day rule (`.cargo/config.toml`); `cargo deny check`
+  passes with `deny.toml` unchanged.
+- No font file: egui's bundled fonts (`epaint_default_fonts`) carry the OFL-1.1 and Ubuntu font licences, which are not
+  in `deny.toml`. The panel's font is a TrueType file made at start from the port's own 5 by 7 glyphs (`font.rs`, about
+  300 lines): each lit pixel a square of the outline. At the panel's 16-point text every font pixel is two screen pixels
+  at scale 1 and four at scale 2, so the text is as sharp as the F11 counter's and looks like it.
+- The panel (`panel.rs`) is generated from the schemas: the preset, the layer an edit goes to, and per module each
+  setting with its widget (check box, slider, choice), where its value comes from and "next start" where it does not
+  apply live. It returns changes; it does not write files.
+- The drawing (`painter.rs`) records one render pass into the frame it is given, with `LoadOp::Load`; no depth, no
+  multisampling, no dithering (the same pixels on every card).
+
+### Comparison
+
+| | egui panel | bitmap-font panel |
+| --- | --- | --- |
+| Build size | about 5.4 MB more in a stripped release binary (a small program that draws the panel against the same program with wgpu alone: 7.8 MB against 2.4 MB); the play build of `nv-viewer` is about 133 MB | none: the font and quad list exist |
+| Frame cost, closed | one atomic read and a branch at the present (the panel is not made until it first opens) | the same |
+| Frame cost, open (2560x1440, scale 2, the panel of the two modules: 2,092 vertices; release build, a high-end AMD card, median of 300 frames) | CPU 0.12 to 0.14 ms (layout, tessellation, upload, recording); the card 0.034 ms | one instanced quad list, as the counter's; not measured, smaller |
+| Widgets | check boxes, sliders with typed values, drop-down choices, tool tips, keyboard focus (Tab, arrows, Enter, Space, Escape) and the mouse, from the toolkit | each written by hand: a focus model, a slider, a drop-down list, hit tests for a mouse |
+| Input | egui takes `egui::Event`s and says each frame whether it wants the pointer or the keyboard (`egui_wants_pointer_input`, `egui_wants_keyboard_input`); the Win32 window's messages are turned into events by hand (egui-winit serves only the winit layer) | a few keys, routed as F11's |
+| Capture exclusion | drawn after the window's capture at the present: never in the back buffer, an F12 report, `NV_SHOT` or a scene picture | the same |
+| Look | the same glyphs as the counter, egui's dark visuals; the same toolkit as raul's window | the counter's look |
+
+### Decision
+
+The panel is egui, from nv-rs#592 on. It passes every criterion of nv-rs#730: it builds against the pinned wgpu and the
+vendored wgpu-hal, adds no licence outside `deny.toml`, costs nothing closed and about 0.15 ms of the processor's time
+and 0.03 ms of the card's open, and is kept out of every capture by where it is drawn. Its price is about 5 MB of binary.
+The F11 counter keeps its bitmap-font drawing. Input rules for the panel follow nv-rs#731: closed, only F10 is taken;
+open, the keys and the mouse go to the panel only while egui wants them, decided each frame.

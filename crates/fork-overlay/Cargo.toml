@@ -1,0 +1,21 @@
+[package]
+name = "fork-overlay"
+version = "0.1.0"
+description = "Fork-owned in-game graphics overlay (docs/fork/adr/0019-graphics-modules.md): an egui panel built from the fork-gfx schema, drawn at the present after the window's capture"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+fork-gfx = { path = "../fork-gfx" }
+# The panel's widgets and their drawing (MIT OR Apache-2.0). No default features: no bundled fonts
+# (their licences are outside deny.toml's list); the panel's font is made from the port's own.
+egui = { version = "=0.37.0", default-features = false }
+egui-wgpu = { version = "=0.37.0", default-features = false }
+# The tree's pinned wgpu (ADR-0007).
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl"] }
+
+# The drawing test makes a device on this machine's card: the APIs the engine uses (ADR-0007).
+[dev-dependencies]
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl", "dx12", "vulkan", "metal"] }

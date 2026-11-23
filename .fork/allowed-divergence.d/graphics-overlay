@@ -1,0 +1,4 @@
+Cargo.toml  # workspace member fork-overlay, the in-game graphics overlay (nv-rs#592, nv-rs#730, ADR-0019)
+crates/d3d9-wgpu/Cargo.toml  # fork-overlay as a dependency (the graphics overlay drawn at the present) and fork-gfx for its picture test
+crates/d3d9-wgpu/src/lib.rs  # `pub mod gfx_overlay;` (fork-only file)
+crates/d3d9-wgpu/src/bitmap_font.rs  # `ascii()`: the port's glyphs handed to the overlay's font
