@@ -1726,6 +1726,11 @@
      "features": [],
      "kind": "dev",
      "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "uio"
     }
    ],
    "features": [],
