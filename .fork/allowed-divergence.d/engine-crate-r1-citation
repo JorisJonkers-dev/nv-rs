@@ -1,0 +1,1 @@
+docs/ENGINE_CRATE.md  # the Memory paragraph drops "ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem` is `Send`, not `Sync`, until then)" and keeps `Mem` is `Send`, not `Sync` as a plain clause
