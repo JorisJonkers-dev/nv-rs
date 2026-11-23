@@ -54,6 +54,14 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: the maintainer's `modern` preset (nv-rs#591) adds shade and the light from the sky; the game's flat fill light on top of it washes the picture out
 - Evidence: `the_ambient_share_at_one_is_the_exes_code`, `the_ambient_share_scales_the_lights_ambient_only`, `an_ambient_share_that_is_not_usable_counts_as_one` (`sun.rs`), `the_light_balance_reaches_the_sun_lights_shares` (`host::fork_graphics`); the standard views under `original` against the build before, difference 0 (pull request)
 
+### Sky light, true moon and starlight
+- Files: `crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs` (`sky_light`, `SkyFill`, `moon_tilt_bits`), `crates/engine-fallout-env/src/units/fallout_shared_sky/moon.rs` (the moon's path takes `moon_tilt_bits`), `crates/d3d9-wgpu/src/scene_light.rs` and `crates/d3d9-wgpu/src/sun_shadow.rs` (sky fill in the apply step), `crates/host/src/fork_graphics.rs`
+- Upstream approach: a flat ambient colour on every lit surface; the moon's path and light as the exe has them
+- Fork approach: the settings `light.ambient_night`, `sun`, `moon`, `sky_dome`, `shade_fill` and `moon_max_height` (nv-rs#772) give light from the sky by surface direction, a moon light by the game's phase, fade and height, a starlight fill, and a lower moon path for the drawn moon and its light together. At their defaults (the `original` preset) the code paths are the exe's
+- Decision: keep; offer upstream the seam if it wants sky light of its own
+- Reason: the fill cut of nv-rs#769 left shade and night without readable shapes
+- Evidence: `docs/regressions/2026-11-23-modern-too-dark.md`; the 11 standard views under `original` against v0.23.0: 10 identical, night Goodsprings differs by at most 16 of 255 on under 0.001% of pixels, as two runs of v0.23.0 differ from each other (pull request)
+
 ### A run's number and the open packets' slots
 - Files: `crates/engine-core/src/units/platform.rs` (`KernelRef::id`), `crates/engine-typed/src/draw/capture.rs` (`OpenSlot`)
 - Upstream approach: a run is named by its kernel's address, and a packet's slot is given back only by `capture::end`; checked at the base

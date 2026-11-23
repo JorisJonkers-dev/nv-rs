@@ -37,7 +37,7 @@ cell layers take effect while playing in the next slice; until then the start an
 | Preset | Ambient occlusion | Sun shadows | Light balance (fill light outdoors, indoors) |
 | --- | --- | --- | --- |
 | `original` | off | off | 1, 1 |
-| `modern` | on, medium, strength 0.7 | on, medium (2048) | 0.25, 0.9 |
+| `modern` | on, medium, strength 0.7 | on, medium (2048) | 0.7, 1, with light from the sky (see Light balance) |
 | `performance` | on, low, strength 0.6 | off | 1, 1 |
 
 A preset is a settings file (`crates/fork-gfx/presets/`); a value set in the profile's file wins over it.
@@ -103,14 +103,26 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | --- | --- | --- | --- |
 | `ambient_exterior` | 0 (no fill: sun, moon and lamps only) to 1 | 1 | live |
 | `ambient_interior` | 0 (no fill: the cell's directional light and lamps only) to 1 | 1 | live |
+| `ambient_night` | the share of the fill at night, 0 to 1 | 1 | live |
+| `sun` | the share of the sun's direct light by day, 0.3 to 1 | 1 | live |
+| `moon` | the share of the moon's direct light at night, 0.3 to 1 | 1 | live |
+| `moon_max_height` | how high the moon climbs, 15 to 90 degrees; the drawn moon and its light move together; 90 is the game's path | 90 | live |
+| `sky_dome` | how much of the fill follows the sky, 0 (the game's flat light) to 1; needs sun shadows | 0 | live |
+| `shade_fill` | how much more sky light reaches surfaces the sun or moon does not, 0 to 2; needs `sky_dome` | 0 | live |
 
-`modern` takes 0.25 outdoors: the mean of sunlit ground over the standard day views comes back to within 5% of
-`original` (1.02 on the plain game, 1.04 over 22 views of a 312-mod profile). Single views still differ, from 0.54 to
-1.37 on that profile, because the light now comes from another direction. Shade is darker than the original's (0.64 and
-0.74), and nights are darker too: the fill is most of the light there. Indoors it takes 0.9: interiors were not too
-bright, ambient occlusion already darkens them. A lighting mod that lowers the weathers' ambient colours leaves less
-fill to take away: at a share of 0.5, the same five day views keep 1.31 of the original's sunlit light on a profile with
-such mods and 1.24 on the plain game.
+With `sky_dome`, faces toward the sky take the sky's colour and faces toward the ground a warm bounce, in shadow too, and
+ambient occlusion outdoors dims only this sky light, not the direct light. At night the moon's direct light follows the
+game's phase, fade and height, so a new moon gives no direct light and no moon shadow; a dim, cool starlight by surface
+direction is the fill.
+
+`modern` takes `ambient_exterior` 0.7, `ambient_interior` 1, `ambient_night` 1, `sun` 0.65, `moon` 0.75,
+`moon_max_height` 45, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
+`original`: sunlit light 0.83 and shade 0.91 over the 22 day exteriors; moonlit light 0.82 and shade 0.96 over the 7 night
+views. 45 degrees is the lowest moon height tested that keeps the detail check below at the night Strip skyline.
+
+Known limits: glow is not separated from the occlusion; surfaces turned away from the true sun or moon can be much darker
+than under `original` (a rock wall at Hoover Dam by day has 0.26 of its shade light); a single night view can differ
+between runs of one build.
 
 The picture case: draw the standard day views (`docs/fork/scenes/mojave-far.toml`) with `--variant original --variant
 modern --variant-env modern:NV_GFX_PRESET=modern` in one run, then
@@ -121,6 +133,9 @@ nv-rs-scene light OUT/original/pictures OUT/modern/pictures --within 5
 
 prints, per view, the sunlit, shade and ground light of `modern` against `original` (linear light of the lower 45% of
 the picture; sunlit its brightest 40%, shade its darkest 20%) and exits 1 when the mean sunlit ratio is more than 5% from 1.
+
+With `--max-lost-detail POINTS` it also exits 1 when a view gains more than that many points of dark blocks that show no
+detail in the lower 55% of the picture: darkness alone passes, lost shapes and texture do not. The limit for `modern` is 5.
 
 ## Scripted runs
 
