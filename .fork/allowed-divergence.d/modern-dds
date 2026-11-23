@@ -1,0 +1,6 @@
+crates/d3dx-tex/src/lib.rs  # `pub mod fork_modern_dds;` and the three `_modern` functions re-exported (nv-rs#750)
+crates/d3dx-tex/src/load.rs  # `read` and `create` take a modern flag; the `_modern` entry points beside the faithful ones, which pass none (nv-rs#750)
+crates/d3d9-wgpu/src/format.rs  # BC7 (private FourCC `BC7U`) as wgpu's Bc7RgbaUnorm (nv-rs#750)
+crates/engine-platform/src/d3dx.rs  # `modern_dds_enabled` (NV_DDS_MODERN) and the modern entry points in the image info and the texture calls (nv-rs#750)
+crates/engine-platform/src/d3d9.rs  # CheckDeviceFormat answers the modern formats while wgpu draws with the option on (nv-rs#750)
+crates/engine-platform/src/d3d9device.rs  # format_blocks sizes ATI1, ATI2 and BC7U blocks (nv-rs#750)

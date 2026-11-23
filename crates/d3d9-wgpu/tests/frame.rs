@@ -24,6 +24,8 @@ const A8R8G8B8: u32 = 21;
 const D24S8: u32 = 75;
 /// The depth texture format a pixel shader can sample (`MAKEFOURCC('I', 'N', 'T', 'Z')`).
 const INTZ: u32 = u32::from_le_bytes(*b"INTZ");
+/// The private FourCC the Direct3D 9 layer takes BC7 as (d3dx-tex, nv-rs#750).
+const BC7: u32 = u32::from_le_bytes(*b"BC7U");
 /// Render states.
 const ZENABLE: u32 = 7;
 const ZWRITEENABLE: u32 = 14;
@@ -846,6 +848,133 @@ fn a_textured_shaders_library_made_ahead_is_the_one_its_draws_link() {
         "one more pixel shader library, for the other layout"
     );
     assert_eq!(d.wgpu_errors(), 0);
+}
+
+/// One BC7 block of mode 6 (one subset, 7-bit endpoints with a p-bit each, 4-bit indices) from
+/// two endpoints (`r, g, b, a` 7-bit values and the p-bit) and the 16 texels' indices (the first,
+/// the anchor, below 8: its top bit is implicit).
+fn bc7_mode6(e0: ([u8; 4], u8), e1: ([u8; 4], u8), indices: [u8; 16]) -> [u8; 16] {
+    let mut bits = 0u128;
+    let mut at = 0;
+    let mut put = |value: u128, n: u32| {
+        bits |= value << at;
+        at += n;
+    };
+    put(1 << 6, 7); // mode 6: six zero bits, then a one
+    for c in 0..4 {
+        put(u128::from(e0.0[c]), 7);
+        put(u128::from(e1.0[c]), 7);
+    }
+    put(u128::from(e0.1), 1);
+    put(u128::from(e1.1), 1);
+    assert!(indices[0] < 8, "the anchor's index has no top bit");
+    for (i, &v) in indices.iter().enumerate() {
+        put(u128::from(v), if i == 0 { 3 } else { 4 });
+    }
+    assert_eq!(at, 128);
+    bits.to_le_bytes()
+}
+
+/// A 4x4 BC7 texture (a mode 6 block: the Direct3D 9 layer's private `BC7U` format, which d3dx-tex
+/// makes of a DX10-header file) is sampled as the GPU decodes it: the first endpoint's colour at
+/// index 0, the second's at index 15, and the interpolated one between (index 8: weight 34 of 64).
+/// Each texel is read at its centre on the 4x4 viewport and compared with the block as
+/// the BC7 specification decodes it (endpoints widened with their p-bit, interpolation weights
+/// 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64). A BC7 texture the adapter
+/// cannot sample makes no texture (no wgpu error either): this machine's adapter takes it or the
+/// case is not reached.
+#[test]
+fn a_bc7_texture_is_sampled_as_the_block_decodes() {
+    let Some(mut g) = Gpu::new(4, 1) else { return };
+    const TEX: u32 = 0x1B00;
+    // e0 = (255, 1, 1, 255) with its p-bit, e1 = (0, 0, 254, 254) without.
+    let e0 = ([127u8, 0, 0, 127], 1u8);
+    let e1 = ([0u8, 0, 127, 127], 0u8);
+    let widen = |e: ([u8; 4], u8)| e.0.map(|v| (u32::from(v) << 1) | u32::from(e.1));
+    let (c0, c1) = (widen(e0), widen(e1));
+    let weights = [
+        0u32, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64,
+    ];
+    let indices: [u8; 16] = [0, 15, 8, 15, 15, 0, 15, 8, 8, 15, 0, 15, 15, 8, 15, 0];
+    let block = bc7_mode6(e0, e1, indices);
+    let levels = words(&[TEX + 1]);
+    g.run(Cmd::CreateTexture {
+        device: DEVICE,
+        texture: TEX,
+        levels: Data::Bytes(&levels),
+        width: 4,
+        height: 4,
+        usage: 0,
+        format: BC7,
+        pool: 1,
+    });
+    g.run(Cmd::UploadSurface {
+        surface: TEX + 1,
+        row: 16,
+        rows: 1,
+        data: Data::Bytes(&block),
+    });
+    g.run(Cmd::SetTexture {
+        device: DEVICE,
+        sampler: 0,
+        texture: TEX,
+    });
+    // ps_2_0: dcl_2d s0; mov r1, c0; texld r0, r1, s0; mov oC0, r0.
+    let mut ps = vec![0xFFFF_0200];
+    ps.extend(ins(31, &[0x9000_0000, 0xA00F_0800]));
+    ps.extend(ins(1, &[0x800F_0001, 0xA0E4_0000]));
+    ps.extend(ins(66, &[0x800F_0000, 0x80E4_0001, 0xA0E4_0800]));
+    ps.extend(ins(1, &[0x800F_0800, 0x80E4_0000]));
+    ps.push(END);
+    let t = words(&ps);
+    const PS_BC7: u32 = 0x1B10;
+    g.run(Cmd::CreateShader {
+        device: DEVICE,
+        shader: PS_BC7,
+        pixel: true,
+        tokens: Data::Bytes(&t),
+    });
+    g.run(Cmd::SetShader {
+        device: DEVICE,
+        pixel: true,
+        shader: PS_BC7,
+    });
+    g.state(ZENABLE, 0);
+    for ty in 0..4u32 {
+        for tx in 0..4u32 {
+            let uv = [(tx as f32 + 0.5) / 4.0, (ty as f32 + 0.5) / 4.0, 0.0, 0.0];
+            let regs = floats(&uv);
+            g.run(Cmd::SetConstants {
+                device: DEVICE,
+                kind: 3,
+                start: 0,
+                count: 1,
+                data: Data::Bytes(&regs),
+            });
+            g.viewport(tx, ty, 1, 1, 0.0, 1.0);
+            g.quad(0.5);
+        }
+    }
+    let px = g.pixels();
+    for ty in 0..4usize {
+        for tx in 0..4usize {
+            let w = weights[indices[ty * 4 + tx] as usize];
+            let want: Vec<u32> = (0..4)
+                .map(|c| (c0[c] * (64 - w) + c1[c] * w + 32) >> 6)
+                .collect();
+            // The pixel's B, G, R, A bytes; the sampled value is unorm, written as 8 bits.
+            let got = px[ty * 4 + tx];
+            let got = [got[2], got[1], got[0], got[3]];
+            for c in 0..4 {
+                let d = (i32::from(got[c]) - want[c] as i32).abs();
+                assert!(
+                    d <= 1,
+                    "texel ({tx}, {ty}) channel {c}: got {got:?}, want {want:?}"
+                );
+            }
+        }
+    }
+    assert_eq!(g.b.device().map(|d| d.wgpu_errors()), Some(0));
 }
 
 /// Textures and shaders for each stage's own sampler group: a 1 by 1 green texture for vertex

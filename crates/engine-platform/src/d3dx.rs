@@ -961,7 +961,12 @@ pub fn get_image_info_from_file_in_memory(e: &mut Engine, data: Ptr, size: u32, 
     );
     let bytes = e.mem.bytes(data.addr(), size);
     if texture_mode(e) == TextureMode::Translated {
-        match d3dx_tex::get_image_info_from_file_in_memory(&bytes) {
+        let parsed = if modern_dds_enabled() {
+            d3dx_tex::get_image_info_from_file_in_memory_modern(&bytes)
+        } else {
+            d3dx_tex::get_image_info_from_file_in_memory(&bytes)
+        };
+        match parsed {
             Ok(image) => {
                 note_source(e, TextureSource::Translated);
                 for (i, w) in image.words().iter().enumerate() {
@@ -1195,6 +1200,38 @@ fn device_caps(e: &mut Engine, device: Ptr) -> d3dx_tex::Caps {
     caps
 }
 
+/// Whether the modern DDS files are read: DX10-header BC4, BC5 and BC7 and the `ATI1` and `ATI2`
+/// FourCCs, which D3DX9 refuses (nv-rs#750, `d3dx_tex::fork_modern_dds`). Off by default, so the
+/// game's textures come out as the original's; `NV_DDS_MODERN=1` switches it on, and only while
+/// wgpu draws (its device takes the blocks as they are). Read once.
+pub fn modern_dds_enabled() -> bool {
+    #[cfg(test)]
+    if let Some(on) = TEST_MODERN_DDS.with(std::cell::Cell::get) {
+        return on && super::d3d9real::wgpu_draws();
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("NV_DDS_MODERN").as_deref(),
+            Ok("1" | "on" | "true")
+        )
+    }) && super::d3d9real::wgpu_draws()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: what the modern DDS option is on this thread (`None`: the environment's).
+    pub(crate) static TEST_MODERN_DDS: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// The modern formats the layer on wgpu makes (all of `d3dx_tex::fork_modern_dds::FORMATS`).
+pub(crate) fn modern_dds_formats() -> Vec<u32> {
+    d3dx_tex::fork_modern_dds::FORMATS
+        .into_iter()
+        .filter(|f| d3d9_wgpu::format::format(*f).is_some())
+        .collect()
+}
+
 /// On wgpu, the formats `d3d9_wgpu` does not provide are left out of what the card takes: a
 /// texture in one would never be made (wgpu draws its stand-in), so D3DX picks among the rest, as
 /// on a card without them (A4L4 files become A4R4G4B4, the same nibbles). Of D3DX's table, wgpu
@@ -1216,10 +1253,16 @@ fn translated_texture(
     precision: d3dx_tex::Precision,
     caps: &d3dx_tex::Caps,
 ) -> Result<(CachedTexture, Vec<Vec<u8>>), d3dx_tex::Error> {
-    let t = if cube {
-        d3dx_tex::create_cube_texture_from_file_in_memory(bytes, caps, precision)
-    } else {
-        d3dx_tex::create_texture_from_file_in_memory(bytes, caps, precision)
+    let modern = modern_dds_enabled().then(modern_dds_formats);
+    let t = match (cube, &modern) {
+        (true, Some(m)) => {
+            d3dx_tex::create_cube_texture_from_file_in_memory_modern(bytes, caps, precision, m)
+        }
+        (false, Some(m)) => {
+            d3dx_tex::create_texture_from_file_in_memory_modern(bytes, caps, precision, m)
+        }
+        (true, None) => d3dx_tex::create_cube_texture_from_file_in_memory(bytes, caps, precision),
+        (false, None) => d3dx_tex::create_texture_from_file_in_memory(bytes, caps, precision),
     }?;
     let surfaces = t
         .surfaces
@@ -2649,6 +2692,112 @@ mod tests {
             vec![NotTranslated::Refused]
         );
         engine_core::units::crt::set_x87_control_word(&mut e, 0x027f);
+    }
+}
+
+#[cfg(test)]
+mod tests_modern_dds {
+    use super::*;
+
+    /// A DX10-header BC7 file of 8x8 with one level (nv-rs#750).
+    fn bc7_file() -> Vec<u8> {
+        let mut d = vec![0u8; 148 + 64];
+        let mut put = |at: usize, v: u32| d[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        put(0, u32::from_le_bytes(*b"DDS "));
+        put(4, 124);
+        put(8, 0x0008_1007);
+        put(12, 8);
+        put(16, 8);
+        put(28, 1);
+        put(76, 32);
+        put(80, 4);
+        put(84, u32::from_le_bytes(*b"DX10"));
+        put(128, 98);
+        put(132, 3);
+        put(140, 1);
+        d
+    }
+
+    fn info(e: &mut Engine, file: &[u8]) -> (u32, u32) {
+        let data = e.mem.alloc(file.len() as u32);
+        e.mem.write(data, file);
+        let out = e.mem.alloc(28);
+        let hr =
+            get_image_info_from_file_in_memory(e, Ptr::new(data), file.len() as u32, Ptr::new(out));
+        (hr, e.mem.u32(out + 16))
+    }
+
+    /// The option: off, the file is refused as D3DX refuses it; on while wgpu draws, the image
+    /// info answers BC7's format; on without wgpu (the real device or the DLL answers), it stays
+    /// refused.
+    #[test]
+    fn the_image_info_reads_a_bc7_file_only_with_the_option_on_and_wgpu_drawing() {
+        let file = bc7_file();
+        let answer = |wgpu: bool, option: Option<bool>| {
+            let mut e = Engine::new();
+            crate::d3d9real::TEST_WGPU_DRAWS.with(|t| t.set(Some(wgpu)));
+            TEST_MODERN_DDS.with(|t| t.set(option));
+            let r = info(&mut e, &file);
+            crate::d3d9real::TEST_WGPU_DRAWS.with(|t| t.set(None));
+            TEST_MODERN_DDS.with(|t| t.set(None));
+            r
+        };
+        let bc7 = u32::from_le_bytes(*b"BC7U");
+        assert_eq!(answer(true, Some(true)), (0, bc7));
+        assert_eq!(answer(true, Some(false)).0, D3DXERR_INVALIDDATA);
+        assert_eq!(answer(false, Some(true)).0, D3DXERR_INVALIDDATA);
+    }
+
+    /// The format check the layer's `CreateTexture` makes of the player's table is answered for
+    /// the modern formats with the option on, wgpu drawing, usage 0 and a texture or cube texture.
+    #[test]
+    fn the_layers_format_check_takes_the_modern_formats_only_with_the_option_on() {
+        let bc7 = u32::from_le_bytes(*b"BC7U");
+        let ask = |wgpu: bool, option: Option<bool>, words: [u32; 6]| {
+            crate::d3d9real::TEST_WGPU_DRAWS.with(|t| t.set(Some(wgpu)));
+            TEST_MODERN_DDS.with(|t| t.set(option));
+            let r = crate::d3d9::wgpu_format_answer(&words);
+            crate::d3d9real::TEST_WGPU_DRAWS.with(|t| t.set(None));
+            TEST_MODERN_DDS.with(|t| t.set(None));
+            r
+        };
+        assert_eq!(ask(true, Some(true), [0, 1, 0x16, 0, 3, bc7]), Some(0));
+        assert_eq!(ask(true, Some(true), [0, 1, 0x16, 0, 5, bc7]), Some(0));
+        assert_eq!(ask(true, Some(false), [0, 1, 0x16, 0, 3, bc7]), None);
+        assert_eq!(ask(false, Some(true), [0, 1, 0x16, 0, 3, bc7]), None);
+        assert_eq!(
+            ask(true, Some(true), [0, 1, 0x16, 1, 3, bc7]),
+            None,
+            "render target usage"
+        );
+        assert_eq!(
+            ask(true, Some(true), [0, 1, 0x16, 0, 1, bc7]),
+            None,
+            "a surface"
+        );
+        assert_eq!(
+            ask(true, Some(true), [0, 1, 0x16, 0, 3, 0x15]),
+            None,
+            "A8R8G8B8 is the table's"
+        );
+    }
+
+    /// The layer sizes the modern formats' blocks as the loader's levels are laid out.
+    #[test]
+    fn the_layer_sizes_the_modern_blocks() {
+        let cc = |s: &[u8; 4]| u32::from_le_bytes(*s);
+        assert_eq!(
+            super::super::d3d9device::format_blocks(cc(b"BC7U")),
+            Some((4, 16))
+        );
+        assert_eq!(
+            super::super::d3d9device::format_blocks(cc(b"ATI2")),
+            Some((4, 16))
+        );
+        assert_eq!(
+            super::super::d3d9device::format_blocks(cc(b"ATI1")),
+            Some((4, 8))
+        );
     }
 }
 

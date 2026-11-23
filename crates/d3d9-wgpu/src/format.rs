@@ -44,6 +44,9 @@ pub mod d3dfmt {
     pub const DXT5: u32 = fourcc(b"DXT5");
     pub const ATI1: u32 = fourcc(b"ATI1");
     pub const ATI2: u32 = fourcc(b"ATI2");
+    /// BC7, which Direct3D 9 has no format for: the private FourCC d3dx-tex makes a DX10-header
+    /// BC7 file as (nv-rs#750).
+    pub const BC7: u32 = fourcc(b"BC7U");
     pub const INTZ: u32 = fourcc(b"INTZ");
     pub const NULL: u32 = fourcc(b"NULL");
 }
@@ -150,6 +153,7 @@ pub fn format(d3d: u32) -> Option<Format> {
         DXT4 | DXT5 => f(T::Bc3RgbaUnorm, c, fix::NONE, 16, true, false, false),
         ATI1 => f(T::Bc4RUnorm, c, fix::LUMINANCE, 8, true, false, true),
         ATI2 => f(T::Bc5RgUnorm, c, fix::RG, 16, true, false, true),
+        BC7 => f(T::Bc7RgbaUnorm, c, fix::NONE, 16, true, false, false),
         D16 | D16_LOCKABLE => f(T::Depth16Unorm, c, fix::R, 2, false, true, true),
         D24X8 => f(T::Depth24Plus, c, fix::R, 4, false, true, true),
         D24S8 | INTZ => f(T::Depth24PlusStencil8, c, fix::R, 4, false, true, true),

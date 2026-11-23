@@ -748,6 +748,16 @@ fn nvidia_card() -> &'static Adapter {
 /// no, and the game would then draw its foliage without the coverage the NVIDIA path has). `None`:
 /// the table's answer.
 pub(crate) fn wgpu_format_answer(words: &[u32; 6]) -> Option<u32> {
+    // The modern DDS formats (nv-rs#750), with the option on: a texture or cube texture, usage 0,
+    // is made (the player's own driver's table has no BC7, and wgpu takes the blocks as they are).
+    if words[0] == 0
+        && words[3] == 0
+        && matches!(words[4], 3 | 5)
+        && d3dx_tex::fork_modern_dds::is_modern(words[5])
+        && super::d3dx::modern_dds_enabled()
+    {
+        return Some(0);
+    }
     if words[0] != 0 || words[5] != ATOC {
         return None;
     }

@@ -54,6 +54,14 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: far-object files made by xLODGen and lodwright hold one shape per atlas texture (or more, split at the 16-bit limits); the later shapes were not drawn, so the Strip's towers, in the third shape of one block, were missing
 - Evidence: `prepare_reaches_every_shape_of_the_root_node`, `block_visibility_reaches_every_shape_of_the_block`; a modded profile with an xLODGen far-object mod draws the Strip's towers after the change and not before; the plain game's pictures at three views are unchanged (difference 0)
 
+### Modern DDS files (DX10 header, BC7)
+- Files: `crates/d3dx-tex/src/lib.rs`, `load.rs`, `fork_modern_dds.rs` (new), `crates/d3d9-wgpu/src/format.rs`, `crates/engine-platform/src/d3dx.rs`, `d3d9.rs`, `d3d9device.rs`
+- Upstream approach: the D3DX translation refuses every DDS whose FourCC the 2010 library does not know (`DX10`, `ATI1`, `ATI2`), as the DLL does (`D3DXERR_INVALIDDATA`); the Direct3D 9 layer has no BC7 format
+- Fork approach: with `NV_DDS_MODERN=1`, and only while wgpu draws, those files are read: the blocks of BC4, BC5 and BC7 (with or without the sRGB flag) go to the device as they are, with the file's own levels, as `ATI1`, `ATI2` and the private FourCC `BC7U` (wgpu's `Bc7RgbaUnorm`); the layer's format check and block sizes know them. Without the option nothing differs from upstream
+- Decision: keep; drop when upstream reads DX10-header files
+- Reason: remastered and modern texture sets ship BC7 and DX10 headers; the game cannot show them otherwise
+- Evidence: nv-rs#750; `fork_modern_dds::tests`, `d3dx::tests_modern_dds`, `frame::a_bc7_texture_is_sampled_as_the_block_decodes`
+
 ### Short names on Windows
 - Files: `crates/engine-platform/src/files.rs` (`search_finds_with_short_names`, the soft stops of `find_first_wild`; the fork's save tests in `tests_changed_directories`)
 - Upstream approach: since slaterain/nv-rs#712 and slaterain/nv-rs#718 a search off Windows matches long names only (`search_finds_long_names`, with Windows' `*.*` and trailing-dot rewrites) and the run's files have no short names there (`alternate_name`, `short_name_off_windows`), which is what the fork did off Windows: the fork's own arms were dropped for upstream's in the sync to 1b438957. On Windows upstream's matcher rules out a short name by its first letter only and stops on the rest
