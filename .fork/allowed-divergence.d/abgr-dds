@@ -1,0 +1,1 @@
+crates/d3dx-tex/src/pixel.rs  # DDS files in A8B8G8R8 and X8B8G8R8 are read (nv-rs#823)

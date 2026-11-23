@@ -43,7 +43,7 @@
 //!
 //! What D3DX also does and this crate does not (yet) is [`Error::NotProvided`]: image files
 //! other than DDS, volume textures, and DDS pixel formats other than DXT1/3/5, A8R8G8B8,
-//! X8R8G8B8, R8G8B8, A4R4G4B4 and the ones above, each with its kind ([`Untranslated`]). None of
+//! X8R8G8B8, R8G8B8, A8B8G8R8, X8B8G8R8, A4R4G4B4 and the ones above, each with its kind ([`Untranslated`]). None of
 //! the game's textures needs them. DDS files whose FourCC D3DX's DDS table does not have (ATI1,
 //! ATI2/BC5, DX10) are refused by the DLL itself (`D3DXERR_INVALIDDATA`), and so here. Cube maps
 //! whose faces are not square (no real one; D3DX would square them into cubes of gigabytes) and

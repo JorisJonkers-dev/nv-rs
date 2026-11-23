@@ -24,6 +24,10 @@ pub fn encodes(f: u32) -> bool {
         f,
         format::A8R8G8B8
             | format::X8R8G8B8
+            // Port-added (nv-rs#823): a device that takes them keeps them; on one that does not,
+            // D3DX picks A8R8G8B8 and X8R8G8B8 (`data/device_formats_32bit.tsv`).
+            | format::A8B8G8R8
+            | format::X8B8G8R8
             | format::R5G6B5
             | format::X1R5G5B5
             | format::A1R5G5B5
@@ -62,6 +66,28 @@ pub fn decode_row(f: u32, row: &[u8], w: usize, out: &mut [Color]) {
                     f32::from(p[2]) * INV255,
                     f32::from(p[1]) * INV255,
                     f32::from(p[0]) * INV255,
+                    1.0,
+                ];
+            }
+        }
+        // Port-added (nv-rs#823): red in the low byte.
+        format::A8B8G8R8 => {
+            for (o, p) in out[..w].iter_mut().zip(row.chunks_exact(4)) {
+                *o = [
+                    f32::from(p[0]) * INV255,
+                    f32::from(p[1]) * INV255,
+                    f32::from(p[2]) * INV255,
+                    f32::from(p[3]) * INV255,
+                ];
+            }
+        }
+        // Port-added (nv-rs#823): the top byte is not read.
+        format::X8B8G8R8 => {
+            for (o, p) in out[..w].iter_mut().zip(row.chunks_exact(4)) {
+                *o = [
+                    f32::from(p[0]) * INV255,
+                    f32::from(p[1]) * INV255,
+                    f32::from(p[2]) * INV255,
                     1.0,
                 ];
             }
@@ -244,6 +270,20 @@ pub(crate) fn encode_row<P: Fpu>(f: u32, colors: &[Color], y: u32, dither: bool,
                     | quantize(c[2], 255.0, t, 255);
                 out[x * 4..x * 4 + 4].copy_from_slice(&v.to_le_bytes());
             }
+            // Port-added (nv-rs#823): the encoders above with red and blue changed over.
+            format::A8B8G8R8 => {
+                let v = quantize(c[3], 255.0, t, 255) << 24
+                    | quantize(c[2], 255.0, t, 255) << 16
+                    | quantize(c[1], 255.0, t, 255) << 8
+                    | quantize(c[0], 255.0, t, 255);
+                out[x * 4..x * 4 + 4].copy_from_slice(&v.to_le_bytes());
+            }
+            format::X8B8G8R8 => {
+                let v = quantize(c[2], 255.0, t, 255) << 16
+                    | quantize(c[1], 255.0, t, 255) << 8
+                    | quantize(c[0], 255.0, t, 255);
+                out[x * 4..x * 4 + 4].copy_from_slice(&v.to_le_bytes());
+            }
             format::A4R4G4B4 => {
                 let v = quantize(c[3], 15.0, t, 15) << 12
                     | quantize(c[0], 15.0, t, 15) << 8
@@ -330,7 +370,7 @@ fn int_fields(f: u32) -> Option<(usize, &'static [(u32, u32)])> {
 pub fn box_integer(f: u32, src: &[u8], w: usize, h: usize) -> Vec<u8> {
     let (w2, h2) = (w / 2, h / 2);
     match f {
-        format::A8R8G8B8 | format::X8R8G8B8 => {
+        format::A8R8G8B8 | format::X8R8G8B8 | format::A8B8G8R8 | format::X8B8G8R8 => {
             let mut out = vec![0u8; w2 * h2 * 4];
             for y in 0..h2 {
                 let r0 = &src[(2 * y) * w * 4..];
@@ -383,5 +423,8 @@ pub fn box_integer(f: u32, src: &[u8], w: usize, h: usize) -> Vec<u8> {
 
 /// Whether D3DX's box filter has an integer path for `f` (and the source is at least 2x2).
 pub fn has_integer_box(f: u32) -> bool {
-    matches!(f, format::A8R8G8B8 | format::X8R8G8B8) || int_fields(f).is_some()
+    matches!(
+        f,
+        format::A8R8G8B8 | format::X8R8G8B8 | format::A8B8G8R8 | format::X8B8G8R8
+    ) || int_fields(f).is_some()
 }
