@@ -670,6 +670,7 @@ dependencies = [
  "esm",
  "johnnyguitar",
  "nvse",
+ "uio",
 ]
 
 [[package]]

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.23.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.22.0...v0.23.0) (2026-11-23)
+
+
+### Features
+
+* **gfx:** the graphics overlay in the game: F10 opens it, a change applies and is saved ([#766](https://github.com/JorisJonkers-dev/nv-rs/issues/766)) ([b110c48](https://github.com/JorisJonkers-dev/nv-rs/commit/b110c482e5fdf44bd505b10cc1fd1d7e1ed13a7a))
+* **gfx:** the graphics overlay's panel in egui, with a font made from the port's glyphs ([#762](https://github.com/JorisJonkers-dev/nv-rs/issues/762)) ([fdee14d](https://github.com/JorisJonkers-dev/nv-rs/commit/fdee14db26967af03fb695e9518e2fc45b439b9f))
+* new Game no longer hangs when the saved graphics card name does not match this PC ([81a19b2](https://github.com/JorisJonkers-dev/nv-rs/commit/81a19b2b4a4f32046657e470e1f0235b22177b1c))
+* **textures:** read DX10-header BC4, BC5 and BC7 DDS files behind NV_DDS_MODERN ([#764](https://github.com/JorisJonkers-dev/nv-rs/issues/764)) ([11b3b36](https://github.com/JorisJonkers-dev/nv-rs/commit/11b3b3637d5ecf7a97f806e130715f113d626eeb))
+
 ## [0.22.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.21.0...v0.22.0) (2026-11-23)
 
 

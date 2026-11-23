@@ -280,7 +280,7 @@ args = ["-p engine --test typed_animation --test typed_anim_keys"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed runtime: crt, process, lock-free, leaves"
-args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree --test typed_leaves --test typed_scripts --test typed_after_draw --test typed_script_lines --test typed_facegen --test typed_hud --test typed_hud_idle --test typed_save --test typed_script_run --test typed_setup"]
+args = ["-p engine --test typed_crt --test typed_process --test typed_lockfree --test typed_leaves --test typed_scripts --test typed_after_draw --test typed_script_lines --test typed_facegen --test typed_facegen_pass --test typed_hud --test typed_hud_idle --test typed_save --test typed_script_run --test typed_setup"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
