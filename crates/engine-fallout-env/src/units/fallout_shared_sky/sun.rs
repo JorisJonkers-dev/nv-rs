@@ -1397,7 +1397,7 @@ pub mod sky_light {
     /// down less (the dark ground returns little), a wall the middle. Below the flat value, so
     /// open ground does not lift into a haze.
     pub const STAR_TOP: f32 = 0.85;
-    pub const STAR_GROUND: f32 = 0.75;
+    pub const STAR_GROUND: f32 = 0.82;
     /// What the night's weather colour is multiplied by: it is strongly blue already, and this
     /// keeps it cool while taking the haze out (luminance about 1).
     pub const STAR_TINT: [f32; 3] = [1.1, 1.0, 0.78];
@@ -1434,12 +1434,17 @@ pub mod sky_light {
         STARLIGHT + (1.0 - STARLIGHT) * moon
     }
 
-    /// How much of the shade's extra sky light applies: all by day; at night only as far as the
-    /// moon really casts a shade, so a moonless night has no shadow pattern in its fill.
+    /// How much more of the shade's extra sky light a full moon's night takes than the day: its
+    /// sky is the only light in a moon shadow, which would otherwise lose its texture.
+    pub const NIGHT_SHADE: f32 = 2.0;
+
+    /// How much of the shade's extra sky light applies: all by day; at night as far as the moon
+    /// really casts a shade ([`NIGHT_SHADE`] at full strength), so a moonless night has no shadow
+    /// pattern in its fill.
     pub fn shade_share(day: f32, moon: Option<f32>) -> f32 {
         let day = if day.is_nan() { 1.0 } else { day.clamp(0.0, 1.0) };
         match moon {
-            Some(m) if m.is_finite() => day + (1.0 - day) * m.clamp(0.0, 1.0),
+            Some(m) if m.is_finite() => day + (1.0 - day) * m.clamp(0.0, 1.0) * NIGHT_SHADE,
             Some(_) => day,
             None => 1.0,
         }
@@ -2493,6 +2498,7 @@ mod tests {
         assert!((s.direct_with_moon(3, 0.0, Some(1.0)) - 0.9).abs() < 1e-6);
         assert_eq!(sky_light::shade_share(0.0, Some(0.0)), 0.0);
         assert_eq!(sky_light::shade_share(1.0, Some(0.0)), 1.0);
+        assert_eq!(sky_light::shade_share(0.0, Some(1.0)), sky_light::NIGHT_SHADE);
         // By day the moon changes nothing; indoors neither.
         assert_eq!(s.ambient_with_moon(3, 1.0, Some(0.0)), s.ambient(3, 1.0));
         assert_eq!(s.direct_with_moon(3, 1.0, Some(0.0)), s.direct(3, 1.0));
