@@ -167,3 +167,11 @@ folder beside the native saves. New records: "Machine table off Windows", `game_
 - Decision: keep; drop when upstream's tests no longer depend on the machine's load
 - Reason: upstream's half fails on a loaded two-core machine (the coverage job, `taskset -c 0,1`: 78 ms of 252 ms), whatever the code does
 - Evidence: the two tests, run on two cores (failed before, pass after) and on all cores
+
+### Guest heap range in ADR-0012
+- Files: `docs/adr/0012-modern-64-bit-engine.md`
+- Upstream approach: the decision record's context says the heap is one range `0x20000000-0x7FFF0000` and its bridge decision says the guest heap uses the whole 4 GB space; checked against `crates/engine-core/src/mem.rs` and `docs/fork/ADDRESS-SPACE.md` at the base
+- Fork approach: the context and the bridge decision describe the real heap: two ranges `0x20000000..0x7E000000` and `0x80000000..0xF0000000`, about 3,456,106,496 bytes (3.46 GB / 3.22 GiB), with the platform area between them; the bridge decision's intent is unchanged
+- Decision: keep; drop when upstream corrects the range in the decision record
+- Reason: the decision record must state the heap the port actually has, not a stale single range spanning the platform area
+- Evidence: the heap constants `HEAP_BASE`, `HEAP_LOW_END`, `HEAP_HIGH_BASE` and `HEAP_END` in `crates/engine-core/src/mem.rs`; the measured 3,456,106,496 bytes (3.22 GiB / 3.46 GB) and the two-range table in `docs/fork/ADDRESS-SPACE.md`

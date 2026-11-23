@@ -7,7 +7,9 @@
 
 The engine port translates FalloutNV.exe 1.4.0.525 function by function into Rust (ADR-0006). The
 translated code runs inside a model of the 32-bit program:
-- the game's objects live in one 4 GB guest address space (heap 0x20000000-0x7FFF0000);
+- the game's objects live in one 4 GB guest address space (heap in two ranges,
+  0x20000000..0x7E000000 and 0x80000000..0xF0000000, about 3,456,106,496 bytes / 3.46 GB / 3.22
+  GiB, with a platform gap between);
 - every guest load and store is checked against a page table;
 - calls go through `Engine::call`;
 - the x87 FPU is modelled.
@@ -42,8 +44,8 @@ implemented".
      the speed gain.
 3. **x87.** It is modelled only where a test shows the result matters; elsewhere native SSE
    maths is used.
-4. **Bridge.** Until the migration removes the limit, the guest heap uses the whole 4 GB space,
-   and bulky data moves to host memory.
+4. **Bridge.** Until the migration removes the limit, the guest heap is about 3.46 GB (3.22 GiB)
+   in two ranges, and bulky data moves to host memory.
 5. **Renderer.** wgpu is the only backend.
 6. **Modern systems.** These are built on the typed systems; gameplay-changing ones are
    switchable (docs/MILESTONES.md "Direction"):
