@@ -887,7 +887,7 @@ mod tests {
         assert_eq!(cap_from(None), 256 << 20);
         assert_eq!(cap_from(Some("8")), 8 << 20);
         assert_eq!(cap_from(Some("junk")), 256 << 20);
-}
+    }
 
     /// The file a new build starts from: this adapter's newest earlier-build file (with or without
     /// a fingerprint) at most the cap's size; never the current build's, another adapter's, a
