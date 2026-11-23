@@ -118,7 +118,9 @@ struct Packet {
     served: bool,
     /// The view's allocation kept between halves.
     spare: Option<Box<OwnView>>,
-    /// The run that opened it (the kernel table's address): another run's engine on this thread reads guest
+    /// Its place among the open packets, given back however the packet ends.
+    slot: OpenSlot,
+    /// The run that opened it (`KernelRef::id`): another run's engine on this thread reads guest
     /// memory.
     run: usize,
     /// Each object's first range.
@@ -322,6 +324,28 @@ fn note_open(run: usize) {
     }
 }
 
+/// An open packet's count in [`OPEN`] and its run's slot in [`OPEN_RUNS`]: given back by [`end`], or when the packet
+/// is dropped without it (a stop, a thread's end), so that a run gone leaves no slot taken (nv-rs#789).
+struct OpenSlot {
+    run: usize,
+    closed: bool,
+}
+
+impl OpenSlot {
+    fn close(&mut self) {
+        if !std::mem::replace(&mut self.closed, true) {
+            OPEN.fetch_sub(1, Relaxed);
+            note_closed(self.run);
+        }
+    }
+}
+
+impl Drop for OpenSlot {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 /// `run`'s packet closed ([`end`]).
 fn note_closed(run: usize) {
     for r in &OPEN_RUNS {
@@ -360,6 +384,10 @@ pub fn begin(e: &Engine) -> bool {
         *p = Some(Packet {
             served: false,
             spare: None,
+            slot: OpenSlot {
+                run: run(e),
+                closed: false,
+            },
             run: run(e),
             objects: AddrMap::default(),
             ranges: Vec::new(),
@@ -892,13 +920,12 @@ pub fn end(e: &mut Engine) -> Report {
             None
         }
     });
-    let Some(packet) = packet else {
+    let Some(mut packet) = packet else {
         return Report::default();
     };
     PAUSED.with(|f| f.set(false));
     HOLDS.with(|h| h.set(false));
-    OPEN.fetch_sub(1, Relaxed);
-    note_closed(packet.run);
+    packet.slot.close();
     let mut written = packet.written;
     if let Some(scribble) = packet.scribble {
         if !packet.paused {
@@ -1587,6 +1614,36 @@ mod tests {
             e.mem.set_u32(at + 4 * i, i + 1);
         }
         at
+    }
+
+    /// nv-rs#789: an engine dropped with its packet handed over, then a new engine (whose kernel the allocator may put
+    /// at the old one's address). The new run is not beside the old run's packet.
+    #[test]
+    fn a_new_run_is_not_beside_the_packet_of_a_run_gone() {
+        for _ in 0..64 {
+            let old = Engine::new();
+            let id = run(&old);
+            assert!(begin(&old));
+            let packet = detach(&old).expect("the packet handed over");
+            drop(old);
+            let new = Engine::new();
+            assert_ne!(run(&new), id, "a run's number is never used again");
+            assert!(!beside(&new), "a new run is beside no packet");
+            drop(packet);
+        }
+    }
+
+    /// nv-rs#789: a packet dropped without [`end`] gives its slot back: eight such would otherwise fill
+    /// [`OPEN_RUNS`], and a later run's setters beside its own packet would skip.
+    #[test]
+    fn a_packet_dropped_without_an_end_gives_its_slot_back() {
+        let e = Engine::new();
+        assert!(begin(&e));
+        let packet = detach(&e).expect("the packet handed over");
+        assert!(open_for(run(&e)));
+        drop(packet);
+        assert!(!open_for(run(&e)));
+        assert!(!beside(&e));
     }
 
     #[test]

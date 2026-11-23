@@ -54,6 +54,14 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: the maintainer's `modern` preset (nv-rs#591) adds shade and the light from the sky; the game's flat fill light on top of it washes the picture out
 - Evidence: `the_ambient_share_at_one_is_the_exes_code`, `the_ambient_share_scales_the_lights_ambient_only`, `an_ambient_share_that_is_not_usable_counts_as_one` (`sun.rs`), `the_light_balance_reaches_the_sun_lights_shares` (`host::fork_graphics`); the standard views under `original` against the build before, difference 0 (pull request)
 
+### A run's number and the open packets' slots
+- Files: `crates/engine-core/src/units/platform.rs` (`KernelRef::id`), `crates/engine-typed/src/draw/capture.rs` (`OpenSlot`)
+- Upstream approach: a run is named by its kernel's address, and a packet's slot is given back only by `capture::end`; checked at the base
+- Fork approach: a run number that is never used twice, and a slot given back however the packet ends
+- Decision: keep; offer upstream
+- Reason: a later engine at a freed kernel's address counted as beside a dead run's packet, which failed a test on Windows (nv-rs#789)
+- Evidence: `a_new_run_is_not_beside_the_packet_of_a_run_gone`, `a_packet_dropped_without_an_end_gives_its_slot_back`
+
 ### Far-object block with several shapes
 - Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`), `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsterrainnode.rs` (`later_block_shapes`, `bgs_terrain_node_update_block_visibility`)
 - Upstream approach: upstream does nothing here; the exe expects one shape per block file: the load task (`006f71e0`) keeps child 0 of the file's root node as the block's mesh, the block's prepare (`006f66e0`) gives only that mesh its shader and registers it with the renderer, and `BGSTerrainNode::UpdateBlockVisibility` (`006fee90`) sets the segments of only that mesh's segmented shape. A segmented shape loads with every segment off, so any later shape draws nothing
@@ -167,3 +175,19 @@ folder beside the native saves. New records: "Machine table off Windows", `game_
 - Decision: keep; drop when upstream's tests no longer depend on the machine's load
 - Reason: upstream's half fails on a loaded two-core machine (the coverage job, `taskset -c 0,1`: 78 ms of 252 ms), whatever the code does
 - Evidence: the two tests, run on two cores (failed before, pass after) and on all cores
+
+### The stale R1 clause in the Memory paragraph
+- Files: `docs/ENGINE_CRATE.md` (the removed clause "ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem` is `Send`, not `Sync`, until then)" in the "Memory" paragraph of "The model in one page")
+- Upstream approach: "Every guest load and store takes `&self`, ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem` is `Send`, not `Sync`, until then): guest values are plain host loads and stores through raw pointers ..."; R1 is cited inside a clause about sharing, where the atomics rule does not belong
+- Fork approach: the stale R1 citation, the "until then" clause and "ready for the thread host to share one `Mem`" are removed and `Mem` is `Send`, not `Sync` stays as a plain clause, so the sentence reads "Every guest load and store takes `&self` (`Mem` is `Send`, not `Sync`); guest values are plain host loads and stores through raw pointers ..."; the following view sentence (`NV_THREADS=real`, `Mem::start_sharing`) is unchanged
+- Decision: drop when upstream removes the R1 citation
+- Reason: R1 was the plan's rule that guest loads and stores be atomic (acquire for loads, release for stores), abandoned on measured cost, not on sharing (ADR-0015, "Guest memory stays plain"); real-thread views shipped (`Mem::start_sharing`), so citing R1 for why sharing had not happened is stale (nv-rs#783, PR #794)
+- Evidence: `docs/adr/0015-hand-typing-to-the-end-with-real-threads.md:45-53` (R1 was atomics, abandoned at about 6% cost); `crates/engine-core/src/mem.rs:538,1301,1326` (the one `Mem` every thread's view shares, `start_sharing` and `view`); `docs/ENGINE_CRATE.md` (`Mem::start_sharing` in the following, unchanged view sentence). The "with real threads no `Mem` is shared" wording in `crates/engine-core/src/mem.rs:37-38` contradicts `mem.rs:538`; it is left unchanged here and tracked separately.
+
+### The plugin claims in the fixes reference
+- Files: `docs/FIXES.md` (the plugin bullet of "Which xNVSE it is, and its plugins" and the JohnnyGuitar editor-id row)
+- Upstream approach: the plugin bullet reads "`IsPluginInstalled` and `GetPluginVersion` answer by what nv-rs builds in, since no plugin DLL ever loads in nv-rs: no plugin is built in yet, so every name answers not installed" and the JohnnyGuitar row reads "JohnnyGuitar's 408 commands are not built"; checked in `docs/FIXES.md` at the base
+- Fork approach: the bullet now says the two commands answer by what nv-rs builds in and reports as installed (`reported_installed` of the extenders that have one in `.fork/capabilities.json`), that no plugin DLL loads unless `NV_PLUGIN_DLLS` is on (off by default, per ADR-0018 in `docs/fork/adr/0018-plugin-dlls-loaded.md`, which supersedes ADR-0016's rule that no plugin DLL ever loads), and that JIP LN NVSE's own versions of the two commands (`crates/jip/src/identity.rs`) take xNVSE's place while it answers installed; the JohnnyGuitar row now says 11 of its 412 commands are built so far (`crates/jg`; `commands` of `johnnyguitar` in `.fork/capabilities.json`), and that a check for JohnnyGuitar is told absent unless the game is Tale of Two Wastelands or `NV_TTW_PLUGINS=1` is set
+- Decision: drop when upstream corrects the same statements
+- Reason: ADR-0018 supersedes the rule that no plugin DLL ever loads; JIP LN NVSE and other extenders are built in; the generated capability table gives 11 of 412 for JohnnyGuitar (nv-rs#786)
+- Evidence: `.fork/capabilities.json`, `docs/fork/adr/0018-plugin-dlls-loaded.md`, `crates/host/src/fork_plugins.rs`, `crates/jip/src/identity.rs`
