@@ -89,7 +89,30 @@ nv-rs-scene run --places docs/fork/scenes/mojave-far.toml --out OUT --variant or
 
 ## Cost
 
-Measured with `nv-rs-scene bench` (exclusive game lock, 120 warm-up frames, five passes of 600 frames, the median),
-`play-opt` build, 2560x1440. The cost of a level is its frame time minus `original`'s at the same places.
+Measured 2026-11-23 with `nv-rs-scene bench --suite quick` (exclusive game lock, 120 warm-up frames, three passes of 600
+frames, the median), `play-opt` build, 2560x1440, offscreen, one machine (an 8-core desktop processor and a high-end desktop
+graphics card, CPU governor `powersave`, the card's clocks on automatic). Two measures:
 
-(Filled in by the pull request that measures them.)
+- **Frame time** (`avg_ms`): what the player feels. At these places the frame is bound by the processor (the game's own
+  draws), and no level of either module changed it by more than the run-to-run noise (about 0.5 ms), on the plain game and
+  on a 312-mod profile, with one exception: shadows `high` at Goodsprings on the plain game, 8.6 ms against 5.5 ms.
+- **The card's time** (`NV_WGPU_GPU_TIMES=1`, mean over the timed frames of the five places): the effect's own step, and
+  the total. The card runs at a low clock while it is mostly idle, so these totals move by up to 1.5 ms between runs of
+  similar work; the step times are the steadier number.
+
+| Level | Frame time, plain game (mean of 5 places) | Frame time, 312-mod profile | Card: the step itself | Card: total, plain / modded (original 0.98 / 1.12) |
+| --- | --- | --- | --- | --- |
+| `original` | 6.15 ms | 9.49 ms | none | 0.98 / 1.12 |
+| `ao` low | 6.10 | 9.27 | 0.20 to 0.34 | 2.44 / 1.58 |
+| `ao` medium | 6.09 | 9.27 | 0.33 to 0.35 | 2.39 / 2.89 |
+| `ao` high | 6.36 | 9.25 | 0.23 to 0.28 | 1.24 / 2.10 |
+| `shadows` low | 6.17 | 9.33 | maps 0.08 to 0.17 | 1.40 / 2.70 |
+| `shadows` medium | 6.18 | 9.39 | maps 0.04 to 0.55 | 1.14 / 2.81 |
+| `shadows` high | 6.81 | 9.23 | maps 0.36 to 1.00 | 2.71 / 2.00 |
+| `modern` | 6.19 | 9.25 | 0.40 + 0.24 | 1.34 / 2.45 |
+| `performance` | 6.13 | 9.10 | 0.13 to 0.14 | 1.09 / 1.25 |
+
+For the `Modern` target (8.3 ms a frame at 1440p with a 312-mod profile): the effects of `modern` fit in about 1 ms of the
+card's time, and the card is not what limits the frame. On the modded profile the frame itself is already 9.5 ms on
+average (12.8 ms on the Tops casino floor, 11.4 ms at Novac) with every effect off. The processor's share of the frame is
+what the target needs next.

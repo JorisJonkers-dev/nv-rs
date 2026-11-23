@@ -36,7 +36,7 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Fork approach: the graphics settings (ADR-0019, nv-rs#592) set the same switches from the profile's `nv-rs-graphics.toml`, a preset or `NV_GFX`, and choose a level: the occlusion's search (low 1 x 4, medium 2 x 4 as before, high 3 x 6, changeable while the game runs, with its strength) and the shadow maps' size (1024, 2048 as before, 4096, at start). With no settings, nothing changes: the defaults are upstream's constants
 - Decision: keep; drop the level code when upstream offers levels of its own
 - Reason: the maintainer's graphics modules (nv-rs#591) need quality levels and live changes of the effects the engine has
-- Evidence: `quality_levels_change_only_the_search`, `a_live_strength_is_clamped_and_can_be_taken_back`, `the_map_size_is_one_of_the_three_levels`, `host::fork_graphics` tests; the standard views with no settings against the build before, difference 0 (pull request)
+- Evidence: `quality_levels_change_only_the_search`, `a_live_strength_is_clamped_and_can_be_taken_back`, `the_map_size_is_one_of_the_three_levels`, `every_map_extent_follows_the_run_map_size`, `host::fork_graphics` tests; the standard views with no settings against the build before, difference 0 (pull request)
 
 ### Far-object block with several shapes
 - Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`), `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsterrainnode.rs` (`later_block_shapes`, `bgs_terrain_node_update_block_visibility`)
