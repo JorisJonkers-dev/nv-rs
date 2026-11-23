@@ -404,7 +404,7 @@ fn a_change_is_written_to_the_file_and_handed_on() {
         key: "strength",
         value: fork_gfx::Value::Number(0.4),
     };
-    assert!(session.apply(&[set.clone()]));
+    assert!(session.apply(std::slice::from_ref(&set)));
     let written = std::fs::read_to_string(&path).unwrap();
     assert!(written.starts_with("# mine\n"), "{written}");
     assert!(written.contains("other_program = \"kept\"") && written.contains("future = 2 # kept"));

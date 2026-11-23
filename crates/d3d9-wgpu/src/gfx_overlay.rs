@@ -63,8 +63,8 @@ impl Session {
         s
     }
 
-    /// One frame of the panel: draws it with `ui_frame` (the painter's call) and applies what the
-    /// player changed. Returns whether the settings changed.
+    /// One frame of the panel in `ctx` (inside the painter's frame), and what the player changed
+    /// applied. Returns whether the settings changed.
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         let _ = self.live.update(&self.place);
         let Some(resolved) = self.live.resolved().cloned() else {
