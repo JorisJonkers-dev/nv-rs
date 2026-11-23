@@ -313,10 +313,10 @@ mod tests {
             file(8, 8, 1, b"ATI2", None, 0, 64),
         ];
         for d in &files {
-            let refused = Err(crate::Error::D3dx(D3DXERR_INVALIDDATA));
+            let refused: Result<(), crate::Error> = Err(crate::Error::D3dx(D3DXERR_INVALIDDATA));
             assert_eq!(
                 get_image_info_from_file_in_memory(d).map(|_| ()),
-                refused.clone().map(|()| ())
+                refused.clone()
             );
             assert_eq!(
                 create_texture_from_file_in_memory(d, &modern_caps(), Precision::Single)
