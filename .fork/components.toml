@@ -233,7 +233,7 @@ windows = "required"
 name = "integration"
 purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
 crates = ["engine", "host", "play-patch", "fork-scene-run", "nv-viewer"]
-requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders", "game-profile", "mod-chooser", "mod-install", "scene"]
+requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders", "game-profile", "mod-chooser", "mod-install", "scene", "gfx"]
 runs_on = "windows"
 # These run when anything under them changed (about 9 in 10 code commits reach them), so they are split along
 # the typed families: one test binary per family, mirroring engine-typed's modules, grouped by subject and not

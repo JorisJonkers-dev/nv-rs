@@ -2045,6 +2045,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "fork-gfx"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "fork-hitch"
     },
     {
