@@ -1087,12 +1087,13 @@ mod tests {
         }
         // The 195 of the table before the layer moved out of `engine-core` (6 are Windows only),
         // `GlobalMemoryStatus(Ex)`, `MultiByteToWideChar` and `LCMapStringW`, and `DefWindowProcA`
-        // (the game's `WM_MOUSEMOVE`, `window::post_mouse_move`).
+        // (the game's `WM_MOUSEMOVE`, `window::post_mouse_move`), and `SetThreadIdealProcessor`
+        // (Havok's worker threads, `engine-core`'s table).
         // Off Windows also the two shader profile getters (`d3dx::profiles`) and, instead of the
-        // six of the player's d3dx9_38.dll, the fork's four (`d3dxshader::imports`): 200 as well.
+        // six of the player's d3dx9_38.dll, the fork's four (`d3dxshader::imports`): 201 as well.
         // Plus the 11 GalaxyWrp.dll wrapper imports of the GOG executable (same answers as
-        // steam_api.dll): 211.
-        assert_eq!(table.len(), 211);
+        // steam_api.dll): 212.
+        assert_eq!(table.len(), 212);
     }
 
     /// The owned GOG executable's actual wrapper imports all resolve. No
