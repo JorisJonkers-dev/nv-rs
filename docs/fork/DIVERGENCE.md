@@ -54,6 +54,14 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: the maintainer's `modern` preset (nv-rs#591) adds shade and the light from the sky; the game's flat fill light on top of it washes the picture out
 - Evidence: `the_ambient_share_at_one_is_the_exes_code`, `the_ambient_share_scales_the_lights_ambient_only`, `an_ambient_share_that_is_not_usable_counts_as_one` (`sun.rs`), `the_light_balance_reaches_the_sun_lights_shares` (`host::fork_graphics`); the standard views under `original` against the build before, difference 0 (pull request)
 
+### A run's number and the open packets' slots
+- Files: `crates/engine-core/src/units/platform.rs` (`KernelRef::id`), `crates/engine-typed/src/draw/capture.rs` (`OpenSlot`)
+- Upstream approach: a run is named by its kernel's address, and a packet's slot is given back only by `capture::end`; checked at the base
+- Fork approach: a run number that is never used twice, and a slot given back however the packet ends
+- Decision: keep; offer upstream
+- Reason: a later engine at a freed kernel's address counted as beside a dead run's packet, which failed a test on Windows (nv-rs#789)
+- Evidence: `a_new_run_is_not_beside_the_packet_of_a_run_gone`, `a_packet_dropped_without_an_end_gives_its_slot_back`
+
 ### Far-object block with several shapes
 - Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`), `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsterrainnode.rs` (`later_block_shapes`, `bgs_terrain_node_update_block_visibility`)
 - Upstream approach: upstream does nothing here; the exe expects one shape per block file: the load task (`006f71e0`) keeps child 0 of the file's root node as the block's mesh, the block's prepare (`006f66e0`) gives only that mesh its shader and registers it with the renderer, and `BGSTerrainNode::UpdateBlockVisibility` (`006fee90`) sets the segments of only that mesh's segmented shape. A segmented shape loads with every segment off, so any later shape draws nothing

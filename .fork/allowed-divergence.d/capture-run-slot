@@ -1,0 +1,2 @@
+crates/engine-core/src/units/platform.rs  # KernelRef::id is a run number that is never reused, not the kernel's address (nv-rs#789)
+crates/engine-typed/src/draw/capture.rs  # an open packet's slot is given back when it is dropped; tests for the race (nv-rs#789)
