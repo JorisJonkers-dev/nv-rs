@@ -10,7 +10,12 @@ pub enum PeError {
     NotPe,
     Not32Bit,
     Truncated(&'static str),
-    NoRelocations { wanted_base: u32 },
+    NoRelocations {
+        /// The base the image declares in its header.
+        wanted_base: u32,
+        /// Where the loader actually put it in the guest heap.
+        allocated_base: u32,
+    },
 }
 
 impl std::fmt::Display for PeError {
@@ -19,10 +24,18 @@ impl std::fmt::Display for PeError {
             PeError::NotPe => write!(f, "not a PE file"),
             PeError::Not32Bit => write!(f, "not a 32-bit x86 image"),
             PeError::Truncated(what) => write!(f, "truncated: {what}"),
-            PeError::NoRelocations { wanted_base } => {
+            PeError::NoRelocations {
+                wanted_base,
+                allocated_base,
+            } => {
+                let (sign, magnitude) = if *allocated_base >= *wanted_base {
+                    ('+', *allocated_base - *wanted_base)
+                } else {
+                    ('-', *wanted_base - *allocated_base)
+                };
                 write!(
                     f,
-                    "no relocations and its base {wanted_base:#x} is not free"
+                    "no relocations: the image was mapped at {allocated_base:#x}, a delta of {sign}{magnitude:#x} from its declared base {wanted_base:#x}; without relocations it can only run at its declared base, which the loader cannot provide because it allocates from the guest heap"
                 )
             }
         }
@@ -249,6 +262,7 @@ impl Pe {
             if self.relocs.is_empty() {
                 return Err(PeError::NoRelocations {
                     wanted_base: self.image_base,
+                    allocated_base: base,
                 });
             }
             for &r in &self.relocs {

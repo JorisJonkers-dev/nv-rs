@@ -83,6 +83,16 @@ pub fn build_patching() -> Vec<u8> {
     assemble(None, false, true)
 }
 
+/// [`build`] with the base-relocation data directory cleared: the declared image has no
+/// relocations, so it can only work if it is mapped at its declared base.
+pub fn build_no_relocs() -> Vec<u8> {
+    let mut f = build(None, false);
+    // Data directory 5 (base relocations) lives at opt + 96 + 8 * 5, and opt starts at 0x58.
+    let dd = 0x58 + 96 + 8 * 5;
+    f[dd..dd + 8].fill(0);
+    f
+}
+
 fn assemble(extra_import: Option<(&str, &str)>, spin: bool, patch: bool) -> Vec<u8> {
     let mut s = vec![0u8; 0x800];
     let mut relocs: Vec<u32> = Vec::new();
