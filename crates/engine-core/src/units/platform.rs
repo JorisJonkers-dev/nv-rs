@@ -1240,13 +1240,19 @@ pub struct KernelRef {
     kernel: std::ptr::NonNull<Kernel>,
     /// Whether this one owns the kernel (frees it when dropped).
     owned: bool,
+    /// This run's number ([`KernelRef::id`]).
+    id: usize,
 }
+
+/// The next run's number: from 1, never used twice in a process.
+static NEXT_RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
 
 impl Default for KernelRef {
     fn default() -> Self {
         KernelRef {
             kernel: std::ptr::NonNull::from(Box::leak(Box::default())),
             owned: true,
+            id: NEXT_RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
@@ -1258,6 +1264,7 @@ impl KernelRef {
         KernelRef {
             kernel: self.kernel,
             owned: false,
+            id: self.id,
         }
     }
 
@@ -1269,11 +1276,12 @@ impl KernelRef {
         self.owned = false;
     }
 
-    /// The kernel table's address, without reading it: one per run, the same in every real
-    /// thread's engine context (whose engines and memory views are each their own), so a key for
-    /// state the whole run shares (the host's fixes).
+    /// The run's number, without reading the kernel: one per run, the same in every real thread's
+    /// engine context (whose engines and memory views are each their own), so a key for state the
+    /// whole run shares (the host's fixes). Never used again by a later run in the process, which
+    /// the kernel's address would be once the kernel is freed (nv-rs#789).
     pub fn id(&self) -> usize {
-        self.kernel.as_ptr() as usize
+        self.id
     }
 }
 
