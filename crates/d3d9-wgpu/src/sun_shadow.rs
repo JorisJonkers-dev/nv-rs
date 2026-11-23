@@ -2122,11 +2122,19 @@ pub fn thin_quads(
 /// used (0: the game's flat ambient, exactly), the ground's colour. Each colour multiplies the game's
 /// ambient colour at the pixel; 1 is the flat value the shaders without this variant draw. The last
 /// word is the ambient light over the direct light (`scene_light`'s occlusion, 0: not known).
-static SKY_FILL: [AtomicU32; 9] = {
-    const ONE: AtomicU32 = AtomicU32::new(0x3f80_0000);
-    const ZERO: AtomicU32 = AtomicU32::new(0);
-    [ONE, ONE, ONE, ZERO, ONE, ONE, ONE, ZERO, ZERO]
-};
+static SKY_FILL: [AtomicU32; 9] = [
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(0),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+];
+/// The bits of 1.0, the flat value of a sky light colour.
+const ONE_BITS: u32 = 0x3f80_0000;
 
 /// Sets the sky light from the next frame's lookup on.
 pub fn set_sky_fill(

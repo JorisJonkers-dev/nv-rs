@@ -119,20 +119,19 @@ pub struct Levels {
 
 /// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
 /// frame ([`ambient_shares`]) and set at start and by the overlay ([`set_ambient_shares`]).
-static AMBIENT: [AtomicU32; 8] = {
-    const ONE: AtomicU32 = AtomicU32::new(0x3f80_0000);
-    [
-        ONE,
-        ONE,
-        ONE,
-        ONE,
-        ONE,
-        AtomicU32::new(0),
-        AtomicU32::new(0),
-        // 90 degrees: the moons' own path.
-        AtomicU32::new(0x42b4_0000),
-    ]
-};
+static AMBIENT: [AtomicU32; 8] = [
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    // 90 degrees: the moons' own path.
+    AtomicU32::new(0x42b4_0000),
+];
+/// The bits of 1.0, a share that leaves the game's value as it is.
+const ONE_BITS: u32 = 0x3f80_0000;
 
 /// The shares the sun light takes now (`engine::sky_sun::want_ambient_share`).
 pub fn ambient_shares() -> AmbientShares {
@@ -151,19 +150,16 @@ pub fn ambient_shares() -> AmbientShares {
 
 /// Sets the shares the sun light takes from the next frame on.
 pub fn set_ambient_shares(s: AmbientShares) {
-    for (slot, v) in AMBIENT
-        .iter()
-        .zip([
-            s.exterior,
-            s.interior,
-            s.night,
-            s.sun,
-            s.moon,
-            s.dome,
-            s.shade,
-            s.moon_height,
-        ])
-    {
+    for (slot, v) in AMBIENT.iter().zip([
+        s.exterior,
+        s.interior,
+        s.night,
+        s.sun,
+        s.moon,
+        s.dome,
+        s.shade,
+        s.moon_height,
+    ]) {
         slot.store(v.to_bits(), Ordering::Relaxed);
     }
 }

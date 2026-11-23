@@ -1364,7 +1364,10 @@ fn light_from_sky(e: &Engine, sky: u32, disc: &[u32; 3], brightness: u32) -> Opt
 /// ([`AmbientShares::moon_height`]), for the drawn moon and its light alike. The same bits while
 /// the light does not follow the discs or the setting leaves the game's path.
 pub(crate) fn moon_tilt_bits(e: &Engine, bits: u32) -> u32 {
-    let Some(shares) = e.ext_get::<AmbientShare>().and_then(|s| s.shares.get().map(|f| f())) else {
+    let Some(shares) = e
+        .ext_get::<AmbientShare>()
+        .and_then(|s| s.shares.get().map(|f| f()))
+    else {
         return bits;
     };
     if !e.ext_get::<LightFromSky>().is_some_and(LightFromSky::on) {
@@ -1455,7 +1458,11 @@ pub mod sky_light {
 
     /// The share of the night's fill at moon strength `moon`: starlight, plus the moon's.
     pub fn night_fill_share(moon: f32) -> f32 {
-        let moon = if moon.is_finite() { moon.clamp(0.0, 1.0) } else { 0.0 };
+        let moon = if moon.is_finite() {
+            moon.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         STARLIGHT + (1.0 - STARLIGHT) * moon
     }
 
@@ -1467,7 +1474,11 @@ pub mod sky_light {
     /// really casts a shade ([`NIGHT_SHADE`] at full strength), so a moonless night has no shadow
     /// pattern in its fill.
     pub fn shade_share(day: f32, moon: Option<f32>) -> f32 {
-        let day = if day.is_nan() { 1.0 } else { day.clamp(0.0, 1.0) };
+        let day = if day.is_nan() {
+            1.0
+        } else {
+            day.clamp(0.0, 1.0)
+        };
         match moon {
             Some(m) if m.is_finite() => day + (1.0 - day) * m.clamp(0.0, 1.0) * NIGHT_SHADE,
             Some(_) => day,
@@ -1492,11 +1503,13 @@ pub mod sky_light {
     /// The sky light from the sky's upper colour and the sun's colour (the ground is lit by it), at
     /// `day` (1 by day, 0 at night).
     pub fn fill(sky: [f32; 3], sun: [f32; 3], dome: f32, day: f32) -> SkyFill {
-        let day = if day.is_nan() { 1.0 } else { day.clamp(0.0, 1.0) };
+        let day = if day.is_nan() {
+            1.0
+        } else {
+            day.clamp(0.0, 1.0)
+        };
         let by_day = |c: [f32; 3], strength: f32, star: f32| -> [f32; 3] {
-            std::array::from_fn(|i| {
-                day * c[i] * strength + (1.0 - day) * STAR_TINT[i] * star
-            })
+            std::array::from_fn(|i| day * c[i] * strength + (1.0 - day) * STAR_TINT[i] * star)
         };
         SkyFill {
             top: by_day(tint(sky, SKY_TINT * day), DOME_TOP, STAR_TOP),
@@ -2486,11 +2499,15 @@ mod tests {
         assert!((luma(f.ground) - sky_light::DOME_GROUND).abs() < 1e-5);
         assert!(f.top[2] > f.top[0], "the blue sky tints what faces it");
         assert!(f.ground[0] > f.ground[2], "the sunlit ground bounces warm");
-        assert!(
-            (sky_light::ambient_over_direct([0.5; 3], 0.5, [1.0; 3], 0.5) - 0.5).abs() < 1e-5
+        assert!((sky_light::ambient_over_direct([0.5; 3], 0.5, [1.0; 3], 0.5) - 0.5).abs() < 1e-5);
+        assert_eq!(
+            sky_light::ambient_over_direct([0.5; 3], 1.0, [0.0; 3], 1.0),
+            0.0
         );
-        assert_eq!(sky_light::ambient_over_direct([0.5; 3], 1.0, [0.0; 3], 1.0), 0.0);
-        assert_eq!(sky_light::ambient_over_direct([f32::NAN; 3], 1.0, [1.0; 3], 1.0), 0.0);
+        assert_eq!(
+            sky_light::ambient_over_direct([f32::NAN; 3], 1.0, [1.0; 3], 1.0),
+            0.0
+        );
         let black = sky_light::fill([0.0; 3], [0.0; 3], 1.0, 1.0);
         assert_eq!(black.top, [sky_light::DOME_TOP; 3]);
         // nv-rs#772: the night's fill is starlight: from above, cool, whatever the sky's colour.
@@ -2500,7 +2517,10 @@ mod tests {
             assert!((night.top[i] - tint * sky_light::STAR_TOP).abs() < 1e-5);
             assert!((night.ground[i] - tint * sky_light::STAR_GROUND).abs() < 1e-5);
         }
-        assert!(luma(night.ground) < luma(night.top), "a face down takes less starlight");
+        assert!(
+            luma(night.ground) < luma(night.top),
+            "a face down takes less starlight"
+        );
     }
 
     /// nv-rs#772: the moon's direct light follows the game's phase, fade and height.
@@ -2510,13 +2530,27 @@ mod tests {
         assert!((moon_phase_light(0) - 1.0).abs() < 1e-6, "full");
         assert!((moon_phase_light(2) - 0.5).abs() < 1e-6, "half");
         assert!(moon_phase_light(4).abs() < 1e-6, "new");
-        assert!((moon_phase_light(1) - moon_phase_light(7)).abs() < 1e-6, "waning as waxing");
-        assert_eq!(moon_phase_light(99), 0.5, "an unknown phase is no full moon");
+        assert!(
+            (moon_phase_light(1) - moon_phase_light(7)).abs() < 1e-6,
+            "waning as waxing"
+        );
+        assert_eq!(
+            moon_phase_light(99),
+            0.5,
+            "an unknown phase is no full moon"
+        );
         assert!((moon_strength(0, 1.0, 1.0) - 1.0).abs() < 1e-6);
         assert_eq!(moon_strength(4, 1.0, 1.0), 0.0, "a new moon lights nothing");
-        assert_eq!(moon_strength(0, 0.0, 1.0), 0.0, "a moon the game hides lights nothing");
+        assert_eq!(
+            moon_strength(0, 0.0, 1.0),
+            0.0,
+            "a moon the game hides lights nothing"
+        );
         assert_eq!(moon_strength(0, 1.0, -0.2), 0.0, "below the horizon");
-        assert!(moon_strength(0, 1.0, 0.3) < moon_strength(0, 1.0, 0.6), "low is weaker");
+        assert!(
+            moon_strength(0, 1.0, 0.3) < moon_strength(0, 1.0, 0.6),
+            "low is weaker"
+        );
         assert_eq!(moon_strength(0, f32::NAN, 1.0), 0.0);
     }
 
@@ -2530,7 +2564,7 @@ mod tests {
         assert_eq!(moon_tilt(35.0, 25.0), 65.0);
         assert_eq!(moon_tilt(-35.0, 25.0), -65.0);
         assert_eq!(moon_tilt(0.0, 35.0), 55.0);
-        assert_eq!(moon_tilt(f32::NAN, 25.0).is_nan(), true);
+        assert!(moon_tilt(f32::NAN, 25.0).is_nan());
         assert_eq!(moon_tilt(35.0, f32::NAN), 35.0);
         for pos in [30.0, 67.5, 90.0, 140.0] {
             let up = toward_moon(pos, moon_tilt(35.0, 25.0)).unwrap()[2];
@@ -2558,7 +2592,10 @@ mod tests {
         assert!((s.direct_with_moon(3, 0.0, Some(1.0)) - 0.9).abs() < 1e-6);
         assert_eq!(sky_light::shade_share(0.0, Some(0.0)), 0.0);
         assert_eq!(sky_light::shade_share(1.0, Some(0.0)), 1.0);
-        assert_eq!(sky_light::shade_share(0.0, Some(1.0)), sky_light::NIGHT_SHADE);
+        assert_eq!(
+            sky_light::shade_share(0.0, Some(1.0)),
+            sky_light::NIGHT_SHADE
+        );
         // By day the moon changes nothing; indoors neither.
         assert_eq!(s.ambient_with_moon(3, 1.0, Some(0.0)), s.ambient(3, 1.0));
         assert_eq!(s.direct_with_moon(3, 1.0, Some(0.0)), s.direct(3, 1.0));
