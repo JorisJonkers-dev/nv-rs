@@ -30,7 +30,7 @@ enabled = false
 A value is taken, weakest first, from: the original, the preset, the file's `global`, `worldspace`, `interior` and
 `cell` tables, then `NV_GFX`. Keys the engine does not know, comments and lines it cannot read are kept when the file is
 written; what it cannot use is named once in the log (`nv-rs: graphics settings ...`). The world space, interior and
-cell layers take effect with the in-game overlay (next slice); until then the start reads the global layer.
+cell layers take effect while playing in the next slice; until then the start and the overlay use the global layer.
 
 ## Presets
 
@@ -41,6 +41,24 @@ cell layers take effect with the in-game overlay (next slice); until then the st
 | `performance` | on, low, strength 0.6 | off |
 
 A preset is a settings file (`crates/fork-gfx/presets/`); a value set in the profile's file wins over it.
+
+## The overlay in the game
+
+F10 opens and closes it (Escape closes it too), while the engine draws the game with Vulkan. It lists the preset and
+every module's settings, each with where its value comes from (`original`, `preset modern`, `global`, `interior`, ...)
+and, for a setting that takes effect only at the next start, "next start" once it was changed.
+
+- The keyboard works it: Tab and Shift+Tab move between the controls, Space and Enter switch or open one, the arrows
+  move a slider or a list. While it is open, keys pressed go to the overlay and not to the game; keys let go still
+  reach the game, so nothing you held when you opened it stays held. The mouse is not used yet.
+- "Changes go to" chooses the layer a change is written to: everywhere (the default); once the layers by place are live,
+  also outdoors in the current world space, every interior, or the current cell.
+- A change applies in the next frame where the setting is live, and is written to the profile's `nv-rs-graphics.toml`
+  at once (keys and comments the engine does not know are kept). A scripted run that reads no file applies the change
+  and keeps nothing.
+- The overlay is drawn after the frame is captured: it is never in an F12 report, a screenshot the engine takes or a
+  scene picture. Closed, it costs nothing; open, about 0.15 ms of the processor's time and 0.03 ms of the card's at
+  2560x1440. Its text is the frame-rate counter's font, twice as large from 1440 lines up.
 
 ## The modules
 

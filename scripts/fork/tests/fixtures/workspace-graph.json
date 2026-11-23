@@ -83,6 +83,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "fork-gfx"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "fork-hitch"
     },
     {
@@ -111,11 +116,6 @@
     {
      "kind": null,
      "name": "wgpu"
-    },
-    {
-     "features": [],
-     "kind": "dev",
-     "name": "fork-gfx"
     },
     {
      "kind": "dev",

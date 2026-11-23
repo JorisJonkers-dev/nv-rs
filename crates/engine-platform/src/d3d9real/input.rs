@@ -166,6 +166,11 @@ pub(super) fn dik_of_code(code: &str) -> Option<u8> {
 /// A key of the window went down or up (`repeat`: down again while held; `alt`: Alt is held), by
 /// DirectInput code: as `win32.rs`'s `window_input` takes a key message ([`key_into`]).
 pub(super) fn key(code: u8, down: bool, repeat: bool, alt: bool) {
+    // F10 and, while it is open, the keys going down: the graphics overlay's
+    // (`d3d9_wgpu::gfx_overlay`, fork-only).
+    if d3d9_wgpu::gfx_overlay::key(code, down, repeat) {
+        return;
+    }
     let report = {
         let Ok(mut i) = input().lock() else { return };
         key_into(&mut i, code, down, repeat, alt, d3d9_wgpu::frame_rate::key)

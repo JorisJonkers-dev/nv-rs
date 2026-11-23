@@ -400,6 +400,14 @@ fn window_input(_window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) {
             if d3d9_wgpu::frame_rate::window_key(message, wparam.0, lparam.0) {
                 return;
             }
+            // F10 and, while it is open, the keys going down: the graphics overlay's
+            // (`d3d9_wgpu::gfx_overlay`, fork-only).
+            let down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+            if dik(lparam.0).is_some_and(|code| {
+                d3d9_wgpu::gfx_overlay::key(code, down, lparam.0 & (1 << 30) != 0)
+            }) {
+                return;
+            }
             // F12 (the first press, not its repeats): a report for the player to send
             // ([`shot::report_at_present`]). The key still reaches the game, as every key does.
             if message == WM_KEYDOWN && wparam.0 == 0x7b && lparam.0 & (1 << 30) == 0 {

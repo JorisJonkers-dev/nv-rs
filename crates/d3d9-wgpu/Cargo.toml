@@ -13,7 +13,9 @@ fork-log = { path = "../fork-log" }
 fork-hitch = { path = "../fork-hitch" }
 qos = { path = "../qos" }
 d3d9-stream = { path = "../d3d9-stream" }
-# The in-game graphics overlay (nv-rs#592, ADR-0019): its panel, drawn at the present.
+# The in-game graphics overlay (nv-rs#592, ADR-0019): its panel, drawn at the present, and the
+# settings it edits.
+fork-gfx = { path = "../fork-gfx" }
 fork-overlay = { path = "../fork-overlay" }
 # The icon's 256-pixel logo is a PNG: its zlib stream read with the plugin reader's decoder.
 esm = { path = "../esm" }
@@ -40,10 +42,6 @@ fork-window = { path = "../fork-window" }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CALayer", "CAMetalLayer"] }
 raw-window-metal = "=1.1.0"
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
-
-# The graphics overlay's picture test: the settings its panel shows.
-[dev-dependencies]
-fork-gfx = { path = "../fork-gfx" }
 
 [[test]]
 name = "metal_surface"

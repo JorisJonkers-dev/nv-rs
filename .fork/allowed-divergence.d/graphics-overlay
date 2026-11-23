@@ -1,4 +1,8 @@
 Cargo.toml  # workspace member fork-overlay, the in-game graphics overlay (nv-rs#592, nv-rs#730, ADR-0019)
-crates/d3d9-wgpu/Cargo.toml  # fork-overlay as a dependency (the graphics overlay drawn at the present) and fork-gfx for its picture test
+crates/d3d9-wgpu/Cargo.toml  # fork-overlay and fork-gfx as dependencies: the graphics overlay drawn at the present and the settings it edits
 crates/d3d9-wgpu/src/lib.rs  # `pub mod gfx_overlay;` (fork-only file)
 crates/d3d9-wgpu/src/bitmap_font.rs  # `ascii()`: the port's glyphs handed to the overlay's font
+crates/d3d9-wgpu/src/frame_rate.rs  # `window_device_present()`: the graphics overlay takes F10 only while wgpu draws the window
+crates/d3d9-wgpu/src/device.rs  # the graphics overlay drawn at the present after the window's capture (`draw_gfx_overlay`, its painter field)
+crates/engine-platform/src/d3d9real/win32.rs  # F10 and, while the graphics overlay is open, keys going down go to it
+crates/engine-platform/src/d3d9real/input.rs  # the same for the other window layers

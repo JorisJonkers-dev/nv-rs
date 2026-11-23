@@ -52,6 +52,11 @@ pub(crate) fn window_device(made: bool) {
     }
 }
 
+/// Whether a wgpu device draws the game's window (the graphics overlay takes its key only then).
+pub fn window_device_present() -> bool {
+    WINDOW_DEVICES.load(Ordering::Relaxed) > 0
+}
+
 /// As if a wgpu device drew the game's window (`true`) or none did (tests).
 #[doc(hidden)]
 pub fn set_window_device(on: bool) {
