@@ -333,3 +333,117 @@ fn the_open_panel_costs() {
         median(&mut gpu)
     );
 }
+
+/// The overlay's keys, by DirectInput code: closed, only F10 is taken and its first press opens
+/// the panel; open, every key going down is taken (the panel's keys queued as its input), keys
+/// coming up go on to the game (nothing held stays held), Escape and F10 close it; without a wgpu
+/// device on the window nothing is taken. One test: the overlay's state is the process's.
+#[test]
+fn the_overlay_takes_f10_and_while_open_only_keys_going_down() {
+    use d3d9_wgpu::gfx_overlay::{is_open, key, set_open, DIK_F10};
+    const W: u8 = 0x11;
+    const TAB: u8 = 0x0f;
+    const ESCAPE: u8 = 0x01;
+    set_open(false);
+    d3d9_wgpu::frame_rate::set_window_device(false);
+    assert!(!key(DIK_F10, true, false), "no device: F10 is the game's");
+    assert!(!is_open());
+    d3d9_wgpu::frame_rate::set_window_device(true);
+    assert!(!key(W, true, false), "closed: W is the game's");
+    assert!(key(DIK_F10, true, false) && is_open(), "F10 opens");
+    assert!(
+        key(DIK_F10, true, true) && is_open(),
+        "its repeat changes nothing"
+    );
+    assert!(
+        key(DIK_F10, false, false) && is_open(),
+        "its release is taken too"
+    );
+    assert!(
+        key(TAB, true, false),
+        "open: a key going down is the panel's"
+    );
+    assert!(key(W, true, false), "open: any key going down is taken");
+    assert!(!key(W, false, false), "a key coming up reaches the game");
+    assert!(key(ESCAPE, true, false) && !is_open(), "Escape closes");
+    assert!(!key(ESCAPE, false, false), "and its release is the game's");
+    assert!(key(DIK_F10, true, false) && is_open());
+    assert!(key(DIK_F10, true, false) && !is_open(), "F10 closes");
+    d3d9_wgpu::frame_rate::set_window_device(false);
+}
+
+/// A change made in the panel is written to the profile's file at once, keeping what the engine
+/// does not know, and the new values are handed on for the next frame; a run without a file
+/// applies the change and says it is not kept.
+#[test]
+fn a_change_is_written_to_the_file_and_handed_on() {
+    use d3d9_wgpu::gfx_overlay::Session;
+    use fork_overlay::Change;
+    use std::sync::{Arc, Mutex};
+    let dir = std::env::temp_dir().join(format!("nv-rs-gfx-overlay-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(fork_gfx::FILE_NAME);
+    let text = "# mine\nversion = 1\nother_program = \"kept\"\n[global.ao]\nfuture = 2 # kept\n";
+    std::fs::write(&path, text).unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let mut live = fork_gfx::Live::new(builtin::specs(), builtin::presets());
+    live.set_file(Some(SettingsFile::parse(text)));
+    let s2 = seen.clone();
+    let mut session = Session::new(
+        live,
+        Some(path.clone()),
+        Box::new(move |r: &fork_gfx::Resolved| {
+            s2.lock()
+                .unwrap()
+                .push(r.module("ao").unwrap().slider("strength"))
+        }),
+    );
+    let set = Change::Set {
+        layer: fork_gfx::Layer::Global,
+        module: "ao",
+        key: "strength",
+        value: fork_gfx::Value::Number(0.4),
+    };
+    assert!(session.apply(&[set.clone()]));
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(written.starts_with("# mine\n"), "{written}");
+    assert!(written.contains("other_program = \"kept\"") && written.contains("future = 2 # kept"));
+    assert!(written.contains("strength = 0.4"), "{written}");
+    assert!(!dir.join(format!("{}.new", fork_gfx::FILE_NAME)).exists());
+    assert_eq!(*seen.lock().unwrap(), vec![0.4]);
+    assert!(session.status().unwrap().starts_with("Saved to"));
+    assert!(
+        !session.apply(&[set]),
+        "the same value again changes nothing"
+    );
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let mut unsaved = Session::new(
+        fork_gfx::Live::new(builtin::specs(), builtin::presets()),
+        None,
+        Box::new(|_| {}),
+    );
+    assert!(unsaved.apply(&[Change::Preset("modern".into())]));
+    assert_eq!(
+        unsaved.status(),
+        Some("Not saved: this run reads no settings file")
+    );
+    assert_eq!(unsaved.live.resolved().unwrap().preset, "modern");
+}
+
+/// The panel's scale follows the frame's height: 1 up to 1439 lines, 2 at 1440, 3 at 2160.
+#[test]
+fn the_panel_scale_follows_the_height() {
+    use d3d9_wgpu::gfx_overlay::scale;
+    assert_eq!(
+        [
+            scale(480),
+            scale(720),
+            scale(1080),
+            scale(1440),
+            scale(2160)
+        ],
+        [1.0, 1.0, 1.0, 2.0, 3.0]
+    );
+}

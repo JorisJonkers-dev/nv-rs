@@ -1206,6 +1206,8 @@ pub struct Device {
     /// whether it showed at the last present (turned on, its meter starts again).
     fps_meter: Arc<std::sync::Mutex<frame_rate::Meter>>,
     fps_overlay: Option<frame_rate::Overlay>,
+    /// The graphics overlay's drawing (`gfx_overlay`), made when it first opens.
+    gfx_overlay: Option<fork_overlay::Painter>,
     fps_was_shown: bool,
     shots: Option<Shots>,
     warned: HashSet<String>,
@@ -1964,6 +1966,7 @@ impl Device {
             frames_shown: 0,
             fps_meter: Arc::default(),
             fps_overlay: None,
+            gfx_overlay: None,
             fps_was_shown: false,
             shots,
             warned: HashSet::new(),
@@ -9923,6 +9926,33 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         self.fps_overlay = Some(overlay);
     }
 
+    /// The graphics overlay ([`crate::gfx_overlay`]) drawn into the window's frame `view`, after
+    /// everything recorded for the frame so far. Its drawing is made when it first opens (again if
+    /// the window's format changed).
+    fn draw_gfx_overlay(
+        &mut self,
+        view: &wgpu::TextureView,
+        (format, width, height): (wgpu::TextureFormat, u32, u32),
+    ) {
+        self.end_pass();
+        let mut painter = match self.gfx_overlay.take() {
+            Some(p) if p.format == format => p,
+            _ => crate::gfx_overlay::painter(&self.device, format),
+        };
+        let (device, queue) = (self.device.clone(), self.queue.clone());
+        let span = self.span_begin(Kind::Other);
+        crate::gfx_overlay::draw(
+            &mut painter,
+            &device,
+            &queue,
+            self.encoder(),
+            view,
+            (width, height),
+        );
+        self.span_end(span);
+        self.gfx_overlay = Some(painter);
+    }
+
     /// Shows `p` in the game's window ([`loading`]): for a long step of the backend's own before
     /// play, which calls it as it goes. Only a device on the game's window draws it; every call
     /// also writes one log line with the same numbers (for a launcher). The game's own frames
@@ -10151,6 +10181,11 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 );
                 self.span_end(copy_span);
                 window_shot = Some((buffer, row, cw, ch));
+            }
+            // The graphics overlay (fork-only, `gfx_overlay`), at the same point as the counter and
+            // for the same reason: in no capture. Closed, this read is all it costs.
+            if crate::gfx_overlay::is_open() {
+                self.draw_gfx_overlay(&view, (format, cw, ch));
             }
             // The frame-rate counter last, over the game's frame and the loading screen: after
             // the window's capture above and before the present, never in the back buffer (what

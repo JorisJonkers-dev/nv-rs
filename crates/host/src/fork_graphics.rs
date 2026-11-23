@@ -175,7 +175,7 @@ pub fn start(
         .then(crate::game_ini::path)
         .flatten()
         .and_then(|ini| profile_file(&ini));
-    let read = read(&env, profile)?;
+    let read = read(&env, profile.clone())?;
     let r = resolve_at(&read, &Place::default());
     let mut lines = Vec::new();
     if let Some((path, file)) = &read.file {
@@ -200,7 +200,12 @@ pub fn start(
             .iter()
             .map(|n| format!("nv-rs: graphics settings: {n}")),
     );
+    let started = choice.clone();
     let (choice, levels) = apply(choice.clone(), &r);
+    // The overlay (F10) edits the same settings while the game runs and writes them to the file
+    // read (or, in a play run without one, the profile's).
+    let path = read.file.as_ref().map(|(p, _)| p.clone()).or(profile);
+    d3d9_wgpu::gfx_overlay::install(Some(session(read, path, started)));
     d3d9_wgpu::scene_light::set_quality(levels.ao_quality);
     d3d9_wgpu::sun_shadow::set_map_size(levels.shadow_map_size)?;
     if !r.is_original() {
@@ -218,6 +223,27 @@ pub fn start(
         ));
     }
     Ok((choice, lines))
+}
+
+/// The overlay's session: the settings as read, the file a change is written to, and the live
+/// levels set again from the run's start-up `choice` with the new values over it.
+pub fn session(
+    read: Read,
+    path: Option<PathBuf>,
+    choice: Choice,
+) -> d3d9_wgpu::gfx_overlay::Session {
+    let mut live = fork_gfx::Live::new(builtin::specs(), builtin::presets());
+    live.set_file(read.file.map(|(_, f)| f));
+    live.set_overrides(read.override_preset, read.overrides);
+    d3d9_wgpu::gfx_overlay::Session::new(
+        live,
+        path,
+        Box::new(move |r: &Resolved| {
+            let (c, l) = apply(choice.clone(), r);
+            d3d9_wgpu::scene_light::set_quality(l.ao_quality);
+            d3d9_wgpu::scene_light::set_live_strength(Some(c.ambient_occlusion_strength));
+        }),
+    )
 }
 
 #[cfg(test)]
