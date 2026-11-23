@@ -30,8 +30,7 @@ each function belongs to.
   4 GB process's highest address, 0xFFFEFFFF, and `GlobalMemoryStatus(Ex)` its
   total virtual size, 0xFFFE0000. A stopgap: the modern systems lift the limit
   for good. `mem.rs` has the whole layout. Every guest load and store takes
-  `&self`, ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem`
-  is `Send`, not `Sync`, until then): guest values are plain host loads and
+  `&self` (`Mem` is `Send`, not `Sync`); guest values are plain host loads and
   stores through raw pointers, the exe's own `mov`s, so unsynchronised guest
   races are undefined behaviour in Rust's model and the game's own
   synchronisation (interlocked operations, locks, waits: calls the compiler
