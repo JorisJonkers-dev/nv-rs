@@ -309,8 +309,19 @@ pub mod kept {
     /// S0204's `Actor* pLastKilledActor` (4 bytes): the actor the console's `kill` last killed for
     /// the player, until `Actor::Kill` reaches its experience step for it.
     pub const LAST_KILL_COMMAND_ACTOR: usize = 5;
+    /// S0111's `bool isInPlayerAmmoSwap` (4 bytes): set while the player's ammunition swap runs
+    /// (`PlayerCharacter::Update`'s call of `009462c0`), read by `0095d450`.
+    pub const PLAYER_AMMO_SWAP: usize = 6;
+    /// S0130.05/.06's `static bool bDecreasedPlayerAmmo` (4 bytes): the player's update took a
+    /// round for its continuous beam, so its next impact does damage; cleared before each load.
+    pub const BEAM_DECREASED_PLAYER_AMMO: usize = 7;
+    /// S0926's `Actor* lastPlayerTarget` (4 bytes): the actor the player last hit that said a
+    /// line while the hit sound's cooldown setting is 0.
+    pub const COMBAT_SOUND_PLAYER_TARGET: usize = 8;
+    /// S0926's `static UInt32 lastRNG` (4 bytes): the extra wait drawn for that actor's next line.
+    pub const COMBAT_SOUND_TARGET_WAIT: usize = 9;
     /// How many.
-    pub const COUNT: usize = 6;
+    pub const COUNT: usize = 10;
 }
 
 /// The last thing each of Tweaks' warnings printed (its functions' statics), its print queue and
@@ -338,6 +349,11 @@ pub(crate) struct Prints {
     /// `[Extra Console Details] bMeshPath` (Tweaks' code default 0): S0059 prints every selected
     /// reference's model path with it.
     mesh_path: AtomicBool,
+    /// S0022.45's `ConsoleManager_HandleControllerHotkeys` statics: `lastHeldKey` (an Xbox control
+    /// code, 0 for none), `nextKeyRepeatTime` and `nextThumbStickRepeatTime` (milliseconds).
+    pub(crate) console_pad_last_held: AtomicU32,
+    pub(crate) console_pad_next_repeat: AtomicU32,
+    pub(crate) console_stick_next_repeat: AtomicU32,
 }
 
 impl Default for Prints {
@@ -351,6 +367,9 @@ impl Default for Prints {
             lod_ref: AtomicU32::new(0),
             slip_guard: AtomicBool::new(false),
             mesh_path: AtomicBool::new(false),
+            console_pad_last_held: AtomicU32::new(0),
+            console_pad_next_repeat: AtomicU32::new(0),
+            console_stick_next_repeat: AtomicU32::new(0),
         }
     }
 }

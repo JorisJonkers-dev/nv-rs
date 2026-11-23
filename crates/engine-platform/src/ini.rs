@@ -1,15 +1,8 @@
 //! The profile (INI) file imports, `GetPrivateProfileIntA`, `GetPrivateProfileStringA` and
-//! `WritePrivateProfileStringA`: they read and write the files the game made in this run
-//! ([`files`]) and the Windows directory of the player's table ([`d3d9::windows_directory`]), so
-//! they are in the platform layer rather than the core (moved from `engine-core`'s
-//! `units/platform.rs`). A write changes the run's copy of the file only, never the player's; the
-//! host copies the game's `FalloutPrefs.ini` out where a launcher asks (`NV_PREFS_OUT`).
-//!
-//! `WritePrivateProfileStringA` is based on Lhomer's nv-rs commit 8f4cc9ba (GPL-3.0,
-//! https://github.com/Lhomer/nv-rs/commit/8f4cc9ba7fa66fe5855a828150343ec86e5ef60b): the write
-//! through the run's copy of the file ([`files::write_whole`]), its null arguments and its
-//! tests. The text rules are the fork's measured ones (`engine_core::mod_files`), which the
-//! extenders' mod files already use.
+//! `WritePrivateProfileStringA`: they read the files the game made in this run ([`files`]) and
+//! the Windows directory of the player's table ([`d3d9::windows_directory`]), and the write
+//! changes the run's copy, so they are in the platform layer rather than the core (moved from
+//! `engine-core`'s `units/platform.rs`).
 
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -19,9 +12,6 @@ use super::{d3d9, files};
 /// The value of a key as `GetPrivateProfileStringA` reads it: the core's (`engine_core::mod_files`,
 /// which the extenders' mod files share); its measured answers are this file's tests.
 pub use engine_core::mod_files::ini_value;
-
-use engine_core::mod_files::text::Decoded;
-use engine_core::mod_files::{removed_key, removed_section, written_profile, ERROR_NOT_SUPPORTED};
 
 /// Where the profile functions look for the file `name` names (measured on scratch files,
 /// 2026-11-16, `build43-scratch/measure/mcm/ini-measure/ini-2026-11-16.txt`): a bare name (no `\`
@@ -182,24 +172,25 @@ pub fn get_private_profile_string_a(
 }
 
 // Platform: replaces KERNEL32.DLL WritePrivateProfileStringA (import)
-/// `WritePrivateProfileStringA(section, key, value, file)` on the run's copy of the file
-/// ([`profile_path`], [`files::write_whole`]; the player's file is read once and never changed),
-/// with Windows' text rules as measured on scratch files (`engine_core::mod_files`):
-/// - `key=value` set in the first section of the name ([`written_profile`]): an existing key
-///   keeps its line up to `=` and gets the new value; a new key goes after the section's last
-///   key line; a missing section is added at the end;
-/// - a null `value` deletes the key's line ([`removed_key`]), a null `key` the section
-///   ([`removed_section`]); a missing file is then made empty, as Windows makes it;
-/// - a missing file is made when its folder exists; when it does not, nothing is written and the
-///   answer is 0 with `ERROR_PATH_NOT_FOUND`; a file that is there but cannot be read is not
-///   written either (0, its error);
-/// - a UTF-16 LE file is changed as text and written back so; a file with a 0 byte that is not one
-///   is left as it is (0, `ERROR_NOT_SUPPORTED`, one line in the log), as the mod files' writes do.
+/// `WritePrivateProfileStringA(section, key, value, file)`: the file [`profile_path`] names,
+/// changed as Windows changes it, in the run's copy ([`files::write_whole`]: engine memory, never
+/// the player's file; the host copies the game's `FalloutPrefs.ini` out to the profile,
+/// `NV_PREFS_OUT`, as it copies saves): `key=value` written
+/// (`engine_core::mod_files::written_profile`), a null value the key taken out (`removed_key`), a
+/// null key the section taken out (`removed_section`). Measured on scratch files with this call
+/// (2026-11-22, `build43-scratch/measure/player-bugs/ini-write`, 99 cases, and the extenders'
+/// 2026-11-16 ones the rules were made from):
+/// - true, the last error 0, or `ERROR_INVALID_PARAMETER` (87) when the value, the section or the
+///   key is empty (written all the same: `a=`, `[]`, `=6`; measured `value-empty`,
+///   `empty-section-name`, `empty-key-name`); a file not there is made (a removal makes it
+///   empty), the last error `ERROR_FILE_NOT_FOUND`; a folder not there: false,
+///   `ERROR_PATH_NOT_FOUND`, nothing made;
+/// - a null section: false, `ERROR_FILE_NOT_FOUND`, nothing changed;
+/// - text the profile calls were not measured on (a 0 byte, not UTF-16 LE with its mark,
+///   `engine_core::mod_files::text`) is left as it is: false, `ERROR_NOT_SUPPORTED`, said once.
 ///
-/// A null section (Windows' flush of its cache) or file (`win.ini`) changes nothing and answers
-/// 1. Until 2026-11-17 every call answered 1 and wrote nothing, so the Settings menu's choices
-/// (`INISettingCollection::WriteSetting`, `00c43e90`, run when a changed page is left) were gone
-/// at the next start.
+/// Until 2026-11-22 it answered true and wrote nothing, so settings changed in the game's menus
+/// were lost at the end of the run (issues #370 and #401).
 pub fn write_private_profile_string_a(
     e: &mut Engine,
     section: Ptr,
@@ -207,66 +198,96 @@ pub fn write_private_profile_string_a(
     value: Ptr,
     file: Ptr,
 ) -> u32 {
-    if section.is_null() || file.is_null() {
-        return 1;
+    if section.is_null() {
+        e.kernel.last_error = files::ERROR_FILE_NOT_FOUND;
+        return 0;
     }
     let name = e.mem.cstr(file.addr());
     let path = profile_path(e, &name);
-    let section = e.mem.cstr(section.addr());
-    let key = (!key.is_null()).then(|| e.mem.cstr(key.addr()));
-    let value = (!value.is_null()).then(|| e.mem.cstr(value.addr()));
     let old = match files::read_whole_or_error(e, &path) {
         Ok(bytes) => Some(bytes),
         Err(files::ERROR_FILE_NOT_FOUND | files::ERROR_PATH_NOT_FOUND) => None,
         Err(code) => {
-            println!(
-                "WritePrivateProfileStringA: {} could not be read (Windows error {code}); not written",
-                String::from_utf8_lossy(&path)
-            );
             e.kernel.last_error = code;
             return 0;
         }
     };
-    if old.is_none() && !files::directory_exists(e, &path) {
-        e.kernel.last_error = files::ERROR_PATH_NOT_FOUND;
-        return 0;
+    let section = e.mem.cstr(section.addr());
+    let key = (!key.is_null()).then(|| e.mem.cstr(key.addr()));
+    let value = (!value.is_null()).then(|| e.mem.cstr(value.addr()));
+    let new = match profile_written(old.as_deref(), &section, key.as_deref(), value.as_deref()) {
+        Ok(new) => new,
+        Err(code) => {
+            unmeasured_text(&path);
+            e.kernel.last_error = code;
+            return 0;
+        }
+    };
+    if let Some(bytes) = new {
+        if let Err(code) = files::write_whole(e, &path, bytes) {
+            e.kernel.last_error = code;
+            return 0;
+        }
     }
-    let file = Decoded::of(old.as_deref().unwrap_or_default());
-    if !file.writable || (file.mark_only() && (key.is_none() || value.is_none())) {
-        println!(
-            "WritePrivateProfileStringA: {} is not a text file Windows' profile calls were measured \
-             on; not written",
-            String::from_utf8_lossy(&path)
-        );
-        e.kernel.last_error = ERROR_NOT_SUPPORTED;
-        return 0;
+    let empty = section.is_empty()
+        || key.as_deref().is_some_and(<[u8]>::is_empty)
+        || value.as_deref().is_some_and(<[u8]>::is_empty);
+    e.kernel.last_error = if old.is_none() {
+        files::ERROR_FILE_NOT_FOUND
+    } else if empty {
+        files::ERROR_INVALID_PARAMETER
+    } else {
+        files::ERROR_SUCCESS
+    };
+    1
+}
+
+/// The bytes of a profile file after `WritePrivateProfileStringA(section, key, value)` on `old`
+/// (`None`: no file), as Windows writes them; `Ok(None)`: the file stays as it is (a removal of
+/// what is not there). `Err(ERROR_NOT_SUPPORTED)`: text the calls were not measured on.
+fn profile_written(
+    old: Option<&[u8]>,
+    section: &[u8],
+    key: Option<&[u8]>,
+    value: Option<&[u8]>,
+) -> Result<Option<Vec<u8>>, u32> {
+    use engine_core::mod_files::{removed_key, removed_section, text::Decoded, written_profile};
+    let file = Decoded::of(old.unwrap_or_default());
+    if !file.writable {
+        return Err(engine_core::mod_files::ERROR_NOT_SUPPORTED);
     }
-    let section = file.arg(&section);
+    let section = file.arg(section);
     let new = match (key, value) {
+        (None, _) => removed_section(&file.text, &section),
+        (Some(key), None) => removed_key(&file.text, &section, &file.arg(key)),
         (Some(key), Some(value)) => {
-            let mut new = written_profile(&file.text, &section, &file.arg(&key), &file.arg(&value));
-            // A UTF-16 file that is only its mark gets a line end first (measured, as
-            // `engine_core::mod_files::write_profile_string`).
+            let mut new = written_profile(&file.text, &section, &file.arg(key), &file.arg(value));
+            // A UTF-16 file that is only its mark gets a line end first (measured with the
+            // extenders' writes: `mod_files::write_profile_string`).
             if file.mark_only() {
-                new.splice(0..0, b"\r\n".iter().copied());
+                new.splice(0..0, *b"\r\n");
             }
             Some(new)
         }
-        (Some(key), None) => removed_key(&file.text, &section, &file.arg(&key)),
-        (None, _) => removed_section(&file.text, &section),
     };
-    match new {
-        Some(new) => {
-            let bytes = file.encode(&new);
-            if old.as_deref() != Some(&bytes[..]) {
-                files::write_whole(e, &path, bytes);
-            }
-        }
-        // Nothing to change; a missing file is made empty (measured).
-        None if old.is_none() => files::write_whole(e, &path, Vec::new()),
-        None => {}
-    }
-    1
+    Ok(match (new, old) {
+        (Some(new), _) => Some(file.encode(&new)),
+        // A removal from a file not there makes it, empty (measured).
+        (None, None) => Some(Vec::new()),
+        (None, Some(_)) => None,
+    })
+}
+
+/// A file the game's profile write leaves alone ([`profile_written`]'s refusal), said once.
+fn unmeasured_text(path: &[u8]) {
+    static SAID: std::sync::Once = std::sync::Once::new();
+    SAID.call_once(|| {
+        println!(
+            "{}: not a text file Windows' profile calls were measured on (a 0 byte, not UTF-16 LE \
+             with its mark): the game's settings write leaves it as it is",
+            String::from_utf8_lossy(path)
+        )
+    });
 }
 
 #[cfg(test)]
@@ -473,15 +494,12 @@ mod tests {
     }
 
     /// A scratch folder removed when the test ends, however it ends.
-    #[cfg(windows)]
     struct Scratch(std::path::PathBuf);
-    #[cfg(windows)]
     impl Drop for Scratch {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
-    #[cfg(windows)]
     fn scratch(name: &str) -> Scratch {
         let dir = std::env::temp_dir().join(format!("nv-ini-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -595,8 +613,7 @@ mod tests {
         assert_eq!((n, e.mem.cstr(0x1100)), (4, b"game".to_vec()));
     }
 
-    /// A missing file gives the default, cut to the buffer; a write into a folder that exists
-    /// nowhere writes nothing and answers 0 with `ERROR_PATH_NOT_FOUND`.
+    /// A missing file gives the default, cut to the buffer.
     #[test]
     fn profile_strings_fall_back_to_the_default() {
         let mut e = engine();
@@ -625,350 +642,235 @@ mod tests {
             Ptr::new(0x1060),
         );
         assert_eq!((n, e.mem.u8(0x1100)), (0, 0));
-        assert_eq!(
-            write_private_profile_string_a(
-                &mut e,
-                Ptr::new(0x1000),
-                Ptr::new(0x1020),
-                Ptr::new(0x1040),
-                Ptr::new(0x1060)
-            ),
-            0
-        );
-        assert_eq!(e.kernel.last_error, files::ERROR_PATH_NOT_FOUND);
-        assert_eq!(files::read_whole(&e, br"Z:\no\such\file.ini"), None);
     }
 
-    /// The game's settings file in a folder made in this run (nothing on the host's disk).
-    const PREFS: &[u8] = br"Z:\nv-rs-ini-test\FalloutPrefs.ini";
-
-    /// An engine whose run has made `PREFS`'s folder.
-    fn engine_with_folder() -> Engine {
-        let mut e = engine();
-        e.mem.set_cstr(0x1f00, br"Z:\nv-rs-ini-test");
-        assert_eq!(files::create_directory_a(&mut e, Ptr::new(0x1f00), 0), 1);
-        e
-    }
-
-    /// `text` as a C string in the engine's memory; `None` is a null pointer.
-    fn put(e: &mut Engine, text: Option<&[u8]>) -> Ptr {
-        let Some(text) = text else {
-            return Ptr::NULL;
-        };
-        let at = e.mem.alloc(text.len() as u32 + 1);
-        e.mem.set_cstr(at, text);
-        Ptr::new(at)
-    }
-
-    /// `WritePrivateProfileStringA(section, key, value, path)`.
-    fn write(
-        e: &mut Engine,
-        section: &[u8],
-        key: Option<&[u8]>,
-        value: Option<&[u8]>,
-        path: &[u8],
-    ) -> u32 {
-        let (s, k, v, f) = (
-            put(e, Some(section)),
-            put(e, key),
-            put(e, value),
-            put(e, Some(path)),
-        );
-        write_private_profile_string_a(e, s, k, v, f)
-    }
-
-    /// `GetPrivateProfileStringA(section, key, "", ..., path)`'s text.
-    fn read(e: &mut Engine, section: &[u8], key: &[u8], path: &[u8]) -> Vec<u8> {
-        let buffer = e.mem.alloc(0x100);
-        let (s, k, f) = (put(e, Some(section)), put(e, Some(key)), put(e, Some(path)));
-        let n = get_private_profile_string_a(e, s, k, Ptr::NULL, Ptr::new(buffer), 0x100, f);
-        e.mem.bytes(buffer, n)
-    }
-
-    /// `before` written as the run's `PREFS`, then one write; the file after it.
-    fn after_write(
-        before: &[u8],
-        section: &[u8],
-        key: Option<&[u8]>,
-        value: Option<&[u8]>,
-    ) -> Vec<u8> {
-        let mut e = engine_with_folder();
-        files::write_whole(&mut e, PREFS, before.to_vec());
-        assert_eq!(write(&mut e, section, key, value, PREFS), 1);
-        files::read_whole(&e, PREFS).unwrap()
-    }
-
-    const TEXT: &[u8] = b"[Display]\r\niSize W=800\r\n\r\n[GamePlay]\r\n;iKill=9\r\nbSaveOnRest=1\r\n\r\n[Audio]\r\nfVol=1\r\n";
-
-    /// An existing key's value is replaced where it stands: the line keeps everything up to `=`
-    /// (the file's case and spaces) and its end; names match without case; every other byte stays.
-    #[test]
-    fn a_written_value_replaces_the_key_in_place() {
-        assert_eq!(
-            after_write(TEXT, b"gameplay", Some(b"BSAVEONREST"), Some(b"0")),
-            b"[Display]\r\niSize W=800\r\n\r\n[GamePlay]\r\n;iKill=9\r\nbSaveOnRest=0\r\n\r\n[Audio]\r\nfVol=1\r\n"
-        );
-        let general =
-            b"; comment\r\n[General]\r\n sLanguage = ENGLISH \r\n[Controls]\r\nBack=1F\r\n";
-        assert_eq!(
-            after_write(general, b"General", Some(b"slanguage"), Some(b"FRENCH")),
-            b"; comment\r\n[General]\r\n sLanguage =FRENCH \r\n[Controls]\r\nBack=1F\r\n"
-        );
-        // An LF-only file stays LF-only; a last line without an end gets CR LF.
-        assert_eq!(
-            after_write(b"[A]\nK=1\nL=2\n", b"A", Some(b"K"), Some(b"9")),
-            b"[A]\nK=9\nL=2\n"
-        );
-        assert_eq!(
-            after_write(b"[A]\nK=1", b"A", Some(b"K"), Some(b"9")),
-            b"[A]\nK=9\r\n"
-        );
-        // Only the first section of a name, as the reads find it.
-        assert_eq!(
-            after_write(
-                b"[A]\r\nx=1\r\n[A]\r\nx=5\r\n",
-                b"a",
-                Some(b"x"),
-                Some(b"2")
-            ),
-            b"[A]\r\nx=2\r\n[A]\r\nx=5\r\n"
-        );
-    }
-
-    /// A new key goes after its section's last key line, before comments and blank lines; a
-    /// commented line is never the key.
-    #[test]
-    fn a_new_key_follows_its_sections_last_key() {
-        let added = after_write(TEXT, b"GamePlay", Some(b"iKill"), Some(b"0"));
-        assert_eq!(
-            added,
-            b"[Display]\r\niSize W=800\r\n\r\n[GamePlay]\r\n;iKill=9\r\nbSaveOnRest=1\r\niKill=0\r\n\r\n[Audio]\r\nfVol=1\r\n"
-        );
-        assert_eq!(ini_value(&added, b"GamePlay", b"iKill").unwrap(), b"0");
-        assert_eq!(
-            after_write(
-                b"[A]\r\nx=1\r\n; note\r\n\r\n[B]\r\n",
-                b"A",
-                Some(b"y"),
-                Some(b"2")
-            ),
-            b"[A]\r\nx=1\r\ny=2\r\n; note\r\n\r\n[B]\r\n"
-        );
-        assert_eq!(
-            after_write(b"[A]\r\n[B]\r\n", b"A", Some(b"y"), Some(b"2")),
-            b"[A]\r\ny=2\r\n[B]\r\n"
-        );
-    }
-
-    /// A missing section goes at the end, after a line end when the text has none.
-    #[test]
-    fn a_new_section_is_appended() {
-        assert!(after_write(TEXT, b"Controls", Some(b"fSens"), Some(b"0.5"))
-            .ends_with(b"fVol=1\r\n[Controls]\r\nfSens=0.5\r\n"));
-        assert_eq!(
-            after_write(
-                b"[General]\r\nsA=1",
-                b"Controls",
-                Some(b"Back"),
-                Some(b"1F")
-            ),
-            b"[General]\r\nsA=1\r\n[Controls]\r\nBack=1F\r\n"
-        );
-    }
-
-    /// A null value deletes the key's line; a null key the section; nothing to delete leaves
-    /// the file as it was.
-    #[test]
-    fn a_null_value_deletes_the_key_and_a_null_key_the_section() {
-        assert_eq!(
-            after_write(TEXT, b"GamePlay", Some(b"bSaveOnRest"), None),
-            b"[Display]\r\niSize W=800\r\n\r\n[GamePlay]\r\n;iKill=9\r\n\r\n[Audio]\r\nfVol=1\r\n"
-        );
-        assert_eq!(
-            after_write(TEXT, b"GamePlay", None, None),
-            b"[Display]\r\niSize W=800\r\n\r\n\r\n[Audio]\r\nfVol=1\r\n"
-        );
-        assert_eq!(after_write(TEXT, b"Nope", Some(b"k"), None), TEXT);
-        assert_eq!(after_write(TEXT, b"Nope", None, None), TEXT);
-    }
-
-    /// A missing file in a folder that exists is made, with its section; a deletion makes it
-    /// empty. Nothing reaches the host's disk.
-    #[test]
-    fn a_missing_file_in_an_existing_folder_is_made() {
-        let mut e = engine_with_folder();
-        assert_eq!(
-            write(&mut e, b"Controls", Some(b"Back"), Some(b"1F"), PREFS),
-            1
-        );
-        assert_eq!(
-            files::read_whole(&e, PREFS).unwrap(),
-            b"[Controls]\r\nBack=1F\r\n"
-        );
-        assert_eq!(read(&mut e, b"Controls", b"Back", PREFS), b"1F");
-        let other = br"Z:\nv-rs-ini-test\Other.ini";
-        assert_eq!(write(&mut e, b"Controls", Some(b"Back"), None, other), 1);
-        assert_eq!(files::read_whole(&e, other).unwrap(), b"");
-        assert!(!std::path::Path::new("/nv-rs-ini-test").exists());
-        assert!(!std::path::Path::new(r"Z:\nv-rs-ini-test").exists());
-    }
-
-    /// A write reaches the run's copy of the file and the next read, stamped for the copy-out
-    /// with its new size and times; the value the Settings menu saved is what the next read gets.
-    #[test]
-    fn a_profile_write_is_read_back_and_stamped() {
-        let mut e = engine_with_folder();
-        state!(e).disk.clock = Some(0x1234);
-        let changes = state_ref!(e).disk.changes;
-        assert_eq!(
-            write(&mut e, b"GamePlay", Some(b"iKillCam"), Some(b"0"), PREFS),
-            1
-        );
-        let k = br"z:\nv-rs-ini-test\falloutprefs.ini".to_vec();
-        let stamp = {
-            let disk = &state_ref!(e).disk;
-            assert!(disk.changes > changes);
-            assert_eq!(disk.files[&k], b"[GamePlay]\r\niKillCam=0\r\n");
-            disk.stamps[&k]
-        };
-        let (s, key, f) = (
-            put(&mut e, Some(b"GamePlay")),
-            put(&mut e, Some(b"iKillCam")),
-            put(&mut e, Some(PREFS)),
-        );
-        assert_eq!(get_private_profile_int_a(&mut e, s, key, 2, f), 0);
-        state!(e).disk.clock = Some(0x5678);
-        assert_eq!(
-            write(&mut e, b"GamePlay", Some(b"iKillCam"), Some(b"2"), PREFS),
-            1
-        );
-        assert_eq!(get_private_profile_int_a(&mut e, s, key, 0, f), 2);
-        let disk = &state_ref!(e).disk;
-        assert!(disk.stamps[&k] > stamp);
-        let entry = &disk.entries[&k];
-        assert_eq!(
-            (entry.size, entry.created, entry.accessed, entry.written),
-            (24, 0x1234, 0x5678, 0x5678)
-        );
-        assert_ne!(entry.attributes & files::FILE_ATTRIBUTE_ARCHIVE, 0);
-        // The same value again changes nothing: no new stamp.
-        let stamp = disk.stamps[&k];
-        assert_eq!(
-            write(&mut e, b"GamePlay", Some(b"iKillCam"), Some(b"2"), PREFS),
-            1
-        );
-        assert_eq!(state_ref!(e).disk.stamps[&k], stamp);
-    }
-
-    /// A null section (the flush of Windows' cache) or a null file (`win.ini`) changes nothing
-    /// and answers 1.
-    #[test]
-    fn a_null_section_or_file_changes_nothing() {
-        let mut e = engine_with_folder();
-        let (k, v, f) = (
-            put(&mut e, Some(b"Back")),
-            put(&mut e, Some(b"1F")),
-            put(&mut e, Some(PREFS)),
-        );
-        assert_eq!(
-            write_private_profile_string_a(&mut e, Ptr::NULL, k, v, f),
-            1
-        );
-        let s = put(&mut e, Some(b"Controls"));
-        assert_eq!(
-            write_private_profile_string_a(&mut e, s, k, v, Ptr::NULL),
-            1
-        );
-        assert_eq!(files::read_whole(&e, PREFS), None);
-    }
-
-    /// The game path of a host path: the path itself on Windows, under `Z:` elsewhere.
-    fn game_path(path: &std::path::Path) -> Vec<u8> {
-        let text = path.to_string_lossy().into_owned();
+    /// The game's name of the host folder `dir`: itself on Windows; elsewhere on drive `Z:`, as
+    /// the platform's file calls read it (`engine_core::exe::game_view`).
+    fn game_path(dir: &std::path::Path) -> Vec<u8> {
+        let text = dir.to_string_lossy().into_owned();
         if cfg!(windows) {
-            text.into_bytes()
+            text.replace('/', "\\").into_bytes()
         } else {
-            format!("Z:{}", text.replace('/', "\\")).into_bytes()
+            engine_core::exe::game_view(&text).into_bytes()
         }
     }
 
-    /// The player's own file is read once and never written: the change is in the run's copy,
-    /// which keeps the player's other lines; the file on disk keeps its bytes.
-    #[test]
-    fn the_players_file_is_never_written() {
-        let dir = std::env::temp_dir().join(format!("nv-rs-ini-player-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let host = dir.join("FalloutPrefs.ini");
-        let before = b"[GamePlay]\r\niKillCam=2\r\nbSaveOnRest=1\r\n";
-        std::fs::write(&host, before).unwrap();
-        let mut path = game_path(&dir);
-        path.extend_from_slice(b"\\FalloutPrefs.ini");
-        let mut e = engine();
-        let written = write(&mut e, b"GamePlay", Some(b"iKillCam"), Some(b"0"), &path);
-        let run = files::read_whole(&e, &path);
-        let on_disk = std::fs::read(&host).unwrap();
-        let listed = std::fs::read_dir(&dir).unwrap().count();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(written, 1);
-        assert_eq!(
-            run.unwrap(),
-            b"[GamePlay]\r\niKillCam=0\r\nbSaveOnRest=1\r\n"
-        );
-        assert_eq!(on_disk, before);
-        assert_eq!(listed, 1, "nothing made beside it");
-    }
+    /// Where the tests put the call's words: the section, key, value and file name.
+    const SECTION: u32 = 0x1000;
+    const KEY: u32 = 0x1100;
+    const VALUE: u32 = 0x1200;
+    const FILE: u32 = 0x1300;
 
-    /// A UTF-16 LE file is changed as text and written back as UTF-16 LE; a file with a 0 byte
-    /// that is not one is left as it is (0, `ERROR_NOT_SUPPORTED`).
-    #[test]
-    fn a_utf16_file_stays_utf16_and_a_binary_file_is_left_alone() {
-        let utf16 = |text: &str| {
-            let mut out = vec![0xff, 0xfe];
-            for unit in text.encode_utf16() {
-                out.extend_from_slice(&unit.to_le_bytes());
+    /// `WritePrivateProfileStringA(section, key, value, file)` with null words for `None`;
+    /// its answer and the last error.
+    fn write(
+        e: &mut Engine,
+        section: Option<&[u8]>,
+        key: Option<&[u8]>,
+        value: Option<&[u8]>,
+        file: &[u8],
+    ) -> (u32, u32) {
+        let word = |at: u32, text: Option<&[u8]>| match text {
+            Some(text) => {
+                e.mem.set_cstr(at, text);
+                Ptr::new(at)
             }
-            out
+            None => Ptr::NULL,
         };
-        assert_eq!(
-            after_write(&utf16("[A]\r\nx=1\r\n"), b"A", Some(b"x"), Some(b"2")),
-            utf16("[A]\r\nx=2\r\n")
+        let (s, k, v, f) = (
+            word(SECTION, section),
+            word(KEY, key),
+            word(VALUE, value),
+            word(FILE, Some(file)),
         );
-        let mut e = engine_with_folder();
-        files::write_whole(&mut e, PREFS, b"[A]\r\nx=1\0\r\n".to_vec());
-        assert_eq!(write(&mut e, b"A", Some(b"x"), Some(b"2"), PREFS), 0);
-        assert_eq!(e.kernel.last_error, ERROR_NOT_SUPPORTED);
-        assert_eq!(files::read_whole(&e, PREFS).unwrap(), b"[A]\r\nx=1\0\r\n");
-        // A UTF-16 file that is only its mark: a key write puts a line end first (measured, as
-        // the mod files' writes); a deletion is not one of the measured cases and is refused.
-        assert_eq!(
-            after_write(&utf16(""), b"A", Some(b"x"), Some(b"1")),
-            utf16("\r\n[A]\r\nx=1\r\n")
-        );
-        let mut e = engine_with_folder();
-        files::write_whole(&mut e, PREFS, utf16(""));
-        assert_eq!(write(&mut e, b"A", Some(b"x"), None, PREFS), 0);
-        assert_eq!(write(&mut e, b"A", None, None, PREFS), 0);
-        assert_eq!(files::read_whole(&e, PREFS).unwrap(), utf16(""));
+        e.kernel.last_error = 0x1234;
+        let answer = write_private_profile_string_a(e, s, k, v, f);
+        (answer, e.kernel.last_error)
     }
 
-    /// Writes one after another build on the run's copy: each key the game wrote stays; a file
-    /// the game deleted in this run is made again with the new key only; an empty value is a
-    /// value (`x=`), not a deletion.
-    #[test]
-    fn writes_build_on_the_runs_copy() {
-        let mut e = engine_with_folder();
-        assert_eq!(write(&mut e, b"A", Some(b"x"), Some(b"1"), PREFS), 1);
-        assert_eq!(write(&mut e, b"A", Some(b"y"), Some(b"2"), PREFS), 1);
-        assert_eq!(write(&mut e, b"B", Some(b"z"), Some(b""), PREFS), 1);
-        assert_eq!(
-            files::read_whole(&e, PREFS).unwrap(),
-            b"[A]\r\nx=1\r\ny=2\r\n[B]\r\nz=\r\n"
+    /// `GetPrivateProfileStringA`'s value of `key` in `section` of `file` (the default `-`).
+    fn read(e: &mut Engine, section: &[u8], key: &[u8], file: &[u8]) -> Vec<u8> {
+        e.mem.set_cstr(SECTION, section);
+        e.mem.set_cstr(KEY, key);
+        e.mem.set_cstr(VALUE, b"-");
+        e.mem.set_cstr(FILE, file);
+        let n = get_private_profile_string_a(
+            e,
+            Ptr::new(SECTION),
+            Ptr::new(KEY),
+            Ptr::new(VALUE),
+            Ptr::new(0x1400),
+            0x100,
+            Ptr::new(FILE),
         );
-        let name = put(&mut e, Some(PREFS));
-        assert_eq!(files::delete_file_a(&mut e, name), 1);
-        assert_eq!(files::read_whole(&e, PREFS), None);
-        assert_eq!(write(&mut e, b"A", Some(b"y"), Some(b"3"), PREFS), 1);
-        assert_eq!(files::read_whole(&e, PREFS).unwrap(), b"[A]\r\ny=3\r\n");
+        e.mem.cstr(0x1400)[..n as usize].to_vec()
+    }
+
+    /// Issue #370: the game's settings writes change the run's copy of the player's
+    /// `FalloutPrefs.ini` as Windows changes the file (a key in place, a new key after its section's
+    /// last, one in the last section at the end, measured 2026-11-22); the game reads them back,
+    /// the run's change count moves (the copy-out to the profile, `NV_PREFS_OUT`, looks at it),
+    /// and the player's own file is never written.
+    #[test]
+    fn the_games_settings_writes_change_the_runs_copy_as_windows_does() {
+        let folder = scratch("prefs");
+        let on_disk = folder.0.join("FalloutPrefs.ini");
+        let before = b"[Display]\r\niSize W=1280\r\nfGamma=1.0000\r\n\r\n[Audio]\r\nfMasterVolume=1.0000\r\n\r\n";
+        std::fs::write(&on_disk, before).unwrap();
+        let file = [game_path(&folder.0), br"\FalloutPrefs.ini".to_vec()].concat();
+        let mut e = engine();
+        let changes = state_ref!(e).disk.changes;
+        let writes: [(&[u8], &[u8], &[u8]); 4] = [
+            (b"Display", b"iSize W", b"1920"),
+            (b"Display", b"bShowHUD", b"1"),
+            (b"Audio", b"fMusicVolume", b"0.5000"),
+            (b"Controls", b"fForegroundMouseMult", b"4.0000"),
+        ];
+        for (section, key, value) in writes {
+            assert_eq!(
+                write(&mut e, Some(section), Some(key), Some(value), &file),
+                (1, 0)
+            );
+        }
+        let path = profile_path(&mut e, &file);
+        assert_eq!(
+            String::from_utf8_lossy(&files::read_whole(&e, &path).unwrap()),
+            "[Display]\r\niSize W=1920\r\nfGamma=1.0000\r\nbShowHUD=1\r\n\r\n[Audio]\r\n\
+             fMasterVolume=1.0000\r\n\r\nfMusicVolume=0.5000\r\n[Controls]\r\n\
+             fForegroundMouseMult=4.0000\r\n"
+        );
+        assert_eq!(read(&mut e, b"Display", b"iSize W", &file), b"1920");
+        assert_eq!(read(&mut e, b"Audio", b"fMusicVolume", &file), b"0.5000");
+        assert!(
+            state_ref!(e).disk.changes > changes,
+            "the copy-out sees a change"
+        );
+        assert_eq!(
+            std::fs::read(&on_disk).unwrap(),
+            before,
+            "the player's file"
+        );
+    }
+
+    /// A file not there is made in the run (its folder there): true with `ERROR_FILE_NOT_FOUND`;
+    /// in a folder not there: false with `ERROR_PATH_NOT_FOUND`, nothing made; a null section:
+    /// false with `ERROR_FILE_NOT_FOUND`, nothing changed (all measured 2026-11-22).
+    #[test]
+    fn a_missing_file_is_made_a_missing_folder_and_a_null_section_change_nothing() {
+        let folder = scratch("made");
+        let file = [game_path(&folder.0), br"\new.ini".to_vec()].concat();
+        let mut e = engine();
+        assert_eq!(
+            write(&mut e, Some(b"Audio"), Some(b"v"), Some(b"2"), &file),
+            (1, files::ERROR_FILE_NOT_FOUND)
+        );
+        assert_eq!(
+            write(&mut e, Some(b"Audio"), Some(b"w"), Some(b"3"), &file),
+            (1, 0)
+        );
+        let path = profile_path(&mut e, &file);
+        assert_eq!(
+            files::read_whole(&e, &path).unwrap(),
+            b"[Audio]\r\nv=2\r\nw=3\r\n"
+        );
+        assert!(!folder.0.join("new.ini").exists(), "nothing on the disk");
+        assert_eq!(
+            write(&mut e, None, Some(b"v"), Some(b"9"), &file),
+            (0, files::ERROR_FILE_NOT_FOUND)
+        );
+        assert_eq!(read(&mut e, b"Audio", b"v", &file), b"2");
+        let nowhere = [game_path(&folder.0), br"\no\such.ini".to_vec()].concat();
+        assert_eq!(
+            write(&mut e, Some(b"A"), Some(b"x"), Some(b"1"), &nowhere),
+            (0, files::ERROR_PATH_NOT_FOUND)
+        );
+        let path = profile_path(&mut e, &nowhere);
+        assert_eq!(files::read_whole(&e, &path), None);
+    }
+
+    /// A null value takes the key out, a null key the section (comments and blank lines after its
+    /// last entry stay); a removal from a file not there makes it empty (measured 2026-11-22).
+    #[test]
+    fn null_words_take_a_key_or_a_section_out() {
+        let folder = scratch("remove");
+        std::fs::write(
+            folder.0.join("x.ini"),
+            b"[A]\r\nx=1\r\ny=2\r\n;c\r\n\r\n[B]\r\nz=3\r\n",
+        )
+        .unwrap();
+        let file = [game_path(&folder.0), br"\x.ini".to_vec()].concat();
+        let mut e = engine();
+        assert_eq!(write(&mut e, Some(b"A"), Some(b"x"), None, &file), (1, 0));
+        assert_eq!(write(&mut e, Some(b"A"), Some(b"q"), None, &file), (1, 0));
+        let path = profile_path(&mut e, &file);
+        assert_eq!(
+            files::read_whole(&e, &path).unwrap(),
+            b"[A]\r\ny=2\r\n;c\r\n\r\n[B]\r\nz=3\r\n"
+        );
+        assert_eq!(write(&mut e, Some(b"A"), None, Some(b"2"), &file), (1, 0));
+        assert_eq!(
+            files::read_whole(&e, &path).unwrap(),
+            b";c\r\n\r\n[B]\r\nz=3\r\n"
+        );
+        let gone = [game_path(&folder.0), br"\gone.ini".to_vec()].concat();
+        assert_eq!(
+            write(&mut e, Some(b"A"), None, None, &gone),
+            (1, files::ERROR_FILE_NOT_FOUND)
+        );
+        let path = profile_path(&mut e, &gone);
+        assert_eq!(files::read_whole(&e, &path).unwrap(), b"");
+    }
+
+    /// An empty value, section or key is written, true, with the last error
+    /// `ERROR_INVALID_PARAMETER` (87), as Windows answered (measured 2026-11-22: `value-empty`,
+    /// `empty-section-name`, `empty-key-name`); a value that is not empty answers 0.
+    #[test]
+    fn an_empty_value_section_or_key_is_written_with_last_error_87() {
+        let folder = scratch("empty");
+        std::fs::write(folder.0.join("e.ini"), b"[A]\r\na=1\r\n").unwrap();
+        let file = [game_path(&folder.0), br"\e.ini".to_vec()].concat();
+        let mut e = engine();
+        let path = profile_path(&mut e, &file);
+        assert_eq!(
+            write(&mut e, Some(b"A"), Some(b"a"), Some(b""), &file),
+            (1, files::ERROR_INVALID_PARAMETER)
+        );
+        assert_eq!(files::read_whole(&e, &path).unwrap(), b"[A]\r\na=\r\n");
+        assert_eq!(
+            write(&mut e, Some(b"A"), Some(b""), Some(b"6"), &file),
+            (1, files::ERROR_INVALID_PARAMETER)
+        );
+        assert_eq!(
+            write(&mut e, Some(b""), Some(b"b"), Some(b"6"), &file),
+            (1, files::ERROR_INVALID_PARAMETER)
+        );
+        assert_eq!(
+            files::read_whole(&e, &path).unwrap(),
+            b"[A]\r\na=\r\n=6\r\n[]\r\nb=6\r\n"
+        );
+        assert_eq!(
+            write(&mut e, Some(b"A"), Some(b"a"), Some(b"1"), &file),
+            (1, 0)
+        );
+    }
+
+    /// A file with a 0 byte that is not UTF-16 LE with its mark is left as it is (the profile
+    /// calls were not measured on such text): false, `ERROR_NOT_SUPPORTED`.
+    #[test]
+    fn text_the_calls_were_not_measured_on_is_left_alone() {
+        let folder = scratch("binary");
+        std::fs::write(folder.0.join("b.ini"), b"[A]\r\nx=\x001\r\n").unwrap();
+        let file = [game_path(&folder.0), br"\b.ini".to_vec()].concat();
+        let mut e = engine();
+        assert_eq!(
+            write(&mut e, Some(b"A"), Some(b"x"), Some(b"2"), &file),
+            (0, engine_core::mod_files::ERROR_NOT_SUPPORTED)
+        );
+        let path = profile_path(&mut e, &file);
+        assert_eq!(
+            files::read_whole(&e, &path).unwrap(),
+            b"[A]\r\nx=\x001\r\n",
+            "read from the player's file, not taken into the run"
+        );
     }
 }

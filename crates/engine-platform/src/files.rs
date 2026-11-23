@@ -209,6 +209,7 @@ fn read_range(
     k: &[u8],
     start: u64,
     count: u32,
+    (io, number): (&HandleIo, u64),
 ) -> Result<Vec<u8>, u32> {
     if let Some(data) = state_ref!(e).disk.files.get(k) {
         let start = (start as usize).min(data.len());
@@ -230,12 +231,19 @@ fn read_range(
             file
         }
     };
-    // The read of the host file, with the kernel lock given back meanwhile (real threads): the
-    // file is the handle's own `Arc`, the read touches no platform state and no game memory, so
-    // another thread's platform calls (the main thread's among them) are not held up by a read
-    // from the disk, which a cell load makes by the thousand. The copy into guest memory and the
-    // position's update come after, under the lock again. With stepped threads it just reads.
-    engine_core::real_threads::without_kernel_lock(e, || read_at(&file, start, count))
+    // The disk read itself with the kernel lock given back (when the game called ReadFile directly): it reaches
+    // no platform state and no game memory, only the host file this handle keeps open, read at the position taken
+    // above. A read that waited on a busy disk held every other thread's platform calls up to 400 ms (the
+    // nov21d play, PLAY-1121d.md); the handle's position is moved on after it, under the lock again, as before.
+    engine_core::real_threads::without_kernel_lock_if_outermost(e, || {
+        #[cfg(test)]
+        handle_order_tests::while_reading(k);
+        let read = read_at(&file, start, count);
+        // Over: the handle's new position handed to a waiter that may hold the kernel lock now.
+        let moved = read.as_ref().map_or(0, |b| b.len() as u64);
+        io.hand_over(number, start + moved);
+        read
+    })
 }
 
 /// A read-only handle's host file for the player's file it reads ([`OpenFile::kept`]): opened by
@@ -895,38 +903,6 @@ pub fn read_whole_or_error(e: &Engine, path: &[u8]) -> Result<Vec<u8>, u32> {
     std::fs::read(real_path(path)).map_err(|err| host_error(&err))
 }
 
-/// The whole file at the full path `path` replaced by `bytes` in the run's files, as a profile
-/// write (`WritePrivateProfileStringA`, `crate::ini`) leaves it: a player's file is taken into
-/// the run first (its directory entry kept), a missing one is made; then its size, last access
-/// and last write are now and it is stamped ([`Disk::changed`]), so the host's copy-out
-/// (`NV_PREFS_OUT`) sees the change. The player's own file is never touched.
-///
-/// Based on Lhomer's nv-rs commit 8f4cc9ba (GPL-3.0,
-/// https://github.com/Lhomer/nv-rs/commit/8f4cc9ba7fa66fe5855a828150343ec86e5ef60b).
-pub fn write_whole(e: &mut Engine, path: &[u8], bytes: Vec<u8>) {
-    let k = key(path);
-    if !state_ref!(e).disk.files.contains_key(&k) {
-        let players = !state_ref!(e).disk.deleted.contains(&k)
-            && std::fs::metadata(real_path(path)).is_ok_and(|m| m.is_file());
-        if players {
-            // Its bytes are not read (`read` false, which cannot fail): they are replaced below.
-            let _ = adopt(e, path, &k, false);
-        } else {
-            made(e, path, &k);
-        }
-    }
-    let now = file_clock(e);
-    let size = bytes.len() as u64;
-    state!(e).disk.files.insert(k.clone(), bytes);
-    state!(e).disk.changed(&k);
-    if let Some(entry) = state!(e).disk.entries.get_mut(&k) {
-        entry.size = size;
-        entry.accessed = now;
-        entry.written = now;
-        entry.attributes |= FILE_ATTRIBUTE_ARCHIVE;
-    }
-}
-
 /// The first `max` bytes of [`read_whole_or_error`]'s file, with its answers; only those bytes
 /// are read from the disk (`fread` of at most `max`).
 pub fn read_head_or_error(e: &Engine, path: &[u8], max: usize) -> Result<Vec<u8>, u32> {
@@ -1251,6 +1227,96 @@ pub struct OpenFile {
     pub wrote: Option<u64>,
     /// The player's file this handle reads, once read ([`Kept`]).
     pub kept: Kept,
+    /// A `ReadFile` on this handle reading with the kernel lock given back ([`HandleIo`]): the handle's other
+    /// synchronous calls wait for it ([`wait_for_handle`]), so they stay in order as Windows keeps them on one handle.
+    pub io: HandleIo,
+}
+
+/// A handle's read in flight outside the kernel lock ([`read_file`]): `busy` from its start to its end, `done` the
+/// position it moves the handle to once its disk read is over (handed over without the kernel lock, so a waiter
+/// that holds the lock can apply it), `read` a number each read takes so a late reader never ends another's.
+#[derive(Debug, Default)]
+struct IoState {
+    busy: bool,
+    done: Option<u64>,
+    read: u64,
+}
+
+/// [`OpenFile::io`]: the state and the condition variable its waiters park on. Shared by the handle's copies; two
+/// handles compare equal whatever it holds.
+#[derive(Debug, Clone, Default)]
+pub struct HandleIo(std::sync::Arc<(std::sync::Mutex<IoState>, std::sync::Condvar)>);
+
+impl PartialEq for HandleIo {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for HandleIo {}
+
+impl HandleIo {
+    fn state(&self) -> std::sync::MutexGuard<'_, IoState> {
+        self.0
+             .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Parks until the read in flight has handed its position over (or ended).
+    fn wait(&self) {
+        let mut s = self.state();
+        while s.busy && s.done.is_none() {
+            s = self
+                .0
+                 .1
+                .wait(s)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    /// The read numbered `read` is over its disk read: the position it moves the handle to, for a waiter.
+    fn hand_over(&self, read: u64, position: u64) {
+        let mut s = self.state();
+        if s.busy && s.read == read {
+            s.done = Some(position);
+        }
+        drop(s);
+        self.0 .1.notify_all();
+    }
+}
+
+/// Under the kernel lock: waits until no `ReadFile` on `handle` is reading outside the lock, and returns with the
+/// kernel lock held. A read whose disk read is over but which could not take the kernel lock back yet (this caller
+/// holds it) has its handed-over position applied here, in its order. The wait itself parks on the handle's
+/// condition variable: with the kernel lock given back when this call is the game's own (outermost); inside a
+/// nested hold, or with the device lock held, with the kernel lock kept, which is safe because the reader needs no
+/// lock of the platform's to hand its position over ([`HandleIo::hand_over`]). Lock order: the kernel lock, then the
+/// handle's mutex, never the reverse; the handle's mutex is never held across a wait for the kernel lock.
+fn wait_for_handle(e: &mut Engine, handle: u32) {
+    loop {
+        let Some(io) = open_file(e, handle).map(|f| f.io.clone()) else {
+            return;
+        };
+        let applied = {
+            let mut s = io.state();
+            if !s.busy {
+                return;
+            }
+            let done = s.done.take();
+            if done.is_some() {
+                s.busy = false;
+            }
+            done
+        };
+        if let Some(position) = applied {
+            io.0 .1.notify_all();
+            if let Some(file) = open_file(e, handle) {
+                file.position = position;
+            }
+            return;
+        }
+        engine_core::real_threads::without_kernel_lock_if_outermost(e, || io.wait());
+    }
 }
 
 /// The [`Disk`] key of a full path: ASCII lower case, `/` as `\`. Only the bytes that start a
@@ -1313,12 +1379,16 @@ pub const ERROR_PATH_NOT_FOUND: u32 = 3;
 
 /// Whether the directory holding the full path `path` exists: one the game made in this run,
 /// else the player's (and not deleted).
-pub(crate) fn directory_exists(e: &Engine, path: &[u8]) -> bool {
-    let trimmed = path.strip_suffix(b"\\").unwrap_or(path);
-    let Some(cut) = last_separator(trimmed) else {
+fn directory_exists(e: &Engine, path: &[u8]) -> bool {
+    directory_exists_or(e, path, None)
+}
+
+/// [`directory_exists`] with the host's answer for the folder already asked (`host`,
+/// [`host_folder`]), when there is one.
+fn directory_exists_or(e: &Engine, path: &[u8], host: Option<bool>) -> bool {
+    let Some(parent) = parent_of(path) else {
         return false;
     };
-    let parent = &trimmed[..cut];
     let k = key(parent);
     if state_ref!(e).disk.directories.contains(&k) {
         return true;
@@ -1326,7 +1396,55 @@ pub(crate) fn directory_exists(e: &Engine, path: &[u8]) -> bool {
     if state_ref!(e).disk.deleted.contains(&k) {
         return false;
     }
+    host.unwrap_or_else(|| {
+        #[cfg(test)]
+        tests_open_outside_lock::host_asked(e);
+        host_folder(parent)
+    })
+}
+
+/// The folder part of the full path `path` (a trailing separator dropped first); `None` with no
+/// separator.
+fn parent_of(path: &[u8]) -> Option<&[u8]> {
+    let trimmed = path.strip_suffix(b"\\").unwrap_or(path);
+    last_separator(trimmed).map(|cut| &trimmed[..cut])
+}
+
+/// Whether the host has a folder at the full path `parent`.
+fn host_folder(parent: &[u8]) -> bool {
     std::fs::metadata(real_path(parent)).is_ok_and(|m| m.is_dir())
+}
+
+/// What the host's file system answered for a read-only open of a file the run does not hold
+/// ([`ask_host`]).
+enum HostOpen {
+    /// The player's file, opened (Windows opens it at the call), with its host path.
+    Opened(std::path::PathBuf, std::fs::File),
+    /// The player's file is there, but the host refused its open: Windows' answer (5, 32).
+    Refused(u32),
+    /// No file of the player's at the name; whether its folder is there, when asked.
+    NotAFile { folder: Option<bool> },
+}
+
+/// The host's answers for a read-only open of the full path `name`: the file opened when it is
+/// one; else, with `folder`, whether its folder is there (for the error an `OPEN_EXISTING`
+/// answers). Reaches no platform state and no game memory: [`open_or_make`] asks it with the
+/// kernel lock given back.
+fn ask_host(name: &[u8], folder: bool) -> HostOpen {
+    let real = real_path(name);
+    if std::fs::metadata(&real).is_ok_and(|m| m.is_file()) {
+        // The host file is opened now, as Windows opens it at this call: one the player may
+        // not read, or another program holds without sharing, fails here with Windows'
+        // answer (5, 32; measured) instead of at the first read. The handle keeps it
+        // ([`Kept`]).
+        return match std::fs::File::open(&real) {
+            Ok(file) => HostOpen::Opened(real, file),
+            Err(err) => HostOpen::Refused(host_error(&err)),
+        };
+    }
+    HostOpen::NotAFile {
+        folder: folder.then(|| parent_of(name).is_some_and(host_folder)),
+    }
 }
 
 // Platform: replaces KERNEL32.DLL FindFirstFileA (import)
@@ -2837,18 +2955,30 @@ fn short_name(e: &Engine, path: &[u8]) -> Option<String> {
     short_name_on_windows(e, path)
 }
 
-/// [`short_name`] on a volume without 8.3 names (every one off Windows): none, for every name.
-#[cfg(any(not(windows), test))]
+/// [`short_name`] on a volume without 8.3 names (every one off Windows, and Windows where ntdll
+/// makes none): none, for every name.
 fn short_name_off_windows() -> Option<String> {
     Some(String::new())
 }
 
-/// [`short_name`] on a Windows volume that makes 8.3 names (the system drive's default).
+/// [`short_name`] on a Windows volume that makes 8.3 names (the system drive's default), when
+/// ntdll's name maker is really there ([`ntdll::makes_names`]); where it is not (Wine's ntdll
+/// lists `RtlGenerate8dot3Name` but ends the process when it is called: Proton, issue #634) as
+/// a volume without 8.3 names answers, none ([`short_name_off_windows`]), said once.
 #[cfg(windows)]
 fn short_name_on_windows(e: &Engine, path: &[u8]) -> Option<String> {
+    short_name_made(e, path, ntdll::makes_names())
+}
+
+/// [`short_name_on_windows`] with ntdll's name maker there (`makes`) or not.
+#[cfg(windows)]
+fn short_name_made(e: &Engine, path: &[u8], makes: bool) -> Option<String> {
     let name = last_part(path);
     if short_extension(&name).is_none() {
         return Some(String::new());
+    }
+    if !makes {
+        return short_name_off_windows();
     }
     let extension = name.rfind('.').map_or("", |at| &name[at + 1..]);
     if extension.len() > 3 {
@@ -2895,6 +3025,38 @@ fn names_in(e: &Engine, directory: &[u8]) -> std::collections::HashSet<String> {
 /// again and again with one context, as a file system asks while the name it got is taken.
 #[cfg(windows)]
 mod ntdll {
+    /// Whether `RtlGenerate8dot3Name` really makes names here: not under Wine (Proton), whose
+    /// ntdll lists it but ends the process when it is called (an unimplemented function, issue
+    /// #634); Wine's ntdll is known by its `wine_get_version` export. Asked once a run; where it
+    /// makes none the log says so once, and new files get no short name, as on a volume with 8.3
+    /// names turned off.
+    pub fn makes_names() -> bool {
+        static MAKES: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *MAKES.get_or_init(|| {
+            let makes = !has_wine_export();
+            if !makes {
+                eprintln!(
+                    "files: this system's ntdll makes no 8.3 short names (Wine); new files get \
+                     none, as on a Windows drive with short names turned off"
+                );
+            }
+            makes
+        })
+    }
+
+    /// Whether the loaded ntdll exports `wine_get_version`.
+    fn has_wine_export() -> bool {
+        use windows::core::PCSTR;
+        use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+        // SAFETY: both names are NUL-terminated; ntdll is in every process and never unloaded.
+        unsafe {
+            GetModuleHandleA(PCSTR(b"ntdll.dll\0".as_ptr()))
+                .ok()
+                .and_then(|ntdll| GetProcAddress(ntdll, PCSTR(b"wine_get_version\0".as_ptr())))
+                .is_some()
+        }
+    }
+
     #[repr(C)]
     struct UnicodeString {
         length: u16,
@@ -3125,46 +3287,66 @@ fn open_or_make(
     }
     // A file of the player's opened for reading only is read from disk where the reads ask
     // (`Disk::player`); the outcome is that of an existing file's open.
+    let not_the_runs = |e: &Engine| {
+        !state_ref!(e).disk.files.contains_key(&path) && !state_ref!(e).disk.deleted.contains(&path)
+    };
+    // What the host already answered (below) for a file that is not the player's: the general
+    // path does not ask again.
+    let mut host_said = None;
     if access & GENERIC_WRITE == 0
         && matches!(disposition, OPEN_EXISTING | OPEN_ALWAYS)
-        && !state!(e).disk.files.contains_key(&path)
-        && !state!(e).disk.deleted.contains(&path)
+        && not_the_runs(e)
     {
-        let real = real_path(&name);
-        if std::fs::metadata(&real).is_ok_and(|m| m.is_file()) {
-            // The host file is opened now, as Windows opens it at this call: one the player may
-            // not read, or another program holds without sharing, fails here with Windows'
-            // answer (5, 32; measured) instead of at the first read. The handle keeps it
-            // ([`Kept`]).
-            let host = match std::fs::File::open(&real) {
-                Ok(file) => file,
-                Err(err) => {
-                    e.kernel.last_error = host_error(&err);
+        // The host's answers (the file's kind, its open, the folder's kind) are asked with the
+        // kernel lock given back when the game called `CreateFileA` itself: they reach no
+        // platform state and no game memory, and the host's open can take milliseconds (a virus
+        // scanner reads a file at its first open): under the lock, every other thread's platform
+        // call, main's included, waited for it (the hitch log's holder, 2026-11-22: a game IO
+        // thread in `CreateFileA`, off the processor, main waiting 6-7 ms). Inside a platform
+        // function's own hold it is asked with the lock held, as before.
+        let asked = engine_core::real_threads::without_kernel_lock_mut_if_outermost(e, |_e| {
+            #[cfg(test)]
+            tests_open_outside_lock::in_window(_e);
+            ask_host(&name, disposition == OPEN_EXISTING)
+        });
+        // Another thread may have made the file in the run, or deleted it, while the lock was
+        // given back: then the run's copy decides, as when that thread's call came first, and
+        // the host's answer is dropped (its open file closed).
+        if not_the_runs(e) {
+            match asked {
+                HostOpen::Opened(real, host) => {
+                    state!(e).disk.player.insert(path.clone(), real);
+                    e.kernel.last_error = if disposition == OPEN_ALWAYS {
+                        ERROR_ALREADY_EXISTS
+                    } else {
+                        ERROR_SUCCESS
+                    };
+                    return e.kernel.insert(KernelObject::File(Opaque::new(OpenFile {
+                        path,
+                        position: 0,
+                        read: access & GENERIC_READ != 0,
+                        write: false,
+                        wrote: None,
+                        kept: Kept(Some(std::sync::Arc::new(host))),
+                        io: HandleIo::default(),
+                    })));
+                }
+                HostOpen::Refused(code) => {
+                    e.kernel.last_error = code;
                     return INVALID_HANDLE_VALUE;
                 }
-            };
-            state!(e).disk.player.insert(path.clone(), real);
-            e.kernel.last_error = if disposition == OPEN_ALWAYS {
-                ERROR_ALREADY_EXISTS
-            } else {
-                ERROR_SUCCESS
-            };
-            return e.kernel.insert(KernelObject::File(Opaque::new(OpenFile {
-                path,
-                position: 0,
-                read: access & GENERIC_READ != 0,
-                write: false,
-                wrote: None,
-                kept: Kept(Some(std::sync::Arc::new(host))),
-            })));
+                HostOpen::NotAFile { folder } => host_said = Some(folder),
+            }
         }
     }
     // A file of the player's (on disk, not deleted in this run, not yet the run's): it exists
     // for every disposition. Opened for writing it is read into the run's copy first, emptied
     // when the disposition empties it, with its directory entry as the disk keeps it ([`adopt`]).
-    let players = !state!(e).disk.files.contains_key(&path)
-        && !state!(e).disk.deleted.contains(&path)
-        && std::fs::metadata(real_path(&name)).is_ok_and(|m| m.is_file());
+    let players = not_the_runs(e) && host_said.is_none() && {
+        #[cfg(test)]
+        tests_open_outside_lock::host_asked(e);
+        std::fs::metadata(real_path(&name)).is_ok_and(|m| m.is_file())
+    };
     let exists = state!(e).disk.files.contains_key(&path) || players;
     let fail = |e: &mut Engine, code: u32| {
         e.kernel.last_error = code;
@@ -3191,7 +3373,7 @@ fn open_or_make(
             return fail(e, ERROR_INVALID_PARAMETER)
         }
         OPEN_EXISTING | TRUNCATE_EXISTING if !exists => {
-            let code = if directory_exists(e, &name) {
+            let code = if directory_exists_or(e, &name, host_said.flatten()) {
                 ERROR_FILE_NOT_FOUND
             } else {
                 ERROR_PATH_NOT_FOUND
@@ -3230,6 +3412,7 @@ fn open_or_make(
         write: access & GENERIC_WRITE != 0,
         wrote: None,
         kept: Kept::default(),
+        io: HandleIo::default(),
     })))
 }
 
@@ -3297,6 +3480,39 @@ fn made(e: &mut Engine, name: &[u8], k: &[u8]) {
     state!(e).disk.entries.insert(k.to_vec(), entry);
 }
 
+/// The file at the full path `path` given `bytes` whole, as a handle opened on it with
+/// `OPEN_ALWAYS` that writes them from its start, sets its end there and is closed: a file of this
+/// run (engine memory, never the player's disk; [`create_file_a`]'s rules). A player's file is
+/// taken into the run with its directory entry ([`adopt`], unread: every byte is replaced); one
+/// not there is made ([`made`]) when its folder exists, else `ERROR_PATH_NOT_FOUND` and nothing is
+/// made. The entry then shows the size and the write's time as a closed handle that wrote
+/// publishes them ([`closed`]). For the profile writes (`super::ini`), which change a whole file.
+pub fn write_whole(e: &mut Engine, path: &[u8], bytes: Vec<u8>) -> Result<(), u32> {
+    let k = key(path);
+    if !state!(e).disk.files.contains_key(&k) {
+        let players = !state!(e).disk.deleted.contains(&k)
+            && std::fs::metadata(real_path(path)).is_ok_and(|m| m.is_file());
+        if players {
+            adopt(e, path, &k, false)?;
+        } else if directory_exists(e, path) {
+            made(e, path, &k);
+        } else {
+            return Err(ERROR_PATH_NOT_FOUND);
+        }
+    }
+    let now = file_clock(e);
+    let size = bytes.len() as u64;
+    let disk = &mut state!(e).disk;
+    disk.files.insert(k.clone(), bytes);
+    disk.changed(&k);
+    if let Some(entry) = disk.entries.get_mut(&k) {
+        entry.size = size;
+        entry.accessed = now;
+        entry.written = now;
+    }
+    Ok(())
+}
+
 /// A file handle closed (`CloseHandle`): a handle that wrote publishes the file's size, and the
 /// time of its last write as the last access and last write (measured: a search shows neither
 /// while the handle is open, `findfile-changed/findfile-2026-11-03.txt` 2).
@@ -3333,6 +3549,7 @@ pub fn get_file_type(e: &mut Engine, handle: u32) -> u32 {
 /// `ERROR_NEGATIVE_SEEK`, a bad method with `ERROR_INVALID_PARAMETER`, both answering
 /// `INVALID_SET_FILE_POINTER` and leaving the position.
 pub fn set_file_pointer(e: &mut Engine, handle: u32, low: u32, high: Ptr, method: u32) -> u32 {
+    wait_for_handle(e, handle);
     let distance = if high.addr() == 0 {
         i64::from(low as i32)
     } else {
@@ -3393,6 +3610,7 @@ pub fn write_file(
         fork_hitch::Counter::FileOtherNs,
     );
     fork_hitch::add(fork_hitch::Counter::FileOps, 1);
+    wait_for_handle(e, handle);
     if written.addr() != 0 {
         e.mem.set_u32(written.addr(), 0);
     }
@@ -3457,6 +3675,7 @@ pub fn read_file(
         fork_hitch::Counter::FileNs,
         fork_hitch::Counter::FileOtherNs,
     );
+    wait_for_handle(e, handle);
     if read.addr() != 0 {
         e.mem.set_u32(read.addr(), 0);
     }
@@ -3474,7 +3693,30 @@ pub fn read_file(
     // The hitch log's counts (`engine_core::hitch`): the bytes, the time the read took, main's largest read.
     let counted = engine_core::hitch::on();
     let started = counted.then(std::time::Instant::now);
-    let bytes = match read_range(e, handle, &path, position, count) {
+    // The handle is this read's until its position is moved on: its other calls wait ([`wait_for_handle`]).
+    let io = open_file(e, handle)
+        .map(|f| f.io.clone())
+        .unwrap_or_default();
+    let number = {
+        let mut s = io.state();
+        s.read = s.read.wrapping_add(1);
+        s.busy = true;
+        s.done = None;
+        s.read
+    };
+    let range = read_range(e, handle, &path, position, count, (&io, number));
+    // Under the kernel lock again: the position moved on here unless a waiter already applied it.
+    let mine = {
+        let mut s = io.state();
+        let mine = s.busy && s.read == number;
+        if mine {
+            s.busy = false;
+            s.done = None;
+        }
+        mine
+    };
+    io.0 .1.notify_all();
+    let bytes = match range {
         Ok(bytes) => bytes,
         Err(code) => {
             e.kernel.last_error = code;
@@ -3488,8 +3730,10 @@ pub fn read_file(
     if let Some(t) = started {
         count_read(u64::from(got), t.elapsed(), &path);
     }
-    if let Some(file) = open_file(e, handle) {
-        file.position = position + u64::from(got);
+    if mine {
+        if let Some(file) = open_file(e, handle) {
+            file.position = position + u64::from(got);
+        }
     }
     if read.addr() != 0 {
         e.mem.set_u32(read.addr(), got);
@@ -5962,6 +6206,27 @@ mod tests_changed_directories {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Issue #634: where ntdll makes no 8.3 names (Wine's lists `RtlGenerate8dot3Name` but ends
+    /// the process when it is called), a new long name gets none, as on a drive with short names
+    /// turned off, and ntdll is not asked; Windows' own ntdll makes them.
+    #[cfg(windows)]
+    #[test]
+    fn without_ntdlls_name_maker_a_new_name_gets_none() {
+        let e = Engine::new();
+        assert!(ntdll::makes_names(), "Windows' own ntdll makes names");
+        for path in [
+            &br"Q:\nv-rs-no-maker\Save 140 x.fos"[..],
+            br"Q:\nv-rs-no-maker\quicksave.fos",
+        ] {
+            assert_eq!(short_name_made(&e, path, false), Some(String::new()));
+        }
+        // A name that needs no short name needs none either way.
+        assert_eq!(
+            short_name_made(&e, br"Q:\nv-rs-no-maker\NVFIX.FOS", true),
+            Some(String::new())
+        );
+    }
+
     /// Short names as NTFS makes them (`NAME~1` to `~4`, then the checksum name; measured
     /// `S1`), a short name and creation time tunnelled to the same name made again within
     /// 15 s, and neither after 16 s (`U`, `W`).
@@ -7362,6 +7627,485 @@ mod tests_code_pages {
             }
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod handle_order_tests {
+    use engine_core::prelude::*;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    /// A pause inside the next disk reads outside the kernel lock (ms; 0 none), and that one began: so a test can
+    /// race a call against a read in flight.
+    static PAUSE_MS: AtomicU64 = AtomicU64::new(0);
+    static PAUSED: AtomicBool = AtomicBool::new(false);
+    /// This module's tests one at a time (the pause above is shared).
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Called by [`super::read_range`] in the disk read outside the kernel lock (`key`: the file's guest path key).
+    pub(super) fn while_reading(key: &[u8]) {
+        let ms = PAUSE_MS.load(Ordering::SeqCst);
+        // Only this module's seek test's file: other tests read at the same time.
+        if ms > 0 && key.windows(20).any(|w| w == b"nv-handle-order-seek") {
+            PAUSED.store(true, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+        }
+    }
+
+    /// The test's game threads: `ReadFile(p[0], ...)` through the slot `p[1]`, `p[3]` times 256 bytes into the
+    /// buffer at `p[2]` (one after another).
+    fn reads_chunks(e: &mut Engine, a: &[u32]) -> Ret {
+        let p = a[0];
+        let (handle, read, buffer, count) = (
+            e.mem.u32(p),
+            e.mem.u32(p + 4),
+            e.mem.u32(p + 8),
+            e.mem.u32(p + 0xc),
+        );
+        let got = e.mem.alloc(4);
+        for i in 0..count {
+            e.call(read, &args![handle, buffer + 256 * i, 256u32, got, 0u32]);
+        }
+        Ret::default()
+    }
+
+    /// A real-threads engine with the file imports, a player's file of `pieces` 256-byte pieces (piece n holds the byte
+    /// n throughout) opened for reading; its handle and the folder (deleted by the caller).
+    fn pieces_file(tag: &str, pieces: u32) -> (Engine, u32, std::path::PathBuf) {
+        let dir =
+            std::env::temp_dir().join(format!("nv-handle-order-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bytes: Vec<u8> = (0..pieces * 256).map(|i| (i / 256) as u8).collect();
+        std::fs::write(dir.join("pieces.bin"), &bytes).unwrap();
+        crate::imports();
+        let mut e = Engine::new();
+        e.kernel.current_directory = dir.to_string_lossy().into_owned().into_bytes();
+        let slots = [
+            (0x00fd_f088, "CreateFileA"),
+            (0x00fd_f080, "ReadFile"),
+            (0x00fd_f07c, "CloseHandle"),
+            (0x00fd_f090, "CreateThread"),
+            (0x00fd_f094, "WaitForSingleObject"),
+            (0x00fd_f240, "SetFilePointer"),
+        ];
+        let imports: Vec<engine_core::exe::Import> = slots
+            .iter()
+            .map(|&(slot, name)| engine_core::exe::Import {
+                slot,
+                dll: "KERNEL32.dll".into(),
+                name: name.into(),
+            })
+            .collect();
+        assert_eq!(e.register_imports(&imports), slots.len());
+        e.start_real_clock();
+        e.register(0x0040_f200, reads_chunks);
+        let name = e.mem.alloc(16);
+        e.mem.set_cstr(name, b"pieces.bin");
+        // GENERIC_READ, share read, OPEN_EXISTING.
+        let handle = e
+            .call(
+                0x00fd_f088,
+                &args![name, 0x8000_0000u32, 1u32, 0u32, 3u32, 0x80u32, 0u32],
+            )
+            .eax;
+        assert_ne!(handle, u32::MAX, "the file opened");
+        engine_core::real_threads::start(&mut e).expect("real threads on");
+        (e, handle, dir)
+    }
+
+    /// A seek racing a read in flight on the same handle is not lost: a game thread's read of piece 0 is paused
+    /// outside the kernel lock; main's `SetFilePointer` to piece 4 meanwhile waits for it and then moves the position,
+    /// so main's next read gets piece 4 (not piece 1, where the read would have left the position had it moved it on
+    /// after the seek).
+    #[test]
+    fn a_seek_racing_a_read_is_not_lost() {
+        let _one = ONE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (mut e, handle, dir) = pieces_file("seek", 8);
+        let buffer = e.mem.alloc(256);
+        let p = e.mem.alloc(0x10);
+        for (i, w) in [handle, 0x00fd_f080, buffer, 1].into_iter().enumerate() {
+            e.mem.set_u32(p + 4 * i as u32, w);
+        }
+        PAUSED.store(false, Ordering::SeqCst);
+        PAUSE_MS.store(300, Ordering::SeqCst);
+        let h = e
+            .call(
+                0x00fd_f090,
+                &args![0u32, 0u32, 0x0040_f200u32, p, 0u32, 0u32],
+            )
+            .eax;
+        // The test's main holds the kernel lock outside its waits (as the host does between frames), so it waits
+        // in 1 ms waits on the thread until the read is in flight; its calls below are then nested ones, which wait
+        // for the read with the kernel lock kept and apply its handed-over position.
+        while !PAUSED.load(Ordering::SeqCst) {
+            e.call(0x00fd_f094, &args![h, 1u32]);
+        }
+        PAUSE_MS.store(0, Ordering::SeqCst);
+        // FILE_BEGIN.
+        assert_eq!(
+            e.call(0x00fd_f240, &args![handle, 1024u32, 0u32, 0u32]).eax,
+            1024
+        );
+        let mine = e.mem.alloc(256);
+        let got = e.mem.alloc(4);
+        e.call(0x00fd_f080, &args![handle, mine, 256u32, got, 0u32]);
+        assert_eq!(
+            e.call(0x00fd_f094, &args![h, 60_000u32]).eax,
+            0,
+            "the reader ended"
+        );
+        assert_eq!(
+            e.mem.bytes(buffer, 256),
+            vec![0u8; 256],
+            "the thread's read: piece 0"
+        );
+        assert_eq!(
+            e.mem.bytes(mine, 256),
+            vec![4u8; 256],
+            "after the seek: piece 4"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two game threads reading one handle of a player's file at once, each read with the kernel lock given back
+    /// for the disk read: the handle's reads stay in order as Windows keeps synchronous calls on one handle, so the
+    /// two get disjoint consecutive 256-byte pieces that together are the whole file, none read twice.
+    #[test]
+    fn two_threads_reading_one_handle_get_disjoint_pieces() {
+        let _one = ONE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        const PIECES: u32 = 64;
+        let (mut e, handle, dir) = pieces_file("two", 2 * PIECES);
+        let mut threads = Vec::new();
+        for _ in 0..2 {
+            let buffer = e.mem.alloc(256 * PIECES);
+            let p = e.mem.alloc(0x10);
+            for (i, w) in [handle, 0x00fd_f080, buffer, PIECES]
+                .into_iter()
+                .enumerate()
+            {
+                e.mem.set_u32(p + 4 * i as u32, w);
+            }
+            let h = e
+                .call(
+                    0x00fd_f090,
+                    &args![0u32, 0u32, 0x0040_f200u32, p, 0u32, 0u32],
+                )
+                .eax;
+            threads.push((h, buffer));
+        }
+        let mut seen = Vec::new();
+        for (h, buffer) in threads {
+            assert_eq!(
+                e.call(0x00fd_f094, &args![h, 60_000u32]).eax,
+                0,
+                "a reader ended"
+            );
+            for i in 0..PIECES {
+                let piece = e.mem.bytes(buffer + 256 * i, 256);
+                assert!(
+                    piece.iter().all(|&b| b == piece[0]),
+                    "a whole piece, not two halves"
+                );
+                seen.push(piece[0]);
+            }
+        }
+        seen.sort_unstable();
+        let want: Vec<u8> = (0..2 * PIECES).map(|n| n as u8).collect();
+        assert_eq!(seen, want, "every piece once, none twice");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// `CreateFileA`'s read-only open of a player's file asks the host (the file's kind, its open, the
+/// folder's kind) with the kernel lock given back when the game called it itself ([`ask_host`]),
+/// on scratch files the tests make themselves.
+#[cfg(test)]
+mod tests_open_outside_lock {
+    use super::tests_changed_directories::scratch;
+    use super::*;
+    use std::cell::{Cell, RefCell};
+
+    type Hook = Box<dyn FnOnce(&mut Engine)>;
+
+    thread_local! {
+        /// Whether this thread held the kernel lock while the host was asked (`None`: not asked).
+        static HELD: Cell<Option<bool>> = const { Cell::new(None) };
+        /// What runs while the host is asked, as another thread's platform calls could.
+        static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
+        /// The host's file system asked from [`open_or_make`]'s general path (the player's file, its folder) while
+        /// this thread held the kernel lock.
+        static ASKED_LOCKED: Cell<u32> = const { Cell::new(0) };
+    }
+
+    /// [`open_or_make`]'s general path asks the host (the player's file's kind, its folder's): counted when this
+    /// thread holds the kernel lock.
+    pub(super) fn host_asked(e: &Engine) {
+        if engine_core::real_threads::kernel_lock_held(e) {
+            ASKED_LOCKED.with(|n| n.set(n.get() + 1));
+        }
+    }
+
+    /// [`open_or_make`]'s note, while it asks the host.
+    pub(super) fn in_window(e: &mut Engine) {
+        HELD.with(|h| h.set(Some(engine_core::real_threads::kernel_lock_held(e))));
+        if let Some(hook) = HOOK.with(|h| h.borrow_mut().take()) {
+            hook(e);
+        }
+    }
+
+    /// The file calls at platform functions' addresses (behind the kernel lock with real threads,
+    /// as the imports are), and one that opens a file inside its own hold.
+    const OPEN_AT: u32 = 0x7f00_0500;
+    const READ_AT: u32 = 0x7f00_0510;
+    const DELETE_AT: u32 = 0x7f00_0520;
+    const CLOSE_AT: u32 = 0x7f00_0530;
+    const NESTED_AT: u32 = 0x7f00_0540;
+
+    fn engine(threads: bool) -> Engine {
+        let mut e = Engine::new();
+        e.register(
+            OPEN_AT,
+            crate::entry!(0, create_file_a(Ptr, u32, u32, u32, u32, u32, u32) -> u32).1,
+        );
+        e.register(
+            READ_AT,
+            crate::entry!(0, read_file(u32, Ptr, u32, Ptr, u32) -> i32).1,
+        );
+        e.register(DELETE_AT, crate::entry!(0, delete_file_a(Ptr) -> u32).1);
+        e.register(
+            CLOSE_AT,
+            crate::entry!(0, super::super::close_handle(u32) -> i32).1,
+        );
+        e.register(NESTED_AT, opens_nested);
+        if threads {
+            engine_core::real_threads::start(&mut e).expect("real threads on");
+            engine_core::real_threads::end_start_hold_for_tests(&e);
+        }
+        e
+    }
+
+    fn name(e: &mut Engine, path: &str) -> u32 {
+        let at = e.mem.alloc(0x200);
+        e.mem.set_cstr(at, path.as_bytes());
+        at
+    }
+
+    /// `CreateFileA(path, access, share 1, ..., disposition)` through the import's address: the
+    /// handle and the last error.
+    fn open(e: &mut Engine, path: &str, access: u32, disposition: u32) -> (u32, u32) {
+        let at = name(e, path);
+        HELD.with(|h| h.set(None));
+        let h = e
+            .call(OPEN_AT, &[at, access, 1, 0, disposition, 0x80, 0])
+            .u32();
+        (h, e.kernel.last_error)
+    }
+
+    /// Everything `h` reads, through `ReadFile`'s address, then the handle closed.
+    fn read_all(e: &mut Engine, h: u32) -> Vec<u8> {
+        let (buffer, got) = (e.mem.alloc(0x1000), e.mem.alloc(4));
+        let mut all = Vec::new();
+        loop {
+            assert_eq!(e.call(READ_AT, &[h, buffer, 0x1000, got, 0]).u32(), 1);
+            let n = e.mem.u32(got);
+            if n == 0 {
+                break;
+            }
+            all.extend_from_slice(&e.mem.bytes(buffer, n));
+        }
+        assert_eq!(e.call(CLOSE_AT, &[h]).u32(), 1);
+        all
+    }
+
+    /// A platform function that opens the file named at `a[0]` read-only inside its own hold of
+    /// the kernel lock; answers the handle.
+    fn opens_nested(e: &mut Engine, a: &[u32]) -> crate::Ret {
+        let h = e
+            .call(OPEN_AT, &[a[0], GENERIC_READ, 1, 0, OPEN_EXISTING, 0x80, 0])
+            .u32();
+        crate::abi::RetVal::into_ret(h)
+    }
+
+    fn held() -> Option<bool> {
+        HELD.with(Cell::get)
+    }
+
+    /// With real threads, the host is asked with the kernel lock given back when the game called
+    /// `CreateFileA` itself, and with it held inside a platform function's own hold; either way the
+    /// game gets the same handles, bytes and last errors as without real threads: an existing file
+    /// (`OPEN_EXISTING`: 0; `OPEN_ALWAYS`: `ERROR_ALREADY_EXISTS`), a missing one in a folder that
+    /// is there (2) and in one that is not (3), and on Windows a file another program holds
+    /// without sharing (32).
+    #[test]
+    fn the_host_is_asked_with_the_kernel_lock_given_back_only_when_outermost() {
+        let dir = scratch("open-outside-lock", &[]);
+        let path = std::path::Path::new(&dir).join("Track.mp3");
+        let bytes: Vec<u8> = (0..9_000u32).map(|i| (i * 7 + i / 255) as u8).collect();
+        std::fs::write(&path, &bytes).unwrap();
+        let file = path.to_string_lossy().into_owned();
+        let in_dir = |parts: &[&str]| {
+            let mut p = std::path::PathBuf::from(&dir);
+            p.extend(parts);
+            p.to_string_lossy().into_owned()
+        };
+        let (missing, no_folder) = (in_dir(&["None.mp3"]), in_dir(&["Gone", "None.mp3"]));
+        for threads in [false, true] {
+            let mut e = engine(threads);
+            // Without real threads one game thread runs at a time and the lock is never given
+            // back (`kernel_lock_held` answers true throughout).
+            let held_when_asked = Some(!threads);
+            let (h, error) = open(&mut e, &file, GENERIC_READ, OPEN_EXISTING);
+            assert_ne!(h, INVALID_HANDLE_VALUE, "threads {threads}");
+            assert_eq!(error, ERROR_SUCCESS, "threads {threads}");
+            assert_eq!(held(), held_when_asked, "threads {threads}: open");
+            assert_eq!(read_all(&mut e, h), bytes, "threads {threads}");
+            let (h, error) = open(&mut e, &file, GENERIC_READ, OPEN_ALWAYS);
+            assert_ne!(h, INVALID_HANDLE_VALUE, "threads {threads}");
+            assert_eq!(error, ERROR_ALREADY_EXISTS, "threads {threads}");
+            assert_eq!(read_all(&mut e, h), bytes, "threads {threads}");
+            assert_eq!(
+                open(&mut e, &missing, GENERIC_READ, OPEN_EXISTING),
+                (INVALID_HANDLE_VALUE, ERROR_FILE_NOT_FOUND),
+                "threads {threads}"
+            );
+            assert_eq!(held(), held_when_asked, "threads {threads}: missing");
+            assert_eq!(
+                open(&mut e, &no_folder, GENERIC_READ, OPEN_EXISTING),
+                (INVALID_HANDLE_VALUE, ERROR_PATH_NOT_FOUND),
+                "threads {threads}"
+            );
+            // Nested: asked with the lock held; the same handle and bytes.
+            let at = name(&mut e, &file);
+            HELD.with(|h| h.set(None));
+            let h = e.call(NESTED_AT, &[at]).u32();
+            assert_ne!(h, INVALID_HANDLE_VALUE, "threads {threads}: nested");
+            assert_eq!(held(), Some(true), "threads {threads}: nested");
+            assert_eq!(read_all(&mut e, h), bytes, "threads {threads}: nested");
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                // Tried for up to 2 s, as a virus scanner may hold a new file for a moment.
+                let holder = (0..200).find_map(|_| {
+                    let alone = std::fs::OpenOptions::new()
+                        .read(true)
+                        .share_mode(0)
+                        .open(&path)
+                        .ok();
+                    if alone.is_none() {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    alone
+                });
+                let holder = holder.expect("the scratch file opened alone");
+                assert_eq!(
+                    open(&mut e, &file, GENERIC_READ, OPEN_EXISTING),
+                    (INVALID_HANDLE_VALUE, ERROR_SHARING_VIOLATION),
+                    "threads {threads}: held by another program"
+                );
+                assert_eq!(held(), held_when_asked, "threads {threads}: held");
+                drop(holder);
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Another thread's platform call while the lock is given back (here: run while the host is
+    /// asked) that deletes the file in the run, or makes it the run's: the run's copy decides, as
+    /// when that call came first: the open answers `ERROR_FILE_NOT_FOUND`, or reads the run's
+    /// (emptied) copy, not the player's file on disk.
+    /// With real threads, an outermost read-only open of a file that is not there (`OPEN_EXISTING` in a folder that
+    /// is there and in one that is not; `OPEN_ALWAYS`, which makes it in the run) asks the host's file system nothing
+    /// while the kernel lock is held: its window's answers (the file's kind, the folder's) are used (review of #968).
+    #[test]
+    fn a_missing_file_s_outermost_read_only_open_asks_the_host_nothing_under_the_lock() {
+        let dir = scratch("open-outside-lock-missing", &[]);
+        let in_dir = |parts: &[&str]| {
+            let mut p = std::path::PathBuf::from(&dir);
+            p.extend(parts);
+            p.to_string_lossy().into_owned()
+        };
+        let mut e = engine(true);
+        ASKED_LOCKED.with(|n| n.set(0));
+        assert_eq!(
+            open(&mut e, &in_dir(&["None.ogg"]), GENERIC_READ, OPEN_EXISTING),
+            (INVALID_HANDLE_VALUE, ERROR_FILE_NOT_FOUND)
+        );
+        assert_eq!(
+            open(
+                &mut e,
+                &in_dir(&["Gone", "None.ogg"]),
+                GENERIC_READ,
+                OPEN_EXISTING
+            ),
+            (INVALID_HANDLE_VALUE, ERROR_PATH_NOT_FOUND)
+        );
+        let (h, error) = open(&mut e, &in_dir(&["Made.ini"]), GENERIC_READ, OPEN_ALWAYS);
+        assert_ne!(h, INVALID_HANDLE_VALUE);
+        assert_eq!(error, ERROR_SUCCESS);
+        assert_eq!(read_all(&mut e, h), b"", "made empty in the run");
+        assert_eq!(ASKED_LOCKED.with(Cell::get), 0, "asked under the lock");
+        // A write open still asks under the lock (the counter counts).
+        assert_eq!(
+            open(
+                &mut e,
+                &in_dir(&["Other.ini"]),
+                GENERIC_WRITE,
+                OPEN_EXISTING
+            ),
+            (INVALID_HANDLE_VALUE, ERROR_FILE_NOT_FOUND)
+        );
+        assert_eq!(ASKED_LOCKED.with(Cell::get), 2, "the file and its folder");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_change_in_the_run_while_the_host_is_asked_comes_first() {
+        let dir = scratch("open-outside-lock-race", &[]);
+        let path = std::path::Path::new(&dir).join("Voice.ogg");
+        std::fs::write(&path, b"the player's bytes").unwrap();
+        let file = path.to_string_lossy().into_owned();
+
+        let mut e = engine(true);
+        let gone = file.clone();
+        HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |e: &mut Engine| {
+                assert!(!engine_core::real_threads::kernel_lock_held(e));
+                let at = name(e, &gone);
+                assert_eq!(e.call(DELETE_AT, &[at]).u32(), 1, "deleted in the run");
+            }));
+        });
+        assert_eq!(
+            open(&mut e, &file, GENERIC_READ, OPEN_EXISTING),
+            (INVALID_HANDLE_VALUE, ERROR_FILE_NOT_FOUND)
+        );
+        assert_eq!(held(), Some(false));
+        assert!(HOOK.with(|h| h.borrow().is_none()), "the hook ran");
+
+        let mut e = engine(true);
+        let made = file.clone();
+        HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |e: &mut Engine| {
+                let (w, _) = open(e, &made, GENERIC_READ | GENERIC_WRITE, CREATE_ALWAYS);
+                assert_ne!(w, INVALID_HANDLE_VALUE, "made the run's");
+                assert_eq!(e.call(CLOSE_AT, &[w]).u32(), 1);
+            }));
+        });
+        let (h, error) = open(&mut e, &file, GENERIC_READ, OPEN_EXISTING);
+        assert_ne!(h, INVALID_HANDLE_VALUE);
+        assert_eq!(error, ERROR_SUCCESS);
+        assert!(HOOK.with(|h| h.borrow().is_none()), "the hook ran");
+        assert_eq!(read_all(&mut e, h), b"", "the run's emptied copy");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"the player's bytes",
+            "the player's file as it was"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

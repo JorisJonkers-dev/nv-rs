@@ -32,6 +32,167 @@ const THREAD_PROCESSORS: u32 = 0x011a_f714;
 /// The number of threads: the loop bound the code compares against
 /// (`CMP [index],1; JNC`).
 const THREAD_COUNT: u32 = 1;
+/// The most threads `NV_PAR_TASKS` asks for.
+const MAX_THREADS: u32 = 8;
+
+/// `NV_PAR_TASKS=n` (off by default): the manager makes `n` parallel task threads (2 to [`MAX_THREADS`], fewer when
+/// Havok's thread memory is short: [`capped_threads`]) instead of the exe's one. The split task ([`fn_00c44d90`])
+/// hands its items out through one shared counter to every runner (the caller and each thread), and the exe already
+/// runs any two of them at once in any order, so more runners take the same items and only the caller's share of
+/// the work is smaller. The game's item sets (every caller of `00c44c90`, all on the one manager `TES` makes):
+/// - on main, the physics results applied (task tag 0x04 of the end-of-frame step, `0087b990`): the actors' Havok
+///   sync (`0087cfb0`, over `011df244`) and the moved nodes' updates (`0087cf50`, over `011df1c4`; a node of more
+///   than ten children by each child, `0087d030`);
+/// - on the AI linear task thread, each behind its setting: the actors' animation scene graphs (items `0096cb20`,
+///   from `0096c970`; `bTaskletActorSceneGraphUpdates` `011f1260`, off in the game's defaults), the actors' movement
+///   update (items `0096cf60`, each actor's slot 0x350, from `0096cda0`; `bTaskletActorAnimMovementUpdates`
+///   `011f126c`, ON in the game's defaults) and the temporary effects' update (items `00974960`, each effect's slot
+///   0x94, from `009746c0`; `bTaskletTempEffectsUpdate` `011f127c`, off in the game's defaults). The settings' names
+///   and defaults are the exe's static setting constructors' (`00fa9800`, `00fa9830`, `00fa9860`).
+/// A node two items update at once (a parent of more than ten children expanded while one of them is listed too, a
+/// listed node inside a listed subtree) can end with its bound a few last bits off, as the interleaving falls: each
+/// item resets the bound and merges the children's into it in place. The exe's two runners race the same way; more
+/// runners make it likelier. Its transform is exact, and its bound stays the merge of the same children's.
+/// Read once; unset, 1 or anything else: the exe's one thread.
+fn requested_threads() -> u32 {
+    #[cfg(test)]
+    if let Some(n) = TEST_THREADS.with(std::cell::Cell::get) {
+        return n;
+    }
+    if let Some(n) = threads_override() {
+        return n;
+    }
+    static N: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("NV_PAR_TASKS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .map_or(THREAD_COUNT, |n| n.clamp(THREAD_COUNT, MAX_THREADS))
+    })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// [`requested_threads`] for this test thread.
+    static TEST_THREADS: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// [`set_threads_for_tests`]' count (0: none).
+static THREADS_OVERRIDE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Tests: the threads a manager made from now on asks for, whatever `NV_PAR_TASKS` says (clamped as the switch is;
+/// `None`: the switch again). Process-wide, for the engine's integration tests, where one test binary makes a
+/// manager with the exe's one thread and one with more.
+#[doc(hidden)]
+pub fn set_threads_for_tests(n: Option<u32>) {
+    let n = n.map_or(0, |n| n.clamp(THREAD_COUNT, MAX_THREADS));
+    THREADS_OVERRIDE.store(n, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// [`set_threads_for_tests`]' count, when set.
+fn threads_override() -> Option<u32> {
+    match THREADS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        n => Some(n),
+    }
+}
+
+/// The managers that made more than the exe's one thread: (run, `crate::units::platform::KernelRef::id`; the
+/// manager's address; its threads).
+static MANAGERS: std::sync::Mutex<Vec<(usize, u32, u32)>> = std::sync::Mutex::new(Vec::new());
+
+/// How many threads `this` made (the exe's one unless `NV_PAR_TASKS` asked for more when it was made).
+fn thread_count(e: &Engine, this: Ptr<BSParallelTaskManager>) -> u32 {
+    let key = (e.kernel.id(), this.addr());
+    MANAGERS
+        .lock()
+        .ok()
+        .and_then(|m| m.iter().find(|r| (r.0, r.1) == key).map(|r| r.2))
+        .unwrap_or(THREAD_COUNT)
+}
+
+/// Notes that `this` made `n` threads (forgets it for the exe's one).
+fn set_thread_count(e: &Engine, this: Ptr<BSParallelTaskManager>, n: u32) {
+    let key = (e.kernel.id(), this.addr());
+    if let Ok(mut m) = MANAGERS.lock() {
+        m.retain(|r| (r.0, r.1) != key);
+        if n != THREAD_COUNT {
+            m.push((key.0, key.1, n));
+        }
+    }
+}
+
+/// `hkMemorySystem::getInstance`'s word (`00cbbfc0` reads it): the Havok memory system.
+const HAVOK_MEMORY_SYSTEM: u32 = 0x0126_8418;
+/// `hkFreeListMemorySystem`'s vtable: the only memory system the exe makes.
+const FREE_LIST_MEMORY_SYSTEM_VTABLE: u32 = 0x010c_ad74;
+/// Its thread memory records (`hkFreeListMemorySystem::threadInit`, `00cd0830`): 32 at `+0xc6c`, 0x138 apart, each
+/// in use when its byte at `+0x12c` is set. Every game thread's `DoThreadSetup` (`00c80130`) takes one; with all 32
+/// used the exe goes on with the record past the table (memory it does not own).
+const THREAD_MEMORIES: u32 = 0xc6c;
+const THREAD_MEMORY_SIZE: u32 = 0x138;
+const THREAD_MEMORY_USED: u32 = 0x12c;
+const THREAD_MEMORY_COUNT: u32 = 32;
+/// Records left free for threads the game starts later (the Havok job pool's threads are made again when the
+/// multithreaded resources change owner; loaders, the audio thread).
+const THREAD_MEMORY_MARGIN: u32 = 8;
+
+/// Per run (`KernelRef::id`): the extra threads (past the exe's one) Havok's thread memory allows, and those given. Every manager is made
+/// at start-up, before its threads take their records (each takes it on its own thread in `OnStartup`), so the
+/// records are counted once, at a run's first ask, and the extra threads given since are counted here.
+static EXTRA_GIVEN: std::sync::Mutex<Vec<(usize, u32, u32)>> = std::sync::Mutex::new(Vec::new());
+
+/// The threads a manager of this run makes for `asked` (the exe's one, or `NV_PAR_TASKS`'): each extra thread takes
+/// one of Havok's 32 thread memory records, so the extra threads of all the run's managers together stay within the
+/// records free at the run's first ask less [`THREAD_MEMORY_MARGIN`]. A cut is said once in the log. Without the
+/// free-list memory system (no Havok yet, a test): the exe's one.
+fn capped_threads(e: &Engine, asked: u32) -> u32 {
+    if asked <= THREAD_COUNT {
+        return asked;
+    }
+    let run = e.kernel.id();
+    let mut given = EXTRA_GIVEN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let at = match given.iter().position(|g| g.0 == run) {
+        Some(at) => at,
+        None => {
+            let system = if e.mem.is_mapped(HAVOK_MEMORY_SYSTEM) {
+                e.mem.u32(HAVOK_MEMORY_SYSTEM)
+            } else {
+                0
+            };
+            if system == 0 || e.mem.u32(system) != FREE_LIST_MEMORY_SYSTEM_VTABLE {
+                eprintln!(
+                    "NV_PAR_TASKS: Havok's memory system is not made yet; the parallel task manager keeps the exe's \
+                     one thread"
+                );
+                return THREAD_COUNT;
+            }
+            let used = (0..THREAD_MEMORY_COUNT)
+                .filter(|i| {
+                    e.mem
+                        .u8(system + THREAD_MEMORIES + i * THREAD_MEMORY_SIZE + THREAD_MEMORY_USED)
+                        != 0
+                })
+                .count() as u32;
+            let budget = THREAD_MEMORY_COUNT.saturating_sub(used + THREAD_MEMORY_MARGIN);
+            given.push((run, budget, 0));
+            given.len() - 1
+        }
+    };
+    let (_, budget, so_far) = given[at];
+    let extra = (asked - THREAD_COUNT).min(budget.saturating_sub(so_far));
+    given[at].2 = so_far + extra;
+    if extra < asked - THREAD_COUNT {
+        eprintln!(
+            "NV_PAR_TASKS: {asked} threads asked, {} made: Havok's thread memory has {budget} records to spare \
+             beyond the game's own threads and a margin of {THREAD_MEMORY_MARGIN}",
+            THREAD_COUNT + extra
+        );
+    }
+    THREAD_COUNT + extra
+}
 /// Size of a `BSParallelTaskThread` on the PC (`0x5C`; the Xbox PDB's 0x6C
 /// less the 0x10 the PC's `BSThread` is smaller).
 const PARALLEL_TASK_THREAD_SIZE: u32 = 0x5c;
@@ -62,8 +223,8 @@ layout! {
 // Translated from 00c44980 (decompiled, FalloutNV.exe 1.4.0.525)
 // Translation incomplete: 00c44980 - C++ exception unwinding (FS:[0] frame state) and the /GS stack cookie check (00ec408c) are not translated.
 /// `BSParallelTaskManager::BSParallelTaskManager` (Xbox PDB): clears the four
-/// fields, allocates the thread pointer array (4 bytes) and, for each of the
-/// one thread, allocates a `BSParallelTaskThread` (0x5C bytes; when the
+/// fields, allocates the thread pointer array (4 bytes) and, for each of its
+/// threads (the exe's one; more with `NV_PAR_TASKS`, [`requested_threads`]), allocates a `BSParallelTaskThread` (0x5C bytes; when the
 /// allocation succeeds: the `BSLinearTaskThread` constructor `008c76a0`, its
 /// vtable and `pManager = this`; null otherwise), stores it, formats its name
 /// `"Parallel Task Thread %i"` with the thread's word of the table at
@@ -83,10 +244,15 @@ pub fn bs_parallel_task_manager_constructor(
     e.set(this, BSParallelTaskManager::pTaskFunc, 0);
     e.set(this, BSParallelTaskManager::pData, 0);
     e.set(this, BSParallelTaskManager::bRunningTask, false);
-    let threads = e.call(MEMORY_ALLOCATE, &args![MEMORY_MANAGER, 4u32]).u32();
+    // The exe's one thread, or `NV_PAR_TASKS`' as Havok's thread memory allows (the array one word a thread).
+    let count = capped_threads(e, requested_threads());
+    let threads = e
+        .call(MEMORY_ALLOCATE, &args![MEMORY_MANAGER, 4 * count])
+        .u32();
     e.set(this, BSParallelTaskManager::pThreads, threads);
+    set_thread_count(e, this, count);
     let mut index = 0u32;
-    while index < THREAD_COUNT {
+    while index < count {
         let block = e
             .call(
                 MEMORY_ALLOCATE,
@@ -104,9 +270,18 @@ pub fn bs_parallel_task_manager_constructor(
         let threads = e.get(this, BSParallelTaskManager::pThreads);
         e.mem
             .set_u32(threads.wrapping_add(index.wrapping_mul(4)), thread);
-        let table_word = THREAD_PROCESSORS.wrapping_add(index.wrapping_mul(4));
+        // The exe's table has one word (the first thread's): a thread past it takes that word plus its index, for its
+        // name and its processor (which `SetThreadProcessor` does not use on the PC).
+        let word = |e: &Engine| {
+            if index < THREAD_COUNT {
+                e.mem
+                    .u32(THREAD_PROCESSORS.wrapping_add(index.wrapping_mul(4)))
+            } else {
+                e.mem.u32(THREAD_PROCESSORS).wrapping_add(index)
+            }
+        };
         e.with_stack(NAME_SIZE, |e, name| {
-            let number = e.mem.u32(table_word);
+            let number = word(e);
             e.call(
                 SPRINTF_S,
                 &args![name, NAME_SIZE, THREAD_NAME_FORMAT, number],
@@ -118,7 +293,7 @@ pub fn bs_parallel_task_manager_constructor(
             );
             let thread = thread_at(e, this, index);
             e.call(THREAD_SET_NAME, &args![thread, name]);
-            let processor = e.mem.u32(table_word);
+            let processor = word(e);
             let thread = thread_at(e, this, index);
             e.call(THREAD_SET_PROCESSOR, &args![thread, processor]);
             let thread = thread_at(e, this, index);
@@ -200,13 +375,14 @@ pub fn bs_parallel_task_thread_run_linear_tasks(e: &mut Engine, this: Ptr) {
 }
 
 // Translated from 00c44b70 (decompiled, FalloutNV.exe 1.4.0.525)
-/// The manager's destructor body: for the one thread, calls `008c74b0` on
+/// The manager's destructor body: for each thread (the exe's one, or [`requested_threads`]'), calls `008c74b0` on
 /// it, waits for its `FinishedProcessing` semaphore (infinite timeout) and
 /// decrements its count, deletes it (virtual `+0` with 1) when it is not
 /// null and clears its slot; then frees the thread array.
 pub fn fn_00c44b70(e: &mut Engine, this: Ptr<BSParallelTaskManager>) {
     let mut index = 0u32;
-    while index < THREAD_COUNT {
+    let count = thread_count(e, this);
+    while index < count {
         let thread = thread_at(e, this, index);
         e.call(LINEAR_TASK_THREAD_CALL_8C74B0, &args![thread]);
         let thread = thread_at(e, this, index);
@@ -225,6 +401,7 @@ pub fn fn_00c44b70(e: &mut Engine, this: Ptr<BSParallelTaskManager>) {
     }
     let threads = e.get(this, BSParallelTaskManager::pThreads);
     e.call(MEMORY_FREE, &args![MEMORY_MANAGER, threads]);
+    set_thread_count(e, this, THREAD_COUNT);
 }
 
 // Translated from 00c44c40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -258,11 +435,12 @@ pub fn bs_parallel_task_manager_run_task(e: &mut Engine, this: Ptr<BSParallelTas
 }
 
 // Translated from 00c44cd0 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Starts the threads: for the one thread, releases its `StartProcessing`
+/// Starts the threads: for each (the exe's one, or [`requested_threads`]'), releases its `StartProcessing`
 /// semaphore once and increments its count.
 pub fn fn_00c44cd0(e: &mut Engine, this: Ptr<BSParallelTaskManager>) {
     let mut index = 0u32;
-    while index < THREAD_COUNT {
+    let count = thread_count(e, this);
+    while index < count {
         let thread = thread_at(e, this, index);
         let semaphore = thread.wrapping_add(START_PROCESSING);
         let handle = e.mem.u32(semaphore.wrapping_add(4));
@@ -273,12 +451,13 @@ pub fn fn_00c44cd0(e: &mut Engine, this: Ptr<BSParallelTaskManager>) {
 }
 
 // Translated from 00c44d30 (decompiled, FalloutNV.exe 1.4.0.525)
-/// Waits for the threads: for the one thread, waits for its
+/// Waits for the threads: for each (the exe's one, or [`requested_threads`]'), waits for its
 /// `FinishedProcessing` semaphore (infinite timeout) and decrements its
 /// count.
 pub fn fn_00c44d30(e: &mut Engine, this: Ptr<BSParallelTaskManager>) {
     let mut index = 0u32;
-    while index < THREAD_COUNT {
+    let count = thread_count(e, this);
+    while index < count {
         let thread = thread_at(e, this, index);
         let semaphore = thread.wrapping_add(FINISHED_PROCESSING);
         let handle = e.mem.u32(semaphore.wrapping_add(4));
@@ -646,5 +825,155 @@ mod tests {
         assert_eq!(back, 0x5000);
         assert_eq!(calls(&log, LINEAR_TASK_THREAD_DESTRUCTOR).len(), 2);
         assert_eq!(calls(&log, MEMORY_FREE), vec![vec![MEMORY_MANAGER, 0x5000]]);
+    }
+
+    /// With `NV_PAR_TASKS` asking for three threads the manager makes three (an array of three words; each made,
+    /// named and started as the exe's one, the ones past the table's word numbered after it), notes the count, and
+    /// its start, wait and destructor loops take all three; the destructor forgets the count.
+    #[test]
+    fn with_the_switch_the_manager_makes_and_runs_n_threads() {
+        let _cap = fresh_cap();
+        TEST_THREADS.with(|t| t.set(Some(3)));
+        let mut e = engine();
+        // Havok's thread memory with room for them (the cap: [`capped_threads`]).
+        havok_memory(&mut e, 1);
+        let manager: Ptr<BSParallelTaskManager> = e.new_object();
+        e.call_log = Some(vec![]);
+        e.call(0x00c4_4980, &args![manager]);
+        let log = e.call_log.take().unwrap();
+        TEST_THREADS.with(|t| t.set(None));
+        assert_eq!(
+            calls(&log, MEMORY_ALLOCATE),
+            vec![
+                vec![MEMORY_MANAGER, 12],
+                vec![MEMORY_MANAGER, 0x5c],
+                vec![MEMORY_MANAGER, 0x5c],
+                vec![MEMORY_MANAGER, 0x5c]
+            ]
+        );
+        assert_eq!(calls(&log, LINEAR_TASK_THREAD_CONSTRUCT).len(), 3);
+        let numbers: Vec<u32> = calls(&log, SPRINTF_S).iter().map(|c| c[3]).collect();
+        assert_eq!(numbers, vec![5, 6, 7]);
+        let processors: Vec<u32> = calls(&log, THREAD_SET_PROCESSOR)
+            .iter()
+            .map(|c| c[1])
+            .collect();
+        assert_eq!(processors, vec![5, 6, 7]);
+        assert_eq!(calls(&log, THREAD_SET_PRIORITY).len(), 3);
+        assert_eq!(thread_count(&e, manager), 3);
+        for addr in [
+            RELEASE_SEMAPHORE,
+            INTERLOCKED_INCREMENT,
+            INTERLOCKED_DECREMENT,
+            WAIT_FOR_SINGLE_OBJECT,
+            MEMORY_FREE,
+            LINEAR_TASK_THREAD_CALL_8C74B0,
+        ] {
+            e.register(addr, |_, _| Ret::default());
+        }
+        e.register(0x0012_3470, |_, _| Ret::default());
+        let vtable = e.mem.alloc(4);
+        e.mem.set_u32(vtable, 0x0012_3470);
+        let threads = e.get(manager, BSParallelTaskManager::pThreads);
+        for i in 0..3 {
+            let thread = e.mem.u32(threads + 4 * i);
+            assert_ne!(thread, 0);
+            e.mem.set_u32(thread, vtable);
+        }
+        e.call_log = Some(vec![]);
+        e.call(0x00c4_4cd0, &args![manager]);
+        e.call(0x00c4_4d30, &args![manager]);
+        e.call(0x00c4_4b70, &args![manager]);
+        let log = e.call_log.take().unwrap();
+        assert_eq!(calls(&log, RELEASE_SEMAPHORE).len(), 3, "each started");
+        // The wait loop's three and the destructor's three.
+        assert_eq!(calls(&log, WAIT_FOR_SINGLE_OBJECT).len(), 6);
+        assert_eq!(calls(&log, 0x0012_3470).len(), 3, "each deleted");
+        assert_eq!(thread_count(&e, manager), 1, "forgotten");
+    }
+
+    /// Without the switch the count is the exe's one, whatever another run asked for.
+    #[test]
+    fn without_the_switch_a_manager_has_the_exe_s_one_thread() {
+        let mut e = engine();
+        let manager: Ptr<BSParallelTaskManager> = e.new_object();
+        assert_eq!(thread_count(&e, manager), 1);
+        e.call(0x00c4_4980, &args![manager]);
+        assert_eq!(thread_count(&e, manager), 1);
+    }
+
+    /// With the switch but Havok's thread memory nearly full, the constructor makes only what the records allow
+    /// (here the exe's one: 26 in use leave none beyond the margin).
+    #[test]
+    fn with_the_switch_and_no_thread_memory_to_spare_the_manager_keeps_one_thread() {
+        let _cap = fresh_cap();
+        TEST_THREADS.with(|t| t.set(Some(3)));
+        let mut e = engine();
+        havok_memory(&mut e, 26);
+        let manager: Ptr<BSParallelTaskManager> = e.new_object();
+        e.call_log = Some(vec![]);
+        e.call(0x00c4_4980, &args![manager]);
+        let log = e.call_log.take().unwrap();
+        TEST_THREADS.with(|t| t.set(None));
+        assert_eq!(
+            calls(&log, MEMORY_ALLOCATE),
+            vec![vec![MEMORY_MANAGER, 4], vec![MEMORY_MANAGER, 0x5c]]
+        );
+        assert_eq!(thread_count(&e, manager), 1);
+    }
+
+    /// The cap's tests one at a time, each starting from no run's record ([`EXTRA_GIVEN`]): an engine dropped by another
+    /// test leaves its record, and a new engine can come at its address (the run's key).
+    static CAP_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn fresh_cap() -> std::sync::MutexGuard<'static, ()> {
+        let guard = CAP_TESTS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        EXTRA_GIVEN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+        guard
+    }
+
+    /// A Havok free-list memory system at its word with `used` thread memory records in use.
+    fn havok_memory(e: &mut Engine, used: u32) {
+        let system = e.mem.alloc(THREAD_MEMORIES + 33 * THREAD_MEMORY_SIZE);
+        e.mem.set_u32(system, FREE_LIST_MEMORY_SYSTEM_VTABLE);
+        for i in 0..THREAD_MEMORY_COUNT {
+            let record = system + THREAD_MEMORIES + i * THREAD_MEMORY_SIZE;
+            e.mem
+                .set_u8(record + THREAD_MEMORY_USED, u8::from(i < used));
+        }
+        e.map(HAVOK_MEMORY_SYSTEM & !0xfff, 0x1000);
+        e.mem.set_u32(HAVOK_MEMORY_SYSTEM, system);
+    }
+
+    /// The extra threads are cut to the thread memory records free at the run's first ask less the margin, across
+    /// all the run's managers; asking for the exe's one needs no records; without Havok's memory system the manager
+    /// keeps the exe's one thread.
+    #[test]
+    fn the_extra_threads_fit_in_havok_s_free_thread_memory() {
+        let _cap = fresh_cap();
+        let e = engine();
+        assert_eq!(capped_threads(&e, 8), THREAD_COUNT, "no memory system yet");
+        let mut e = engine();
+        assert_eq!(capped_threads(&e, 1), 1);
+        // 20 of 32 in use: 32 - 20 - 8 = 4 extra in all.
+        havok_memory(&mut e, 20);
+        assert_eq!(capped_threads(&e, 3), 3, "two extra");
+        assert_eq!(
+            capped_threads(&e, 8),
+            3,
+            "two more, then the budget is spent"
+        );
+        assert_eq!(capped_threads(&e, 8), 1, "none left");
+        let mut e = engine();
+        havok_memory(&mut e, 4);
+        assert_eq!(capped_threads(&e, 8), 8, "room for all");
+        let mut e = engine();
+        havok_memory(&mut e, 30);
+        assert_eq!(capped_threads(&e, 8), 1, "the margin is never given");
     }
 }

@@ -144,3 +144,63 @@ pub const KILL_CHALLENGE_SOURCE_WEAPON: Row = Row::share(AI_FIXES, AI_FIXES_END,
 /// S0782 `ShootableNonPlayableExplosives` (`Actor::DamageEquipment` `00891360` (`0x891483`,
 /// `0x891759`)): an unplayable explosive an NPC carries can be shot off and set off.
 pub const HIDDEN_FRAGS: Row = Row::share(AI_FIXES, AI_FIXES_END, 41);
+/// S0022.21 `MenuFixes` (`PlayerCharacter::Update` `0093e860` (`0x94328E`)): activating a workbench
+/// or a reloading bench plays no "no activate" sound.
+pub const WORKBENCH_NO_ACTIVATE_SOUND: Row = Row::share(AI_FIXES, AI_FIXES_END, 42);
+/// S0052 `patchPreventAimingFOVDuringKillcams` (`0095de30` (`0x95E088`)): no aiming field of view
+/// during a cinematic kill camera.
+pub const NO_AIMING_FOV_IN_KILLCAMS: Row = Row::share(AI_FIXES, AI_FIXES_END, 43);
+/// S0153 `patchFixWeaponNifRoundNotCullingInFirstPerson` (`PlayerCharacter::DropObject` `00954610`
+/// (`0x954703`)): the dropped round's node is hidden on the first-person model too.
+pub const NIF_ROUND_FIRST_PERSON: Row = Row::share(AI_FIXES, AI_FIXES_END, 44);
+/// S0164 `patchPreventLevelupInTestAllCells` (`PlayerCharacter::Update` `0093e860` (`0x9439D4`)):
+/// no level-up during `TestAllCells`.
+pub const NO_LEVELUP_IN_TEST_ALL_CELLS: Row = Row::share(AI_FIXES, AI_FIXES_END, 45);
+/// S0209 `PreventAutoVanityModeIfSpecialIdlesArePlaying` (`PlayerCharacter::Update` `0093e860`
+/// (`0x943593`)): no automatic vanity camera during a first-person special idle.
+pub const NO_AUTO_VANITY_IN_SPECIAL_IDLE: Row = Row::share(AI_FIXES, AI_FIXES_END, 46);
+/// S0210 `FixSetIsFiringAutomaticWeaponNotClearing` (`00948310` (`0x949838`, `0x949862`)): the
+/// player's automatic-firing flag clears.
+pub const AUTOMATIC_FIRING_CLEARS: Row = Row::share(AI_FIXES, AI_FIXES_END, 47);
+/// S0212 `PlayerWaitDoubleHealingFix` (`PlayerCharacter::PlayerSleep` `0094df80` (`0x94E09E`)):
+/// waiting heals the player once.
+pub const WAIT_SINGLE_HEALING: Row = Row::share(AI_FIXES, AI_FIXES_END, 48);
+/// S0224 `PreventJumpingWhenFastTraveling` (`PlayerCharacter::Update` `0093e860` (`0x942148`)): no
+/// jump while the map has a marker selected.
+pub const NO_JUMP_WHEN_FAST_TRAVELING: Row = Row::share(AI_FIXES, AI_FIXES_END, 49);
+/// S0111 `patchFixLoopingReloadAmmoSwapInstantRefill` (`PlayerCharacter::Update` `0093e860`
+/// (`0x940B10`); `0095d450` (`0x95D714`)): swapping ammunition on a weapon that reloads round by
+/// round no longer refills its clip.
+pub const AMMO_SWAP_NO_INSTANT_REFILL: Row = Row::share(AI_FIXES, AI_FIXES_END, 50);
+/// S0121 `patchPreventReloadingIfClipIsOverfilled` (`0095d850` (`0x95DAE5`, `0x95DC01`),
+/// `0095d450` (`0x95D65D`)): a clip holding as many rounds as its size or more is not reloaded.
+pub const NO_RELOAD_OVERFILLED_CLIP: Row = Row::share(AI_FIXES, AI_FIXES_END, 51);
+/// S0130.02 `ContinuousBeamProjectileCrashFix` (`Actor::Update` `00888b50` (`0x889869`)): an NPC's
+/// continuous beam keeps firing while its attack animation runs and fades when it ends. Acts
+/// only with `BEAM_SHOOTER_POINTER` (S0130.01) on too.
+pub const NPC_CONTINUOUS_BEAM: Row = Row::share(AI_FIXES, AI_FIXES_END, 52);
+/// S0130.04 `ContinuousBeamProjectileCrashFix` (`PlayerCharacter::Update` `0093e860` (`0x9440C2`);
+/// `Projectile::AddImpact` `009bf5a0` (`0x9BFD6B`)): in god mode the player's continuous beam fires
+/// without ammunition.
+pub const BEAM_GODMODE_FIRING: Row = Row::share(AI_FIXES, AI_FIXES_END, 53);
+/// S0130.05 `ContinuousBeamProjectileCrashFix` (`PlayerCharacter::Update` `0093e860`
+/// (`0x944152`)): the player's continuous beam uses its ammunition in the player's update, so
+/// firing at the sky uses ammunition too. Acts only with `BEAM_NO_PLAYER_AMMO_IN_IMPACT` on too
+/// (Tweaks installs the ammunition parts together).
+pub const BEAM_PLAYER_AMMO_IN_UPDATE: Row = Row::share(AI_FIXES, AI_FIXES_END, 54);
+/// S0130.06 `ContinuousBeamProjectileCrashFix` (`Projectile::AddImpact` `009bf5a0` (`0x9BFD0E`,
+/// `0x9BFCC1`); `PlayerCharacter::Update` `0093e860` (`0x944127`)): the player's continuous beam
+/// uses no ammunition where it hits (only with `BEAM_PLAYER_AMMO_IN_UPDATE` on too), and stops when
+/// the weapon is put away.
+pub const BEAM_NO_PLAYER_AMMO_IN_IMPACT: Row = Row::share(AI_FIXES, AI_FIXES_END, 55);
+/// S0198 `VanityCamRotationFix` (`009445b0` (`0x945D53`); `PlayerCharacter::UpdateCamera`
+/// `0094ae40` (`0x94B521`)): the vanity camera's turn stays within a circle and its pitch within
+/// 89 degrees.
+pub const VANITY_CAM_ROTATION: Row = Row::share(AI_FIXES, AI_FIXES_END, 56);
+/// S0489 `patchSpinWeaponsAlwaysPlaySound` (`Actor::Update` `00888b50` (`0x8893F8`, `0x889422`,
+/// `0x8895A8`)): a weapon with a looping attack sound plays it again after a short stop.
+pub const SPIN_WEAPON_SOUND: Row = Row::share(AI_FIXES, AI_FIXES_END, 57);
+/// S0926 `CombatSoundCooldownFix` (`009839b0` (`0x983A37`, `0x9841CC`); `Actor::HitMe` `0089a760`
+/// (`0x89D42B`, `0x89D4ED`)): the combat line and hit sound cooldowns start only when a line was
+/// said.
+pub const COMBAT_SOUND_COOLDOWN: Row = Row::share(AI_FIXES, AI_FIXES_END, 58);

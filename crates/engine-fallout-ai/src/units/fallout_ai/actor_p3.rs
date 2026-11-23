@@ -14163,7 +14163,7 @@ fn hit_me_finish(e: &mut Engine, s: &mut HitMe) {
         s.flag_64 = false;
     }
     let now = e.call(IMPORT_GET_TICK_COUNT, &args![]).u32();
-    if e.global::<u32>(HIT_BARK_DEADLINE) > now {
+    if hit_bark_cooling_down(e, now) {
         s.flag_64 = false;
     }
     let now = e.call(IMPORT_GET_TICK_COUNT, &args![]).u32();
@@ -14188,13 +14188,54 @@ fn hit_me_finish(e: &mut Engine, s: &mut HitMe) {
         }
     }
     if s.flag_64 {
-        let manager = e.global::<u32>(COMBAT_DIALOGUE_MANAGER);
-        e.call(
-            COMBAT_DIALOGUE_START_DIALOGUE,
-            &args![manager, this, aggressor, 2u32, 2u32, 1u32, controller],
-        );
+        start_hit_line(e, this.addr(), aggressor, controller);
     }
     e.call(ACTOR_HIT_BRACKET_8A5300, &args![this]);
+}
+
+/// `HitMe`'s combat line (`0x89D4ED`): `CombatDialogueManager::StartDialogue` (`009839b0`) on the
+/// manager (`011f1708`) with the hit actor, the aggressor, type 2, subtype 2, flag 1 and the
+/// controller. lStewieAl's Tweaks' row S0926 (its `OnPlayCombatAttackSound` called there): when
+/// the line was said, the hit sound's deadline restarts ([`hit_sound_cooldown_after_line`]).
+fn start_hit_line(e: &mut Engine, this: u32, aggressor: u32, controller: u32) {
+    let manager = e.global::<u32>(COMBAT_DIALOGUE_MANAGER);
+    let said = e
+        .call(
+            COMBAT_DIALOGUE_START_DIALOGUE,
+            &args![manager, this, aggressor, 2u32, 2u32, 1u32, controller],
+        )
+        .bool();
+    if said && e.stewie(engine_core::extend::stewie::COMBAT_SOUND_COOLDOWN) {
+        hit_sound_cooldown_after_line(e);
+    }
+}
+
+/// `HitMe`'s cooldown test of the hit's combat line (`0x89D425`): the deadline (`011df684`) is
+/// after `now`. lStewieAl's Tweaks' row S0926 (`CombatSoundCooldownFix`, `JBE` to `JMP` at
+/// `0x89D42B`): never; the cooldown no longer stops the line here.
+fn hit_bark_cooling_down(e: &mut Engine, now: u32) -> bool {
+    e.global::<u32>(HIT_BARK_DEADLINE) > now
+        && !e.stewie(engine_core::extend::stewie::COMBAT_SOUND_COOLDOWN)
+}
+
+// Translated from lStewieAl's Tweaks 10.05 (Fixes/CombatSoundCooldownFix.cpp):
+// OnPlayCombatAttackSound.
+/// lStewieAl's Tweaks' row S0926: after the hit actor said its combat line, the hit sound's
+/// deadline (`011df684`) becomes the tick count (`GetTickCount`) plus a random wait between
+/// `fDialogHitSoundCooldownMin` and `fDialogHitSoundCooldownMax` (`011df73c`, `011df70c`, their
+/// values times 1000 as `float`s, cut to whole numbers; `00944460`). The exe's own restart of the
+/// deadline once it has passed (`0x89D431`) stays as it is.
+fn hit_sound_cooldown_after_line(e: &mut Engine) {
+    let min = e.mem.f32(SETTING_BARK_DELAY_LOWER + 4) * 1000.0;
+    let max = e.mem.f32(SETTING_BARK_DELAY_UPPER + 4) * 1000.0;
+    let now = e.call(IMPORT_GET_TICK_COUNT, &args![]).u32();
+    let wait = e
+        .call(
+            RANDOM_RANGE_944460,
+            &args![min as i32 as u32, max as i32 as u32],
+        )
+        .u32();
+    e.set_global(HIT_BARK_DEADLINE, now.wrapping_add(wait));
 }
 /// `bhkBlendController::DoHit` (Xbox PDB), cdecl: the first value found by
 /// `004aae30`, a `float` and a flag.
@@ -23392,6 +23433,141 @@ mod tests {
                 1.0f32.to_bits()
             ]
         );
+    }
+
+    /// S0926 (`CombatSoundCooldownFix`, `0x89D42B`): the hit's combat line is held while the hit
+    /// sound's deadline (`011df684`) is after now; with the row never.
+    #[test]
+    fn s0926_the_cooldown_no_longer_holds_the_hit_line() {
+        // (row, the deadline, held at 1000)
+        for (on, deadline, held) in [
+            (false, 2000u32, true),
+            (false, 500, false),
+            (true, 2000, false),
+        ] {
+            let mut e = engine();
+            e.set_stewie(engine_core::extend::stewie::COMBAT_SOUND_COOLDOWN, on);
+            e.map(HIT_BARK_DEADLINE, 4);
+            e.set_global(HIT_BARK_DEADLINE, deadline);
+            assert_eq!(
+                hit_bark_cooling_down(&mut e, 1000),
+                held,
+                "on {on} deadline {deadline}"
+            );
+        }
+    }
+
+    /// S0926 (`OnPlayCombatAttackSound`, `0x89D4ED`): a said line restarts the hit sound's deadline
+    /// at the tick count (1000) plus `00944460(min * 1000, max * 1000)` (settings 0.5 and 2.25:
+    /// 500 and 2250; the draw answers 777); a line not said, or the row off, leaves it (5).
+    #[test]
+    fn s0926_a_said_line_restarts_the_hit_sound_cooldown() {
+        for (on, said, deadline) in [(true, true, 1777u32), (true, false, 5), (false, true, 5)] {
+            let mut e = engine();
+            e.set_stewie(engine_core::extend::stewie::COMBAT_SOUND_COOLDOWN, on);
+            e.map(0x011d_f000, 0x1000);
+            e.map(COMBAT_DIALOGUE_MANAGER, 4);
+            e.set_global(COMBAT_DIALOGUE_MANAGER, 0x8b00u32);
+            e.set_global(HIT_BARK_DEADLINE, 5u32);
+            e.mem.set_f32(SETTING_BARK_DELAY_LOWER + 4, 0.5);
+            e.mem.set_f32(SETTING_BARK_DELAY_UPPER + 4, 2.25);
+            stub(&mut e, COMBAT_DIALOGUE_START_DIALOGUE, u32::from(said));
+            stub(&mut e, IMPORT_GET_TICK_COUNT, 1000);
+            stub(&mut e, RANDOM_RANGE_944460, 777);
+            start_hit_line(&mut e, 0x6000, 0x6100, 0x6200);
+            assert_eq!(
+                calls_to(&e, COMBAT_DIALOGUE_START_DIALOGUE),
+                vec![vec![0x8b00, 0x6000, 0x6100, 2, 2, 1, 0x6200]]
+            );
+            assert_eq!(
+                e.global::<u32>(HIT_BARK_DEADLINE),
+                deadline,
+                "on {on} said {said}"
+            );
+            let drawn = calls_to(&e, RANDOM_RANGE_944460);
+            if deadline == 1777 {
+                assert_eq!(drawn, vec![vec![500, 2250]]);
+            } else {
+                assert!(drawn.is_empty(), "on {on} said {said}");
+            }
+        }
+    }
+
+    /// S0660 through `HitMe` (the review of #878): an unblocked hit with a source reference (an
+    /// explosion) knocks the victim back from the aggressor's position (its slot `0x1f4`) off, and
+    /// from the source's position (+0x30) with the row: the start point is the third word of the
+    /// knockback's subtraction (`VECTOR_SUBTRACT`).
+    #[test]
+    fn s0660_hit_me_knocks_back_from_the_explosion() {
+        for on in [false, true] {
+            let mut e = engine();
+            let world = hit_world(&mut e, false);
+            e.set_stewie(engine_core::extend::stewie::EXPLOSION_PUSH_DIRECTION, on);
+            stub(&mut e, INTERFACE_IS_IN_MENU_MODE, 0);
+            stub_float(&mut e, ACTOR_GETTER_87F9C0, 1.0);
+            let scaled = e.mem.alloc(12);
+            stub(&mut e, VECTOR_SCALE, scaled);
+            let source_position = e.mem.alloc(12);
+            let source = actor_with(
+                &mut e,
+                &[
+                    (REFERENCE_SLOT_220, ret(0)),
+                    (REFERENCE_SLOT_224, ret(0)),
+                    (ACTOR_SLOT_100, ret(0)),
+                    (REFERENCE_SLOT_168, ret(0)),
+                    (ACTOR_SLOT_POSITION, ret(source_position)),
+                ],
+                None,
+            );
+            e.set(world.hit, HitData::pSourceRef, source.cast());
+            let aggressor_position = e
+                .vcall(world.player.addr(), ACTOR_SLOT_POSITION, &args![])
+                .u32();
+            e.call_log = Some(vec![]);
+            actor_hit_me(&mut e, world.victim, world.hit, 0);
+            let subtractions = calls_to(&e, VECTOR_SUBTRACT);
+            let start = if on {
+                source.addr() + 0x30
+            } else {
+                aggressor_position
+            };
+            assert!(
+                subtractions.iter().any(|c| c[2] == start),
+                "on {on}: {subtractions:x?}"
+            );
+            if on {
+                assert!(
+                    !subtractions.iter().any(|c| c[2] == aggressor_position),
+                    "{subtractions:x?}"
+                );
+            }
+        }
+    }
+
+    /// S0664 without a process (the review of #878): with the row, a victim whose process (+0x68)
+    /// is gone gives the kill statistics (`005f5950`) no weapon (slot 0x2d, number 1), without a
+    /// read through the missing process.
+    #[test]
+    fn s0664_a_victim_without_a_process_gives_no_weapon() {
+        let mut e = engine();
+        e.set_stewie(
+            engine_core::extend::stewie::KILL_CHALLENGE_SOURCE_WEAPON,
+            true,
+        );
+        let (victim, _, player, _) = kill_setup(&mut e);
+        stub(&mut e, REFR_BASE_FORM, 0x9300);
+        stub_with(&mut e, FTOL, |_, a| {
+            ret(f64::from_bits(u64::from(a[0]) | u64::from(a[1]) << 32) as i32 as u32)
+        });
+        stub(&mut e, CREATURE_GETTER_59F3A0, 0);
+        stub(&mut e, RTTI_DYNAMIC_CAST, 0x9400);
+        stub(&mut e, WEAPON_TYPE, 3);
+        stub(&mut e, WEAPON_GETTER_8D85E0, 0x21);
+        e.mem.set_u32(victim.addr() + 0x68, 0);
+        e.call_log = Some(vec![]);
+        record_kill_statistics(&mut e, victim, player, player.addr());
+        let stats = calls_to(&e, STATISTICS_WORKER_5F5950);
+        assert_eq!(stats[0], vec![1, 1, 0x9300, 0, 0, 0x2d, 1]);
     }
 
     /// S0660 (`patchFixExplosionPushDirection`): the knockback starts from the aggressor's slot

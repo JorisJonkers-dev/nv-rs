@@ -230,9 +230,15 @@ pub const NAMES: [&str; COLUMNS] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
 pub enum TailMark {
-    /// In `Main::UpdateNonRenderSafeAITasks` (`0086f6a0`): the process lists' steps returned (the projectiles and
-    /// explosions `0096c240`, the actors' animation scene graphs `0096c970` or `0096c860`, the detection lists
-    /// `0096c710`, the actors' process and ragdoll step `009781d0`).
+    /// In `Main::UpdateNonRenderSafeAITasks` (`0086f6a0`), the process lists' four steps one by one: the projectiles
+    /// and explosions (`0096c240`; with the open dialogue's timer before it) returned.
+    AiProjectiles,
+    /// The actors' animation scene graphs (their bones: `ProcessLists::ParallelUpdateAnimationScenegraph`,
+    /// `0096c970`, with more than one thread, else `UpdateAnimationScenegraph`, `0096c860`) returned.
+    AiBones,
+    /// The detection lists merged (`0096c710`) returned.
+    AiDetection,
+    /// The actors' process step and ragdolls (`009781d0`) returned.
     AiLists,
     /// The Pip-Boy's step and, with more than one thread, `TESObjectCELL::PerformQueuedChildAttaches` (`0054ae30`)
     /// returned.
@@ -267,13 +273,16 @@ pub enum TailMark {
 }
 
 /// How many tail marks there are.
-pub const TAIL_MARKS: usize = 13;
+pub const TAIL_MARKS: usize = 16;
 /// The tail's parts: one ending at each mark, then the last to the host's take.
 pub const TAIL_PARTS: usize = TAIL_MARKS + 1;
 
 /// The tail's parts in words, in [`TailMark`]'s order, then the last mark to the host's take.
 pub const TAIL_PART_NAMES: [&str; TAIL_PARTS] = [
-    "AI tasks: process lists",
+    "AI tasks: projectiles and explosions",
+    "AI tasks: animation scene graphs (bones)",
+    "AI tasks: detection lists",
+    "AI tasks: actors' process and ragdolls",
     "AI tasks: Pip-Boy and child attaches",
     "AI tasks: first task queue",
     "AI tasks: queued node updates",
@@ -440,11 +449,122 @@ pub fn tail_tick(index: u32, free: Option<u32>) {
     }
 }
 
-/// Main passed tail mark `m` (see [`TailMark`]). Off: nothing.
+/// Main passed tail mark `m` (see [`TailMark`]). Off: nothing. At `OnIdle`'s end main's own processor clock is read
+/// too ([`main_clock`]).
 #[inline]
 pub fn tail_mark(m: TailMark) {
     if points_on() {
         MARKS.tail[m as usize].store(now_ns(), Relaxed);
+        if m == TailMark::IdleEnd {
+            main_clock(1);
+        }
+    }
+}
+
+/// Main's own processor clock and the wall clock in the same unit (`crate::thread_cpu::own_clock`), at
+/// `WaitForThreads`' return (0) and at `OnIdle`'s end (1): how much of its tail main spent on the processor.
+static MAIN_CLOCK: [[AtomicU64; 2]; 2] = [
+    [AtomicU64::new(0), AtomicU64::new(0)],
+    [AtomicU64::new(0), AtomicU64::new(0)],
+];
+
+/// Reads main's processor clock into [`MAIN_CLOCK`]`[at]` (none where the system does not tell it cheaply).
+fn main_clock(at: usize) {
+    let (cpu, wall) = crate::thread_cpu::own_clock().unwrap_or((0, 0));
+    MAIN_CLOCK[at][0].store(cpu, Relaxed);
+    MAIN_CLOCK[at][1].store(wall, Relaxed);
+}
+
+/// Main's share of the processor over its tail from `WaitForThreads`' return to `OnIdle`'s end, in thousandths
+/// (`None` where the clock is not read or the frame passed neither point).
+fn main_share() -> Option<u32> {
+    let load = |at: usize, i: usize| MAIN_CLOCK[at][i].load(Relaxed);
+    let (wall0, wall1) = (load(0, 1), load(1, 1));
+    if wall0 == 0 || wall1 <= wall0 {
+        return None;
+    }
+    let cpu = load(1, 0).saturating_sub(load(0, 0));
+    Some((cpu.saturating_mul(1000) / (wall1 - wall0)).min(1000) as u32)
+}
+
+/// Tag 0x04 of the first packed task queue as main ran it in the frame: queued by `TES`'s update at its end on the
+/// AI thread (`00453550` through `0087aa90`), run by `TaskQueueInterface::TaskUnpackFunc` (`0087b990`): the
+/// physics results applied to the scene graph.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HavokSync {
+    /// The actors' Havok sync (`ActorHavokSyncParallelArrayTaskFunc`, `0087cfb0`, over the list at `011df244`, split
+    /// between main and the parallel task thread by `BSParallelTaskManager`, `00c44c90`): its time (ns) and entries.
+    pub actors_ns: u64,
+    pub actors: u32,
+    /// The nodes updated (`0087cf50` over the list at `011df1c4`, a node of more than ten children by each child,
+    /// split the same way): its time (ns) and the nodes.
+    pub nodes_ns: u64,
+    pub nodes: u32,
+    /// The cells' update after it (`00453900` on `TES`, when the list's gate is off) (ns).
+    pub cells_ns: u64,
+    /// How many times it ran in the frame.
+    pub runs: u32,
+}
+
+/// The frame's tag 0x04 runs on main ([`havok_sync`]).
+static HAVOK_SYNC: Mutex<Option<HavokSync>> = Mutex::new(None);
+
+/// Times tag 0x04's three steps on main ([`HavokSync`]); off (the points off, or another thread running it when
+/// the queue is not active) it reads no clock.
+pub struct HavokSyncTimer {
+    /// [`now_ns`] at the last step's end; 0 while off.
+    last: u64,
+    s: HavokSync,
+}
+
+/// Starts timing a run of tag 0x04 (main's, in its frame tail).
+#[inline]
+pub fn havok_sync() -> HavokSyncTimer {
+    let on = points_on() && !crate::real_threads::on_other_game_thread();
+    HavokSyncTimer {
+        last: if on { now_ns() } else { 0 },
+        s: HavokSync::default(),
+    }
+}
+
+impl HavokSyncTimer {
+    /// The time since the last step (ns), and the clock moved on.
+    fn step(&mut self) -> u64 {
+        let now = now_ns();
+        let was = std::mem::replace(&mut self.last, now);
+        now.saturating_sub(was)
+    }
+
+    /// The actors' Havok sync ended: `n` entries in its list.
+    pub fn actors(&mut self, n: u32) {
+        if self.last != 0 {
+            self.s.actors_ns = self.step();
+            self.s.actors = n;
+        }
+    }
+
+    /// The node updates ended: `n` nodes.
+    pub fn nodes(&mut self, n: u32) {
+        if self.last != 0 {
+            self.s.nodes_ns = self.step();
+            self.s.nodes = n;
+        }
+    }
+
+    /// The cells' update ended: the run joins the frame's.
+    pub fn end(mut self) {
+        if self.last == 0 {
+            return;
+        }
+        self.s.cells_ns = self.step();
+        let mut h = HAVOK_SYNC.lock().unwrap_or_else(PoisonError::into_inner);
+        let t = h.get_or_insert_with(HavokSync::default);
+        t.actors_ns += self.s.actors_ns;
+        t.actors += self.s.actors;
+        t.nodes_ns += self.s.nodes_ns;
+        t.nodes += self.s.nodes;
+        t.cells_ns += self.s.cells_ns;
+        t.runs += 1;
     }
 }
 
@@ -457,6 +577,11 @@ pub struct Tail {
     pub drains: [Option<DrainStats>; 2],
     /// The 256-step tick: the pool's index and its free list's count before the sort (`None`: no pool there).
     pub tick: Option<(u32, Option<u32>)>,
+    /// Tag 0x04's runs on main ([`HavokSync`]).
+    pub havok_sync: Option<HavokSync>,
+    /// Main's share of the processor from `WaitForThreads`' return to `OnIdle`'s end, in thousandths (`None` where
+    /// the system does not tell it cheaply: Windows on ARM).
+    pub main_share: Option<u32>,
 }
 
 impl Tail {
@@ -479,8 +604,14 @@ pub fn take_tail() -> Option<Tail> {
     }
     let drains = std::mem::take(&mut *DRAINS.lock().unwrap_or_else(PoisonError::into_inner));
     let tick = TICK.swap(0, Relaxed);
+    let havok_sync = HAVOK_SYNC
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
     let mut tail = MARKS.tail_parts()?;
     tail.drains = drains;
+    tail.havok_sync = havok_sync;
+    tail.main_share = main_share();
     tail.tick = (tick >> 63 != 0).then(|| {
         (
             ((tick >> 32) as u32) & 0xff,
@@ -488,6 +619,135 @@ pub fn take_tail() -> Option<Tail> {
         )
     });
     Some(tail)
+}
+
+/// Marks in the host's time between two of main's frames (from the host's take of the frame's marks,
+/// [`Point::Host`], to main's next `Main::OnIdle`, [`Point::Idle`]), in the order they are passed. Each ends one part
+/// of that time: the time since the last mark passed before it (or since the take). The hitch log prints the parts
+/// when the time is long ([`take_host_gap`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum HostMark {
+    /// The hitch log's record of the frame (its line built and written, `host::hitch_log::HitchLog::record`)
+    /// returned.
+    HitchLog,
+    /// The frame log's record (`NV_FRAME_LOG`) returned.
+    FrameLog,
+    /// An F12 report's place (`host::report_place::note`) returned.
+    Report,
+    /// The host hands the next frame to main (`crate::thread_host::begin_main_frame`): the host's own steps before it
+    /// (its status lines, the input it passes, its join of the engine) end here.
+    HandOver,
+    /// Main's thread runs again (`crate::thread_host::end_main_frame`, the hand-over received).
+    MainAwake,
+    /// Main has the platform lock back (with real threads; at once without).
+    MainLocked,
+}
+
+/// How many host marks there are.
+pub const HOST_MARKS: usize = 6;
+/// The host gap's parts: one ending at each mark, then the last to `Main::OnIdle`.
+pub const HOST_PARTS: usize = HOST_MARKS + 1;
+
+/// The host gap's parts in words, in [`HostMark`]'s order, then the last mark to `Main::OnIdle`.
+pub const HOST_PART_NAMES: [&str; HOST_PARTS] = [
+    "the hitch log's line",
+    "the frame log",
+    "an F12 report's place",
+    "the host's own steps and the hand-over",
+    "main's thread waking",
+    "main taking the platform lock back",
+    "the game's window messages and its loop to OnIdle",
+];
+
+/// The host's time between two of main's frames, split at its [`HostMark`]s, with the game's window messages main
+/// ran in it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostGap {
+    /// Each part's time (ns), [`HOST_PART_NAMES`]' order; `None` where its mark was not passed.
+    pub parts: [Option<u64>; HOST_PARTS],
+    /// The messages main took from the game's queue after its thread ran again (`PeekMessageA` answering one),
+    /// before `Main::OnIdle`.
+    pub messages: u32,
+    /// Their time (ns): from each take to main's next `PeekMessageA` (the game's window procedure ran it).
+    pub messages_ns: u64,
+    /// The longest of them: its message id and time (ns).
+    pub longest_message: Option<(u32, u64)>,
+}
+
+impl HostGap {
+    /// The longest part: (its index, ns).
+    pub fn longest(&self) -> Option<(usize, u64)> {
+        self.parts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| p.map(|ns| (i, ns)))
+            .max_by_key(|p| p.1)
+    }
+}
+
+/// The game's window messages of the host gap so far: (how many, ns, the longest (id, ns)).
+type Messages = (u32, u64, Option<(u32, u64)>);
+
+/// The message `PeekMessageA` handed main and not yet followed by its next call: (its id, when).
+static MESSAGE_OUT: Mutex<Option<(u32, u64)>> = Mutex::new(None);
+/// The host gap's messages so far ([`message_peek`]).
+static MESSAGES: Mutex<Messages> = Mutex::new((0, 0, None));
+/// The last host gap, made at [`Point::Idle`], until the hitch log takes it.
+static HOST_GAP: Mutex<Option<HostGap>> = Mutex::new(None);
+
+/// The host passed mark `m` (see [`HostMark`]). Off: nothing.
+#[inline]
+pub fn host_mark(m: HostMark) {
+    if points_on() {
+        MARKS.host[m as usize].store(now_ns(), Relaxed);
+    }
+}
+
+/// Main's `PeekMessageA` was called: the message it handed out last, if any, is done (the game's procedure ran it);
+/// one taken after main's thread ran again this frame ([`HostMark::MainAwake`]) counts in the host gap. Off: nothing.
+#[inline]
+pub fn message_peek() {
+    if points_on() {
+        let Some((id, at)) = MESSAGE_OUT
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        else {
+            return;
+        };
+        let awake = MARKS.host[HostMark::MainAwake as usize].load(Relaxed);
+        if awake != 0 && at >= awake {
+            let ns = now_ns().saturating_sub(at);
+            let mut m = MESSAGES.lock().unwrap_or_else(PoisonError::into_inner);
+            m.0 += 1;
+            m.1 += ns;
+            if m.2.map_or(true, |(_, longest)| ns > longest) {
+                m.2 = Some((id, ns));
+            }
+        }
+    }
+}
+
+/// Main's `PeekMessageA` handed it the message `id` (main's procedure runs it next). Off: nothing.
+#[inline]
+pub fn message_out(id: u32) {
+    if points_on() {
+        *MESSAGE_OUT.lock().unwrap_or_else(PoisonError::into_inner) = Some((id, now_ns()));
+    }
+}
+
+/// The host gap that ended at this frame's `Main::OnIdle` (taken after the host's [`Point::Host`], as the hitch log
+/// does): `None` when the points are off, or the gap had no take before it (the first frame). Taken: a second call
+/// in the frame has none.
+pub fn take_host_gap() -> Option<HostGap> {
+    if !points_on() {
+        return None;
+    }
+    HOST_GAP
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()
 }
 
 /// The values of one window: nanoseconds and calls per column.
@@ -498,6 +758,8 @@ pub struct Marks {
     at: [AtomicU64; POINTS],
     /// When each [`TailMark`] was passed this frame, 0 not yet.
     tail: [AtomicU64; TAIL_MARKS],
+    /// When each [`HostMark`] was passed since the frame's `OnIdle`, 0 not yet.
+    host: [AtomicU64; HOST_MARKS],
     /// How deep main is in the frame's draw (`008706b0` calls open now).
     depth: AtomicU64,
 }
@@ -513,6 +775,7 @@ impl Marks {
             calls: [ZERO; COLUMNS],
             at: [ZERO; POINTS],
             tail: [ZERO; TAIL_MARKS],
+            host: [ZERO; HOST_MARKS],
             depth: AtomicU64::new(0),
         }
     }
@@ -537,6 +800,27 @@ impl Marks {
         }
         tail.parts[TAIL_MARKS] = Some(to.saturating_sub(last));
         Some(tail)
+    }
+
+    /// The host's time from its take ([`Point::Host`]) to `now` (the next `OnIdle`), split at the [`HostMark`]s
+    /// passed since the take, in their order (the messages are left empty): `None` without a take this frame.
+    pub fn host_gap(&self, now: u64) -> Option<HostGap> {
+        let from = self.at[Point::Host as usize].load(Relaxed);
+        if from == 0 {
+            return None;
+        }
+        let mut gap = HostGap::default();
+        let mut last = from;
+        for (i, m) in self.host.iter().enumerate() {
+            let at = m.load(Relaxed);
+            // A mark of this gap only (passed after the take).
+            if at >= last && at != 0 {
+                gap.parts[i] = Some(at - last);
+                last = at;
+            }
+        }
+        gap.parts[HOST_MARKS] = Some(now.saturating_sub(last));
+        Some(gap)
     }
 
     /// Adds `ns` and one call to `column`.
@@ -576,7 +860,7 @@ impl Marks {
             }
         }
         if p == Point::Idle {
-            for a in self.at.iter().chain(&self.tail) {
+            for a in self.at.iter().chain(&self.tail).chain(&self.host) {
                 a.store(0, Relaxed);
             }
             self.depth.store(0, Relaxed);
@@ -597,7 +881,7 @@ impl Marks {
     /// No values and no points (a fresh window).
     pub fn clear(&self) {
         let _ = self.take();
-        for a in self.at.iter().chain(&self.tail) {
+        for a in self.at.iter().chain(&self.tail).chain(&self.host) {
             a.store(0, Relaxed);
         }
         self.depth.store(0, Relaxed);
@@ -686,16 +970,23 @@ thread_local! {
 /// Serialises the tests that switch the aid on for their own thread.
 static HERE_LOCK: Mutex<()> = Mutex::new(());
 
-/// The run's marks, the frame tail's drains and its tick forgotten.
+/// The run's marks, the frame tail's drains and its tick, and the host gap forgotten.
 fn clear_all() {
     MARKS.clear();
     forget_tail_work();
+    *HOST_GAP.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    *MESSAGE_OUT.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    *MESSAGES.lock().unwrap_or_else(PoisonError::into_inner) = (0, 0, None);
 }
 
 /// The frame tail's drains and tick forgotten.
 fn forget_tail_work() {
     *DRAINS.lock().unwrap_or_else(PoisonError::into_inner) = [None, None];
     TICK.store(0, Relaxed);
+    *HAVOK_SYNC.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    for a in MAIN_CLOCK.iter().flatten() {
+        a.store(0, Relaxed);
+    }
 }
 
 /// The switch on for the calling thread only, until the guard drops (the engine crates' tests of the marks'
@@ -748,7 +1039,23 @@ fn now_ns() -> u64 {
 #[inline]
 pub fn point(p: Point) {
     if points_on() {
-        MARKS.point(p, now_ns());
+        let now = now_ns();
+        if p == Point::Idle {
+            // The host's time that ends here, split and with its messages, kept for the hitch log ([`take_host_gap`]).
+            let (messages, messages_ns, longest_message) =
+                std::mem::take(&mut *MESSAGES.lock().unwrap_or_else(PoisonError::into_inner));
+            let gap = MARKS.host_gap(now).map(|g| HostGap {
+                messages,
+                messages_ns,
+                longest_message,
+                ..g
+            });
+            *HOST_GAP.lock().unwrap_or_else(PoisonError::into_inner) = gap;
+        }
+        MARKS.point(p, now);
+        if p == Point::WaitOut {
+            main_clock(0);
+        }
         if p == Point::Idle {
             // A frame starts: the last frame's drains and tick are forgotten if nothing took them.
             forget_tail_work();
@@ -1053,6 +1360,9 @@ mod tests {
             [
                 None,
                 None,
+                None,
+                None,
+                None,
                 Some(2_400),
                 None,
                 Some(0),
@@ -1067,7 +1377,7 @@ mod tests {
                 Some(50)
             ]
         );
-        assert_eq!(tail.longest(), Some((11, 8_000)));
+        assert_eq!(tail.longest(), Some((14, 8_000)));
         assert_eq!(tail.tick, Some((37, Some(1_203))));
         let first = tail.drains[DrainQueue::First as usize].expect("the first queue's drain");
         assert_eq!(
@@ -1102,10 +1412,10 @@ mod tests {
         point(Point::Host);
         let t = take_tail().expect("a tail");
         assert_eq!(
-            (t.parts[10], t.parts[11], t.parts[12]),
+            (t.parts[13], t.parts[14], t.parts[15]),
             (Some(300), None, Some(5))
         );
-        assert_eq!(TAIL_PART_NAMES[10], "other steps");
+        assert_eq!(TAIL_PART_NAMES[13], "other steps");
         assert_eq!(t.tick, None);
     }
 
@@ -1151,6 +1461,131 @@ mod tests {
         tail_tick(1, Some(2));
         assert!(DRAINS.lock().unwrap().iter().all(Option::is_none));
         assert_eq!(TICK.load(Relaxed), 0);
+        let mut h = havok_sync();
+        h.actors(1);
+        h.end();
+        assert!(HAVOK_SYNC.lock().unwrap().is_none());
         assert!(take_tail().is_none());
+    }
+
+    /// Tag 0x04's three steps are timed into the frame's tail, two runs added; main's processor share of the tail
+    /// is a thousandth count where the system tells it.
+    #[test]
+    fn the_havok_sync_steps_and_main_s_share_come_with_the_tail() {
+        let _here = on_here();
+        point(Point::Idle);
+        point(Point::WaitOut);
+        for _ in 0..2 {
+            let mut h = havok_sync();
+            advance(100);
+            h.actors(3);
+            advance(5_000);
+            h.nodes(40);
+            advance(10);
+            h.end();
+        }
+        tail_mark(TailMark::IdleEnd);
+        point(Point::Host);
+        let t = take_tail().expect("a tail");
+        assert_eq!(
+            t.havok_sync,
+            Some(HavokSync {
+                actors_ns: 200,
+                actors: 6,
+                nodes_ns: 10_000,
+                nodes: 80,
+                cells_ns: 20,
+                runs: 2,
+            })
+        );
+        if crate::thread_cpu::own_clock().is_some() {
+            assert!(t.main_share.is_some_and(|s| s <= 1000), "{t:?}");
+        } else {
+            assert_eq!(t.main_share, None);
+        }
+        point(Point::Idle);
+        point(Point::WaitOut);
+        point(Point::Host);
+        assert_eq!(take_tail().expect("a tail").havok_sync, None, "per frame");
+    }
+
+    /// The host's time between two frames is split at its marks, with the game's window messages main ran after its
+    /// thread woke (one taken before it does not count); made at `OnIdle`, its parts add up to the stage, and it is
+    /// taken once.
+    #[test]
+    fn the_host_gap_is_split_at_its_marks_with_the_messages() {
+        let _here = on_here();
+        point(Point::Idle);
+        point(Point::Host);
+        message_out(0x1c);
+        advance(7);
+        message_peek();
+        advance(100);
+        host_mark(HostMark::HitchLog);
+        advance(20);
+        host_mark(HostMark::Report);
+        advance(30);
+        host_mark(HostMark::HandOver);
+        advance(40);
+        host_mark(HostMark::MainAwake);
+        advance(5);
+        host_mark(HostMark::MainLocked);
+        message_peek();
+        message_out(0x200);
+        advance(1_000);
+        message_peek();
+        message_out(6);
+        advance(50_000);
+        message_peek();
+        advance(3);
+        point(Point::Idle);
+        let g = take_host_gap().expect("a gap");
+        assert_eq!(
+            g.parts,
+            [
+                Some(107),
+                None,
+                Some(20),
+                Some(30),
+                Some(40),
+                Some(5),
+                Some(51_003)
+            ]
+        );
+        assert_eq!(
+            (g.messages, g.messages_ns, g.longest_message),
+            (2, 51_000, Some((6, 50_000)))
+        );
+        assert_eq!(g.longest(), Some((HOST_MARKS, 51_003)));
+        let gap_us = take()[Column::HostGap as usize].0;
+        assert_eq!(
+            gap_us,
+            g.parts.iter().flatten().sum::<u64>() as f64 / 1000.0
+        );
+        assert_eq!(take_host_gap(), None, "taken once");
+        // A frame with no host take before its `OnIdle` has no gap; marks passed in an earlier gap are forgotten.
+        point(Point::Idle);
+        assert_eq!(take_host_gap(), None);
+        point(Point::Host);
+        advance(10);
+        point(Point::Idle);
+        let g = take_host_gap().expect("a gap");
+        assert_eq!(g.parts, [None, None, None, None, None, None, Some(10)]);
+        assert_eq!((g.messages, g.longest_message), (0, None));
+    }
+
+    /// Off, the host's marks and the messages read no clock and leave nothing.
+    #[test]
+    fn off_the_host_gap_records_nothing() {
+        let _lock = HERE_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        set_on(false);
+        host_mark(HostMark::MainAwake);
+        message_out(6);
+        message_peek();
+        point(Point::Idle);
+        assert_eq!(MARKS.host[HostMark::MainAwake as usize].load(Relaxed), 0);
+        assert!(MESSAGE_OUT.lock().unwrap().is_none());
+        assert_eq!(*MESSAGES.lock().unwrap(), (0, 0, None));
+        assert!(take_host_gap().is_none());
     }
 }
