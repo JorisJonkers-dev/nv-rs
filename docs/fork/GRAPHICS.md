@@ -104,11 +104,13 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | `ambient_exterior` | 0 (no fill: sun, moon and lamps only) to 1 | 1 | live |
 | `ambient_interior` | 0 (no fill: the cell's directional light and lamps only) to 1 | 1 | live |
 
-`modern` takes 0.25 outdoors: sunlit ground at the standard day views comes back to within a few per cent of `original`
-while shade keeps more contrast than the original had. Indoors it takes 0.9: interiors were not too bright, ambient
-occlusion already darkens them. A lighting mod that lowers the weathers' ambient colours itself leaves less fill to
-take away, so the share lowers the picture less there (measured on a 312-mod profile with such mods: the same share
-moves sunlit ground by less than on the plain game), and the two do not stack into a much darker picture.
+`modern` takes 0.25 outdoors: the mean of sunlit ground over the standard day views comes back to within 5% of
+`original` (1.02 on the plain game, 1.04 over 22 views of a 312-mod profile). Single views still differ, from 0.54 to
+1.37 on that profile, because the light now comes from another direction. Shade is darker than the original's (0.64 and
+0.74), and nights are darker too: the fill is most of the light there. Indoors it takes 0.9: interiors were not too
+bright, ambient occlusion already darkens them. A lighting mod that lowers the weathers' ambient colours leaves less
+fill to take away: at a share of 0.5, the same five day views keep 1.31 of the original's sunlit light on a profile with
+such mods and 1.24 on the plain game.
 
 The picture case: draw the standard day views (`docs/fork/scenes/mojave-far.toml`) with `--variant original --variant
 modern --variant-env modern:NV_GFX_PRESET=modern` in one run, then
