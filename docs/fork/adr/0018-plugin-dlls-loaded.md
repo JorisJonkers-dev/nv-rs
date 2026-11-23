@@ -104,7 +104,7 @@ A faster route (translating plugin x86 to host code ahead of time or at load) is
 
 **What the host does with a DLL: the owner's rules (2026-11-22).**
 1. The plugin host stays opt-in (off by default). raul shows one verdict per plugin: loads, serves commands, built into the engine, not needed here, not working. 0.7.0 ships when the plugins the owner's own scripts call commands from are served correctly.
-2. Built-in always wins: a DLL for an extender the engine has natively (xNVSE, JIP LN, JohnnyGuitar, ShowOff, ttw_nvse, and the other built-ins of `fork_plugins::BUILT_IN`) is not loaded; the verdict is "built in". Missing commands of a built-in are built natively. The host loads only plugins with no native build.
+2. Built-in always wins: a DLL for an extender the engine has natively (xNVSE, JIP LN, JohnnyGuitar, ShowOff, ttw_nvse, and the other `Class::BuiltIn` rows of `plugin_host::verdicts::CURATED`) is not loaded; the verdict is "built in". Missing commands of a built-in are built natively. The host loads only plugins with no native build.
 3. A plugin that works by patching the original program's machine code (stability fixes, tweaks) cannot take effect in a native engine. Each is marked "engine already has the fix", "not needed here" or "feature missing"; only features the owner's mods use are rebuilt natively, each as its own ticket.
 4. The data comes from the engine (`plugin_host::verdicts`, written beside the log as `mod-support.json`); raul shows it on the Doctor page and through `raul plugins check`.
 

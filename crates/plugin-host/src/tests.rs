@@ -776,7 +776,7 @@ mod verdict_tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), verdicts::CURATED.len());
-        // The engine's own built-ins (fork_plugins::BUILT_IN) are all "built in" here.
+        // The engine's own built-ins (the Class::BuiltIn rows of CURATED) are all "built in" here.
         for f in [
             "jip_nvse.dll",
             "johnnyguitar.dll",

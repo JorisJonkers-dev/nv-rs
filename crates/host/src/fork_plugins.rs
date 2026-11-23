@@ -5,6 +5,7 @@
 //! is not loaded; a DLL for which nothing is built in is.
 
 use engine_core::prelude::*;
+use plugin_host::verdicts::{Class, CURATED};
 
 pub const ENV: &str = "NV_PLUGIN_DLLS";
 /// A folder of the user's own copies of the Microsoft C++ runtime DLLs the plugins import
@@ -18,20 +19,13 @@ pub const CODE_ENV: &str = "NV_PLUGIN_CODE";
 pub const VERDICTS_ENV: &str = "NV_PLUGIN_VERDICTS";
 const FOLDER: &[u8] = b"Data\\NVSE\\Plugins";
 
-/// DLLs whose plugin the engine has built in: not loaded (the built-in answers), by file name
-/// without case. The profile's own copies of xNVSE's plugins are in it.
-pub const BUILT_IN: &[&str] = &[
-    "jip_nvse.dll",
-    "johnnyguitar.dll",
-    "showoffnvse.dll",
-    "nvse_stewie_tweaks.dll",
-    "ttw_nvse.dll",
-    "mcm.dll",
-    "ui_organizer.dll",
-];
-
+/// Whether the DLL is one the engine answers natively: the curated verdicts are the one source
+/// of truth, so a plugin marked `Class::BuiltIn` can never be loaded as well. By file name without
+/// case; the curated names are lower case.
 pub fn built_in(file: &str) -> bool {
-    BUILT_IN.contains(&file.to_ascii_lowercase().as_str())
+    CURATED
+        .iter()
+        .any(|(name, class, ..)| *class == Class::BuiltIn && file.eq_ignore_ascii_case(*name))
 }
 
 /// The folder's DLL names, by file name without case.
@@ -167,6 +161,18 @@ mod tests {
         assert!(built_in("JIP_NVSE.dll"));
         assert!(built_in("MCM.dll"));
         assert!(!built_in("kNVSE.dll"));
+    }
+
+    #[test]
+    fn every_built_in_verdict_is_skipped_and_no_other_is() {
+        for (name, class, ..) in CURATED {
+            if *class == Class::BuiltIn {
+                assert!(built_in(name), "{name} is built in but would be loaded");
+            } else {
+                assert!(!built_in(name), "{name} is not built in but would be skipped");
+            }
+        }
+        assert!(built_in("JIP_NVSE.dll"), "matching stays without case");
     }
 
     #[test]
