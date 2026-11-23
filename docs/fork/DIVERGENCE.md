@@ -30,6 +30,14 @@ A new upstream-owned file needs a record in this file, in the same pull request,
 
 The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
 
+### The in-game graphics overlay
+- Files: `Cargo.toml` (workspace member `fork-overlay`), `crates/d3d9-wgpu/Cargo.toml` (`fork-overlay`; `fork-gfx` for the tests), `crates/d3d9-wgpu/src/lib.rs` (`pub mod gfx_overlay;`, a fork-only file), `crates/d3d9-wgpu/src/bitmap_font.rs` (`ascii()`)
+- Upstream approach: upstream has no settings overlay; its only overlay is the F11 frame-rate counter drawn with the bitmap font at the present (`frame_rate.rs`); checked at the base
+- Fork approach: the graphics overlay (ADR-0019 as amended for nv-rs#730) is an egui panel from the graphics modules' schemas, drawn by egui-wgpu at the same point as the counter; its font is made from the counter's glyphs, which `bitmap_font::ascii()` hands over
+- Decision: keep; offer nothing (the overlay edits fork-only settings)
+- Reason: the maintainer's graphics modules (nv-rs#591, nv-rs#592) need an overlay that switches and tunes them in the game
+- Evidence: `the_panel_is_drawn_over_the_frame_in_its_own_rectangle` (`crates/d3d9-wgpu/tests/gfx_overlay.rs`), `text_is_laid_out_in_whole_cells`; the spike's numbers in ADR-0019
+
 ### Graphics settings for the port's own effects
 - Files: `crates/d3d9-wgpu/src/scene_light.rs` (`Quality`, `set_quality`, `shader_at`, `set_live_strength`), `crates/d3d9-wgpu/src/sun_shadow.rs` (`MAP_SIZE`, `set_map_size`, `map_size`), `crates/d3d9-wgpu/src/device.rs` (the step takes the live strength and is made again at another quality), `crates/host/src/lib.rs` (`fork_graphics::start` before the rows are installed), `crates/host/Cargo.toml` (`fork-gfx`)
 - Upstream approach: upstream switches ambient occlusion and sun shadows once at start (`bAmbientOcclusion`, `fAmbientOcclusionStrength`, `bSunShadows`) and fixes their quality by constants (`SLICES`, `STEPS`, `SIZE`); checked in the files above at the base

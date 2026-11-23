@@ -114,6 +114,12 @@ static BOX: [u8; 7] = [
     0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11111,
 ];
 
+/// The glyphs of printable ASCII, in order: the graphics overlay's font is made from them
+/// (`crate::gfx_overlay`).
+pub(crate) fn ascii() -> &'static [[u8; 7]; 95] {
+    &ASCII
+}
+
 /// `c`'s glyph (a tab as a space; the box for anything outside printable ASCII).
 fn glyph(c: char) -> &'static [u8; 7] {
     let c = if c == '\t' { ' ' } else { c };
