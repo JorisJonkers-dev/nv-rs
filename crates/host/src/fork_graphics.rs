@@ -117,23 +117,39 @@ pub struct Levels {
     pub ambient: AmbientShares,
 }
 
-/// The light balance's shares as `f32` bits (1.0 each: the original), read by the sky's sun light
-/// once a frame ([`ambient_shares`]) and set at start and by the overlay ([`set_ambient_shares`]).
-static AMBIENT_EXTERIOR: AtomicU32 = AtomicU32::new(0x3f80_0000);
-static AMBIENT_INTERIOR: AtomicU32 = AtomicU32::new(0x3f80_0000);
+/// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
+/// frame ([`ambient_shares`]) and set at start and by the overlay ([`set_ambient_shares`]).
+static AMBIENT: [AtomicU32; 6] = {
+    const ONE: AtomicU32 = AtomicU32::new(0x3f80_0000);
+    [ONE, ONE, ONE, ONE, ONE, AtomicU32::new(0)]
+};
 
 /// The shares the sun light takes now (`engine::sky_sun::want_ambient_share`).
 pub fn ambient_shares() -> AmbientShares {
+    let at = |i: usize| f32::from_bits(AMBIENT[i].load(Ordering::Relaxed));
     AmbientShares {
-        exterior: f32::from_bits(AMBIENT_EXTERIOR.load(Ordering::Relaxed)),
-        interior: f32::from_bits(AMBIENT_INTERIOR.load(Ordering::Relaxed)),
+        exterior: at(0),
+        interior: at(1),
+        night: at(2),
+        sun: at(3),
+        moon: at(4),
+        dome: at(5),
     }
 }
 
 /// Sets the shares the sun light takes from the next frame on.
-pub fn set_ambient_shares(shares: AmbientShares) {
-    AMBIENT_EXTERIOR.store(shares.exterior.to_bits(), Ordering::Relaxed);
-    AMBIENT_INTERIOR.store(shares.interior.to_bits(), Ordering::Relaxed);
+pub fn set_ambient_shares(s: AmbientShares) {
+    for (slot, v) in AMBIENT
+        .iter()
+        .zip([s.exterior, s.interior, s.night, s.sun, s.moon, s.dome])
+    {
+        slot.store(v.to_bits(), Ordering::Relaxed);
+    }
+}
+
+/// The sky light's colours, handed to the renderer's lookup.
+pub fn sky_fill(f: engine::sky_sun::SkyFill) {
+    d3d9_wgpu::sun_shadow::set_sky_fill(f.top, f.ground, f.dome);
 }
 
 /// The run's choice with the modules' values over it, and the levels. A value whose source is the
@@ -177,6 +193,10 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
     let ambient = AmbientShares {
         exterior: light.slider("ambient_exterior") as f32,
         interior: light.slider("ambient_interior") as f32,
+        night: light.slider("ambient_night") as f32,
+        sun: light.slider("sun") as f32,
+        moon: light.slider("moon") as f32,
+        dome: light.slider("sky_dome") as f32,
     };
     (
         choice,
@@ -437,7 +457,8 @@ mod tests {
             l.ambient,
             AmbientShares {
                 exterior: 0.35,
-                interior: 0.9
+                interior: 0.9,
+                ..AmbientShares::ORIGINAL
             }
         );
     }
