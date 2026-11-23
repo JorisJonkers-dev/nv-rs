@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! DDS files in A8B8G8R8 and X8B8G8R8 (nv-rs#823): D3DX reads them and, on a device that does not
-//! take them, makes A8R8G8B8 and X8R8G8B8 textures with the same channel values. The texture must
-//! equal the one made from the same pixels stored in the device's format.
+//! take them, makes A8R8G8B8 and X8R8G8B8 textures with the same channel values; a device that
+//! takes them keeps them. Either way the texture must hold the colours of the same pixels stored
+//! in A8R8G8B8 or X8R8G8B8, on every level.
 
 use d3dx_tex::{create_cube_texture_from_file_in_memory, create_texture_from_file_in_memory};
 use d3dx_tex::{Caps, Precision, Texture};
 
 const A8R8G8B8: u32 = 21;
 const X8R8G8B8: u32 = 22;
+const A8B8G8R8: u32 = 32;
+const X8B8G8R8: u32 = 33;
 const ARGB_MASKS: [u32; 4] = [0xff_0000, 0xff00, 0xff, 0xff00_0000];
 const ABGR_MASKS: [u32; 4] = [0xff, 0xff00, 0xff_0000, 0xff00_0000];
 const XRGB_MASKS: [u32; 4] = [0xff_0000, 0xff00, 0xff, 0];
@@ -120,5 +123,75 @@ fn every_channel_value_survives_every_dither_threshold() {
     for p in PRECISIONS {
         let got = texture(&file, 1, p);
         assert_eq!(got.surfaces[0].bytes, stored(&c, argb));
+    }
+}
+
+/// The caps of a device that takes the two formats, as the adapter tables of some cards do.
+fn caps_taking_them() -> Caps {
+    let mut caps = Caps::default();
+    for f in [A8B8G8R8, X8B8G8R8] {
+        caps.texture_formats.push(f);
+        caps.cube_formats.push(f);
+    }
+    caps
+}
+
+fn made(file: &[u8], faces: u32, caps: &Caps, p: Precision) -> Texture {
+    if faces == 6 {
+        create_cube_texture_from_file_in_memory(file, caps, p)
+    } else {
+        create_texture_from_file_in_memory(file, caps, p)
+    }
+    .expect("the file makes a texture")
+}
+
+/// `t`'s surfaces with red and blue changed over, in format `f`.
+fn swapped(t: &Texture, f: u32) -> Texture {
+    let mut t = t.clone();
+    for s in &mut t.surfaces {
+        s.format = f;
+        for p in s.bytes.chunks_exact_mut(4) {
+            p.swap(0, 2);
+        }
+    }
+    t
+}
+
+#[test]
+fn a_device_that_takes_a8b8g8r8_keeps_it_with_the_same_colours() {
+    let caps = caps_taking_them();
+    for (w, h, faces) in [(256, 8, 1), (6, 10, 1), (1, 16, 1), (8, 8, 6)] {
+        let c = colours(w, h, faces);
+        let from_abgr = dds(w, h, faces, 0x41, ABGR_MASKS, &stored(&c, abgr));
+        let from_argb = dds(w, h, faces, 0x41, ARGB_MASKS, &stored(&c, argb));
+        for p in PRECISIONS {
+            let want = swapped(&made(&from_argb, faces, &caps, p), A8B8G8R8);
+            assert_eq!(
+                made(&from_abgr, faces, &caps, p),
+                want,
+                "{w}x{h}, {faces} faces"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_device_that_takes_x8b8g8r8_keeps_it_with_the_same_colours() {
+    let caps = caps_taking_them();
+    for (w, h, faces) in [(256, 8, 1), (6, 10, 1), (1, 16, 1), (8, 8, 6)] {
+        let c: Vec<[u8; 4]> = colours(w, h, faces)
+            .into_iter()
+            .map(|[r, g, b, _]| [r, g, b, 0])
+            .collect();
+        let from_xbgr = dds(w, h, faces, 0x40, XBGR_MASKS, &stored(&c, abgr));
+        let from_xrgb = dds(w, h, faces, 0x40, XRGB_MASKS, &stored(&c, argb));
+        for p in PRECISIONS {
+            let want = swapped(&made(&from_xrgb, faces, &caps, p), X8B8G8R8);
+            assert_eq!(
+                made(&from_xbgr, faces, &caps, p),
+                want,
+                "{w}x{h}, {faces} faces"
+            );
+        }
     }
 }
