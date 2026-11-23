@@ -1,0 +1,1 @@
+crates/engine-core/src/real_threads.rs  # the two holder tests (main_s_long_wait_*) ask for a tenth of the wait as the holder thread's processor time, not a half: upstream's half fails on a loaded two-core runner (the coverage build); the holder is still named and must have worked

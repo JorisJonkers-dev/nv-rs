@@ -135,3 +135,11 @@ slaterain/nv-rs#718) and relative names found without case (slaterain/nv-rs#697)
 arms of the start's refusal, the fork's off-Windows search and short-name arms, `files/files_host.rs`, and the hand-written
 sound tables of `fork_tables.rs`. Kept: the window layer, the adapter table, the Windows two-letter rule, the mods' files
 folder beside the native saves. New records: "Machine table off Windows", `game_ini.rs`.
+
+### Holder tests ask for a tenth of the wait as processor time
+- Files: `crates/engine-core/src/real_threads.rs` (the tests `main_s_long_wait_for_the_kernel_lock_names_the_holder` and `main_s_long_wait_for_a_section_names_its_owner`)
+- Upstream approach: the tests assert that the named holder thread used at least half of main's wait as processor time
+- Fork approach: the same tests, with a tenth; the holder is still named (call, thread, start, wait) and must have worked, a holder that sleeps or blocks has none
+- Decision: keep; drop when upstream's tests no longer depend on the machine's load
+- Reason: upstream's half fails on a loaded two-core machine (the coverage job, `taskset -c 0,1`: 78 ms of 252 ms), whatever the code does
+- Evidence: the two tests, run on two cores (failed before, pass after) and on all cores

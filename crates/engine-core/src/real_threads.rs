@@ -4612,8 +4612,10 @@ mod tests {
         assert!(held.measured_ns <= held.wait_ns, "{held:?}");
         if cfg!(any(windows, target_os = "linux")) {
             let cpu = held.cpu_ns.expect("the holder's processor time");
+            // Fork: a tenth, not a half. A holder that works uses processor time all the wait, one that sleeps
+            // or blocks uses none; on a loaded two-core runner a working thread still gets under a third.
             assert!(
-                cpu * 2 >= held.measured_ns,
+                cpu * 10 >= held.measured_ns,
                 "working, not off the processor: {held:?}"
             );
         }
@@ -4730,7 +4732,8 @@ mod tests {
         assert!(owned.wait_ns >= 100_000_000, "{owned:?}");
         if cfg!(any(windows, target_os = "linux")) {
             let cpu = owned.cpu_ns.expect("the owner's processor time");
-            assert!(cpu * 2 >= owned.wait_ns, "working: {owned:?}");
+            // Fork: a tenth, not a half (see the holder test above).
+            assert!(cpu * 10 >= owned.wait_ns, "working: {owned:?}");
         }
         assert_eq!(
             e.call(slot("WaitForSingleObject"), &args![h, STRESS_TIMEOUT_MS])
