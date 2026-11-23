@@ -212,9 +212,10 @@ pub struct LightRequest {
     pub b: PathBuf,
     /// The mean sunlit ratio passes when it is within this many percent of 1.
     pub within_pct: Option<f64>,
-    /// The readability floor (nv-rs#772): a picture fails when B has this many percentage points
-    /// more near-black pixels than A.
-    pub max_black_gain: Option<f64>,
+    /// The detail guard (nv-rs#772): a picture fails when B has more than this many percentage
+    /// points more blocks that show no visible detail than A ([`crate::diff::no_detail_pct`]). A
+    /// dark picture passes as long as shapes and texture can still be seen.
+    pub max_lost_detail: Option<f64>,
 }
 
 /// One picture's ratios B / A.
@@ -224,9 +225,9 @@ pub struct LightRow {
     pub sunlit: f64,
     pub shade: f64,
     pub band: f64,
-    /// Near-black pixels of the whole picture, percent, in A and in B.
-    pub black: (f64, f64),
-    /// False when the gain in near-black pixels is above the request's limit.
+    /// Blocks without visible detail, percent, in A and in B.
+    pub no_detail: (f64, f64),
+    /// False when the gain in such blocks is above the request's limit.
     pub readable: bool,
 }
 
@@ -248,14 +249,14 @@ impl LightResult {
             .iter()
             .map(|r| {
                 format!(
-                    "{}: sunlit {:.3}, shade {:.3}, ground {:.3}, near black {:.1}% -> {:.1}%{}",
+                    "{}: sunlit {:.3}, shade {:.3}, ground {:.3}, no detail {:.1}% -> {:.1}%{}",
                     r.name,
                     r.sunlit,
                     r.shade,
                     r.band,
-                    r.black.0,
-                    r.black.1,
-                    if r.readable { "" } else { " TOO DARK" }
+                    r.no_detail.0,
+                    r.no_detail.1,
+                    if r.readable { "" } else { " DETAIL LOST" }
                 )
             })
             .collect();
@@ -288,19 +289,19 @@ pub fn light(req: &LightRequest) -> Result<LightResult, String> {
         }
         let (pic_a, pic_b) = (load(&pa)?, load(&pb)?);
         let (la, lb) = (crate::diff::light(&pic_a)?, crate::diff::light(&pic_b)?);
-        let black = (
-            crate::diff::near_black_pct(&pic_a),
-            crate::diff::near_black_pct(&pic_b),
+        let no_detail = (
+            crate::diff::no_detail_pct(&pic_a),
+            crate::diff::no_detail_pct(&pic_b),
         );
         rows.push(LightRow {
             name,
             sunlit: ratio(lb.sunlit, la.sunlit),
             shade: ratio(lb.shade, la.shade),
             band: ratio(lb.band, la.band),
-            black,
+            no_detail,
             readable: req
-                .max_black_gain
-                .is_none_or(|gain| black.1 - black.0 <= gain),
+                .max_lost_detail
+                .is_none_or(|gain| no_detail.1 - no_detail.0 <= gain),
         });
     }
     if rows.is_empty() {
