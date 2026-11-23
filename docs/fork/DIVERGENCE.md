@@ -167,3 +167,11 @@ folder beside the native saves. New records: "Machine table off Windows", `game_
 - Decision: keep; drop when upstream's tests no longer depend on the machine's load
 - Reason: upstream's half fails on a loaded two-core machine (the coverage job, `taskset -c 0,1`: 78 ms of 252 ms), whatever the code does
 - Evidence: the two tests, run on two cores (failed before, pass after) and on all cores
+
+### Typed family summary in the engine crate doc
+- Files: `docs/ENGINE_CRATE.md` (the "Typed code" paragraph's "by default" enumeration)
+- Upstream approach: the summary names 22 typed families on by default; it omits five that the code registers and turns on by default; checked against the code in this worktree
+- Fork approach: the enumeration also names `scripts`, `hud`, `script_lines`, `facegen` and `save`, on after their tests and reviews, with no gate dates or measurements added
+- Decision: keep; drop this record when upstream's summary includes the five families
+- Reason: the summary must match the typed families the code registers and has on by default
+- Evidence: `crates/engine-typed/src/lib.rs` registers `scripts`, `hud`, `script_lines`, `facegen` and `save` and has them on by default (past their gate, on with no `NV_TYPED` switch)
