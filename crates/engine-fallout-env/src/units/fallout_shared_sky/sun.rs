@@ -678,8 +678,17 @@ fn set_light_colors(e: &mut Engine, base: u32, sky: u32, day: f32) {
         let colour = |e: &Engine, at: u32| -> [f32; 3] {
             std::array::from_fn(|i| e.mem.f32(sky + at + 4 * i as u32))
         };
-        let fill = if dome > 0.0 {
-            sky_light::fill(colour(e, SKY_UPPER), colour(e, 0x6c), dome)
+        let fill = if let (true, Some(s), Some(m)) = (dome > 0.0, shares, mode) {
+            SkyFill {
+                ambient_over_direct: sky_light::ambient_over_direct(
+                    colour(e, 0x60),
+                    s.ambient(m, day),
+                    colour(e, 0x6c),
+                    s.direct(m, day),
+                ),
+                shade: s.usable_shade(),
+                ..sky_light::fill(colour(e, SKY_UPPER), colour(e, 0x6c), dome, day)
+            }
         } else {
             SkyFill::FLAT
         };
@@ -717,6 +726,8 @@ pub struct AmbientShares {
     pub moon: f32,
     /// How much of the fill follows the sky dome (0: flat, 1: all of it).
     pub dome: f32,
+    /// How much more of the sky's light reaches a surface the direct light does not (0 to 2).
+    pub shade: f32,
 }
 
 /// The sky light's colours for the renderer, as multipliers of the ambient colour.
@@ -728,6 +739,12 @@ pub struct SkyFill {
     pub ground: [f32; 3],
     /// How much of the dome is used.
     pub dome: f32,
+    /// The ambient light's luminance over the direct light's, after their shares (0: not known).
+    /// Ambient occlusion takes only the ambient part of a pixel's light by this ratio.
+    pub ambient_over_direct: f32,
+    /// How much more sky light a surface takes where the direct light does not reach it (0: the
+    /// same everywhere). A sunlit surface is not changed by it.
+    pub shade: f32,
 }
 
 impl SkyFill {
@@ -736,6 +753,8 @@ impl SkyFill {
         top: [1.0; 3],
         ground: [1.0; 3],
         dome: 0.0,
+        ambient_over_direct: 0.0,
+        shade: 0.0,
     };
 }
 
@@ -748,6 +767,7 @@ impl AmbientShares {
         sun: 1.0,
         moon: 1.0,
         dome: 0.0,
+        shade: 0.0,
     };
 
     fn is_original(self) -> bool {
@@ -759,6 +779,14 @@ impl AmbientShares {
             share
         } else {
             1.0
+        }
+    }
+
+    fn usable_shade(self) -> f32 {
+        if self.shade.is_finite() {
+            self.shade.clamp(0.0, 2.0)
+        } else {
+            0.0
         }
     }
 
@@ -1300,28 +1328,57 @@ pub mod sky_light {
 
     /// How much brighter than the flat ambient a face straight up is, and a face straight down:
     /// a wall (half sky, half ground) keeps the flat value.
-    pub const DOME_TOP: f32 = 1.25;
-    pub const DOME_GROUND: f32 = 0.75;
+    pub const DOME_TOP: f32 = 1.1;
+    pub const DOME_GROUND: f32 = 0.9;
+    /// How far a face toward the sky takes the sky's hue by day: the weather's ambient colour is
+    /// already tinted by it, so more turns the ground blue. None at night, where it turns it violet.
+    pub const SKY_TINT: f32 = 0.1;
+    /// How far a face toward the ground takes the sun's hue by day (the sunlit ground's warm
+    /// bounce). None at night: the moon's colour is in the ambient already.
+    pub const BOUNCE_TINT: f32 = 0.6;
 
-    /// A colour's hue at luminance 1, half way to white (a sky colour lends its tint, not its
-    /// strength: the weather's ambient colour says how strong the fill is). A black colour is white.
-    fn tint(c: [f32; 3]) -> [f32; 3] {
+    /// A colour's hue at luminance 1, `amount` of the way from white (a sky colour lends its tint,
+    /// not its strength: the weather's ambient colour says how strong the fill is). A black colour
+    /// is white.
+    fn tint(c: [f32; 3], amount: f32) -> [f32; 3] {
         let luma = |c: [f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
         let l = luma(c);
         if !l.is_finite() || l < 1e-4 {
             return [1.0; 3];
         }
-        let half = c.map(|v| 0.5 + 0.5 * (v / l).clamp(0.0, 3.0));
-        let l = luma(half);
-        half.map(|v| v / l)
+        let mixed = c.map(|v| 1.0 - amount + amount * (v / l).clamp(0.0, 3.0));
+        let l = luma(mixed);
+        mixed.map(|v| v / l)
     }
 
-    /// The sky light from the sky's upper colour and the sun's colour (the ground is lit by it).
-    pub fn fill(sky: [f32; 3], sun: [f32; 3], dome: f32) -> SkyFill {
+    /// The sky light from the sky's upper colour and the sun's colour (the ground is lit by it), at
+    /// `day` (1 by day, 0 at night).
+    pub fn fill(sky: [f32; 3], sun: [f32; 3], dome: f32, day: f32) -> SkyFill {
+        let day = if day.is_nan() { 1.0 } else { day.clamp(0.0, 1.0) };
         SkyFill {
-            top: tint(sky).map(|v| v * DOME_TOP),
-            ground: tint(sun).map(|v| v * DOME_GROUND),
+            top: tint(sky, SKY_TINT * day).map(|v| v * DOME_TOP),
+            ground: tint(sun, BOUNCE_TINT * day).map(|v| v * DOME_GROUND),
             dome,
+            ambient_over_direct: 0.0,
+            shade: 0.0,
+        }
+    }
+
+    /// The ambient light's luminance over the direct light's, each colour at its share; 0 when
+    /// there is no direct light or a value is not a number.
+    pub fn ambient_over_direct(
+        ambient: [f32; 3],
+        ambient_share: f32,
+        direct: [f32; 3],
+        direct_share: f32,
+    ) -> f32 {
+        let luma = |c: [f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let d = luma(direct) * direct_share;
+        let r = luma(ambient) * ambient_share / d;
+        if d > 1e-4 && r.is_finite() && r > 0.0 {
+            r
+        } else {
+            0.0
         }
     }
 
@@ -2264,13 +2321,29 @@ mod tests {
     #[test]
     fn the_sky_light_is_brighter_from_above_and_keeps_a_wall_at_the_flat_value() {
         let luma = |c: [f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-        let f = sky_light::fill([0.3, 0.45, 0.8], [1.0, 0.85, 0.6], 1.0);
+        let f = sky_light::fill([0.3, 0.45, 0.8], [1.0, 0.85, 0.6], 1.0, 1.0);
         assert!((luma(f.top) - sky_light::DOME_TOP).abs() < 1e-5);
         assert!((luma(f.ground) - sky_light::DOME_GROUND).abs() < 1e-5);
         assert!(f.top[2] > f.top[0], "the blue sky tints what faces it");
         assert!(f.ground[0] > f.ground[2], "the sunlit ground bounces warm");
-        let black = sky_light::fill([0.0; 3], [0.0; 3], 1.0);
+        assert!(
+            (sky_light::ambient_over_direct([0.5; 3], 0.5, [1.0; 3], 0.5) - 0.5).abs() < 1e-5
+        );
+        assert_eq!(sky_light::ambient_over_direct([0.5; 3], 1.0, [0.0; 3], 1.0), 0.0);
+        assert_eq!(sky_light::ambient_over_direct([f32::NAN; 3], 1.0, [1.0; 3], 1.0), 0.0);
+        let black = sky_light::fill([0.0; 3], [0.0; 3], 1.0, 1.0);
         assert_eq!(black.top, [sky_light::DOME_TOP; 3]);
+        // nv-rs#772: a blue night sky must not turn the ground violet.
+        let night = sky_light::fill([0.05, 0.08, 0.3], [0.2, 0.25, 0.6], 1.0, 0.0);
+        for (got, want) in [
+            (night.top, sky_light::DOME_TOP),
+            (night.ground, sky_light::DOME_GROUND),
+        ] {
+            assert!(
+                got.iter().all(|v| (v - want).abs() < 1e-5),
+                "no hue of its own at night: {got:?}"
+            );
+        }
     }
 
     #[test]

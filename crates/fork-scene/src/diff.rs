@@ -175,6 +175,22 @@ fn linear(v: u8) -> f64 {
     }
 }
 
+/// The 8-bit value below which a pixel counts as near black: its texture and colour cannot be read.
+pub const NEAR_BLACK: u8 = 24;
+
+/// The percentage of a picture's pixels that are near black (every channel below [`NEAR_BLACK`]).
+pub fn near_black_pct(p: &Picture) -> f64 {
+    let n = p.2.len() / 3;
+    if n == 0 {
+        return 0.0;
+    }
+    let dark =
+        p.2.chunks_exact(3)
+            .filter(|px| px.iter().all(|&v| v < NEAR_BLACK))
+            .count();
+    100.0 * dark as f64 / n as f64
+}
+
 /// [`Light`] of a picture. A picture without a pixel in its band is an `Err`.
 pub fn light(p: &Picture) -> Result<Light, String> {
     let (w, h, rgb) = (p.0 as usize, p.1 as usize, &p.2);
@@ -269,5 +285,12 @@ mod tests {
         let a = light(&(1, 2, vec![255, 255, 255, 50, 50, 50])).unwrap();
         let b = light(&(1, 2, vec![255, 255, 255, 100, 100, 100])).unwrap();
         assert!(b.band / a.band > 3.0);
+    }
+
+    #[test]
+    fn near_black_counts_pixels_with_every_channel_dark() {
+        let px = vec![0, 0, 0, 23, 23, 23, 24, 0, 0, 200, 200, 200];
+        assert_eq!(near_black_pct(&(4, 1, px)), 50.0);
+        assert_eq!(near_black_pct(&(0, 0, vec![])), 0.0);
     }
 }

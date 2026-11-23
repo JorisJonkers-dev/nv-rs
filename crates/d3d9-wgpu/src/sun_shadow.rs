@@ -2120,24 +2120,39 @@ pub fn thin_quads(
 
 /// The sky light's words as `f32` bits (nv-rs#772): the dome's top colour, how much of the dome is
 /// used (0: the game's flat ambient, exactly), the ground's colour. Each colour multiplies the game's
-/// ambient colour at the pixel; 1 is the flat value the shaders without this variant draw.
-static SKY_FILL: [AtomicU32; 7] = {
+/// ambient colour at the pixel; 1 is the flat value the shaders without this variant draw. The last
+/// word is the ambient light over the direct light (`scene_light`'s occlusion, 0: not known).
+static SKY_FILL: [AtomicU32; 9] = {
     const ONE: AtomicU32 = AtomicU32::new(0x3f80_0000);
     const ZERO: AtomicU32 = AtomicU32::new(0);
-    [ONE, ONE, ONE, ZERO, ONE, ONE, ONE]
+    [ONE, ONE, ONE, ZERO, ONE, ONE, ONE, ZERO, ZERO]
 };
 
 /// Sets the sky light from the next frame's lookup on.
-pub fn set_sky_fill(top: [f32; 3], ground: [f32; 3], dome: f32) {
+pub fn set_sky_fill(
+    top: [f32; 3],
+    ground: [f32; 3],
+    dome: f32,
+    ambient_over_direct: f32,
+    shade: f32,
+) {
     let v = [
-        top[0], top[1], top[2], dome, ground[0], ground[1], ground[2],
+        top[0],
+        top[1],
+        top[2],
+        dome,
+        ground[0],
+        ground[1],
+        ground[2],
+        ambient_over_direct,
+        shade,
     ];
     for (slot, value) in SKY_FILL.iter().zip(v) {
         slot.store(value.to_bits(), Ordering::Relaxed);
     }
 }
 
-fn sky_fill() -> [f32; 7] {
+fn sky_fill() -> [f32; 9] {
     std::array::from_fn(|i| f32::from_bits(SKY_FILL[i].load(Ordering::Relaxed)))
 }
 
@@ -2238,8 +2253,8 @@ pub fn lookup_uniforms(
         axes[2][2] as f32,
         fill[3],
     ]);
-    f.extend([fill[0], fill[1], fill[2], 0.0]);
-    f.extend([fill[4], fill[5], fill[6], 0.0]);
+    f.extend([fill[0], fill[1], fill[2], fill[7]]);
+    f.extend([fill[4], fill[5], fill[6], fill[8]]);
     debug_assert_eq!(f.len() * 4, LOOKUP_SIZE as usize);
     f.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
@@ -2555,7 +2570,13 @@ fn sun_visibility(frag: vec4<f32>) -> f32 {
     // bounce; the shadow does not touch it (only the sun's colour is shadowed).
     let up = 0.5 + 0.5 * dot(n, SL.sky_up.xyz);
     sky_fill = mix(vec3<f32>(1.0), mix(SL.sky_ground.xyz, SL.sky_top.xyz, up), SL.sky_up.w);
-    return sl_visibility(p, n);
+    let lit = sl_visibility(p, n);
+    // More of the sky's light where the direct light does not reach (`set_sky_fill`'s `shade`).
+    if (SL.sun.w > 0.0) {
+        // In the bounce's colour: a lift in the ambient's own would turn the shade blue.
+        sky_fill *= vec3<f32>(1.0) + SL.sky_ground.xyz * SL.sky_ground.w * (1.0 - saturate(dot(n, SL.sun.xyz)) * lit);
+    }
+    return lit;
 }
 ";
 
@@ -2582,7 +2603,11 @@ fn sun_visibility_clip(o: vec4<f32>) -> f32 {
     let ndc = o.xy / o.w;
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     let p = vec3<f32>(mix(SL.frustum.x, SL.frustum.y, uv.x) * o.w, mix(SL.frustum.w, SL.frustum.z, uv.y) * o.w, o.w);
-    return sl_visibility(p, SL.sun.xyz);
+    let lit = sl_visibility(p, SL.sun.xyz);
+    if (SL.sun.w > 0.0) {
+        sky_fill *= vec3<f32>(1.0) + SL.sky_ground.xyz * SL.sky_ground.w * (1.0 - lit);
+    }
+    return lit;
 }
 ";
 

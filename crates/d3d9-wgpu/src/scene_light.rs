@@ -357,6 +357,15 @@ impl Params {
 
 // The shaders' arithmetic, kept here for the tests (the WGSL below says the same).
 
+/// What the scene's colour is multiplied by when the occlusion `ao` takes only the ambient part of
+/// a pixel's light: `ambient` and `direct` in the same unit (`APPLY_SUN`).
+pub fn ambient_only(ao: f32, ambient: f32, direct: f32) -> f32 {
+    if ambient <= 0.0 {
+        return ao;
+    }
+    (ambient * ao + direct) / (ambient + direct)
+}
+
 /// A depth value (0 near, 1 far: Direct3D's projection) as distance along the view axis.
 pub fn linear_depth(d: f32, near: f32, far: f32) -> f32 {
     near * far / (far - d * (far - near))
@@ -566,6 +575,48 @@ const HALF_PI: f32 = 1.57079633;
 }
 ";
 
+/// The occlusion as the apply step uses it without the sun's lookup: all of it.
+const APPLY_PLAIN: &str = "
+fn light_ao(xy: vec2<i32>, d: f32, ao: f32) -> f32 {
+    return ao;
+}
+";
+
+/// The occlusion with the sun's lookup and the sky light on (nv-rs#772): a pixel's light is ambient
+/// plus direct, and only the ambient part is occluded ([`ambient_only`] says the same). A pixel the
+/// sun does not reach keeps all of the occlusion.
+const APPLY_SUN: &str = "
+fn light_point(xy: vec2<i32>) -> vec3<f32> {
+    return sl_point(vec2<f32>(xy) + SL.extra.xy, depth_at(xy));
+}
+
+fn light_ao(xy: vec2<i32>, d: f32, ao: f32) -> f32 {
+    let r = SL.sky_top.w;
+    if (ao >= 0.985 || r <= 0.0 || SL.sky_up.w <= 0.0 || SL.sun.w <= 0.0) {
+        return ao;
+    }
+    let pc = light_point(xy);
+    let pl = light_point(xy - vec2<i32>(1, 0));
+    let pr = light_point(xy + vec2<i32>(1, 0));
+    let pu = light_point(xy - vec2<i32>(0, 1));
+    let pd = light_point(xy + vec2<i32>(0, 1));
+    let dx = select(pr - pc, pc - pl, abs(pl.z - pc.z) < abs(pr.z - pc.z));
+    let dy = select(pd - pc, pc - pu, abs(pu.z - pc.z) < abs(pd.z - pc.z));
+    var n = normalize(cross(dx, dy));
+    if (dot(n, pc) > 0.0) {
+        n = -n;
+    }
+    let facing = saturate(dot(n, SL.sun.xyz));
+    if (facing <= 0.0) {
+        return ao;
+    }
+    let direct = facing * sl_visibility(pc, n);
+    // The ambient part with the shade's extra sky light (`sun_shadow::set_sky_fill`).
+    let a = r * (1.0 + SL.sky_ground.w * (1.0 - direct));
+    return (a * ao + direct) / (a + direct);
+}
+";
+
 /// The full-resolution step: the blurred occlusion multiplies the scene's colour (the blend: colour times source).
 const APPLY: &str = "
 @group(0) @binding(2) var ao_tex: texture_2d<f32>;
@@ -603,7 +654,7 @@ const APPLY: &str = "
     if (VIEW == 1u) {
         return vec4<f32>(ao, ao, ao, 1.0);
     }
-    let f = ao;
+    let f = light_ao(xy, d, ao);
     // Less than about 1.5 % darker: left alone (not visible), so most pixels write nothing into
     // the multisampled target.
     if (f >= 0.985) {
@@ -631,6 +682,12 @@ pub fn shader(stage: Stage, multisampled_depth: bool) -> String {
 
 /// The WGSL of `stage` at `quality`.
 pub fn shader_at(stage: Stage, multisampled_depth: bool, quality: Quality) -> String {
+    shader_with(stage, multisampled_depth, quality, false)
+}
+
+/// The WGSL of `stage`; with `sun` the apply step reads the sun's lookup (bind group 3) and occludes
+/// only the ambient part of the light.
+pub fn shader_with(stage: Stage, multisampled_depth: bool, quality: Quality, sun: bool) -> String {
     let (slices, steps) = quality.search();
     let depth_type = if multisampled_depth {
         "texture_depth_multisampled_2d"
@@ -647,9 +704,16 @@ pub fn shader_at(stage: Stage, multisampled_depth: bool, quality: Quality) -> St
         view()
     );
     let (textures, body) = match stage {
-        Stage::Depth => (FULL, DEPTH),
-        Stage::Occlusion => (HALF, AO),
-        Stage::Apply => (FULL, APPLY),
+        Stage::Depth => (FULL, DEPTH.to_string()),
+        Stage::Occlusion => (HALF, AO.to_string()),
+        Stage::Apply if sun => (
+            FULL,
+            format!(
+                "{}{APPLY_SUN}{APPLY}",
+                crate::sun_shadow::lookup_wgsl(false)
+            ),
+        ),
+        Stage::Apply => (FULL, format!("{APPLY_PLAIN}{APPLY}")),
     };
     format!(
         "{constants}{COMMON}{}{body}",
@@ -686,7 +750,7 @@ pub(crate) struct Gpu {
     /// samples).
     #[allow(clippy::type_complexity)]
     apply: Vec<(
-        (bool, wgpu::TextureFormat, u32),
+        (bool, wgpu::TextureFormat, u32, bool),
         wgpu::BindGroupLayout,
         wgpu::RenderPipeline,
     )>,
@@ -749,6 +813,7 @@ fn layout(device: &wgpu::Device, textures: &[wgpu::BindingType]) -> wgpu::BindGr
 fn pipeline(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
+    light: Option<&wgpu::BindGroupLayout>,
     source: String,
     target: wgpu::ColorTargetState,
     samples: u32,
@@ -757,9 +822,14 @@ fn pipeline(
         label: Some("scene light"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
+    let with_light = [Some(layout), None, None, light];
     let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[Some(layout)],
+        bind_group_layouts: if light.is_some() {
+            &with_light
+        } else {
+            &with_light[..1]
+        },
         immediate_size: 0,
     });
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -796,6 +866,7 @@ fn full_screen(
     load: wgpu::LoadOp<wgpu::Color>,
     pipeline: &wgpu::RenderPipeline,
     group: &wgpu::BindGroup,
+    light: Option<(&wgpu::BindGroup, u32)>,
 ) {
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some(label),
@@ -815,6 +886,9 @@ fn full_screen(
     });
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, group, &[]);
+    if let Some((light, offset)) = light {
+        pass.set_bind_group(3, light, &[offset]);
+    }
     pass.draw(0..3, 0..1);
 }
 
@@ -898,6 +972,7 @@ impl Gpu {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         t: &Targets<'_>,
+        light: Option<(&wgpu::BindGroup, u32)>,
     ) {
         let ms = t.samples > 1;
         let (hw, hh) = (t.width.div_ceil(2), t.height.div_ceil(2));
@@ -920,6 +995,7 @@ impl Gpu {
             let p = pipeline(
                 device,
                 &l,
+                None,
                 shader_at(Stage::Depth, ms, self.quality),
                 wgpu::ColorTargetState {
                     format: Z_FORMAT,
@@ -935,6 +1011,7 @@ impl Gpu {
             let p = pipeline(
                 device,
                 &l,
+                None,
                 shader_at(Stage::Occlusion, ms, self.quality),
                 wgpu::ColorTargetState {
                     format: HALF_FORMAT,
@@ -945,13 +1022,15 @@ impl Gpu {
             );
             self.occlusion = Some((l, p));
         }
-        let key = (ms, t.colour_format, t.samples);
+        let key = (ms, t.colour_format, t.samples, light.is_some());
         if !self.apply.iter().any(|(k, _, _)| *k == key) {
             let l = layout(device, &[depth_texture(ms), FLOAT_TEXTURE]);
+            let light_layout = light.map(|_| crate::sun_shadow::light_layout(device));
             let p = pipeline(
                 device,
                 &l,
-                shader_at(Stage::Apply, ms, self.quality),
+                light_layout.as_ref(),
+                shader_with(Stage::Apply, ms, self.quality, light.is_some()),
                 wgpu::ColorTargetState {
                     format: t.colour_format,
                     // The scene's colour times the source; its alpha kept (the occlusion alone
@@ -983,6 +1062,7 @@ impl Gpu {
             wgpu::LoadOp::Clear(wgpu::Color::BLACK),
             depth_pipeline,
             &g,
+            None,
         );
         let (ao_layout, ao_pipeline) = self.occlusion.as_ref().expect("made");
         let g = group(device, ao_layout, &self.uniforms, &[&z]);
@@ -993,6 +1073,7 @@ impl Gpu {
             wgpu::LoadOp::Clear(wgpu::Color::WHITE),
             ao_pipeline,
             &g,
+            None,
         );
         let (_, apply_layout, apply_pipeline) =
             self.apply.iter().find(|(k, _, _)| *k == key).expect("made");
@@ -1004,7 +1085,43 @@ impl Gpu {
             wgpu::LoadOp::Load,
             apply_pipeline,
             &g,
+            light,
         );
+    }
+}
+
+#[cfg(test)]
+mod ambient_only_tests {
+    use super::*;
+
+    /// nv-rs#772: the occlusion takes the ambient part of the light only.
+    #[test]
+    fn the_occlusion_leaves_the_direct_light() {
+        // No direct light: all of the occlusion.
+        assert_eq!(ambient_only(0.5, 0.3, 0.0), 0.5);
+        // Direct three times the ambient: a quarter of the light is occluded by half.
+        assert!((ambient_only(0.5, 1.0, 3.0) - 0.875).abs() < 1e-6);
+        // Not occluded: nothing changes.
+        assert_eq!(ambient_only(1.0, 0.3, 0.7), 1.0);
+        // Ambient unknown: the plain occlusion.
+        assert_eq!(ambient_only(0.5, 0.0, 1.0), 0.5);
+    }
+
+    /// The apply step with the sun's lookup is valid WGSL, plain and multisampled.
+    #[test]
+    fn the_apply_step_with_the_sun_is_valid() {
+        for ms in [false, true] {
+            let src = shader_with(Stage::Apply, ms, Quality::Medium, true);
+            assert!(src.contains("sl_visibility(pc, n)"));
+            let module = naga::front::wgsl::parse_str(&src).expect("parses");
+            naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .expect("valid");
+            assert!(!shader_at(Stage::Apply, ms, Quality::Medium).contains("sl_visibility"));
+        }
     }
 }
 

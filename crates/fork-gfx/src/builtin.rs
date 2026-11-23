@@ -166,6 +166,13 @@ pub static LIGHT: ModuleSpec = ModuleSpec {
             applies: Applies::Live,
             kind: Kind::Slider { min: 0.0, max: 1.0, step: 0.05, default: 0.0 },
         },
+        Setting {
+            key: "shade_fill",
+            label: "Light in the shade",
+            help: "How much more of the sky's light reaches surfaces the sun or moon does not: shadows and walls turned away get lighter, sunlit surfaces stay as they are. Needs the light from the sky dome.",
+            applies: Applies::Live,
+            kind: Kind::Slider { min: 0.0, max: 2.0, step: 0.05, default: 0.0 },
+        },
     ],
     owns: &[
         Owns::GameValue("the sun light's direct colours outdoors"),

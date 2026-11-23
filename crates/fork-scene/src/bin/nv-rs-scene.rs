@@ -79,7 +79,7 @@ fn run(args: &[String]) -> Result<bool, String> {
 }
 
 /// `light [--within PCT] A B`: the light on the ground of B's pictures against A's (exit 1 when the mean sunlit ratio is
-/// more than PCT per cent from 1, or a picture is missing).
+/// more than PCT per cent from 1, a picture is missing, or one has POINTS more near-black pixels).
 fn light(args: &[String]) -> Result<bool, String> {
     let mut paths = Vec::new();
     let mut req = LightRequest::default();
@@ -90,13 +90,18 @@ fn light(args: &[String]) -> Result<bool, String> {
                 "--within",
                 it.next().ok_or("--within needs a number")?,
             )?);
+        } else if a == "--max-black-gain" {
+            req.max_black_gain = Some(number(
+                "--max-black-gain",
+                it.next().ok_or("--max-black-gain needs a number")?,
+            )?);
         } else {
             paths.push(PathBuf::from(a));
         }
     }
     let [a, b] = paths.as_slice() else {
         return Err(
-            "usage: nv-rs-scene light [--within PCT] A B  (two folders of pictures)".into(),
+            "usage: nv-rs-scene light [--within PCT] [--max-black-gain POINTS] A B  (two folders of pictures)".into(),
         );
     };
     (req.a, req.b) = (a.clone(), b.clone());
@@ -749,6 +754,30 @@ mod tests {
         picture(&t.join("a"), "other.png", [100, 100, 100], 100);
         assert_eq!(light(&[a.clone(), same]), Ok(false));
         assert!(light(&s(&["--within", "x", &a, &bright])).is_err());
+    }
+
+    /// nv-rs#772: a picture gone near black fails, though its mean sunlit light is in the limit.
+    #[test]
+    fn light_fails_a_picture_that_has_gone_near_black() {
+        let t = tmp("black");
+        let write = |dir: &str, px: [[u8; 3]; 4]| {
+            std::fs::create_dir_all(t.join(dir)).unwrap();
+            let rgb: Vec<u8> = px.concat();
+            std::fs::write(t.join(dir).join("day.png"), encode_rgb(2, 2, &rgb).unwrap()).unwrap();
+        };
+        write("a", [[60; 3], [60; 3], [200; 3], [200; 3]]);
+        write("dark", [[10; 3], [10; 3], [200; 3], [200; 3]]);
+        write("read", [[40; 3], [40; 3], [200; 3], [200; 3]]);
+        let p = |n: &str| t.join(n).display().to_string();
+        assert_eq!(
+            light(&s(&["--max-black-gain", "10", &p("a"), &p("dark")])),
+            Ok(false)
+        );
+        assert_eq!(
+            light(&s(&["--max-black-gain", "10", &p("a"), &p("read")])),
+            Ok(true)
+        );
+        assert_eq!(light(&[p("a"), p("dark")]), Ok(true));
     }
 
     #[test]

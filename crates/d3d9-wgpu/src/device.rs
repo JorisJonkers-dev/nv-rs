@@ -8042,8 +8042,18 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         let (buffer, bytes) = gpu.uniforms(&params, &targets);
         self.on_queue(move |q| q.write_buffer(&buffer, 0, &bytes));
         let device = self.device.clone();
+        // The sun's lookup of this frame, for an occlusion that leaves the direct light alone.
+        let light = self
+            .sun
+            .as_ref()
+            .and_then(|s| s.light.map(|o| (s.gpu.light_group().clone(), o)));
         let span = self.span_begin(Kind::Other);
-        gpu.encode(&device, self.encoder(), &targets);
+        gpu.encode(
+            &device,
+            self.encoder(),
+            &targets,
+            light.as_ref().map(|(g, o)| (g, *o)),
+        );
         self.span_end(span);
         self.scene_light = Some(gpu);
         for t in [&colour_tex, &depth_tex] {
