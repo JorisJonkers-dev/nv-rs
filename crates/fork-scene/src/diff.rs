@@ -175,6 +175,48 @@ fn linear(v: u8) -> f64 {
     }
 }
 
+/// The side of the blocks [`no_detail_pct`] judges, in pixels.
+const DETAIL_BLOCK: usize = 16;
+/// A block darker than this (mean of the 8-bit luma) can have lost its detail.
+const DETAIL_DARK: f64 = 32.0;
+/// A dark block whose luma varies by less than this (standard deviation) shows nothing.
+const DETAIL_FLAT: f64 = 2.0;
+
+/// The percentage of the blocks in the lower 55% of a picture (the ground and what stands on it)
+/// that show no visible detail: dark and flat. A very dark block with texture or a shape in it
+/// does not count, so a picture may be dark as long as something can still be seen.
+pub fn no_detail_pct(p: &Picture) -> f64 {
+    let (w, h, rgb) = (p.0 as usize, p.1 as usize, &p.2);
+    let top = h * 45 / 100;
+    let (rows, cols) = ((h - top) / DETAIL_BLOCK, w / DETAIL_BLOCK);
+    if rows == 0 || cols == 0 {
+        return 0.0;
+    }
+    let mut flat = 0usize;
+    for r in 0..rows {
+        for c in 0..cols {
+            let (mut sum, mut squares) = (0.0, 0.0);
+            for y in 0..DETAIL_BLOCK {
+                for x in 0..DETAIL_BLOCK {
+                    let at = 3 * ((top + r * DETAIL_BLOCK + y) * w + c * DETAIL_BLOCK + x);
+                    let luma = 0.2126 * f64::from(rgb[at])
+                        + 0.7152 * f64::from(rgb[at + 1])
+                        + 0.0722 * f64::from(rgb[at + 2]);
+                    sum += luma;
+                    squares += luma * luma;
+                }
+            }
+            let n = (DETAIL_BLOCK * DETAIL_BLOCK) as f64;
+            let mean = sum / n;
+            let deviation = (squares / n - mean * mean).max(0.0).sqrt();
+            if mean < DETAIL_DARK && deviation < DETAIL_FLAT {
+                flat += 1;
+            }
+        }
+    }
+    100.0 * flat as f64 / (rows * cols) as f64
+}
+
 /// [`Light`] of a picture. A picture without a pixel in its band is an `Err`.
 pub fn light(p: &Picture) -> Result<Light, String> {
     let (w, h, rgb) = (p.0 as usize, p.1 as usize, &p.2);
@@ -269,5 +311,37 @@ mod tests {
         let a = light(&(1, 2, vec![255, 255, 255, 50, 50, 50])).unwrap();
         let b = light(&(1, 2, vec![255, 255, 255, 100, 100, 100])).unwrap();
         assert!(b.band / a.band > 3.0);
+    }
+
+    /// A 32 x 32 picture whose lower part is two blocks wide, each filled by `f(x, y)`.
+    fn blocks(f: impl Fn(usize, usize) -> u8) -> Picture {
+        let mut rgb = Vec::new();
+        for y in 0..32 {
+            for x in 0..32 {
+                rgb.extend([f(x, y); 3]);
+            }
+        }
+        (32, 32, rgb)
+    }
+
+    #[test]
+    fn a_dark_block_counts_as_lost_only_when_it_shows_nothing() {
+        let checker = |x: usize, y: usize, a: u8, b: u8| if (x + y) % 2 == 0 { a } else { b };
+        assert_eq!(no_detail_pct(&blocks(|_, _| 8)), 100.0, "black and flat");
+        assert_eq!(
+            no_detail_pct(&blocks(|x, y| checker(x, y, 4, 20))),
+            0.0,
+            "very dark, with texture"
+        );
+        assert_eq!(no_detail_pct(&blocks(|_, _| 120)), 0.0, "flat but lit");
+        assert_eq!(
+            no_detail_pct(&blocks(|x, y| if x < 16 {
+                8
+            } else {
+                checker(x, y, 4, 20)
+            })),
+            50.0
+        );
+        assert_eq!(no_detail_pct(&(0, 0, vec![])), 0.0);
     }
 }

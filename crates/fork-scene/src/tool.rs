@@ -212,6 +212,10 @@ pub struct LightRequest {
     pub b: PathBuf,
     /// The mean sunlit ratio passes when it is within this many percent of 1.
     pub within_pct: Option<f64>,
+    /// The detail guard (nv-rs#772): a picture fails when B has more than this many percentage
+    /// points more blocks that show no visible detail than A ([`crate::diff::no_detail_pct`]). A
+    /// dark picture passes as long as shapes and texture can still be seen.
+    pub max_lost_detail: Option<f64>,
 }
 
 /// One picture's ratios B / A.
@@ -221,6 +225,10 @@ pub struct LightRow {
     pub sunlit: f64,
     pub shade: f64,
     pub band: f64,
+    /// Blocks without visible detail, percent, in A and in B.
+    pub no_detail: (f64, f64),
+    /// False when the gain in such blocks is above the request's limit.
+    pub readable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -241,8 +249,14 @@ impl LightResult {
             .iter()
             .map(|r| {
                 format!(
-                    "{}: sunlit {:.3}, shade {:.3}, ground {:.3}",
-                    r.name, r.sunlit, r.shade, r.band
+                    "{}: sunlit {:.3}, shade {:.3}, ground {:.3}, no detail {:.1}% -> {:.1}%{}",
+                    r.name,
+                    r.sunlit,
+                    r.shade,
+                    r.band,
+                    r.no_detail.0,
+                    r.no_detail.1,
+                    if r.readable { "" } else { " DETAIL LOST" }
                 )
             })
             .collect();
@@ -273,15 +287,21 @@ pub fn light(req: &LightRequest) -> Result<LightResult, String> {
             missing = true;
             continue;
         }
-        let (la, lb) = (
-            crate::diff::light(&load(&pa)?)?,
-            crate::diff::light(&load(&pb)?)?,
+        let (pic_a, pic_b) = (load(&pa)?, load(&pb)?);
+        let (la, lb) = (crate::diff::light(&pic_a)?, crate::diff::light(&pic_b)?);
+        let no_detail = (
+            crate::diff::no_detail_pct(&pic_a),
+            crate::diff::no_detail_pct(&pic_b),
         );
         rows.push(LightRow {
             name,
             sunlit: ratio(lb.sunlit, la.sunlit),
             shade: ratio(lb.shade, la.shade),
             band: ratio(lb.band, la.band),
+            no_detail,
+            readable: req
+                .max_lost_detail
+                .is_none_or(|gain| no_detail.1 - no_detail.0 <= gain),
         });
     }
     if rows.is_empty() {
@@ -300,7 +320,7 @@ pub fn light(req: &LightRequest) -> Result<LightResult, String> {
         .within_pct
         .is_none_or(|pct| (sunlit - 1.0).abs() * 100.0 <= pct);
     Ok(LightResult {
-        ok: !missing && within,
+        ok: !missing && within && rows.iter().all(|r| r.readable),
         rows,
         sunlit,
         shade,

@@ -624,6 +624,9 @@ struct Gen<'a> {
     /// The sun shadows' variant ([`convert_with_sun`]): the register of the sun's light colour,
     /// whose every read is multiplied by the sun's visibility at the pixel.
     sun: Option<u32>,
+    /// The same variant's `AmbientColor` register: every read takes the sky light's share for the
+    /// pixel's facing (`sky_fill`, `crate::sun_shadow::set_sky_fill`).
+    ambient: Option<u32>,
     /// The sun shadows' variant with the characters cast ([`convert_with_sun`]): the sampler of the
     /// game's own projected actor shadows (`ShadowMap`), read as lit (white) so a character casts
     /// one shadow, the sun's.
@@ -743,6 +746,12 @@ fn convert_inner(
         temps: BTreeSet::new(),
         labels: BTreeSet::new(),
         sun,
+        ambient: sun.and_then(|_| {
+            p.constants
+                .iter()
+                .find(|c| c.name == "AmbientColor" && c.set == 2)
+                .map(|c| u32::from(c.index))
+        }),
         blank,
         skinned,
     };
@@ -1240,6 +1249,10 @@ impl Gen<'_> {
                                 const_read(self.link, &n.to_string())
                             )
                         }
+                        _ if self.ambient == Some(n) => format!(
+                            "({} * vec4<f32>(sky_fill, 1.0))",
+                            const_read(self.link, &n.to_string())
+                        ),
                         _ => const_read(self.link, &n.to_string()),
                     },
                 },

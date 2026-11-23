@@ -79,7 +79,7 @@ fn run(args: &[String]) -> Result<bool, String> {
 }
 
 /// `light [--within PCT] A B`: the light on the ground of B's pictures against A's (exit 1 when the mean sunlit ratio is
-/// more than PCT per cent from 1, or a picture is missing).
+/// more than PCT per cent from 1, a picture is missing, or one has more than POINTS more blocks without visible detail).
 fn light(args: &[String]) -> Result<bool, String> {
     let mut paths = Vec::new();
     let mut req = LightRequest::default();
@@ -90,13 +90,18 @@ fn light(args: &[String]) -> Result<bool, String> {
                 "--within",
                 it.next().ok_or("--within needs a number")?,
             )?);
+        } else if a == "--max-lost-detail" {
+            req.max_lost_detail = Some(number(
+                "--max-lost-detail",
+                it.next().ok_or("--max-lost-detail needs a number")?,
+            )?);
         } else {
             paths.push(PathBuf::from(a));
         }
     }
     let [a, b] = paths.as_slice() else {
         return Err(
-            "usage: nv-rs-scene light [--within PCT] A B  (two folders of pictures)".into(),
+            "usage: nv-rs-scene light [--within PCT] [--max-lost-detail POINTS] A B  (two folders of pictures)".into(),
         );
     };
     (req.a, req.b) = (a.clone(), b.clone());
@@ -749,6 +754,41 @@ mod tests {
         picture(&t.join("a"), "other.png", [100, 100, 100], 100);
         assert_eq!(light(&[a.clone(), same]), Ok(false));
         assert!(light(&s(&["--within", "x", &a, &bright])).is_err());
+    }
+
+    /// nv-rs#772: a picture whose shade has gone flat black fails; one that is as dark but still
+    /// shows its texture passes.
+    #[test]
+    fn light_fails_a_picture_that_has_lost_its_detail_not_one_that_is_only_dark() {
+        let t = tmp("detail");
+        let write = |dir: &str, f: &dyn Fn(usize, usize) -> u8| {
+            std::fs::create_dir_all(t.join(dir)).unwrap();
+            let mut rgb = Vec::new();
+            for y in 0..32 {
+                for x in 0..32 {
+                    rgb.extend([f(x, y); 3]);
+                }
+            }
+            std::fs::write(
+                t.join(dir).join("day.png"),
+                encode_rgb(32, 32, &rgb).unwrap(),
+            )
+            .unwrap();
+        };
+        let checker = |x: usize, y: usize, a: u8, b: u8| if (x + y) % 2 == 0 { a } else { b };
+        write("a", &|x, y| checker(x, y, 40, 90));
+        write("flat", &|_, _| 6);
+        write("dim", &|x, y| checker(x, y, 4, 20));
+        let p = |n: &str| t.join(n).display().to_string();
+        assert_eq!(
+            light(&s(&["--max-lost-detail", "5", &p("a"), &p("flat")])),
+            Ok(false)
+        );
+        assert_eq!(
+            light(&s(&["--max-lost-detail", "5", &p("a"), &p("dim")])),
+            Ok(true)
+        );
+        assert_eq!(light(&[p("a"), p("flat")]), Ok(true));
     }
 
     #[test]

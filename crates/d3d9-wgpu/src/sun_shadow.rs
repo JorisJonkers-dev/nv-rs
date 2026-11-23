@@ -2011,7 +2011,7 @@ pub fn sample0_offset(samples: u32) -> [f32; 2] {
 }
 
 /// The lookup's uniform block, in bytes ([`lookup_uniforms`]).
-pub const LOOKUP_SIZE: u64 = 8 * 16 + 4 * CASCADES as u64 * 16 + 8 * 16;
+pub const LOOKUP_SIZE: u64 = 8 * 16 + 4 * CASCADES as u64 * 16 + 8 * 16 + 3 * 16;
 
 /// The thin casters' coverage maps: texels a side (a layer a cascade, over the same square as the
 /// cascade's depth map, so a texel is `SIZE / THIN_SIZE` of its texels).
@@ -2118,6 +2118,52 @@ pub fn thin_quads(
     }
 }
 
+/// The sky light's words as `f32` bits (nv-rs#772): the dome's top colour, how much of the dome is
+/// used (0: the game's flat ambient, exactly), the ground's colour. Each colour multiplies the game's
+/// ambient colour at the pixel; 1 is the flat value the shaders without this variant draw. The last
+/// word is the ambient light over the direct light (`scene_light`'s occlusion, 0: not known).
+static SKY_FILL: [AtomicU32; 9] = [
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(0),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(ONE_BITS),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+];
+/// The bits of 1.0, the flat value of a sky light colour.
+const ONE_BITS: u32 = 0x3f80_0000;
+
+/// Sets the sky light from the next frame's lookup on.
+pub fn set_sky_fill(
+    top: [f32; 3],
+    ground: [f32; 3],
+    dome: f32,
+    ambient_over_direct: f32,
+    shade: f32,
+) {
+    let v = [
+        top[0],
+        top[1],
+        top[2],
+        dome,
+        ground[0],
+        ground[1],
+        ground[2],
+        ambient_over_direct,
+        shade,
+    ];
+    for (slot, value) in SKY_FILL.iter().zip(v) {
+        slot.store(value.to_bits(), Ordering::Relaxed);
+    }
+}
+
+fn sky_fill() -> [f32; 9] {
+    std::array::from_fn(|i| f32::from_bits(SKY_FILL[i].load(Ordering::Relaxed)))
+}
+
 /// The lookup's uniform block (`SL` in [`LOOKUP_FNS`]), the same for the lighting's variants and
 /// the debug step: frustum (left, right, bottom, top), depth (near, far, width, height of the
 /// scene), sun (toward it in view space; w 1 when there is a sun this frame), splits (each
@@ -2206,6 +2252,17 @@ pub fn lookup_uniforms(
             f.extend([0.0, 1.0, 0.0, 0.0]);
         }
     }
+    // The sky light (`set_sky_fill`): the world's up in this frame's view space, then the dome's
+    // colours with how much of the dome is used.
+    let fill = sky_fill();
+    f.extend([
+        axes[0][2] as f32,
+        axes[1][2] as f32,
+        axes[2][2] as f32,
+        fill[3],
+    ]);
+    f.extend([fill[0], fill[1], fill[2], fill[7]]);
+    f.extend([fill[4], fill[5], fill[6], fill[8]]);
     debug_assert_eq!(f.len() * 4, LOOKUP_SIZE as usize);
     f.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
@@ -2229,6 +2286,9 @@ struct SunLookup {
     far: vec4<f32>,
     fm_old: array<vec4<f32>, 3>,
     far_old: vec4<f32>,
+    sky_up: vec4<f32>,
+    sky_top: vec4<f32>,
+    sky_ground: vec4<f32>,
 };
 
 fn sl_linear(d: f32) -> f32 {
@@ -2495,6 +2555,7 @@ pub const LOOKUP: &str = "
 @group(3) @binding(6) var sl_far_old: texture_depth_2d;
 var<private> sun_chars: f32 = 0.0;
 var<private> sun_lit: f32 = 1.0;
+var<private> sky_fill: vec3<f32> = vec3<f32>(1.0);
 
 fn sun_visibility(frag: vec4<f32>) -> f32 {
     // Direct3D 9's pixel centres are on whole coordinates (the vertex shaders move half a pixel).
@@ -2513,7 +2574,17 @@ fn sun_visibility(frag: vec4<f32>) -> f32 {
     if (dot(n, p) > 0.0) {
         n = -n;
     }
-    return sl_visibility(p, n);
+    // The sky light: a face toward the sky takes the dome's colour, one toward the ground the
+    // bounce; the shadow does not touch it (only the sun's colour is shadowed).
+    let up = 0.5 + 0.5 * dot(n, SL.sky_up.xyz);
+    sky_fill = mix(vec3<f32>(1.0), mix(SL.sky_ground.xyz, SL.sky_top.xyz, up), SL.sky_up.w);
+    let lit = sl_visibility(p, n);
+    // More of the sky's light where the direct light does not reach (`set_sky_fill`'s `shade`).
+    if (SL.sun.w > 0.0) {
+        // In the bounce's colour: a lift in the ambient's own would turn the shade blue.
+        sky_fill *= vec3<f32>(1.0) + SL.sky_ground.xyz * SL.sky_ground.w * (1.0 - saturate(dot(n, SL.sun.xyz)) * lit);
+    }
+    return lit;
 }
 ";
 
@@ -2529,15 +2600,22 @@ pub const LOOKUP_VERTEX: &str = "
 @group(3) @binding(5) var sl_far_map: texture_depth_2d;
 @group(3) @binding(6) var sl_far_old: texture_depth_2d;
 var<private> sun_lit: f32 = 1.0;
+var<private> sky_fill: vec3<f32> = vec3<f32>(1.0);
 
 fn sun_visibility_clip(o: vec4<f32>) -> f32 {
+    // Grass has no face to speak of: it stands mostly under the open sky.
+    sky_fill = mix(vec3<f32>(1.0), mix(SL.sky_ground.xyz, SL.sky_top.xyz, 0.75), SL.sky_up.w);
     if (o.w <= 0.0) {
         return 1.0;
     }
     let ndc = o.xy / o.w;
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     let p = vec3<f32>(mix(SL.frustum.x, SL.frustum.y, uv.x) * o.w, mix(SL.frustum.w, SL.frustum.z, uv.y) * o.w, o.w);
-    return sl_visibility(p, SL.sun.xyz);
+    let lit = sl_visibility(p, SL.sun.xyz);
+    if (SL.sun.w > 0.0) {
+        sky_fill *= vec3<f32>(1.0) + SL.sky_ground.xyz * SL.sky_ground.w * (1.0 - lit);
+    }
+    return lit;
 }
 ";
 

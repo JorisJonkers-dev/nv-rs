@@ -206,7 +206,7 @@ const IS_SHOWN: u32 = 0x0063_66b0;
 const SET_HIDDEN: u32 = 0x0045_0f90;
 const PROPERTY_TYPE: u32 = 0x0044_1110;
 const SKY_COLOR: u32 = 0x005a_8080;
-const PHASE_INDEX: u32 = 0x011c_ca80;
+pub(crate) const PHASE_INDEX: u32 = 0x011c_ca80;
 
 /// The word an `NiPointer` at `slot` holds (through `00559450`).
 fn pointer(e: &mut Engine, slot: u32) -> u32 {
@@ -761,6 +761,8 @@ pub fn moon_update(e: &mut Engine, this: Ptr<Moon>, sky: Ptr, time: f32) {
             ));
             e.call(MAKE_X_ROTATION, &args![rotation, x87_quiet_bits(angle)]);
             let offset = e.get(this, Moon::fZOffset);
+            // Port-added: the setting's lower moon path; the same bits without it.
+            let offset = crate::units::fallout_shared_sky::sun::moon_tilt_bits(e, offset);
             let angle = x87_store32(x87_mul(
                 x87_load32(offset),
                 e.global::<f64>(DEGREES_TO_RADIANS),
