@@ -1276,6 +1276,7 @@ dependencies = [
  "engine-core",
  "engine-platform",
  "esm",
+ "fork-gfx",
  "fork-hitch",
  "fork-log",
  "game-folders",

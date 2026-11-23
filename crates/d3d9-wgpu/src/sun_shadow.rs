@@ -80,7 +80,7 @@
 //! stay); leaves, fronds and distant trees are not shadowed yet; objects the game has not drawn
 //! since they came near (out of sight from the start) cast none until it does.
 
-use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 
 use crate::scene_light;
 
@@ -112,6 +112,27 @@ pub fn world_words(world: u32) -> [u32; 16] {
 /// Cascades and their sizes (texels a side): nearest first.
 pub const CASCADES: usize = 4;
 pub const SIZE: u32 = 2048;
+
+/// The run's map size ([`SIZE`] unless the graphics settings chose another: `shadows.quality`,
+/// nv-rs#592): set before the game makes its device, read where the maps are made and placed.
+static MAP_SIZE: AtomicU32 = AtomicU32::new(SIZE);
+
+/// The map sizes a run may choose: low, medium (the default, [`SIZE`]) and high.
+pub const MAP_SIZES: [u32; 3] = [1024, SIZE, 4096];
+
+/// Sets the map size for devices made from now on; a size not in [`MAP_SIZES`] is refused.
+pub fn set_map_size(size: u32) -> Result<(), String> {
+    if !MAP_SIZES.contains(&size) {
+        return Err(format!("sun shadow map size {size}: one of {MAP_SIZES:?}"));
+    }
+    MAP_SIZE.store(size, Ordering::Relaxed);
+    Ok(())
+}
+
+/// The run's map size.
+pub fn map_size() -> u32 {
+    MAP_SIZE.load(Ordering::Relaxed)
+}
 /// How far the shadows reach (game units from the camera; about 143 m).
 pub const FAR: f32 = 10000.0;
 /// The practical split scheme's blend of logarithmic (1) and even (0) splits.
@@ -507,7 +528,7 @@ pub fn place(
     anchor: Option<[f64; 3]>,
 ) -> Cascade {
     let _ = i;
-    let size = SIZE;
+    let size = map_size();
     let (centre_view, radius) = slice_sphere(frustum, zn, zf);
     let radius = round_radius(radius);
     // texel = 2 * half / size, half = radius + step, step = GRID_TEXELS * texel.
@@ -2898,8 +2919,8 @@ impl Gpu {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
                 size: wgpu::Extent3d {
-                    width: SIZE,
-                    height: SIZE,
+                    width: map_size(),
+                    height: map_size(),
                     depth_or_array_layers: count as u32,
                 },
                 mip_level_count: 1,
@@ -3546,8 +3567,8 @@ impl Gpu {
                     layer(&self.statics),
                     layer(&self.live),
                     wgpu::Extent3d {
-                        width: SIZE,
-                        height: SIZE,
+                        width: map_size(),
+                        height: map_size(),
                         depth_or_array_layers: 1,
                     },
                 );
@@ -4170,6 +4191,29 @@ mod tests {
 
     /// The maps look along the light the lit shaders use (the game view's `to_sun`, the way toward
     /// the sun light), at the traced 17:30 direction: from the west, north and 11 degrees up.
+    #[test]
+    fn every_map_extent_follows_the_run_map_size() {
+        // A copy or texture sized by the constant [`SIZE`] instead of [`map_size`] fails wgpu's
+        // validation at the other levels (a still-caster copy did, while levels were built).
+        let code = include_str!("sun_shadow.rs");
+        let fixed: Vec<&str> = code
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//") && !l.contains("contains(\""))
+            .filter(|l| l.contains(": SIZE,"))
+            .collect();
+        assert!(fixed.is_empty(), "sized by SIZE, not map_size(): {fixed:?}");
+    }
+
+    #[test]
+    fn the_map_size_is_one_of_the_three_levels() {
+        // Not set here: the tests share the run's size, the default.
+        assert_eq!(map_size(), SIZE);
+        assert_eq!(MAP_SIZES[1], SIZE);
+        assert!(set_map_size(3000).unwrap_err().contains("3000"));
+        assert_eq!(map_size(), SIZE, "a refused size changes nothing");
+    }
+
     #[test]
     #[allow(clippy::needless_range_loop)]
     fn the_maps_look_along_the_lights_own_direction() {

@@ -23,6 +23,8 @@ engine-core = { path = "../engine-core" }
 engine-platform = { path = "../engine-platform" }
 # The new lighting's default strength and its range (`fixes::Choice::ambient_occlusion_strength`).
 d3d9-wgpu = { path = "../d3d9-wgpu" }
+# The graphics settings: schema, the profile's file, presets (fork-only crate; nv-rs#592).
+fork-gfx = { path = "../fork-gfx" }
 # The play loop's patched functions, registered over the engine's own at start-up
 # (crates/play-patch; empty on main).
 play-patch = { path = "../play-patch" }

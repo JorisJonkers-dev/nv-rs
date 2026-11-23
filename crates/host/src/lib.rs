@@ -22,6 +22,7 @@ pub mod direct_files;
 pub mod draw_thread;
 pub mod first_profile;
 pub mod fixes;
+pub mod fork_graphics;
 pub mod fork_heap;
 pub mod fork_plugins;
 pub mod fork_prestart;
@@ -216,6 +217,13 @@ impl Host {
         // Tale of Two Wastelands' master in the data folder switches JIP LN's "installed" answer on:
         // its start-up check asks for JIP 57.21 or later (nv-rs#399; NV_JIP_INSTALLED=0 still wins).
         let (detected, ttw_line) = detected.with_ttw_detected(data);
+        // The graphics settings (nv-rs#592, ADR-0019): the profile's file in a play run, NV_GFX_FILE,
+        // NV_GFX_PRESET and NV_GFX in any; nothing changes without one of them.
+        let (detected, gfx_lines) =
+            fork_graphics::start(&detected, |name| std::env::var(name).ok())?;
+        for line in gfx_lines {
+            fork_log::info!(target: "host", "{line}");
+        }
         let choice = &detected;
         if let Some(line) = ttw_line {
             fork_log::info!(target: "host", "{line}");

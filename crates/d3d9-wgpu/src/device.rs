@@ -7327,10 +7327,14 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         if self.scene_light_alternate && self.presents % 2 == 0 {
             return;
         }
-        let Some(params) = scene_light::Params::from_words(words) else {
+        let Some(mut params) = scene_light::Params::from_words(words) else {
             self.warn("new lighting: a camera it cannot use (skipped)");
             return;
         };
+        // The graphics settings' strength while the game runs (`ao.strength`), over the start's.
+        if let Some(strength) = scene_light::live_strength() {
+            params.strength = strength;
+        }
         let (Some(rt), Some(ds)) = (self.st.rt[0].clone(), self.st.ds.clone()) else {
             return;
         };
@@ -7407,6 +7411,8 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         let mut gpu = self
             .scene_light
             .take()
+            // Made again at another quality (`ao.quality`, changed while the game runs).
+            .filter(|g| g.quality == scene_light::quality())
             .unwrap_or_else(|| Box::new(scene_light::Gpu::new(&self.device)));
         let targets = scene_light::Targets {
             colour: &colour,

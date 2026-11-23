@@ -1,0 +1,235 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! The engine's graphics modules as data, and its built-in presets (`presets/*.toml`).
+//!
+//! The schemas live here, not with the code that applies them, so a program that edits the
+//! settings (raul) reads them without linking the engine. The engine's side (`host::gfx`) holds a
+//! test that every module here is applied and nothing else is.
+
+use crate::schema::{Applies, Choice, Insertion, Kind, ModuleSpec, Owns, Setting};
+use crate::settings::{Preset, Presets, SettingsFile};
+
+static AO_QUALITY: [Choice; 3] = [
+    Choice {
+        id: "low",
+        label: "Low",
+    },
+    Choice {
+        id: "medium",
+        label: "Medium",
+    },
+    Choice {
+        id: "high",
+        label: "High",
+    },
+];
+
+/// Ambient occlusion: the port's GTAO step (`d3d9_wgpu::scene_light`).
+pub static AO: ModuleSpec = ModuleSpec {
+    id: "ao",
+    label: "Ambient occlusion",
+    help: "A soft shade in corners, creases and where things meet the ground. Not in the original game. Vulkan only.",
+    settings: &[
+        Setting {
+            key: "enabled",
+            label: "Ambient occlusion",
+            help: "On: the shade is drawn. Off: the original's lighting.",
+            applies: Applies::NextStart,
+            kind: Kind::Toggle { default: false },
+        },
+        Setting {
+            key: "quality",
+            label: "Quality",
+            help: "How many directions and steps each pixel searches: low 1 by 4, medium 2 by 4, high 3 by 6. Higher is smoother and costs more.",
+            applies: Applies::Live,
+            kind: Kind::Choice { options: &AO_QUALITY, default: "medium" },
+        },
+        Setting {
+            key: "strength",
+            label: "Strength",
+            help: "How dark the shade is, from 0.1 (faint) to 1.0 (all of it).",
+            applies: Applies::Live,
+            kind: Kind::Slider { min: 0.1, max: 1.0, step: 0.05, default: 0.7 },
+        },
+    ],
+    owns: &[
+        Owns::Switch("NV_AO"),
+        Owns::Switch("NV_AO_STRENGTH"),
+        Owns::Pass { name: "gtao", at: Insertion::AfterWorld },
+    ],
+    cost: "docs/fork/GRAPHICS.md, ambient occlusion",
+};
+
+static SHADOW_QUALITY: [Choice; 3] = [
+    Choice {
+        id: "low",
+        label: "Low",
+    },
+    Choice {
+        id: "medium",
+        label: "Medium",
+    },
+    Choice {
+        id: "high",
+        label: "High",
+    },
+];
+
+/// Cascaded sun shadows (`d3d9_wgpu::sun_shadow`).
+pub static SHADOWS: ModuleSpec = ModuleSpec {
+    id: "shadows",
+    label: "Sun shadows",
+    help: "Objects cast shadows from the game's sun and moon light, out to about 140 m. Not in the original game. Vulkan only.",
+    settings: &[
+        Setting {
+            key: "enabled",
+            label: "Sun shadows",
+            help: "On: the world casts sun and moon shadows. Off: the original's shadows.",
+            applies: Applies::NextStart,
+            kind: Kind::Toggle { default: false },
+        },
+        Setting {
+            key: "quality",
+            label: "Quality",
+            help: "The size of each of the four shadow maps: low 1024, medium 2048, high 4096 pixels. Higher is sharper and costs more memory and time.",
+            applies: Applies::NextStart,
+            kind: Kind::Choice { options: &SHADOW_QUALITY, default: "medium" },
+        },
+        Setting {
+            key: "characters",
+            label: "Characters cast",
+            help: "People, creatures and you in third person cast sun shadows too, in place of the game's own character shadows.",
+            applies: Applies::NextStart,
+            kind: Kind::Toggle { default: true },
+        },
+        Setting {
+            key: "light_from_sky",
+            label: "Light from the sky",
+            help: "The shadows point away from the sun disc by day and the moon by night. Off: the original's sun light direction.",
+            applies: Applies::NextStart,
+            kind: Kind::Toggle { default: true },
+        },
+    ],
+    owns: &[
+        Owns::Switch("NV_SUN_SHADOWS"),
+        Owns::Switch("NV_SUN_SHADOWS_CHARACTERS"),
+        Owns::Switch("NV_SUN_LIGHT_FROM_SKY"),
+        Owns::Pass { name: "sun shadow maps", at: Insertion::AfterWorld },
+    ],
+    cost: "docs/fork/GRAPHICS.md, sun shadows",
+};
+
+/// The engine's modules, in the order the overlay shows them.
+pub fn specs() -> Vec<&'static ModuleSpec> {
+    vec![&AO, &SHADOWS]
+}
+
+/// The built-in presets' files: id, label, text.
+pub const PRESET_FILES: [(&str, &str, &str); 2] = [
+    ("modern", "Modern", include_str!("../presets/modern.toml")),
+    (
+        "performance",
+        "Performance",
+        include_str!("../presets/performance.toml"),
+    ),
+];
+
+/// `original`, then the built-in presets.
+pub fn presets() -> Presets {
+    Presets::new(
+        PRESET_FILES
+            .iter()
+            .map(|(id, label, text)| Preset {
+                id: id.to_string(),
+                label: label.to_string(),
+                file: SettingsFile::parse(text),
+            })
+            .collect(),
+    )
+    .expect("the built-in presets have distinct names")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::{resolve, Inputs, Place};
+
+    #[test]
+    fn the_modules_pass_the_check() {
+        crate::schema::check(&specs()).unwrap();
+    }
+
+    #[test]
+    fn every_preset_file_is_read_without_a_note_and_uses_only_known_settings() {
+        let specs = specs();
+        let presets = presets();
+        for (id, ..) in PRESET_FILES {
+            let p = presets.get(id).unwrap();
+            assert!(p.file.notes.is_empty(), "{id}: {:?}", p.file.notes);
+            let r = resolve(
+                &Inputs {
+                    specs: &specs,
+                    presets: &presets,
+                    file: None,
+                    override_preset: Some(id),
+                    overrides: None,
+                },
+                &Place::default(),
+            );
+            assert_eq!(r.preset, id);
+            assert!(r.notes.is_empty(), "{id}: {:?}", r.notes);
+            assert!(!r.is_original(), "{id} changes something");
+        }
+    }
+
+    #[test]
+    fn original_is_every_module_off() {
+        let specs = specs();
+        let presets = presets();
+        let r = resolve(
+            &Inputs {
+                specs: &specs,
+                presets: &presets,
+                file: None,
+                override_preset: None,
+                overrides: None,
+            },
+            &Place::default(),
+        );
+        assert_eq!(r.preset, "original");
+        assert!(r.is_original());
+        assert!(!r.module("ao").unwrap().toggle("enabled"));
+        assert!(!r.module("shadows").unwrap().toggle("enabled"));
+    }
+
+    #[test]
+    fn the_presets_say_what_they_set() {
+        let specs = specs();
+        let presets = presets();
+        let at = |id: &str| {
+            resolve(
+                &Inputs {
+                    specs: &specs,
+                    presets: &presets,
+                    file: None,
+                    override_preset: Some(id),
+                    overrides: None,
+                },
+                &Place::default(),
+            )
+        };
+        let modern = at("modern");
+        let (ao, sh) = (
+            modern.module("ao").unwrap(),
+            modern.module("shadows").unwrap(),
+        );
+        assert!(ao.toggle("enabled") && sh.toggle("enabled"));
+        assert_eq!(
+            (ao.choice("quality"), sh.choice("quality")),
+            ("medium", "medium")
+        );
+        let perf = at("performance");
+        let (ao, sh) = (perf.module("ao").unwrap(), perf.module("shadows").unwrap());
+        assert!(ao.toggle("enabled") && !sh.toggle("enabled"));
+        assert_eq!(ao.choice("quality"), "low");
+    }
+}

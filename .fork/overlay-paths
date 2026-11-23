@@ -63,6 +63,7 @@ crates/engine-platform/src/d3dxshader.rs
 crates/engine-platform/src/fork_d3d9rec.rs
 crates/ds-mix/src/fork_sound.rs
 crates/ds-mix/examples/nv_sound_report.rs
+crates/host/src/fork_graphics.rs
 crates/host/src/fork_heap.rs
 crates/host/src/fork_trace.rs
 crates/host/src/fork_ttw.rs
