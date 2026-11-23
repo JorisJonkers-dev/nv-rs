@@ -4729,6 +4729,49 @@ fn dynamic_state_scene(g: &mut Gpu) -> Vec<Want> {
         green,
         "SLOPESCALEDEPTHBIAS brings a coplanar sloped draw in front",
     );
+
+    // The controls of the two bias cells above: the same coplanar pair without a bias loses
+    // (LESS fails on equal depth), and a bias away from the viewer loses against the first draw.
+    g.state(ZFUNC, 4);
+    at(g, 9);
+    g.colour(RED);
+    draw(g, full, 2);
+    g.colour(GREEN);
+    g.state(ZFUNC, 2);
+    draw(g, full, 2);
+    expect(
+        9,
+        red,
+        red,
+        "without a depth bias a coplanar LESS draw loses",
+    );
+    g.state(ZFUNC, 4);
+    at(g, 10);
+    g.colour(RED);
+    draw(g, full, 2);
+    g.colour(GREEN);
+    g.state(DEPTHBIAS, 0.001f32.to_bits());
+    draw(g, full, 2);
+    g.state(DEPTHBIAS, 0);
+    expect(
+        10,
+        red,
+        red,
+        "a positive DEPTHBIAS puts a coplanar draw behind",
+    );
+    at(g, 11);
+    g.colour(RED);
+    draw(g, sloped, 2);
+    g.colour(GREEN);
+    g.state(SLOPESCALEDEPTHBIAS, 2.0f32.to_bits());
+    draw(g, sloped, 2);
+    g.state(SLOPESCALEDEPTHBIAS, 0);
+    expect(
+        11,
+        red,
+        red,
+        "a positive SLOPESCALEDEPTHBIAS puts a coplanar sloped draw behind",
+    );
     want
 }
 
