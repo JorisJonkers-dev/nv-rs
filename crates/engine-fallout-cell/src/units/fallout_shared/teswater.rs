@@ -162,9 +162,10 @@ fn lod_water_group_map(e: &mut Engine, this: Ptr<TESWaterSystem>, viewer: Ptr) -
 }
 
 /// Whether `group` (outdoors, away from the world space's water height) takes its own reflection
-/// ([`placed_reflections`]).
+/// ([`placed_reflections`]); never with `bUseWaterReflections` off, where the game's choice stays.
 fn group_reflects_outdoors(e: &mut Engine, group: Ptr<PlaceableWaterGroup>) -> bool {
     placed_reflections::get() != placed_reflections::Level::Game
+        && setting_flag(e, SETTING_USE_WATER_REFLECTIONS)
         && !in_interior(e)
         && !e.get(group, PlaceableWaterGroup::bGroupAtWorldSpaceWaterHeight)
 }
@@ -9656,6 +9657,15 @@ mod tests {
             assert_eq!(s.calls(FINISH_GROUP_INTERIOR), vec![vec![this, group]]);
             assert_eq!(s.calls(FINISH_GROUP), vec![vec![this, group]]);
         }
+        // With `bUseWaterReflections` off the game's choice stays.
+        placed_reflections::set(Level::High);
+        let mut s = scene();
+        s.e.mem.set_u8(s.group.addr() + 0x5c, 0);
+        set_setting(&mut s.e, SETTING_USE_WATER_REFLECTIONS, false);
+        s.update(false);
+        placed_reflections::set(Level::Game);
+        assert!(!s.group_flag(0x5f));
+        assert_eq!(s.e.global::<u8>(RENDER_SKY_REFLECTIONS), 1);
         // A group at the world's water height keeps the world reflection whatever the level.
         placed_reflections::set(Level::High);
         let mut s = scene();
