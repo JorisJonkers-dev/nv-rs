@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "extenders.stewie_tweaks"
+title = "lStewieAl's Tweaks commands"
+origin = "original"
+notes = "The plugin registers eight script commands; no public source names them, so they are numbered. None is built in yet (the engine fixes it stands for are elsewhere)."
+
+[[item]]
+id = "command_1"
+title = "Command 1 of 8"
+status = "missing"
+
+[[item]]
+id = "command_2"
+title = "Command 2 of 8"
+status = "missing"
+
+[[item]]
+id = "command_3"
+title = "Command 3 of 8"
+status = "missing"
+
+[[item]]
+id = "command_4"
+title = "Command 4 of 8"
+status = "missing"
+
+[[item]]
+id = "command_5"
+title = "Command 5 of 8"
+status = "missing"
+
+[[item]]
+id = "command_6"
+title = "Command 6 of 8"
+status = "missing"
+
+[[item]]
+id = "command_7"
+title = "Command 7 of 8"
+status = "missing"
+
+[[item]]
+id = "command_8"
+title = "Command 8 of 8"
+status = "missing"

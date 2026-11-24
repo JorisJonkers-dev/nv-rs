@@ -9,3 +9,7 @@ rust-version.workspace = true
 [dependencies]
 engine-core = { path = "../engine-core" }
 nvse = { path = "../nvse" }
+
+[dev-dependencies]
+# The coverage catalogue's ids: tests say which commands they prove (docs/fork/CATALOGUE.md).
+fork-catalogue = { path = "../fork-catalogue" }

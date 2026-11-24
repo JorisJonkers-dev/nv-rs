@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::test_support::{call, engine, r, set_script_ref};
+use fork_catalogue::{covers, ids};
 
 const IS_BASE_FORM: u32 = 0x3cd4;
 const BASE: u32 = 0x0300_4000;
@@ -44,6 +45,7 @@ fn record_sits_at_the_opcode_with_its_short_name() {
 
 #[test]
 fn only_a_valid_form_that_is_not_a_reference_is_a_base_form() {
+    covers(&[ids::extenders::showoff::ISBASEFORM]);
     let mut e = setup();
     assert_eq!(answer(&mut e, BASE), (1, 1.0));
     assert_eq!(answer(&mut e, REFERENCE), (1, 0.0));

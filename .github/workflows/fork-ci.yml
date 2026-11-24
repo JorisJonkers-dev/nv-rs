@@ -301,6 +301,28 @@ jobs:
           "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" "${baseline[@]}" "${allow[@]}" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # The coverage catalogue (.fork/catalogue, docs/fork/CATALOGUE.md): its generated reference lists match the pinned
+      # sources, the code's evidence of Direct3D 9 and the graphics plan, the ledger and .fork/capabilities.json agree
+      # with what it declares, and its ids, pins and test tags are well formed (tally, a pinned release binary). Tags are
+      # read from the source here; whether the tagged tests pass on each OS comes from the test runs' results.
+      - name: Catalogue (tally)
+        env:
+          TALLY_VERSION: v0.3.0
+          TALLY_SHA256: 3b52c64e4b26015c3a18703446948e92b18d7e4a70f5600b3915549ef287dd82
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/progress-target"
+          mkdir -p target/catalogue
+          cp "$RUNNER_TEMP/ledger.tsv" target/catalogue/ledger.tsv
+          cargo run --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml -- catalogue --check \
+            --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" --evidence target/catalogue/evidence.tsv
+          curl -fsSL -o "$RUNNER_TEMP/tally" "https://github.com/JorisJonkers-dev/tally/releases/download/$TALLY_VERSION/tally-x86_64-unknown-linux-gnu"
+          echo "$TALLY_SHA256  $RUNNER_TEMP/tally" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/tally"
+          "$RUNNER_TEMP/tally" check --catalogue .fork/catalogue --base "$BASE" | tee -a "$GITHUB_STEP_SUMMARY"
+          "$RUNNER_TEMP/tally" report --catalogue .fork/catalogue --depth 2 --format md >>"$GITHUB_STEP_SUMMARY"
+
   pipeline-complete:
     name: Pipeline Complete
     needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos]

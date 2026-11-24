@@ -4,6 +4,7 @@
 use crate::commands::{ENABLE_RADIO_FIX, GET_PLUGINS, SHOW_GENE_PROJECTOR};
 use crate::COMMAND_NAMES;
 use engine_core::prelude::*;
+use fork_catalogue::{covers, ids};
 use nvse::vars::{self, Data, Key};
 
 const DATA: u32 = 0x0300_0000;
@@ -150,6 +151,7 @@ fn the_record_names_are_registered_at_their_opcodes() {
 
 #[test]
 fn get_plugins_returns_name_and_version_pairs_in_load_order() {
+    covers(&[ids::extenders::ttw_nvse::TTW_GETPLUGINS]);
     let mut e = engine(true);
     load(&mut e, 0, b"FalloutNV.esm", 1.34);
     load(&mut e, 1, b"TaleOfTwoWastelands.esm", 1.32);
@@ -174,6 +176,7 @@ fn get_plugins_returns_name_and_version_pairs_in_load_order() {
 
 #[test]
 fn a_version_of_one_point_three_does_not_compare_below_one_point_three() {
+    covers(&[ids::extenders::ttw_nvse::TTW_GETPLUGINS]);
     let mut e = engine(true);
     load(&mut e, 0, b"Converted.esp", 1.3);
     load(&mut e, 1, b"Fallout3Plugin.esp", 0.85);
@@ -197,6 +200,7 @@ fn a_version_of_one_point_three_does_not_compare_below_one_point_three() {
 
 #[test]
 fn get_plugins_with_no_data_handler_returns_an_empty_array() {
+    covers(&[ids::extenders::ttw_nvse::TTW_GETPLUGINS]);
     let mut e = engine(true);
     e.mem.set_u32(DATA_HANDLER, 0);
     let (ok, result) = call(&mut e, GET_PLUGINS, &[]);
@@ -206,6 +210,7 @@ fn get_plugins_with_no_data_handler_returns_an_empty_array() {
 
 #[test]
 fn an_empty_node_is_skipped() {
+    covers(&[ids::extenders::ttw_nvse::TTW_GETPLUGINS]);
     let mut e = engine(true);
     load(&mut e, 0, b"A.esm", 1.34);
     load(&mut e, 1, b"B.esm", 1.34);
@@ -226,6 +231,7 @@ fn a_version_that_is_not_a_number_is_kept_as_it_is() {
 
 #[test]
 fn enable_radio_fix_stores_the_value_and_changes_nothing_else() {
+    covers(&[ids::extenders::ttw_nvse::TTW_ENABLERADIOFIX]);
     let mut e = engine(true);
     assert!(!crate::radio_fix(&mut e));
     assert_eq!(call(&mut e, ENABLE_RADIO_FIX, &[int(1)]).0, 1);
@@ -289,6 +295,7 @@ fn engine_with_the_games_race_menu(name: &[u8]) -> Engine {
 /// birth scene's `set CG00.runTimer to 1`).
 #[test]
 fn show_gene_projector_opens_the_games_race_menu() {
+    covers(&[ids::extenders::ttw_nvse::TTW_SHOWGENEPROJECTOR]);
     let mut e = engine_with_the_games_race_menu(b"ShowRaceMenu");
     assert!(e.ext::<crate::State>().gene_projector);
     let record = nvse::table::record_of(&e, SHOW_GENE_PROJECTOR);

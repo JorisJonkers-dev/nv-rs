@@ -1,0 +1,93 @@
+key	title	group
+fx_chain	Native effect chain	framework
+shader_path	Replacement-shader path	framework
+gfx_menu	In-game graphics menu	framework
+depth_read	Readable depth	framework
+normals	Normals target	framework
+preset_import	Preset importer	framework
+location_presets	Presets by place and time	framework
+hdr_tonemap	Tone mapping	post
+color_grade	Colour grading	post
+adaptation	Eye adaptation	post
+bloom	Bloom	post
+ao	Ambient occlusion	post
+ssil	Indirect light (SSIL)	post
+dof	Depth of field	post
+aa	Anti-aliasing	post
+sharpen	Sharpening	post
+godrays	Sun rays	post
+lens	Lens effects	post
+cinematic	Film effects	post
+motion_blur	Motion blur	post
+screen_fx	Screen effects	post
+upscale	FSR upscaling	upscaling
+hdr_output	HDR display output	output
+night_light	Night and emitted light	lighting
+point_lights	More lights per surface	lighting
+shadows	Sun shadows	lighting
+point_shadows	Light shadows	lighting
+pbr	Physically based specular	lighting
+deferred	Deferred lighting	lighting
+volumetric_fog	Volumetric fog	lighting
+terrain_shade	Terrain shading	shading
+parallax	Parallax	shading
+soft_particles	Soft particles	shading
+skin	Skin shading	shading
+alpha	Alpha and view-model fixes	shading
+reflections	Live reflections	shading
+water_depth	Water depth fog	shading
+water_shader	Water shader	shading
+wet_world	Wet world	shading
+grass_motion	Grass interaction	shading
+terrain_smooth	Smooth terrain	shading
+clouds	Clouds	world
+sky	Sky	world
+precipitation	Rain and weather logic	world
+fog	Fog control	world
+imagespace	Image-space data	world
+object_swap	Data-driven object swap	world
+far_behave	Far-view behaviour	far-view
+hires_ui	Sharp interface	interface
+rt_accel	Ray-tracing scene	tracing
+rt_shadows	Traced shadows	tracing
+rt_ao	Traced ambient occlusion	tracing
+rt_reflections	Traced reflections	tracing
+rt_gi	One-bounce global illumination	tracing
+path_trace	Path-traced mode	tracing
+photo_mode_pt	Path-traced photo mode	tracing
+ss_gi	Screen-space GI	tracing
+contact_shadows	Contact shadows	tracing
+material_db	Material data	materials
+aniso	Texture filtering	materials
+decals	Decals	materials
+eyes_hair	Eye and hair shading	materials
+particle_lighting	Lit particles	materials
+taa	Temporal anti-aliasing	upscaling
+dlss	DLSS super resolution and ray reconstruction	upscaling
+frame_gen	Frame generation	upscaling
+xess	XeSS	upscaling
+neural_render	Neural rendering (DLSS 5)	upscaling
+render_scale	Render scale	upscaling
+present_mode	Presentation and V-Sync	output
+frame_pacing	Frame limiter and pacing	output
+latency	Latency reduction	output
+window_mode	Window mode	output
+photo_mode	Photo mode	output
+perf_dxvk	DXVK (Direct3D 9 to Vulkan)	performance
+perf_4gb	4 GB patcher	performance
+perf_nvtf	NVTF (tick fix, texture pool, flip model)	performance
+perf_stewie	lStewieAl's Tweaks and Engine Optimizations	performance
+perf_zlib	zlib Updated	performance
+perf_cell_offsets	Cell Offset Generator	performance
+perf_mod_limit	Mod Limit Fix	performance
+perf_heap	Heap replacers (NVHR and similar)	performance
+perf_bsa_decompress	Vanilla BSAs Patcher	performance
+perf_threads	Threads and draw thread	performance
+instancing	Instancing and GPU culling	performance
+texture_streaming	Texture streaming	performance
+clustered_lights	Clustered lighting	lighting
+atmosphere	Atmosphere model	world
+remaster	Asset remaster pipeline	materials
+ai_upscale	AI texture upscaling	materials
+pbr_estimate	PBR maps from old textures	materials
+mesh_enhance	Mesh enhancement	materials
