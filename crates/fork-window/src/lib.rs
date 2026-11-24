@@ -16,6 +16,8 @@
 pub mod dik;
 mod display;
 mod identity;
+#[cfg(all(unix, not(target_os = "macos")))]
+pub mod mirror;
 /// Test support for the X11 window system (used by this crate's and engine-platform's tests).
 #[cfg(all(unix, not(target_os = "macos")))]
 #[doc(hidden)]
@@ -58,6 +60,8 @@ pub struct WindowRequest {
     /// Borderless over the whole monitor (the game's `bFull Screen=1`: exclusive full screen is
     /// not offered here, so the window covers the monitor instead).
     pub fullscreen: bool,
+    /// The window takes the focus when it opens (false: a window that must not interrupt, as [`mirror`]'s).
+    pub activate: bool,
 }
 
 impl Default for WindowRequest {
@@ -69,6 +73,7 @@ impl Default for WindowRequest {
             decorations: true,
             visible: true,
             fullscreen: false,
+            activate: true,
         }
     }
 }

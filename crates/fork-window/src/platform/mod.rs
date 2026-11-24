@@ -459,6 +459,7 @@ impl App {
             .with_decorations(self.request.decorations)
             .with_resizable(false)
             .with_visible(self.request.visible)
+            .with_active(self.request.activate)
             .with_fullscreen(self.request.fullscreen.then(|| {
                 // `NV_MONITOR` names the output. Otherwise on Wayland none is asked for: the
                 // compositor puts the window on the current output (GNOME: where the pointer or
