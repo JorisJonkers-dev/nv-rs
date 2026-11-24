@@ -477,7 +477,8 @@ mod tests {
         card(&t, "card0", (12000, 24576), (500, 32768));
         let e = check(&t, &halt).unwrap_err();
         assert!(e.starts_with("VRAM: 12576 MiB free of 24576"), "{e}");
-        card(&t, "card0", (3000, 24576), (25000, 32768));
+        // 768 MiB free: less than the margin alone, whatever share NV_GUARD_GTT_SHARE sets.
+        card(&t, "card0", (3000, 24576), (32000, 32768));
         assert!(check(&t, &halt).unwrap_err().starts_with("GTT:"));
         std::fs::remove_dir_all(&t).unwrap();
     }
