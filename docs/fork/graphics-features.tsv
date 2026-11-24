@@ -1,0 +1,96 @@
+# The graphics plan's capabilities (the "graphics atlas"): the reference list of the engine-features
+# progress bar (docs/fork/PROGRESS.md). One row per capability: id, group, name. It changes only when the plan
+# changes; what is built is declared in code (crates/fork-gfx/src/atlas.rs), never here. Exported 2026-11-24.
+id	group	name
+fx-chain	framework	Native effect chain
+shader-path	framework	Replacement-shader path
+gfx-menu	framework	In-game graphics menu
+depth-read	framework	Readable depth
+normals	framework	Normals target
+preset-import	framework	Preset importer
+location-presets	framework	Presets by place and time
+hdr-tonemap	post	Tone mapping
+color-grade	post	Colour grading
+adaptation	post	Eye adaptation
+bloom	post	Bloom
+ao	post	Ambient occlusion
+ssil	post	Indirect light (SSIL)
+dof	post	Depth of field
+aa	post	Anti-aliasing
+sharpen	post	Sharpening
+godrays	post	Sun rays
+lens	post	Lens effects
+cinematic	post	Film effects
+motion-blur	post	Motion blur
+screen-fx	post	Screen effects
+upscale	upscaling	FSR upscaling
+hdr-output	output	HDR display output
+night-light	lighting	Night and emitted light
+point-lights	lighting	More lights per surface
+shadows	lighting	Sun shadows
+point-shadows	lighting	Light shadows
+pbr	lighting	Physically based specular
+deferred	lighting	Deferred lighting
+volumetric-fog	lighting	Volumetric fog
+terrain-shade	shading	Terrain shading
+parallax	shading	Parallax
+soft-particles	shading	Soft particles
+skin	shading	Skin shading
+alpha	shading	Alpha and view-model fixes
+reflections	shading	Live reflections
+water-depth	shading	Water depth fog
+water-shader	shading	Water shader
+wet-world	shading	Wet world
+grass-motion	shading	Grass interaction
+terrain-smooth	shading	Smooth terrain
+clouds	world	Clouds
+sky	world	Sky
+precipitation	world	Rain and weather logic
+fog	world	Fog control
+imagespace	world	Image-space data
+object-swap	world	Data-driven object swap
+far-behave	far-view	Far-view behaviour
+hires-ui	interface	Sharp interface
+rt-accel	tracing	Ray-tracing scene
+rt-shadows	tracing	Traced shadows
+rt-ao	tracing	Traced ambient occlusion
+rt-reflections	tracing	Traced reflections
+rt-gi	tracing	One-bounce global illumination
+path-trace	tracing	Path-traced mode
+photo-mode-pt	tracing	Path-traced photo mode
+ss-gi	tracing	Screen-space GI
+contact-shadows	tracing	Contact shadows
+material-db	materials	Material data
+aniso	materials	Texture filtering
+decals	materials	Decals
+eyes-hair	materials	Eye and hair shading
+particle-lighting	materials	Lit particles
+taa	upscaling	Temporal anti-aliasing
+dlss	upscaling	DLSS super resolution and ray reconstruction
+frame-gen	upscaling	Frame generation
+xess	upscaling	XeSS
+neural-render	upscaling	Neural rendering (DLSS 5)
+render-scale	upscaling	Render scale
+present-mode	output	Presentation and V-Sync
+frame-pacing	output	Frame limiter and pacing
+latency	output	Latency reduction
+window-mode	output	Window mode
+photo-mode	output	Photo mode
+perf-dxvk	performance	DXVK (Direct3D 9 to Vulkan)
+perf-4gb	performance	4 GB patcher
+perf-nvtf	performance	NVTF (tick fix, texture pool, flip model)
+perf-stewie	performance	lStewieAl's Tweaks and Engine Optimizations
+perf-zlib	performance	zlib Updated
+perf-cell-offsets	performance	Cell Offset Generator
+perf-mod-limit	performance	Mod Limit Fix
+perf-heap	performance	Heap replacers (NVHR and similar)
+perf-bsa-decompress	performance	Vanilla BSAs Patcher
+perf-threads	performance	Threads and draw thread
+instancing	performance	Instancing and GPU culling
+texture-streaming	performance	Texture streaming
+clustered-lights	lighting	Clustered lighting
+atmosphere	world	Atmosphere model
+remaster	materials	Asset remaster pipeline
+ai-upscale	materials	AI texture upscaling
+pbr-estimate	materials	PBR maps from old textures
+mesh-enhance	materials	Mesh enhancement

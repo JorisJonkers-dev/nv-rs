@@ -258,9 +258,52 @@ jobs:
           rustup toolchain install
           cargo test --locked -p engine-core --lib -- mem::heap::tests::
 
+  # The progress pictures' generator (docs/fork/PROGRESS.md, scripts/fork/progress) in check mode on every pull request,
+  # so it cannot break unseen: its tests, two counts of the merged tree that must agree, and the counts against the base's
+  # summary. A count that goes down fails unless the description has a line `Progress-Drop: <reason>` (the `edited`
+  # trigger runs it again; the upstream replay's drops are only reported). Its report is in the run summary. The pictures themselves are committed after the merge
+  # (fork-progress.yml).
+  progress:
+    name: Progress counts
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the counts
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/progress-target"
+          cargo test --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml
+          cargo run --locked --quiet --release --manifest-path scripts/ledger/Cargo.toml -- --tsv "$RUNNER_TEMP/ledger.tsv" >/dev/null
+          git checkout -- docs/LEDGER.md
+          tool=(cargo run --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml --)
+          "${tool[@]}" fetch --sources "$RUNNER_TEMP/pins"
+          baseline=()
+          if git show "$BASE:docs/media/fork-progress.json" >"$RUNNER_TEMP/baseline.json" 2>/dev/null; then
+            baseline=(--baseline "$RUNNER_TEMP/baseline.json")
+          fi
+          allow=()
+          printf '%s\n' "$BODY" | tr -d '\r' >"$RUNNER_TEMP/pr-body.md"
+          if grep -qE '^Progress-Drop: *[^ ]' "$RUNNER_TEMP/pr-body.md"; then allow=(--allow-drop); fi
+          # The upstream replay (this repository's own sync branch) carries upstream's changes as they are: its drops
+          # are reported, not refused.
+          if [ "$HEAD_REF" = sync/upstream ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then allow=(--allow-drop); fi
+          "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" "${baseline[@]}" "${allow[@]}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, build, coverage, facade, macos]
+    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -273,7 +316,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/fork
 
-      # A skipped job fails, except the three that only run on pull requests (hygiene also skips when
+      # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
       # its override label is set), the build when only documentation or fork-owned files changed and the macOS job
       # when only documentation changed.
       - name: Every job passed
@@ -281,7 +324,7 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage")) or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.

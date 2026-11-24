@@ -13,6 +13,7 @@
 .github/workflows/fork-ci.yml
 .github/workflows/fork-fuzz.yml
 .github/workflows/fork-package-windows.yml
+.github/workflows/fork-progress.yml
 .github/workflows/fork-release-build.yml
 .github/workflows/fork-security.yml
 .github/workflows/fork-sync.yml
@@ -92,3 +93,11 @@ crates/d3d9-wgpu/src/gputime.rs
 crates/host/src/fork_prestart.rs
 crates/d3d9-wgpu/src/gfx_overlay.rs
 crates/d3d9-wgpu/tests/gfx_overlay.rs
+# The progress pictures and their summary (scripts/fork/progress, docs/fork/PROGRESS.md), fork-only files in upstream's
+# docs/media/ beside upstream's own progress.svg.
+docs/media/fork-progress.json
+docs/media/fork-progress-engine.svg
+docs/media/fork-progress-native.svg
+docs/media/fork-progress-d3d9.svg
+docs/media/fork-progress-extenders.svg
+docs/media/fork-progress-features.svg
