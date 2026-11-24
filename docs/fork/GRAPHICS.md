@@ -175,7 +175,7 @@ the far land and objects, the near land and the references its water form names,
 
 | Setting | What it does | Default | Applies |
 | --- | --- | --- | --- |
-| `placed_reflections` | `game`: the original (sky only); `low`: outdoor groups away from the world's water height draw the game's own group reflection at low detail (sky, far land and far objects); `high`: every outdoor group, also at the world's water height, draws its own reflection holding the whole loaded scene (the game's world scene graph, as its world reflection holds it with `bForceHighDetailReflections`): land, statics, trees and buildings around the water | `game` | live |
+| `placed_reflections` | `game`: the original (sky only); `low`: outdoor groups away from the world's water height draw the game's own group reflection at low detail (sky, far land and far objects); `high`: every outdoor group, also at the world's water height, draws its own reflection holding the whole loaded scene (the game's world scene graph, as its world reflection holds it with `bForceHighDetailReflections`): land, statics, trees and buildings around the water, drawn in their colours (not as the sky-coloured silhouettes `bAutoWaterSilhouetteReflections` gives) | `game` | live |
 
 With `low` or `high` the far (LOD) water takes the reflection of the highest such group below the viewer: its blocks
 hold every lake and river of the world in one shape, so it cannot be split by height; the near water is the one the

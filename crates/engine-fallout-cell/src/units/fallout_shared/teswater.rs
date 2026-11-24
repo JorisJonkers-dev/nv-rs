@@ -6267,7 +6267,10 @@ fn setup_group_reflections(
         assign_new_accumulator(e, sorter_slot);
     }
     prepare_accumulator(e, sorter_slot, camera_slot);
-    if e.get(group, PlaceableWaterGroup::bRenderSilhouetteReflections) {
+    // nv-rs#848: a reflection of the whole scene is drawn in its colours, not as the sky-coloured
+    // silhouettes `bAutoWaterSilhouetteReflections` gives.
+    let scene = !low_detail && group_reflects_the_scene(e);
+    if e.get(group, PlaceableWaterGroup::bRenderSilhouetteReflections) && !scene {
         set_silhouette_color(e, sorter_slot);
     }
 
@@ -6281,7 +6284,6 @@ fn setup_group_reflections(
     e.call(LIST_REMOVE_ALL, &args![dynamic_objects]);
     let references = group.at(PlaceableWaterGroup::PlaceableWaterList).addr();
     let reflected_refs_map = address_of(this, TESWaterSystem::ReflectionRefMap);
-    let scene = !low_detail && group_reflects_the_scene(e);
     let mut scene_added = false;
     let mut sky_added = false;
     let mut land_added = false;
@@ -15135,8 +15137,9 @@ mod tests {
         }
 
         /// nv-rs#848: with `water.placed_reflections` high an outdoor group's reflection holds the world scene
-        /// graph (every loaded static around the water), once and alone; the game's lists otherwise, and
-        /// indoors or at low detail whatever the level.
+        /// graph (every loaded static around the water), once and alone, drawn in its colours rather than as
+        /// silhouettes; the game's lists and silhouettes otherwise, and indoors or at low detail whatever the
+        /// level.
         #[test]
         fn a_high_outdoor_group_reflection_holds_the_whole_scene() {
             use placed_reflections::Level;
@@ -15161,21 +15164,33 @@ mod tests {
                 r.w.e.mem.set_u32(second + REF_CELL, cell);
                 let first = r.w.water_reference;
                 fill_list(&mut r.w.e, r.w.group.addr() + 0x24, &[first, second]);
+                // `bAutoWaterSilhouetteReflections` asked for silhouettes.
+                r.w.e.set(
+                    r.w.group,
+                    PlaceableWaterGroup::bRenderSilhouetteReflections,
+                    true,
+                );
                 placed_reflections::set(level);
                 r.run(low_detail);
                 placed_reflections::set(Level::Game);
-                r.static_objects()
+                let silhouette = !calls(&r.w.e, ACCUMULATOR_SET_WORD_19C).is_empty();
+                (r.static_objects(), silhouette)
             };
-            assert_eq!(run(Level::High, false, false), vec![0x6161]);
-            let game = run(Level::Game, false, false);
+            // The scene, once and alone, in its colours (no silhouette).
+            assert_eq!(run(Level::High, false, false), (vec![0x6161], false));
+            let (game, silhouette) = run(Level::Game, false, false);
             assert!(game.contains(&SKY_OBJECTS) && game.contains(&TERRAIN_A));
             assert!(!game.contains(&0x6161));
-            assert_eq!(run(Level::Low, false, false), game);
+            assert!(silhouette, "the game's silhouettes stay");
+            assert_eq!(run(Level::Low, false, false), (game, true));
             assert!(
-                !run(Level::High, true, false).contains(&0x6161),
+                !run(Level::High, true, false).0.contains(&0x6161),
                 "low detail"
             );
-            assert!(!run(Level::High, false, true).contains(&0x6161), "interior");
+            assert!(
+                !run(Level::High, false, true).0.contains(&0x6161),
+                "interior"
+            );
         }
 
         #[test]
