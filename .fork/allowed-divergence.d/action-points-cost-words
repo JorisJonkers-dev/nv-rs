@@ -1,0 +1,1 @@
+crates/engine-fallout-forms/src/units/fallout_shared/actionpoints.rs  # fn_0066dca0 declared with the four words the game's cdecl function is given (upstream declares two, so its own jip_call_arity check fails on lStewieAl's Tweaks' run-and-gun call); drop when upstream's entry takes four words or its caller passes two
