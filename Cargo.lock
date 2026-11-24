@@ -1173,6 +1173,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "fork-catalogue"
+version = "0.1.0"
+
+[[package]]
 name = "fork-gfx"
 version = "0.1.0"
 
@@ -1505,6 +1509,7 @@ name = "jg"
 version = "0.1.0"
 dependencies = [
  "engine-core",
+ "fork-catalogue",
  "nvse",
 ]
 
@@ -2777,6 +2782,7 @@ name = "showoff"
 version = "0.1.0"
 dependencies = [
  "engine-core",
+ "fork-catalogue",
  "nvse",
 ]
 
@@ -3020,6 +3026,7 @@ name = "ttw-nvse"
 version = "0.1.0"
 dependencies = [
  "engine-core",
+ "fork-catalogue",
  "nvse",
 ]
 

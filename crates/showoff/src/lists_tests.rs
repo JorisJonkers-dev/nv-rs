@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::test_support::{add_local, call, call_expr, engine, n, r, set_script_ref};
+use fork_catalogue::{covers, ids};
 use nvse::vars::{Key, Value};
 
 const LIST_ADD_LIST: u32 = 0x3cad;
@@ -140,6 +141,7 @@ fn the_commands_are_registered_where_the_plugin_lists_them() {
 
 #[test]
 fn a_list_is_appended_at_the_end_in_its_order() {
+    covers(&[ids::extenders::showoff::LISTADDLIST]);
     let mut e = setup();
     assert_eq!(add_list(&mut e, &[r(1), r(2)]), 1.0);
     assert_eq!(members(&e, DEST), [1, 2, 3, 4]);
@@ -156,6 +158,7 @@ fn a_list_is_appended_at_the_end_in_its_order() {
 
 #[test]
 fn an_index_puts_the_forms_there_with_their_order_kept() {
+    covers(&[ids::extenders::showoff::LISTADDLIST]);
     let mut e = setup();
     assert_eq!(add_list(&mut e, &[r(1), r(2), n(0)]), 1.0);
     assert_eq!(members(&e, DEST), [2, 3, 4, 1]);
@@ -168,6 +171,7 @@ fn an_index_puts_the_forms_there_with_their_order_kept() {
 
 #[test]
 fn an_error_answers_zero() {
+    covers(&[ids::extenders::showoff::LISTADDLIST]);
     let mut e = setup();
     // A destination or a source that is no list.
     assert_eq!(add_list(&mut e, &[r(4), r(2)]), 0.0);
@@ -185,6 +189,7 @@ fn an_error_answers_zero() {
 
 #[test]
 fn an_empty_source_is_a_success_and_a_list_added_to_itself_doubles() {
+    covers(&[ids::extenders::showoff::LISTADDLIST]);
     let mut e = setup();
     assert_eq!(add_list(&mut e, &[r(1), r(3)]), 1.0);
     assert_eq!(members(&e, DEST), [1]);
@@ -194,6 +199,7 @@ fn an_empty_source_is_a_success_and_a_list_added_to_itself_doubles() {
 
 #[test]
 fn forms_scripts_added_are_counted_as_listaddform_counts_them() {
+    covers(&[ids::extenders::showoff::LISTADDLIST]);
     // An index below the count of forms scripts added goes after them (ListAddForm's rule): the
     // order of the source is still kept.
     let mut e = setup();
@@ -263,6 +269,7 @@ fn mixed() -> Vec<(Key, Value)> {
 
 #[test]
 fn an_array_adds_its_forms_and_skips_the_rest() {
+    covers(&[ids::extenders::showoff::LISTADDARRAY]);
     let mut e = setup();
     array_of(&mut e, 1, vars::KEY_NUMBER, true, &mixed());
     assert_eq!(add_array(&mut e, &[list_expr(1), array_expr(1)]), 1.0);
@@ -283,6 +290,7 @@ fn an_array_adds_its_forms_and_skips_the_rest() {
 
 #[test]
 fn a_map_is_added_in_its_key_order() {
+    covers(&[ids::extenders::showoff::LISTADDARRAY]);
     let mut e = setup();
     array_of(
         &mut e,
@@ -313,6 +321,7 @@ fn a_map_is_added_in_its_key_order() {
 
 #[test]
 fn an_array_error_answers_zero() {
+    covers(&[ids::extenders::showoff::LISTADDARRAY]);
     let mut e = setup();
     array_of(&mut e, 1, vars::KEY_NUMBER, true, &mixed());
     // A first argument that is no list.
@@ -339,6 +348,7 @@ fn an_array_error_answers_zero() {
 
 #[test]
 fn an_array_without_forms_is_a_success() {
+    covers(&[ids::extenders::showoff::LISTADDARRAY]);
     let mut e = setup();
     array_of(&mut e, 1, vars::KEY_NUMBER, true, &[]);
     assert_eq!(add_array(&mut e, &[list_expr(1), array_expr(1)]), 1.0);

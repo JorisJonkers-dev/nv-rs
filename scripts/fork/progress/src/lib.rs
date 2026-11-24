@@ -4,6 +4,7 @@
 //! read from pinned outside sources; nothing is kept by hand. docs/fork/PROGRESS.md says what each
 //! number counts and how a count is proven.
 
+pub mod catalogue;
 pub mod cpp;
 pub mod d3d9;
 pub mod draw;
@@ -12,6 +13,7 @@ pub mod extenders;
 pub mod features;
 pub mod json;
 pub mod pins;
+pub mod sha256;
 pub mod svg;
 
 use json::{obj, Value};

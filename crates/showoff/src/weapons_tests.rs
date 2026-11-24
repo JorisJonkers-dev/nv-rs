@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::test_support::{call, engine, n, r, set_script_ref, RESULT};
+use fork_catalogue::{covers, ids};
 
 const IS_WEAPON_MELEE: u32 = 0x3c9d;
 const IS_EQUIPPED_WEAPON_MELEE: u32 = 0x3c9e;
@@ -117,6 +118,10 @@ fn the_names_are_listed_after_the_other_groups() {
 /// its base form; no argument asks the calling reference.
 #[test]
 fn melee_and_ranged_follow_the_weapon_type() {
+    covers(&[
+        ids::extenders::showoff::ISWEAPONMELEE,
+        ids::extenders::showoff::ISWEAPONRANGED,
+    ]);
     let mut e = setup();
     for (i, form) in [FIST, RIFLE, ARMOR, REFERENCE].into_iter().enumerate() {
         set_script_ref(&mut e, i as u16 + 1, form);
@@ -150,6 +155,7 @@ fn melee_and_ranged_follow_the_weapon_type() {
 /// The equipped weapon decides, and with none equipped the answer is 1 (the page's fists).
 #[test]
 fn an_equipped_weapon_is_asked_and_none_means_melee() {
+    covers(&[ids::extenders::showoff::ISEQUIPPEDWEAPONMELEE]);
     let mut e = setup();
     assert_eq!(call(&mut e, IS_EQUIPPED_WEAPON_MELEE, ACTOR, &[]), (1, 1.0));
     wear(&mut e, RIFLE);
@@ -166,6 +172,7 @@ fn an_equipped_weapon_is_asked_and_none_means_melee() {
 /// negative index, are no flag.
 #[test]
 fn flags_are_read_by_index_over_both_flag_words() {
+    covers(&[ids::extenders::showoff::GETWEAPONHASFLAG]);
     let mut e = setup();
     set_script_ref(&mut e, 1, RIFLE);
     set_script_ref(&mut e, 2, ARMOR);
@@ -186,6 +193,7 @@ fn flags_are_read_by_index_over_both_flag_words() {
 /// form that is not a weapon.
 #[test]
 fn a_flag_is_set_and_cleared_by_index() {
+    covers(&[ids::extenders::showoff::SETWEAPONFLAG]);
     let mut e = setup();
     set_script_ref(&mut e, 1, RIFLE);
     set_script_ref(&mut e, 2, ARMOR);

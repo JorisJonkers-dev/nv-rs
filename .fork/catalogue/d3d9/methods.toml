@@ -1,0 +1,519 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "d3d9.methods"
+title = "IDirect3DDevice9 methods on wgpu"
+origin = "original"
+reference = "d3d9-methods"
+items_from = "ref/d3d9_methods.tsv"
+items_from_status = "missing"
+notes = "Every method of the device interface (mingw-w64 d3d9.h). Implemented: a command of the recorded stream carries it to wgpu; partial: the device answers it, but nothing reaches wgpu."
+
+[[item]]
+id = "queryinterface"
+title = "QueryInterface"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:queryinterface"]
+
+[[item]]
+id = "addref"
+title = "AddRef"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:addref"]
+
+[[item]]
+id = "release"
+title = "Release"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:release"]
+
+[[item]]
+id = "testcooperativelevel"
+title = "TestCooperativeLevel"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:testcooperativelevel"]
+
+[[item]]
+id = "getdirect3d"
+title = "GetDirect3D"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getdirect3d"]
+
+[[item]]
+id = "getdevicecaps"
+title = "GetDeviceCaps"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getdevicecaps"]
+
+[[item]]
+id = "getdisplaymode"
+title = "GetDisplayMode"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getdisplaymode"]
+
+[[item]]
+id = "getcreationparameters"
+title = "GetCreationParameters"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getcreationparameters"]
+
+[[item]]
+id = "reset"
+title = "Reset"
+status = "implemented"
+ref = ["d3d9-methods:reset"]
+
+[[item]]
+id = "present"
+title = "Present"
+status = "implemented"
+ref = ["d3d9-methods:present"]
+
+[[item]]
+id = "getbackbuffer"
+title = "GetBackBuffer"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getbackbuffer"]
+
+[[item]]
+id = "setgammaramp"
+title = "SetGammaRamp"
+status = "implemented"
+ref = ["d3d9-methods:setgammaramp"]
+
+[[item]]
+id = "createtexture"
+title = "CreateTexture"
+status = "implemented"
+ref = ["d3d9-methods:createtexture"]
+
+[[item]]
+id = "createcubetexture"
+title = "CreateCubeTexture"
+status = "implemented"
+ref = ["d3d9-methods:createcubetexture"]
+
+[[item]]
+id = "createvertexbuffer"
+title = "CreateVertexBuffer"
+status = "implemented"
+ref = ["d3d9-methods:createvertexbuffer"]
+
+[[item]]
+id = "createindexbuffer"
+title = "CreateIndexBuffer"
+status = "implemented"
+ref = ["d3d9-methods:createindexbuffer"]
+
+[[item]]
+id = "createrendertarget"
+title = "CreateRenderTarget"
+status = "implemented"
+ref = ["d3d9-methods:createrendertarget"]
+
+[[item]]
+id = "createdepthstencilsurface"
+title = "CreateDepthStencilSurface"
+status = "implemented"
+ref = ["d3d9-methods:createdepthstencilsurface"]
+
+[[item]]
+id = "updatetexture"
+title = "UpdateTexture"
+status = "implemented"
+ref = ["d3d9-methods:updatetexture"]
+
+[[item]]
+id = "getrendertargetdata"
+title = "GetRenderTargetData"
+status = "implemented"
+ref = ["d3d9-methods:getrendertargetdata"]
+
+[[item]]
+id = "stretchrect"
+title = "StretchRect"
+status = "implemented"
+ref = ["d3d9-methods:stretchrect"]
+
+[[item]]
+id = "colorfill"
+title = "ColorFill"
+status = "implemented"
+ref = ["d3d9-methods:colorfill"]
+
+[[item]]
+id = "createoffscreenplainsurface"
+title = "CreateOffscreenPlainSurface"
+status = "implemented"
+ref = ["d3d9-methods:createoffscreenplainsurface"]
+
+[[item]]
+id = "setrendertarget"
+title = "SetRenderTarget"
+status = "implemented"
+ref = ["d3d9-methods:setrendertarget"]
+
+[[item]]
+id = "getrendertarget"
+title = "GetRenderTarget"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getrendertarget"]
+
+[[item]]
+id = "setdepthstencilsurface"
+title = "SetDepthStencilSurface"
+status = "implemented"
+ref = ["d3d9-methods:setdepthstencilsurface"]
+
+[[item]]
+id = "getdepthstencilsurface"
+title = "GetDepthStencilSurface"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getdepthstencilsurface"]
+
+[[item]]
+id = "beginscene"
+title = "BeginScene"
+status = "implemented"
+ref = ["d3d9-methods:beginscene"]
+
+[[item]]
+id = "endscene"
+title = "EndScene"
+status = "implemented"
+ref = ["d3d9-methods:endscene"]
+
+[[item]]
+id = "clear"
+title = "Clear"
+status = "implemented"
+ref = ["d3d9-methods:clear"]
+
+[[item]]
+id = "settransform"
+title = "SetTransform"
+status = "implemented"
+ref = ["d3d9-methods:settransform"]
+
+[[item]]
+id = "gettransform"
+title = "GetTransform"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:gettransform"]
+
+[[item]]
+id = "setviewport"
+title = "SetViewport"
+status = "implemented"
+ref = ["d3d9-methods:setviewport"]
+
+[[item]]
+id = "getviewport"
+title = "GetViewport"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getviewport"]
+
+[[item]]
+id = "setmaterial"
+title = "SetMaterial"
+status = "implemented"
+ref = ["d3d9-methods:setmaterial"]
+
+[[item]]
+id = "setlight"
+title = "SetLight"
+status = "implemented"
+ref = ["d3d9-methods:setlight"]
+
+[[item]]
+id = "lightenable"
+title = "LightEnable"
+status = "implemented"
+ref = ["d3d9-methods:lightenable"]
+
+[[item]]
+id = "setclipplane"
+title = "SetClipPlane"
+status = "implemented"
+ref = ["d3d9-methods:setclipplane"]
+
+[[item]]
+id = "setrenderstate"
+title = "SetRenderState"
+status = "implemented"
+ref = ["d3d9-methods:setrenderstate"]
+
+[[item]]
+id = "getrenderstate"
+title = "GetRenderState"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getrenderstate"]
+
+[[item]]
+id = "gettexture"
+title = "GetTexture"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:gettexture"]
+
+[[item]]
+id = "settexture"
+title = "SetTexture"
+status = "implemented"
+ref = ["d3d9-methods:settexture"]
+
+[[item]]
+id = "gettexturestagestate"
+title = "GetTextureStageState"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:gettexturestagestate"]
+
+[[item]]
+id = "settexturestagestate"
+title = "SetTextureStageState"
+status = "implemented"
+ref = ["d3d9-methods:settexturestagestate"]
+
+[[item]]
+id = "getsamplerstate"
+title = "GetSamplerState"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getsamplerstate"]
+
+[[item]]
+id = "setsamplerstate"
+title = "SetSamplerState"
+status = "implemented"
+ref = ["d3d9-methods:setsamplerstate"]
+
+[[item]]
+id = "setscissorrect"
+title = "SetScissorRect"
+status = "implemented"
+ref = ["d3d9-methods:setscissorrect"]
+
+[[item]]
+id = "getscissorrect"
+title = "GetScissorRect"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getscissorrect"]
+
+[[item]]
+id = "setsoftwarevertexprocessing"
+title = "SetSoftwareVertexProcessing"
+status = "implemented"
+ref = ["d3d9-methods:setsoftwarevertexprocessing"]
+
+[[item]]
+id = "drawprimitive"
+title = "DrawPrimitive"
+status = "implemented"
+ref = ["d3d9-methods:drawprimitive"]
+
+[[item]]
+id = "drawindexedprimitive"
+title = "DrawIndexedPrimitive"
+status = "implemented"
+ref = ["d3d9-methods:drawindexedprimitive"]
+
+[[item]]
+id = "drawprimitiveup"
+title = "DrawPrimitiveUP"
+status = "implemented"
+ref = ["d3d9-methods:drawprimitiveup"]
+
+[[item]]
+id = "createvertexdeclaration"
+title = "CreateVertexDeclaration"
+status = "implemented"
+ref = ["d3d9-methods:createvertexdeclaration"]
+
+[[item]]
+id = "setvertexdeclaration"
+title = "SetVertexDeclaration"
+status = "implemented"
+ref = ["d3d9-methods:setvertexdeclaration"]
+
+[[item]]
+id = "getvertexdeclaration"
+title = "GetVertexDeclaration"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getvertexdeclaration"]
+
+[[item]]
+id = "setfvf"
+title = "SetFVF"
+status = "implemented"
+ref = ["d3d9-methods:setfvf"]
+
+[[item]]
+id = "getfvf"
+title = "GetFVF"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getfvf"]
+
+[[item]]
+id = "createvertexshader"
+title = "CreateVertexShader"
+status = "implemented"
+ref = ["d3d9-methods:createvertexshader"]
+
+[[item]]
+id = "setvertexshader"
+title = "SetVertexShader"
+status = "implemented"
+ref = ["d3d9-methods:setvertexshader"]
+
+[[item]]
+id = "getvertexshader"
+title = "GetVertexShader"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getvertexshader"]
+
+[[item]]
+id = "setvertexshaderconstantf"
+title = "SetVertexShaderConstantF"
+status = "implemented"
+ref = ["d3d9-methods:setvertexshaderconstantf"]
+
+[[item]]
+id = "getvertexshaderconstantf"
+title = "GetVertexShaderConstantF"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getvertexshaderconstantf"]
+
+[[item]]
+id = "setvertexshaderconstanti"
+title = "SetVertexShaderConstantI"
+status = "implemented"
+ref = ["d3d9-methods:setvertexshaderconstanti"]
+
+[[item]]
+id = "getvertexshaderconstanti"
+title = "GetVertexShaderConstantI"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getvertexshaderconstanti"]
+
+[[item]]
+id = "setvertexshaderconstantb"
+title = "SetVertexShaderConstantB"
+status = "implemented"
+ref = ["d3d9-methods:setvertexshaderconstantb"]
+
+[[item]]
+id = "getvertexshaderconstantb"
+title = "GetVertexShaderConstantB"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getvertexshaderconstantb"]
+
+[[item]]
+id = "setstreamsource"
+title = "SetStreamSource"
+status = "implemented"
+ref = ["d3d9-methods:setstreamsource"]
+
+[[item]]
+id = "getstreamsource"
+title = "GetStreamSource"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getstreamsource"]
+
+[[item]]
+id = "setindices"
+title = "SetIndices"
+status = "implemented"
+ref = ["d3d9-methods:setindices"]
+
+[[item]]
+id = "getindices"
+title = "GetIndices"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getindices"]
+
+[[item]]
+id = "createpixelshader"
+title = "CreatePixelShader"
+status = "implemented"
+ref = ["d3d9-methods:createpixelshader"]
+
+[[item]]
+id = "setpixelshader"
+title = "SetPixelShader"
+status = "implemented"
+ref = ["d3d9-methods:setpixelshader"]
+
+[[item]]
+id = "getpixelshader"
+title = "GetPixelShader"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getpixelshader"]
+
+[[item]]
+id = "setpixelshaderconstantf"
+title = "SetPixelShaderConstantF"
+status = "implemented"
+ref = ["d3d9-methods:setpixelshaderconstantf"]
+
+[[item]]
+id = "getpixelshaderconstantf"
+title = "GetPixelShaderConstantF"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getpixelshaderconstantf"]
+
+[[item]]
+id = "setpixelshaderconstanti"
+title = "SetPixelShaderConstantI"
+status = "implemented"
+ref = ["d3d9-methods:setpixelshaderconstanti"]
+
+[[item]]
+id = "getpixelshaderconstanti"
+title = "GetPixelShaderConstantI"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getpixelshaderconstanti"]
+
+[[item]]
+id = "setpixelshaderconstantb"
+title = "SetPixelShaderConstantB"
+status = "implemented"
+ref = ["d3d9-methods:setpixelshaderconstantb"]
+
+[[item]]
+id = "getpixelshaderconstantb"
+title = "GetPixelShaderConstantB"
+status = "partial"
+label = "answered, not carried to wgpu"
+ref = ["d3d9-methods:getpixelshaderconstantb"]
+
+[[item]]
+id = "createquery"
+title = "CreateQuery"
+status = "implemented"
+ref = ["d3d9-methods:createquery"]

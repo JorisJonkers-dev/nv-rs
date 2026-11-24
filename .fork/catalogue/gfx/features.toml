@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "gfx.features"
+title = "Graphics plan capabilities"
+origin = "ours"
+items_from = "ref/graphics_features.tsv"
+items_from_status = "missing"
+notes = "The graphics plan (docs/fork/graphics-features.tsv). Implemented: a built-in setting declares the capability in crates/fork-gfx/src/atlas.rs."
+
+[[item]]
+id = "ao"
+title = "Ambient occlusion"
+status = "implemented"
+
+[[item]]
+id = "night_light"
+title = "Night and emitted light"
+status = "implemented"
+
+[[item]]
+id = "shadows"
+title = "Sun shadows"
+status = "implemented"
+
+[[item]]
+id = "reflections"
+title = "Live reflections"
+status = "implemented"
+
+[[item]]
+id = "aniso"
+title = "Texture filtering"
+status = "implemented"
