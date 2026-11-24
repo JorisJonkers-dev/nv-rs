@@ -500,6 +500,18 @@ mod tests {
     }
 
     #[test]
+    fn the_lamp_distance_is_the_game_s_unless_chosen() {
+        let distance = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.lamp_distance
+        };
+        assert_eq!(distance(&[]), 1.0, "the game's fade by default");
+        assert_eq!(distance(&[("NV_GFX_PRESET", "original")]), 1.0);
+        assert_eq!(distance(&[("NV_GFX_PRESET", "modern")]), 4.0);
+        assert_eq!(distance(&[("NV_GFX", "light.lamp_distance=8")]), 8.0);
+    }
+
+    #[test]
     fn every_built_in_module_is_applied() {
         // A module added to fork_gfx::builtin needs its switches here: this list is the check.
         let ids: Vec<&str> = builtin::specs().iter().map(|s| s.id).collect();

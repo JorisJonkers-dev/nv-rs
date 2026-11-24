@@ -118,7 +118,7 @@ game's phase, fade and height, so a new moon gives no direct light and no moon s
 direction is the fill.
 
 `modern` takes `ambient_exterior` 0.7, `ambient_interior` 1, `ambient_night` 1, `sun` 0.65, `moon` 0.75,
-`moon_max_height` 45, `moon_specular` 2, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
+`moon_max_height` 45, `moon_specular` 2, `lamp_distance` 4, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
 `original`: sunlit light 0.83 and shade 0.91 over the 22 day exteriors; moonlit light 0.82 and shade 0.96 over the 7 night
 views. 45 degrees is the lowest moon height tested that keeps the detail check below at the night Strip skyline.
 
