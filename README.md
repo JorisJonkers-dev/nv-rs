@@ -28,7 +28,7 @@ default branch `fork` regularly, with their authors, dates and an `Upstream-Comm
 upstream reaches this repository and its releases. `main` is an exact mirror of upstream's `main`.
 
 We forked for two reasons. The work here is organised differently: required checks, Conventional Commits,
-release-please, fuzzing, and builds for three systems on every pull request. And we wanted to make releases
+release-please, fuzzing, and Linux and Windows builds on every pull request (macOS on labelled ones). And we wanted to make releases
 easily and often, for Linux, Windows and macOS, so that raul can ship a tested engine with every version. How the
 fork follows upstream is in [FORK.md](FORK.md) and [docs/fork/KEEPING-IN-SYNC.md](docs/fork/KEEPING-IN-SYNC.md);
 everything the fork changes in upstream's files is listed, with the reason, in
@@ -97,10 +97,10 @@ release after v0.24.0; the other settings are in v0.24.0.
 ### More
 
 - **Linux and macOS.** The engine builds and runs natively on Linux (Vulkan through wgpu, X11 or Wayland, sound
-  through PulseAudio or PipeWire); macOS builds are made and tested in part. See [docs/fork/LINUX.md](docs/fork/LINUX.md).
-- **Mod support beyond upstream.** JohnnyGuitar NVSE and ShowOff xNVSE answer as installed to mods that check for
-  them, with parts of them built in, and a game with Tale of Two Wastelands switches on the extenders its scripts ask for. Loading
-  the plugin DLLs of mods themselves is in progress and off by default
+  through the PulseAudio library, which PipeWire also serves); macOS builds are made and tested in part. See [docs/fork/LINUX.md](docs/fork/LINUX.md).
+- **Tale of Two Wastelands starts.** For a game with Tale of Two Wastelands, the engine answers as installed for the
+  script extenders TTW checks at a new game (JIP LN, JohnnyGuitar, ShowOff, lStewieAl's Tweaks and its own plugin).
+  Loading the plugin DLLs of mods themselves is in progress and off by default
   ([ADR-0018](docs/fork/adr/0018-plugin-dlls-loaded.md)).
 - **A library for other programs.** The crates `fork-api` and `fork-play` let a program link the engine and start
   a game from its own binary; that is how raul runs it ([ADR-0017](docs/fork/adr/0017-engine-linked-into-another-program.md),
@@ -115,7 +115,7 @@ release after v0.24.0; the other settings are in v0.24.0.
 
 Most players should use [raul](#raul-the-easy-way-to-play). The engine on its own is on the
 [releases page](https://github.com/JorisJonkers-dev/nv-rs/releases/latest): a Windows setup `.exe` and preview
-`.zip`, a Linux `.tar.gz` and a macOS `.tar.gz`, each with a `SHA256SUMS` file, and OCI packages on ghcr.io for
+`.zip`, a Linux `.tar.gz` and a macOS `.tar.gz`, with checksum files, and OCI packages on ghcr.io for
 Linux and Windows. To build from source, see [docs/PLAYTESTING.md](docs/PLAYTESTING.md) and
 [docs/fork/LOCAL.md](docs/fork/LOCAL.md).
 
