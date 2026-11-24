@@ -117,6 +117,8 @@ pub struct Levels {
     pub ambient: AmbientShares,
     /// `light.lamp_distance` (set while the game runs too): the scale of the lamps' fade distances.
     pub lamp_distance: f32,
+    /// `water.placed_reflections` (set while the game runs too).
+    pub placed_reflections: engine::placed_reflections::Level,
 }
 
 /// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
@@ -237,8 +239,23 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
             shadow_map_size,
             ambient,
             lamp_distance: light.slider("lamp_distance") as f32,
+            placed_reflections: placed_reflections(
+                r.module("water")
+                    .expect("built in")
+                    .choice("placed_reflections"),
+            ),
         },
     )
+}
+
+/// `water.placed_reflections`' choice as the engine's level.
+fn placed_reflections(choice: &str) -> engine::placed_reflections::Level {
+    use engine::placed_reflections::Level;
+    match choice {
+        "low" => Level::Low,
+        "high" => Level::High,
+        _ => Level::Game,
+    }
 }
 
 /// The profile's settings file: beside the run's `Fallout.ini`.
@@ -292,6 +309,7 @@ pub fn start(
     d3d9_wgpu::sun_shadow::set_map_size(levels.shadow_map_size)?;
     set_ambient_shares(levels.ambient);
     engine::lamp_distance::set(levels.lamp_distance);
+    engine::placed_reflections::set(levels.placed_reflections);
     if !r.is_original() {
         lines.push(format!(
             "nv-rs: graphics: ambient occlusion {} ({:?}, strength {}), sun shadows {} (maps {}), fill light outdoors {} indoors {}",
@@ -330,6 +348,7 @@ pub fn session(
             d3d9_wgpu::scene_light::set_live_strength(Some(c.ambient_occlusion_strength));
             set_ambient_shares(l.ambient);
             engine::lamp_distance::set(l.lamp_distance);
+            engine::placed_reflections::set(l.placed_reflections);
         }),
     )
 }
@@ -354,6 +373,7 @@ mod tests {
             shadow_map_size: size,
             ambient: AmbientShares::ORIGINAL,
             lamp_distance: 1.0,
+            placed_reflections: engine::placed_reflections::Level::Game,
         }
     }
 
@@ -512,9 +532,29 @@ mod tests {
     }
 
     #[test]
+    fn placed_water_reflects_the_sky_only_unless_chosen() {
+        use engine::placed_reflections::Level;
+        let level = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.placed_reflections
+        };
+        assert_eq!(
+            level(&[]),
+            Level::Game,
+            "the game's sky reflection by default"
+        );
+        assert_eq!(level(&[("NV_GFX_PRESET", "original")]), Level::Game);
+        assert_eq!(level(&[("NV_GFX_PRESET", "modern")]), Level::High);
+        assert_eq!(
+            level(&[("NV_GFX", "water.placed_reflections=low")]),
+            Level::Low
+        );
+    }
+
+    #[test]
     fn every_built_in_module_is_applied() {
         // A module added to fork_gfx::builtin needs its switches here: this list is the check.
         let ids: Vec<&str> = builtin::specs().iter().map(|s| s.id).collect();
-        assert_eq!(ids, ["ao", "shadows", "light"]);
+        assert_eq!(ids, ["ao", "shadows", "light", "water"]);
     }
 }

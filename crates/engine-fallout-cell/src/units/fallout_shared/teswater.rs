@@ -78,6 +78,97 @@
 use crate::prelude::*;
 use engine_core::extend::stewie;
 
+/// Reflections of placed water outdoors (nv-rs#844, a fork setting: `water.placed_reflections`). The game gives
+/// outdoor water at the world space's own water height the world reflection map (the sky, the far land and,
+/// with `bForceHighDetailReflections`, the scene); every other outdoor water (a lake or a river placed at its
+/// own height, as Lake Mead) gets the sky reflection map only, so it mirrors the clouds and nothing of the land.
+/// The game keeps a reflection of its own for each water group, made about the group's own plane with the
+/// land, the far land, the reflected references and the explosions its water form asks for, and uses it only
+/// indoors. With this setting outdoor groups away from the world's water height take that path too: `Low` is
+/// the game's low-detail group reflection (the sky and the far land and objects the water form names),
+/// `High` adds the loaded land and the references the water reflects (what `bForceHighDetailReflections` and
+/// an interior give). `Game` (the default) is the exe's choice, unchanged.
+pub mod placed_reflections {
+    use std::sync::atomic::{AtomicU8, Ordering};
+
+    /// How placed outdoor water reflects.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Level {
+        /// The game's: the sky reflection map.
+        Game,
+        /// The group's own reflection, low detail.
+        Low,
+        /// The group's own reflection, high detail.
+        High,
+    }
+
+    static LEVEL: AtomicU8 = AtomicU8::new(0);
+
+    /// Sets the level from the next frame on.
+    pub fn set(level: Level) {
+        let v = match level {
+            Level::Game => 0,
+            Level::Low => 1,
+            Level::High => 2,
+        };
+        LEVEL.store(v, Ordering::Relaxed);
+    }
+
+    /// The level now.
+    pub fn get() -> Level {
+        match LEVEL.load(Ordering::Relaxed) {
+            1 => Level::Low,
+            2 => Level::High,
+            _ => Level::Game,
+        }
+    }
+}
+
+/// The slot of the reflection map the far (LOD) water takes with [`placed_reflections`]: the map of the
+/// highest placed group below the viewer that draws its own reflection outdoors (the last
+/// `UpdatePlaceableWater`'s choice). The far water's blocks carry every lake and river of the world at
+/// their own heights in one shape (their nodes sit at height 0), so one map serves them all: the near
+/// water's, the one the viewer is most likely looking at, mirrored about its plane rather than about
+/// the world's water height, which the game's world map is. None: the game's choice.
+fn lod_water_group_map(e: &mut Engine, this: Ptr<TESWaterSystem>, viewer: Ptr) -> Option<u32> {
+    if placed_reflections::get() == placed_reflections::Level::Game
+        || !setting_flag(e, SETTING_USE_WATER_REFLECTIONS)
+        || viewer.is_null()
+    {
+        return None;
+    }
+    // `NiAVObject`'s world translation: x, y, z at +0x8c.
+    let viewer_height = e.mem.f32(viewer.addr() + 0x94);
+    let group_list = this.at(TESWaterSystem::PlaceableWaterGroupList).addr();
+    let mut best: Option<(f32, u32)> = None;
+    for_each_list_item(e, group_list, |e, item| {
+        let group: Ptr<PlaceableWaterGroup> = Ptr::new(item);
+        if !e.get(group, PlaceableWaterGroup::bRenderGroup)
+            || !e.get(group, PlaceableWaterGroup::bRenderGroupReflections)
+            || !group_reflects_outdoors(e, group)
+        {
+            return;
+        }
+        let map = address_of(group, PlaceableWaterGroup::spGroupReflectionMap);
+        if pointer_in_slot(e, map) == 0 {
+            return;
+        }
+        let height = plane_constant(e, address_of(group, PlaceableWaterGroup::ReflectWaterPlane));
+        if height <= viewer_height && best.is_none_or(|(h, _)| height > h) {
+            best = Some((height, map));
+        }
+    });
+    best.map(|(_, map)| map)
+}
+
+/// Whether `group` (outdoors, away from the world space's water height) takes its own reflection
+/// ([`placed_reflections`]).
+fn group_reflects_outdoors(e: &mut Engine, group: Ptr<PlaceableWaterGroup>) -> bool {
+    placed_reflections::get() != placed_reflections::Level::Game
+        && !in_interior(e)
+        && !e.get(group, PlaceableWaterGroup::bGroupAtWorldSpaceWaterHeight)
+}
+
 // ---------------------------------------------------------------------------
 // Callees in other units, by address.
 
@@ -1655,8 +1746,9 @@ pub fn tes_water_system_update_placeable_water(
                     TESWaterSystem::iAccumulationCount,
                     stage.wrapping_add(1),
                 );
-                let high_detail =
-                    setting_flag(e, SETTING_FORCE_HIGH_DETAIL_REFLECTIONS) || in_interior(e);
+                let high_detail = setting_flag(e, SETTING_FORCE_HIGH_DETAIL_REFLECTIONS)
+                    || in_interior(e)
+                    || placed_reflections::get() == placed_reflections::Level::High;
                 let low_detail: u32 = if high_detail { 0 } else { 1 };
                 e.call(
                     SETUP_GROUP_REFLECTIONS,
@@ -1714,6 +1806,13 @@ pub fn tes_water_system_update_placeable_water(
         for_each_list_item(e, group_list, |e, item| {
             let group: Ptr<PlaceableWaterGroup> = Ptr::new(item);
             if e.get(group, PlaceableWaterGroup::bRenderGroup) && !water_skipped(e) {
+                // Set only with `water.placed_reflections` outdoors (nv-rs#844): the group's
+                // reflection is drawn as indoors.
+                if setting_flag(e, SETTING_USE_WATER_REFLECTIONS)
+                    && e.get(group, PlaceableWaterGroup::bRenderGroupReflections)
+                {
+                    e.call(FINISH_GROUP_INTERIOR, &args![this, group]);
+                }
                 e.call(FINISH_GROUP, &args![this, group]);
             } else {
                 e.call(RELEASE_GROUP, &args![this, group, 0u32, 0u32]);
@@ -1790,7 +1889,8 @@ fn update_group_member(
                     e.set(group, PlaceableWaterGroup::bRenderGroup, true);
                     switched_on = true;
                     if !water_skipped(e) {
-                        if in_interior(e) {
+                        if in_interior(e) || group_reflects_outdoors(e, group) {
+                            // Outdoors only with `water.placed_reflections` (nv-rs#844).
                             e.set(group, PlaceableWaterGroup::bRenderGroupReflections, true);
                         } else if e.get(group, PlaceableWaterGroup::bGroupAtWorldSpaceWaterHeight) {
                             e.set_global(RENDER_WORLD_REFLECTIONS, 1u8);
@@ -2134,7 +2234,11 @@ pub fn tes_water_system_update_lod_water(
                 let property = water_shader_property(e, node);
                 if !water_skipped(e) {
                     let reflection_map = address_of(property, WaterShaderProperty::spReflectionMap);
-                    if e.get(property, WaterShaderProperty::bFullReflections) {
+                    if let Some(group_map) = lod_water_group_map(e, this, viewer) {
+                        // `water.placed_reflections` (nv-rs#844): the far water takes the reflection
+                        // of the near water group below the viewer.
+                        e.call(NI_POINTER_ASSIGN_FROM, &args![reflection_map, group_map]);
+                    } else if e.get(property, WaterShaderProperty::bFullReflections) {
                         e.set_global(RENDER_WORLD_REFLECTIONS, 1u8);
                         e.call(
                             NI_POINTER_ASSIGN_FROM,
@@ -2954,7 +3058,11 @@ fn assign_group_reflection_map(
     group: Ptr<PlaceableWaterGroup>,
 ) {
     let slot = address_of(property, WaterShaderProperty::spReflectionMap);
-    if in_interior(e) {
+    if in_interior(e)
+        || (group_reflects_outdoors(e, group)
+            && e.get(group, PlaceableWaterGroup::bRenderGroupReflections)
+            && setting_flag(e, SETTING_USE_WATER_REFLECTIONS))
+    {
         let own_map = address_of(group, PlaceableWaterGroup::spGroupReflectionMap);
         e.call(NI_POINTER_ASSIGN_FROM, &args![slot, own_map]);
     } else if e.get(group, PlaceableWaterGroup::bGroupAtWorldSpaceWaterHeight) {
@@ -9508,6 +9616,115 @@ mod tests {
         s.e.mem.set_u32(s.reference + 0x40, cell);
         s.update(false);
         assert!(s.group_flag(0x5d), "a parent cell of kind 6 is enough");
+    }
+
+    /// `placed_reflections` is one value for the process: the tests that set it take turns.
+    static PLACED_REFLECTIONS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// nv-rs#844: outdoors a group away from the world space's water height mirrors only the sky in the
+    /// game; with `water.placed_reflections` it takes the group's own reflection (as indoors), low or high
+    /// detail, and its water samples the group's own map.
+    #[test]
+    fn placed_outdoor_water_takes_its_own_reflection_when_chosen() {
+        use placed_reflections::Level;
+        let _turn = PLACED_REFLECTIONS.lock().unwrap_or_else(|p| p.into_inner());
+        let run = |level: Level| {
+            placed_reflections::set(level);
+            let mut s = scene();
+            s.e.mem.set_u8(s.group.addr() + 0x5c, 0);
+            s.update(false);
+            placed_reflections::set(Level::Game);
+            s
+        };
+        // The game's: the sky map, no group reflection.
+        let s = run(Level::Game);
+        assert!(!s.group_flag(0x5f), "bRenderGroupReflections");
+        assert_eq!(s.e.global::<u8>(RENDER_SKY_REFLECTIONS), 1);
+        assert!(s.calls(SETUP_GROUP_REFLECTIONS).is_empty());
+        assert!(s.calls(FINISH_GROUP_INTERIOR).is_empty());
+        for (level, low_detail) in [(Level::Low, 1), (Level::High, 0)] {
+            let s = run(level);
+            let (this, group, viewer) = (s.this.addr(), s.group.addr(), s.viewer);
+            assert!(s.group_flag(0x5f), "{level:?}: bRenderGroupReflections");
+            assert_eq!(s.e.global::<u8>(RENDER_SKY_REFLECTIONS), 0, "{level:?}");
+            assert!(s.calls(SETUP_SKY_REFLECTIONS).is_empty(), "{level:?}");
+            assert_eq!(
+                s.calls(SETUP_GROUP_REFLECTIONS),
+                vec![vec![this, viewer, group, low_detail]],
+                "{level:?}"
+            );
+            assert_eq!(s.calls(FINISH_GROUP_INTERIOR), vec![vec![this, group]]);
+            assert_eq!(s.calls(FINISH_GROUP), vec![vec![this, group]]);
+        }
+        // A group at the world's water height keeps the world reflection whatever the level.
+        placed_reflections::set(Level::High);
+        let mut s = scene();
+        s.update(false);
+        placed_reflections::set(Level::Game);
+        assert!(!s.group_flag(0x5f));
+        assert_eq!(s.e.global::<u8>(RENDER_WORLD_REFLECTIONS), 1);
+        assert!(s.calls(FINISH_GROUP_INTERIOR).is_empty());
+    }
+
+    /// nv-rs#844: the water of an outdoor group with its own reflection samples the group's map; the
+    /// game's choice (sky map) otherwise.
+    #[test]
+    fn placed_outdoor_water_samples_its_group_s_map_when_chosen() {
+        use placed_reflections::Level;
+        let _turn = PLACED_REFLECTIONS.lock().unwrap_or_else(|p| p.into_inner());
+        let sampled = |level: Level, reflects: bool| {
+            let mut s = scene();
+            let group = s.group;
+            s.e.mem.set_u8(group.addr() + 0x5c, 0);
+            s.e.mem.set_u8(group.addr() + 0x5f, u8::from(reflects));
+            s.e.mem.set_u32(group.addr() + 0x54, 0x0e00_0054);
+            s.e.set_global(SKY_REFLECTION_MAP, 0x0e00_0005u32);
+            s.e.set_global(WORLD_REFLECTION_MAP, 0x0e00_0004u32);
+            placed_reflections::set(level);
+            let property = s.property;
+            assign_group_reflection_map(&mut s.e, property, group);
+            placed_reflections::set(Level::Game);
+            s.e.mem
+                .u32(property.addr() + WaterShaderProperty::spReflectionMap.off)
+        };
+        assert_eq!(sampled(Level::Game, false), 0x0e00_0005);
+        assert_eq!(sampled(Level::Game, true), 0x0e00_0005);
+        assert_eq!(sampled(Level::High, false), 0x0e00_0005);
+        assert_eq!(sampled(Level::High, true), 0x0e00_0054);
+        assert_eq!(sampled(Level::Low, true), 0x0e00_0054);
+    }
+
+    /// nv-rs#844: the far water takes the map of the highest outdoor group below the viewer that draws its
+    /// own reflection; none at the game's level, above the viewer, or without a map.
+    #[test]
+    fn far_water_takes_the_reflection_of_the_group_below_the_viewer() {
+        use placed_reflections::Level;
+        let _turn = PLACED_REFLECTIONS.lock().unwrap_or_else(|p| p.into_inner());
+        let picked = |level: Level, viewer_z: f32, map: u32| {
+            let mut s = scene();
+            let group = s.group.addr();
+            s.e.mem.set_u8(group + 0x5c, 0);
+            s.e.mem.set_u8(group + 0x5d, 1);
+            s.e.mem.set_u8(group + 0x5f, 1);
+            s.e.mem.set_u32(group + 0x54, map);
+            s.e.mem.set_f32(s.viewer + 0x94, viewer_z);
+            placed_reflections::set(level);
+            let (this, viewer) = (s.this, Ptr::new(s.viewer));
+            let r = lod_water_group_map(&mut s.e, this, viewer);
+            placed_reflections::set(Level::Game);
+            (r, group + 0x54)
+        };
+        // The group's plane is at 5.5.
+        let (r, slot) = picked(Level::High, 10.0, 0x0e00_0054);
+        assert_eq!(r, Some(slot));
+        assert_eq!(picked(Level::Low, 10.0, 0x0e00_0054).0, Some(slot));
+        assert_eq!(picked(Level::Game, 10.0, 0x0e00_0054).0, None);
+        assert_eq!(
+            picked(Level::High, 3.0, 0x0e00_0054).0,
+            None,
+            "above the viewer"
+        );
+        assert_eq!(picked(Level::High, 10.0, 0).0, None, "no map yet");
     }
 
     #[test]

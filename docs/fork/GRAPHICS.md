@@ -40,6 +40,8 @@ cell layers take effect while playing in the next slice; until then the start an
 | `modern` | on, medium, strength 0.7 | on, medium (2048) | 0.7, 1, with light from the sky (see Light balance) |
 | `performance` | on, low, strength 0.6 | off | 1, 1 |
 
+`modern` also makes placed lakes and rivers mirror the land (`water.placed_reflections` `high`, see Water).
+
 A preset is a settings file (`crates/fork-gfx/presets/`); a value set in the profile's file wins over it.
 
 ## The overlay in the game
@@ -147,6 +149,24 @@ the picture; sunlit its brightest 40%, shade its darkest 20%) and exits 1 when t
 
 With `--max-lost-detail POINTS` it also exits 1 when a view gains more than that many points of dark blocks that show no
 detail in the lower 55% of the picture: darkness alone passes, lost shapes and texture do not. The limit for `modern` is 5.
+
+### Water (`water`)
+
+The game gives outdoor water two reflections: water at the world space's own water height (the `DNAM` default, -2300
+in the Mojave) takes the world reflection (the sky and the far land, mirrored about that height); every other water placed
+outdoors at a height of its own (Lake Mead and the Colorado at 2600, the lakes and rivers of most worlds) takes the sky
+reflection only, so it mirrors the clouds and none of the land. That is the exe's choice (`004e21b0`), not a fault of the
+port. The game also keeps a reflection of its own for each water group, made about the group's own plane with the sky,
+the far land and objects, the near land and the references its water form names, but draws it only indoors.
+
+| Setting | What it does | Default | Applies |
+| --- | --- | --- | --- |
+| `placed_reflections` | `game`: the original (sky only); `low`: outdoor groups away from the world's water height draw the game's own group reflection at low detail (sky, far land and far objects); `high`: at high detail (also the loaded land and the references the water reflects) | `game` | live |
+
+With `low` or `high` the far (LOD) water takes the reflection of the highest such group below the viewer: its blocks
+hold every lake and river of the world in one shape, so it cannot be split by height; the near water is the one the
+viewer looks at. Far water at another height (a river below a lake) mirrors about the near water's plane then, as it
+mirrored about the world's water height before. `modern` takes `high`. Cost: see Cost.
 
 ## Scripted runs
 

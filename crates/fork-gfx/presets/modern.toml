@@ -23,3 +23,6 @@ moon_specular = 2.0
 lamp_distance = 4.0
 sky_dome = 1.0
 shade_fill = 0.2
+
+[global.water]
+placed_reflections = "high"
