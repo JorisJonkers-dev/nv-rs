@@ -52,6 +52,17 @@ pub fn n(v: i32) -> Vec<u8> {
     b.extend_from_slice(&v.to_le_bytes());
     b
 }
+/// An immediate double (`z`); a string (its length and bytes).
+pub fn z(v: f64) -> Vec<u8> {
+    let mut b = vec![b'z'];
+    b.extend_from_slice(&v.to_le_bytes());
+    b
+}
+pub fn s(text: &str) -> Vec<u8> {
+    let mut b = (text.len() as u16).to_le_bytes().to_vec();
+    b.extend_from_slice(text.as_bytes());
+    b
+}
 pub fn r(index: u16) -> Vec<u8> {
     let mut b = vec![b'r'];
     b.extend_from_slice(&index.to_le_bytes());

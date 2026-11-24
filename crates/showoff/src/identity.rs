@@ -27,7 +27,7 @@ pub fn plugin() -> BuiltIn {
         version: VERSION_INT,
         opcode_base: OPCODE_BASE,
         listed: true,
-        listener: None,
+        listener: Some(crate::aux_timers::listen),
         save: Some(crate::cosave::save),
         load: Some(crate::cosave::load),
         pre_load: None,
