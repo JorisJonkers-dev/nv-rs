@@ -12,10 +12,6 @@ use crate::{extenders, features, pins, sha256, Progress};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// The day the pinned upstream files were read for the lists (`read` in sources.toml). Moving a
-/// pin in [`crate::pins`] moves this date too.
-pub const READ: &str = "2026-11-24";
-
 /// What tally makes of a name as an id segment (tally's `segment`, the capabilities importer's
 /// rule): lower case, every other character `_`, `x` in front when it does not start with a
 /// letter, `_` after a Rust keyword.
@@ -275,12 +271,13 @@ pub fn sources_toml(sources: &Path, lists: &[RefList]) -> Result<String, String>
             .trim_end_matches(".tsv")
             .replace('_', "-");
         out.push_str(&format!(
-            "\n[[source]]\nid = \"{id}\"\nname = \"{}\"\nrepo = \"https://github.com/{}\"\ntag = \"{}\"\ncommit = \"{}\"\nlicence = \"{}\"\nread = \"{READ}\"\nextractor = \"manual\"\nlist = \"{}\"\nsha256 = \"{}\"\n\n[source.upstream]\n",
+            "\n[[source]]\nid = \"{id}\"\nname = \"{}\"\nrepo = \"https://github.com/{}\"\ntag = \"{}\"\ncommit = \"{}\"\nlicence = \"{}\"\nread = \"{}\"\nextractor = \"manual\"\nlist = \"{}\"\nsha256 = \"{}\"\n\n[source.upstream]\n",
             display(pin),
             p.repo,
             p.version,
             p.commit,
             licence(pin),
+            p.read,
             l.file,
             sha256::hex(l.text.as_bytes())
         ));

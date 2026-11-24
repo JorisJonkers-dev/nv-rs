@@ -303,7 +303,8 @@ jobs:
 
       # The coverage catalogue (.fork/catalogue, docs/fork/CATALOGUE.md): its generated reference lists match the pinned
       # sources, the code's evidence of Direct3D 9 and the graphics plan, the ledger and .fork/capabilities.json agree
-      # with what it declares, and its ids, pins and test tags hold (tally, a pinned release binary).
+      # with what it declares, and its ids, pins and test tags are well formed (tally, a pinned release binary). Tags are
+      # read from the source here; whether the tagged tests pass on each OS comes from the test runs' results.
       - name: Catalogue (tally)
         env:
           TALLY_VERSION: v0.3.0
