@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::test_support::{call, engine, n, r, set_script_ref, z};
+use fork_catalogue::{covers, ids};
 
 const GET_AV: u32 = 0x3103;
 const GET_ARCHETYPE: u32 = 0x3104;
@@ -97,6 +98,10 @@ fn records_sit_at_their_opcodes_with_their_names() {
 /// The page's examples: a value modifier's actor value (15) and an archetype code.
 #[test]
 fn a_base_effect_answers_its_actor_value_and_archetype() {
+    covers(&[
+        ids::extenders::johnnyguitar::GETBASEEFFECTAV,
+        ids::extenders::johnnyguitar::GETBASEEFFECTARCHETYPE,
+    ]);
     let mut e = setup();
     assert_eq!(run(&mut e, GET_AV, &[r(1)]), 15.0);
     assert_eq!(run(&mut e, GET_ARCHETYPE, &[r(1)]), 34.0);
@@ -110,6 +115,7 @@ fn a_base_effect_answers_its_actor_value_and_archetype() {
 
 #[test]
 fn every_interior_lighting_trait_reads_its_place() {
+    covers(&[ids::extenders::johnnyguitar::GETINTERIORLIGHTINGTRAITNUMERIC]);
     let mut e = setup();
     let want = [
         10.0, 20.0, 30.0, 40.0, 50.0, 60.0, -45.0, 120.0, 0.5, 70.0, 80.0, 90.0, 64.0, 4000.0, 1.5,
@@ -122,6 +128,10 @@ fn every_interior_lighting_trait_reads_its_place() {
 
 #[test]
 fn every_interior_lighting_trait_is_written_in_its_place() {
+    covers(&[
+        ids::extenders::johnnyguitar::SETINTERIORLIGHTINGTRAITNUMERIC,
+        ids::extenders::johnnyguitar::GETINTERIORLIGHTINGTRAITNUMERIC,
+    ]);
     let mut e = setup();
     let values = [
         1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.5, 9.5, 11.0, 12.0, 13.0, 14.5, 15.5, 16.5, 17.5,
@@ -141,6 +151,7 @@ fn every_interior_lighting_trait_is_written_in_its_place() {
 /// A colour byte takes the whole part held to 0 to 255.
 #[test]
 fn a_colour_trait_is_held_to_a_byte() {
+    covers(&[ids::extenders::johnnyguitar::SETINTERIORLIGHTINGTRAITNUMERIC]);
     let mut e = setup();
     run(&mut e, SET_LIGHTING, &[r(2), n(0), z(300.0)]);
     run(&mut e, SET_LIGHTING, &[r(2), n(1), z(-5.0)]);
@@ -153,6 +164,10 @@ fn a_colour_trait_is_held_to_a_byte() {
 /// An exterior cell, another form or a trait outside 0 to 15 answers 0 and writes nothing.
 #[test]
 fn a_wrong_cell_form_or_trait_answers_zero_and_changes_nothing() {
+    covers(&[
+        ids::extenders::johnnyguitar::GETINTERIORLIGHTINGTRAITNUMERIC,
+        ids::extenders::johnnyguitar::SETINTERIORLIGHTINGTRAITNUMERIC,
+    ]);
     let mut e = setup();
     let before: Vec<u8> = (0..0x28).map(|i| e.mem.u8(INTERIOR + i)).collect();
     assert_eq!(lighting(&mut e, 4, 0), 0.0);
@@ -167,6 +182,10 @@ fn a_wrong_cell_form_or_trait_answers_zero_and_changes_nothing() {
 
 #[test]
 fn every_vats_trait_reads_and_writes_its_place() {
+    covers(&[
+        ids::extenders::johnnyguitar::GETWEAPONVATSTRAITNUMERIC,
+        ids::extenders::johnnyguitar::SETWEAPONVATSTRAITNUMERIC,
+    ]);
     let mut e = setup();
     let read: Vec<f64> = (1..=5).map(|id| vats(&mut e, id)).collect();
     assert_eq!(read, [25.0, 2.0, 30.0, 1.0, 0.0]);
@@ -181,6 +200,10 @@ fn every_vats_trait_reads_and_writes_its_place() {
 
 #[test]
 fn a_vats_trait_of_another_form_or_out_of_range_answers_zero() {
+    covers(&[
+        ids::extenders::johnnyguitar::GETWEAPONVATSTRAITNUMERIC,
+        ids::extenders::johnnyguitar::SETWEAPONVATSTRAITNUMERIC,
+    ]);
     let mut e = setup();
     assert_eq!(vats(&mut e, 0), 0.0);
     assert_eq!(vats(&mut e, 6), 0.0);
