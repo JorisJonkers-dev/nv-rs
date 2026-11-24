@@ -259,3 +259,17 @@ fn the_checked_in_capabilities_match_the_tables() {
          `cargo run --locked --manifest-path scripts/fork/release-files/Cargo.toml -- capabilities --out .fork/capabilities.json`"
     );
 }
+
+/// The folding by name is for the one command JIP LN registers twice: any other name in two of
+/// its slots is a slip in the slot table, which the folding would otherwise hide.
+#[test]
+fn only_set_linked_reference_sits_in_two_jip_slots() {
+    let mut seen = std::collections::BTreeMap::new();
+    for slot in jip::slots::SLOTS.iter() {
+        if slot.kind != jip::table::Kind::Empty {
+            *seen.entry(slot.name).or_insert(0) += 1;
+        }
+    }
+    let repeated: Vec<(&str, i32)> = seen.into_iter().filter(|(_, n)| *n > 1).collect();
+    assert_eq!(repeated, [("SetLinkedReference", 2)]);
+}
