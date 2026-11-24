@@ -109,6 +109,7 @@ class Repo(unittest.TestCase):
         w(".fork/allowed-divergence", "crates/a/src/known.rs\n")
         w(".fork/allowed-divergence.d/second", "crates/a/src/second.rs  # its own file\n")
         w("crates/a/src/second.rs", "1\n")
+        w("crates/a/src/own.rs", "1\n")
         w("docs/fork/DIVERGENCE.md", DOC)
         git("add", "-A")
         git("commit", "-qm", "init\n\nUpstream-Commit: " + "a" * 40)
@@ -116,18 +117,24 @@ class Repo(unittest.TestCase):
         w("crates/a/src/lib.rs", "1\n2\n3\n4\n5\n")
         w("crates/a/src/known.rs", "1\n2\n")
         w("crates/a/src/second.rs", "1\n2\n")
+        w("crates/a/src/own.rs", "1\n2\n")
+        # One file per record (docs/fork/divergence.d/): the pull request adds its own, DIVERGENCE.md is untouched.
+        w("docs/fork/divergence.d/own-file.md", "### Own file\n- Files: `crates/a/src/own.rs`\n- Upstream approach: u\n"
+          "- Fork approach: f\n- Decision: keep\n- Reason: r\n- Evidence: e\n")
         w("docs/fork/NOTE.md", "x\n")
         git("add", "-A")
         git("commit", "-qm", "change")
         res = dr.analyse("fork", "pr", d)
         paths = {f["path"]: f for f in res["files"]}
-        self.assertEqual(sorted(paths), ["crates/a/src/known.rs", "crates/a/src/lib.rs", "crates/a/src/second.rs"])
+        self.assertEqual(sorted(paths), ["crates/a/src/known.rs", "crates/a/src/lib.rs", "crates/a/src/own.rs",
+                                         "crates/a/src/second.rs"])
+        self.assertEqual(paths["crates/a/src/own.rs"]["record"], "complete")
         self.assertTrue(paths["crates/a/src/second.rs"]["listed"])
         self.assertTrue(paths["crates/a/src/lib.rs"]["new"])
         self.assertEqual(paths["crates/a/src/lib.rs"]["record"], "missing")
         self.assertTrue(paths["crates/a/src/known.rs"]["listed"])
-        self.assertEqual(res["fork_files"], 1)
-        self.assertEqual(res["pr_upstream_lines"], 4)  # lib.rs 2, known.rs 1, second.rs 1
+        self.assertEqual(res["fork_files"], 2)
+        self.assertEqual(res["pr_upstream_lines"], 5)  # lib.rs 2, known.rs 1, second.rs 1, own.rs 1
 
 
 if __name__ == "__main__":

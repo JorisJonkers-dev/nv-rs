@@ -1,9 +1,13 @@
 # What the fork changes in upstream-owned code
 
 Upstream is an input the fork imports; the fork wins only on the paths of `.fork/overlay-paths`. Every other difference
-is listed in `.fork/allowed-divergence` and, here, with its reason and the upstream change that would make it
-unnecessary. A sync or a worker checks this list first: when upstream now does the thing, drop the fork's edit, the
-list entry and the row below. Keep both lists as small as possible.
+is listed in `.fork/allowed-divergence` (and `.fork/allowed-divergence.d/`) and recorded with its reason and the
+upstream change that would make it unnecessary: one file per record in [`divergence.d/`](divergence.d/), and the
+older table below. A sync or a worker checks these first: when upstream now does the thing, drop the fork's edit, the
+list entry and the record. Keep both lists as small as possible.
+
+A reference elsewhere of the form `docs/fork/DIVERGENCE.md, "<Area>"` names the record whose heading is
+`### <Area>`: the file of `divergence.d/` named after it (`grep -l '^### <Area>' docs/fork/divergence.d/*.md`).
 
 ## Process
 
@@ -14,9 +18,11 @@ Every pull request gets a comment "Divergence from upstream" (`.github/workflows
 * the upstream-owned files the pull request changes, and their changed lines;
 * the total divergence: files and lines of upstream-owned code that differ from upstream at the commit it was last replayed to, at the base, at the head and a week before the base;
 * the budget of `.fork/divergence-budget.toml`: a warning when one pull request changes more than 300 lines of upstream-owned code (`pr_changed_lines`) or the total grows more than 5 % in 7 days (`weekly_growth_percent`, `window_days`);
-* whether this file records each upstream-owned file the pull request starts to change (a file that equals upstream's at the base).
+* whether a record of `divergence.d/` (or the older table) covers each upstream-owned file the pull request starts to change (a file that equals upstream's at the base).
 
-A new upstream-owned file needs a record in this file, in the same pull request, as a `### Area` section with these lines:
+A new upstream-owned file needs a record in the same pull request: a new file `docs/fork/divergence.d/<area>.md`
+(lower case, words joined by `-`), never an edit of this file, so pull requests do not conflict here. It holds one
+`### Area` section with these lines:
 
 ```
 ### <area>
@@ -28,137 +34,7 @@ A new upstream-owned file needs a record in this file, in the same pull request,
 - Evidence: the issue, measurement, test or run that shows the need
 ```
 
-The older table below stays and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
-
-### The in-game graphics overlay
-- Files: `Cargo.toml` (workspace member `fork-overlay`), `crates/d3d9-wgpu/Cargo.toml` (`fork-overlay`, `fork-gfx`), `crates/d3d9-wgpu/src/lib.rs` (`pub mod gfx_overlay;`, a fork-only file), `crates/d3d9-wgpu/src/bitmap_font.rs` (`ascii()`), `crates/d3d9-wgpu/src/frame_rate.rs` (`window_device_present()`), `crates/d3d9-wgpu/src/device.rs` (`draw_gfx_overlay` at the present, after the window's capture and before the counter), `crates/engine-platform/src/d3d9real/win32.rs` and `input.rs` (F10, and keys going down while the overlay is open, go to `gfx_overlay::key`)
-- Upstream approach: upstream has no settings overlay; its only overlay is the F11 frame-rate counter drawn with the bitmap font at the present (`frame_rate.rs`), whose key is taken the same way; checked at the base
-- Fork approach: the graphics overlay (ADR-0019 as amended for nv-rs#730) is an egui panel from the graphics modules' schemas, drawn by egui-wgpu at the same point as the counter; its font is made from the counter's glyphs; closed, only F10 is taken; open, keys going down are its own and keys coming up still reach the game
-- Decision: keep; offer nothing (the overlay edits fork-only settings)
-- Reason: the maintainer's graphics modules (nv-rs#591, nv-rs#592) need an overlay that switches and tunes them in the game
-- Evidence: `crates/d3d9-wgpu/tests/gfx_overlay.rs` (the panel's picture, the keys, the file written), `text_is_laid_out_in_whole_cells`, `the_keyboard_turns_a_setting_on`; the standard views with the overlay closed against the build before, mean 0.000 (pull request)
-
-### Graphics settings for the port's own effects
-- Files: `crates/d3d9-wgpu/src/scene_light.rs` (`Quality`, `set_quality`, `shader_at`, `set_live_strength`), `crates/d3d9-wgpu/src/sun_shadow.rs` (`MAP_SIZE`, `set_map_size`, `map_size`), `crates/d3d9-wgpu/src/device.rs` (the step takes the live strength and is made again at another quality), `crates/host/src/lib.rs` (`fork_graphics::start` before the rows are installed), `crates/host/Cargo.toml` (`fork-gfx`)
-- Upstream approach: upstream switches ambient occlusion and sun shadows once at start (`bAmbientOcclusion`, `fAmbientOcclusionStrength`, `bSunShadows`) and fixes their quality by constants (`SLICES`, `STEPS`, `SIZE`); checked in the files above at the base
-- Fork approach: the graphics settings (ADR-0019, nv-rs#592) set the same switches from the profile's `nv-rs-graphics.toml`, a preset or `NV_GFX`, and choose a level: the occlusion's search (low 1 x 4, medium 2 x 4 as before, high 3 x 6, changeable while the game runs, with its strength) and the shadow maps' size (1024, 2048 as before, 4096, at start). With no settings, nothing changes: the defaults are upstream's constants
-- Decision: keep; drop the level code when upstream offers levels of its own
-- Reason: the maintainer's graphics modules (nv-rs#591) need quality levels and live changes of the effects the engine has
-- Evidence: `quality_levels_change_only_the_search`, `a_live_strength_is_clamped_and_can_be_taken_back`, `the_map_size_is_one_of_the_three_levels`, `every_map_extent_follows_the_run_map_size`, `host::fork_graphics` tests; the standard views with no settings against the build before, difference 0 (pull request)
-
-### The light balance: the game's ambient share
-- Files: `crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs` (`set_light_colors` takes the share; `AmbientShare`, `AmbientShares`, `want_ambient_share`), `crates/host/src/lib.rs` (`want_ambient_share` with `fork_graphics::ambient_shares` at start)
-- Upstream approach: the sun light takes the sky's ambient colour (the weather's outdoors, the cell's indoors) whole every frame, as the exe does; checked in `sun.rs` at the base
-- Fork approach: the graphics settings' `light.ambient_exterior` and `light.ambient_interior` (nv-rs#768) hand the light that share of the sky's ambient colour; the sky's own colours are not changed. At 1 (the default and the `original` preset) the code is the exe's, call for call
-- Decision: keep; offer upstream the seam if it wants a fill-light setting for its own lighting
-- Reason: the maintainer's `modern` preset (nv-rs#591) adds shade and the light from the sky; the game's flat fill light on top of it washes the picture out
-- Evidence: `the_ambient_share_at_one_is_the_exes_code`, `the_ambient_share_scales_the_lights_ambient_only`, `an_ambient_share_that_is_not_usable_counts_as_one` (`sun.rs`), `the_light_balance_reaches_the_sun_lights_shares` (`host::fork_graphics`); the standard views under `original` against the build before, difference 0 (pull request)
-
-### Sky light, true moon and starlight
-- Files: `crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs` (`sky_light`, `SkyFill`, `moon_tilt_bits`), `crates/engine-fallout-env/src/units/fallout_shared_sky/moon.rs` (the moon's path takes `moon_tilt_bits`), `crates/d3d9-wgpu/src/scene_light.rs`, `crates/d3d9-wgpu/src/sun_shadow.rs` and `crates/d3d9-wgpu/src/sm/wgsl.rs` (sky fill in the lit shaders and the apply step), `crates/host/src/fork_graphics.rs`
-- Upstream approach: a flat ambient colour on every lit surface; the moon's path and light as the exe has them
-- Fork approach: the settings `light.ambient_night`, `sun`, `moon`, `sky_dome`, `shade_fill` and `moon_max_height` (nv-rs#772) give light from the sky by surface direction, a moon light by the game's phase, fade and height, a starlight fill, and a lower moon path for the drawn moon and its light together. At their defaults (the `original` preset) the code paths are the exe's
-- Decision: keep; offer upstream the seam if it wants sky light of its own
-- Reason: the fill cut of nv-rs#769 left shade and night without readable shapes
-- Evidence: `docs/regressions/2026-11-23-modern-too-dark.md`; the 11 standard views under `original` against v0.23.0: 10 identical, night Goodsprings differs by at most 16 of 255 on under 0.001% of pixels, as two runs of v0.23.0 differ from each other (pull request)
-
-### The lamp light distance
-- Files: `crates/engine-bs/src/units/bsshader/shadowscenelight.rs` (`lamp_distance`), `crates/engine/src/lib.rs`, `crates/host/src/fork_graphics.rs`
-- Upstream approach: a point light fades out between the light fade distance (`fLightLODStartFade`, the Options menu's slider) and that plus `fLightLODRange` from the camera and is dropped beyond it, so lamps, street lights and lit signs stop lighting the ground a short way off
-- Fork approach: `light.lamp_distance` (nv-rs#827) multiplies both fade distances, for every point light alike; the shadow fade distances are not touched. At its default of 1 the distances are the exe's, bit for bit
-- Decision: keep
-- Reason: the maintainer wants lamps and their light to show from further off at night, with nothing specific to one mod
-- Evidence: `lamp_distance_scales_the_fade_and_one_keeps_the_game_s`, `test_frustum_cull_fades_with_the_distance`; night lamp views under both presets (pull request)
-
-### Placed water mirrors the land
-- Files: `crates/engine-fallout-cell/src/units/fallout_shared/teswater.rs` (`placed_reflections`, `group_reflects_outdoors`, `lod_water_group_map`), `crates/engine/src/lib.rs`, `crates/host/src/fork_graphics.rs`
-- Upstream approach: as the exe, outdoor water away from the world space's water height (Lake Mead, the Colorado) takes the sky reflection map only and mirrors no land; the group's own reflection is drawn only indoors
-- Fork approach: `water.placed_reflections` (nv-rs#844) `low` or `high` lets such groups draw the game's own group reflection outdoors (setup `004e9d40`, finish `004eb220`, as indoors) and sample it; the far water takes the map of the highest such group below the viewer. At its default `game` every branch is the exe's
-- Decision: keep
-- Reason: the maintainer wants lakes and rivers to mirror the land, buildings and far view, with nothing specific to one place or mod
-- Evidence: `placed_outdoor_water_takes_its_own_reflection_when_chosen`, `placed_outdoor_water_samples_its_group_s_map_when_chosen`, `far_water_takes_the_reflection_of_the_group_below_the_viewer`, `placed_water_reflects_the_sky_only_unless_chosen`; Lake Mead views under both presets (pull request)
-
-### The moon highlight
-- Files: `crates/d3d9-wgpu/src/sm/wgsl.rs` (`specular_reads`), `crates/d3d9-wgpu/src/sun_shadow.rs` (`SL.highlight`), `crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs` (`AmbientShares::highlight`), `crates/host/src/fork_graphics.rs`
-- Upstream approach: the game's lit shaders make the highlight from the light's colour, at the game's strength
-- Fork approach: in the sun-shadow variants of those shaders, `light.moon_specular` (nv-rs#821) scales that one read at night. At its default of 1, and in shaders without the variant, the result is the game's
-- Decision: keep
-- Reason: the maintainer's `modern` preset wants a slight moon reflection on glossy materials
-- Evidence: `the_highlight_strength_is_on_the_highlight_read_alone`, `only_the_highlights_read_of_the_sun_colour_is_found`, `the_moon_highlight_is_for_the_night_and_the_moon_only`; the standard views under `original` against v0.23.0 (pull request)
-
-### DDS files in A8B8G8R8 and X8B8G8R8
-- Files: `crates/d3dx-tex/src/pixel.rs` (`encodes`, `decode_row`, `encode_row`, `box_integer`, `has_integer_box`), `crates/d3dx-tex/tests/fork_abgr.rs`
-- Upstream approach: `d3dx-tex` leaves these two formats to the player's DLL (`NotProvided`)
-- Fork approach: they are read and made like A8R8G8B8 and X8R8G8B8 with red and blue changed over: a device that takes them keeps them, on one that does not D3DX's measured pick (A8R8G8B8, X8R8G8B8) is made
-- Decision: keep; offer upstream
-- Reason: on Linux no DLL can answer, so mods' textures in these formats drew black (nv-rs#823)
-- Evidence: `docs/regressions/2026-11-23-dds-a8b8g8r8-black.md`. Not compared with the Microsoft DLL's bytes: each level is compared with the same pixels stored in A8R8G8B8 or X8R8G8B8
-
-### A run's number and the open packets' slots
-- Files: `crates/engine-core/src/units/platform.rs` (`KernelRef::id`), `crates/engine-typed/src/draw/capture.rs` (`OpenSlot`)
-- Upstream approach: a run is named by its kernel's address, and a packet's slot is given back only by `capture::end`; checked at the base
-- Fork approach: a run number that is never used twice, and a slot given back however the packet ends
-- Decision: keep; offer upstream
-- Reason: a later engine at a freed kernel's address counted as beside a dead run's packet, which failed a test on Windows (nv-rs#789)
-- Evidence: `a_new_run_is_not_beside_the_packet_of_a_run_gone`, `a_packet_dropped_without_an_end_gives_its_slot_back`
-
-### Far-object block with several shapes
-- Files: `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs` (`prepared_meshes`, `prepare_mesh`), `crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsterrainnode.rs` (`later_block_shapes`, `bgs_terrain_node_update_block_visibility`)
-- Upstream approach: upstream does nothing here; the exe expects one shape per block file: the load task (`006f71e0`) keeps child 0 of the file's root node as the block's mesh, the block's prepare (`006f66e0`) gives only that mesh its shader and registers it with the renderer, and `BGSTerrainNode::UpdateBlockVisibility` (`006fee90`) sets the segments of only that mesh's segmented shape. A segmented shape loads with every segment off, so any later shape draws nothing
-- Fork approach: every leaf child of the root node is prepared, and has its segments set, the same way as the first
-- Decision: keep; the exe's rule gives a file with several shapes only its first shape
-- Reason: far-object files made by xLODGen and lodwright hold one shape per atlas texture (or more, split at the 16-bit limits); the later shapes were not drawn, so the Strip's towers, in the third shape of one block, were missing
-- Evidence: `prepare_reaches_every_shape_of_the_root_node`, `block_visibility_reaches_every_shape_of_the_block`; a modded profile with an xLODGen far-object mod draws the Strip's towers after the change and not before; the plain game's pictures at three views are unchanged (difference 0)
-
-### Modern DDS files (DX10 header, BC7)
-- Files: `crates/d3dx-tex/src/lib.rs`, `load.rs`, `fork_modern_dds.rs` (new), `crates/d3d9-wgpu/src/format.rs`, `crates/engine-platform/src/d3dx.rs`, `d3d9.rs`, `d3d9device.rs`
-- Upstream approach: the D3DX translation refuses every DDS whose FourCC the 2010 library does not know (`DX10`, `ATI1`, `ATI2`), as the DLL does (`D3DXERR_INVALIDDATA`); the Direct3D 9 layer has no BC7 format
-- Fork approach: with `NV_DDS_MODERN=1`, and only while wgpu draws, those files are read: the blocks of BC4, BC5 and BC7 (with or without the sRGB flag) go to the device as they are, with the file's own levels, as `ATI1`, `ATI2` and the private FourCC `BC7U` (wgpu's `Bc7RgbaUnorm`); the layer's format check and block sizes know them. Without the option nothing differs from upstream
-- Decision: keep; drop when upstream reads DX10-header files
-- Reason: remastered and modern texture sets ship BC7 and DX10 headers; the game cannot show them otherwise
-- Evidence: nv-rs#750; `fork_modern_dds::tests`, `d3dx::tests_modern_dds`, `frame::a_bc7_texture_is_sampled_as_the_block_decodes`
-
-### Short names on Windows
-- Files: `crates/engine-platform/src/files.rs` (`search_finds_with_short_names`, the soft stops of `find_first_wild`; the fork's save tests in `tests_changed_directories`)
-- Upstream approach: since slaterain/nv-rs#712 and slaterain/nv-rs#718 a search off Windows matches long names only (`search_finds_long_names`, with Windows' `*.*` and trailing-dot rewrites) and the run's files have no short names there (`alternate_name`, `short_name_off_windows`), which is what the fork did off Windows: the fork's own arms were dropped for upstream's in the sync to 1b438957. On Windows upstream's matcher rules out a short name by its first letter only and stops on the rest
-- Fork approach: on Windows the first two letters of a short name rule it out (`ClassicPack*.bsa` does not stop on `CaravanPack - Main.bsa`); upstream's test of that pattern was changed to expect no stop there and a stop for a pattern whose first two letters agree. A changed folder's `.` or `..` on Windows goes through the fork's soft stop (fork_log) before upstream's stop
-- Decision: drop when upstream's Windows matcher rules out a short name by two letters
-- Reason: wildcard searches for a master's archives (`<name>*.bsa`) in a folder that holds an archive whose long name has spaces stopped the game in its first frame, once per pattern the short-name rules could not decide
-- Evidence: JorisJonkers-dev/nv-rs#331; `the_data_folder_pack_searches_find_long_names_only`, the save tests in `tests_changed_directories` and `crates/host/tests/linux_saves.rs`
-
-### Machine table off Windows
-- Files: `crates/host/src/lib.rs` (`adapter_table_text`, `display_table_text`, `load_adapter_table`), `crates/host/src/game_ini.rs`, `crates/engine-platform/src/dsound.rs`, `crates/engine-platform/src/fork_tables.rs` and `fork_d3d9rec.rs` (fork-owned)
-- Upstream approach: since slaterain/nv-rs#681 the table off Windows has a display and card part made after the renderer choice (`machine_table::this_display`: winit's monitors, the card from wgpu with a modern card's Direct3D 9 answers captured on Windows 11, the card's sample counts and float blending, a start refused without DXT), DirectSound's fixed answers captured on Windows 11 (`dsound::fixed_table`, a device when the speakers have one), and the game's Documents in `<own folder>/game/Documents`. Since slaterain/nv-rs#687 a play run's first start writes `Fallout.ini` and `FalloutPrefs.ini` from the game's defaults and High preset (`first_profile.rs`)
-- Fork approach: the display and the card stay in the fork's adapter table (`fork_tables::adapter_table`: fork-window's monitor, wgpu's identity, the reference Shader Model 3 answers and the profile file's overrides), so `display_table_text` adds nothing; `fork_d3d9rec.rs` answers `monitors()` from fork-window for other callers. The sound table without a file is upstream's captured one (the fork's hand-written reference and no-device tables were removed), with a device only when the output is asked for (`NV_SOUND`), so a run without it stays silent. `Fallout.ini` is read from the fork's Documents (`fork_platform::known_folders`), where the fork's table puts the game's folders. In a play run upstream's first start steps run after `fork_tables::seed_machine_settings`, in the fork's Documents: they add nv-rs's sections and the pending choices to `Fallout.ini`, and in a `FalloutPrefs.ini` the fork made they set only the play lines (`sD3DDevice` from the table's card, `[nv-rs] bWindowSizeChecked=1`); its size keys stay the fork's
-- Decision: keep the display and card part until upstream's display part can read a window layer that is not winit (then take its captured card answers and its DXT refusal); the sound table and the Documents folder follow upstream's where it covers them
-- Reason: upstream's display part reads winit's monitors, and the fork's window layer off Windows is fork-window (see the next record); the fork's Linux runs already keep their saves and settings under `<data_dir>/userdata`
-- Evidence: `fork_tables::tests::the_layer_loads_the_generated_adapter_table`, `dsound::tests::the_fixed_table_answers_the_start_up`, `tests::the_settings_reading_leaves_the_renderer_choice_to_the_start` (host)
-
-### Direct3D 9 window layer off Windows
-- Files: `crates/engine-platform/src/d3d9real.rs`, `crates/engine-platform/src/d3d9real/elsewhere.rs` (deleted), `crates/engine-platform/src/fork_d3d9rec.rs` (fork-owned)
-- Files (since the sync to a489e36c): also `crates/d3d9-wgpu/src/window.rs` and `device.rs` (Linux arms), `crates/engine-platform/Cargo.toml` (no winit)
-- Files (since the sync to 1b438957): `crates/engine-platform/Cargo.toml` also without `xkbcommon-dl` and `raw-window-metal`; `fork_d3d9rec.rs` answers upstream's `monitors` and `run_on_main_thread` (slaterain/nv-rs#681, slaterain/nv-rs#694)
-- Upstream approach: since slaterain/nv-rs#635, `d3d9real.rs` builds on every system and the Win32 window lives in `d3d9real/win32.rs`. Since slaterain/nv-rs#640 the window off Windows is upstream's winit layer (`d3d9real/winit_window.rs`, X11 and Wayland; macOS refused until a host hands it the main thread), its keys and mouse through `d3d9real/input.rs`, and d3d9-wgpu draws in a window the layer registers (`GameWindow`, `register_window`). The real Direct3D 9 parts are `cfg(windows)`, and asking for it off Windows ends the run.
-- Fork approach: off Windows the window layer is `fork_d3d9rec.rs`: a fork-window window on X11 or Wayland (off screen without a display or with `NV_D3D9_OFFSCREEN`), its keys and mouse as the game's input, and the wgpu stream with the shader cache; `real` and `real,wgpu` draw on wgpu with a line instead of ending the run. Upstream's split, its `RealDevice` and `QueryBoard` types and its `cfg(windows)` placement replace the fork's own `cfg(windows)` lines and three stand-ins (the device alias, the shared device and `query_without_waiting`).
-- Decision: keep. Upstream's winit layer now draws the game (slaterain/nv-rs#640) but is not equal: it has no off-screen mode (CI, tests and the replay-bench draw on lavapipe without a display), no `NV_D3D9_OFFSCREEN`, and the fork's display choice and refresh pacing come from fork-window. This build does not compile `winit_window.rs` (nor depend on winit); `input.rs` is built with the Win32 layer. Upstream's macOS window on the main thread (slaterain/nv-rs#694) is part of that layer. Here fork-window has its own macOS module (nv-rs#379): on macOS `run_on_main_thread` gives the main thread to fork-window's loop (AppKit runs windows there only) and the game to a thread of its own, each window gets a `CAMetalLayer` made on that thread, and `fork_d3d9rec.rs` registers the window with d3d9-wgpu's window registry (`register_window`), whose macOS arm makes the surface on that layer; on Linux `run_on_main_thread` still runs the game on the calling thread. When wgpu finds no hardware card, off Windows the fork still draws on any adapter (lavapipe; upstream ends the run there); when wgpu cannot make the game's device, the run ends with upstream's line. Compare again when upstream's layer can draw off screen; then take upstream's where it is equal.
-- Reason: the fork runs the game on Linux; upstream's layer refuses a window there.
-- Evidence: `d3d9real::fork::tests::a_guest_program_draws_a_frame_through_the_recorder_on_wgpu` (a frame drawn on lavapipe in the Linux job), and the Linux play path in docs/fork/LINUX.md.
-
-### Mods' own files on the native build
-- Files: `crates/host/src/mod_files.rs`, `crates/host/src/save_out.rs` (`known_folders`) and `fork_platform.rs` (fork-owned)
-- Upstream approach: since slaterain/nv-rs#629, mods' own files are kept in `NV_MOD_FILES_OUT`, else beside `NV_SAVE_OUT`'s folder; with neither there is none and their settings last for the session only. Any folder inside Documents or AppData is refused.
-- Fork approach: off Windows the native build keeps its saves in the port's own Documents when `NV_SAVE_OUT` is unset (`save_out::native_saves_dir`), so with neither variable set mods' files go beside those saves (`<documents>/My Games/FalloutNV/nv-rs mod files`). That Documents is the port's, so only the game-folder and path checks apply. A set variable goes through upstream's rules unchanged (off Windows the save guard's rule, `folder_from_with`, since slaterain/nv-rs#712). The folder's copy of a name is found without regard to case by upstream's `host_paths::host_path_under` since slaterain/nv-rs#697, so the fork's `files_host.rs` was removed in the sync to 1b438957. `save_out::known_folders` off Windows still answers the port's own Documents for this (upstream's answers none). Upstream marks its Windows-path `mod_files` tests Windows only (slaterain/nv-rs#660), and a fork test covers the Unix path.
-- Decision: keep until upstream gives the native build a default folder.
-- Reason: the Linux play path starts without `NV_SAVE_OUT`, and mods' settings must last between sessions there as on the launcher's Windows path.
-- Evidence: `mod_files::tests::the_native_build_keeps_mod_files_beside_its_own_saves` (host) and `fork_platform::tests::mod_files_on_a_unix_host_read_the_game_and_keep_writes_in_the_ports_folder` (engine-platform).
-
-### Toolchain
-- Files: `rust-toolchain.toml`, the `rust-version` of `Cargo.toml`, `crates/game-profile/Cargo.toml` and the research crates (`research/nv-oracle`, `research/nv-oracle/nv-pure`, `research/nv-trace`); `.cargo/config.toml` and `renovate.json` (fork-owned)
-- Upstream approach: Rust 1.99.1 (`rust-toolchain.toml` on `origin/main`, 1b438957); `rust-version` 1.75 for the workspace, 1.88 for game-profile, 1.82 and 1.87 for the research crates
-- Fork approach: Rust 1.100.0 and `rust-version = "1.100"` everywhere outside `vendor/` (the vendored wgpu-hal keeps its published 1.87). Cargo 1.100 reads `[registry] global-min-publish-age = "7 days"` (`.cargo/config.toml`), so a crate version younger than a week is not taken on resolution; Renovate waits 7 days for crates too. CI installs the toolchain `rust-toolchain.toml` names (`rustup toolchain install`). Clippy 1.100's ten new lints (`manual_c_str_literals` in Windows-only code, `manual_is_multiple_of`, `chunks_exact_to_as_chunks`, `unnecessary_map_or`, `needless_bool`, `approx_constant`, `manual_repeat_n`, `needless_range_loop`, `manual_noop_waker`, `manual_isolate_lowest_one`), about 300 places in upstream's code, are allowed in `.cargo/config.toml` (`rustflags`), so no upstream file changes for them; `approx_constant` there is the game's own constants written as the binary has them
-- Decision: keep; drop the `rust-toolchain.toml` and `rust-version` lines when upstream moves to 1.100 or later, and each allowed lint when upstream's code meets it
-- Reason: a supply-chain cooldown for new crate versions, which needs Cargo 1.100
-- Evidence: `cargo build` and `cargo clippy --workspace --all-targets -D warnings` on 1.100.0 in the pull request that made the change
+The older table below is frozen (no new rows) and counts as a reason only ("table row only" in the report, no evidence); new entries use the record form. The sync pull request (`sync/upstream`) is not reported: it replays upstream-owned changes by design.
 
 ## Older table
 
@@ -199,51 +75,3 @@ slaterain/nv-rs#718) and relative names found without case (slaterain/nv-rs#697)
 arms of the start's refusal, the fork's off-Windows search and short-name arms, `files/files_host.rs`, and the hand-written
 sound tables of `fork_tables.rs`. Kept: the window layer, the adapter table, the Windows two-letter rule, the mods' files
 folder beside the native saves. New records: "Machine table off Windows", `game_ini.rs`.
-
-### Holder tests ask for a tenth of the wait as processor time
-- Files: `crates/engine-core/src/real_threads.rs` (the tests `main_s_long_wait_for_the_kernel_lock_names_the_holder` and `main_s_long_wait_for_a_section_names_its_owner`)
-- Upstream approach: the tests assert that the named holder thread used at least half of main's wait as processor time
-- Fork approach: the same tests, with a tenth; the holder is still named (call, thread, start, wait) and, where its processor time can be read, must have worked (a sleeping or blocked holder has none); the clock table is keyed by run and thread, so a thread of another test with the same key can take the entry over and make the time unreadable on a loaded machine
-- Decision: keep; drop when upstream's tests no longer depend on the machine's load
-- Reason: upstream's half fails on a loaded two-core machine (the coverage job, `taskset -c 0,1`: 78 ms of 252 ms), whatever the code does
-- Evidence: the two tests, run on two cores (failed before, pass after) and on all cores
-
-### The stale R1 clause in the Memory paragraph
-- Files: `docs/ENGINE_CRATE.md` (the removed clause "ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem` is `Send`, not `Sync`, until then)" in the "Memory" paragraph of "The model in one page")
-- Upstream approach: "Every guest load and store takes `&self`, ready for the thread host to share one `Mem` (ADR-0015, R1; `Mem` is `Send`, not `Sync`, until then): guest values are plain host loads and stores through raw pointers ..."; R1 is cited inside a clause about sharing, where the atomics rule does not belong
-- Fork approach: the stale R1 citation, the "until then" clause and "ready for the thread host to share one `Mem`" are removed and `Mem` is `Send`, not `Sync` stays as a plain clause, so the sentence reads "Every guest load and store takes `&self` (`Mem` is `Send`, not `Sync`); guest values are plain host loads and stores through raw pointers ..."; the following view sentence (`NV_THREADS=real`, `Mem::start_sharing`) is unchanged
-- Decision: drop when upstream removes the R1 citation
-- Reason: R1 was the plan's rule that guest loads and stores be atomic (acquire for loads, release for stores), abandoned on measured cost, not on sharing (ADR-0015, "Guest memory stays plain"); real-thread views shipped (`Mem::start_sharing`), so citing R1 for why sharing had not happened is stale (nv-rs#783, PR #794)
-- Evidence: `docs/adr/0015-hand-typing-to-the-end-with-real-threads.md:45-53` (R1 was atomics, abandoned at about 6% cost); `crates/engine-core/src/mem.rs:538,1301,1326` (the one `Mem` every thread's view shares, `start_sharing` and `view`); `docs/ENGINE_CRATE.md` (`Mem::start_sharing` in the following, unchanged view sentence). The "with real threads no `Mem` is shared" wording in `crates/engine-core/src/mem.rs:37-38` contradicts `mem.rs:538`; it is left unchanged here and tracked separately.
-
-### The plugin claims in the fixes reference
-- Files: `docs/FIXES.md` (the plugin bullet of "Which xNVSE it is, and its plugins" and the JohnnyGuitar editor-id row)
-- Upstream approach: the plugin bullet reads "`IsPluginInstalled` and `GetPluginVersion` answer by what nv-rs builds in, since no plugin DLL ever loads in nv-rs: no plugin is built in yet, so every name answers not installed" and the JohnnyGuitar row reads "JohnnyGuitar's 408 commands are not built"; checked in `docs/FIXES.md` at the base
-- Fork approach: the bullet now says the two commands answer by what nv-rs builds in and reports as installed (`reported_installed` of the extenders that have one in `.fork/capabilities.json`), that no plugin DLL loads unless `NV_PLUGIN_DLLS` is on (off by default, per ADR-0018 in `docs/fork/adr/0018-plugin-dlls-loaded.md`, which supersedes ADR-0016's rule that no plugin DLL ever loads), and that JIP LN NVSE's own versions of the two commands (`crates/jip/src/identity.rs`) take xNVSE's place while it answers installed; the JohnnyGuitar row now says 11 of its 412 commands are built so far (`crates/jg`; `commands` of `johnnyguitar` in `.fork/capabilities.json`), and that a check for JohnnyGuitar is told absent unless the game is Tale of Two Wastelands or `NV_TTW_PLUGINS=1` is set
-- Decision: drop when upstream corrects the same statements
-- Reason: ADR-0018 supersedes the rule that no plugin DLL ever loads; JIP LN NVSE and other extenders are built in; the generated capability table gives 11 of 412 for JohnnyGuitar (nv-rs#786)
-- Evidence: `.fork/capabilities.json`, `docs/fork/adr/0018-plugin-dlls-loaded.md`, `crates/host/src/fork_plugins.rs`, `crates/jip/src/identity.rs`
-
-### The regenerated function ledger
-- Files: `docs/LEDGER.md` (generated; every number follows the tree it was generated from)
-- Upstream approach: the committed ledger was generated from a tree of 2026-11-07 and reported 110 typed functions
-- Fork approach: the ledger is regenerated with `cargo run --release --manifest-path scripts/ledger/Cargo.toml` at commit `40d31ae1`: 69,488 functions, 1,060 typed, 102,109 cited addresses; `scripts/ledger --check` passes
-- Decision: drop when upstream regenerates the ledger
-- Reason: the committed counts were far behind the engine crates (nv-rs#787)
-- Evidence: the generator's output line "ledger: wrote docs/LEDGER.md (69488 functions, 102109 cited addresses)"
-
-### The action-point cost function's word count
-- Files: `crates/engine-fallout-forms/src/units/fallout_shared/actionpoints.rs`
-- Upstream approach: `fn_0066dca0(i32, bool)` is registered with two words, while the game's cdecl function is called with four (`0093ab30`, lStewieAl's Tweaks' run-and-gun in `crates/stewie/src/run_and_gun.rs`), so `engine/tests/jip_call_arity.rs` (`stewie_passes_each_game_function_the_words_it_takes`) fails on upstream's own `main` (replay of 2c7100c7)
-- Fork approach: the entry is `fn_0066dca0(i32, bool, f32, u32)`; the two extra words are not read
-- Decision: drop when upstream's entry takes four words, or its callers pass two where the game's function takes two
-- Reason: keep the word-count guard green in the fork's Windows integration job without weakening the guard
-- Evidence: Windows job `aggregator: engine lib, doctests and par_render, host, play-patch, viewer` of the sync pull request, `stewie: wrong word counts: run_and_gun.rs:47`
-
-### The camera path teardown with a child that is gone
-- Files: `crates/engine-fallout-forms/src/units/fallout_shared/bgscamerapath.rs` (`fn_0058a450`)
-- Upstream approach: the camera path's destructor clears each child's parent (`005f4bb0`) before it tests the child, as the exe does; a child slot that is no longer a camera path (`0058b630` answers null) is written at address 0x30
-- Fork approach: a null child is skipped (no parent write, no delete); every other child is unlinked and deleted as before
-- Decision: keep
-- Reason: with a large load order the game stopped as it quit (`TES::~TES` > `TESDataHandler::ClearData` > `BGSCameraPathManager::DestroyRootPathArrayForms`), nv-rs#837
-- Evidence: `destructor_skips_a_child_that_is_no_longer_a_camera_path`, `destructor_unlinks_from_the_root_array_and_deletes_children`
