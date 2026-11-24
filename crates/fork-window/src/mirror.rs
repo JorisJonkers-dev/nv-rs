@@ -64,7 +64,7 @@ impl Drop for Mirror {
 /// painting it. An error says why there is no window; the run goes on without one.
 pub fn open(label: Option<&str>, title: &str) -> Result<Mirror, String> {
     let request = WindowRequest {
-        title: crate::titled(label, title),
+        title: title.to_owned(),
         width: SIZE.0,
         height: SIZE.1,
         decorations: true,
