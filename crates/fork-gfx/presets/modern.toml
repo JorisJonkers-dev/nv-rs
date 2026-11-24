@@ -22,3 +22,6 @@ moon_max_height = 45.0
 moon_specular = 2.0
 sky_dome = 1.0
 shade_fill = 0.2
+
+[global.textures]
+anisotropy = "x16"

@@ -350,5 +350,9 @@ mod tests {
         let (ao, sh) = (perf.module("ao").unwrap(), perf.module("shadows").unwrap());
         assert!(ao.toggle("enabled") && !sh.toggle("enabled"));
         assert_eq!(ao.choice("quality"), "low");
+        // nv-rs#829: Modern forces 16x anisotropic filtering; the others keep the game's.
+        assert_eq!(modern.module("textures").unwrap().choice("anisotropy"), "x16");
+        assert_eq!(perf.module("textures").unwrap().choice("anisotropy"), "game");
+        assert_eq!(at("original").module("textures").unwrap().choice("anisotropy"), "game");
     }
 }
