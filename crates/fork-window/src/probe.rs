@@ -111,6 +111,16 @@ impl Probe {
         (!value.is_empty()).then(|| String::from_utf8_lossy(&value).into_owned())
     }
 
+    /// The window's class hint (`WM_CLASS`: instance, then class), which the dock groups windows by.
+    pub fn wm_class(&self, window: Window) -> Vec<String> {
+        let value = self.property(window, AtomEnum::WM_CLASS.into(), AtomEnum::STRING);
+        value
+            .split(|&b| b == 0)
+            .filter(|p| !p.is_empty())
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .collect()
+    }
+
     /// The client area's place on the screen and its size, as the server has them now.
     pub fn geometry(&self, window: Window) -> Geometry {
         let size = self

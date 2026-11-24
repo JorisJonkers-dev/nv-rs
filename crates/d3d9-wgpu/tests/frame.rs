@@ -3022,8 +3022,9 @@ fn constant_changes_between_draws_in_one_pass_reach_the_shaders() {
     );
 }
 
-/// The pipeline cache file's envelope, as `cache.rs` writes it (magic, version 2, length,
-/// FNV-1a 64 of the bytes): the test makes files of its own with it.
+/// The pipeline cache file's envelope of version 2 (magic, version, length, FNV-1a 64 of the
+/// bytes), which `cache.rs` still reads (as a cache never carried): the test makes files of its
+/// own with it.
 fn envelope(data: &[u8]) -> Vec<u8> {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in data {
@@ -3091,7 +3092,16 @@ fn the_pipeline_cache_file_is_kept_and_a_bad_one_is_ignored() {
     assert_eq!(pixels, plain);
     assert!(note.as_deref().unwrap().ends_with("KB read"), "{note:?}");
     // Each bad file: ignored by name, a new cache, the same pixels.
-    let wgpu_bytes = &good[28..];
+    // wgpu's bytes after our envelope's header: 40 bytes in version 3 (the lineage after the
+    // hash), 28 in version 2.
+    let version = u32::from_le_bytes(good[8..12].try_into().unwrap());
+    assert_eq!(version, 3, "the envelope the device writes");
+    let wgpu_bytes = &good[40..];
+    assert_eq!(
+        &wgpu_bytes[..8],
+        b"WGPUPLCH",
+        "wgpu's own header follows ours"
+    );
     let mut altered = good.clone();
     let n = altered.len();
     altered[n / 2] ^= 0x55;
@@ -3106,8 +3116,8 @@ fn the_pipeline_cache_file_is_kept_and_a_bad_one_is_ignored() {
     for (bytes, why) in [
         (altered, "do not match their hash"),
         (truncated, "truncated"),
-        (foreign, "ignored"),
-        (other_backend, "ignored"),
+        (foreign, "different device"),
+        (other_backend, "different device"),
     ] {
         std::fs::write(&file, &bytes).unwrap();
         let (pixels, note) = draw(Some(folder.clone())).unwrap();
@@ -5075,6 +5085,67 @@ impl Drop for Slow {
     fn drop(&mut self) {
         d3d9_wgpu::device::submit_delay_for_tests(0);
     }
+}
+
+/// The hitch log's timing of the backend's blocking calls (`d3d9_stream::hitch`): on the queue
+/// thread its jobs and its submits, handed over once each job is done; on the render thread (here
+/// the test's own thread, timed as the render thread) its wait for the queue thread holding a batch
+/// 60 ms and the read-back's wait for the GPU, with the longest call named. A thread that is
+/// neither times nothing.
+#[test]
+fn the_backends_blocking_calls_are_timed_on_its_two_threads() {
+    use d3d9_stream::hitch::{self, Call, Count, Side};
+    let Some(mut g) = Gpu::with_threads(4, 1, true) else {
+        return;
+    };
+    hitch::set_on(true);
+    let d = |a: &[u64], b: &[u64], c: Count| b[c as usize] - a[c as usize];
+    let before = hitch::snapshot();
+    g.clear(3, 0, 1.0);
+    let _ = g.pixels();
+    hitch::publish();
+    let mid = hitch::snapshot();
+    assert_eq!(
+        d(&before, &mid, Count::RenderThreadWaitNs),
+        0,
+        "not a timed thread"
+    );
+    assert_eq!(
+        d(&before, &mid, Count::RenderGpuWaitNs),
+        0,
+        "not a timed thread"
+    );
+    assert!(
+        d(&before, &mid, Count::QueueSubmitNs) > 0,
+        "the queue thread's submits"
+    );
+    assert!(d(&before, &mid, Count::QueueBusyNs) >= d(&before, &mid, Count::QueueSubmitNs));
+    let _ = hitch::take_longest();
+    hitch::set_side(Side::Render);
+    {
+        let _slow = Slow::hold(60);
+        g.clear(3, 0, 1.0);
+        let _ = g.pixels();
+    }
+    hitch::publish();
+    let after = hitch::snapshot();
+    let waited = d(&mid, &after, Count::RenderThreadWaitNs);
+    assert!(
+        waited >= 50_000_000,
+        "the wait for the queue thread: {waited}"
+    );
+    assert!(
+        d(&mid, &after, Count::RenderGpuWaitNs) > 0,
+        "the read-back's wait"
+    );
+    assert!(
+        d(&mid, &after, Count::QueueBusyNs) >= 50_000_000,
+        "the held job"
+    );
+    let [render, queue] = hitch::take_longest();
+    assert_eq!(render.map(|(c, _)| c), Some(Call::QueueWait), "{render:?}");
+    assert!(queue.is_some());
+    assert_eq!(g.b.device().map(|d| d.wgpu_errors()), Some(0));
 }
 
 /// `GetData` with `D3DGETDATA_FLUSH` once around one draw: the batch handed over (to the queue

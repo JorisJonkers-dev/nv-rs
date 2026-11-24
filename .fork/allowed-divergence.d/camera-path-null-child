@@ -1,0 +1,1 @@
+crates/engine-fallout-forms/src/units/fallout_shared/bgscamerapath.rs  # the camera path teardown skips a child slot that is no longer a camera path instead of writing to 0x30 (nv-rs#837)

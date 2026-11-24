@@ -193,8 +193,13 @@ pub fn fn_0058a450(e: &mut Engine, this: Ptr) {
             let mut i = 0u32;
             while i < count {
                 let child = e.call(0x0058_b630, &args![this, i]).u32();
-                e.call(SET_PARENT_PATH, &args![child, 0u32]);
+                // The exe clears the child's parent before it tests the child, so a slot that is
+                // no longer a camera path (`0058b630` answers null: a path the teardown already
+                // destroyed, as a large load order can leave in two child lists) writes to address
+                // 0x30 and stops the game as it quits (nv-rs#837). A null child is skipped: it has
+                // no parent to clear and nothing to delete.
                 if child != 0 {
+                    e.call(SET_PARENT_PATH, &args![child, 0u32]);
                     e.vcall(child, 0x10, &args![1u32]);
                 }
                 i += 1;
@@ -993,6 +998,57 @@ mod b019_tests {
         assert_eq!(calls(&e, 0x00ab_0010), vec![vec![c, 1]]);
         assert_eq!(calls(&e, 0x00ab_0000), vec![vec![children.addr(), 1]]);
         assert_eq!(calls(&e, 0x0048_3630), vec![vec![p.addr()]]);
+    }
+
+    /// nv-rs#837: a child slot that is no longer a camera path (null from `0058b630`) is skipped:
+    /// no parent write through it (the exe's write to 0x30 that stopped the game at quit) and no
+    /// delete; the other children are still unlinked and deleted.
+    #[test]
+    fn destructor_skips_a_child_that_is_no_longer_a_camera_path() {
+        let mut e = engine();
+        let p = path(&mut e, &[]);
+        let child = path(&mut e, &[0x10]);
+        let children = path(&mut e, &[0]);
+        e.mem.set_u32(p.addr() + 0x2c, children.addr());
+        e.register(CONDITIONS_OF, |_, a| Ret {
+            eax: a[0] + 0x18,
+            ..Ret::default()
+        });
+        quiet(
+            &mut e,
+            &[
+                0x0068_0fe0,
+                0x0047_0470,
+                0x0046_ffb0,
+                0x0068_08b0,
+                0x0048_3630,
+            ],
+        );
+        // Clearing data: the path is not unlinked from a parent or the root array.
+        e.register(0x0042_26e0, |_, _| Ret {
+            eax: 1,
+            ..Ret::default()
+        });
+        e.register(0x0058_b600, |_, _| Ret {
+            eax: 2,
+            ..Ret::default()
+        });
+        let c = child.addr();
+        e.register_double(0x0058_b630, move |_, a| Ret {
+            eax: if a[1] == 0 { 0 } else { c },
+            ..Ret::default()
+        });
+        // The parent setter as the exe has it: a write to the child's +0x30 (unmapped for a null
+        // child, which stops the engine as the game was stopped).
+        e.mem.set_u32(c + 0x30, 0x5555);
+        e.register(SET_PARENT_PATH, |e, a| {
+            e.mem.set_u32(a[0].wrapping_add(0x30), a[1]);
+            Ret::default()
+        });
+        e.call(0x0058_a450, &args![p]);
+        assert_eq!(e.mem.u32(c + 0x30), 0);
+        assert_eq!(calls(&e, 0x00ab_0010), vec![vec![c, 1]]);
+        assert_eq!(calls(&e, 0x00ab_0000), vec![vec![children.addr(), 1]]);
     }
 
     #[test]

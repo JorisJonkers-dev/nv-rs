@@ -307,7 +307,7 @@ args = ["-p engine --test typed_hud --test typed_setup --test typed_scripts"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed runtime 4/4: facegen, save, script lines"
-args = ["-p engine --test typed_facegen --test typed_save --test typed_script_lines"]
+args = ["-p engine --test typed_facegen --test typed_save --test typed_script_lines --test typed_facegen_head --test typed_script_params"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"

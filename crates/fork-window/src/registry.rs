@@ -156,10 +156,13 @@ pub fn metal_layer(id: isize) -> Option<std::ptr::NonNull<std::ffi::c_void>> {
 
 /// The client size of window `id` in pixels (0, 0 when unknown).
 pub fn client_size(id: isize) -> (u32, u32) {
-    get(id).map_or((0, 0), |s| {
-        let v = s.size.load(Ordering::Relaxed);
-        ((v >> 32) as u32, v as u32)
-    })
+    get(id).map_or((0, 0), |s| size_of(&s))
+}
+
+/// The client size `shared` holds now (width, height).
+pub(crate) fn size_of(s: &Shared) -> (u32, u32) {
+    let v = s.size.load(Ordering::Relaxed);
+    ((v >> 32) as u32, v as u32)
 }
 
 /// Tells window `id` the size of the game's back buffer, which `Present` stretches over the
