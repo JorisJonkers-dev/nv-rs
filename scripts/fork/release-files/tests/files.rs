@@ -109,7 +109,12 @@ fn every_extender_names_each_command_once() {
             .map(|n| n.as_str().unwrap())
             .collect();
         let distinct: std::collections::BTreeSet<&str> = names.iter().copied().collect();
-        assert_eq!(names.len(), distinct.len(), "{} names a command twice", e["id"]);
+        assert_eq!(
+            names.len(),
+            distinct.len(),
+            "{} names a command twice",
+            e["id"]
+        );
     }
     let jip = &c["extenders"][1]["commands"];
     let linked = jip["implemented_names"]

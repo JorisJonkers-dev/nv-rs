@@ -90,7 +90,9 @@ fn jip_ln() -> (Vec<String>, usize) {
 /// The implemented names and the number of commands of a plugin's slots, in slot order: a name
 /// held by several slots is one command, implemented when any of its slots is, named once at its
 /// first slot.
-pub fn commands_of_slots<'a>(slots: impl IntoIterator<Item = (&'a str, bool)>) -> (Vec<String>, usize) {
+pub fn commands_of_slots<'a>(
+    slots: impl IntoIterator<Item = (&'a str, bool)>,
+) -> (Vec<String>, usize) {
     let mut order: Vec<&str> = Vec::new();
     let mut built: std::collections::HashMap<&str, bool> = std::collections::HashMap::new();
     for (name, is_built) in slots {
