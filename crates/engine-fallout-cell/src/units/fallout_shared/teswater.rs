@@ -84,10 +84,13 @@ use engine_core::extend::stewie;
 /// own height, as Lake Mead) gets the sky reflection map only, so it mirrors the clouds and nothing of the land.
 /// The game keeps a reflection of its own for each water group, made about the group's own plane with the
 /// land, the far land, the reflected references and the explosions its water form asks for, and uses it only
-/// indoors. With this setting outdoor groups away from the world's water height take that path too: `Low` is
-/// the game's low-detail group reflection (the sky and the far land and objects the water form names),
-/// `High` adds the loaded land and the references the water reflects (what `bForceHighDetailReflections` and
-/// an interior give). `Game` (the default) is the exe's choice, unchanged.
+/// indoors. With this setting outdoor groups take that path too: `Low`, for groups away from the world's
+/// water height, is the game's low-detail group reflection (the sky and the far land and objects the water
+/// form names); `High` is every outdoor group, also those at the world's water height (a river at the
+/// Mojave's -2300), and its reflection holds the whole loaded scene, as the game's world reflection does
+/// with `bForceHighDetailReflections`: the statics around the water (a dam, canyon walls) are mirrored too,
+/// not only the land and the references the water names (nv-rs#848). `Game` (the default) is the exe's
+/// choice, unchanged.
 pub mod placed_reflections {
     use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -164,10 +167,22 @@ fn lod_water_group_map(e: &mut Engine, this: Ptr<TESWaterSystem>, viewer: Ptr) -
 /// Whether `group` (outdoors, away from the world space's water height) takes its own reflection
 /// ([`placed_reflections`]); never with `bUseWaterReflections` off, where the game's choice stays.
 fn group_reflects_outdoors(e: &mut Engine, group: Ptr<PlaceableWaterGroup>) -> bool {
-    placed_reflections::get() != placed_reflections::Level::Game
+    let level = placed_reflections::get();
+    level != placed_reflections::Level::Game
         && setting_flag(e, SETTING_USE_WATER_REFLECTIONS)
         && !in_interior(e)
-        && !e.get(group, PlaceableWaterGroup::bGroupAtWorldSpaceWaterHeight)
+        && (level == placed_reflections::Level::High
+            || !e.get(group, PlaceableWaterGroup::bGroupAtWorldSpaceWaterHeight))
+}
+
+/// Whether the group reflection being set up holds the whole loaded scene ([`placed_reflections`] `High`,
+/// outdoors, nv-rs#848): the "World" scene graph (`*011deb7c`), as the game's own world reflection holds it
+/// with `bForceHighDetailReflections`, so the statics, trees and buildings around the water (a dam, a
+/// canyon, a courtyard) are mirrored too, not only the land and the references the water names.
+fn group_reflects_the_scene(e: &mut Engine) -> bool {
+    placed_reflections::get() == placed_reflections::Level::High
+        && !in_interior(e)
+        && current_world_space(e) != 0
 }
 
 // ---------------------------------------------------------------------------
@@ -6252,7 +6267,10 @@ fn setup_group_reflections(
         assign_new_accumulator(e, sorter_slot);
     }
     prepare_accumulator(e, sorter_slot, camera_slot);
-    if e.get(group, PlaceableWaterGroup::bRenderSilhouetteReflections) {
+    // nv-rs#848: a reflection of the whole scene is drawn in its colours, not as the sky-coloured
+    // silhouettes `bAutoWaterSilhouetteReflections` gives.
+    let scene = !low_detail && group_reflects_the_scene(e);
+    if e.get(group, PlaceableWaterGroup::bRenderSilhouetteReflections) && !scene {
         set_silhouette_color(e, sorter_slot);
     }
 
@@ -6266,6 +6284,7 @@ fn setup_group_reflections(
     e.call(LIST_REMOVE_ALL, &args![dynamic_objects]);
     let references = group.at(PlaceableWaterGroup::PlaceableWaterList).addr();
     let reflected_refs_map = address_of(this, TESWaterSystem::ReflectionRefMap);
+    let mut scene_added = false;
     let mut sky_added = false;
     let mut land_added = false;
     let mut terrain_a_added = false;
@@ -6314,6 +6333,17 @@ fn setup_group_reflections(
                     address_of(group, PlaceableWaterGroup::spGroupReflectionMap)
                 ],
             );
+
+            if scene {
+                // nv-rs#848: the scene graph holds the sky, the land, the far land and every loaded
+                // reference, so nothing else is added (no object twice).
+                if !scene_added {
+                    scene_added = true;
+                    let root = e.call(POINTER_STATIC_011DEB7C, &[]).u32();
+                    list_add_head(e, static_objects, root);
+                }
+                continue;
+            }
 
             if base_form != 0 && fn_004ea930(e, base_form) && !sky_added {
                 sky_added = true;
@@ -9666,14 +9696,31 @@ mod tests {
         placed_reflections::set(Level::Game);
         assert!(!s.group_flag(0x5f));
         assert_eq!(s.e.global::<u8>(RENDER_SKY_REFLECTIONS), 1);
-        // A group at the world's water height keeps the world reflection whatever the level.
-        placed_reflections::set(Level::High);
+        // A group at the world's water height keeps the world reflection in the game and at low
+        // detail; at high it takes its own (nv-rs#848: a river at the world's water height).
+        for level in [Level::Game, Level::Low] {
+            let s = run_at_world_height(level);
+            assert!(!s.group_flag(0x5f), "{level:?}");
+            assert_eq!(s.e.global::<u8>(RENDER_WORLD_REFLECTIONS), 1, "{level:?}");
+            assert!(s.calls(FINISH_GROUP_INTERIOR).is_empty(), "{level:?}");
+        }
+        let s = run_at_world_height(Level::High);
+        let (this, group, viewer) = (s.this.addr(), s.group.addr(), s.viewer);
+        assert!(s.group_flag(0x5f));
+        assert_eq!(s.e.global::<u8>(RENDER_WORLD_REFLECTIONS), 0);
+        assert_eq!(
+            s.calls(SETUP_GROUP_REFLECTIONS),
+            vec![vec![this, viewer, group, 0]]
+        );
+        assert_eq!(s.calls(FINISH_GROUP_INTERIOR), vec![vec![this, group]]);
+    }
+
+    fn run_at_world_height(level: placed_reflections::Level) -> Scene {
+        placed_reflections::set(level);
         let mut s = scene();
         s.update(false);
-        placed_reflections::set(Level::Game);
-        assert!(!s.group_flag(0x5f));
-        assert_eq!(s.e.global::<u8>(RENDER_WORLD_REFLECTIONS), 1);
-        assert!(s.calls(FINISH_GROUP_INTERIOR).is_empty());
+        placed_reflections::set(placed_reflections::Level::Game);
+        s
     }
 
     /// nv-rs#844: the water of an outdoor group with its own reflection samples the group's map; the
@@ -15087,6 +15134,63 @@ mod tests {
             set_setting(&mut r.w.e, SETTING_FORCE_HIGH_DETAIL_LAND_REFLECTIONS, true);
             r.run(false);
             assert_eq!(r.static_objects().len(), 8);
+        }
+
+        /// nv-rs#848: with `water.placed_reflections` high an outdoor group's reflection holds the world scene
+        /// graph (every loaded static around the water), once and alone, drawn in its colours rather than as
+        /// silhouettes; the game's lists and silhouettes otherwise, and indoors or at low detail whatever the
+        /// level.
+        #[test]
+        fn a_high_outdoor_group_reflection_holds_the_whole_scene() {
+            use placed_reflections::Level;
+            let _turn = super::PLACED_REFLECTIONS
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let run = |level: Level, low_detail: bool, interior: bool| {
+                let mut r = reflection();
+                // Sky, land and the three terrain objects by the form flags.
+                r.set_flags(0x40 | 0x04 | 0x08 | 0x10 | 0x20);
+                r.w.e.register(POINTER_STATIC_011DEB7C, |_, _| ret(0x6161));
+                if interior {
+                    let tes = r.w.e.global::<u32>(TES_POINTER);
+                    r.w.e.mem.set_u32(tes + 0x34, 0x77);
+                }
+                // A second water reference of the group adds nothing more.
+                let (second, _, geometry, _) = geometry_chain(&mut r.w.e);
+                let property = r.w.e.mem.alloc(0x150);
+                r.w.e.mem.set_u32(geometry + GEOMETRY_PROPERTY, property);
+                r.w.e.mem.set_u32(second + REF_BASE_FORM, r.base_form);
+                let cell = r.w.e.mem.u32(r.w.water_reference + REF_CELL);
+                r.w.e.mem.set_u32(second + REF_CELL, cell);
+                let first = r.w.water_reference;
+                fill_list(&mut r.w.e, r.w.group.addr() + 0x24, &[first, second]);
+                // `bAutoWaterSilhouetteReflections` asked for silhouettes.
+                r.w.e.set(
+                    r.w.group,
+                    PlaceableWaterGroup::bRenderSilhouetteReflections,
+                    true,
+                );
+                placed_reflections::set(level);
+                r.run(low_detail);
+                placed_reflections::set(Level::Game);
+                let silhouette = !calls(&r.w.e, ACCUMULATOR_SET_WORD_19C).is_empty();
+                (r.static_objects(), silhouette)
+            };
+            // The scene, once and alone, in its colours (no silhouette).
+            assert_eq!(run(Level::High, false, false), (vec![0x6161], false));
+            let (game, silhouette) = run(Level::Game, false, false);
+            assert!(game.contains(&SKY_OBJECTS) && game.contains(&TERRAIN_A));
+            assert!(!game.contains(&0x6161));
+            assert!(silhouette, "the game's silhouettes stay");
+            assert_eq!(run(Level::Low, false, false), (game, true));
+            assert!(
+                !run(Level::High, true, false).0.contains(&0x6161),
+                "low detail"
+            );
+            assert!(
+                !run(Level::High, false, true).0.contains(&0x6161),
+                "interior"
+            );
         }
 
         #[test]
