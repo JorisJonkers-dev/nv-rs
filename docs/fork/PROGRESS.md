@@ -103,7 +103,8 @@ Don't commit what `generate` writes: the workflow commits it after the merge. To
 The push to `fork` is made by a GitHub App of its own, `raul-progress-bot`:
 - permissions: contents write and metadata read;
 - installed on the six Raul repositories only;
-- the only bypass actor of the ruleset "Fork line", and of no other rule or ruleset.
+- the only bypass actor of the ruleset "Fork line", and of no other rule or ruleset of nv-rs (on another repository only
+  where `--bypass` names that ruleset, see below).
 
 Its id is the Actions variable `PROGRESS_APP_ID` and its private key the Actions secret `PROGRESS_APP_PRIVATE_KEY`.
 `scripts/fork/apply-ruleset.sh` keeps the bypass when it applies `.github/rulesets/fork-line.json`.
@@ -115,4 +116,12 @@ scripts/fork/setup-progress-bot.py
 ```
 
 The script shows each step and asks before it runs it. It skips what is already done, so it is safe to run again.
+
+Other Raul repositories publish their tally reports (the feature catalogue: implemented and covered per area) the same
+way, from their default branch. Where that branch has a ruleset that stops the push, the App becomes a bypass actor of
+that ruleset only when asked, one repository at a time:
+
+```sh
+scripts/fork/setup-progress-bot.py --bypass loot-rs:Main
+```
 Without the App, the workflow still counts and shows the result in its summary, but pushes nothing.
