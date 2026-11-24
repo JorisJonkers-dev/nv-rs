@@ -854,8 +854,7 @@ impl Showing {
 /// one is told the scaled size: 2048x1152 for 2560x1440 at 125%), and the game's child window
 /// (the one it draws in, made at its resolution) is sized to fill it.
 /// The run's choice ([`want_borderless`]) when it made one, else `NV_BORDERLESS=1`.
-#[cfg_attr(not(windows), allow(dead_code))] // fork: the Win32 layer's only off Windows (fork_d3d9rec.rs)
-fn borderless() -> bool {
+pub(crate) fn borderless() -> bool {
     match BORDERLESS_CHOICE.load(std::sync::atomic::Ordering::Relaxed) {
         1 => true,
         2 => false,

@@ -91,6 +91,31 @@ impl d3d9_wgpu::GameWindow for MacWindow {
     }
 }
 
+/// The real window for the game's top-level `CreateWindowExA`: its title, the rectangle's size, and
+/// full screen (winit's borderless full screen: on Wayland the compositor's own full screen on the
+/// output, with no top bar or frame) when the game's style has no caption (its `bFull Screen=1`)
+/// or the run asked for a borderless window (`[nv-rs Display] bBorderless`, `NV_BORDERLESS`;
+/// nv-rs#841): the game's windowed mode is then sized to its prefs and the compositor kept it
+/// framed under the top bar (2552x1376 on a 2560x1440 monitor), not over the whole monitor.
+fn request_for(
+    title: &[u8],
+    style: u32,
+    rect: [i32; 4],
+    borderless: bool,
+) -> fork_window::WindowRequest {
+    let [left, top, right, bottom] = rect;
+    let fullscreen = style & WS_CAPTION == 0 || borderless;
+    fork_window::WindowRequest {
+        title: String::from_utf8_lossy(title).into_owned(),
+        width: right.wrapping_sub(left).clamp(1, 16384) as u32,
+        height: bottom.wrapping_sub(top).clamp(1, 16384) as u32,
+        decorations: style & WS_CAPTION == WS_CAPTION && !fullscreen,
+        visible: style & WS_VISIBLE != 0,
+        fullscreen,
+        activate: true,
+    }
+}
+
 /// The small window of a run that draws off screen (`NV_RUN_WINDOW`, `fork_window::mirror`), made once
 /// for the run's first top-level window and kept to its end. Off unless asked for; a run without a
 /// display, or any run on macOS, has none. The run's drawing is not touched.
@@ -148,16 +173,7 @@ pub fn window_created(
         }
         return;
     }
-    let [left, top, right, bottom] = rect;
-    let request = fork_window::WindowRequest {
-        title: String::from_utf8_lossy(title).into_owned(),
-        width: right.wrapping_sub(left).clamp(1, 16384) as u32,
-        height: bottom.wrapping_sub(top).clamp(1, 16384) as u32,
-        decorations: style & WS_CAPTION == WS_CAPTION,
-        visible: style & WS_VISIBLE != 0,
-        fullscreen: style & WS_CAPTION == 0,
-        activate: true,
-    };
+    let request = request_for(title, style, rect, crate::d3d9real::borderless());
     let (width, height, borderless) = (request.width, request.height, request.fullscreen);
     match fork_window::Window::open(request, Some(d3d9_wgpu::window_changed)) {
         Ok(window) => {
@@ -369,6 +385,7 @@ pub(super) fn make_stream(e: &mut Engine, which: Backends) -> Stream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::d3d9;
     use d3d9_stream::Backend;
 
@@ -813,5 +830,28 @@ mod tests {
         // B, G, R: green where nothing was drawn, red inside the triangle.
         assert_eq!(at(2, 2), [0x00, 0xFF, 0x00], "the cleared corner");
         assert_eq!(at(32, 40), [0x00, 0x00, 0xFF], "the triangle's centre");
+    }
+}
+
+/// Pure checks of the window request (no display: kept out of `tests`, which the window smoke
+/// job runs under Xvfb with an exact count).
+#[cfg(test)]
+mod request_tests {
+    use super::*;
+
+    /// nv-rs#841: the run's borderless window is full screen on Linux too (it was framed and kept
+    /// under GNOME's top bar); the caption-less style still is; a framed window without the choice
+    /// stays framed.
+    #[test]
+    fn the_runs_borderless_choice_makes_the_real_window_full_screen() {
+        let framed = WS_CAPTION | WS_VISIBLE;
+        let rect = [0, 0, 2560, 1440];
+        let play = request_for(b"Fallout: New Vegas", framed, rect, true);
+        assert!(play.fullscreen && !play.decorations && play.visible && play.activate);
+        assert_eq!((play.width, play.height), (2560, 1440));
+        let windowed = request_for(b"Fallout: New Vegas", framed, rect, false);
+        assert!(!windowed.fullscreen && windowed.decorations);
+        let popup = request_for(b"Fallout: New Vegas", WS_VISIBLE, rect, false);
+        assert!(popup.fullscreen && !popup.decorations);
     }
 }

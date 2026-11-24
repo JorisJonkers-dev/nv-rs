@@ -503,7 +503,7 @@ tested on Wayland; the desktops job (`fork-window-desktops.yml`) runs the layer 
 
 ### Full screen (#218)
 
-"Full screen" here is the game's `bFull Screen=1` made borderless: the window of a request with no caption
+"Full screen" here is the game's `bFull Screen=1`, or the run's borderless window (`[nv-rs Display] bBorderless=1`, play's default; nv-rs#841), made borderless: the window of a request with no caption
 (`WindowRequest::fullscreen`) is winit's `Fullscreen::Borderless` over the monitor the display choice names
 (`NV_MONITOR`, else last used, primary, first; on Wayland the compositor's current output). It has no caption and covers
 exactly that monitor whatever `iSize` says; the game's picture is stretched to it. Exclusive full screen and a video mode
