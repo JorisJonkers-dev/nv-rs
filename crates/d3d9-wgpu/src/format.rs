@@ -76,6 +76,9 @@ pub enum Upload {
     Copy,
     /// 16-bit pixels widened to B8G8R8A8 (`R5G6B5` and the 1-5-5-5 and 4-4-4-4 formats).
     Widen16(u32),
+    /// B8G8R8A8 pixels kept as R, G, B, A 16-bit floats: an 8-bit colour render target made
+    /// precise ([`precise`], nv-rs#830). Its bytes read back are B8G8R8A8 again ([`downloaded`]).
+    Half,
 }
 
 /// A Direct3D 9 format on wgpu.
@@ -162,6 +165,58 @@ pub fn format(d3d: u32) -> Option<Format> {
     }
 }
 
+/// Whether new 8-bit colour render targets are made precise ([`precise`]): the fork setting
+/// `textures.precise_targets` (nv-rs#830), set by the host before the game makes its targets, so
+/// it applies from the next start. Off by default (the game's formats).
+pub mod precise_targets {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static ON: AtomicBool = AtomicBool::new(false);
+
+    /// Sets whether the targets made from now on are precise.
+    pub fn set(on: bool) {
+        ON.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether they are.
+    pub fn on() -> bool {
+        ON.load(Ordering::Relaxed)
+    }
+}
+
+/// `f` as a precise render target (nv-rs#830, the fork setting `textures.precise_targets`): an
+/// 8-bit colour format (`A8R8G8B8`, `X8R8G8B8`) is kept in 16-bit float, as the Fallout HDR
+/// Patch does for the original program, so gradients drawn and blended in several passes keep
+/// their steps finer than 1/255; every other format is returned as it is. The game still sees
+/// its own format: `d3d` and `bytes` (its layout) do not change.
+pub fn precise(f: Format) -> Format {
+    if f.wgpu == wgpu::TextureFormat::Bgra8Unorm
+        && matches!(f.d3d, d3dfmt::A8R8G8B8 | d3dfmt::X8R8G8B8)
+    {
+        Format {
+            wgpu: wgpu::TextureFormat::Rgba16Float,
+            upload: Upload::Half,
+            ..f
+        }
+    } else {
+        f
+    }
+}
+
+/// Whether `f` is an 8-bit colour format kept in 16-bit float ([`precise`]).
+pub fn is_precise(f: &Format) -> bool {
+    f.upload == Upload::Half
+}
+
+/// The bytes of one pixel as the texture holds it.
+pub fn texel_bytes(f: &Format) -> u32 {
+    if is_precise(f) {
+        8
+    } else {
+        f.bytes
+    }
+}
+
 /// The bytes of a level `width` x `height` as the game lays them out (rows packed): bytes per
 /// row and rows (block rows for block-compressed formats).
 pub fn level_layout(f: &Format, width: u32, height: u32) -> (u32, u32) {
@@ -213,6 +268,78 @@ pub fn convert<'a>(f: &Format, bytes: &'a [u8]) -> std::borrow::Cow<'a, [u8]> {
             }
             std::borrow::Cow::Owned(out)
         }
+        Upload::Half => {
+            let mut out = Vec::with_capacity(bytes.len() * 2);
+            for p in bytes.chunks_exact(4) {
+                for c in [p[2], p[1], p[0], p[3]] {
+                    out.extend_from_slice(&f16_bits(f32::from(c) / 255.0).to_le_bytes());
+                }
+            }
+            std::borrow::Cow::Owned(out)
+        }
+    }
+}
+
+/// A level's bytes as the texture holds them, read back, in the game's layout: a precise target's
+/// R, G, B, A halves made B8G8R8A8 (clamped to 0..1, rounded); the rest as they are.
+pub fn downloaded(f: &Format, bytes: Vec<u8>) -> Vec<u8> {
+    if !is_precise(f) {
+        return bytes;
+    }
+    let unit = |lo: u8, hi: u8| {
+        let v = f16_value(u16::from_le_bytes([lo, hi]));
+        (v.clamp(0.0, 1.0) * 255.0).round() as u8
+    };
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for p in bytes.chunks_exact(8) {
+        let [r, g, b, a] = [0, 2, 4, 6].map(|i| unit(p[i], p[i + 1]));
+        out.extend_from_slice(&[b, g, r, a]);
+    }
+    out
+}
+
+/// `v` (finite, 0 or more) as an IEEE 754 half, rounded to the nearest.
+fn f16_bits(v: f32) -> u16 {
+    let x = v.max(0.0).to_bits();
+    let exp = ((x >> 23) & 0xFF) as i32 - 127 + 15;
+    let man = x & 0x7F_FFFF;
+    if exp >= 31 {
+        return 0x7BFF; // the largest finite half
+    }
+    if exp <= 0 {
+        // A subnormal half (or 0).
+        if exp < -10 {
+            return 0;
+        }
+        let m = man | 0x80_0000;
+        let shift = (14 - exp) as u32;
+        let half = m >> shift;
+        let rest = m & ((1 << shift) - 1);
+        let mid = 1 << (shift - 1);
+        let up = rest > mid || (rest == mid && half & 1 == 1);
+        return (half + u32::from(up)) as u16;
+    }
+    let half = ((exp as u32) << 10) | (man >> 13);
+    let rest = man & 0x1FFF;
+    let up = rest > 0x1000 || (rest == 0x1000 && half & 1 == 1);
+    (half + u32::from(up)) as u16
+}
+
+/// The value of the IEEE 754 half `h`.
+fn f16_value(h: u16) -> f32 {
+    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exp = i32::from((h >> 10) & 0x1F);
+    let man = f32::from(h & 0x3FF);
+    sign * match exp {
+        0 => man * 2f32.powi(-24),
+        31 => {
+            if man == 0.0 {
+                f32::INFINITY
+            } else {
+                f32::NAN
+            }
+        }
+        _ => (1.0 + man / 1024.0) * 2f32.powi(exp - 15),
     }
 }
 
@@ -225,7 +352,7 @@ fn scale(v: u32, n: u32) -> u32 {
 pub fn uploaded_layout(f: &Format, width: u32, height: u32) -> (u32, u32) {
     let (row, rows) = level_layout(f, width, height);
     match f.upload {
-        Upload::Widen16(_) => (row * 2, rows),
+        Upload::Widen16(_) | Upload::Half => (row * 2, rows),
         Upload::Copy => (row, rows),
     }
 }
@@ -233,6 +360,70 @@ pub fn uploaded_layout(f: &Format, width: u32, height: u32) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eight_bit_colour_targets_are_made_precise_and_nothing_else() {
+        for d3d in [d3dfmt::A8R8G8B8, d3dfmt::X8R8G8B8] {
+            let f = format(d3d).unwrap();
+            let p = precise(f);
+            assert_eq!(p.wgpu, wgpu::TextureFormat::Rgba16Float);
+            assert!(is_precise(&p) && !is_precise(&f));
+            assert_eq!((p.d3d, p.bytes, p.opaque, p.fix), (f.d3d, 4, f.opaque, f.fix));
+            assert_eq!(texel_bytes(&p), 8);
+            assert_eq!(level_layout(&p, 3, 2), level_layout(&f, 3, 2));
+            assert_eq!(uploaded_layout(&p, 3, 2), (24, 2));
+        }
+        for d3d in [
+            d3dfmt::A8B8G8R8,
+            d3dfmt::R5G6B5,
+            d3dfmt::A16B16G16R16F,
+            d3dfmt::D24S8,
+            d3dfmt::DXT5,
+        ] {
+            let f = format(d3d).unwrap();
+            assert_eq!(precise(f), f);
+        }
+    }
+
+    #[test]
+    fn a_precise_target_gives_back_every_8_bit_value_it_was_given() {
+        let p = precise(format(d3dfmt::A8R8G8B8).unwrap());
+        let game: Vec<u8> = (0..=255u8).flat_map(|v| [v, 255 - v, v / 2, v ^ 0x55]).collect();
+        let held = convert(&p, &game).into_owned();
+        assert_eq!(held.len(), game.len() * 2);
+        // Held as R, G, B, A: the first pixel's red is the game's third byte.
+        assert_eq!(f16_value(u16::from_le_bytes([held[0], held[1]])), 0.0);
+        assert_eq!(f16_value(u16::from_le_bytes([held[2], held[3]])), 1.0);
+        let alpha = f16_value(u16::from_le_bytes([held[6], held[7]]));
+        assert!((alpha - 85.0 / 255.0).abs() < 1.0 / 2048.0);
+        assert_eq!(downloaded(&p, held), game);
+    }
+
+    #[test]
+    fn halves_are_exact_where_they_can_be_and_rounded_to_the_nearest() {
+        for v in [0.0, 1.0, 0.5, 0.25, 2.0, 65504.0, 2f32.powi(-24), 2f32.powi(-14)] {
+            assert_eq!(f16_value(f16_bits(v)), v, "{v}");
+        }
+        // Every 8-bit step is held within the half's precision (11 bits).
+        for c in 0..=255u8 {
+            let v = f32::from(c) / 255.0;
+            assert!((f16_value(f16_bits(v)) - v).abs() <= v.max(2f32.powi(-14)) / 2048.0);
+        }
+        assert_eq!(f16_bits(1e9), 0x7BFF);
+        assert_eq!(f16_bits(-1.0), 0);
+        let f = format(d3dfmt::A8R8G8B8).unwrap();
+        assert_eq!(downloaded(&f, vec![1, 2, 3, 4]), [1, 2, 3, 4]);
+        let p = precise(f);
+        // Values outside 0..1 (a float target keeps them) are clamped as an 8-bit target's.
+        let over: Vec<u8> = [2.0f32, -0.5, 0.5, 1.0]
+            .iter()
+            .flat_map(|v| {
+                let h = if *v < 0.0 { 0x8000 | f16_bits(-v) } else { f16_bits(*v) };
+                h.to_le_bytes()
+            })
+            .collect();
+        assert_eq!(downloaded(&p, over), [128, 0, 255, 255]);
+    }
 
     #[test]
     fn sixteen_bit_pixels_widen_exactly_at_the_ends() {
