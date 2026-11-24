@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::test_support::{call_expr, engine, SCRIPT};
+use fork_catalogue::{covers, ids};
 use nvse::vars;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -145,6 +146,7 @@ fn the_commands_are_registered_where_the_plugin_lists_them() {
 
 #[test]
 fn a_float_is_read_from_its_section_and_key_without_case() {
+    covers(&[ids::extenders::showoff::GETINIFLOATORDEFAULT_CACHED]);
     let mut e = setup();
     put(
         "Data\\Config\\Mine.ini",
@@ -193,6 +195,10 @@ fn a_float_is_read_from_its_section_and_key_without_case() {
 
 #[test]
 fn the_file_is_cached_after_its_first_read() {
+    covers(&[
+        ids::extenders::showoff::GETINIFLOATORDEFAULT_CACHED,
+        ids::extenders::showoff::CLEARFILECACHESHOWOFF,
+    ]);
     let mut e = setup();
     put("Data\\Config\\Mine.ini", "[A]\r\nk = 1\r\n");
     assert_eq!(run(&mut e, GET, &[text("A:k"), text("Mine")]), 1.0);
@@ -212,6 +218,7 @@ fn the_file_is_cached_after_its_first_read() {
 
 #[test]
 fn the_mods_own_file_is_the_default_path() {
+    covers(&[ids::extenders::showoff::GETINIFLOATORDEFAULT_CACHED]);
     let mut e = setup();
     put("Data\\Config\\MyMod.ini", "[A]\r\nk = 8\r\n");
     assert_eq!(run(&mut e, GET, &[text("A:k")]), 8.0);
@@ -230,6 +237,11 @@ fn a_value_that_is_not_a_number_reads_as_its_leading_number() {
 
 #[test]
 fn a_path_that_leaves_the_folder_is_refused() {
+    covers(&[
+        ids::extenders::showoff::GETINIFLOATORDEFAULT_CACHED,
+        ids::extenders::showoff::SETINIVALUE_CACHED,
+        ids::extenders::showoff::SAVECACHEDINIFILE,
+    ]);
     let mut e = setup();
     put("Data\\Config\\x.ini", "[A]\r\nk = 1\r\n");
     for bad in ["..\\x", "C:\\x", "\\x", "a\\..\\x", "sub\\"] {
@@ -249,6 +261,7 @@ fn a_path_that_leaves_the_folder_is_refused() {
 
 #[test]
 fn a_string_is_read_with_its_default() {
+    covers(&[ids::extenders::showoff::GETINISTRINGORDEFAULT_CACHED]);
     let mut e = setup();
     put(
         "Data\\Config\\Mine.ini",
@@ -275,6 +288,11 @@ fn a_string_is_read_with_its_default() {
 
 #[test]
 fn create_writes_a_missing_key_to_the_cache_only() {
+    covers(&[
+        ids::extenders::showoff::GETINIFLOATORCREATE_CACHED,
+        ids::extenders::showoff::GETINIFLOATORDEFAULT_CACHED,
+        ids::extenders::showoff::SAVECACHEDINIFILE,
+    ]);
     let mut e = setup();
     put("Data\\Config\\Mine.ini", "[A]\r\nk = 1\r\n");
     let create = |e: &mut Engine, name: &str, v: f64, comment: Option<&str>| {
@@ -310,6 +328,10 @@ fn create_writes_a_missing_key_to_the_cache_only() {
 
 #[test]
 fn set_answers_updated_inserted_or_an_error() {
+    covers(&[
+        ids::extenders::showoff::SETINIVALUE_CACHED,
+        ids::extenders::showoff::SAVECACHEDINIFILE,
+    ]);
     let mut e = setup();
     put("Data\\Config\\Mine.ini", "; header\r\n[A]\r\nK = 1\r\n");
     assert_eq!(
@@ -348,6 +370,10 @@ fn set_answers_updated_inserted_or_an_error() {
 
 #[test]
 fn the_pages_example_makes_the_file_and_its_folders() {
+    covers(&[
+        ids::extenders::showoff::SETINIVALUE_CACHED,
+        ids::extenders::showoff::SAVECACHEDINIFILE,
+    ]);
     let mut e = setup();
     assert_eq!(
         run(
@@ -377,6 +403,11 @@ fn the_pages_example_makes_the_file_and_its_folders() {
 
 #[test]
 fn save_and_clear_answer_whether_the_cache_was_there() {
+    covers(&[
+        ids::extenders::showoff::SAVECACHEDINIFILE,
+        ids::extenders::showoff::CLEARFILECACHESHOWOFF,
+        ids::extenders::showoff::SETINIVALUE_CACHED,
+    ]);
     let mut e = setup();
     assert_eq!(run(&mut e, SAVE, &[text("Mine")]), 0.0, "nothing cached");
     assert_eq!(run(&mut e, CLEAR, &[text("Mine"), num(0.0)]), 0.0);

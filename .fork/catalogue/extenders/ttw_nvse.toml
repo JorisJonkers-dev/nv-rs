@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "extenders.ttw_nvse"
+title = "Tale of Two Wastelands plugin (ttw_nvse) commands"
+origin = "original"
+notes = "The three commands the TTW plugin registers (no public source; the count is its slot count). Built in by crates/ttw-nvse."
+
+[[item]]
+id = "ttw_showgeneprojector"
+title = "TTW_ShowGeneProjector"
+status = "implemented"
+
+[[item]]
+id = "ttw_getplugins"
+title = "TTW_GetPlugins"
+status = "implemented"
+
+[[item]]
+id = "ttw_enableradiofix"
+title = "TTW_EnableRadioFix"
+status = "implemented"

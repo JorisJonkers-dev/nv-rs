@@ -189,7 +189,7 @@ them). Costs one full-screen pass per frame and twice the back buffer's video me
 | --- | --- | --- | --- |
 | `anisotropy` | `game` (the game's sampler states), `x2`, `x4`, `x8`, `x16` | `game` (`modern`: `x16`) | live |
 | `precise_targets` | `false`, `true` | `false` (`modern`: `false`) | next start |
-| `dither` | `false`, `true` | `false` (`modern`: `false`) | next start |
+| `dither` | `false`, `true` | `false` (`modern`: `true`) | next start |
 ### Water (`water`)
 
 The game gives outdoor water two reflections: water at the world space's own water height (the `DNAM` default, -2300

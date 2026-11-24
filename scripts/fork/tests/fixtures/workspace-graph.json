@@ -1794,6 +1794,12 @@
   {
    "dependencies": [],
    "features": [],
+   "manifest_path": "/ws/crates/fork-catalogue/Cargo.toml",
+   "name": "fork-catalogue"
+  },
+  {
+   "dependencies": [],
+   "features": [],
    "manifest_path": "/ws/crates/fork-gfx/Cargo.toml",
    "name": "fork-gfx"
   },
@@ -2204,6 +2210,11 @@
      "name": "nvse"
     },
     {
+     "features": [],
+     "kind": "dev",
+     "name": "fork-catalogue"
+    },
+    {
      "features": [
       "test-support"
      ],
@@ -2508,6 +2519,11 @@
      "features": [],
      "kind": null,
      "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "fork-catalogue"
     }
    ],
    "features": [],
@@ -2542,6 +2558,11 @@
      "features": [],
      "kind": null,
      "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "fork-catalogue"
     },
     {
      "features": [

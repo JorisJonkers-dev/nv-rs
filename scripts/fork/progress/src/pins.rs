@@ -19,6 +19,9 @@ pub struct Pin {
     pub version: &'static str,
     /// The paths read (sparse checkout patterns, from the repository's root).
     pub paths: &'static [&'static str],
+    /// The day the files were read at this commit (the coverage catalogue's `read`); a pull request that moves
+    /// `commit` sets it to that day.
+    pub read: &'static str,
 }
 
 pub const PINS: &[Pin] = &[
@@ -28,6 +31,7 @@ pub const PINS: &[Pin] = &[
         // Tag 6.4.9, the version crates/nvse's name table is read from (crates/nvse/src/names.rs).
         commit: "3ff1e21d146e626eb71552af9f1ad381e7f943dd",
         version: "6.4.9",
+        read: "2026-11-24",
         paths: &["/nvse/nvse/"],
     },
     Pin {
@@ -36,6 +40,7 @@ pub const PINS: &[Pin] = &[
         // 57.30, the commit of crates/jip/data/source-57.30.tsv.
         commit: "5a30ac4356ea0e93b9ff357b5031b1e420240a4d",
         version: "57.30",
+        read: "2026-11-24",
         paths: &["/jip_nvse.cpp"],
     },
     Pin {
@@ -43,6 +48,7 @@ pub const PINS: &[Pin] = &[
         repo: "carxt/JohnnyGuitarNVSE",
         commit: "6215c7044d7159f0a844e533085efe85ce7e599e",
         version: "5.28",
+        read: "2026-11-24",
         paths: &[
             "/JG/internal/JG/JohnnyCommands.cpp",
             "/JG/internal/JG/JohnnyPluginData.hpp",
@@ -53,6 +59,7 @@ pub const PINS: &[Pin] = &[
         repo: "Demorome/ShowOff-NVSE",
         commit: "f45d069d5357968f01246d87bbdcdee4b030dc90",
         version: "1.84",
+        read: "2026-11-24",
         paths: &["/SHOWOFF-NVSE/ShowOffNVSE.cpp"],
     },
     Pin {
@@ -60,6 +67,7 @@ pub const PINS: &[Pin] = &[
         repo: "korri123/kNVSE",
         commit: "0777ffbe91f8d82ce6be7c7587cfcbac8c820657",
         version: "40",
+        read: "2026-11-24",
         paths: &[
             "/nvse_plugin_example/main.cpp",
             "/nvse_plugin_example/commands_animation.cpp",
@@ -71,6 +79,7 @@ pub const PINS: &[Pin] = &[
         // Tag v13.0.0.
         commit: "de62c283f3383bd825c98518cb0a42ba071d4ac2",
         version: "v13.0.0",
+        read: "2026-11-24",
         paths: &[
             "/mingw-w64-headers/include/d3d9.h",
             "/mingw-w64-headers/include/d3d9types.h",

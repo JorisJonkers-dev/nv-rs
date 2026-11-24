@@ -125,45 +125,73 @@ pub fn stage(
     Ok(Staged { game, xdg })
 }
 
-/// Sets `key` (a name in `Fallout.ini`, any section) to `value` in the staged copy of the user data: the first
-/// line `key=...` (the name compared without case) is rewritten. A key the file does not have is an error (the
-/// staged copy is the template's: change the template or use a key it has). Returns the line it replaced.
-pub fn set_ini(staged: &Staged, key: &str, value: &str) -> io::Result<String> {
-    let path = staged.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV/Fallout.ini");
-    let text = fs::read_to_string(&path).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!(
-                "{}: {e} (--ini needs a --userdata template with a Fallout.ini)",
-                path.display()
-            ),
-        )
-    })?;
-    let mut done = None;
-    let lines: Vec<String> = text
-        .lines()
-        .map(|l| {
-            let name = l.split_once('=').map(|(k, _)| k.trim());
-            if done.is_none() && name.is_some_and(|k| k.eq_ignore_ascii_case(key)) {
-                done = Some(l.to_string());
-                format!(
-                    "{}={value}",
-                    l.split_once('=').map_or(key, |(k, _)| k.trim())
-                )
-            } else {
-                l.to_string()
-            }
-        })
-        .collect();
-    let Some(old) = done else {
+/// The user-data ini files `set_ini` edits, in order: the game reads `Fallout.ini`, then `FalloutPrefs.ini` over
+/// it (the display and detail settings, such as `iMaxAnisotropy`, live in the second).
+const INI_FILES: [&str; 2] = ["Fallout.ini", "FalloutPrefs.ini"];
+
+/// Sets `key` (a name in `Fallout.ini` or `FalloutPrefs.ini`, any section) to `value` in the staged copy of the
+/// user data: in each of the two files that has it, the first line `key=...` (the name compared without case)
+/// is rewritten, so a key the game reads from `FalloutPrefs.ini` takes the value too. A key neither file has is
+/// an error (the staged copy is the template's: change the template or use a key it has). Returns the lines it
+/// replaced, each after its file's name (`FalloutPrefs.ini: iMaxAnisotropy=8`).
+pub fn set_ini(staged: &Staged, key: &str, value: &str) -> io::Result<Vec<String>> {
+    let dir = staged.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV");
+    let mut replaced = Vec::new();
+    let mut read = Vec::new();
+    for name in INI_FILES {
+        let path = dir.join(name);
+        let text = match fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(io::Error::new(e.kind(), format!("{}: {e}", path.display()))),
+        };
+        read.push(name);
+        let mut done = None;
+        let lines: Vec<String> = text
+            .lines()
+            .map(|l| {
+                // A file saved with a byte order mark has it before the first line's name: compare without it
+                // (and keep it in the rewritten line).
+                let name = l
+                    .split_once('=')
+                    .map(|(k, _)| k.trim_start_matches('\u{feff}').trim());
+                if done.is_none() && name.is_some_and(|k| k.eq_ignore_ascii_case(key)) {
+                    done = Some(l.to_string());
+                    format!(
+                        "{}={value}",
+                        l.split_once('=').map_or(key, |(k, _)| k.trim())
+                    )
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect();
+        if let Some(old) = done {
+            let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+            fs::write(&path, lines.join(eol) + eol)?;
+            replaced.push(format!("{name}: {old}"));
+        }
+    }
+    if read.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("--ini {key}: {} has no line `{key}=`", path.display()),
+            format!(
+                "{}: no Fallout.ini or FalloutPrefs.ini (--ini needs a --userdata template with them)",
+                dir.display()
+            ),
         ));
-    };
-    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
-    fs::write(&path, lines.join(eol) + eol)?;
-    Ok(old)
+    }
+    if replaced.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "--ini {key}: no line `{key}=` in {} (read: {})",
+                dir.display(),
+                read.join(", ")
+            ),
+        ));
+    }
+    Ok(replaced)
 }
 
 fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
@@ -325,7 +353,10 @@ mod tests {
         )
         .unwrap();
         let s = stage(&install, None, &[], &[], Some(&template), &t.join("v")).unwrap();
-        assert_eq!(set_ini(&s, "ugridstoload", "9").unwrap(), "uGridsToLoad=5");
+        assert_eq!(
+            set_ini(&s, "ugridstoload", "9").unwrap(),
+            ["Fallout.ini: uGridsToLoad=5"]
+        );
         let staged = s.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV/Fallout.ini");
         assert_eq!(
             fs::read_to_string(staged).unwrap(),
@@ -335,5 +366,85 @@ mod tests {
             .unwrap()
             .contains("uGridsToLoad=5"));
         assert!(set_ini(&s, "iNothing", "1").is_err());
+    }
+
+    #[test]
+    fn an_ini_value_reaches_the_prefs_file_the_game_reads_it_from() {
+        // `iMaxAnisotropy` and the other display settings are read from FalloutPrefs.ini, over Fallout.ini: an
+        // `--ini` that rewrote Fallout.ini only did nothing for them.
+        let t = tmp("prefs");
+        let install = t.join("install");
+        fs::create_dir_all(install.join("Data")).unwrap();
+        let template = t.join("tpl");
+        let docs = template.join("Documents/My Games/FalloutNV");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(
+            docs.join("Fallout.ini"),
+            "[Display]\niMaxAnisotropy=8\nuGridsToLoad=5\n",
+        )
+        .unwrap();
+        fs::write(
+            docs.join("FalloutPrefs.ini"),
+            "[Display]\r\niMaxAnisotropy=8\r\nbFull Screen=1\r\n",
+        )
+        .unwrap();
+        let s = stage(&install, None, &[], &[], Some(&template), &t.join("v")).unwrap();
+        let staged = s.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV");
+        assert_eq!(
+            set_ini(&s, "imaxanisotropy", "1").unwrap(),
+            [
+                "Fallout.ini: iMaxAnisotropy=8",
+                "FalloutPrefs.ini: iMaxAnisotropy=8"
+            ]
+        );
+        assert_eq!(
+            fs::read_to_string(staged.join("FalloutPrefs.ini")).unwrap(),
+            "[Display]\r\niMaxAnisotropy=1\r\nbFull Screen=1\r\n"
+        );
+        assert!(fs::read_to_string(staged.join("Fallout.ini"))
+            .unwrap()
+            .contains("iMaxAnisotropy=1"));
+        // A key only one file has is set there; the other file is left as it was.
+        assert_eq!(
+            set_ini(&s, "bFull Screen", "0").unwrap(),
+            ["FalloutPrefs.ini: bFull Screen=1"]
+        );
+        assert!(!fs::read_to_string(staged.join("Fallout.ini"))
+            .unwrap()
+            .contains("Full Screen"));
+        assert!(fs::read_to_string(docs.join("FalloutPrefs.ini"))
+            .unwrap()
+            .contains("iMaxAnisotropy=8"));
+        assert!(set_ini(&s, "iNothing", "1").is_err());
+        fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn a_key_on_the_first_line_after_a_byte_order_mark_is_found_and_the_mark_kept() {
+        let t = tmp("bom");
+        let install = t.join("install");
+        fs::create_dir_all(install.join("Data")).unwrap();
+        let template = t.join("tpl");
+        let docs = template.join("Documents/My Games/FalloutNV");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(
+            docs.join("FalloutPrefs.ini"),
+            "\u{feff}iMaxAnisotropy=8\n[Display]\n",
+        )
+        .unwrap();
+        let s = stage(&install, None, &[], &[], Some(&template), &t.join("v")).unwrap();
+        assert_eq!(
+            set_ini(&s, "iMaxAnisotropy", "1").unwrap(),
+            ["FalloutPrefs.ini: \u{feff}iMaxAnisotropy=8"]
+        );
+        let staged = s.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV");
+        assert_eq!(
+            fs::read_to_string(staged.join("FalloutPrefs.ini")).unwrap(),
+            "\u{feff}iMaxAnisotropy=1\n[Display]\n"
+        );
+        // Only FalloutPrefs.ini is there: the error for a missing key names the file that was read.
+        let e = set_ini(&s, "iNothing", "1").unwrap_err().to_string();
+        assert!(e.contains("read: FalloutPrefs.ini"), "{e}");
+        fs::remove_dir_all(&t).unwrap();
     }
 }
