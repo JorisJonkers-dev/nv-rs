@@ -549,7 +549,8 @@ pub struct Start {
     pub overlay_skip: Vec<String>,
     /// Environment of the engine, after the tool's own (a later entry replaces an earlier one).
     pub env: Vec<(String, String)>,
-    /// `Fallout.ini` lines rewritten in the staged copy before the start (`uGridsToLoad=7`).
+    /// Ini lines rewritten in the staged copy before the start (`uGridsToLoad=7`), in `Fallout.ini` and
+    /// `FalloutPrefs.ini`, whichever has the key (`crate::stage::set_ini`).
     pub ini: Vec<(String, String)>,
     /// Where the card's memory is read for the start check (default `/sys/class/drm`).
     pub gpu_sysfs: PathBuf,

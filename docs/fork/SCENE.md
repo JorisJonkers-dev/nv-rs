@@ -442,8 +442,9 @@ is not flat, so a tall hill or a roof is nearer the lens and larger.
   cell`). Beyond it only the distant terrain and the object LOD are drawn.
 - Can a place raise it? No. `uGridsToLoad` is read once when the game starts (`TES` sizes its cell arrays from it), so it is
   a property of the engine start, not of a place. A run can: `nv-rs-scene run|soak|bench --grids 9` (an odd number, 3 to
-  21) or `--ini KEY=VALUE` rewrites the line in the staged copy of `Fallout.ini` (the template and the owner's profile
-  are not touched). Measured with 5, 7 and 9: 25, 49 and 81 cells loaded, one place 12 s, 14 s and 14-16 s from process
+  21) or `--ini KEY=VALUE` rewrites the line in the staged copies of `Fallout.ini` and `FalloutPrefs.ini`, in each that
+  has the key (the game reads `FalloutPrefs.ini` over `Fallout.ini`, and display settings such as `iMaxAnisotropy` live
+  there; the template and the owner's profile are not touched). Measured with 5, 7 and 9: 25, 49 and 81 cells loaded, one place 12 s, 14 s and 14-16 s from process
   start to the picture, memory of the start 1.2 to 1.4 GB, 1.3 GB and 1.3 to 1.6 GB.
 - Does it matter for a 4 by 4 block? Not when the block lies inside the loaded square: the Goodsprings block with 5, 7 and 9
   differs by a mean of 0.04 of 255 (0.17% of pixels). A 12 by 12 cell view (`fov = 61`, camera 60000 up) does: with 5 the objects
