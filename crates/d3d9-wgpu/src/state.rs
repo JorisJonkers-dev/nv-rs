@@ -347,6 +347,47 @@ pub mod forced_anisotropy {
     pub fn get() -> u8 {
         LEVEL.load(Ordering::Relaxed)
     }
+
+    /// The level a device's sampler keys were last worked out at: a draw asks it whether the
+    /// level changed since (a live change from the overlay), and the device then works its
+    /// samplers' keys out afresh, as after a sampler state change.
+    #[derive(Debug)]
+    pub struct Seen(u8);
+
+    impl Seen {
+        /// Seen at the level now.
+        pub fn now() -> Self {
+            Seen(get())
+        }
+
+        /// Whether the level is not the one last seen (then it is seen).
+        pub fn changed(&mut self) -> bool {
+            self.changed_to(get())
+        }
+
+        fn changed_to(&mut self, level: u8) -> bool {
+            let changed = self.0 != level;
+            self.0 = level;
+            changed
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_new_level_is_seen_once() {
+            let mut seen = Seen(0);
+            assert!(!seen.changed_to(0));
+            assert!(seen.changed_to(16), "the overlay raised it");
+            assert!(
+                !seen.changed_to(16),
+                "seen: the keys are not worked out again"
+            );
+            assert!(seen.changed_to(0), "back to the game's");
+        }
+    }
 }
 
 /// What makes a wgpu sampler: the sampler states that matter, and whether the texture can be
