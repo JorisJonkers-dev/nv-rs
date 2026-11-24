@@ -333,6 +333,22 @@ fn pick_on(event_loop: &ActiveEventLoop) -> Option<crate::Display> {
 }
 
 /// Whether the session is Wayland, where a client cannot place its window: the compositor does.
+/// The window's application id (Wayland `app_id`, X11 `WM_CLASS` class and instance): the run's
+/// label, else `nv-rs` ([`crate::app_id`]); the desktop's dock names and groups windows by it.
+#[cfg(not(target_os = "macos"))]
+fn named(attrs: WindowAttributes, id: &str) -> WindowAttributes {
+    use winit::platform::wayland::WindowAttributesExtWayland;
+    use winit::platform::x11::WindowAttributesExtX11;
+    let attrs = WindowAttributesExtWayland::with_name(attrs, id, id);
+    WindowAttributesExtX11::with_name(attrs, id, id)
+}
+
+/// macOS has no application id of a window.
+#[cfg(target_os = "macos")]
+fn named(attrs: WindowAttributes, _id: &str) -> WindowAttributes {
+    attrs
+}
+
 fn wayland_session() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some()
         && std::env::var("WINIT_UNIX_BACKEND").map_or(true, |v| v != "x11")
@@ -436,8 +452,9 @@ impl App {
         self.close_first = None;
         self.active = false;
         self.deactivated = false;
+        let label = crate::run_label();
         let attrs = WindowAttributes::default()
-            .with_title(self.request.title.clone())
+            .with_title(crate::titled(label.as_deref(), &self.request.title))
             .with_inner_size(PhysicalSize::new(self.request.width, self.request.height))
             .with_decorations(self.request.decorations)
             .with_resizable(false)
@@ -455,6 +472,7 @@ impl App {
                 };
                 winit::window::Fullscreen::Borderless(chosen)
             }));
+        let attrs = named(attrs, &crate::app_id(label.as_deref()));
         let window = event_loop
             .create_window(attrs)
             .map_err(|e| format!("create window: {e}"))?;
@@ -652,7 +670,7 @@ impl ApplicationHandler<Command> for App {
             Command::Title(id, title, done) => {
                 let there = self.id == id && self.window.is_some();
                 if let (true, Some(w)) = (there, &self.window) {
-                    w.set_title(&title);
+                    w.set_title(&crate::titled(crate::run_label().as_deref(), &title));
                 }
                 let _ = done.send(there);
             }

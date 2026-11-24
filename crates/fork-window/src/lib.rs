@@ -15,6 +15,7 @@
 
 pub mod dik;
 mod display;
+mod identity;
 /// Test support for the X11 window system (used by this crate's and engine-platform's tests).
 #[cfg(all(unix, not(target_os = "macos")))]
 #[doc(hidden)]
@@ -30,6 +31,7 @@ mod platform;
 pub use display::{
     display, hz_of, last_monitor, parse_wanted, pick, remember_monitor, Display, Monitor, Wanted,
 };
+pub use identity::{app_id, label_from, run_label, titled, DEFAULT_APP_ID};
 pub use registry::{
     client_size, close_requested, held_keys, metal_layer, raw_handles, scale_motion, set_game_area,
     take_input, to_game_position, Input,
