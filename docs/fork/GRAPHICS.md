@@ -166,17 +166,30 @@ menus into 8-bit colour render targets (`A8R8G8B8`, `X8R8G8B8`) unless its own H
 writes the next rounds to 1/255, so smooth gradients (the night sky, fog, dark rooms) show steps. With the setting on, such
 targets are made with 16 bits per channel, normalised (`Rgba16Unorm`); the game still sees its own format, read-backs
 (`GetRenderTargetData`, the shot paths) give its 8-bit bytes (rounded to the nearest step), and the back buffers stay
-8-bit. Normalised rather than float on purpose: every write and blend is clamped to 0..1 as in the 8-bit target. A first
+8-bit (`dither` below keeps them in 16 bits). Normalised rather than float on purpose: every write and blend is clamped to 0..1 as in the 8-bit target. A first
 build with 16-bit float targets turned the daytime sky white with the game's HDR off, because the bloom path brightens
 the scene and scales it down again later and an 8-bit target clamps in between. With the game's HDR on (its default) the
 scene targets are already float and the setting changes little (under 0.2 % of the pixels at the views measured); it
 matters with HDR off. Needs 16-bit normalised formats on the card (the setting is ignored, with a log line, without them).
 Costs twice the video memory of those targets. Read when the game makes its targets, so it applies from the next start.
 
+`dither` (nv-rs#830, `d3d9_wgpu::dither`): the bands that stay with `precise_targets` come from the last step, where the
+game's final pass (its HDR tone map, or the image-space passes) writes the frame into the 8-bit back buffer. With the
+setting on, the back buffers are kept in 16 bits per channel too (the game still sees its own format), and at `Present` one
+pass turns that frame into the 8-bit one shown: each channel becomes `floor((v * 255 + offset) / 65535)`, with an offset
+in `0..65535` that is a fixed scramble of the pixel's place. A value between two 8-bit steps then shows as a fine grain of
+the two neighbouring steps whose average is the true value, instead of one hard band; a value already on an 8-bit step
+(menus, the HUD, flat colours) is shown exactly as before, at every pixel. The offsets depend only on the pixel, never on
+the frame, so pictures repeat run to run and a still view does not shimmer. The window's frame, `NV_SHOT` captures and the
+scene tool's pictures take the dithered frame; `GetRenderTargetData` of the back buffer gives the game its 8-bit bytes
+rounded to the nearest step, as with `precise_targets`. Needs 16-bit normalised formats (ignored, with a log line, without
+them). Costs one full-screen pass per frame and twice the back buffer's video memory. Applies from the next start.
+
 | Setting | Values | Original | Applies |
 | --- | --- | --- | --- |
 | `anisotropy` | `game` (the game's sampler states), `x2`, `x4`, `x8`, `x16` | `game` (`modern`: `x16`) | live |
 | `precise_targets` | `false`, `true` | `false` (`modern`: `false`) | next start |
+| `dither` | `false`, `true` | `false` (`modern`: `false`) | next start |
 ### Water (`water`)
 
 The game gives outdoor water two reflections: water at the world space's own water height (the `DNAM` default, -2300

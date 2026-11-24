@@ -1309,6 +1309,11 @@ pub struct Device {
     said: crate::ramp::Said,
     ramp_blit: Map<wgpu::TextureFormat, wgpu::RenderPipeline>,
     ramp_layout: Option<wgpu::BindGroupLayout>,
+    /// The dithered last step ([`crate::dither`], `textures.dither`): its pipeline and layout,
+    /// and the 8-bit frame the 16-bit back buffer is turned into at each present (made at its
+    /// first use, again when the back buffer's size changes).
+    dither: Option<(wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
+    dithered: Option<(wgpu::Texture, wgpu::TextureView)>,
     #[allow(clippy::type_complexity)]
     gamma_resolves:
         Map<(wgpu::TextureFormat, u32, bool), (wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
@@ -2122,6 +2127,8 @@ impl Device {
             said: crate::ramp::Said::default(),
             ramp_blit: Map::default(),
             ramp_layout: None,
+            dither: None,
+            dithered: None,
             gamma_resolves: Map::default(),
             depth_parts: Map::default(),
             clears: Map::default(),
@@ -2342,8 +2349,9 @@ impl Device {
             pp.auto_depth
         );
         for &h in back_buffers {
-            // The back buffers stay as the game made them: the window's frame is 8-bit.
-            let s = self.new_surface(pp.width, pp.height, format, false, 1, false);
+            // The back buffers stay as the game made them (the window's frame is 8-bit), unless
+            // the last step into 8 bits is dithered ([`crate::dither`]): then they hold 16 bits.
+            let s = self.new_surface(pp.width, pp.height, format, false, 1, format::dither::on());
             if let Some(s) = s {
                 self.objects.insert(h, Obj::Surface(s));
             }
@@ -10849,6 +10857,61 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     }
 
     /// `Present` of the stream's `frame` (numbered as the forwarding layer's captures are).
+    /// The 8-bit frame of a 16-bit back buffer `b` ([`crate::dither`]), drawn now; `None` for an
+    /// 8-bit back buffer (the setting off), which is shown as it is.
+    fn dithered_frame(&mut self, b: &Surf) -> Option<(wgpu::Texture, wgpu::TextureView)> {
+        if !format::is_precise(&b.format) {
+            return None;
+        }
+        let source = b.view.clone()?;
+        let size = b.tex.as_ref().map_or((b.width, b.height), |t| {
+            (t.texture.width(), t.texture.height())
+        });
+        let format = wgpu::TextureFormat::Bgra8Unorm;
+        if self
+            .dithered
+            .as_ref()
+            .is_none_or(|(t, _)| (t.width(), t.height()) != size)
+        {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("dithered frame"),
+                size: wgpu::Extent3d {
+                    width: size.0,
+                    height: size.1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&Default::default());
+            self.dithered = Some((texture, view));
+        }
+        let (pipeline, layout) = self
+            .dither
+            .get_or_insert_with(|| {
+                let layout = crate::dither::layout(&self.device);
+                (
+                    crate::dither::pipeline(&self.device, &layout, format),
+                    layout,
+                )
+            })
+            .clone();
+        let (texture, view) = self.dithered.clone()?;
+        self.end_pass();
+        let span = self.span_begin(Kind::Copies);
+        let device = self.device.clone();
+        let encoder = self.encoder();
+        crate::dither::draw(&device, encoder, &pipeline, &layout, &source, &view);
+        self.span_end(span);
+        Some((texture, view))
+    }
+
     pub(crate) fn present(&mut self, frame: u32) {
         self.perf.frame_end();
         let _perf = crate::perf::span(crate::perf::Cat::Present);
@@ -10933,6 +10996,9 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         }
         let frame = u64::from(frame);
         let back = self.back_buffers.first().and_then(|&h| self.surface_of(h));
+        // A 16-bit back buffer ([`crate::dither`]) is turned into the 8-bit frame first: the
+        // window's frame and the captures below read that one.
+        let shown = back.as_ref().and_then(|b| self.dithered_frame(b));
         let shot = match (&mut self.shots, &back) {
             (Some(s), Some(_)) => s.take(frame),
             _ => false,
@@ -10940,6 +11006,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         let mut readback = None;
         if let (true, Some(b)) = (shot, &back) {
             let tex = b.tex.clone().expect("the back buffer's texture");
+            let texture = shown.as_ref().map_or(&tex.texture, |(t, _)| t);
             let row = (b.width * 4).div_ceil(256) * 256;
             let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shot"),
@@ -10950,7 +11017,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             let copy_span = self.span_begin(Kind::Copies);
             self.encoder().copy_texture_to_buffer(
                 wgpu::TexelCopyTextureInfo {
-                    texture: &tex.texture,
+                    texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
@@ -10970,7 +11037,13 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 },
             );
             self.span_end(copy_span);
-            readback = Some((buffer, row, b.width, b.height, b.format));
+            // The dithered frame is B8G8R8A8, as the game's back buffer.
+            let format = if shown.is_some() {
+                format::format(d3dfmt::A8R8G8B8).unwrap_or(b.format)
+            } else {
+                b.format
+            };
+            readback = Some((buffer, row, b.width, b.height, format));
         }
         let mut frame_texture = None;
         let mut window_shot = None;
@@ -11008,7 +11081,10 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             let (format, cw, ch) = (t.texture.format(), t.texture.width(), t.texture.height());
             let view = t.texture.create_view(&Default::default());
             let copyable = usage.contains(wgpu::TextureUsages::COPY_SRC);
-            let sv = b.view.clone().expect("the back buffer's view");
+            let sv = shown.as_ref().map_or_else(
+                || b.view.clone().expect("the back buffer's view"),
+                |(_, v)| v.clone(),
+            );
             let size = (b.width, b.height);
             // Over the whole client area, as Direct3D 9's windowed Present without
             // rectangles: a copy at the same size, filtered when the window's differs; through
@@ -11908,6 +11984,11 @@ fn open(
     {
         format::precise_targets::set(false);
         fork_log::warn!(target: "d3d9", "textures.precise_targets: the adapter has no 16-bit normalised formats; the game's 8-bit targets are kept");
+    }
+    // The dithered last step (nv-rs#830) keeps the back buffers in the same format.
+    if format::dither::on() && !features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
+        format::dither::set(false);
+        fork_log::warn!(target: "d3d9", "textures.dither: the adapter has no 16-bit normalised formats; the frame is shown without dithering");
     }
     let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("d3d9-wgpu"),

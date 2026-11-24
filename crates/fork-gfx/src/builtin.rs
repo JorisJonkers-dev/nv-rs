@@ -246,10 +246,17 @@ pub static TEXTURES: ModuleSpec = ModuleSpec {
         help: "Keeps the game's 8-bit colour render targets in 16 bits per channel (still clamped to 0..1 like the game's): smooth gradients (night sky, fog, dark rooms) show fewer bands. Costs video memory (twice the bytes for those targets) and some bandwidth.",
         applies: Applies::NextStart,
         kind: Kind::Toggle { default: false },
+    }, Setting {
+        key: "dither",
+        label: "Smooth last step (dither)",
+        help: "Keeps the frame in 16 bits per channel until it is shown, then spreads each colour between two 8-bit steps into a fine fixed grain instead of a hard band: removes the visible bands in the night sky, fog and dark rooms. Colours already on an 8-bit step (menus, the HUD) stay exactly as they were. Costs one small pass per frame and twice the video memory of the back buffer.",
+        applies: Applies::NextStart,
+        kind: Kind::Toggle { default: false },
     }],
     owns: &[
         Owns::GameValue("the texture samplers' filtering (minification and anisotropy)"),
         Owns::GameValue("the format of the game's 8-bit colour render targets (A8R8G8B8, X8R8G8B8)"),
+        Owns::GameValue("the format of the back buffers and how they become the 8-bit frame shown"),
     ],
     cost: "docs/fork/GRAPHICS.md, textures",
 };
