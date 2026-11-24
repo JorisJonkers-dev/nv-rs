@@ -7,8 +7,8 @@ Classifies every changed file as fork-owned (.fork/overlay-paths, the workflows,
 .fork/components.toml) or upstream-owned, counts the changed lines of the upstream-owned ones, measures the total
 divergence (upstream-owned files that differ from upstream at the commit it was last replayed to, in files and lines)
 at the base and the head and a week before the base, compares it with .fork/divergence-budget.toml and checks that
-docs/fork/DIVERGENCE.md records the reason and the evidence of each upstream-owned file the pull request starts to
-change. It warns only: the exit status is 0 whatever it finds.
+a record (one file per record in docs/fork/divergence.d/, or the older table of docs/fork/DIVERGENCE.md) gives the
+reason and the evidence of each upstream-owned file the pull request starts to change. It warns only: the exit status is 0 whatever it finds.
 
 Stdlib only; Python 3.11 or newer.
 """
@@ -81,7 +81,7 @@ def divergence(numstat, overlay, fork_crates):
 
 
 def parse_records(text):
-    """DIVERGENCE.md records: a `### Area` heading, then `- Key: value` lines (Files, Upstream approach, Fork approach,
+    """Divergence records: a `### Area` heading, then `- Key: value` lines (Files, Upstream approach, Fork approach,
     Decision, Reason, Evidence). Returns [{area, files(text), fields{name: value}}]."""
     records, cur = [], None
     for line in text.splitlines():
@@ -152,6 +152,10 @@ def analyse(base, head, root="."):
     fork_crates = set(coverage_report.fork_owned_crates("."))
     budget = load_budget(show(head, ".fork/divergence-budget.toml"))
     doc = show(head, "docs/fork/DIVERGENCE.md")
+    # One file per record, so pull requests do not all edit DIVERGENCE.md: each `### Area` file of the folder at `head`.
+    for name in sorted(git("ls-tree", "--name-only", head, "docs/fork/divergence.d/", check=False).split()):
+        if name.endswith(".md"):
+            doc += "\n" + show(head, name)
     last = last_upstream_commit(base)
     pr = parse_numstat(git("diff", "--numstat", f"{base}...{head}"))
     touched = {p: n for p, n in pr.items() if classify(p, overlay, fork_crates) == "upstream"}
@@ -190,7 +194,7 @@ def render(res):
         warnings.append(f"Total divergence grew {growth:.1f}% in {b['window_days']} days (budget {b['weekly_growth_percent']}%).")
     bad = [f for f in files if f["new"] and f["record"] != "complete"]
     for f in bad:
-        warnings.append(f"New upstream-owned file `{f['path']}`: DIVERGENCE.md record {f['record']}.")
+        warnings.append(f"New upstream-owned file `{f['path']}`: divergence record {f['record']}.")
     out = [MARKER, "## Divergence from upstream", "",
            "Warns only, never blocks a merge. Upstream-owned means outside `.fork/overlay-paths`, the fork-only crates and "
            "the workflows (docs/fork/DIVERGENCE.md, \"Process\").", ""]
@@ -206,13 +210,13 @@ def render(res):
     if not res["last"]:
         out += ["", "The commit upstream was last replayed to was not found: totals are not available."]
     if files:
-        out += ["", "| Upstream-owned file | Lines | In allowed-divergence | New | DIVERGENCE.md record |",
+        out += ["", "| Upstream-owned file | Lines | In allowed-divergence | New | Divergence record |",
                 "| --- | ---: | --- | --- | --- |"]
         for f in sorted(files, key=lambda f: -f["lines"])[:MAX_ROWS]:
             out.append(f"| `{f['path']}` | {f['lines']} | {'yes' if f['listed'] else 'no'} | {'yes' if f['new'] else 'no'} | {f['record']} |")
         if len(files) > MAX_ROWS:
             out.append(f"| and {len(files) - MAX_ROWS} more | | | | |")
-    out += ["", "A record is a `### Area` section of docs/fork/DIVERGENCE.md with the lines Files, Upstream approach, Fork approach, "
+    out += ["", "A record is a file of docs/fork/divergence.d/ with one `### Area` section and the lines Files, Upstream approach, Fork approach, "
                 "Decision, Reason and Evidence. Budget: `.fork/divergence-budget.toml`."]
     return "\n".join(out) + "\n", warnings
 
