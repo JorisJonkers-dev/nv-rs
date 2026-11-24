@@ -166,7 +166,12 @@ the far land and objects, the near land and the references its water form names,
 With `low` or `high` the far (LOD) water takes the reflection of the highest such group below the viewer: its blocks
 hold every lake and river of the world in one shape, so it cannot be split by height; the near water is the one the
 viewer looks at. Far water at another height (a river below a lake) mirrors about the near water's plane then, as it
-mirrored about the world's water height before. `modern` takes `high`. Cost: see Cost.
+mirrored about the world's water height before. `modern` takes `high`.
+
+Cost: one more scene pass into a reflection target while placed water is in range (the pass the game draws indoors). At
+Lake Mead on the plain game (`nv-rs-scene bench`, 1280x720 offscreen, five passes of 400 frames) two runs each of `game`
+and `high` gave 203 and 139 against 230 and 191 average fps: the spread between runs of one setting is larger than any
+difference, so the cost is not resolved by that bench.
 
 ## Scripted runs
 
