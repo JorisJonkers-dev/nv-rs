@@ -61,12 +61,16 @@
 pub mod dead_lights;
 pub mod units;
 
+/// How far lamps light their surroundings (the host sets it from the graphics settings).
+pub use engine_bs::units::bsshader::shadowscenelight::lamp_distance;
 pub use engine_core::{
     abi, census, cxx_exception, draw_thread, exe, mem, prelude, ptr, real_threads, sse, stage_time,
     static_exit, static_init, thread_host, typed, types, x87,
 };
 pub use engine_core::{args, entry, layout};
 pub use engine_core::{AbiFn, Engine, Field, Inline, Layout, Mem, OpenHandler, Ptr, Ret, Scalar};
+/// What placed outdoor water reflects (the host sets it from the graphics settings).
+pub use engine_fallout_cell::units::fallout_shared::teswater::placed_reflections;
 pub use engine_fallout_cell::{extra_data, reference};
 /// The sky's sun (the host turns on its port-added light from the sky's discs).
 pub use engine_fallout_env::units::fallout_shared_sky::sun as sky_sun;

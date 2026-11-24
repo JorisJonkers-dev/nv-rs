@@ -40,6 +40,8 @@ cell layers take effect while playing in the next slice; until then the start an
 | `modern` | on, medium, strength 0.7 | on, medium (2048) | 0.7, 1, with light from the sky (see Light balance) |
 | `performance` | on, low, strength 0.6 | off | 1, 1 |
 
+`modern` also makes placed lakes and rivers mirror the land (`water.placed_reflections` `high`, see Water).
+
 A preset is a settings file (`crates/fork-gfx/presets/`); a value set in the profile's file wins over it.
 
 ## The overlay in the game
@@ -108,6 +110,7 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | `moon` | the share of the moon's direct light at night, 0.3 to 1 | 1 | live |
 | `moon_max_height` | how high the moon climbs, 15 to 90 degrees; the drawn moon and its light move together; 90 is the game's path | 90 | live |
 | `moon_specular` | how strongly glossy materials catch the moon, 0 to 8; 1 is the game's highlight; needs `sky_dome` and the light from the sun and moon discs | 1 | live |
+| `lamp_distance` | how far away lamps, street lights and lit signs still light their surroundings, as a multiple of the game's light fade distance (Options, light fade); every point light alike, shadows untouched | 1 | live |
 | `sky_dome` | how much of the fill follows the sky, 0 (the game's flat light) to 1; needs sun shadows | 0 | live |
 | `shade_fill` | how much more sky light reaches surfaces the sun or moon does not, 0 to 2; needs `sky_dome` | 0 | live |
 
@@ -117,7 +120,7 @@ game's phase, fade and height, so a new moon gives no direct light and no moon s
 direction is the fill.
 
 `modern` takes `ambient_exterior` 0.7, `ambient_interior` 1, `ambient_night` 1, `sun` 0.65, `moon` 0.75,
-`moon_max_height` 45, `moon_specular` 2, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
+`moon_max_height` 45, `moon_specular` 2, `lamp_distance` 4, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
 `original`: sunlit light 0.83 and shade 0.91 over the 22 day exteriors; moonlit light 0.82 and shade 0.96 over the 7 night
 views. 45 degrees is the lowest moon height tested that keeps the detail check below at the night Strip skyline.
 
@@ -161,6 +164,28 @@ changes under 0.1 % of the pixels; against the game's 1, 0.8 to 3.4 % (gratings,
 | Setting | Values | Original | Applies |
 | --- | --- | --- | --- |
 | `anisotropy` | `game` (the game's sampler states), `x2`, `x4`, `x8`, `x16` | `game` (`modern`: `x16`) | live |
+### Water (`water`)
+
+The game gives outdoor water two reflections: water at the world space's own water height (the `DNAM` default, -2300
+in the Mojave) takes the world reflection (the sky and the far land, mirrored about that height); every other water placed
+outdoors at a height of its own (Lake Mead and the Colorado at 2600, the lakes and rivers of most worlds) takes the sky
+reflection only, so it mirrors the clouds and none of the land. That is the exe's choice (`004e21b0`), not a fault of the
+port. The game also keeps a reflection of its own for each water group, made about the group's own plane with the sky,
+the far land and objects, the near land and the references its water form names, but draws it only indoors.
+
+| Setting | What it does | Default | Applies |
+| --- | --- | --- | --- |
+| `placed_reflections` | `game`: the original (sky only); `low`: outdoor groups away from the world's water height draw the game's own group reflection at low detail (sky, far land and far objects); `high`: at high detail (also the loaded land and the references the water reflects) | `game` | live |
+
+With `low` or `high` the far (LOD) water takes the reflection of the highest such group below the viewer: its blocks
+hold every lake and river of the world in one shape, so it cannot be split by height; the near water is the one the
+viewer looks at. Far water at another height (a river below a lake) mirrors about the near water's plane then, as it
+mirrored about the world's water height before. `modern` takes `high`.
+
+Cost: one more scene pass into a reflection target while placed water is in range (the pass the game draws indoors). At
+Lake Mead on the plain game (`nv-rs-scene bench`, 1280x720 offscreen, five passes of 400 frames) two runs each of `game`
+and `high` gave 203 and 139 against 230 and 191 average fps: the spread between runs of one setting is larger than any
+difference, so the cost is not resolved by that bench.
 
 ## Scripted runs
 

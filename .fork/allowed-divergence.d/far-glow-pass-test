@@ -1,0 +1,1 @@
+crates/engine-bs/src/units/bsshader/bsshaderpplightingproperty_passes_2x.rs  # a test only: a far block with a glow map gets the glow pass (nv-rs#827)

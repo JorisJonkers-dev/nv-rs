@@ -187,12 +187,20 @@ pub static LIGHT: ModuleSpec = ModuleSpec {
             applies: Applies::Live,
             kind: Kind::Slider { min: 0.0, max: 8.0, step: 0.25, default: 1.0 },
         },
+        Setting {
+            key: "lamp_distance",
+            label: "Lamp light distance",
+            help: "How far away lamps, street lights and lit signs still light their surroundings, as a multiple of the game's light fade distance (the Options menu's light fade). 1 is the game's; higher shows the pools of light further off at some cost per lamp.",
+            applies: Applies::Live,
+            kind: Kind::Slider { min: 1.0, max: 16.0, step: 0.5, default: 1.0 },
+        },
     ],
     owns: &[
         Owns::GameValue("the moons' path across the sky (only below the game's own height)"),
         Owns::GameValue("the sun light's direct colours outdoors"),
         Owns::GameValue("the weather's ambient colour as the sun light hands it to the shaders (outdoors)"),
         Owns::GameValue("the cell's ambient colour as the cell's light hands it to the shaders (indoors)"),
+        Owns::GameValue("the distance at which lamps fade out (the light fade setting, scaled)"),
     ],
     cost: "docs/fork/GRAPHICS.md, light balance",
 };
@@ -235,11 +243,42 @@ pub static TEXTURES: ModuleSpec = ModuleSpec {
     }],
     owns: &[Owns::GameValue("the texture samplers' filtering (minification and anisotropy)")],
     cost: "docs/fork/GRAPHICS.md, textures",
+static PLACED_REFLECTIONS: [Choice; 3] = [
+    Choice {
+        id: "game",
+        label: "Sky only (original)",
+    },
+    Choice {
+        id: "low",
+        label: "Far land",
+    },
+    Choice {
+        id: "high",
+        label: "Far land and nearby",
+    },
+];
+
+/// Water (nv-rs#844): what the game's water reflects.
+pub static WATER: ModuleSpec = ModuleSpec {
+    id: "water",
+    label: "Water",
+    help: "What lakes and rivers mirror. The original mirrors the land only in water at the world's own water level; lakes and rivers placed at another height (Lake Mead, the Colorado) mirror the sky alone.",
+    settings: &[Setting {
+        key: "placed_reflections",
+        label: "Lakes and rivers reflect",
+        help: "Sky only: the original. Far land: lakes and rivers away from the world's water level mirror the sky and the far hills, built and objects the water's type names, through the game's own reflection of a water group. Far land and nearby: also the land, buildings and objects near the water; costs most.",
+        applies: Applies::Live,
+        kind: Kind::Choice { options: &PLACED_REFLECTIONS, default: "game" },
+    }],
+    owns: &[Owns::GameValue(
+        "the reflection outdoor water away from the world's water level draws (the game's sky reflection, or its own reflection of the water group)",
+    )],
+    cost: "docs/fork/GRAPHICS.md, water",
 };
 
 /// The engine's modules, in the order the overlay shows them.
 pub fn specs() -> Vec<&'static ModuleSpec> {
-    vec![&AO, &SHADOWS, &LIGHT, &TEXTURES]
+    vec![&AO, &SHADOWS, &LIGHT, &WATER, &TEXTURES]
 }
 
 /// The built-in presets' files: id, label, text.

@@ -1,0 +1,7 @@
+### Short names on Windows
+- Files: `crates/engine-platform/src/files.rs` (`search_finds_with_short_names`, the soft stops of `find_first_wild`; the fork's save tests in `tests_changed_directories`)
+- Upstream approach: since slaterain/nv-rs#712 and slaterain/nv-rs#718 a search off Windows matches long names only (`search_finds_long_names`, with Windows' `*.*` and trailing-dot rewrites) and the run's files have no short names there (`alternate_name`, `short_name_off_windows`), which is what the fork did off Windows: the fork's own arms were dropped for upstream's in the sync to 1b438957. On Windows upstream's matcher rules out a short name by its first letter only and stops on the rest
+- Fork approach: on Windows the first two letters of a short name rule it out (`ClassicPack*.bsa` does not stop on `CaravanPack - Main.bsa`); upstream's test of that pattern was changed to expect no stop there and a stop for a pattern whose first two letters agree. A changed folder's `.` or `..` on Windows goes through the fork's soft stop (fork_log) before upstream's stop
+- Decision: drop when upstream's Windows matcher rules out a short name by two letters
+- Reason: wildcard searches for a master's archives (`<name>*.bsa`) in a folder that holds an archive whose long name has spaces stopped the game in its first frame, once per pattern the short-name rules could not decide
+- Evidence: JorisJonkers-dev/nv-rs#331; `the_data_folder_pack_searches_find_long_names_only`, the save tests in `tests_changed_directories` and `crates/host/tests/linux_saves.rs`

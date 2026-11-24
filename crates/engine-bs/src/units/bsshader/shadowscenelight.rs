@@ -6,6 +6,42 @@ use super::shadowscenenode::light_check;
 use crate::prelude::*;
 use crate::types::{NiTListItem, NiTPointerList};
 
+/// How far lamps light their surroundings (nv-rs#827, a fork setting: `light.lamp_distance`). The game fades
+/// a point light out between `fLightLODStartFade` and that plus `fLightLODRange` from the camera (the
+/// Options menu's light fade slider) and drops it beyond; the scale multiplies both distances. 1 (the
+/// default) leaves the game's distances bit for bit; the shadow fade distances are not touched.
+pub mod lamp_distance {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// The scale's `f32` bits; 1.0 by default.
+    static SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);
+
+    /// Sets the scale from the next frame on: clamped to 1 to 16, 1 for anything not finite.
+    pub fn set(scale: f32) {
+        let scale = if scale.is_finite() {
+            scale.clamp(1.0, 16.0)
+        } else {
+            1.0
+        };
+        SCALE.store(scale.to_bits(), Ordering::Relaxed);
+    }
+
+    /// The scale now.
+    pub fn get() -> f32 {
+        f32::from_bits(SCALE.load(Ordering::Relaxed))
+    }
+
+    /// `distance` times the scale; `distance` itself (the same bits) at 1.
+    pub fn scaled(distance: f64) -> f64 {
+        let scale = get();
+        if scale == 1.0 {
+            distance
+        } else {
+            f64::from(distance as f32 * scale)
+        }
+    }
+}
+
 layout! {
     /// `ShadowSceneLight` (Xbox PDB), an `NiRefObject`. The PC constructor (`00b9fda0`)
     /// writes the Xbox PDB's offsets; the fields its functions here use.
@@ -1437,13 +1473,13 @@ pub fn shadow_scene_light_test_frustum_cull(
             distance = x87_store32(x87_mul(scale, x87_m32(distance)));
         }
         let d = x87_load32(distance);
-        let near = x87_load32(e.global::<u32>(DIMMER_NEAR_011F9444));
+        let near = lamp_distance::scaled(x87_load32(e.global::<u32>(DIMMER_NEAR_011F9444)));
         let mut fade_shadow = true;
         if x87_compare(near, d) & 0x41 == 0 {
             // Closer than the near distance.
             dimmer = one;
         } else {
-            let far = x87_load32(e.global::<u32>(DIMMER_FAR_011F9448));
+            let far = lamp_distance::scaled(x87_load32(e.global::<u32>(DIMMER_FAR_011F9448)));
             if !parity(x87_compare(far, 0.0), 0x44) {
                 dimmer = one;
             } else if !parity(x87_compare(far, d), 5) {
@@ -3866,8 +3902,12 @@ mod b064_tests {
         (this, ni_light, culler)
     }
 
+    /// The lamp distance scale is one value for the process: the tests that read the fade take turns.
+    static LAMP_DISTANCE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_frustum_cull_fades_with_the_distance() {
+        let _turn = LAMP_DISTANCE.lock().unwrap_or_else(|p| p.into_inner());
         let mut e = rig();
         let (this, ni_light, culler) = frustum_cull_rig(&mut e);
         // No active plane: inside; at distance 16 - 1 = 15: dimmer 1 - 5/10 = 0.5.
@@ -3884,6 +3924,36 @@ mod b064_tests {
         e.call(0x00b9_e970, &args![this, culler]);
         assert_eq!(e.get(this, ShadowSceneLight::usFrustumCull), 0xff);
         assert_eq!(e.get(this, ShadowSceneLight::fLODDimmer), 0.0);
+    }
+
+    #[test]
+    fn lamp_distance_scales_the_fade_and_one_keeps_the_game_s() {
+        let _turn = LAMP_DISTANCE.lock().unwrap_or_else(|p| p.into_inner());
+        let mut e = rig();
+        let (this, ni_light, culler) = frustum_cull_rig(&mut e);
+        // At 100 - 1 = 99 the game's fade (10 to 20) drops the light.
+        e.mem.set_f32(ni_light + 0x8c, 100.0);
+        e.call(0x00b9_e970, &args![this, culler]);
+        assert_eq!(e.get(this, ShadowSceneLight::usFrustumCull), 0xff);
+        // Scale 8: the fade runs 80 to 160, so at 99 the light shows, dimmed 1 - 19/80.
+        lamp_distance::set(8.0);
+        e.call(0x00b9_e970, &args![this, culler]);
+        let culled = e.get(this, ShadowSceneLight::usFrustumCull);
+        let dimmer = e.get(this, ShadowSceneLight::fLODDimmer);
+        lamp_distance::set(1.0);
+        assert_eq!(culled, 0);
+        assert!((dimmer - (1.0 - 19.0 / 80.0)).abs() < 1e-6, "{dimmer}");
+        // Back at 1 the light is dropped again, as the game does.
+        e.call(0x00b9_e970, &args![this, culler]);
+        assert_eq!(e.get(this, ShadowSceneLight::usFrustumCull), 0xff);
+        // Out-of-range values are clamped; not finite is the game's.
+        lamp_distance::set(f32::NAN);
+        assert_eq!(lamp_distance::get(), 1.0);
+        lamp_distance::set(0.25);
+        assert_eq!(lamp_distance::get(), 1.0);
+        lamp_distance::set(99.0);
+        assert_eq!(lamp_distance::get(), 16.0);
+        lamp_distance::set(1.0);
     }
 
     #[test]
