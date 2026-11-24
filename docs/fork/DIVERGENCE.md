@@ -62,6 +62,14 @@ The older table below stays and counts as a reason only ("table row only" in the
 - Reason: the fill cut of nv-rs#769 left shade and night without readable shapes
 - Evidence: `docs/regressions/2026-11-23-modern-too-dark.md`; the 11 standard views under `original` against v0.23.0: 10 identical, night Goodsprings differs by at most 16 of 255 on under 0.001% of pixels, as two runs of v0.23.0 differ from each other (pull request)
 
+### The lamp light distance
+- Files: `crates/engine-bs/src/units/bsshader/shadowscenelight.rs` (`lamp_distance`), `crates/engine/src/lib.rs`, `crates/host/src/fork_graphics.rs`
+- Upstream approach: a point light fades out between the light fade distance (`fLightLODStartFade`, the Options menu's slider) and that plus `fLightLODRange` from the camera and is dropped beyond it, so lamps, street lights and lit signs stop lighting the ground a short way off
+- Fork approach: `light.lamp_distance` (nv-rs#827) multiplies both fade distances, for every point light alike; the shadow fade distances are not touched. At its default of 1 the distances are the exe's, bit for bit
+- Decision: keep
+- Reason: the maintainer wants lamps and their light to show from further off at night, with nothing specific to one mod
+- Evidence: `lamp_distance_scales_the_fade_and_one_keeps_the_game_s`, `test_frustum_cull_fades_with_the_distance`; night lamp views under both presets (pull request)
+
 ### The moon highlight
 - Files: `crates/d3d9-wgpu/src/sm/wgsl.rs` (`specular_reads`), `crates/d3d9-wgpu/src/sun_shadow.rs` (`SL.highlight`), `crates/engine-fallout-env/src/units/fallout_shared_sky/sun.rs` (`AmbientShares::highlight`), `crates/host/src/fork_graphics.rs`
 - Upstream approach: the game's lit shaders make the highlight from the light's colour, at the game's strength
