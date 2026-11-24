@@ -423,5 +423,10 @@ mod tests {
                 .choice("anisotropy"),
             "game"
         );
+        // nv-rs#830: Modern shows the frame through the dithered last step; the others keep the
+        // game's 8-bit back buffers.
+        assert!(modern.module("textures").unwrap().toggle("dither"));
+        assert!(!perf.module("textures").unwrap().toggle("dither"));
+        assert!(!at("original").module("textures").unwrap().toggle("dither"));
     }
 }

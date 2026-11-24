@@ -610,6 +610,14 @@ mod tests {
         };
         assert!(!on(&[]), "the game's 8-bit back buffers by default");
         assert!(!on(&[("NV_GFX_PRESET", "original")]));
+        assert!(
+            on(&[("NV_GFX_PRESET", "modern")]),
+            "modern shows the dithered frame"
+        );
+        assert!(!on(&[
+            ("NV_GFX_PRESET", "modern"),
+            ("NV_GFX", "textures.dither=false")
+        ]));
         assert!(on(&[("NV_GFX", "textures.dither=true")]));
     }
 
