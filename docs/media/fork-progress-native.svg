@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="166" viewBox="0 0 800 166" role="img" aria-label="Native 64-bit code: 1067 of 47733 hand-translated functions typed; 1 of 27 typed families with a stage-2 store">
+  <title>NATIVE 64-BIT CODE</title>
+  <rect x="0" y="0" width="800" height="166" rx="10" fill="#14110b"/>
+  <text x="20" y="30" font-family="Consolas, 'Courier New', monospace" font-size="15" fill="#f2c14e">NATIVE 64-BIT CODE</text>
+  <text x="20" y="58" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#d9c9a3">Typed native code (ADR-0014 stage 1)</text>
+  <text x="780" y="58" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">1,067 of 47,733 hand translations</text>
+  <clipPath id="c0"><rect x="20" y="66" width="760" height="12" rx="4"/></clipPath>
+  <rect x="20" y="66" width="760" height="12" rx="4" fill="#2b2418"/>
+  <rect x="20" y="66" width="17" height="12" fill="#f2c14e" clip-path="url(#c0)"/>
+  <rect x="20" y="66" width="760" height="12" rx="4" fill="none" stroke="#5c4a26" stroke-width="1"/>
+  <rect x="20" y="85" width="10" height="10" fill="#f2c14e" stroke="#5c4a26" stroke-width="1"/>
+  <text x="36" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,067 functions typed (2.2%)</text>
+  <rect x="241" y="85" width="10" height="10" fill="#2b2418" stroke="#5c4a26" stroke-width="1"/>
+  <text x="257" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">46,666 still address-level translations (97.8%)</text>
+  <text x="20" y="116" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#d9c9a3">Families with a stage-2 store (objects can move to host memory)</text>
+  <text x="780" y="116" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">1 of 27 typed families</text>
+  <clipPath id="c1"><rect x="20" y="124" width="760" height="12" rx="4"/></clipPath>
+  <rect x="20" y="124" width="760" height="12" rx="4" fill="#2b2418"/>
+  <rect x="20" y="124" width="28" height="12" fill="#f2c14e" clip-path="url(#c1)"/>
+  <rect x="20" y="124" width="760" height="12" rx="4" fill="none" stroke="#5c4a26" stroke-width="1"/>
+  <rect x="20" y="143" width="10" height="10" fill="#f2c14e" stroke="#5c4a26" stroke-width="1"/>
+  <text x="36" y="152" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1 with a stage-2 store (3.7%)</text>
+  <rect x="248" y="143" width="10" height="10" fill="#2b2418" stroke="#5c4a26" stroke-width="1"/>
+  <text x="264" y="152" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">26 stage 1 only (96.3%)</text>
+</svg>

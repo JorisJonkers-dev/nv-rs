@@ -1,7 +1,7 @@
 # Fork-only. What a pull request changes in upstream-owned code, as one sticky comment (docs/fork/DIVERGENCE.md,
 # "Process"): which upstream-owned files, how many lines, the total divergence against the budget of
-# .fork/divergence-budget.toml, and whether DIVERGENCE.md records each new file. It WARNS ONLY: it is not part of
-# Pipeline Complete, not a required check, and neither job can fail a pull request for what it finds.
+# .fork/divergence-budget.toml, and whether a record of docs/fork/divergence.d/ covers each new file. It WARNS ONLY:
+# it is not part of Pipeline Complete, not a required check, and neither job can fail a pull request for what it finds.
 # The comment job is the only one with a write permission; it runs no repository code (it posts a file the report job
 # rendered), and a pull request from a fork gets no comment (its token cannot write); its report is in the run summary.
 name: Divergence

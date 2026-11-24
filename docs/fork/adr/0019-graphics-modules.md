@@ -164,7 +164,7 @@ The levels and ranges are settled in the slice that wires each module, after its
   dependency; component `gfx` in `.fork/components.toml`. The workspace member is listed in
   `.fork/allowed-divergence.d/graphics-settings`.
 - Wiring the modules changes upstream-owned files (`host::fixes`, `host/src/lib.rs`, `d3d9-wgpu`'s AO and shadow steps
-  become switchable at run time); each such change is recorded in `docs/fork/DIVERGENCE.md` in its pull request.
+  become switchable at run time); each such change is recorded in its pull request as a file of `docs/fork/divergence.d/` (`docs/fork/DIVERGENCE.md`, "Process").
 - The existing `[nv-rs Display]` AO and shadow keys stay for old profiles; the settings file is where new settings go.
 - The real Direct3D 9 fallback has no modules and no overlay.
 - Every later module (tone curve, grading, anti-aliasing, the shader path, upscaling, traced effects) uses the same schema,

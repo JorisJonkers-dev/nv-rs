@@ -3,7 +3,8 @@
 //! the bench runs are halted or when the card's free VRAM or GTT cannot hold the run's budget plus a margin kept for
 //! the desktop, and the engine gets the VRAM budget as `NV_GPU_BUDGET_MB` (it refuses allocations past it with a
 //! `stop:` line). The host memory cap is the `gamerun` scope's (`nv-rs-scene` `--mem`).
-//! The shape is the old guard's: VRAM share 0.5 and margin 2048 MiB, GTT share 0.25 and margin 1024 MiB.
+//! The shape is the old guard's: VRAM share 0.5 and margin 2048 MiB, GTT margin 1024 MiB; the GTT share is 0.4 (it was the
+//! old guard's 0.25, too little for the modded load orders' textures), `NV_GUARD_GTT_SHARE` sets it, at most 0.5.
 //! Also here, the other pieces of the old Python guard: the sampler that stops a run before the card's use reaches its
 //! cap ([`stop_at`], [`over`]; the scene tool reads the card every 100 ms while an engine runs), the session check (a GPU reset
 //! or an out-of-memory command submission in the kernel log, or the desktop's compositor gone: [`session_trouble`]) and the
@@ -13,7 +14,9 @@ use std::path::{Path, PathBuf};
 
 const MIB: f64 = 1_048_576.0;
 const VRAM_SHARE: f64 = 0.5;
-const GTT_SHARE: f64 = 0.25;
+/// The run's share of the card's GTT by default, and the most `NV_GUARD_GTT_SHARE` may set.
+const GTT_SHARE: f64 = 0.4;
+const GTT_SHARE_MAX: f64 = 0.5;
 const VRAM_MARGIN_MIB: f64 = 2048.0;
 const GTT_MARGIN_MIB: f64 = 1024.0;
 
@@ -66,11 +69,26 @@ pub fn find_gpu(root: &Path) -> Option<PathBuf> {
     best.map(|(_, d)| d)
 }
 
-/// The run's budget on this card: half the VRAM and a quarter of the GTT.
+/// The GTT share from the value of `NV_GUARD_GTT_SHARE`: a number above 0, at most 0.5 (a larger one is taken as
+/// 0.5); 0.4 without the variable or with a value that is not such a number.
+pub fn gtt_share_from(value: Option<&str>) -> f64 {
+    match value.and_then(|v| v.trim().parse::<f64>().ok()) {
+        Some(share) if share.is_finite() && share > 0.0 => share.min(GTT_SHARE_MAX),
+        _ => GTT_SHARE,
+    }
+}
+
+/// The run's budget on this card: half the VRAM and the GTT share ([`gtt_share_from`], 0.4 by default) of the GTT.
 pub fn default_caps(gpu: &GpuMem) -> Caps {
+    let share = gtt_share_from(std::env::var("NV_GUARD_GTT_SHARE").ok().as_deref());
+    caps_with(gpu, share)
+}
+
+/// The budget with a given GTT share.
+fn caps_with(gpu: &GpuMem, gtt_share: f64) -> Caps {
     Caps {
         vram_mib: (gpu.vram_total * VRAM_SHARE) as u64,
-        gtt_mib: (gpu.gtt_total * GTT_SHARE) as u64,
+        gtt_mib: (gpu.gtt_total * gtt_share) as u64,
     }
 }
 
@@ -400,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn the_card_with_the_most_vram_is_read_and_its_budget_is_half_and_a_quarter() {
+    fn the_card_with_the_most_vram_is_read_and_its_budget_is_half_and_four_tenths() {
         let t = tmp("find");
         card(&t, "card0", (100, 512), (10, 1024));
         card(&t, "card1", (3000, 24576), (500, 32768));
@@ -408,13 +426,37 @@ mod tests {
         let gpu = read_gpu(&find_gpu(&t).unwrap()).unwrap();
         assert_eq!((gpu.vram_used, gpu.vram_total), (3000.0, 24576.0));
         assert_eq!(
-            default_caps(&gpu),
+            caps_with(&gpu, GTT_SHARE),
             Caps {
                 vram_mib: 12288,
-                gtt_mib: 8192
+                gtt_mib: 13107
             }
         );
         std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn the_gtt_share_is_four_tenths_unless_set_and_never_above_a_half() {
+        assert_eq!(gtt_share_from(None), 0.4);
+        assert_eq!(gtt_share_from(Some("0.3")), 0.3);
+        assert_eq!(gtt_share_from(Some(" 0.45 ")), 0.45);
+        assert_eq!(gtt_share_from(Some("0.9")), 0.5, "clamped");
+        for bad in ["", "x", "0", "-0.2", "NaN", "inf"] {
+            assert_eq!(gtt_share_from(Some(bad)), 0.4, "{bad:?}");
+        }
+        let gpu = GpuMem {
+            vram_used: 0.0,
+            vram_total: 24576.0,
+            gtt_used: 0.0,
+            gtt_total: 24040.0,
+        };
+        // The card of this machine: about 9.4 GiB of GTT instead of 5.9.
+        assert_eq!(caps_with(&gpu, 0.4).gtt_mib, 9616);
+        assert_eq!(
+            caps_with(&gpu, 0.4).vram_mib,
+            12288,
+            "the VRAM share is unchanged"
+        );
     }
 
     #[test]
@@ -426,14 +468,17 @@ mod tests {
             check(&t, &halt).unwrap(),
             Some(Caps {
                 vram_mib: 12288,
-                gtt_mib: 8192
+                gtt_mib: (32768.0
+                    * gtt_share_from(std::env::var("NV_GUARD_GTT_SHARE").ok().as_deref()))
+                    as u64
             })
         );
         // 24576 - 12000 = 12576 free: less than 12288 + 2048.
         card(&t, "card0", (12000, 24576), (500, 32768));
         let e = check(&t, &halt).unwrap_err();
         assert!(e.starts_with("VRAM: 12576 MiB free of 24576"), "{e}");
-        card(&t, "card0", (3000, 24576), (25000, 32768));
+        // 768 MiB free: less than the margin alone, whatever share NV_GUARD_GTT_SHARE sets.
+        card(&t, "card0", (3000, 24576), (32000, 32768));
         assert!(check(&t, &halt).unwrap_err().starts_with("GTT:"));
         std::fs::remove_dir_all(&t).unwrap();
     }
