@@ -153,7 +153,7 @@ def analyse(base, head, root="."):
     budget = load_budget(show(head, ".fork/divergence-budget.toml"))
     doc = show(head, "docs/fork/DIVERGENCE.md")
     # One file per record, so pull requests do not all edit DIVERGENCE.md: each `### Area` file of the folder at `head`.
-    for name in sorted(git("ls-tree", "--name-only", head, "docs/fork/divergence.d/", check=False).split()):
+    for name in sorted(git("ls-tree", "--name-only", head, "docs/fork/divergence.d/", check=False).splitlines()):
         if name.endswith(".md"):
             doc += "\n" + show(head, name)
     last = last_upstream_commit(base)
