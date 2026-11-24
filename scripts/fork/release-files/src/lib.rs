@@ -69,25 +69,45 @@ fn engine() -> Engine {
 
 /// JIP LN's commands, read from the table JIP installs when it answers "installed": a slot that
 /// holds a command and has an execute or an eval is implemented (that covers the commands of its
-/// own hooks and the identity as well as the listed handlers). Against the slots that hold a
-/// command (a slot that is empty in JIP's own table is not a command). A command JIP registers
-/// at two opcodes counts, and is named, twice.
+/// own hooks and the identity as well as the listed handlers). Against the commands its slots
+/// hold (a slot that is empty in JIP's own table is not a command). A command JIP registers at
+/// two opcodes (`SetLinkedReference`, at `0x2281` and `0x2634`) is one command: it counts, and
+/// is named, once, and it is implemented when one of its slots is.
 fn jip_ln() -> (Vec<String>, usize) {
     let mut e = engine();
     jip::install_as(&mut e, true);
-    let mut total = 0;
-    let mut names = Vec::new();
-    for slot in jip::slots::SLOTS.iter() {
-        if slot.kind == jip::table::Kind::Empty {
-            continue;
-        }
-        total += 1;
-        let record = nvse::table::record_of(&e, slot.opcode);
-        if e.mem.u32(record + 0x18) != 0 || e.mem.u32(record + 0x20) != 0 {
-            names.push(slot.name.to_string());
+    let slots = jip::slots::SLOTS
+        .iter()
+        .filter(|slot| slot.kind != jip::table::Kind::Empty)
+        .map(|slot| {
+            let record = nvse::table::record_of(&e, slot.opcode);
+            let built = e.mem.u32(record + 0x18) != 0 || e.mem.u32(record + 0x20) != 0;
+            (slot.name, built)
+        });
+    commands_of_slots(slots)
+}
+
+/// The implemented names and the number of commands of a plugin's slots, in slot order: a name
+/// held by several slots is one command, implemented when any of its slots is, named once at its
+/// first slot.
+pub fn commands_of_slots<'a>(slots: impl IntoIterator<Item = (&'a str, bool)>) -> (Vec<String>, usize) {
+    let mut order: Vec<&str> = Vec::new();
+    let mut built: std::collections::HashMap<&str, bool> = std::collections::HashMap::new();
+    for (name, is_built) in slots {
+        match built.get_mut(name) {
+            Some(b) => *b |= is_built,
+            None => {
+                order.push(name);
+                built.insert(name, is_built);
+            }
         }
     }
-    (names, total)
+    let names = order
+        .iter()
+        .filter(|n| built[*n])
+        .map(|n| (*n).to_string())
+        .collect();
+    (names, order.len())
 }
 
 fn extender(id: &str, display: &str, source: &str, names: Vec<String>, total: usize) -> Value {
