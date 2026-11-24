@@ -1,0 +1,10 @@
+[package]
+name = "progress"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-only"
+description = "Fork-only: the progress pictures of docs/media/fork-progress-*.svg and their summary, derived from the code (docs/fork/PROGRESS.md)."
+
+# Standalone tool, not part of the root workspace (the root Cargo.toml is upstream's). No dependencies.
+[workspace]

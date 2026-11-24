@@ -1,0 +1,103 @@
+# Fork-only. Keeps the progress pictures (docs/media/fork-progress-*.svg) and their summary (docs/media/fork-progress.json)
+# up to date with the code (docs/fork/PROGRESS.md): after every push to the fork branch the generator counts again, and
+# when a count or a picture changed, one commit with those files only goes onto the branch, marked [skip ci]. Nothing
+# changed means nothing is committed. The pull-request side (the same generator in check mode, and the rule that a count
+# may not go down without a reason) is the "Progress counts" job of the pipeline (fork-ci.yml).
+#
+# The push is made with the token of the fork's progress App (raul-progress-bot: contents write, metadata read; a bypass
+# actor on the "Fork line" ruleset only; scripts/fork/setup-progress-bot.py). Without its secrets the run counts, shows
+# the result in its summary and pushes nothing. The repository's code runs before the token exists; the token is made
+# only for the push step and is never in the environment of a build.
+name: Progress pictures
+
+on:
+  push:
+    branches: [fork]
+  workflow_dispatch:
+
+# One run at a time; a newer push makes the older run's result stale, so it is cancelled.
+concurrency:
+  group: progress-pictures
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    name: Update the progress pictures
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HAS_APP: ${{ vars.PROGRESS_APP_ID != '' && secrets.PROGRESS_APP_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Count
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/progress-target"
+          # The ledger also rewrites docs/LEDGER.md (upstream's page, kept by upstream); only its table is used here.
+          cargo run --locked --quiet --release --manifest-path scripts/ledger/Cargo.toml -- --tsv "$RUNNER_TEMP/ledger.tsv" >/dev/null
+          git checkout -- docs/LEDGER.md
+          tool=(cargo run --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml --)
+          "${tool[@]}" fetch --sources "$RUNNER_TEMP/pins"
+          "${tool[@]}" generate --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv"
+          "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" >>"$GITHUB_STEP_SUMMARY"
+          "${tool[@]}" paths >"$RUNNER_TEMP/progress-paths"
+
+      # Only the generator's own files may change; anything else stops the run before a commit is made.
+      - name: What changed
+        id: diff
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all | cut -c4- >"$RUNNER_TEMP/changed"
+          if [ ! -s "$RUNNER_TEMP/changed" ]; then
+            echo "changed=false" >>"$GITHUB_OUTPUT"
+            echo "The progress files are up to date: nothing to commit." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          other="$(grep -vxF -f "$RUNNER_TEMP/progress-paths" "$RUNNER_TEMP/changed" || true)"
+          if [ -n "$other" ]; then
+            echo "::error title=Progress pictures::files other than the progress files changed: $other"
+            exit 1
+          fi
+          echo "changed=true" >>"$GITHUB_OUTPUT"
+          { echo "Changed:"; sed 's/^/- /' "$RUNNER_TEMP/changed"; } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: No App to push with
+        if: ${{ steps.diff.outputs.changed == 'true' && env.HAS_APP != 'true' }}
+        run: echo "::warning title=Progress pictures::the progress files changed, but the App's variable PROGRESS_APP_ID or secret PROGRESS_APP_PRIVATE_KEY is not set; nothing pushed (scripts/fork/setup-progress-bot.py)"
+
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        if: ${{ steps.diff.outputs.changed == 'true' && env.HAS_APP == 'true' }}
+        with:
+          app-id: ${{ vars.PROGRESS_APP_ID }}
+          private-key: ${{ secrets.PROGRESS_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      # The commit is made on the commit this run counted. If the branch moved on meanwhile, the run of the newer push
+      # counts again and commits; this one leaves it.
+      - name: Commit and push
+        if: ${{ steps.diff.outputs.changed == 'true' && env.HAS_APP == 'true' }}
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          xargs -a "$RUNNER_TEMP/progress-paths" git add --
+          git diff --cached --name-only | grep -vxF -f "$RUNNER_TEMP/progress-paths" && { echo "::error::staged a file that is not a progress file"; exit 1; }
+          git commit --quiet -m "chore(progress): update the progress pictures [skip ci]"
+          remote="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          head="$(git ls-remote "$remote" refs/heads/fork | cut -f1)"
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::notice title=Progress pictures::the fork branch moved on ($head); the newer run commits"
+            exit 0
+          fi
+          git push --quiet "$remote" HEAD:refs/heads/fork
+          echo "Pushed $(git rev-parse --short HEAD)." >>"$GITHUB_STEP_SUMMARY"

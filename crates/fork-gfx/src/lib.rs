@@ -11,6 +11,7 @@
 //! dependency): it is written back byte for byte except where a value was set, so keys another
 //! program added, comments and lines this crate cannot read are all kept.
 
+pub mod atlas;
 pub mod builtin;
 pub mod doc;
 pub mod dump;
