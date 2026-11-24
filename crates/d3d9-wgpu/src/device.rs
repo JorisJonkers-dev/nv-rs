@@ -2353,7 +2353,8 @@ impl Device {
         }
         self.auto_depth = depth;
         if depth != 0 && pp.auto_depth {
-            if let Some(s) = self.new_surface(pp.width, pp.height, pp.depth_format, true, 1, false) {
+            if let Some(s) = self.new_surface(pp.width, pp.height, pp.depth_format, true, 1, false)
+            {
                 self.objects.insert(depth, Obj::Surface(s.clone()));
                 self.st.ds = Some(s);
             }
@@ -2606,9 +2607,16 @@ impl Device {
         };
         let target = usage & 1 != 0;
         let precise = target && format::precise_targets::on();
-        let Some(tex) =
-            self.new_texture(width, height, count.max(1), format, cube, target, 1, precise)
-        else {
+        let Some(tex) = self.new_texture(
+            width,
+            height,
+            count.max(1),
+            format,
+            cube,
+            target,
+            1,
+            precise,
+        ) else {
             return;
         };
         if target || (width >= 512 && height >= 384) {
@@ -7948,18 +7956,16 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 self.watch_target(&dst, "a multisampled target resolved into it", true);
                 return;
             }
-            let Some(scratch) =
-                self.new_texture(
-                    src.width,
-                    src.height,
-                    1,
-                    src.format.d3d,
-                    false,
-                    true,
-                    1,
-                    format::is_precise(&src.format),
-                )
-            else {
+            let Some(scratch) = self.new_texture(
+                src.width,
+                src.height,
+                1,
+                src.format.d3d,
+                false,
+                true,
+                1,
+                format::is_precise(&src.format),
+            ) else {
                 return;
             };
             let resolved = self.level_surface(&scratch, 0, 0);
@@ -10614,7 +10620,8 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                     self.span_end(copy_span);
                     dt.batch.store(self.batch, Ordering::Relaxed);
                 } else if format::is_precise(&src.format)
-                    && (src.width, src.height, src.format.d3d) == (dst.width, dst.height, dst.format.d3d)
+                    && (src.width, src.height, src.format.d3d)
+                        == (dst.width, dst.height, dst.format.d3d)
                 {
                     // A precise target (nv-rs#830) into the game's 8-bit surface: its bytes, read
                     // back in the game's layout, uploaded as the game's own would be.

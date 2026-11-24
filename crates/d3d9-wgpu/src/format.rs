@@ -368,7 +368,10 @@ mod tests {
             let p = precise(f);
             assert_eq!(p.wgpu, wgpu::TextureFormat::Rgba16Float);
             assert!(is_precise(&p) && !is_precise(&f));
-            assert_eq!((p.d3d, p.bytes, p.opaque, p.fix), (f.d3d, 4, f.opaque, f.fix));
+            assert_eq!(
+                (p.d3d, p.bytes, p.opaque, p.fix),
+                (f.d3d, 4, f.opaque, f.fix)
+            );
             assert_eq!(texel_bytes(&p), 8);
             assert_eq!(level_layout(&p, 3, 2), level_layout(&f, 3, 2));
             assert_eq!(uploaded_layout(&p, 3, 2), (24, 2));
@@ -388,7 +391,9 @@ mod tests {
     #[test]
     fn a_precise_target_gives_back_every_8_bit_value_it_was_given() {
         let p = precise(format(d3dfmt::A8R8G8B8).unwrap());
-        let game: Vec<u8> = (0..=255u8).flat_map(|v| [v, 255 - v, v / 2, v ^ 0x55]).collect();
+        let game: Vec<u8> = (0..=255u8)
+            .flat_map(|v| [v, 255 - v, v / 2, v ^ 0x55])
+            .collect();
         let held = convert(&p, &game).into_owned();
         assert_eq!(held.len(), game.len() * 2);
         // Held as R, G, B, A: the first pixel's red is the game's third byte.
@@ -401,7 +406,16 @@ mod tests {
 
     #[test]
     fn halves_are_exact_where_they_can_be_and_rounded_to_the_nearest() {
-        for v in [0.0, 1.0, 0.5, 0.25, 2.0, 65504.0, 2f32.powi(-24), 2f32.powi(-14)] {
+        for v in [
+            0.0,
+            1.0,
+            0.5,
+            0.25,
+            2.0,
+            65504.0,
+            2f32.powi(-24),
+            2f32.powi(-14),
+        ] {
             assert_eq!(f16_value(f16_bits(v)), v, "{v}");
         }
         // Every 8-bit step is held within the half's precision (11 bits).
@@ -418,7 +432,11 @@ mod tests {
         let over: Vec<u8> = [2.0f32, -0.5, 0.5, 1.0]
             .iter()
             .flat_map(|v| {
-                let h = if *v < 0.0 { 0x8000 | f16_bits(-v) } else { f16_bits(*v) };
+                let h = if *v < 0.0 {
+                    0x8000 | f16_bits(-v)
+                } else {
+                    f16_bits(*v)
+                };
                 h.to_le_bytes()
             })
             .collect();
