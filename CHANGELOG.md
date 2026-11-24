@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.24.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.23.0...v0.24.0) (2026-11-24)
+
+
+### Features
+
+* **gfx:** a light balance for the modern preset: the game's fill light outdoors and indoors ([#769](https://github.com/JorisJonkers-dev/nv-rs/issues/769)) ([01f216a](https://github.com/JorisJonkers-dev/nv-rs/commit/01f216aaa1f63a1a5d7ee4a13bc65d7c69e0ce17))
+* **gfx:** a subtle moon highlight for the modern preset ([#826](https://github.com/JorisJonkers-dev/nv-rs/issues/826)) ([5de340a](https://github.com/JorisJonkers-dev/nv-rs/commit/5de340ab80cc107b69a8ab8f2dd69ae86d6873e1))
+
+
+### Bug Fixes
+
+* **capture:** a new run is never beside the packet of a run that is gone ([#793](https://github.com/JorisJonkers-dev/nv-rs/issues/793)) ([718f646](https://github.com/JorisJonkers-dev/nv-rs/commit/718f64688229e2be9f6d923abd00ffa840730315))
+* fixes row: a dead light left in an object's light list no longer stops the game ([e5c1cc0](https://github.com/JorisJonkers-dev/nv-rs/commit/e5c1cc07547314d972a8733ae84d2e7b33a496fb))
+* **gfx:** sky light, true moon and starlight for the modern preset ([#822](https://github.com/JorisJonkers-dev/nv-rs/issues/822)) ([e5823f2](https://github.com/JorisJonkers-dev/nv-rs/commit/e5823f2160d949cd7d04114cec00c4b39344bc07))
+* **plugin:** report the real no-relocation refusal ([#800](https://github.com/JorisJonkers-dev/nv-rs/issues/800)) ([6852e9e](https://github.com/JorisJonkers-dev/nv-rs/commit/6852e9ee71dd1ec55613ab337eee4a8420b4d05e)), closes [#799](https://github.com/JorisJonkers-dev/nv-rs/issues/799)
+* **sync:** fixups for the replay to ba0af492 ([3c50258](https://github.com/JorisJonkers-dev/nv-rs/commit/3c502585d21767c2bb75c59f44f69b0d5e5a63db))
+* **textures:** DDS files in A8B8G8R8 no longer draw black ([#824](https://github.com/JorisJonkers-dev/nv-rs/issues/824)) ([a247d30](https://github.com/JorisJonkers-dev/nv-rs/commit/a247d3059c9d688a97370b94bc0dfdb760c148f9))
+
 ## [0.23.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.22.0...v0.23.0) (2026-11-23)
 
 
