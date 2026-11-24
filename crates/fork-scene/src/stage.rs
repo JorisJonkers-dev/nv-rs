@@ -137,7 +137,7 @@ const INI_FILES: [&str; 2] = ["Fallout.ini", "FalloutPrefs.ini"];
 pub fn set_ini(staged: &Staged, key: &str, value: &str) -> io::Result<Vec<String>> {
     let dir = staged.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV");
     let mut replaced = Vec::new();
-    let mut found_file = false;
+    let mut read = Vec::new();
     for name in INI_FILES {
         let path = dir.join(name);
         let text = match fs::read_to_string(&path) {
@@ -145,12 +145,16 @@ pub fn set_ini(staged: &Staged, key: &str, value: &str) -> io::Result<Vec<String
             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             Err(e) => return Err(io::Error::new(e.kind(), format!("{}: {e}", path.display()))),
         };
-        found_file = true;
+        read.push(name);
         let mut done = None;
         let lines: Vec<String> = text
             .lines()
             .map(|l| {
-                let name = l.split_once('=').map(|(k, _)| k.trim());
+                // A file saved with a byte order mark has it before the first line's name: compare without it
+                // (and keep it in the rewritten line).
+                let name = l
+                    .split_once('=')
+                    .map(|(k, _)| k.trim_start_matches('\u{feff}').trim());
                 if done.is_none() && name.is_some_and(|k| k.eq_ignore_ascii_case(key)) {
                     done = Some(l.to_string());
                     format!(
@@ -168,7 +172,7 @@ pub fn set_ini(staged: &Staged, key: &str, value: &str) -> io::Result<Vec<String
             replaced.push(format!("{name}: {old}"));
         }
     }
-    if !found_file {
+    if read.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!(
@@ -181,8 +185,9 @@ pub fn set_ini(staged: &Staged, key: &str, value: &str) -> io::Result<Vec<String
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!(
-                "--ini {key}: neither Fallout.ini nor FalloutPrefs.ini in {} has a line `{key}=`",
-                dir.display()
+                "--ini {key}: no line `{key}=` in {} (read: {})",
+                dir.display(),
+                read.join(", ")
             ),
         ));
     }
@@ -411,6 +416,35 @@ mod tests {
             .unwrap()
             .contains("iMaxAnisotropy=8"));
         assert!(set_ini(&s, "iNothing", "1").is_err());
+        fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn a_key_on_the_first_line_after_a_byte_order_mark_is_found_and_the_mark_kept() {
+        let t = tmp("bom");
+        let install = t.join("install");
+        fs::create_dir_all(install.join("Data")).unwrap();
+        let template = t.join("tpl");
+        let docs = template.join("Documents/My Games/FalloutNV");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(
+            docs.join("FalloutPrefs.ini"),
+            "\u{feff}iMaxAnisotropy=8\n[Display]\n",
+        )
+        .unwrap();
+        let s = stage(&install, None, &[], &[], Some(&template), &t.join("v")).unwrap();
+        assert_eq!(
+            set_ini(&s, "iMaxAnisotropy", "1").unwrap(),
+            ["FalloutPrefs.ini: \u{feff}iMaxAnisotropy=8"]
+        );
+        let staged = s.xdg[0].join("nv-rs/userdata/Documents/My Games/FalloutNV");
+        assert_eq!(
+            fs::read_to_string(staged.join("FalloutPrefs.ini")).unwrap(),
+            "\u{feff}iMaxAnisotropy=1\n[Display]\n"
+        );
+        // Only FalloutPrefs.ini is there: the error for a missing key names the file that was read.
+        let e = set_ini(&s, "iNothing", "1").unwrap_err().to_string();
+        assert!(e.contains("read: FalloutPrefs.ini"), "{e}");
         fs::remove_dir_all(&t).unwrap();
     }
 }
