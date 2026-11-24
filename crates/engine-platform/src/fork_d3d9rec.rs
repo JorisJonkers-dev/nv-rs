@@ -112,8 +112,39 @@ fn request_for(
         decorations: style & WS_CAPTION == WS_CAPTION && !fullscreen,
         visible: style & WS_VISIBLE != 0,
         fullscreen,
+        activate: true,
     }
 }
+
+/// The small window of a run that draws off screen (`NV_RUN_WINDOW`, `fork_window::mirror`), made once
+/// for the run's first top-level window and kept to its end. Off unless asked for; a run without a
+/// display, or any run on macOS, has none. The run's drawing is not touched.
+#[cfg(not(target_os = "macos"))]
+fn run_window(title: &[u8]) {
+    static MIRROR: std::sync::Mutex<Option<fork_window::mirror::Mirror>> =
+        std::sync::Mutex::new(None);
+    let display = ["DISPLAY", "WAYLAND_DISPLAY"]
+        .iter()
+        .any(|n| std::env::var_os(n).is_some_and(|v| !v.is_empty()));
+    if !fork_window::mirror::wanted() || !display || !wanted() {
+        return;
+    }
+    let mut held = MIRROR.lock().unwrap_or_else(|p| p.into_inner());
+    if held.is_some() {
+        return;
+    }
+    let label = fork_window::run_label();
+    match fork_window::mirror::open(label.as_deref(), &String::from_utf8_lossy(title)) {
+        Ok(m) => {
+            fork_log::info!(target: "window", "the run's window (minimised, off screen run) is {:#x}", m.id());
+            *held = Some(m);
+        }
+        Err(why) => fork_log::warn!(target: "window", "no window for the off screen run: {why}"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_window(_title: &[u8]) {}
 
 /// `CreateWindowExA` made the modelled window `handle`: a real window of its title and size (a
 /// child shares its parent's: one surface covers both). No caption (`WS_POPUP`: the game's
@@ -130,6 +161,9 @@ pub fn window_created(
     parent: u32,
 ) {
     if !windows_wanted() {
+        if parent == 0 {
+            run_window(title);
+        }
         return;
     }
     if parent != 0 {
@@ -813,7 +847,7 @@ mod request_tests {
         let framed = WS_CAPTION | WS_VISIBLE;
         let rect = [0, 0, 2560, 1440];
         let play = request_for(b"Fallout: New Vegas", framed, rect, true);
-        assert!(play.fullscreen && !play.decorations && play.visible);
+        assert!(play.fullscreen && !play.decorations && play.visible && play.activate);
         assert_eq!((play.width, play.height), (2560, 1440));
         let windowed = request_for(b"Fallout: New Vegas", framed, rect, false);
         assert!(!windowed.fullscreen && windowed.decorations);

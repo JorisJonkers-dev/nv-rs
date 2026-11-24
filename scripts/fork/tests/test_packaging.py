@@ -98,6 +98,8 @@ class Packaging(unittest.TestCase):
         self.assertEqual(fields["Type"], "Application")
         self.assertTrue(fields["Categories"].endswith(";"))
         self.assertEqual(fields["Icon"], "nv-rs")
+        # The window's application id without a run label (crates/fork-window/src/identity.rs).
+        self.assertEqual(fields["StartupWMClass"], "nv-rs")
 
     def test_install_script(self):
         prefix = self.dir / "prefix"
