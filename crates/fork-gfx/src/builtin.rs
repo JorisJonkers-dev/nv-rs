@@ -243,6 +243,8 @@ pub static TEXTURES: ModuleSpec = ModuleSpec {
     }],
     owns: &[Owns::GameValue("the texture samplers' filtering (minification and anisotropy)")],
     cost: "docs/fork/GRAPHICS.md, textures",
+};
+
 static PLACED_REFLECTIONS: [Choice; 3] = [
     Choice {
         id: "game",
@@ -390,8 +392,20 @@ mod tests {
         assert!(ao.toggle("enabled") && !sh.toggle("enabled"));
         assert_eq!(ao.choice("quality"), "low");
         // nv-rs#829: Modern forces 16x anisotropic filtering; the others keep the game's.
-        assert_eq!(modern.module("textures").unwrap().choice("anisotropy"), "x16");
-        assert_eq!(perf.module("textures").unwrap().choice("anisotropy"), "game");
-        assert_eq!(at("original").module("textures").unwrap().choice("anisotropy"), "game");
+        assert_eq!(
+            modern.module("textures").unwrap().choice("anisotropy"),
+            "x16"
+        );
+        assert_eq!(
+            perf.module("textures").unwrap().choice("anisotropy"),
+            "game"
+        );
+        assert_eq!(
+            at("original")
+                .module("textures")
+                .unwrap()
+                .choice("anisotropy"),
+            "game"
+        );
     }
 }

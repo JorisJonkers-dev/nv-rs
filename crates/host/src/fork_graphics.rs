@@ -542,6 +542,11 @@ mod tests {
         assert_eq!(level(&[("NV_GFX", "textures.anisotropy=x16")]), 16);
         assert_eq!(level(&[("NV_GFX", "textures.anisotropy=x4")]), 4);
         assert_eq!(level(&[("NV_GFX", "textures.anisotropy=game")]), 0);
+        assert_eq!(level(&[("NV_GFX_PRESET", "original")]), 0);
+        assert_eq!(level(&[("NV_GFX_PRESET", "modern")]), 16);
+    }
+
+    #[test]
     fn the_lamp_distance_is_the_game_s_unless_chosen() {
         let distance = |pairs: &[(&str, &str)]| {
             let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
