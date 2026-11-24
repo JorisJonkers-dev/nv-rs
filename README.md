@@ -6,7 +6,8 @@
 
 <p align="center"><b>Fallout: New Vegas on a new engine, rebuilt in Rust.</b></p>
 
-nv-rs runs your own copy of Fallout: New Vegas on a new engine, written from scratch in the Rust programming language.
+nv-rs runs your own copy of Fallout: New Vegas on a new engine: the original program, translated piece by piece into
+the Rust programming language.
 It is for players who want the game on Linux, Windows or macOS, with optional modern graphics.
 An engine is the program that runs a game: it draws the world and runs its rules. The game's own files stay the same.
 
@@ -23,7 +24,7 @@ An engine is the program that runs a game: it draws the world and runs its rules
 - 🎮 **The whole game.** Quests, combat, menus, saves and the DLCs run on the new engine.
 - 🐧 **Linux and Windows, macOS in testing.** On Linux it runs natively, with no Windows layer in between.
 - 🌅 **Better light, your choice.** The default looks like the original. One switch turns on shadows, soft shade and
-  light from the sky. Press **F10** in the game to change any setting.
+  light from the sky. Press **F10** in the game to change the graphics settings.
 - 🧩 **Script extenders built in.** Many mods need the add-ons xNVSE or JIP LN. Here they are part of the engine,
   so there is nothing extra to install.
 
@@ -35,7 +36,8 @@ An engine is the program that runs a game: it draws the world and runs its rules
 
 ## Progress
 
-These bars update themselves after every change.
+These bars are counted from the code each time a change lands; nobody updates them by hand
+([what each bar counts](docs/fork/PROGRESS.md)).
 
 <p align="center">
   <img src="docs/media/fork-progress-engine.svg" alt="Progress of the engine port" width="100%">
