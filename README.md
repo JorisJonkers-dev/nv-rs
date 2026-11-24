@@ -76,19 +76,19 @@ What `modern` turns on, each also adjustable on its own:
 | Sky light, moon and starlight | Light from the sky by surface direction, a moon light that follows the game's moon phase, and a dim starlight at night. |
 | Moon highlight | Glossy materials catch the moon light a little. |
 | Lamp light distance | Lamps, street lights and lit signs light their surroundings from further away. |
-| Water reflections | Lakes and rivers placed above the world's water height (Lake Mead, the Colorado) mirror the land as well as the sky. |
+| Water reflections | Every outdoor lake and river (Lake Mead, the Colorado below Hoover Dam, the Potomac) mirrors the land, buildings and statics around it, not only the sky. |
 | Anisotropic filtering | Textures seen at a grazing angle (roads, fences, roofs) stay sharp; `modern` uses x16. |
 
 <p align="center">
-  <img src="docs/fork/images/graphics-lake-mead-water.jpg" alt="Lake Mead: on the left the water mirrors only the sky, on the right it also mirrors the cliffs" width="100%">
-  <br><em>Lake Mead on the plain game. The original game mirrors only the sky in water placed at its own height (left);
-  with <code>water.placed_reflections</code> the cliffs are mirrored too (right).</em>
+  <img src="docs/fork/images/graphics-lake-mead-water.jpg" alt="Lake Mead side by side: on the left the game's water mirrors only the sky, on the right the hills, the island and the piers are mirrored in their colours" width="100%">
+  <br><em>Lake Mead on a modded load order, the game's water (left) and <code>water.placed_reflections</code> high, as
+  <code>modern</code> sets it (right): every outdoor lake and river mirrors the land, buildings and statics around it.</em>
 </p>
 
 <p align="center">
-  <img src="docs/fork/images/graphics-anisotropy.jpg" alt="A fence and grating at a grazing angle: blurred at the top, sharp at the bottom" width="640">
-  <br><em>A street fence at a grazing angle with the game's anisotropy at 1, as its Low and Medium settings set it
-  (top), and with forced x16 anisotropic filtering (bottom).</em>
+  <img src="docs/fork/images/graphics-anisotropy.jpg" alt="Pavement and gravel at a grazing angle side by side: blurred on the left with the game's anisotropy at 1, sharp on the right with x16" width="100%">
+  <br><em>Pavement and gravel at a grazing angle: the game's anisotropy at 1, as its Low and Medium settings set it
+  (left), and forced x16 anisotropic filtering as <code>modern</code> sets it (right).</em>
 </p>
 
 Lamp light distance, water reflections and anisotropic filtering are on the `fork` branch and come with the next
