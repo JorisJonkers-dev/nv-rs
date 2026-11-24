@@ -237,6 +237,19 @@ mod tests {
     }
 
     #[test]
+    fn every_16_bit_value_survives_the_shader_s_float_round_trip() {
+        // The shader reads v / 65535 as a float and takes round(c * 65535) back: exact for every value.
+        for v in 0..=u16::MAX {
+            let c = f32::from(v) / 65535.0;
+            assert_eq!(
+                (c.clamp(0.0, 1.0) * 65535.0).round() as u32,
+                u32::from(v),
+                "{v}"
+            );
+        }
+    }
+
+    #[test]
     fn the_same_pixel_gets_the_same_offset_every_time() {
         assert_eq!(offset(123, 456), offset(123, 456));
         assert_ne!(offset(123, 456), offset(124, 456));
@@ -319,7 +332,8 @@ mod tests {
             },
             size,
         );
-        let format = wgpu::TextureFormat::Rgba8Unorm;
+        // The frame's format in the device (B8G8R8A8): read back as blue, green, red, alpha.
+        let format = wgpu::TextureFormat::Bgra8Unorm;
         let target = texture(
             format,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
@@ -363,7 +377,8 @@ mod tests {
         for y in 0..h {
             for x in 0..w {
                 for c in 0..4 {
-                    let got = data[(y * row + x * 4 + c) as usize];
+                    let at = [2, 1, 0, 3][c as usize];
+                    let got = data[(y * row + x * 4 + at) as usize];
                     let want = level(value(x, y, c), x, y);
                     assert_eq!(got, want, "pixel ({x}, {y}) channel {c}");
                 }
