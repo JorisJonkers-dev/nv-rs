@@ -1,0 +1,1 @@
+crates/d3d9-wgpu/src/state.rs  # sampler keys take the forced anisotropic filtering level of the graphics setting textures.anisotropy; the game's states unchanged at its default (nv-rs#829)

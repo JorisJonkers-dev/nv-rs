@@ -147,6 +147,18 @@ the picture; sunlit its brightest 40%, shade its darkest 20%) and exits 1 when t
 With `--max-lost-detail POINTS` it also exits 1 when a view gains more than that many points of dark blocks that show no
 detail in the lower 55% of the picture: darkness alone passes, lost shapes and texture do not. The limit for `modern` is 5.
 
+### Textures (`textures`)
+
+`anisotropy` (nv-rs#829, `d3d9_wgpu::state::forced_anisotropy`): the game asks for plain linear filtering on most
+surfaces, so ground, roads and walls blur at grazing angles. A level forces anisotropic filtering, at that level or the
+game's own when it asks for more, on every sampler that filters a mipmapped texture linearly as it shrinks it; point
+sampling, render targets read without mipmaps and depth stay as the game set them. It is what DXVK's
+`d3d9.samplerAnisotropy` offers.
+
+| Setting | Values | Original | Applies |
+| --- | --- | --- | --- |
+| `anisotropy` | `game` (the game's sampler states), `x2`, `x4`, `x8`, `x16` | `game` | live |
+
 ## Scripted runs
 
 - `NV_GFX_PRESET=modern`: a preset for the run (wins over the file's).

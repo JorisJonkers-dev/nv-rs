@@ -215,3 +215,11 @@ folder beside the native saves. New records: "Machine table off Windows", `game_
 - Decision: drop when upstream regenerates the ledger
 - Reason: the committed counts were far behind the engine crates (nv-rs#787)
 - Evidence: the generator's output line "ledger: wrote docs/LEDGER.md (69488 functions, 102109 cited addresses)"
+
+### Forced anisotropic filtering
+- Files: `crates/d3d9-wgpu/src/state.rs` (`forced_anisotropy`, `SamplerKey::forced`), `crates/host/src/fork_graphics.rs`
+- Upstream approach: each sampler is made from the game's sampler states (anisotropy only where the game asks for it)
+- Fork approach: the graphics setting `textures.anisotropy` (nv-rs#829) raises every sampler that filters a mipmapped texture linearly to anisotropic filtering at the chosen level; at its default (`game`) the sampler keys are the game's states as before
+- Decision: keep
+- Reason: the maintainer wants what DXVK adds for this game as engine settings; the game's own filtering blurs ground at grazing angles
+- Evidence: `forced_anisotropy_raises_mipmapped_linear_samplers_only`, `forced_anisotropy_setting_is_clamped`, `the_anisotropy_choice_reaches_the_samplers_level`; crops at 2560x1440 (pull request)
