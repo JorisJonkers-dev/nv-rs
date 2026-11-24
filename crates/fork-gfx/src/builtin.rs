@@ -225,11 +225,11 @@ static ANISOTROPY: [Choice; 5] = [
 pub static TEXTURES: ModuleSpec = ModuleSpec {
     id: "textures",
     label: "Textures",
-    help: "How textures are filtered. The game asks for plain linear filtering on most surfaces, so ground and roads blur at grazing angles.",
+    help: "How textures are filtered. The game filters them anisotropically at the level of its own setting (iMaxAnisotropy in FalloutPrefs.ini: 8 when unset and at High, 1 at Low and Medium); at 1, ground and roads blur at grazing angles.",
     settings: &[Setting {
         key: "anisotropy",
         label: "Anisotropic filtering",
-        help: "Keeps ground, roads and walls sharp when seen at a shallow angle. The game's: as the game sets each texture. 2x to 16x: at least that level on every mipmapped texture that is filtered; higher is sharper and costs a little more.",
+        help: "Keeps ground, roads and walls sharp when seen at a shallow angle. The game's: as the game sets each texture. 2x to 16x: at least that level on every mipmapped texture that is filtered, whatever the game's setting; higher is sharper and costs a little more.",
         applies: Applies::Live,
         kind: Kind::Choice { options: &ANISOTROPY, default: "game" },
     }],
