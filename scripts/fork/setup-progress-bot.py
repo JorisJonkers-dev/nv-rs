@@ -230,7 +230,11 @@ def ensure_bypass(owner: str, app_id: int, yes: bool, repo_name: str = RULESET_R
     found = [r for r in rulesets if r.get("name") == ruleset_name]
     if not found:
         sys.exit(f"{repo} has no ruleset named '{ruleset_name}'; nothing changed")
+    if len(found) > 1:
+        sys.exit(f"{repo} has {len(found)} rulesets named '{ruleset_name}'; nothing changed")
     rs = gh_json(f"repos/{repo}/rulesets/{found[0]['id']}")
+    if rs.get("target") != "branch":
+        sys.exit(f"{repo} ruleset '{ruleset_name}' targets {rs.get('target')}, not branches; nothing changed")
     actors = rs.get("bypass_actors") or []
     if any(a.get("actor_type") == "Integration" and a.get("actor_id") == app_id for a in actors):
         print(f"\n== {repo}: the App already bypasses '{ruleset_name}' (ruleset {rs['id']}): skipped")
