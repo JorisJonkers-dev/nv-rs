@@ -3155,6 +3155,10 @@ impl Device {
         if self.sun.is_some() && s.level + 1 == tex.levels && s.layer == 0 {
             let mean = if s.format.opaque {
                 Some(1.0)
+            } else if format::is_precise(&s.format) {
+                // A precise target (nv-rs#830): the game's own 8-bit bytes.
+                let game = &data[..(row * rows) as usize];
+                sun_shadow::mean_alpha(wgpu::TextureFormat::Bgra8Unorm, s.width, s.height, game)
             } else {
                 sun_shadow::mean_alpha(s.format.wgpu, s.width, s.height, &bytes)
             };
