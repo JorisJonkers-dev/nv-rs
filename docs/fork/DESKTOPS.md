@@ -12,6 +12,15 @@ Size is in physical pixels (the swap chain is that size), scale is the composito
 `none`, `idle inhibit` is `wayland`, `xdg-screensaver` or `none`. The line is repeated when the size or scale changes.
 Read it first when a desktop misbehaves.
 
+## The window's name in the dock
+
+The window sets its Wayland `app_id` (X11: `WM_CLASS`) and title itself (`crates/fork-window/src/identity.rs`). A run started
+under `gamerun` has its label in `GAMERUN_LABEL`: the label becomes the application id and the title reads `label: game title`,
+so each run is an entry of its own in the dock, named by the label, gone when the window closes. Without a label the id is
+`nv-rs`, the `StartupWMClass` of `packaging/linux/nv-rs.desktop`, which gives a plain run that entry's icon. A labelled run has
+no `.desktop` file of its own, so the dock shows the label with a generic icon unless the starter writes `<label>.desktop`.
+Runs that draw off screen (`NV_D3D9_OFFSCREEN`, scene runs) have no window and no entry.
+
 ## Matrix
 
 Legend: **V** verified by a run (CI or by hand, said in the Evidence column), **R** by reading winit's or the compositor's
