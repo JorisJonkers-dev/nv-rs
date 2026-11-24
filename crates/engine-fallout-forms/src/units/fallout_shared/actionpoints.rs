@@ -104,7 +104,12 @@ pub fn fn_0066dc70(e: &mut Engine, action: i32) -> f32 {
 // Translated from 0066dca0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The cost of `action` (`0066dc70`), multiplied by
 /// `fActionPointsRunAndGunMult` when `unscaled` is false.
-pub fn fn_0066dca0(e: &mut Engine, action: i32, unscaled: bool) -> f32 {
+///
+/// The game's function is cdecl with four words (`action`, `unscaled`, 0.0 and 0; the caller
+/// takes them off with `ADD ESP,0x10`, as `0093ab30` and Tweaks' run-and-gun do): the last two
+/// are not read, but are declared so that the word-count guard (`jip_call_arity`) agrees with
+/// the callers.
+pub fn fn_0066dca0(e: &mut Engine, action: i32, unscaled: bool, _zero_f: f32, _zero: u32) -> f32 {
     let cost = quiet(fn_0066dc70(e, action));
     if unscaled {
         return cost;
@@ -192,7 +197,7 @@ pub fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x0066dba0, action_points_get_attack_action(i32) -> i32),
         entry!(0x0066dc70, fn_0066dc70(i32) -> f32),
-        entry!(0x0066dca0, fn_0066dca0(i32, bool) -> f32),
+        entry!(0x0066dca0, fn_0066dca0(i32, bool, f32, u32) -> f32),
         entry!(
             0x0066dce0,
             action_points_get_weapon_attack_action_points(Ptr) -> f32
@@ -262,8 +267,8 @@ mod tests {
         let mut e = engine();
         put_cost(&mut e, 2, 20.0);
         e.mem.set_f32(RUN_AND_GUN_MULT + 4, 1.5);
-        assert_eq!(fn_0066dca0(&mut e, 2, false), 30.0);
-        assert_eq!(fn_0066dca0(&mut e, 2, true), 20.0);
+        assert_eq!(fn_0066dca0(&mut e, 2, false, 0.0, 0), 30.0);
+        assert_eq!(fn_0066dca0(&mut e, 2, true, 0.0, 0), 20.0);
         assert_eq!(
             x87_mul(f32::from_bits(0x7fc0_0001), f32::from_bits(0x7f80_0005)).to_bits(),
             0x7fc0_0001
