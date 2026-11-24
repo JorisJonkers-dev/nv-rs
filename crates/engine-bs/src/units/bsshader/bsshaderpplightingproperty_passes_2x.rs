@@ -3182,7 +3182,10 @@ mod tests {
                 0x00bd_f790,
                 &args![this, geometry, 0x3fu32, count, 0u32, accumulator, 1u32],
             );
-            pass_enums(&e, this).iter().map(|p| p.0).collect::<Vec<u16>>()
+            pass_enums(&e, this)
+                .iter()
+                .map(|p| p.0)
+                .collect::<Vec<u16>>()
         };
         assert_eq!(passes(0x7e57_0000), vec![0xff]);
         assert_eq!(passes(0), vec![0xfb]);
