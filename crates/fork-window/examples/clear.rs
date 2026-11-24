@@ -3,6 +3,7 @@
 //!   cargo run -p fork-window --example clear            until the window is closed or Escape
 //!   cargo run -p fork-window --example clear -- --smoke 30 frames, then exit 0
 //!   ... --smoke --hold 5 --fullscreen      keep showing frames 5 s after the 30th; borderless over a monitor
+//!   ... --smoke --place 1280x720            open at 320x240, then ask for 1280x720 as the game's `SetWindowPos` does
 //!
 //! Exits 1 with the reason when there is no display, no Vulkan adapter or no frame.
 
@@ -21,6 +22,13 @@ fn main() {
             std::time::Duration::ZERO,
             std::time::Duration::from_secs_f64,
         );
+    // The game opens its window small and then sizes it to its prefs (nv-rs#835).
+    let place = args
+        .iter()
+        .position(|a| a == "--place")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.split_once('x'))
+        .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)));
     let mut done_at: Option<std::time::Instant> = None;
     let fail = |why: String| -> ! {
         eprintln!("clear: {why}");
@@ -41,8 +49,8 @@ fn main() {
     let window = Window::open(
         WindowRequest {
             title: "nv-rs window layer".into(),
-            width: 640,
-            height: 360,
+            width: if place.is_some() { 320 } else { 640 },
+            height: if place.is_some() { 240 } else { 360 },
             fullscreen,
             decorations: !fullscreen,
             ..Default::default()
@@ -51,6 +59,10 @@ fn main() {
     )
     .unwrap_or_else(|e| fail(e));
     let id = window.id();
+    if let Some(size) = place {
+        fork_window::place(id, None, Some(size));
+        println!("placed: asked {}x{}", size.0, size.1);
+    }
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
         ..wgpu::InstanceDescriptor::new_without_display_handle()

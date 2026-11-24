@@ -440,7 +440,9 @@ impl App {
             .with_title(self.request.title.clone())
             .with_inner_size(PhysicalSize::new(self.request.width, self.request.height))
             .with_decorations(self.request.decorations)
-            .with_resizable(false)
+            // Resizable: maximised, tiled or dragged, the swap chain follows the client area
+            // (`Resized`) and the back buffer is drawn over it (nv-rs#835).
+            .with_resizable(true)
             .with_visible(self.request.visible)
             .with_fullscreen(self.request.fullscreen.then(|| {
                 // `NV_MONITOR` names the output. Otherwise on Wayland none is asked for: the
@@ -593,9 +595,9 @@ impl App {
         self.landed_on = Some(name);
     }
 
-    /// Moves and sizes window `id` as the game's `SetWindowPos` asks. The full-screen window keeps
-    /// the monitor. The client area keeps its size for the compositor to honour: the window is not
-    /// resizable by the player, so the size hints follow the request (winit does this).
+    /// Moves and sizes window `id` as the game's `SetWindowPos` asks, no larger than its monitor.
+    /// The full-screen window keeps the monitor. The player may resize the window after (maximise,
+    /// tile): the swap chain follows the client area either way.
     fn place(&mut self, id: isize, position: Option<(i32, i32)>, size: Option<(u32, u32)>) -> bool {
         let Some(w) = self.window.as_ref().filter(|_| self.id == id) else {
             return false;
@@ -606,8 +608,20 @@ impl App {
         if let Some((x, y)) = position {
             w.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
         }
-        if let Some((width, height)) = size {
-            let _ = w.request_inner_size(PhysicalSize::new(width.max(1), height.max(1)));
+        if let Some(wanted) = size {
+            let monitor = w
+                .current_monitor()
+                .map(|m| (m.size().width, m.size().height));
+            let (width, height) = fit_monitor(wanted, monitor);
+            let answer = w.request_inner_size(PhysicalSize::new(width, height));
+            // Wayland applies the size at once and answers it here, with no `Resized` event to
+            // follow (X11 and macOS answer `None` and send one): the size the swap chain reads
+            // must take the answer, or it stays at the window's first size and the whole picture
+            // is drawn that small and stretched over the window (nv-rs#835).
+            if took_answer(&self.shared, answer.map(|s| (s.width, s.height))) {
+                self.report();
+                self.changed();
+            }
         }
         true
     }
@@ -796,9 +810,57 @@ fn metal_layer_of(handle: raw_window_handle::RawWindowHandle) -> Option<raw_wind
     }
 }
 
+/// The client area `wanted` (at least 1 by 1), no larger than the `monitor` it is on: a window
+/// asked for more than the monitor holds (a 2560x1440 game on a smaller monitor) is opened at the
+/// monitor's size instead of past its edges (nv-rs#835).
+fn fit_monitor(wanted: (u32, u32), monitor: Option<(u32, u32)>) -> (u32, u32) {
+    let (mut width, mut height) = (wanted.0.max(1), wanted.1.max(1));
+    if let Some((mw, mh)) = monitor.filter(|&(w, h)| w > 0 && h > 0) {
+        width = width.min(mw);
+        height = height.min(mh);
+    }
+    (width, height)
+}
+
+/// The window system's answer to a size request: `Some` (Wayland: applied at once, no event
+/// follows) is the window's size now; whether it changed the size the swap chain reads.
+fn took_answer(shared: &Shared, answer: Option<(u32, u32)>) -> bool {
+    let Some((width, height)) = answer.filter(|&(w, h)| w > 0 && h > 0) else {
+        return false;
+    };
+    let before = shared.size.load(std::sync::atomic::Ordering::Relaxed);
+    shared.set_size(width, height);
+    before != shared.size.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// nv-rs#835: on Wayland the game's `SetWindowPos` to its prefs size is answered at once with
+    /// no `Resized` event; the size the swap chain reads must follow that answer, or the picture
+    /// stays at the first window's 320x240 and is stretched.
+    #[test]
+    fn an_immediate_size_answer_is_the_window_size() {
+        let shared = Shared::new();
+        shared.set_size(320, 240);
+        assert!(took_answer(&shared, Some((2560, 1440))));
+        assert_eq!(registry::size_of(&shared), (2560, 1440));
+        // The same answer again changes nothing; no answer (X11, macOS: an event follows) and an
+        // empty one leave the size as it is.
+        assert!(!took_answer(&shared, Some((2560, 1440))));
+        assert!(!took_answer(&shared, None));
+        assert!(!took_answer(&shared, Some((0, 0))));
+        assert_eq!(registry::size_of(&shared), (2560, 1440));
+    }
+
+    #[test]
+    fn a_window_larger_than_its_monitor_is_fitted_to_it() {
+        assert_eq!(fit_monitor((2560, 1440), Some((1920, 1080))), (1920, 1080));
+        assert_eq!(fit_monitor((1280, 720), Some((2560, 1440))), (1280, 720));
+        assert_eq!(fit_monitor((2560, 1440), None), (2560, 1440));
+        assert_eq!(fit_monitor((0, 0), Some((0, 0))), (1, 1));
+    }
 
     #[test]
     fn winit_keys_map_to_directinput() {

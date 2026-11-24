@@ -426,7 +426,7 @@ tested only through the recorder's calls here, and the real-device fallbacks sta
 ### Display match
 
 The game's window and rendering follow the display the process started on (`fork-window/src/display.rs`). The monitor is
-`NV_MONITOR=<index or output name>` (the window system's order; `DP-1`), else the output the window last landed on (kept in
+`NV_MONITOR=<index or output name>` (the window system's order; `DP-1`; a kernel connector name such as `HDMI-A-1` also matches the X server's `HDMI-1`), else the output the window last landed on (kept in
 `$XDG_STATE_HOME/nv-rs/last-monitor`), else the primary, else the first. Wayland has no query for the monitor holding the
 focus or the cursor and a client cannot place its window: there the full-screen request names no output, the compositor
 places the window (GNOME: on the current output), and the monitor it landed on is logged
@@ -510,6 +510,12 @@ exactly that monitor whatever `iSize` says; the game's picture is stretched to i
 change are not offered: the monitor's own mode is never changed, and a game device `Reset` to another size (the game's mode
 change) only gives the back buffer that size, which `Present` scales to the window; a full-screen device (`Windowed=0`) is
 refused. `bFull Screen=0` at the next start gives the framed window at the size the game asked for.
+
+The framed window (`bFull Screen=0`) opens at the size the game's `SetWindowPos` asks (its `iSize`), no larger than its
+monitor, and the player may maximise, tile or drag it: the swap chain follows the client area. On Wayland winit applies a size
+request at once and sends no `Resized` event for it, so the layer takes the size from the request's answer; before nv-rs#835 it
+did not, and the swap chain stayed at the game's first 320x240 window with the picture stretched over the real one.
+`cargo run -p fork-window --example clear -- --smoke --place 1280x720` shows it on a desktop: `final: window 1280x720 surface 1280x720`.
 
 Tests (same setup): `crates/fork-window/tests/full_screen.rs`
 (`full_screen_is_a_captionless_window_over_exactly_the_monitor_the_choice_names`,
