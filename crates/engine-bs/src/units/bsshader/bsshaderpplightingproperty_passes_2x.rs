@@ -3165,6 +3165,28 @@ mod tests {
         );
         assert_eq!(pass_enums(&e, this), vec![(0x9840, 0, 0), (0x153, 0, 1)]);
     }
+
+    /// nv-rs#827: a far object block's property (flags as `prepare_mesh` leaves them: +0x20 bit 13,
+    /// LOD_Building, +0x24 bit 2) with a glow map in its texture set gets the ambient-diffuse pass with
+    /// glow (0xFF), whose stage 4 takes the glow texture; without one the plain pass (0xFB). The glow
+    /// shows only where the block's material has an emissive colour (the shader scales the glow map by
+    /// the property's emittance), as on any other mesh.
+    #[test]
+    fn get_render_passes_2x_gives_a_far_block_with_a_glow_map_the_glow_pass() {
+        let passes = |glow: u32| {
+            let (mut e, this, geometry, count, accumulator) = passes_2x_rig(0x2000);
+            e.mem.set_u32(this.addr() + 0x24, 4);
+            let b4 = e.mem.u32(this.addr() + 0xb4);
+            e.mem.set_u32(b4, glow);
+            e.call(
+                0x00bd_f790,
+                &args![this, geometry, 0x3fu32, count, 0u32, accumulator, 1u32],
+            );
+            pass_enums(&e, this).iter().map(|p| p.0).collect::<Vec<u16>>()
+        };
+        assert_eq!(passes(0x7e57_0000), vec![0xff]);
+        assert_eq!(passes(0), vec![0xfb]);
+    }
 }
 
 #[cfg(test)]
