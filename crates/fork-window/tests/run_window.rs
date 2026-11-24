@@ -44,5 +44,15 @@ fn a_run_window_is_named_by_the_label_and_starts_minimised() {
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+    // With a graphics adapter (Mesa's lavapipe in CI) the window shows frames; without one the painting
+    // thread ends and says so. Either way the window stays and the run goes on.
+    let until = Instant::now() + Duration::from_secs(10);
+    while run.frames() == 0 && !run.finished() {
+        assert!(
+            Instant::now() < until,
+            "the painting neither showed a frame nor ended"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
     assert_ne!(probe.focus(), x, "the window must not take the focus");
 }

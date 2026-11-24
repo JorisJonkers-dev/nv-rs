@@ -9,7 +9,7 @@
 //! copied into it yet.
 
 use crate::{Window, WindowRequest};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -45,9 +45,22 @@ pub fn colour_of(label: Option<&str>) -> [f64; 3] {
 pub struct Mirror {
     window: Window,
     stop: Arc<AtomicBool>,
+    /// Frames shown, and whether the painting thread has ended (no adapter, or stopped).
+    shown: Arc<(AtomicU64, AtomicBool)>,
 }
 
 impl Mirror {
+    /// How many frames the window has shown.
+    pub fn frames(&self) -> u64 {
+        self.shown.0.load(Ordering::Relaxed)
+    }
+
+    /// Whether the painting thread has ended (the machine has no adapter for the window, or the
+    /// window is closed).
+    pub fn finished(&self) -> bool {
+        self.shown.1.load(Ordering::Relaxed)
+    }
+
     /// The window's id in this layer.
     pub fn id(&self) -> isize {
         self.window.id()
@@ -78,15 +91,22 @@ pub fn open(label: Option<&str>, title: &str) -> Result<Mirror, String> {
     let stop = Arc::new(AtomicBool::new(false));
     let colour = colour_of(label);
     let flag = stop.clone();
+    let shown = Arc::new((AtomicU64::new(0), AtomicBool::new(false)));
+    let counter = shown.clone();
     std::thread::Builder::new()
         .name("run window".into())
         .spawn(move || {
-            if let Err(why) = paint(id, colour, &flag) {
+            if let Err(why) = paint(id, colour, &flag, &counter.0) {
                 fork_log::warn!(target: "window", "the run's window shows no picture: {why}");
             }
+            counter.1.store(true, Ordering::Relaxed);
         })
         .map_err(|e| format!("thread: {e}"))?;
-    Ok(Mirror { window, stop })
+    Ok(Mirror {
+        window,
+        stop,
+        shown,
+    })
 }
 
 fn block_on<F: std::future::Future>(f: F) -> F::Output {
@@ -106,7 +126,7 @@ fn block_on<F: std::future::Future>(f: F) -> F::Output {
 }
 
 /// Clears the window's surface to `colour` about twice a second until `stop`.
-fn paint(id: isize, colour: [f64; 3], stop: &AtomicBool) -> Result<(), String> {
+fn paint(id: isize, colour: [f64; 3], stop: &AtomicBool, frames: &AtomicU64) -> Result<(), String> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let surface = crate::surface_for(&instance, id)?;
     let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -171,6 +191,7 @@ fn paint(id: isize, colour: [f64; 3], stop: &AtomicBool) -> Result<(), String> {
                 }));
                 queue.submit([encoder.finish()]);
                 queue.present(t);
+                frames.fetch_add(1, Ordering::Relaxed);
             }
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 surface.configure(&device, &config);
