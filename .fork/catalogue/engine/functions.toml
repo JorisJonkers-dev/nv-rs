@@ -1,0 +1,182 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "engine.functions"
+title = "FalloutNV.exe functions"
+origin = "original"
+items_from = "ref/engine_functions.tsv"
+items_from_status = "implemented"
+notes = "Every function of FalloutNV.exe 1.4.0.525 in the ledger (scripts/ledger): translated by hand, or run from the generated start-up and shut-down tables. The ledger is the evidence. Platform and runtime-library code is not game code."
+
+[[item]]
+id = "f004424e0"
+title = "WaitForSingleObject"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00442550"
+title = "ReleaseSemaphore"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00aa3e40"
+title = "0x00aa3e40"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00aa4060"
+title = "0x00aa4060"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00ec3bf0"
+title = "0x00ec3bf0"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00ec782f"
+title = "0x00ec782f"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00eccf5d"
+title = "_realloc"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00ecd291"
+title = "free"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00ecd31f"
+title = "__msize"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00ed0cdf"
+title = "malloc"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00ed0d24"
+title = "__calloc_crt"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00ed641a"
+title = "0x00ed641a"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed6425"
+title = "0x00ed6425"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed645e"
+title = "0x00ed645e"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed6479"
+title = "0x00ed6479"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed64ee"
+title = "0x00ed64ee"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed650d"
+title = "0x00ed650d"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed6592"
+title = "0x00ed6592"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed65b1"
+title = "0x00ed65b1"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed6636"
+title = "0x00ed6636"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed6655"
+title = "0x00ed6655"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed66da"
+title = "0x00ed66da"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed66f9"
+title = "0x00ed66f9"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed677e"
+title = "0x00ed677e"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed679d"
+title = "0x00ed679d"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed6822"
+title = "0x00ed6822"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ed6841"
+title = "0x00ed6841"
+status = "n/a"
+reason = "compiler or runtime-library code, not game code"
+
+[[item]]
+id = "f00ee6e0a"
+title = "D3DXCompileShader"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"
+
+[[item]]
+id = "f00ee6e40"
+title = "D3DXGetShaderConstantTable"
+status = "n/a"
+reason = "platform code: the port's own platform layer stands in for it"

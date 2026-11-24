@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The coverage catalogue of nv-rs (docs/fork/CATALOGUE.md), read by tally (https://github.com/JorisJonkers-dev/tally):
+# what the engine reimplements (script extender commands, Direct3D 9, the exe's functions) and what the fork adds
+# (the graphics plan), which of it is built, and which tests prove it on which OS.
+
+[repo]
+package = "nv-rs"
+name = "nv-rs"
+
+[scan]
+# Fork-owned code only: a test in a file upstream owns is tagged from covers.d/ instead.
+paths = ["crates/fork-catalogue", "crates/fork-gfx", "crates/jg", "crates/showoff", "crates/ttw-nvse"]
+
+[ids]
+generator = ".fork/catalogue/tally_ids_gen.rs"
+
+[areas]
+extenders = "Script extender commands"
+d3d9 = "Direct3D 9 on wgpu"
+gfx = "Graphics features"
+engine = "Engine functions"
+
+# The script commands each built-in extender implements (scripts/fork/release-files writes the file).
+[[evidence]]
+kind = "capabilities"
+path = ".fork/capabilities.json"
+groups = ["extenders.xnvse", "extenders.jip_ln", "extenders.johnnyguitar", "extenders.showoff", "extenders.stewie_tweaks", "extenders.ttw_nvse"]
+
+# The function ledger: `cargo run --release --manifest-path scripts/ledger/Cargo.toml -- --tsv target/catalogue/ledger.tsv`.
+[[evidence]]
+kind = "ledger"
+path = "target/catalogue/ledger.tsv"
+groups = ["engine.functions"]
+
+# Direct3D 9 and the graphics plan, read from the code: `progress catalogue ... --evidence target/catalogue/evidence.tsv`.
+[[evidence]]
+kind = "tsv"
+path = "target/catalogue/evidence.tsv"
+status_column = "state"
+implemented = ["implemented", "partial"]
+groups = ["d3d9.methods", "d3d9.states", "gfx.features"]

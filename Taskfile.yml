@@ -39,6 +39,16 @@ tasks:
     desc: Rewrite .fork/capabilities.json from the command tables (run it after a sync or a change to a command table; the release-files test fails until you do)
     cmd: cargo run --locked --quiet --manifest-path scripts/fork/release-files/Cargo.toml -- capabilities --out .fork/capabilities.json
 
+  catalogue:
+    desc: Rewrite the coverage catalogue's reference lists and pins (.fork/catalogue/ref, sources.toml) from the pinned sources, write the evidence files tally reads, and run `tally check` (needs tally on PATH; docs/fork/CATALOGUE.md)
+    cmds:
+      - mkdir -p target/catalogue
+      - cargo run --locked --quiet --release --manifest-path scripts/ledger/Cargo.toml -- --tsv target/catalogue/ledger.tsv >/dev/null
+      - git checkout -- docs/LEDGER.md
+      - cargo run --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml -- fetch --sources target/catalogue/pins
+      - cargo run --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml -- catalogue --sources target/catalogue/pins --ledger target/catalogue/ledger.tsv --evidence target/catalogue/evidence.tsv
+      - tally check --catalogue .fork/catalogue
+
   secrets:
     desc: Scan every commit for secrets
     cmd: gitleaks git --redact --no-banner --config .gitleaks.toml .

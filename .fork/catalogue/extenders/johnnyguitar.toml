@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "extenders.johnnyguitar"
+title = "JohnnyGuitar NVSE commands"
+origin = "original"
+reference = "johnnyguitar"
+items_from = "ref/johnnyguitar.tsv"
+items_from_status = "missing"
+notes = "Every command the plugin registers at the pinned version (sources.toml). Implemented means the built-in copy in crates/jg answers it; .fork/capabilities.json is the evidence."
+
+[[item]]
+id = "geteditorid"
+title = "GetEditorID"
+status = "implemented"
+ref = ["johnnyguitar:geteditorid"]
+
+[[item]]
+id = "editoridtoformid"
+title = "EditorIDToFormID"
+status = "implemented"
+ref = ["johnnyguitar:editoridtoformid"]
+
+[[item]]
+id = "clamp"
+title = "Clamp"
+status = "implemented"
+ref = ["johnnyguitar:clamp"]
+
+[[item]]
+id = "lerp"
+title = "Lerp"
+status = "implemented"
+ref = ["johnnyguitar:lerp"]
+
+[[item]]
+id = "sign"
+title = "Sign"
+status = "implemented"
+ref = ["johnnyguitar:sign"]
+
+[[item]]
+id = "getquestfailed"
+title = "GetQuestFailed"
+status = "implemented"
+ref = ["johnnyguitar:getquestfailed"]
+
+[[item]]
+id = "getformoverrideindex"
+title = "GetFormOverrideIndex"
+status = "implemented"
+ref = ["johnnyguitar:getformoverrideindex"]
+
+[[item]]
+id = "isdllloaded"
+title = "IsDLLLoaded"
+status = "implemented"
+ref = ["johnnyguitar:isdllloaded"]
+
+[[item]]
+id = "getextramiscstat"
+title = "GetExtraMiscStat"
+status = "implemented"
+ref = ["johnnyguitar:getextramiscstat"]
+
+[[item]]
+id = "modextramiscstat"
+title = "ModExtraMiscStat"
+status = "implemented"
+ref = ["johnnyguitar:modextramiscstat"]
+
+[[item]]
+id = "initextramiscstat"
+title = "InitExtraMiscStat"
+status = "implemented"
+ref = ["johnnyguitar:initextramiscstat"]
