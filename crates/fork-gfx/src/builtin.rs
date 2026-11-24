@@ -243,7 +243,7 @@ pub static TEXTURES: ModuleSpec = ModuleSpec {
     }, Setting {
         key: "precise_targets",
         label: "Precise render targets",
-        help: "Keeps the game's 8-bit colour render targets in 16-bit float, as the Fallout HDR Patch does: smooth gradients (night sky, fog, dark rooms) show fewer bands. Costs video memory (twice the bytes for those targets) and some bandwidth.",
+        help: "Keeps the game's 8-bit colour render targets in 16 bits per channel (still clamped to 0..1 like the game's): smooth gradients (night sky, fog, dark rooms) show fewer bands. Costs video memory (twice the bytes for those targets) and some bandwidth.",
         applies: Applies::NextStart,
         kind: Kind::Toggle { default: false },
     }],

@@ -164,11 +164,14 @@ changes under 0.1 % of the pixels; against the game's 1, 0.8 to 3.4 % (gratings,
 `precise_targets` (nv-rs#830, `d3d9_wgpu::format::precise`): the game draws its scene, its image-space passes and its
 menus into 8-bit colour render targets (`A8R8G8B8`, `X8R8G8B8`) unless its own HDR is on. Each pass that reads one and
 writes the next rounds to 1/255, so smooth gradients (the night sky, fog, dark rooms) show steps. With the setting on, such
-targets are made in 16-bit float (`Rgba16Float`), as the Fallout HDR Patch does for the original program; the game still
-sees its own format, read-backs (`GetRenderTargetData`, the shot paths) give its 8-bit bytes (clamped to 0..1, rounded),
-and the back buffers stay 8-bit. A float target keeps what additive blending puts above 1.0 until a later pass reads it,
-where an 8-bit target clamps at once: bright overlapping effects can stay brighter. Costs twice the video memory of those
-targets. Read when the game makes its targets, so it applies from the next start.
+targets are made with 16 bits per channel, normalised (`Rgba16Unorm`); the game still sees its own format, read-backs
+(`GetRenderTargetData`, the shot paths) give its 8-bit bytes (rounded to the nearest step), and the back buffers stay
+8-bit. Normalised rather than float on purpose: every write and blend is clamped to 0..1 as in the 8-bit target. A first
+build with 16-bit float targets turned the daytime sky white with the game's HDR off, because the bloom path brightens
+the scene and scales it down again later and an 8-bit target clamps in between. With the game's HDR on (its default) the
+scene targets are already float and the setting changes little (under 0.2 % of the pixels at the views measured); it
+matters with HDR off. Needs 16-bit normalised formats on the card (the setting is ignored, with a log line, without them).
+Costs twice the video memory of those targets. Read when the game makes its targets, so it applies from the next start.
 
 | Setting | Values | Original | Applies |
 | --- | --- | --- | --- |

@@ -1,2 +1,2 @@
-crates/d3d9-wgpu/src/format.rs  # 8-bit colour render targets kept in 16-bit float under the graphics setting textures.precise_targets; formats unchanged when off (nv-rs#830)
+crates/d3d9-wgpu/src/format.rs  # 8-bit colour render targets kept in 16 bits per channel under the graphics setting textures.precise_targets; formats unchanged when off (nv-rs#830)
 crates/d3d9-wgpu/src/device.rs  # targets, copies, resolves and read-backs follow a precise target's format (nv-rs#830)

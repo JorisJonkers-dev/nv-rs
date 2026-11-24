@@ -2396,7 +2396,7 @@ impl Device {
             self.warn(format!("texture format {d3d_format:#x} is not provided"));
             return None;
         };
-        // An 8-bit colour render target kept in 16-bit float (nv-rs#830); the copies made of one
+        // An 8-bit colour render target kept in 16 bits (nv-rs#830); the copies made of one
         // (a sampled copy, a resolve's scratch) take its format.
         let format = if precise {
             format::precise(format)
@@ -10558,7 +10558,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             None
         } else if !matches!(
             src.format.upload,
-            format::Upload::Copy | format::Upload::Half
+            format::Upload::Copy | format::Upload::Unorm16
         ) {
             self.warn(format!(
                 "GetRenderTargetData of format {:#x} is not provided: the destination keeps what it had",
@@ -11700,7 +11700,7 @@ fn alpha_bounds(aref: u32) -> (f32, f32) {
 
 /// Whether a multisampled surface of `format` is resolved gamma-corrected ([`GAMMA_RESOLVE`]):
 /// the 8-bit colour formats (`D3DFMT_A8R8G8B8` and `X8R8G8B8`, the race menu's head target),
-/// also when kept in 16-bit float ([`format::precise`]).
+/// also when kept in 16 bits ([`format::precise`]).
 fn gamma_resolved(format: &format::Format) -> bool {
     format.wgpu == wgpu::TextureFormat::Bgra8Unorm || format::is_precise(format)
 }
@@ -11898,6 +11898,13 @@ fn open(
     };
     let wanted = wanted | gpu_times::wanted_features();
     let features = adapter.features() & wanted;
+    // Precise targets (nv-rs#830) are 16-bit normalised: without that format the game's own.
+    if format::precise_targets::on()
+        && !features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
+    {
+        format::precise_targets::set(false);
+        fork_log::warn!(target: "d3d9", "textures.precise_targets: the adapter has no 16-bit normalised formats; the game's 8-bit targets are kept");
+    }
     let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("d3d9-wgpu"),
         required_features: features,
