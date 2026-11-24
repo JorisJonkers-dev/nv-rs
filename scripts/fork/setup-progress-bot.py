@@ -13,14 +13,18 @@ confirm it, and a step that is already done is skipped, so the script is safe to
      installation covers exactly those six. Never all repositories.
   3. On each of the six: the App's id as the Actions variable PROGRESS_APP_ID and its private key as the Actions secret
      PROGRESS_APP_PRIVATE_KEY (`gh variable set`, `gh secret set`; the key goes through standard input only).
-  4. On nv-rs only: the App as a bypass actor of the ruleset "Fork line" (the one that stops the push to `fork`). No
-     other rule changes; scripts/fork/apply-ruleset.sh keeps that bypass from then on.
+  4. On nv-rs: the App as a bypass actor of the ruleset "Fork line" (the one that stops the push to `fork`). No
+     other rule changes; scripts/fork/apply-ruleset.sh keeps that bypass from then on. Another repository's default
+     branch gets the same bypass only when asked with `--bypass <repo>:<ruleset>` (for example `--bypass loot-rs:Main`,
+     where tally's report workflow pushes the generated reports); that repository's .github/rulesets file must list
+     the App too, or its apply-ruleset script removes the bypass again.
 
 The private key is never printed and never written to a file: it stays in memory and reaches `gh secret set` and
 openssl (which signs the App's token for the installation check) through standard input. A key file you download for a
 later run is deleted once read, if you agree.
 
 Usage: scripts/fork/setup-progress-bot.py [--owner JorisJonkers-dev] [--name raul-progress-bot] [--yes] [--selftest]
+                                         [--bypass <repo>:<ruleset>]...
 Needs: python3, gh (logged in as an owner of the organisation), openssl, a browser logged in to GitHub. Stdlib only.
 """
 import argparse
@@ -209,18 +213,33 @@ def key_from_file(slug: str, owner: str) -> Key:
     return key
 
 
-def ensure_bypass(owner: str, app_id: int, yes: bool) -> None:
-    repo = f"{owner}/{RULESET_REPO}"
+def parse_bypass(value: str) -> "tuple[str, str]":
+    """`<repo>:<ruleset>` for --bypass; the repository must be one of the six the App is installed on."""
+    repo, sep, ruleset = value.partition(":")
+    if not sep or not repo or not ruleset.strip():
+        raise argparse.ArgumentTypeError(f"'{value}' is not <repo>:<ruleset>")
+    if repo not in REPOS:
+        raise argparse.ArgumentTypeError(f"'{repo}' is not one of the App's repositories: {', '.join(REPOS)}")
+    return repo, ruleset
+
+
+def ensure_bypass(owner: str, app_id: int, yes: bool, repo_name: str = RULESET_REPO,
+                  ruleset_name: str = RULESET_NAME) -> None:
+    repo = f"{owner}/{repo_name}"
     rulesets = gh_json(f"repos/{repo}/rulesets") or []
-    found = [r for r in rulesets if r.get("name") == RULESET_NAME]
+    found = [r for r in rulesets if r.get("name") == ruleset_name]
     if not found:
-        sys.exit(f"{repo} has no ruleset named '{RULESET_NAME}'; nothing changed")
+        sys.exit(f"{repo} has no ruleset named '{ruleset_name}'; nothing changed")
+    if len(found) > 1:
+        sys.exit(f"{repo} has {len(found)} rulesets named '{ruleset_name}'; nothing changed")
     rs = gh_json(f"repos/{repo}/rulesets/{found[0]['id']}")
+    if rs.get("target") != "branch":
+        sys.exit(f"{repo} ruleset '{ruleset_name}' targets {rs.get('target')}, not branches; nothing changed")
     actors = rs.get("bypass_actors") or []
     if any(a.get("actor_type") == "Integration" and a.get("actor_id") == app_id for a in actors):
-        print(f"\n== {repo}: the App already bypasses '{RULESET_NAME}' (ruleset {rs['id']}): skipped")
+        print(f"\n== {repo}: the App already bypasses '{ruleset_name}' (ruleset {rs['id']}): skipped")
         return
-    if not step(f"{repo}: add the App (id {app_id}) as the only new bypass actor of ruleset '{RULESET_NAME}' "
+    if not step(f"{repo}: add the App (id {app_id}) as the only new bypass actor of ruleset '{ruleset_name}' "
                 f"({rs['id']}); its rules stay as they are", yes):
         return
     kept = ("name", "target", "enforcement", "conditions", "rules")
@@ -252,7 +271,14 @@ def selftest() -> None:
         sys.exit("selftest: a wrong state was accepted")
     except urllib.error.HTTPError as err:
         assert err.code == 400
-    print("selftest ok: manifest page and permissions, no webhook, wrong state refused")
+    assert parse_bypass("loot-rs:Main") == ("loot-rs", "Main")
+    for bad in ("loot-rs", "loot-rs:", "other-repo:Main", ":Main"):
+        try:
+            parse_bypass(bad)
+            sys.exit(f"selftest: --bypass {bad} was accepted")
+        except argparse.ArgumentTypeError:
+            pass
+    print("selftest ok: manifest page and permissions, no webhook, wrong state refused, --bypass values checked")
 
 
 def main() -> None:
@@ -261,6 +287,8 @@ def main() -> None:
     ap.add_argument("--name", default="raul-progress-bot")
     ap.add_argument("--yes", action="store_true", help="do every step without asking")
     ap.add_argument("--selftest", action="store_true", help="check the page and the key file handling; change nothing")
+    ap.add_argument("--bypass", action="append", default=[], type=parse_bypass, metavar="REPO:RULESET",
+                    help="also make the App a bypass actor of this ruleset (repeatable), e.g. loot-rs:Main")
     a = ap.parse_args()
     if a.selftest:
         selftest()
@@ -335,8 +363,10 @@ def main() -> None:
             gh("secret", "set", SECRET_KEY, "-R", full, input_text=key.pem)
             print("   Set.")
 
-        # 4. The bypass, on nv-rs's fork line only.
+        # 4. The bypass: nv-rs's fork line, and the rulesets asked for with --bypass.
         ensure_bypass(owner, app_id, a.yes)
+        for repo_name, ruleset_name in a.bypass:
+            ensure_bypass(owner, app_id, a.yes, repo_name, ruleset_name)
         print("\nAll steps done. The next push to fork runs 'Progress pictures' and pushes as the App when a count "
               "changed (docs/fork/PROGRESS.md).")
     finally:
