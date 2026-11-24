@@ -115,6 +115,8 @@ pub struct Levels {
     pub shadow_map_size: u32,
     /// `light.ambient_exterior` and `light.ambient_interior` (set while the game runs too).
     pub ambient: AmbientShares,
+    /// `light.lamp_distance` (set while the game runs too): the scale of the lamps' fade distances.
+    pub lamp_distance: f32,
 }
 
 /// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
@@ -234,6 +236,7 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
             ao_quality,
             shadow_map_size,
             ambient,
+            lamp_distance: light.slider("lamp_distance") as f32,
         },
     )
 }
@@ -288,6 +291,7 @@ pub fn start(
     d3d9_wgpu::scene_light::set_quality(levels.ao_quality);
     d3d9_wgpu::sun_shadow::set_map_size(levels.shadow_map_size)?;
     set_ambient_shares(levels.ambient);
+    engine::lamp_distance::set(levels.lamp_distance);
     if !r.is_original() {
         lines.push(format!(
             "nv-rs: graphics: ambient occlusion {} ({:?}, strength {}), sun shadows {} (maps {}), fill light outdoors {} indoors {}",
@@ -325,6 +329,7 @@ pub fn session(
             d3d9_wgpu::scene_light::set_quality(l.ao_quality);
             d3d9_wgpu::scene_light::set_live_strength(Some(c.ambient_occlusion_strength));
             set_ambient_shares(l.ambient);
+            engine::lamp_distance::set(l.lamp_distance);
         }),
     )
 }
@@ -348,6 +353,7 @@ mod tests {
             ao_quality: ao,
             shadow_map_size: size,
             ambient: AmbientShares::ORIGINAL,
+            lamp_distance: 1.0,
         }
     }
 
@@ -491,6 +497,18 @@ mod tests {
                 ..AmbientShares::ORIGINAL
             }
         );
+    }
+
+    #[test]
+    fn the_lamp_distance_is_the_game_s_unless_chosen() {
+        let distance = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.lamp_distance
+        };
+        assert_eq!(distance(&[]), 1.0, "the game's fade by default");
+        assert_eq!(distance(&[("NV_GFX_PRESET", "original")]), 1.0);
+        assert_eq!(distance(&[("NV_GFX_PRESET", "modern")]), 4.0);
+        assert_eq!(distance(&[("NV_GFX", "light.lamp_distance=8")]), 8.0);
     }
 
     #[test]

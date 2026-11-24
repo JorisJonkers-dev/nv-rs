@@ -108,6 +108,7 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | `moon` | the share of the moon's direct light at night, 0.3 to 1 | 1 | live |
 | `moon_max_height` | how high the moon climbs, 15 to 90 degrees; the drawn moon and its light move together; 90 is the game's path | 90 | live |
 | `moon_specular` | how strongly glossy materials catch the moon, 0 to 8; 1 is the game's highlight; needs `sky_dome` and the light from the sun and moon discs | 1 | live |
+| `lamp_distance` | how far away lamps, street lights and lit signs still light their surroundings, as a multiple of the game's light fade distance (Options, light fade); every point light alike, shadows untouched | 1 | live |
 | `sky_dome` | how much of the fill follows the sky, 0 (the game's flat light) to 1; needs sun shadows | 0 | live |
 | `shade_fill` | how much more sky light reaches surfaces the sun or moon does not, 0 to 2; needs `sky_dome` | 0 | live |
 
@@ -117,7 +118,7 @@ game's phase, fade and height, so a new moon gives no direct light and no moon s
 direction is the fill.
 
 `modern` takes `ambient_exterior` 0.7, `ambient_interior` 1, `ambient_night` 1, `sun` 0.65, `moon` 0.75,
-`moon_max_height` 45, `moon_specular` 2, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
+`moon_max_height` 45, `moon_specular` 2, `lamp_distance` 4, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
 `original`: sunlit light 0.83 and shade 0.91 over the 22 day exteriors; moonlit light 0.82 and shade 0.96 over the 7 night
 views. 45 degrees is the lowest moon height tested that keeps the detail check below at the night Strip skyline.
 

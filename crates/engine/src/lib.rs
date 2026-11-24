@@ -61,6 +61,8 @@
 pub mod dead_lights;
 pub mod units;
 
+/// How far lamps light their surroundings (the host sets it from the graphics settings).
+pub use engine_bs::units::bsshader::shadowscenelight::lamp_distance;
 pub use engine_core::{
     abi, census, cxx_exception, draw_thread, exe, mem, prelude, ptr, real_threads, sse, stage_time,
     static_exit, static_init, thread_host, typed, types, x87,
