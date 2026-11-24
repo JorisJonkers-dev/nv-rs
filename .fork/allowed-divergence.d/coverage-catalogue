@@ -1,0 +1,2 @@
+Cargo.toml  # workspace member fork-catalogue, the typed ids of the coverage catalogue (docs/fork/CATALOGUE.md)
+Cargo.lock  # the fork-catalogue crate and the dev-dependencies of the fork-owned crates whose tests tag catalogue items

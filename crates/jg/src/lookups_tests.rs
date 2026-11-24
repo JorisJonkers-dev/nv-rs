@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::test_support::{call, engine, s};
+use fork_catalogue::{covers, ids};
 
 const EDITOR_ID_TO_FORM_ID: u32 = 0x3128;
 const GET_EDITOR_ID: u32 = 0x3114;
@@ -106,6 +107,7 @@ fn records_sit_at_the_opcodes_with_their_return_types() {
 /// (the store is not, so the exact name is checked), and a name no form has answers 0.
 #[test]
 fn editor_id_to_form_id_finds_a_form_by_its_exact_name() {
+    covers(&[ids::extenders::johnnyguitar::EDITORIDTOFORMID]);
     let mut e = setup();
     let r = call(&mut e, EDITOR_ID_TO_FORM_ID, 0, &[s("GSSunnySmiles")]);
     assert_eq!(r.0, 1);
@@ -140,6 +142,7 @@ fn editor_id_to_form_id_finds_a_form_by_its_exact_name() {
 /// call without a form asks the calling reference.
 #[test]
 fn get_editor_id_answers_the_name_or_an_empty_string() {
+    covers(&[ids::extenders::johnnyguitar::GETEDITORID]);
     let mut e = setup();
     let arg = form_arg(&mut e, FORM_A);
     let r = call(&mut e, GET_EDITOR_ID, 0, &[arg]);
@@ -177,6 +180,7 @@ fn give_files(e: &mut Engine, form: u32, indices: &[u8]) {
 /// answers that file's; a form with no file, and a call with no valid form, answer -1.
 #[test]
 fn get_form_override_index_answers_the_last_file() {
+    covers(&[ids::extenders::johnnyguitar::GETFORMOVERRIDEINDEX]);
     let mut e = setup();
     e.map(FILES, 0x10000);
     give_files(&mut e, FORM_A, &[0, 5, 0x1c]);

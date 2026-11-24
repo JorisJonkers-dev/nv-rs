@@ -14,11 +14,18 @@
 //!
 //! `progress draw --summary FILE [--root DIR]`: draws the pictures again from a summary alone.
 //!
+//! `progress catalogue --sources DIR --ledger FILE [--root DIR] [--check] [--evidence FILE]`:
+//! writes the coverage catalogue's reference lists and their pins (`.fork/catalogue/ref/*.tsv`,
+//! `.fork/catalogue/sources.toml`), or with `--check` writes nothing and fails (exit 1) when one
+//! of them differs; `--evidence FILE` also writes the implementation evidence `tally check`
+//! compares the Direct3D 9 and graphics groups with (docs/fork/CATALOGUE.md).
+//!
 //! `FILE` is the ledger's per-function table:
 //! `cargo run --release --manifest-path scripts/ledger/Cargo.toml -- --tsv FILE`.
 
 use progress::{
-    baseline_counts, counts, drops, measure, pins, render, render_summary, report, Inputs,
+    baseline_counts, catalogue, counts, drops, measure, pins, render, render_summary, report,
+    Inputs,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -83,6 +90,45 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
         ledger_tsv: &tsv,
     };
     match cmd {
+        Some("catalogue") => {
+            let p = measure(&inp)?;
+            let lists = catalogue::ref_lists(&root, &sources, &p, &tsv)?;
+            let mut files: Vec<(String, String)> = vec![(
+                ".fork/catalogue/sources.toml".into(),
+                catalogue::sources_toml(&sources, &lists)?,
+            )];
+            files.extend(
+                lists
+                    .into_iter()
+                    .map(|l| (format!(".fork/catalogue/{}", l.file), l.text)),
+            );
+            let check = args.iter().any(|a| a == "--check");
+            let mut stale = Vec::new();
+            for (rel, text) in &files {
+                let path = root.join(rel);
+                let old = std::fs::read_to_string(&path).unwrap_or_default();
+                if old == *text {
+                    continue;
+                }
+                if check {
+                    stale.push(rel.clone());
+                } else {
+                    std::fs::write(&path, text).map_err(|e| format!("{rel}: {e}"))?;
+                    println!("progress: wrote {rel}");
+                }
+            }
+            if let Some(f) = flag(args, "--evidence") {
+                std::fs::write(f, catalogue::evidence(&p)).map_err(|e| format!("{f}: {e}"))?;
+            }
+            if !stale.is_empty() {
+                for s in &stale {
+                    println!("stale: {s}");
+                }
+                println!("The catalogue's reference lists differ from the sources: run `task catalogue` and commit the files.");
+                return Ok(ExitCode::from(1));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Some("generate") => {
             let p = measure(&inp)?;
             for (rel, text) in render(&p) {
@@ -126,6 +172,9 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             println!("\nA count went down. Say why in the pull request description with a line `Progress-Drop: <reason>`, or keep the count.");
             Ok(ExitCode::from(3))
         }
-        _ => Err("commands: fetch, generate, check, draw, paths (see the source's head)".into()),
+        _ => Err(
+            "commands: fetch, generate, check, catalogue, draw, paths (see the source's head)"
+                .into(),
+        ),
     }
 }

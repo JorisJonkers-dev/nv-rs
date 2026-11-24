@@ -8,7 +8,7 @@
 //!
 //! - The commands built since for the mods of a large modded profile, group by group, each in its
 //!   own file with a provenance note in `provenance/`: [`crate::lists`] (`ListAddList`,
-//!   `ListAddArray`), [`crate::ini`] (the cached INI commands), [`crate::lookups`] (`IsBaseForm`), [`crate::weapons`] (weapon type and flags), [`crate::ownership`] (`SetOwnershipTemp`).
+//!   `ListAddArray`), [`crate::ini`] (the cached INI commands), [`crate::lookups`] (`IsBaseForm`), [`crate::weapons`] (weapon type and flags), [`crate::ownership`] (`SetOwnershipTemp`), [`crate::aux_timers`] (the auxiliary timers).
 //!
 //! No other ShowOff command is built; a script that calls one fails at that line, as without the
 //! plugin.
@@ -20,7 +20,7 @@ use nvse::{handled, CommandArgs, EvalArgs};
 
 /// The command names the capabilities file lists, long names: the first is built here, the rest
 /// are the groups' tables in the order of [`all`].
-pub const COMMAND_NAMES: [&str; 16] = [
+pub const COMMAND_NAMES: [&str; 25] = [
     "GetActorHasBaseFlag",
     "ListAddList",
     "ListAddArray",
@@ -37,6 +37,15 @@ pub const COMMAND_NAMES: [&str; 16] = [
     "GetWeaponHasFlag",
     "SetWeaponFlag",
     "SetOwnershipTemp",
+    "AuxTimerStart",
+    "AuxTimerStop",
+    "AuxTimerPaused",
+    "AuxTimerTimeElapsed",
+    "AuxTimerTimeToCountdown",
+    "AuxTimerTimeLeft",
+    "SetOnAuxTimerStartHandler",
+    "SetOnAuxTimerStopHandler",
+    "SetOnAuxTimerUpdateHandler",
 ];
 
 /// One command as the plugin registers it, for the groups' tables (the first command above is
@@ -65,6 +74,7 @@ pub fn all() -> impl Iterator<Item = &'static Cmd> {
         .chain(crate::lookups::COMMANDS.iter())
         .chain(crate::weapons::COMMANDS.iter())
         .chain(crate::ownership::COMMANDS.iter())
+        .chain(crate::aux_timers::COMMANDS.iter())
 }
 
 /// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).

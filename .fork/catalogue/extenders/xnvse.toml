@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "extenders.xnvse"
+title = "xNVSE commands"
+origin = "original"
+reference = "xnvse"
+items_from = "ref/xnvse.tsv"
+items_from_status = "implemented"
+notes = "Every command the plugin registers at the pinned version (sources.toml). Implemented means the built-in copy in crates/nvse answers it; .fork/capabilities.json is the evidence."

@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::identity::OPCODE_BASE;
+use fork_catalogue::{covers, ids};
 
 const DATA: u32 = 0x0300_0000;
 const OFFSET: u32 = 0x0300_0f00;
@@ -94,6 +95,7 @@ fn the_command_is_registered_where_ttw_calls_it() {
 
 #[test]
 fn a_set_bit_answers_one_and_a_clear_bit_zero() {
+    covers(&[ids::extenders::showoff::GETACTORHASBASEFLAG]);
     let mut e = engine(1 << 5 | 1 << 31 | 1);
     for (bit, want) in [(5, 1.0), (31, 1.0), (0, 1.0), (4, 0.0), (6, 0.0), (30, 0.0)] {
         assert_eq!(run(&mut e, REFR, bit), (1, want), "bit {bit}");
@@ -102,6 +104,7 @@ fn a_set_bit_answers_one_and_a_clear_bit_zero() {
 
 #[test]
 fn bits_outside_the_word_answer_zero() {
+    covers(&[ids::extenders::showoff::GETACTORHASBASEFLAG]);
     let mut e = engine(u32::MAX);
     for bit in [32, 33, 255, -1, i32::MIN] {
         assert_eq!(run(&mut e, REFR, bit), (1, 0.0), "bit {bit}");
@@ -110,6 +113,7 @@ fn bits_outside_the_word_answer_zero() {
 
 #[test]
 fn no_reference_or_no_actor_base_answers_zero() {
+    covers(&[ids::extenders::showoff::GETACTORHASBASEFLAG]);
     let mut e = engine(u32::MAX);
     assert_eq!(run(&mut e, 0, 5), (1, 0.0));
     e.mem.set_u32(REFR + REFR_BASE_FORM, 0);
@@ -120,6 +124,7 @@ fn no_reference_or_no_actor_base_answers_zero() {
 
 #[test]
 fn the_condition_answers_as_the_command_does() {
+    covers(&[ids::extenders::showoff::GETACTORHASBASEFLAG]);
     let mut e = engine(1 << 5);
     assert_eq!(eval(&mut e, REFR, 5), 1.0);
     assert_eq!(eval(&mut e, REFR, 4), 0.0);

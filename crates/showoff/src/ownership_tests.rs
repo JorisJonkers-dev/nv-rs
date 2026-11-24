@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::test_support::{call, engine, r, set_script_ref};
+use fork_catalogue::{covers, ids};
 use nvse::commands::rtti;
 
 const SET_OWNERSHIP_TEMP: u32 = 0x3d10;
@@ -66,6 +67,7 @@ fn record_sits_at_the_opcode_with_its_name() {
 
 #[test]
 fn a_cell_gets_the_owner_without_a_calling_reference() {
+    covers(&[ids::extenders::showoff::SETOWNERSHIPTEMP]);
     let mut e = setup();
     set_script_ref(&mut e, 1, FACTION);
     set_script_ref(&mut e, 2, CELL);
@@ -75,6 +77,7 @@ fn a_cell_gets_the_owner_without_a_calling_reference() {
 
 #[test]
 fn a_reference_as_owner_is_taken_as_its_base_form() {
+    covers(&[ids::extenders::showoff::SETOWNERSHIPTEMP]);
     let mut e = setup();
     set_script_ref(&mut e, 1, NPC_REF);
     set_script_ref(&mut e, 2, CELL);
@@ -84,6 +87,7 @@ fn a_reference_as_owner_is_taken_as_its_base_form() {
 
 #[test]
 fn the_player_is_the_default_owner() {
+    covers(&[ids::extenders::showoff::SETOWNERSHIPTEMP]);
     let mut e = setup();
     call(&mut e, SET_OWNERSHIP_TEMP, TARGET, &[]);
     assert_eq!(sets(&e), [(TARGET + REFR_EXTRA, PLAYER_BASE)]);
@@ -91,6 +95,7 @@ fn the_player_is_the_default_owner() {
 
 #[test]
 fn without_a_cell_the_calling_reference_is_owned() {
+    covers(&[ids::extenders::showoff::SETOWNERSHIPTEMP]);
     let mut e = setup();
     set_script_ref(&mut e, 1, FACTION);
     assert_eq!(call(&mut e, SET_OWNERSHIP_TEMP, TARGET, &[r(1)]), (1, 1.0));
@@ -99,6 +104,7 @@ fn without_a_cell_the_calling_reference_is_owned() {
 
 #[test]
 fn nothing_to_own_changes_nothing_and_answers_0() {
+    covers(&[ids::extenders::showoff::SETOWNERSHIPTEMP]);
     let mut e = setup();
     set_script_ref(&mut e, 1, FACTION);
     assert_eq!(call(&mut e, SET_OWNERSHIP_TEMP, 0, &[r(1)]), (1, 0.0));

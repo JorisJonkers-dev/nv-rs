@@ -1821,7 +1821,7 @@
     },
     {
       "commands": {
-        "implemented": 16,
+        "implemented": 25,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
@@ -1838,7 +1838,16 @@
           "IsEquippedWeaponMelee",
           "GetWeaponHasFlag",
           "SetWeaponFlag",
-          "SetOwnershipTemp"
+          "SetOwnershipTemp",
+          "AuxTimerStart",
+          "AuxTimerStop",
+          "AuxTimerPaused",
+          "AuxTimerTimeElapsed",
+          "AuxTimerTimeToCountdown",
+          "AuxTimerTimeLeft",
+          "SetOnAuxTimerStartHandler",
+          "SetOnAuxTimerStopHandler",
+          "SetOnAuxTimerUpdateHandler"
         ],
         "total": 215
       },

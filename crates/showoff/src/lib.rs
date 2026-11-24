@@ -12,7 +12,8 @@
 //!
 //! - [`commands`]: `ActorHasBaseFlag`, the one command Tale of Two Wastelands' scripts call, and
 //!   the table of the commands built since for the mods of a large modded profile, group by group
-//!   (`provenance/`): [`lists`] (`ListAddList`, `ListAddArray`), [`ini`] (the cached INI commands), [`lookups`] (`IsBaseForm`), [`weapons`] (weapon type and flags), [`ownership`] (`SetOwnershipTemp`). Every other command of the plugin
+//!   (`provenance/`): [`lists`] (`ListAddList`, `ListAddArray`), [`ini`] (the cached INI commands), [`lookups`] (`IsBaseForm`), [`weapons`] (weapon type and flags), [`ownership`] (`SetOwnershipTemp`), [`aux_timers`] (the auxiliary timers, counted down every
+//!   frame through xNVSE's `MainGameLoop`). Every other command of the plugin
 //!   is not built: a script that calls one fails at that line.
 //!
 //! The plugin answers "installed" only when its commands are ([`ANSWERS_INSTALLED`], or the
@@ -20,6 +21,7 @@
 //! "requires" message, as without the DLL, instead of halfway through a script. Off, [`install`]
 //! registers nothing, so a game, a save and a co-save are as they were without this crate.
 
+pub mod aux_timers;
 pub mod commands;
 pub mod cosave;
 pub mod identity;
@@ -38,7 +40,7 @@ use engine_core::prelude::*;
 pub const ANSWERS_INSTALLED: bool = false;
 
 /// The command names this crate builds (long names), for the capabilities file.
-pub const COMMAND_NAMES: [&str; 16] = commands::COMMAND_NAMES;
+pub const COMMAND_NAMES: [&str; 25] = commands::COMMAND_NAMES;
 
 /// ShowOff xNVSE built in on this engine: its state, one slot per engine ([`Engine::ext`]).
 #[derive(Default)]
@@ -51,6 +53,8 @@ pub struct State {
     pub carried: Vec<nvse::cosave::Chunk>,
     /// The cached INI files ([`ini`]), by their path under `Data\Config\` without case.
     pub ini: std::collections::BTreeMap<Vec<u8>, ini::IniFile>,
+    /// The auxiliary timers and their handlers ([`aux_timers`]).
+    pub timers: aux_timers::Timers,
 }
 
 /// Sets whether [`install`] builds the plugin on this engine (before [`install`]); without it
@@ -76,6 +80,8 @@ pub fn install_as(e: &mut Engine, answers_installed: bool) {
     if answers_installed {
         commands::install(e);
         nvse::plugins::register(e, identity::plugin());
+        // The auxiliary timers count down every frame.
+        nvse::plugins::listen_per_frame(e);
     }
     // The game's state, not one engine's: real threads' engines share it.
     e.share_ext::<State>();

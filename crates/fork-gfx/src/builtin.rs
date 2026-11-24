@@ -240,8 +240,17 @@ pub static TEXTURES: ModuleSpec = ModuleSpec {
         help: "Keeps ground, roads and walls sharp when seen at a shallow angle. The game's: as the game sets each texture. 2x to 16x: at least that level on every mipmapped texture that is filtered, whatever the game's setting; higher is sharper and costs a little more.",
         applies: Applies::Live,
         kind: Kind::Choice { options: &ANISOTROPY, default: "game" },
+    }, Setting {
+        key: "precise_targets",
+        label: "Precise render targets",
+        help: "Keeps the game's 8-bit colour render targets in 16 bits per channel (still clamped to 0..1 like the game's): smooth gradients (night sky, fog, dark rooms) show fewer bands. Costs video memory (twice the bytes for those targets) and some bandwidth.",
+        applies: Applies::NextStart,
+        kind: Kind::Toggle { default: false },
     }],
-    owns: &[Owns::GameValue("the texture samplers' filtering (minification and anisotropy)")],
+    owns: &[
+        Owns::GameValue("the texture samplers' filtering (minification and anisotropy)"),
+        Owns::GameValue("the format of the game's 8-bit colour render targets (A8R8G8B8, X8R8G8B8)"),
+    ],
     cost: "docs/fork/GRAPHICS.md, textures",
 };
 

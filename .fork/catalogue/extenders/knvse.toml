@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "extenders.knvse"
+title = "kNVSE commands"
+origin = "original"
+reference = "knvse"
+items_from = "ref/knvse.tsv"
+items_from_status = "missing"
+notes = "Every command the plugin registers at the pinned version (sources.toml). Implemented means the built-in copy answers it; .fork/capabilities.json is the evidence."

@@ -1,0 +1,267 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "d3d9.states"
+title = "Direct3D 9 render states on wgpu"
+origin = "original"
+reference = "d3d9-states"
+items_from = "ref/d3d9_states.tsv"
+items_from_status = "missing"
+notes = "Every D3DRENDERSTATETYPE value (mingw-w64 d3d9types.h). Implemented: the wgpu backend maps it; a state it only warns about, or never names, is missing."
+
+[[item]]
+id = "zenable"
+title = "D3DRS_ZENABLE"
+status = "implemented"
+ref = ["d3d9-states:zenable"]
+
+[[item]]
+id = "fillmode"
+title = "D3DRS_FILLMODE"
+status = "implemented"
+ref = ["d3d9-states:fillmode"]
+
+[[item]]
+id = "zwriteenable"
+title = "D3DRS_ZWRITEENABLE"
+status = "implemented"
+ref = ["d3d9-states:zwriteenable"]
+
+[[item]]
+id = "alphatestenable"
+title = "D3DRS_ALPHATESTENABLE"
+status = "implemented"
+ref = ["d3d9-states:alphatestenable"]
+
+[[item]]
+id = "srcblend"
+title = "D3DRS_SRCBLEND"
+status = "implemented"
+ref = ["d3d9-states:srcblend"]
+
+[[item]]
+id = "destblend"
+title = "D3DRS_DESTBLEND"
+status = "implemented"
+ref = ["d3d9-states:destblend"]
+
+[[item]]
+id = "cullmode"
+title = "D3DRS_CULLMODE"
+status = "implemented"
+ref = ["d3d9-states:cullmode"]
+
+[[item]]
+id = "zfunc"
+title = "D3DRS_ZFUNC"
+status = "implemented"
+ref = ["d3d9-states:zfunc"]
+
+[[item]]
+id = "alpharef"
+title = "D3DRS_ALPHAREF"
+status = "implemented"
+ref = ["d3d9-states:alpharef"]
+
+[[item]]
+id = "alphafunc"
+title = "D3DRS_ALPHAFUNC"
+status = "implemented"
+ref = ["d3d9-states:alphafunc"]
+
+[[item]]
+id = "alphablendenable"
+title = "D3DRS_ALPHABLENDENABLE"
+status = "implemented"
+ref = ["d3d9-states:alphablendenable"]
+
+[[item]]
+id = "specularenable"
+title = "D3DRS_SPECULARENABLE"
+status = "implemented"
+ref = ["d3d9-states:specularenable"]
+
+[[item]]
+id = "stencilenable"
+title = "D3DRS_STENCILENABLE"
+status = "implemented"
+ref = ["d3d9-states:stencilenable"]
+
+[[item]]
+id = "stencilfail"
+title = "D3DRS_STENCILFAIL"
+status = "implemented"
+ref = ["d3d9-states:stencilfail"]
+
+[[item]]
+id = "stencilzfail"
+title = "D3DRS_STENCILZFAIL"
+status = "implemented"
+ref = ["d3d9-states:stencilzfail"]
+
+[[item]]
+id = "stencilpass"
+title = "D3DRS_STENCILPASS"
+status = "implemented"
+ref = ["d3d9-states:stencilpass"]
+
+[[item]]
+id = "stencilfunc"
+title = "D3DRS_STENCILFUNC"
+status = "implemented"
+ref = ["d3d9-states:stencilfunc"]
+
+[[item]]
+id = "stencilref"
+title = "D3DRS_STENCILREF"
+status = "implemented"
+ref = ["d3d9-states:stencilref"]
+
+[[item]]
+id = "stencilmask"
+title = "D3DRS_STENCILMASK"
+status = "implemented"
+ref = ["d3d9-states:stencilmask"]
+
+[[item]]
+id = "stencilwritemask"
+title = "D3DRS_STENCILWRITEMASK"
+status = "implemented"
+ref = ["d3d9-states:stencilwritemask"]
+
+[[item]]
+id = "texturefactor"
+title = "D3DRS_TEXTUREFACTOR"
+status = "implemented"
+ref = ["d3d9-states:texturefactor"]
+
+[[item]]
+id = "clipping"
+title = "D3DRS_CLIPPING"
+status = "implemented"
+ref = ["d3d9-states:clipping"]
+
+[[item]]
+id = "clipplaneenable"
+title = "D3DRS_CLIPPLANEENABLE"
+status = "implemented"
+ref = ["d3d9-states:clipplaneenable"]
+
+[[item]]
+id = "pointsize"
+title = "D3DRS_POINTSIZE"
+status = "implemented"
+ref = ["d3d9-states:pointsize"]
+
+[[item]]
+id = "colorwriteenable"
+title = "D3DRS_COLORWRITEENABLE"
+status = "implemented"
+ref = ["d3d9-states:colorwriteenable"]
+
+[[item]]
+id = "blendop"
+title = "D3DRS_BLENDOP"
+status = "implemented"
+ref = ["d3d9-states:blendop"]
+
+[[item]]
+id = "scissortestenable"
+title = "D3DRS_SCISSORTESTENABLE"
+status = "implemented"
+ref = ["d3d9-states:scissortestenable"]
+
+[[item]]
+id = "slopescaledepthbias"
+title = "D3DRS_SLOPESCALEDEPTHBIAS"
+status = "implemented"
+ref = ["d3d9-states:slopescaledepthbias"]
+
+[[item]]
+id = "adaptivetess_y"
+title = "D3DRS_ADAPTIVETESS_Y"
+status = "implemented"
+ref = ["d3d9-states:adaptivetess_y"]
+
+[[item]]
+id = "twosidedstencilmode"
+title = "D3DRS_TWOSIDEDSTENCILMODE"
+status = "implemented"
+ref = ["d3d9-states:twosidedstencilmode"]
+
+[[item]]
+id = "ccw_stencilfail"
+title = "D3DRS_CCW_STENCILFAIL"
+status = "implemented"
+ref = ["d3d9-states:ccw_stencilfail"]
+
+[[item]]
+id = "ccw_stencilzfail"
+title = "D3DRS_CCW_STENCILZFAIL"
+status = "implemented"
+ref = ["d3d9-states:ccw_stencilzfail"]
+
+[[item]]
+id = "ccw_stencilpass"
+title = "D3DRS_CCW_STENCILPASS"
+status = "implemented"
+ref = ["d3d9-states:ccw_stencilpass"]
+
+[[item]]
+id = "ccw_stencilfunc"
+title = "D3DRS_CCW_STENCILFUNC"
+status = "implemented"
+ref = ["d3d9-states:ccw_stencilfunc"]
+
+[[item]]
+id = "colorwriteenable1"
+title = "D3DRS_COLORWRITEENABLE1"
+status = "implemented"
+ref = ["d3d9-states:colorwriteenable1"]
+
+[[item]]
+id = "colorwriteenable2"
+title = "D3DRS_COLORWRITEENABLE2"
+status = "implemented"
+ref = ["d3d9-states:colorwriteenable2"]
+
+[[item]]
+id = "colorwriteenable3"
+title = "D3DRS_COLORWRITEENABLE3"
+status = "implemented"
+ref = ["d3d9-states:colorwriteenable3"]
+
+[[item]]
+id = "blendfactor"
+title = "D3DRS_BLENDFACTOR"
+status = "implemented"
+ref = ["d3d9-states:blendfactor"]
+
+[[item]]
+id = "depthbias"
+title = "D3DRS_DEPTHBIAS"
+status = "implemented"
+ref = ["d3d9-states:depthbias"]
+
+[[item]]
+id = "separatealphablendenable"
+title = "D3DRS_SEPARATEALPHABLENDENABLE"
+status = "implemented"
+ref = ["d3d9-states:separatealphablendenable"]
+
+[[item]]
+id = "srcblendalpha"
+title = "D3DRS_SRCBLENDALPHA"
+status = "implemented"
+ref = ["d3d9-states:srcblendalpha"]
+
+[[item]]
+id = "destblendalpha"
+title = "D3DRS_DESTBLENDALPHA"
+status = "implemented"
+ref = ["d3d9-states:destblendalpha"]
+
+[[item]]
+id = "blendopalpha"
+title = "D3DRS_BLENDOPALPHA"
+status = "implemented"
+ref = ["d3d9-states:blendopalpha"]
