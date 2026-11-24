@@ -2342,7 +2342,8 @@ impl Device {
             pp.auto_depth
         );
         for &h in back_buffers {
-            let s = self.new_surface(pp.width, pp.height, format, false, 1);
+            // The back buffers stay as the game made them: the window's frame is 8-bit.
+            let s = self.new_surface(pp.width, pp.height, format, false, 1, false);
             if let Some(s) = s {
                 self.objects.insert(h, Obj::Surface(s));
             }
@@ -2352,7 +2353,8 @@ impl Device {
         }
         self.auto_depth = depth;
         if depth != 0 && pp.auto_depth {
-            if let Some(s) = self.new_surface(pp.width, pp.height, pp.depth_format, true, 1) {
+            if let Some(s) = self.new_surface(pp.width, pp.height, pp.depth_format, true, 1, false)
+            {
                 self.objects.insert(depth, Obj::Surface(s.clone()));
                 self.st.ds = Some(s);
             }
@@ -2388,10 +2390,18 @@ impl Device {
         cube: bool,
         target: bool,
         samples: u32,
+        precise: bool,
     ) -> Option<Arc<Tex>> {
         let Some(format) = format::format(d3d_format) else {
             self.warn(format!("texture format {d3d_format:#x} is not provided"));
             return None;
+        };
+        // An 8-bit colour render target kept in 16 bits (nv-rs#830); the copies made of one
+        // (a sampled copy, a resolve's scratch) take its format.
+        let format = if precise {
+            format::precise(format)
+        } else {
+            format
         };
         if format.block && (width % 4 != 0 || height % 4 != 0) {
             self.warn(format!(
@@ -2423,7 +2433,7 @@ impl Device {
             levels,
             layers,
             samples,
-            format.bytes,
+            format::texel_bytes(&format),
             format.block,
         );
         let charge = if width > side || height > side {
@@ -2453,7 +2463,7 @@ impl Device {
             format: format.wgpu,
             // A multisampled surface is only drawn into and resolved (`StretchRect`; an 8-bit
             // colour one by a shader that reads its samples).
-            usage: if samples > 1 && gamma_resolved(format.wgpu) {
+            usage: if samples > 1 && gamma_resolved(&format) {
                 wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING
             } else if samples > 1 && format.depth && (self.scene_light_on || self.sun.is_some()) {
                 // The new lighting and the sun shadows read the scene's depth
@@ -2532,11 +2542,12 @@ impl Device {
         d3d: u32,
         depth: bool,
         samples: u32,
+        precise: bool,
     ) -> Option<Arc<Surf>> {
         if d3d == d3dfmt::NULL {
             return None;
         }
-        let tex = self.new_texture(width, height, 1, d3d, false, !depth, samples)?;
+        let tex = self.new_texture(width, height, 1, d3d, false, !depth, samples, precise)?;
         Some(self.level_surface(&tex, 0, 0))
     }
 
@@ -2595,8 +2606,17 @@ impl Device {
             levels.len() as u32
         };
         let target = usage & 1 != 0;
-        let Some(tex) = self.new_texture(width, height, count.max(1), format, cube, target, 1)
-        else {
+        let precise = target && format::precise_targets::on();
+        let Some(tex) = self.new_texture(
+            width,
+            height,
+            count.max(1),
+            format,
+            cube,
+            target,
+            1,
+            precise,
+        ) else {
             return;
         };
         if target || (width >= 512 && height >= 384) {
@@ -2632,13 +2652,17 @@ impl Device {
     ) {
         // `D3DMULTISAMPLE_2_SAMPLES` and up are the sample counts; NONMASKABLE (1) has none here.
         let asked = if multisample >= 2 { multisample } else { 1 };
-        let samples = format::format(format).map_or(1, |f| self.sample_count(f.wgpu, asked));
+        let precise = !depth && format::precise_targets::on();
+        let samples = format::format(format).map_or(1, |f| {
+            let f = if precise { format::precise(f) } else { f };
+            self.sample_count(f.wgpu, asked)
+        });
         if samples != asked {
             self.warn(format!(
                 "{asked}x multisampling is not supported here for every format the game draws multisampled: {samples}x"
             ));
         }
-        if let Some(s) = self.new_surface(width, height, format, depth, samples) {
+        if let Some(s) = self.new_surface(width, height, format, depth, samples, precise) {
             if width >= 512 && height >= 384 {
                 fork_log::game_info!(
                     "gpu.surface.create",
@@ -3131,6 +3155,10 @@ impl Device {
         if self.sun.is_some() && s.level + 1 == tex.levels && s.layer == 0 {
             let mean = if s.format.opaque {
                 Some(1.0)
+            } else if format::is_precise(&s.format) {
+                // A precise target (nv-rs#830): the game's own 8-bit bytes.
+                let game = &data[..(row * rows) as usize];
+                sun_shadow::mean_alpha(wgpu::TextureFormat::Bgra8Unorm, s.width, s.height, game)
             } else {
                 sun_shadow::mean_alpha(s.format.wgpu, s.width, s.height, &bytes)
             };
@@ -3969,6 +3997,7 @@ impl Device {
                     t.cube,
                     false,
                     t.samples,
+                    format::is_precise(&t.format),
                 )?;
                 self.target_copies.insert(t.id, c.clone());
                 c
@@ -4306,7 +4335,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             key.1, key.2, ds.width, ds.height
         );
         self.warn(what);
-        let tex = self.new_texture(key.1, key.2, 1, format, false, false, samples)?;
+        let tex = self.new_texture(key.1, key.2, 1, format, false, false, samples, false)?;
         let s = self.level_surface(&tex, 0, 0);
         self.depth_parts.insert(key, (s.clone(), now));
         Some(f(&s))
@@ -7931,9 +7960,16 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 self.watch_target(&dst, "a multisampled target resolved into it", true);
                 return;
             }
-            let Some(scratch) =
-                self.new_texture(src.width, src.height, 1, src.format.d3d, false, true, 1)
-            else {
+            let Some(scratch) = self.new_texture(
+                src.width,
+                src.height,
+                1,
+                src.format.d3d,
+                false,
+                true,
+                1,
+                format::is_precise(&src.format),
+            ) else {
                 return;
             };
             let resolved = self.level_surface(&scratch, 0, 0);
@@ -7969,7 +8005,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// only loads the samples and resolves them at its end.
     fn resolve(&mut self, source: &wgpu::TextureView, target: &wgpu::TextureView, surface: &Surf) {
         self.end_pass();
-        if gamma_resolved(surface.format.wgpu) {
+        if gamma_resolved(&surface.format) {
             self.gamma_resolve(source, target, surface);
             return;
         }
@@ -10432,7 +10468,16 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         }
         let bpp = s.format.wgpu.block_copy_size(None)?;
         let (texture, level, layer) = if s.samples > 1 {
-            let scratch = self.new_texture(s.width, s.height, 1, s.format.d3d, false, true, 1)?;
+            let scratch = self.new_texture(
+                s.width,
+                s.height,
+                1,
+                s.format.d3d,
+                false,
+                true,
+                1,
+                format::is_precise(&s.format),
+            )?;
             let resolved = self.level_surface(&scratch, 0, 0);
             let (from, to) = (s.view.clone()?, resolved.view.clone()?);
             self.resolve(&from, &to, s);
@@ -10490,7 +10535,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             }
         }
         buffer.unmap();
-        Some(out)
+        Some(format::downloaded(&s.format, out))
     }
 
     /// `GetRenderTargetData(source, destination)`: the render target's pixels into the
@@ -10515,7 +10560,10 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 "GetRenderTargetData of a multisampled render target: refused, as Direct3D 9 does",
             );
             None
-        } else if src.format.upload != format::Upload::Copy {
+        } else if !matches!(
+            src.format.upload,
+            format::Upload::Copy | format::Upload::Unorm16
+        ) {
             self.warn(format!(
                 "GetRenderTargetData of format {:#x} is not provided: the destination keeps what it had",
                 src.format.d3d
@@ -10575,6 +10623,13 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                     );
                     self.span_end(copy_span);
                     dt.batch.store(self.batch, Ordering::Relaxed);
+                } else if format::is_precise(&src.format)
+                    && (src.width, src.height, src.format.d3d)
+                        == (dst.width, dst.height, dst.format.d3d)
+                {
+                    // A precise target (nv-rs#830) into the game's 8-bit surface: its bytes, read
+                    // back in the game's layout, uploaded as the game's own would be.
+                    self.upload_surface(destination, &bytes);
                 }
             }
         }
@@ -11648,9 +11703,10 @@ fn alpha_bounds(aref: u32) -> (f32, f32) {
 }
 
 /// Whether a multisampled surface of `format` is resolved gamma-corrected ([`GAMMA_RESOLVE`]):
-/// the 8-bit colour formats (`D3DFMT_A8R8G8B8` and `X8R8G8B8`, the race menu's head target).
-fn gamma_resolved(format: wgpu::TextureFormat) -> bool {
-    format == wgpu::TextureFormat::Bgra8Unorm
+/// the 8-bit colour formats (`D3DFMT_A8R8G8B8` and `X8R8G8B8`, the race menu's head target),
+/// also when kept in 16 bits ([`format::precise`]).
+fn gamma_resolved(format: &format::Format) -> bool {
+    format.wgpu == wgpu::TextureFormat::Bgra8Unorm || format::is_precise(format)
 }
 
 /// The multisample resolve of an 8-bit colour surface as the reference machine's driver does it
@@ -11846,6 +11902,13 @@ fn open(
     };
     let wanted = wanted | gpu_times::wanted_features();
     let features = adapter.features() & wanted;
+    // Precise targets (nv-rs#830) are 16-bit normalised: without that format the game's own.
+    if format::precise_targets::on()
+        && !features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
+    {
+        format::precise_targets::set(false);
+        fork_log::warn!(target: "d3d9", "textures.precise_targets: the adapter has no 16-bit normalised formats; the game's 8-bit targets are kept");
+    }
     let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("d3d9-wgpu"),
         required_features: features,

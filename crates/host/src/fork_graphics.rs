@@ -123,6 +123,8 @@ pub struct Levels {
     pub far_lights: bool,
     /// `water.placed_reflections` (set while the game runs too).
     pub placed_reflections: engine::placed_reflections::Level,
+    /// `textures.precise_targets` (set at the start only: the game makes its targets then).
+    pub precise_targets: bool,
 }
 
 /// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
@@ -257,6 +259,10 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
                     .expect("built in")
                     .choice("placed_reflections"),
             ),
+            precise_targets: r
+                .module("textures")
+                .expect("built in")
+                .toggle("precise_targets"),
         },
     )
 }
@@ -325,6 +331,7 @@ pub fn start(
     engine::lamp_distance::set(levels.lamp_distance);
     engine::far_lights::set(levels.far_lights);
     engine::placed_reflections::set(levels.placed_reflections);
+    d3d9_wgpu::format::precise_targets::set(levels.precise_targets);
     if !r.is_original() {
         lines.push(format!(
             "nv-rs: graphics: ambient occlusion {} ({:?}, strength {}), sun shadows {} (maps {}), fill light outdoors {} indoors {}",
@@ -393,6 +400,7 @@ mod tests {
             lamp_distance: 1.0,
             far_lights: false,
             placed_reflections: engine::placed_reflections::Level::Game,
+            precise_targets: false,
         }
     }
 
@@ -597,6 +605,17 @@ mod tests {
             level(&[("NV_GFX", "water.placed_reflections=low")]),
             Level::Low
         );
+    }
+
+    #[test]
+    fn precise_targets_are_off_unless_chosen() {
+        let on = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.precise_targets
+        };
+        assert!(!on(&[]), "the game's formats by default");
+        assert!(!on(&[("NV_GFX_PRESET", "original")]));
+        assert!(on(&[("NV_GFX", "textures.precise_targets=true")]));
     }
 
     #[test]

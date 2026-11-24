@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "extenders.showoff"
+title = "ShowOff xNVSE commands"
+origin = "original"
+reference = "showoff"
+items_from = "ref/showoff.tsv"
+items_from_status = "missing"
+notes = "Every command the plugin registers at the pinned version (sources.toml). Implemented means the built-in copy in crates/showoff answers it; .fork/capabilities.json is the evidence."
+
+[[item]]
+id = "isweaponmelee"
+title = "IsWeaponMelee"
+status = "implemented"
+ref = ["showoff:isweaponmelee"]
+
+[[item]]
+id = "isequippedweaponmelee"
+title = "IsEquippedWeaponMelee"
+status = "implemented"
+ref = ["showoff:isequippedweaponmelee"]
+
+[[item]]
+id = "isweaponranged"
+title = "IsWeaponRanged"
+status = "implemented"
+ref = ["showoff:isweaponranged"]
+
+[[item]]
+id = "listaddlist"
+title = "ListAddList"
+status = "implemented"
+ref = ["showoff:listaddlist"]
+
+[[item]]
+id = "isbaseform"
+title = "IsBaseForm"
+status = "implemented"
+ref = ["showoff:isbaseform"]
+
+[[item]]
+id = "getweaponhasflag"
+title = "GetWeaponHasFlag"
+status = "implemented"
+ref = ["showoff:getweaponhasflag"]
+
+[[item]]
+id = "getactorhasbaseflag"
+title = "GetActorHasBaseFlag"
+status = "implemented"
+ref = ["showoff:getactorhasbaseflag"]
+
+[[item]]
+id = "setweaponflag"
+title = "SetWeaponFlag"
+status = "implemented"
+ref = ["showoff:setweaponflag"]
+
+[[item]]
+id = "setownershiptemp"
+title = "SetOwnershipTemp"
+status = "implemented"
+ref = ["showoff:setownershiptemp"]
+
+[[item]]
+id = "listaddarray"
+title = "ListAddArray"
+status = "implemented"
+ref = ["showoff:listaddarray"]
+
+[[item]]
+id = "setinivalue_cached"
+title = "SetINIValue_Cached"
+status = "implemented"
+ref = ["showoff:setinivalue_cached"]
+
+[[item]]
+id = "getinifloatorcreate_cached"
+title = "GetINIFloatOrCreate_Cached"
+status = "implemented"
+ref = ["showoff:getinifloatorcreate_cached"]
+
+[[item]]
+id = "getinifloatordefault_cached"
+title = "GetINIFloatOrDefault_Cached"
+status = "implemented"
+ref = ["showoff:getinifloatordefault_cached"]
+
+[[item]]
+id = "getinistringordefault_cached"
+title = "GetINIStringOrDefault_Cached"
+status = "implemented"
+ref = ["showoff:getinistringordefault_cached"]
+
+[[item]]
+id = "clearfilecacheshowoff"
+title = "ClearFileCacheShowOff"
+status = "implemented"
+ref = ["showoff:clearfilecacheshowoff"]
+
+[[item]]
+id = "savecachedinifile"
+title = "SaveCachedIniFile"
+status = "implemented"
+ref = ["showoff:savecachedinifile"]

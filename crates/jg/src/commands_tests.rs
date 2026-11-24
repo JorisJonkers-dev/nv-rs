@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::identity::{self, OPCODE_BASE};
+use fork_catalogue::{covers, ids};
 
 const DATA: u32 = 0x0300_0000;
 const OFFSET: u32 = 0x0300_0f00;
@@ -113,6 +114,7 @@ fn commands_sit_at_the_opcodes_ttw_uses() {
 /// without case, is 1; the optional integer changes nothing.
 #[test]
 fn is_dll_loaded_checks_the_plugin_list() {
+    covers(&[ids::extenders::johnnyguitar::ISDLLLOADED]);
     let mut e = engine();
     assert_eq!(call(&mut e, IS_DLL_LOADED, &[s("client")]), (1, 0.0));
     assert_eq!(call(&mut e, IS_DLL_LOADED, &[s("")]), (1, 0.0));
@@ -140,6 +142,11 @@ fn is_dll_loaded_checks_the_plugin_list() {
 /// unknown name; names are kept apart.
 #[test]
 fn extra_misc_stats_are_kept_by_name() {
+    covers(&[
+        ids::extenders::johnnyguitar::GETEXTRAMISCSTAT,
+        ids::extenders::johnnyguitar::MODEXTRAMISCSTAT,
+        ids::extenders::johnnyguitar::INITEXTRAMISCSTAT,
+    ]);
     let mut e = engine();
     assert_eq!(call(&mut e, GET_STAT, &[s("Bobbleheads Found")]), (1, 0.0));
     assert_eq!(call(&mut e, INIT_STAT, &[s("Bobbleheads Found")]).0, 1);
@@ -181,6 +188,7 @@ fn extra_misc_stats_are_kept_by_name() {
 /// with no quest, 0; other flag bits do not count.
 #[test]
 fn get_quest_failed_reads_the_flag() {
+    covers(&[ids::extenders::johnnyguitar::GETQUESTFAILED]);
     let mut e = engine();
     // Form type byte: a quest (`QUST`).
     e.mem.set_u8(QUEST + 4, 0x47);
@@ -283,6 +291,10 @@ fn the_editor_ids_record_and_the_plugin_are_one_record() {
 /// order); a name past the end is 0 and a value past the end 0; a name is guest text.
 #[test]
 fn the_stats_menu_rows_are_the_initialised_statistics() {
+    covers(&[
+        ids::extenders::johnnyguitar::INITEXTRAMISCSTAT,
+        ids::extenders::johnnyguitar::MODEXTRAMISCSTAT,
+    ]);
     use engine_core::extend::{EXTRA_MISC_STAT_COUNT, EXTRA_MISC_STAT_NAME, EXTRA_MISC_STAT_VALUE};
     let mut e = engine();
     assert_eq!(e.call(EXTRA_MISC_STAT_COUNT, &args![]).u32(), 0);

@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::test_support::{call, engine, s, z};
+use fork_catalogue::{covers, ids};
 
 const CLAMP: u32 = 0x3155;
 const LERP: u32 = 0x3157;
@@ -42,6 +43,7 @@ fn records_sit_at_their_opcodes() {
 /// The three examples of the page, then the inside, the two ends and a degenerate range.
 #[test]
 fn clamp_follows_the_pages_examples() {
+    covers(&[ids::extenders::johnnyguitar::CLAMP]);
     let mut e = engine();
     assert_eq!(run(&mut e, CLAMP, &[5.0, 10.0, 20.0]), (1, 10.0));
     assert_eq!(run(&mut e, CLAMP, &[75.0, 100.0, 50.0]), (1, 100.0));
@@ -59,6 +61,7 @@ fn clamp_follows_the_pages_examples() {
 /// the interval, which goes on along the line.
 #[test]
 fn lerp_interpolates_between_its_ends() {
+    covers(&[ids::extenders::johnnyguitar::LERP]);
     let mut e = engine();
     assert_eq!(run(&mut e, LERP, &[10.0, 20.0, 0.0]), (1, 10.0));
     assert_eq!(run(&mut e, LERP, &[10.0, 20.0, 1.0]), (1, 20.0));
@@ -72,6 +75,7 @@ fn lerp_interpolates_between_its_ends() {
 /// The page's example (5 is 1), the negative, and the zero the page leaves open.
 #[test]
 fn sign_answers_one_or_minus_one() {
+    covers(&[ids::extenders::johnnyguitar::SIGN]);
     let mut e = engine();
     assert_eq!(run(&mut e, SIGN, &[5.0]), (1, 1.0));
     assert_eq!(run(&mut e, SIGN, &[-0.001]), (1, -1.0));
@@ -84,6 +88,7 @@ fn sign_answers_one_or_minus_one() {
 /// command still reports itself handled: the script goes on with 0.
 #[test]
 fn unreadable_arguments_answer_zero() {
+    covers(&[ids::extenders::johnnyguitar::CLAMP]);
     let mut e = engine();
     let bad = s("x");
     let (ok, result) = call(&mut e, CLAMP, 0, &[bad, z(1.0), z(2.0)]);

@@ -76,6 +76,10 @@ pub enum Upload {
     Copy,
     /// 16-bit pixels widened to B8G8R8A8 (`R5G6B5` and the 1-5-5-5 and 4-4-4-4 formats).
     Widen16(u32),
+    /// B8G8R8A8 pixels kept as R, G, B, A 16-bit unsigned normalised: an 8-bit colour render
+    /// target made precise ([`precise`], nv-rs#830). Its bytes read back are B8G8R8A8 again
+    /// ([`downloaded`]).
+    Unorm16,
 }
 
 /// A Direct3D 9 format on wgpu.
@@ -162,6 +166,61 @@ pub fn format(d3d: u32) -> Option<Format> {
     }
 }
 
+/// Whether new 8-bit colour render targets are made precise ([`precise`]): the fork setting
+/// `textures.precise_targets` (nv-rs#830), set by the host before the game makes its targets, so
+/// it applies from the next start. Off by default (the game's formats).
+pub mod precise_targets {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static ON: AtomicBool = AtomicBool::new(false);
+
+    /// Sets whether the targets made from now on are precise.
+    pub fn set(on: bool) {
+        ON.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether they are.
+    pub fn on() -> bool {
+        ON.load(Ordering::Relaxed)
+    }
+}
+
+/// `f` as a precise render target (nv-rs#830, the fork setting `textures.precise_targets`): an
+/// 8-bit colour format (`A8R8G8B8`, `X8R8G8B8`) is kept in 16 bits per channel, unsigned
+/// normalised, so gradients drawn and blended in several passes keep their steps finer than
+/// 1/255; every other format is returned as it is. Normalised, not float: every write and blend
+/// is clamped to 0..1 as in the 8-bit target, so a pass that counts on that clamp (the game's
+/// bloom path brightens and then scales the sky) draws what it draws in 8 bits, only finer. The
+/// game still sees its own format: `d3d` and `bytes` (its layout) do not change. Needs the
+/// device feature `TEXTURE_FORMAT_16BIT_NORM` (the device turns the setting off without it).
+pub fn precise(f: Format) -> Format {
+    if f.wgpu == wgpu::TextureFormat::Bgra8Unorm
+        && matches!(f.d3d, d3dfmt::A8R8G8B8 | d3dfmt::X8R8G8B8)
+    {
+        Format {
+            wgpu: wgpu::TextureFormat::Rgba16Unorm,
+            upload: Upload::Unorm16,
+            ..f
+        }
+    } else {
+        f
+    }
+}
+
+/// Whether `f` is an 8-bit colour format kept in 16 bits ([`precise`]).
+pub fn is_precise(f: &Format) -> bool {
+    f.upload == Upload::Unorm16
+}
+
+/// The bytes of one pixel as the texture holds it.
+pub fn texel_bytes(f: &Format) -> u32 {
+    if is_precise(f) {
+        8
+    } else {
+        f.bytes
+    }
+}
+
 /// The bytes of a level `width` x `height` as the game lays them out (rows packed): bytes per
 /// row and rows (block rows for block-compressed formats).
 pub fn level_layout(f: &Format, width: u32, height: u32) -> (u32, u32) {
@@ -213,7 +272,36 @@ pub fn convert<'a>(f: &Format, bytes: &'a [u8]) -> std::borrow::Cow<'a, [u8]> {
             }
             std::borrow::Cow::Owned(out)
         }
+        Upload::Unorm16 => {
+            let mut out = Vec::with_capacity(bytes.len() * 2);
+            for p in bytes.chunks_exact(4) {
+                for c in [p[2], p[1], p[0], p[3]] {
+                    // c / 255 = (c * 257) / 65535 exactly.
+                    out.extend_from_slice(&(u16::from(c) * 257).to_le_bytes());
+                }
+            }
+            std::borrow::Cow::Owned(out)
+        }
     }
+}
+
+/// A level's bytes as the texture holds them, read back, in the game's layout: a precise target's
+/// R, G, B, A 16-bit channels made B8G8R8A8 (rounded to the nearest 8-bit step); the rest as they
+/// are.
+pub fn downloaded(f: &Format, bytes: Vec<u8>) -> Vec<u8> {
+    if !is_precise(f) {
+        return bytes;
+    }
+    let unit = |lo: u8, hi: u8| {
+        let v = u32::from(u16::from_le_bytes([lo, hi]));
+        ((v * 255 + 32767) / 65535) as u8
+    };
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for p in bytes.chunks_exact(8) {
+        let [r, g, b, a] = [0, 2, 4, 6].map(|i| unit(p[i], p[i + 1]));
+        out.extend_from_slice(&[b, g, r, a]);
+    }
+    out
 }
 
 /// An `n`-bit unsigned normalized value as 8 bits (bit replication, exact at 0 and the top).
@@ -225,7 +313,7 @@ fn scale(v: u32, n: u32) -> u32 {
 pub fn uploaded_layout(f: &Format, width: u32, height: u32) -> (u32, u32) {
     let (row, rows) = level_layout(f, width, height);
     match f.upload {
-        Upload::Widen16(_) => (row * 2, rows),
+        Upload::Widen16(_) | Upload::Unorm16 => (row * 2, rows),
         Upload::Copy => (row, rows),
     }
 }
@@ -233,6 +321,64 @@ pub fn uploaded_layout(f: &Format, width: u32, height: u32) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eight_bit_colour_targets_are_made_precise_and_nothing_else() {
+        for d3d in [d3dfmt::A8R8G8B8, d3dfmt::X8R8G8B8] {
+            let f = format(d3d).unwrap();
+            let p = precise(f);
+            assert_eq!(p.wgpu, wgpu::TextureFormat::Rgba16Unorm);
+            assert!(is_precise(&p) && !is_precise(&f));
+            assert_eq!(
+                (p.d3d, p.bytes, p.opaque, p.fix),
+                (f.d3d, 4, f.opaque, f.fix)
+            );
+            assert_eq!(texel_bytes(&p), 8);
+            assert_eq!(level_layout(&p, 3, 2), level_layout(&f, 3, 2));
+            assert_eq!(uploaded_layout(&p, 3, 2), (24, 2));
+        }
+        for d3d in [
+            d3dfmt::A8B8G8R8,
+            d3dfmt::R5G6B5,
+            d3dfmt::A16B16G16R16F,
+            d3dfmt::D24S8,
+            d3dfmt::DXT5,
+        ] {
+            let f = format(d3d).unwrap();
+            assert_eq!(precise(f), f);
+        }
+    }
+
+    #[test]
+    fn a_precise_target_gives_back_every_8_bit_value_it_was_given() {
+        let p = precise(format(d3dfmt::A8R8G8B8).unwrap());
+        let game: Vec<u8> = (0..=255u8)
+            .flat_map(|v| [v, 255 - v, v / 2, v ^ 0x55])
+            .collect();
+        let held = convert(&p, &game).into_owned();
+        assert_eq!(held.len(), game.len() * 2);
+        let word = |i: usize| u16::from_le_bytes([held[i], held[i + 1]]);
+        // Held as R, G, B, A: the first pixel's red is the game's third byte (0), green 255.
+        assert_eq!(
+            (word(0), word(2), word(4), word(6)),
+            (0, 0xffff, 0, 0x55 * 257)
+        );
+        assert_eq!(downloaded(&p, held), game);
+    }
+
+    #[test]
+    fn sixteen_bit_values_read_back_as_the_nearest_8_bit_step() {
+        let f = format(d3dfmt::A8R8G8B8).unwrap();
+        assert_eq!(downloaded(&f, vec![1, 2, 3, 4]), [1, 2, 3, 4]);
+        let p = precise(f);
+        // Values a pass left between two 8-bit steps are rounded to the nearest one: R just above
+        // step 128, G just under half a step (0), B just over half a step (1), A the top.
+        let held: Vec<u8> = [128 * 257 + 1, 128u16, 129, 0xffff]
+            .iter()
+            .flat_map(|w| w.to_le_bytes())
+            .collect();
+        assert_eq!(downloaded(&p, held), [1, 0, 128, 255]);
+    }
 
     #[test]
     fn sixteen_bit_pixels_widen_exactly_at_the_ends() {
