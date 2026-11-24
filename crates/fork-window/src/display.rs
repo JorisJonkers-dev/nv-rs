@@ -74,7 +74,12 @@ pub fn pick(
             .get(*i)
             .is_some_and(|m| m.width > 0 && m.height > 0)
     };
-    let by_name = |n: &str| names.iter().position(|x| x == n);
+    let by_name = |n: &str| {
+        names
+            .iter()
+            .position(|x| x == n)
+            .or_else(|| names.iter().position(|x| same_output(x, n)))
+    };
     let wanted_at = match wanted {
         Some(Wanted::Index(i)) => Some(*i),
         Some(Wanted::Name(n)) => by_name(n),
@@ -99,6 +104,27 @@ pub fn pick(
         monitor: monitors[index],
         why: "first",
     })
+}
+
+/// Whether two output names name the same connector: equal but for letter case, or one in the
+/// kernel's form (`HDMI-A-1`, `DVI-D-1`: what `/sys/class/drm` and GNOME's settings show) and the
+/// other in the X server's (`HDMI-1`, `DVI-1`: what Xwayland and RandR report), nv-rs#835.
+pub(crate) fn same_output(a: &str, b: &str) -> bool {
+    fn plain(name: &str) -> String {
+        let upper = name.trim().to_ascii_uppercase();
+        let parts: Vec<&str> = upper.split('-').collect();
+        if parts.len() == 3
+            && parts[1].len() == 1
+            && parts[1].chars().all(|c| c.is_ascii_alphabetic())
+            && !parts[2].is_empty()
+            && parts[2].chars().all(|c| c.is_ascii_digit())
+        {
+            format!("{}-{}", parts[0], parts[2])
+        } else {
+            upper
+        }
+    }
+    plain(a) == plain(b)
 }
 
 fn state_file() -> Option<std::path::PathBuf> {
@@ -183,6 +209,32 @@ mod tests {
         assert_eq!(pick(&LIST, &n, None, None, Some(2)).unwrap().why, "primary");
         let d = pick(&LIST, &n, None, Some("gone"), None).unwrap();
         assert_eq!((d.index, d.why), (0, "first"));
+    }
+
+    #[test]
+    fn the_kernel_and_x_names_of_an_output_match() {
+        assert!(same_output("HDMI-A-1", "HDMI-1"));
+        assert!(same_output("hdmi-1", "HDMI-A-1"));
+        assert!(same_output("DP-1", "DP-1"));
+        assert!(!same_output("HDMI-A-1", "HDMI-2"));
+        assert!(!same_output("DP-1", "DP-10"));
+        let monitors = [
+            Monitor {
+                width: 1080,
+                height: 1920,
+                refresh_mhz: 144_000,
+            },
+            Monitor {
+                width: 2560,
+                height: 1440,
+                refresh_mhz: 144_000,
+            },
+        ];
+        let names = ["HDMI-2".to_string(), "HDMI-1".to_string()];
+        // nv-rs#835: the owner's NV_MONITOR=HDMI-A-1 named no monitor and the last one used won.
+        let wanted = Wanted::Name("HDMI-A-1".into());
+        let d = pick(&monitors, &names, Some(&wanted), Some("HDMI-2"), Some(1)).unwrap();
+        assert_eq!((d.index, d.why), (1, "NV_MONITOR"));
     }
 
     #[test]
