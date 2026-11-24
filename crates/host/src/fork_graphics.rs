@@ -115,6 +115,8 @@ pub struct Levels {
     pub shadow_map_size: u32,
     /// `light.ambient_exterior` and `light.ambient_interior` (set while the game runs too).
     pub ambient: AmbientShares,
+    /// `textures.anisotropy` (set while the game runs too): the forced level, 0 for the game's.
+    pub anisotropy: u32,
 }
 
 /// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
@@ -228,12 +230,20 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
         moon_height: light.slider("moon_max_height") as f32,
         moon_specular: light.slider("moon_specular") as f32,
     };
+    let anisotropy = r
+        .module("textures")
+        .expect("built in")
+        .choice("anisotropy")
+        .strip_prefix('x')
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
     (
         choice,
         Levels {
             ao_quality,
             shadow_map_size,
             ambient,
+            anisotropy,
         },
     )
 }
@@ -288,6 +298,7 @@ pub fn start(
     d3d9_wgpu::scene_light::set_quality(levels.ao_quality);
     d3d9_wgpu::sun_shadow::set_map_size(levels.shadow_map_size)?;
     set_ambient_shares(levels.ambient);
+    d3d9_wgpu::state::forced_anisotropy::set(levels.anisotropy);
     if !r.is_original() {
         lines.push(format!(
             "nv-rs: graphics: ambient occlusion {} ({:?}, strength {}), sun shadows {} (maps {}), fill light outdoors {} indoors {}",
@@ -325,6 +336,7 @@ pub fn session(
             d3d9_wgpu::scene_light::set_quality(l.ao_quality);
             d3d9_wgpu::scene_light::set_live_strength(Some(c.ambient_occlusion_strength));
             set_ambient_shares(l.ambient);
+            d3d9_wgpu::state::forced_anisotropy::set(l.anisotropy);
         }),
     )
 }
@@ -348,6 +360,7 @@ mod tests {
             ao_quality: ao,
             shadow_map_size: size,
             ambient: AmbientShares::ORIGINAL,
+            anisotropy: 0,
         }
     }
 
@@ -494,9 +507,21 @@ mod tests {
     }
 
     #[test]
+    fn the_anisotropy_choice_reaches_the_samplers_level() {
+        let level = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.anisotropy
+        };
+        assert_eq!(level(&[]), 0, "the game's by default");
+        assert_eq!(level(&[("NV_GFX", "textures.anisotropy=x16")]), 16);
+        assert_eq!(level(&[("NV_GFX", "textures.anisotropy=x4")]), 4);
+        assert_eq!(level(&[("NV_GFX", "textures.anisotropy=game")]), 0);
+    }
+
+    #[test]
     fn every_built_in_module_is_applied() {
         // A module added to fork_gfx::builtin needs its switches here: this list is the check.
         let ids: Vec<&str> = builtin::specs().iter().map(|s| s.id).collect();
-        assert_eq!(ids, ["ao", "shadows", "light"]);
+        assert_eq!(ids, ["ao", "shadows", "light", "textures"]);
     }
 }

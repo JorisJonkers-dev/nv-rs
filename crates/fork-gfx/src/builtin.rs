@@ -197,9 +197,49 @@ pub static LIGHT: ModuleSpec = ModuleSpec {
     cost: "docs/fork/GRAPHICS.md, light balance",
 };
 
+static ANISOTROPY: [Choice; 5] = [
+    Choice {
+        id: "game",
+        label: "The game's",
+    },
+    Choice {
+        id: "x2",
+        label: "2x",
+    },
+    Choice {
+        id: "x4",
+        label: "4x",
+    },
+    Choice {
+        id: "x8",
+        label: "8x",
+    },
+    Choice {
+        id: "x16",
+        label: "16x",
+    },
+];
+
+/// Texture filtering (nv-rs#829): anisotropic filtering forced on the game's samplers
+/// (`d3d9_wgpu::state::forced_anisotropy`), as DXVK's `d3d9.samplerAnisotropy` does.
+pub static TEXTURES: ModuleSpec = ModuleSpec {
+    id: "textures",
+    label: "Textures",
+    help: "How textures are filtered. The game asks for plain linear filtering on most surfaces, so ground and roads blur at grazing angles.",
+    settings: &[Setting {
+        key: "anisotropy",
+        label: "Anisotropic filtering",
+        help: "Keeps ground, roads and walls sharp when seen at a shallow angle. The game's: as the game sets each texture. 2x to 16x: at least that level on every mipmapped texture that is filtered; higher is sharper and costs a little more.",
+        applies: Applies::Live,
+        kind: Kind::Choice { options: &ANISOTROPY, default: "game" },
+    }],
+    owns: &[Owns::GameValue("the texture samplers' filtering (minification and anisotropy)")],
+    cost: "docs/fork/GRAPHICS.md, textures",
+};
+
 /// The engine's modules, in the order the overlay shows them.
 pub fn specs() -> Vec<&'static ModuleSpec> {
-    vec![&AO, &SHADOWS, &LIGHT]
+    vec![&AO, &SHADOWS, &LIGHT, &TEXTURES]
 }
 
 /// The built-in presets' files: id, label, text.
