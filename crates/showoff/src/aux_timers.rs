@@ -13,8 +13,9 @@
 //!   owner (and, for the update, the time counted) when such a timer starts, stops or counts.
 //!
 //! The owner is the form argument, else the calling reference, else `PlayerRef`. The name follows
-//! the auxiliary variables' rule: a leading `*` makes the timer temporary, a `_` after it shares
-//! it between mods (else it belongs to the calling script's mod). Names compare without case.
+//! the auxiliary variables' rule: a leading `*` makes the timer temporary; a `_` as the first
+//! character after that optional `*` shares it between mods (`_name` and `*_name`), else it
+//! belongs to the calling script's mod. Names compare without case.
 //!
 //! Every frame (xNVSE's `MainGameLoop`), each timer that may run counts down: by one in a
 //! frame-based timer, else by the frame's seconds: the game's own step (`fDeltaUnmodified`) when
@@ -590,9 +591,7 @@ pub fn tick(e: &mut Engine) {
             t.left = 0.0;
         }
     }
-    // Timers a handler made while the list was out stay after the kept ones.
-    let made = std::mem::take(&mut timers(e).timers);
-    kept.extend(made);
+    // No script ran while the list was out: the handlers run only now.
     timers(e).timers = kept;
     fire(e, &events);
 }

@@ -356,6 +356,8 @@ fn a_private_name_belongs_to_the_scripts_mod() {
     assert_eq!(left(&mut e, "*_ours"), 1.0);
     result(&mut e, START, 0, &[s("*mine"), z(2.0)]);
     assert_eq!(left(&mut e, "*mine"), 2.0);
+    // A permanent name with `_` is shared too.
+    result(&mut e, START, 0, &[s("_perm"), z(1.0)]);
     let mods: Vec<u32> = e
         .ext::<State>()
         .timers
@@ -363,7 +365,7 @@ fn a_private_name_belongs_to_the_scripts_mod() {
         .iter()
         .map(|t| t.key.mod_index)
         .collect();
-    assert_eq!(mods, [0xff, 0xff, 5]);
+    assert_eq!(mods, [0xff, 0xff, 5, 0xff]);
 }
 
 #[test]

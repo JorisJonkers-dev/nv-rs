@@ -32,8 +32,8 @@ Rules the pages imply, and the choices made where they do not say:
 - The owner is the form argument as given, else the calling reference, else `PlayerRef` (form id
   0x14); a timer is found by its owner's form id. The handler gets the owner as a form.
 - Names follow the auxiliary variables' rule the pages refer to ("private-permanent",
-  "temporary-public"): a leading `*` is temporary; a `_` after it makes the name shared, otherwise
-  the timer belongs to the mod of the calling script (the last file of the script form's files).
+  "temporary-public"): a leading `*` is temporary; a `_` as the first character after that
+  optional `*` makes the name shared (`_name`, `*_name`), otherwise the timer belongs to the mod of the calling script (the last file of the script form's files).
   Names compare without case; the events pass the name as it was given first.
 - Counting, every frame (xNVSE's `MainGameLoop`): a paused timer does not count; a timer counts in
   menu mode only with flag 1, in game mode only with flag 2, and not while the game is paused (the
