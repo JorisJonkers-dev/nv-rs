@@ -205,9 +205,42 @@ pub static LIGHT: ModuleSpec = ModuleSpec {
     cost: "docs/fork/GRAPHICS.md, light balance",
 };
 
+static PLACED_REFLECTIONS: [Choice; 3] = [
+    Choice {
+        id: "game",
+        label: "Sky only (original)",
+    },
+    Choice {
+        id: "low",
+        label: "Far land",
+    },
+    Choice {
+        id: "high",
+        label: "Far land and nearby",
+    },
+];
+
+/// Water (nv-rs#844): what the game's water reflects.
+pub static WATER: ModuleSpec = ModuleSpec {
+    id: "water",
+    label: "Water",
+    help: "What lakes and rivers mirror. The original mirrors the land only in water at the world's own water level; lakes and rivers placed at another height (Lake Mead, the Colorado) mirror the sky alone.",
+    settings: &[Setting {
+        key: "placed_reflections",
+        label: "Lakes and rivers reflect",
+        help: "Sky only: the original. Far land: lakes and rivers away from the world's water level mirror the sky and the far hills, built and objects the water's type names, through the game's own reflection of a water group. Far land and nearby: also the land, buildings and objects near the water; costs most.",
+        applies: Applies::Live,
+        kind: Kind::Choice { options: &PLACED_REFLECTIONS, default: "game" },
+    }],
+    owns: &[Owns::GameValue(
+        "the reflection outdoor water away from the world's water level draws (the game's sky reflection, or its own reflection of the water group)",
+    )],
+    cost: "docs/fork/GRAPHICS.md, water",
+};
+
 /// The engine's modules, in the order the overlay shows them.
 pub fn specs() -> Vec<&'static ModuleSpec> {
-    vec![&AO, &SHADOWS, &LIGHT]
+    vec![&AO, &SHADOWS, &LIGHT, &WATER]
 }
 
 /// The built-in presets' files: id, label, text.
