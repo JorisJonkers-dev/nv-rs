@@ -2011,7 +2011,7 @@ pub fn sample0_offset(samples: u32) -> [f32; 2] {
 }
 
 /// The lookup's uniform block, in bytes ([`lookup_uniforms`]).
-pub const LOOKUP_SIZE: u64 = 8 * 16 + 4 * CASCADES as u64 * 16 + 8 * 16 + 3 * 16;
+pub const LOOKUP_SIZE: u64 = 8 * 16 + 4 * CASCADES as u64 * 16 + 8 * 16 + 4 * 16;
 
 /// The thin casters' coverage maps: texels a side (a layer a cascade, over the same square as the
 /// cascade's depth map, so a texel is `SIZE / THIN_SIZE` of its texels).
@@ -2122,7 +2122,7 @@ pub fn thin_quads(
 /// used (0: the game's flat ambient, exactly), the ground's colour. Each colour multiplies the game's
 /// ambient colour at the pixel; 1 is the flat value the shaders without this variant draw. The last
 /// word is the ambient light over the direct light (`scene_light`'s occlusion, 0: not known).
-static SKY_FILL: [AtomicU32; 9] = [
+static SKY_FILL: [AtomicU32; 10] = [
     AtomicU32::new(ONE_BITS),
     AtomicU32::new(ONE_BITS),
     AtomicU32::new(ONE_BITS),
@@ -2132,6 +2132,8 @@ static SKY_FILL: [AtomicU32; 9] = [
     AtomicU32::new(ONE_BITS),
     AtomicU32::new(0),
     AtomicU32::new(0),
+    // The highlight's strength.
+    AtomicU32::new(ONE_BITS),
 ];
 /// The bits of 1.0, the flat value of a sky light colour.
 const ONE_BITS: u32 = 0x3f80_0000;
@@ -2143,6 +2145,7 @@ pub fn set_sky_fill(
     dome: f32,
     ambient_over_direct: f32,
     shade: f32,
+    highlight: f32,
 ) {
     let v = [
         top[0],
@@ -2154,13 +2157,14 @@ pub fn set_sky_fill(
         ground[2],
         ambient_over_direct,
         shade,
+        highlight,
     ];
     for (slot, value) in SKY_FILL.iter().zip(v) {
         slot.store(value.to_bits(), Ordering::Relaxed);
     }
 }
 
-fn sky_fill() -> [f32; 9] {
+fn sky_fill() -> [f32; 10] {
     std::array::from_fn(|i| f32::from_bits(SKY_FILL[i].load(Ordering::Relaxed)))
 }
 
@@ -2263,6 +2267,8 @@ pub fn lookup_uniforms(
     ]);
     f.extend([fill[0], fill[1], fill[2], fill[7]]);
     f.extend([fill[4], fill[5], fill[6], fill[8]]);
+    // The strength of the direct light's specular highlight (1: the game's).
+    f.extend([fill[9], 0.0, 0.0, 0.0]);
     debug_assert_eq!(f.len() * 4, LOOKUP_SIZE as usize);
     f.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
@@ -2289,6 +2295,7 @@ struct SunLookup {
     sky_up: vec4<f32>,
     sky_top: vec4<f32>,
     sky_ground: vec4<f32>,
+    highlight: vec4<f32>,
 };
 
 fn sl_linear(d: f32) -> f32 {

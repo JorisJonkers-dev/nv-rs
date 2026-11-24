@@ -180,6 +180,13 @@ pub static LIGHT: ModuleSpec = ModuleSpec {
             applies: Applies::Live,
             kind: Kind::Slider { min: 15.0, max: 90.0, step: 5.0, default: 90.0 },
         },
+        Setting {
+            key: "moon_specular",
+            label: "Moon highlight",
+            help: "How strongly glossy materials catch the moon, from 0 (none) to 8; 1 is the game's. It follows the moon's direction and phase, so a new moon gives none. Needs the light from the sky dome and from the sun and moon discs.",
+            applies: Applies::Live,
+            kind: Kind::Slider { min: 0.0, max: 8.0, step: 0.25, default: 1.0 },
+        },
     ],
     owns: &[
         Owns::GameValue("the moons' path across the sky (only below the game's own height)"),

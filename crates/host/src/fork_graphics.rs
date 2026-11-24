@@ -119,7 +119,7 @@ pub struct Levels {
 
 /// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
 /// frame ([`ambient_shares`]) and set at start and by the overlay ([`set_ambient_shares`]).
-static AMBIENT: [AtomicU32; 8] = [
+static AMBIENT: [AtomicU32; 9] = [
     AtomicU32::new(ONE_BITS),
     AtomicU32::new(ONE_BITS),
     AtomicU32::new(ONE_BITS),
@@ -129,6 +129,7 @@ static AMBIENT: [AtomicU32; 8] = [
     AtomicU32::new(0),
     // 90 degrees: the moons' own path.
     AtomicU32::new(0x42b4_0000),
+    AtomicU32::new(ONE_BITS),
 ];
 /// The bits of 1.0, a share that leaves the game's value as it is.
 const ONE_BITS: u32 = 0x3f80_0000;
@@ -145,6 +146,7 @@ pub fn ambient_shares() -> AmbientShares {
         dome: at(5),
         shade: at(6),
         moon_height: at(7),
+        moon_specular: at(8),
     }
 }
 
@@ -159,6 +161,7 @@ pub fn set_ambient_shares(s: AmbientShares) {
         s.dome,
         s.shade,
         s.moon_height,
+        s.moon_specular,
     ]) {
         slot.store(v.to_bits(), Ordering::Relaxed);
     }
@@ -166,7 +169,14 @@ pub fn set_ambient_shares(s: AmbientShares) {
 
 /// The sky light's colours, handed to the renderer's lookup.
 pub fn sky_fill(f: engine::sky_sun::SkyFill) {
-    d3d9_wgpu::sun_shadow::set_sky_fill(f.top, f.ground, f.dome, f.ambient_over_direct, f.shade);
+    d3d9_wgpu::sun_shadow::set_sky_fill(
+        f.top,
+        f.ground,
+        f.dome,
+        f.ambient_over_direct,
+        f.shade,
+        f.highlight,
+    );
 }
 
 /// The run's choice with the modules' values over it, and the levels. A value whose source is the
@@ -216,6 +226,7 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
         dome: light.slider("sky_dome") as f32,
         shade: light.slider("shade_fill") as f32,
         moon_height: light.slider("moon_max_height") as f32,
+        moon_specular: light.slider("moon_specular") as f32,
     };
     (
         choice,

@@ -107,6 +107,7 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | `sun` | the share of the sun's direct light by day, 0.3 to 1 | 1 | live |
 | `moon` | the share of the moon's direct light at night, 0.3 to 1 | 1 | live |
 | `moon_max_height` | how high the moon climbs, 15 to 90 degrees; the drawn moon and its light move together; 90 is the game's path | 90 | live |
+| `moon_specular` | how strongly glossy materials catch the moon, 0 to 8; 1 is the game's highlight; needs `sky_dome` and the light from the sun and moon discs | 1 | live |
 | `sky_dome` | how much of the fill follows the sky, 0 (the game's flat light) to 1; needs sun shadows | 0 | live |
 | `shade_fill` | how much more sky light reaches surfaces the sun or moon does not, 0 to 2; needs `sky_dome` | 0 | live |
 
@@ -116,12 +117,18 @@ game's phase, fade and height, so a new moon gives no direct light and no moon s
 direction is the fill.
 
 `modern` takes `ambient_exterior` 0.7, `ambient_interior` 1, `ambient_night` 1, `sun` 0.65, `moon` 0.75,
-`moon_max_height` 45, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
+`moon_max_height` 45, `moon_specular` 2, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
 `original`: sunlit light 0.83 and shade 0.91 over the 22 day exteriors; moonlit light 0.82 and shade 0.96 over the 7 night
 views. 45 degrees is the lowest moon height tested that keeps the detail check below at the night Strip skyline.
 
 The sky light costs the card under 0.1 ms a frame at 2560x1440 on a high-end AMD card (`modern` with and without
 `sky_dome` and `shade_fill`, 11 standard views, two runs: +0.03 and +0.08 ms), less than the difference between runs.
+
+The moon highlight scales the one place in each of the game's specular shaders where the highlight meets the light's
+colour (`wgsl::specular_reads`; 284 of the game's 2716 lit pixel shaders have a highlight, each with one such place). It
+uses the materials' own gloss, follows the moon's direction, and is made from the moon's light, so a new moon gives none.
+Surfaces whose shaders have no specular term gain nothing. At 4 ground starts to look wet, at 8 it does. Its cost is
+within the difference between runs (-0.01 and +0.04 ms of card time at 2560x1440 on a high-end AMD card).
 
 Known limits: glow is not separated from the occlusion; surfaces turned away from the true sun or moon can be much darker
 than under `original` (a rock wall at Hoover Dam by day has 0.26 of its shade light); a single night view can differ
