@@ -1296,6 +1296,8 @@ pub struct Device {
     sampler_keys: Vec<SamplerKey>,
     sampler_ids: Map<SamplerKey, u32>,
     slot_keys: [[u32; 2]; 20],
+    /// The forced anisotropy level [`Device::slot_keys`] were worked out at (nv-rs#829).
+    anisotropy_seen: state::forced_anisotropy::Seen,
     groups: Map<GroupKey, wgpu::BindGroup>,
     blit: Map<(wgpu::TextureFormat, bool), wgpu::RenderPipeline>,
     blit_layout: Option<wgpu::BindGroupLayout>,
@@ -2112,6 +2114,7 @@ impl Device {
             sampler_keys: Vec::new(),
             sampler_ids: Map::default(),
             slot_keys: [[NO_KEY; 2]; 20],
+            anisotropy_seen: state::forced_anisotropy::Seen::now(),
             groups: Map::default(),
             blit: Map::default(),
             blit_layout: None,
@@ -5775,6 +5778,13 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         up: Option<(&[u8], u32)>,
     ) {
         let _perf = crate::perf::span(crate::perf::Cat::Draw);
+        // A live change of the forced anisotropy level (`textures.anisotropy`): every slot's
+        // sampler key worked out afresh, as after a sampler state change, so the draws take
+        // samplers at the new level instead of the keys kept from the old one.
+        if self.anisotropy_seen.changed() {
+            self.slot_keys = [[NO_KEY; 2]; 20];
+            self.tex_gen += 1;
+        }
         // Listed pipelines whose shaders are now made, also when the game draws before its first
         // `Present` (its first frame).
         if self.listed_new {

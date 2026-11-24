@@ -150,6 +150,20 @@ the picture; sunlit its brightest 40%, shade its darkest 20%) and exits 1 when t
 With `--max-lost-detail POINTS` it also exits 1 when a view gains more than that many points of dark blocks that show no
 detail in the lower 55% of the picture: darkness alone passes, lost shapes and texture do not. The limit for `modern` is 5.
 
+### Textures (`textures`)
+
+`anisotropy` (nv-rs#829, `d3d9_wgpu::state::forced_anisotropy`): the game asks for anisotropic filtering on its
+mipmapped textures at the level of `iMaxAnisotropy` in `[Display]` of `FalloutPrefs.ini` (the game reads it from that
+file only, not from `Fallout.ini`): 8 when the file does not set it and at the launcher's High, 15 at Ultra, and 1 at
+Low and Medium, where ground, roads and walls blur at grazing angles. A level forces anisotropic filtering, at that
+level or the game's own when it asks for more, on every sampler that filters a mipmapped texture linearly as it shrinks
+it; point sampling, render targets read without mipmaps and depth stay as the game set them. It is what DXVK's
+`d3d9.samplerAnisotropy` offers. Measured at 2560x1440 on four grazing views (pull request): x16 against the game's 8
+changes under 0.1 % of the pixels; against the game's 1, 0.8 to 3.4 % (gratings, fences and far roof edges sharpen).
+
+| Setting | Values | Original | Applies |
+| --- | --- | --- | --- |
+| `anisotropy` | `game` (the game's sampler states), `x2`, `x4`, `x8`, `x16` | `game` (`modern`: `x16`) | live |
 ### Water (`water`)
 
 The game gives outdoor water two reflections: water at the world space's own water height (the `DNAM` default, -2300

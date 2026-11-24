@@ -115,6 +115,8 @@ pub struct Levels {
     pub shadow_map_size: u32,
     /// `light.ambient_exterior` and `light.ambient_interior` (set while the game runs too).
     pub ambient: AmbientShares,
+    /// `textures.anisotropy` (set while the game runs too): the forced level, 0 for the game's.
+    pub anisotropy: u32,
     /// `light.lamp_distance` (set while the game runs too): the scale of the lamps' fade distances.
     pub lamp_distance: f32,
     /// `water.placed_reflections` (set while the game runs too).
@@ -232,12 +234,20 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
         moon_height: light.slider("moon_max_height") as f32,
         moon_specular: light.slider("moon_specular") as f32,
     };
+    let anisotropy = r
+        .module("textures")
+        .expect("built in")
+        .choice("anisotropy")
+        .strip_prefix('x')
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
     (
         choice,
         Levels {
             ao_quality,
             shadow_map_size,
             ambient,
+            anisotropy,
             lamp_distance: light.slider("lamp_distance") as f32,
             placed_reflections: placed_reflections(
                 r.module("water")
@@ -308,6 +318,7 @@ pub fn start(
     d3d9_wgpu::scene_light::set_quality(levels.ao_quality);
     d3d9_wgpu::sun_shadow::set_map_size(levels.shadow_map_size)?;
     set_ambient_shares(levels.ambient);
+    d3d9_wgpu::state::forced_anisotropy::set(levels.anisotropy);
     engine::lamp_distance::set(levels.lamp_distance);
     engine::placed_reflections::set(levels.placed_reflections);
     if !r.is_original() {
@@ -347,6 +358,7 @@ pub fn session(
             d3d9_wgpu::scene_light::set_quality(l.ao_quality);
             d3d9_wgpu::scene_light::set_live_strength(Some(c.ambient_occlusion_strength));
             set_ambient_shares(l.ambient);
+            d3d9_wgpu::state::forced_anisotropy::set(l.anisotropy);
             engine::lamp_distance::set(l.lamp_distance);
             engine::placed_reflections::set(l.placed_reflections);
         }),
@@ -372,6 +384,7 @@ mod tests {
             ao_quality: ao,
             shadow_map_size: size,
             ambient: AmbientShares::ORIGINAL,
+            anisotropy: 0,
             lamp_distance: 1.0,
             placed_reflections: engine::placed_reflections::Level::Game,
         }
@@ -520,6 +533,20 @@ mod tests {
     }
 
     #[test]
+    fn the_anisotropy_choice_reaches_the_samplers_level() {
+        let level = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.anisotropy
+        };
+        assert_eq!(level(&[]), 0, "the game's by default");
+        assert_eq!(level(&[("NV_GFX", "textures.anisotropy=x16")]), 16);
+        assert_eq!(level(&[("NV_GFX", "textures.anisotropy=x4")]), 4);
+        assert_eq!(level(&[("NV_GFX", "textures.anisotropy=game")]), 0);
+        assert_eq!(level(&[("NV_GFX_PRESET", "original")]), 0);
+        assert_eq!(level(&[("NV_GFX_PRESET", "modern")]), 16);
+    }
+
+    #[test]
     fn the_lamp_distance_is_the_game_s_unless_chosen() {
         let distance = |pairs: &[(&str, &str)]| {
             let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
@@ -555,6 +582,6 @@ mod tests {
     fn every_built_in_module_is_applied() {
         // A module added to fork_gfx::builtin needs its switches here: this list is the check.
         let ids: Vec<&str> = builtin::specs().iter().map(|s| s.id).collect();
-        assert_eq!(ids, ["ao", "shadows", "light", "water"]);
+        assert_eq!(ids, ["ao", "shadows", "light", "water", "textures"]);
     }
 }

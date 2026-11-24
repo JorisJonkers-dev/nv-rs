@@ -319,6 +319,77 @@ pub fn write_mask(bits: u32, opaque: bool) -> wgpu::ColorWrites {
     m
 }
 
+/// The forced anisotropic filtering level (nv-rs#829, the fork setting `textures.anisotropy`): 0 or 1
+/// leaves the game's sampler states as they are (the default); 2 to 16 makes every sampler that
+/// filters a mipmapped texture linearly filter anisotropically at that level or the game's, whichever
+/// is higher, as DXVK's `d3d9.samplerAnisotropy` does. Read when a sampler key is made, so a change
+/// shows from the next draw on.
+pub mod forced_anisotropy {
+    use std::sync::atomic::{AtomicU8, Ordering};
+
+    static LEVEL: AtomicU8 = AtomicU8::new(0);
+
+    /// Sets the level: 0 or 1 is the game's; above 16 is 16.
+    pub fn set(level: u32) {
+        LEVEL.store(clamp(level), Ordering::Relaxed);
+    }
+
+    /// The stored level for `level`: 0 for 0 and 1, at most 16.
+    pub fn clamp(level: u32) -> u8 {
+        if level <= 1 {
+            0
+        } else {
+            level.min(16) as u8
+        }
+    }
+
+    /// The level now (0: the game's).
+    pub fn get() -> u8 {
+        LEVEL.load(Ordering::Relaxed)
+    }
+
+    /// The level a device's sampler keys were last worked out at: a draw asks it whether the
+    /// level changed since (a live change from the overlay), and the device then works its
+    /// samplers' keys out afresh, as after a sampler state change.
+    #[derive(Debug)]
+    pub struct Seen(u8);
+
+    impl Seen {
+        /// Seen at the level now.
+        pub fn now() -> Self {
+            Seen(get())
+        }
+
+        /// Whether the level is not the one last seen (then it is seen).
+        pub fn changed(&mut self) -> bool {
+            self.changed_to(get())
+        }
+
+        fn changed_to(&mut self, level: u8) -> bool {
+            let changed = self.0 != level;
+            self.0 = level;
+            changed
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_new_level_is_seen_once() {
+            let mut seen = Seen(0);
+            assert!(!seen.changed_to(0));
+            assert!(seen.changed_to(16), "the overlay raised it");
+            assert!(
+                !seen.changed_to(16),
+                "seen: the keys are not worked out again"
+            );
+            assert!(seen.changed_to(0), "back to the game's");
+        }
+    }
+}
+
 /// What makes a wgpu sampler: the sampler states that matter, and whether the texture can be
 /// filtered at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -335,6 +406,11 @@ pub struct SamplerKey {
 
 impl SamplerKey {
     pub fn new(s: &[u32; 14], filterable: bool) -> Self {
+        Self::game(s, filterable).forced(forced_anisotropy::get())
+    }
+
+    /// The key from the game's states alone.
+    fn game(s: &[u32; 14], filterable: bool) -> Self {
         SamplerKey {
             address: [
                 s[ss::ADDRESSU] as u8,
@@ -349,6 +425,21 @@ impl SamplerKey {
             border: s[ss::BORDERCOLOR],
             filterable,
         }
+    }
+
+    /// The key with anisotropic filtering forced at `level` (0 or 1: unchanged): only a sampler that
+    /// filters a filterable texture linearly when it shrinks it (`D3DTEXF_LINEAR` or better) and
+    /// reads its mipmaps (a mip filter other than `D3DTEXF_NONE`); point sampling, render targets
+    /// read without mipmaps and depth stay as the game set them.
+    fn forced(mut self, level: u8) -> Self {
+        if level > 1 && self.filterable && self.min >= 2 && self.mip != 0 {
+            self.min = 3;
+            if self.mag >= 2 {
+                self.mag = 3;
+            }
+            self.anisotropy = self.anisotropy.max(level);
+        }
+        self
     }
 
     pub fn descriptor(&self, border_ok: bool) -> wgpu::SamplerDescriptor<'static> {
@@ -411,6 +502,54 @@ impl SamplerKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn trilinear() -> [u32; 14] {
+        let mut s = default_sampler_states();
+        s[ss::MAGFILTER] = 2;
+        s[ss::MINFILTER] = 2;
+        s[ss::MIPFILTER] = 2;
+        s
+    }
+
+    #[test]
+    fn forced_anisotropy_raises_mipmapped_linear_samplers_only() {
+        let game = SamplerKey::game(&trilinear(), true);
+        // 0 and 1 are the game's: the same key.
+        assert_eq!(game.forced(0), game);
+        assert_eq!(game.forced(1), game);
+        assert_eq!(game.descriptor(true).anisotropy_clamp, 1);
+        // 16: anisotropic, linear in all three, clamp 16.
+        let k = game.forced(16);
+        let d = k.descriptor(true);
+        assert_eq!(d.anisotropy_clamp, 16);
+        assert_eq!(d.min_filter, wgpu::FilterMode::Linear);
+        assert_eq!(d.mag_filter, wgpu::FilterMode::Linear);
+        assert_eq!(d.mipmap_filter, wgpu::MipmapFilterMode::Linear);
+        // The game's higher level wins over a lower forced one.
+        let mut s = trilinear();
+        s[ss::MINFILTER] = 3;
+        s[ss::MAXANISOTROPY] = 8;
+        assert_eq!(SamplerKey::game(&s, true).forced(4).anisotropy, 8);
+        // Point sampling, no mipmaps, and textures that cannot be filtered stay as they are.
+        let mut point = trilinear();
+        point[ss::MINFILTER] = 1;
+        let point = SamplerKey::game(&point, true);
+        assert_eq!(point.forced(16), point);
+        let mut flat = trilinear();
+        flat[ss::MIPFILTER] = 0;
+        let flat = SamplerKey::game(&flat, true);
+        assert_eq!(flat.forced(16), flat);
+        let unfilterable = SamplerKey::game(&trilinear(), false);
+        assert_eq!(unfilterable.forced(16), unfilterable);
+    }
+
+    #[test]
+    fn forced_anisotropy_setting_is_clamped() {
+        assert_eq!(forced_anisotropy::clamp(0), 0);
+        assert_eq!(forced_anisotropy::clamp(1), 0);
+        assert_eq!(forced_anisotropy::clamp(4), 4);
+        assert_eq!(forced_anisotropy::clamp(64), 16);
+    }
 
     #[test]
     fn blending_is_off_by_default_and_follows_the_render_states() {
