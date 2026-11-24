@@ -1,134 +1,52 @@
 <p align="center">
-  <img src="docs/media/logo-ranger-2.png" alt="nv-rs logo: an NCR Ranger with a revolver in front of a Mojave sunset, inside a gear" width="220">
+  <img src="docs/media/logo-ranger-2.png" alt="nv-rs logo: an NCR Ranger with a revolver in front of a Mojave sunset, inside a gear" width="180">
 </p>
 
-<h1 align="center">nv-rs (JorisJonkers-dev fork)</h1>
+<h1 align="center">nv-rs</h1>
+
+<p align="center"><b>Fallout: New Vegas on a new engine, rebuilt in Rust.</b></p>
+
+nv-rs runs your own copy of Fallout: New Vegas on a new engine: the original program, translated piece by piece into
+the Rust programming language.
+It is for players who want the game on Linux, Windows or macOS, with optional modern graphics.
+An engine is the program that runs a game: it draws the world and runs its rules. The game's own files stay the same.
+
+> **A fork.** This is a fork of [slaterain/nv-rs](https://github.com/slaterain/nv-rs); upstream's engine work is pulled
+> in regularly. We forked to organise the work our own way and to make releases easily, for [raul](#get-it).
 
 <p align="center">
-  <a href="https://github.com/JorisJonkers-dev/rauls-trusty-toolbox/releases/latest"><img src="https://img.shields.io/badge/Play_it_with-raul-brightgreen.svg" alt="Play it with raul"></a>
-  <a href="https://github.com/JorisJonkers-dev/nv-rs/releases/latest"><img src="https://img.shields.io/badge/Engine-releases-blue.svg" alt="Engine releases"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3"></a>
+  <img src="docs/fork/images/graphics-goodsprings.jpg" alt="Goodsprings by day side by side: on the left the original picture, on the right preset modern with sun shadows, ambient occlusion and softer light" width="100%">
+  <br><em>Goodsprings: the original look (left) and the <code>modern</code> preset (right), with shadows and soft shade.</em>
 </p>
 
-**Fallout: New Vegas, rebuilt in Rust.** nv-rs is a new engine for the game: the original program is translated
-into Rust function by function and runs your own copy's game files. This repository is a fork of
-[slaterain/nv-rs](https://github.com/slaterain/nv-rs). It adds graphics options, native builds for Linux and macOS,
-and the pieces needed to run the engine inside [raul](#raul-the-easy-way-to-play), a desktop app that installs,
-mods and starts the game.
+## What it does for you
 
-> [!IMPORTANT]
-> nv-rs is an independent project, not affiliated with or endorsed by Bethesda Softworks, ZeniMax Media, Obsidian
-> Entertainment or Microsoft. It contains no game files: you need your own legally obtained copy of the game. See
-> [LEGAL.md](LEGAL.md).
-
-## A fork of slaterain/nv-rs
-
-The engine is slaterain's work. This fork follows upstream closely: upstream's commits are replayed onto our
-default branch `fork` regularly, with their authors, dates and an `Upstream-Commit` trailer, so engine work done
-upstream reaches this repository and its releases. `main` is an exact mirror of upstream's `main`.
-
-We forked for two reasons. The work here is organised differently: required checks, Conventional Commits,
-release-please, fuzzing, and Linux and Windows builds on every pull request (macOS on labelled ones). And we wanted to make releases
-easily and often, for Linux, Windows and macOS, so that raul can ship a tested engine with every version. How the
-fork follows upstream is in [FORK.md](FORK.md) and [docs/fork/KEEPING-IN-SYNC.md](docs/fork/KEEPING-IN-SYNC.md);
-everything the fork changes in upstream's files is listed, with the reason, in
-[docs/fork/divergence.d/](docs/fork/divergence.d/). For the project's own story, roadmap and community, read
-[upstream's README](https://github.com/slaterain/nv-rs#readme) and join its
-[Discord](https://discord.gg/pn5kjZJJxx).
-
-## raul: the easy way to play
-
-[Raul's tRusty Toolbox](https://github.com/JorisJonkers-dev/rauls-trusty-toolbox) (`raul`) is one program for
-Linux, Windows and macOS that finds your game, sets up Tale of Two Wastelands if you want it, installs and sorts
-your mods, builds the distant land (LOD) for your load order, and starts the game on this engine. The engine is
-built into raul, so there is nothing else to install.
+- 🎮 **The whole game.** Quests, combat, menus, saves and the DLCs run on the new engine.
+- 🐧 **Linux and Windows, macOS in testing.** On Linux it runs natively, with no Windows layer in between.
+- 🌅 **Better light, your choice.** The default looks like the original. One switch turns on shadows, soft shade and
+  light from the sky. Press **F10** in the game to change the graphics settings.
+- 🧩 **Script extenders built in.** Many mods need the add-ons xNVSE or JIP LN. Here they are part of the engine,
+  so there is nothing extra to install.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/JorisJonkers-dev/rauls-trusty-toolbox/main/crates/raul-gui/tests/snapshots/home/home-ready.png" alt="raul's Home page: the game folder, storage, TTW, load order and LOD checks, and a Play now button" width="760">
+  <img src="docs/fork/images/graphics-lake-mead-water.jpg" alt="Lake Mead side by side: on the left the water mirrors only the sky, on the right the hills, the island and the piers are mirrored too" width="100%">
+  <br><em>Lake Mead: the game's water (left) and the new reflections (right), which mirror the hills and piers.
+  Coming in the next release.</em>
 </p>
 
-**[Download raul](https://github.com/JorisJonkers-dev/rauls-trusty-toolbox/releases/latest)**: an AppImage, `.deb`
-or `.tar.gz` for Linux, a setup `.exe` or portable `.zip` for Windows, and a `.dmg` for macOS. raul's
-[README](https://github.com/JorisJonkers-dev/rauls-trusty-toolbox#readme) has the install steps and the checksums.
+## Progress
 
-## What the fork adds
-
-### Graphics presets and the F10 overlay
-
-The engine draws the original picture by default. A graphics preset turns on the port's own effects together:
-`original` (the default, every setting at the game's value), `modern` and `performance`. While the game runs,
-**F10** opens an overlay that lists every setting, where its value comes from, and applies a change in the next
-frame; the change is saved in the profile's `nv-rs-graphics.toml`. All of it is described in
-[docs/fork/GRAPHICS.md](docs/fork/GRAPHICS.md).
+These bars are counted from the code each time a change lands; nobody updates them by hand
+([what each bar counts](docs/fork/PROGRESS.md)).
 
 <p align="center">
-  <img src="docs/fork/images/graphics-goodsprings.jpg" alt="Goodsprings by day: on the left the original picture, on the right preset modern with sun shadows, ambient occlusion and a softer fill light" width="100%">
-  <br><em>Goodsprings, the same place and load order: preset <code>original</code> (left) and <code>modern</code> (right).
-  Sun shadows, ambient occlusion and the light balance give the ground and buildings depth.</em>
+  <img src="docs/media/fork-progress-engine.svg" alt="Progress of the engine port" width="100%">
+  <img src="docs/media/fork-progress-extenders.svg" alt="Progress of the built-in script extenders" width="100%">
+  <img src="docs/media/fork-progress-features.svg" alt="Progress of the engine's graphics features" width="100%">
 </p>
 
-What `modern` turns on, each also adjustable on its own:
-
-| Setting | What it does |
-| --- | --- |
-| Ambient occlusion and sun shadows | The port's soft shade in corners and its shadows from the sun and moon, with quality levels and strength. Upstream has the effects; the fork makes them settings with levels and presets. |
-| Light balance | The game's flat fill light is reduced where the port's own shade and the light from the sky take its place, so `modern` does not look washed out. |
-| Sky light, moon and starlight | Light from the sky by surface direction, a moon light that follows the game's moon phase, and a dim starlight at night. |
-| Moon highlight | Glossy materials catch the moon light a little. |
-| Lamp light distance | Lamps, street lights and lit signs light their surroundings from further away. |
-| Water reflections | Every outdoor lake and river (Lake Mead, the Colorado below Hoover Dam, the Potomac) mirrors the land, buildings and statics around it, not only the sky. |
-| Anisotropic filtering | Textures seen at a grazing angle (roads, fences, roofs) stay sharp; `modern` uses x16. |
-
-<p align="center">
-  <img src="docs/fork/images/graphics-lake-mead-water.jpg" alt="Lake Mead side by side: on the left the game's water mirrors only the sky, on the right the hills, the island and the piers are mirrored in their colours" width="100%">
-  <br><em>Lake Mead on a modded load order, the game's water (left) and <code>water.placed_reflections</code> high, as
-  <code>modern</code> sets it (right): every outdoor lake and river mirrors the land, buildings and statics around it.</em>
-</p>
-
-<p align="center">
-  <img src="docs/fork/images/graphics-anisotropy.jpg" alt="Pavement and gravel at a grazing angle side by side: blurred on the left with the game's anisotropy at 1, sharp on the right with x16" width="100%">
-  <br><em>Pavement and gravel at a grazing angle: the game's anisotropy at 1, as its Low and Medium settings set it
-  (left), and forced x16 anisotropic filtering as <code>modern</code> sets it (right).</em>
-</p>
-
-Lamp light distance, water reflections and anisotropic filtering are on the `fork` branch and come with the next
-release after v0.24.0; the other settings are in v0.24.0.
-
-### More
-
-- **Linux and macOS.** The engine builds and runs natively on Linux (Vulkan through wgpu, X11 or Wayland, sound
-  through the PulseAudio library, which PipeWire also serves); macOS builds are made and tested in part. See [docs/fork/LINUX.md](docs/fork/LINUX.md).
-- **Tale of Two Wastelands starts.** For a game with Tale of Two Wastelands, the engine answers as installed for the
-  script extenders TTW checks at a new game (JIP LN, JohnnyGuitar, ShowOff, lStewieAl's Tweaks and its own plugin).
-  Loading the plugin DLLs of mods themselves is in progress and off by default
-  ([ADR-0018](docs/fork/adr/0018-plugin-dlls-loaded.md)).
-- **A library for other programs.** The crates `fork-api` and `fork-play` let a program link the engine and start
-  a game from its own binary; that is how raul runs it ([ADR-0017](docs/fork/adr/0017-engine-linked-into-another-program.md),
-  [docs/fork/CONSUMING.md](docs/fork/CONSUMING.md)).
-- **Tools for checking the game.** `nv-rs-scene` takes pictures of named places with several settings in one run,
-  compares them, and runs soaks, sweeps and benchmarks ([docs/fork/SCENE.md](docs/fork/SCENE.md)). Logs, stop
-  reports and a hitch recorder help find faults ([docs/fork/LOGGING.md](docs/fork/LOGGING.md),
-  [docs/fork/HITCHES.md](docs/fork/HITCHES.md)).
-- **Discord Rich Presence** while the game runs ([docs/fork/DISCORD.md](docs/fork/DISCORD.md)).
-
-## Downloads
-
-Most players should use [raul](#raul-the-easy-way-to-play). The engine on its own is on the
-[releases page](https://github.com/JorisJonkers-dev/nv-rs/releases/latest): a Windows setup `.exe` and preview
-`.zip`, a Linux `.tar.gz` and a macOS `.tar.gz`, with checksum files, and OCI packages on ghcr.io for
-Linux and Windows. To build from source, see [docs/PLAYTESTING.md](docs/PLAYTESTING.md) and
-[docs/fork/LOCAL.md](docs/fork/LOCAL.md).
-
-## Why raul and its parts are separate projects
-
-raul is made of Components, each in its own repository: this engine, [nvmod-rs](https://github.com/JorisJonkers-dev/nvmod-rs)
-(mods), [loot-rs](https://github.com/JorisJonkers-dev/loot-rs) (load order),
-[lodwright-rs](https://github.com/JorisJonkers-dev/lodwright-rs) (distant land) and
-[ttwright-rs](https://github.com/JorisJonkers-dev/ttwright-rs) (Tale of Two Wastelands). Each one can be used and
-tested on its own, and releases on its own schedule; raul links them all into one program and releases them
-together as one tested set.
-
-## What the engine does
+<details>
+<summary><b>What the engine can do today</b> (a table per system)</summary>
 
 This table is upstream's account of the engine, kept here because it describes this fork's engine too. Each name
 links to the detail in [docs/STATUS.md](docs/STATUS.md).
@@ -150,15 +68,25 @@ links to the detail in [docs/STATUS.md](docs/STATUS.md).
 
 ✅ means working, not free of bugs. Each fix is described in [docs/FIXES.md](docs/FIXES.md).
 
-## Contributing
+</details>
 
-Issues and pull requests for the fork's own work (graphics, Linux, macOS, releases, the parts raul uses) are welcome
-here; read [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/fork/PRACTICES.md](docs/fork/PRACTICES.md). Engine
-behaviour that differs from the original game is best reported
-[upstream](https://github.com/slaterain/nv-rs/issues), where it reaches this fork with the next sync. Every
-document is linked from [docs/README.md](docs/README.md).
+## How it fits together
 
-## Legal and license
+<p align="center">
+  <img src="docs/fork/images/raul-parts.svg" alt="raul and its five parts: nv-rs the game engine (this project), nvmod-rs mods, loot-rs load order, lodwright-rs distant view, ttwright-rs Tale of Two Wastelands" width="100%">
+</p>
 
-Original code is licensed under the [GNU GPL v3 or later](LICENSE). The licence covers only original work. Fallout
-and Fallout: New Vegas are trademarks of their respective owners. Read [LEGAL.md](LEGAL.md) for the full notice.
+The work is split into parts so each one can be built and tested on its own; raul puts them together in one app.
+
+## Get it
+
+**[Download raul](https://github.com/JorisJonkers-dev/rauls-trusty-toolbox/releases/latest)**: it has this engine
+built in, and sets up the game and your mods for you.
+
+## Learn more
+
+- [What the fork adds, in detail](docs/fork/FEATURES.md): graphics settings, Linux and macOS, downloads, contributing.
+- [Graphics settings](docs/fork/GRAPHICS.md) and [every other document](docs/README.md).
+
+nv-rs is not affiliated with Bethesda, ZeniMax, Obsidian or Microsoft, and contains no game files: you need your own
+copy of the game. GPL v3 or later; see [LEGAL.md](LEGAL.md) and [LICENSE](LICENSE).

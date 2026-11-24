@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="262" viewBox="0 0 800 262" role="img" aria-label="raul and its five parts: nv-rs the game engine, nvmod-rs mods, loot-rs load order, lodwright-rs distant view, ttwright-rs Tale of Two Wastelands; this project is nv-rs">
+<title>raul and its five parts: nv-rs the game engine, nvmod-rs mods, loot-rs load order, lodwright-rs distant view, ttwright-rs Tale of Two Wastelands; this project is nv-rs</title>
+<rect width="800" height="262" rx="12" fill="#101215"/>
+<rect x="200" y="20" width="400" height="62" rx="10" fill="#171A1F" stroke="#3DD6C6" stroke-width="2"/>
+<text x="400" y="47" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" fill="#3DD6C6" font-weight="bold" text-anchor="middle">raul</text>
+<text x="400" y="69" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#98A1AC" font-weight="normal" text-anchor="middle">one app: set up, mod and play</text>
+<path d="M400 82 C400 108 92.0 106 92.0 132" fill="none" stroke="#2F353F" stroke-width="2"/>
+<rect x="20" y="132" width="144" height="84" rx="10" fill="#171A1F" stroke="#F59E3B" stroke-width="2"/>
+<text x="92.0" y="158" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#F59E3B" font-weight="bold" text-anchor="middle">nv-rs</text>
+<text x="92.0" y="182" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#E6E8EB" font-weight="normal" text-anchor="middle">the game engine</text>
+<text x="92.0" y="200" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#98A1AC" font-weight="normal" text-anchor="middle">runs New Vegas</text>
+<text x="92.0" y="236" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#F59E3B" font-weight="bold" text-anchor="middle">this project</text>
+<path d="M400 82 C400 108 246.0 106 246.0 132" fill="none" stroke="#2F353F" stroke-width="2"/>
+<rect x="174" y="132" width="144" height="84" rx="10" fill="#171A1F" stroke="#2F353F" stroke-width="1.5"/>
+<text x="246.0" y="158" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#3DD6C6" font-weight="bold" text-anchor="middle">nvmod-rs</text>
+<text x="246.0" y="182" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#E6E8EB" font-weight="normal" text-anchor="middle">your mods</text>
+<text x="246.0" y="200" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#98A1AC" font-weight="normal" text-anchor="middle">installs and manages</text>
+<path d="M400 82 C400 108 400.0 106 400.0 132" fill="none" stroke="#2F353F" stroke-width="2"/>
+<rect x="328" y="132" width="144" height="84" rx="10" fill="#171A1F" stroke="#2F353F" stroke-width="1.5"/>
+<text x="400.0" y="158" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#3DD6C6" font-weight="bold" text-anchor="middle">loot-rs</text>
+<text x="400.0" y="182" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#E6E8EB" font-weight="normal" text-anchor="middle">load order</text>
+<text x="400.0" y="200" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#98A1AC" font-weight="normal" text-anchor="middle">sorts your plugins</text>
+<path d="M400 82 C400 108 554.0 106 554.0 132" fill="none" stroke="#2F353F" stroke-width="2"/>
+<rect x="482" y="132" width="144" height="84" rx="10" fill="#171A1F" stroke="#2F353F" stroke-width="1.5"/>
+<text x="554.0" y="158" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#3DD6C6" font-weight="bold" text-anchor="middle">lodwright-rs</text>
+<text x="554.0" y="182" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#E6E8EB" font-weight="normal" text-anchor="middle">distant view</text>
+<text x="554.0" y="200" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#98A1AC" font-weight="normal" text-anchor="middle">far land for your mods</text>
+<path d="M400 82 C400 108 708.0 106 708.0 132" fill="none" stroke="#2F353F" stroke-width="2"/>
+<rect x="636" y="132" width="144" height="84" rx="10" fill="#171A1F" stroke="#2F353F" stroke-width="1.5"/>
+<text x="708.0" y="158" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#3DD6C6" font-weight="bold" text-anchor="middle">ttwright-rs</text>
+<text x="708.0" y="182" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#E6E8EB" font-weight="normal" text-anchor="middle">Tale of Two</text>
+<text x="708.0" y="200" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#98A1AC" font-weight="normal" text-anchor="middle">Wastelands installer</text>
+</svg>
