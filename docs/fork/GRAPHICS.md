@@ -175,12 +175,19 @@ the far land and objects, the near land and the references its water form names,
 
 | Setting | What it does | Default | Applies |
 | --- | --- | --- | --- |
-| `placed_reflections` | `game`: the original (sky only); `low`: outdoor groups away from the world's water height draw the game's own group reflection at low detail (sky, far land and far objects); `high`: at high detail (also the loaded land and the references the water reflects) | `game` | live |
+| `placed_reflections` | `game`: the original (sky only); `low`: outdoor groups away from the world's water height draw the game's own group reflection at low detail (sky, far land and far objects); `high`: every outdoor group, also at the world's water height, draws its own reflection holding the whole loaded scene (the game's world scene graph, as its world reflection holds it with `bForceHighDetailReflections`): land, statics, trees and buildings around the water, drawn in their colours (not as the sky-coloured silhouettes `bAutoWaterSilhouetteReflections` gives) | `game` | live |
 
 With `low` or `high` the far (LOD) water takes the reflection of the highest such group below the viewer: its blocks
 hold every lake and river of the world in one shape, so it cannot be split by height; the near water is the one the
 viewer looks at. Far water at another height (a river below a lake) mirrors about the near water's plane then, as it
 mirrored about the world's water height before. `modern` takes `high`.
+
+Why `high` takes the whole scene (nv-rs#848): the game's group reflection holds the land and the references the water
+references name as reflected, never the loaded statics around the water, so a river below a dam or a pool in a
+courtyard built from statics mirrored nothing but the sky and the land. Water at the world's water height (the Colorado
+below Hoover Dam at the Mojave's -2300, the Potomac at the Capital's 10500) took the world reflection map, which outdoors
+holds only the sky and the far land. With `high` such groups take their own reflection too; `low` keeps the world map for
+them. A water type that is nearly opaque (a short fog distance) shows little of any reflection: that is the data.
 
 Cost: one more scene pass into a reflection target while placed water is in range (the pass the game draws indoors). At
 Lake Mead on the plain game (`nv-rs-scene bench`, 1280x720 offscreen, five passes of 400 frames) two runs each of `game`
