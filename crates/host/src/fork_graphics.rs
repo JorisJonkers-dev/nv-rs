@@ -119,6 +119,8 @@ pub struct Levels {
     pub anisotropy: u32,
     /// `light.lamp_distance` (set while the game runs too): the scale of the lamps' fade distances.
     pub lamp_distance: f32,
+    /// `light.far_lights` (set while the game runs too).
+    pub far_lights: bool,
     /// `water.placed_reflections` (set while the game runs too).
     pub placed_reflections: engine::placed_reflections::Level,
 }
@@ -249,6 +251,7 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
             ambient,
             anisotropy,
             lamp_distance: light.slider("lamp_distance") as f32,
+            far_lights: light.toggle("far_lights"),
             placed_reflections: placed_reflections(
                 r.module("water")
                     .expect("built in")
@@ -320,6 +323,7 @@ pub fn start(
     set_ambient_shares(levels.ambient);
     d3d9_wgpu::state::forced_anisotropy::set(levels.anisotropy);
     engine::lamp_distance::set(levels.lamp_distance);
+    engine::far_lights::set(levels.far_lights);
     engine::placed_reflections::set(levels.placed_reflections);
     if !r.is_original() {
         lines.push(format!(
@@ -360,6 +364,7 @@ pub fn session(
             set_ambient_shares(l.ambient);
             d3d9_wgpu::state::forced_anisotropy::set(l.anisotropy);
             engine::lamp_distance::set(l.lamp_distance);
+            engine::far_lights::set(l.far_lights);
             engine::placed_reflections::set(l.placed_reflections);
         }),
     )
@@ -386,6 +391,7 @@ mod tests {
             ambient: AmbientShares::ORIGINAL,
             anisotropy: 0,
             lamp_distance: 1.0,
+            far_lights: false,
             placed_reflections: engine::placed_reflections::Level::Game,
         }
     }
@@ -556,6 +562,21 @@ mod tests {
         assert_eq!(distance(&[("NV_GFX_PRESET", "original")]), 1.0);
         assert_eq!(distance(&[("NV_GFX_PRESET", "modern")]), 4.0);
         assert_eq!(distance(&[("NV_GFX", "light.lamp_distance=8")]), 8.0);
+    }
+
+    #[test]
+    fn far_lights_are_off_unless_chosen() {
+        let on = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.far_lights
+        };
+        assert!(!on(&[]), "the game's far view by default");
+        assert!(!on(&[("NV_GFX_PRESET", "original")]));
+        assert!(
+            !on(&[("NV_GFX_PRESET", "modern")]),
+            "off in modern until proven"
+        );
+        assert!(on(&[("NV_GFX", "light.far_lights=true")]));
     }
 
     #[test]

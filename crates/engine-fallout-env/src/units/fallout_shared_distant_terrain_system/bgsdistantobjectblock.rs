@@ -28,6 +28,98 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
+/// Far lights at night (fork, the graphics setting `light.far_lights`; not in FalloutNV.exe). A far-object block
+/// file may hold, as a direct child of its root node, a shape carrying an extra data object NAMED `FarLights`
+/// (any type, any value): small unlit points where the lamps of the world stand, as a far-view tool writes them.
+/// The block's prepare leaves that shape out of the far-building treatment it gives every other shape (no alpha
+/// test, no far-building shader flags, no clone), gives it its own shader as written, and keeps it hidden unless
+/// the setting is on; on, it is shown by night only, its shader property's alpha (`fAlpha`, +0x28) set to the
+/// [`night_factor`] of the current climate's sunrise and sunset, so the points fade in over the sunset and out
+/// over the sunrise. Off (the default, and under `original`) such a shape is never drawn, as the game draws it
+/// (the game never prepares a block's later shapes).
+pub mod far_lights {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    /// The extra data name that marks a far-lights shape.
+    pub const MARKER: &[u8] = b"FarLights";
+
+    static ON: AtomicBool = AtomicBool::new(false);
+    /// The night factor last given to the loaded blocks' far-lights shapes (`f32` bits; [`NONE`] before the
+    /// first): 0 while the setting is off.
+    static APPLIED: AtomicU32 = AtomicU32::new(NONE);
+    const NONE: u32 = u32::MAX;
+
+    /// Sets whether far lights are shown (from the next frame on).
+    pub fn set(on: bool) {
+        ON.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether they are.
+    pub fn on() -> bool {
+        ON.load(Ordering::Relaxed)
+    }
+
+    /// The factor the shapes have now: 0 (hidden) until a frame has given them one.
+    pub(super) fn applied() -> f32 {
+        match APPLIED.load(Ordering::Relaxed) {
+            NONE => 0.0,
+            bits => f32::from_bits(bits),
+        }
+    }
+
+    /// Whether `factor` differs from the one the shapes have (so the loaded blocks are visited again).
+    pub(super) fn changes(factor: f32) -> bool {
+        APPLIED.load(Ordering::Relaxed) != factor.to_bits()
+    }
+
+    pub(super) fn set_applied(factor: f32) {
+        APPLIED.store(factor.to_bits(), Ordering::Relaxed);
+    }
+
+    /// Whether a frame has to look at the far lights at all: the setting on, or shapes still shown from when
+    /// it was (so a frame with the setting off and nothing shown makes no call of its own).
+    pub fn wanted() -> bool {
+        on() || applied() > 0.0
+    }
+
+    #[cfg(test)]
+    pub(super) fn reset() {
+        set(false);
+        APPLIED.store(NONE, Ordering::Relaxed);
+    }
+
+    /// How much of the night it is at `hour`, 0 by day to 1 by night, from the sky's transition hours: 0
+    /// from the end of the sunrise to the start of the sunset, rising linearly over the sunset to 1 at its end,
+    /// 1 through the night, falling linearly over the sunrise to 0 at its end. Taken in steps of 1/64, so the
+    /// loaded blocks are visited at most 64 times over a fade. A climate whose hours are not in order
+    /// (a transition of no length) gives a hard step there.
+    pub fn night_factor(
+        hour: f32,
+        sunrise_begin: f32,
+        sunrise_end: f32,
+        sunset_begin: f32,
+        sunset_end: f32,
+    ) -> f32 {
+        let ramp = |from: f32, to: f32| {
+            if to > from {
+                ((hour - from) / (to - from)).clamp(0.0, 1.0)
+            } else {
+                1.0
+            }
+        };
+        let factor = if hour >= sunset_end || hour <= sunrise_begin {
+            1.0
+        } else if hour < sunrise_end {
+            1.0 - ramp(sunrise_begin, sunrise_end)
+        } else if hour > sunset_begin {
+            ramp(sunset_begin, sunset_end)
+        } else {
+            0.0
+        };
+        (factor * 64.0).round() / 64.0
+    }
+}
+
 // Offsets in `BGSDistantObjectBlock` (Xbox PDB names).
 const BLOCK_NODE: u32 = 0x0;
 const BLOCK_MESH: u32 = 0x4;
@@ -769,6 +861,9 @@ pub fn fn_006f66e0(e: &mut Engine, this: Ptr) {
         for target in prepared_meshes(e, base) {
             prepare_mesh(e, base, target);
         }
+        for target in far_lights_shapes(e, base) {
+            prepare_far_lights(e, target);
+        }
     }
     if do_stinger && pointer(e, base + BLOCK_STINGER) != 0 {
         let stinger = pointer(e, base + BLOCK_STINGER);
@@ -805,10 +900,129 @@ fn prepared_meshes(e: &mut Engine, base: u32) -> Vec<u32> {
             if e.call(GET_PROPERTY, &args![child, shader_type]).u32() == 0 {
                 continue;
             }
+            // A far-lights shape is not a far building ([`far_lights`]).
+            if is_far_lights_shape(e, child) {
+                continue;
+            }
             out.push(child);
         }
     }
     out
+}
+
+/// Whether `object` carries an extra data object named [`far_lights::MARKER`] (ASCII case ignored): its
+/// `NiObjectNET` extra data array (`m_ppkExtra` +0x10, count `m_usExtraDataSize` +0x14), each entry's name
+/// handle at +8 (a pointer to its characters). Read straight from memory: no call, no lock.
+fn is_far_lights_shape(e: &Engine, object: u32) -> bool {
+    if object == 0 {
+        return false;
+    }
+    let count = u32::from(e.mem.u16(object + 0x14));
+    let array = e.mem.u32(object + 0x10);
+    if array == 0 {
+        return false;
+    }
+    (0..count).any(|i| {
+        let extra = e.mem.u32(array + 4 * i);
+        let name = if extra == 0 { 0 } else { e.mem.u32(extra + 8) };
+        name != 0
+            && (0..=far_lights::MARKER.len() as u32).all(|k| {
+                let byte = e.mem.u8(name + k);
+                match far_lights::MARKER.get(k as usize) {
+                    Some(want) => byte.eq_ignore_ascii_case(want),
+                    None => byte == 0,
+                }
+            })
+    })
+}
+
+/// The far-lights shapes of a block ([`far_lights`]): the leaf children of the file's root node that carry the
+/// marker.
+fn far_lights_shapes(e: &mut Engine, base: u32) -> Vec<u32> {
+    let node = pointer(e, base + BLOCK_SCENE_NODE);
+    if node == 0 || node == mesh(e, base) {
+        return Vec::new();
+    }
+    let count = e.call(CHILD_COUNT_00453470, &args![node]).u32();
+    (0..count)
+        .filter_map(|index| {
+            let child = e.call(NODE_FIND_MESH, &args![node, index]).u32();
+            (child != 0
+                && e.vcall(child, OBJECT_SLOT_C, &args![]).u32() == 0
+                && is_far_lights_shape(e, child))
+            .then_some(child)
+        })
+        .collect()
+}
+
+/// A far-lights shape shown at `factor` ([`far_lights`]): hidden at 0 (`00450f90(1)`), else shown with its
+/// shader property's alpha at the factor.
+fn show_far_lights(e: &mut Engine, shape: u32, factor: f32) {
+    if factor > 0.0 {
+        let shader_type = e.call(SHADER_PROPERTY_TYPE, &args![]).u32();
+        let property = e.call(GET_PROPERTY, &args![shape, shader_type]).u32();
+        if property != 0 {
+            e.mem.set_f32(property + 0x28, factor);
+        }
+        e.call(SET_HIDDEN_00450F90, &args![shape, 0u32]);
+    } else {
+        e.call(SET_HIDDEN_00450F90, &args![shape, 1u32]);
+    }
+}
+
+/// The prepare of a far-lights shape ([`far_lights`]): its own shader property as written gets its shader
+/// (`SetShader`), the properties and the downward update run, and the renderer gets the shape, as
+/// [`prepare_mesh`] does without the far-building changes; then it is shown at the factor the loaded shapes
+/// have.
+fn prepare_far_lights(e: &mut Engine, target: u32) {
+    let shader_type = e.call(SHADER_PROPERTY_TYPE, &args![]).u32();
+    let shader_property = e.call(GET_PROPERTY, &args![target, shader_type]).u32();
+    if shader_property != 0 {
+        let shader_id = e.call(SHADER_ID, &args![shader_property]).u32();
+        let shader = e.call(GET_SHADER, &args![shader_id]).u32();
+        e.call(SET_SHADER, &args![target, shader]);
+        e.with_stack(0xc, |e, data| {
+            e.call(
+                UPDATE_DATA_CONSTRUCT,
+                &args![data, 0.0f32.to_bits(), 0u32, 0u32],
+            );
+            e.call(UPDATE_PROPERTIES, &args![target]);
+            e.call(UPDATE_DOWNWARD, &args![target, data]);
+        });
+        let owner = e.call(MESH_OWNER_4030B0, &args![target]).u32();
+        let renderer = e.call(RENDERER, &args![]).u32();
+        let value = e
+            .vcall(owner, OWNER_SLOT_118, &args![target, shader_property])
+            .u32();
+        e.vcall(
+            renderer,
+            RENDERER_SLOT_EC,
+            &args![target, 0u32, 0u32, value],
+        );
+    }
+    show_far_lights(e, target, far_lights::applied());
+}
+
+/// The far lights' part of a frame ([`far_lights`], called by the sky's update with the [`far_lights::night_factor`]
+/// of the hour): when the factor the shapes should have (0 with the setting off) differs from the one they have,
+/// every block on `BlocksLoaded` gives its far-lights shapes the new one.
+pub fn far_lights_frame(e: &mut Engine, night: f32) {
+    let factor = if far_lights::on() { night } else { 0.0 };
+    if !far_lights::changes(factor) {
+        return;
+    }
+    let mut node = BLOCKS_LOADED;
+    while node != 0 {
+        let at = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, node));
+        let block = e.mem.u32(at);
+        if block != 0 {
+            for shape in far_lights_shapes(e, block) {
+                show_far_lights(e, shape, factor);
+            }
+        }
+        node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
+    }
+    far_lights::set_applied(factor);
 }
 
 /// The mesh part of [`fn_006f66e0`], for one mesh.
@@ -2330,11 +2544,12 @@ mod tests {
         const LEAF_SLOT_DOUBLE: u32 = 0xdead_4090;
         e.register(LEAF_SLOT_DOUBLE, |_, _| ret(0));
         e.register(OBJECT_SLOT_DOUBLE, |_, _| ret(1));
-        let first = object(&mut e, 8, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
-        let nested = object(&mut e, 8, &[(OBJECT_SLOT_C, OBJECT_SLOT_DOUBLE)]);
-        let second = object(&mut e, 8, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
-        let bare = object(&mut e, 8, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
-        let third = object(&mut e, 8, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        // Shapes the size of an `NiObjectNET` at least (the far-lights check reads its extra data words).
+        let first = object(&mut e, 0x40, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        let nested = object(&mut e, 0x40, &[(OBJECT_SLOT_C, OBJECT_SLOT_DOUBLE)]);
+        let second = object(&mut e, 0x40, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        let bare = object(&mut e, 0x40, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        let third = object(&mut e, 0x40, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
         let children = [first, nested, 0, second, bare, third];
         let node = e.mem.alloc(0x40);
         e.mem.set_u32(node + 8, children.len() as u32);
@@ -2397,6 +2612,200 @@ mod tests {
         );
         assert_eq!(calls(&e, RENDERER_SLOT_DOUBLE).len(), 3);
         assert_eq!(e.mem.u8(block + BLOCK_PREPARED), 1);
+    }
+
+    /// The far-lights tests share the setting and the applied factor (statics): one at a time.
+    static FAR_LIGHTS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A shape with one extra data object named `name`.
+    fn named_shape(e: &mut Engine, leaf_slot: u32, name: &[u8]) -> u32 {
+        let shape = object(e, 0x40, &[(OBJECT_SLOT_C, leaf_slot)]);
+        let text = e.mem.alloc(0x20);
+        e.mem.write(text, name);
+        e.mem.set_u8(text + name.len() as u32, 0);
+        let extra = e.mem.alloc(0x10);
+        e.mem.set_u32(extra + 8, text);
+        let array = e.mem.alloc(8);
+        e.mem.set_u32(array, extra);
+        e.mem.set_u32(shape + 0x10, array);
+        e.mem.set_u16(shape + 0x14, 1);
+        shape
+    }
+
+    #[test]
+    fn the_night_factor_follows_the_climate_s_sunrise_and_sunset() {
+        use far_lights::night_factor as f;
+        // Sunrise 5:00 to 7:00, sunset 18:00 to 20:00.
+        let at = |hour| f(hour, 5.0, 7.0, 18.0, 20.0);
+        assert_eq!(at(12.0), 0.0, "day");
+        assert_eq!(at(7.0), 0.0, "the sunrise's end");
+        assert_eq!(at(18.0), 0.0, "the sunset's start");
+        assert_eq!(at(19.0), 0.5, "half way through the sunset");
+        assert_eq!(at(20.0), 1.0);
+        assert_eq!(at(23.5), 1.0, "night");
+        assert_eq!(at(0.0), 1.0, "midnight");
+        assert_eq!(at(5.0), 1.0, "the sunrise's start");
+        assert_eq!(at(6.5), 0.25, "three quarters through the sunrise");
+        // Steps of 1/64.
+        assert_eq!(at(18.01) * 64.0, (at(18.01) * 64.0).round());
+        // A sunset of no length: a hard step.
+        assert_eq!(f(19.0, 5.0, 7.0, 19.0, 19.0), 1.0);
+        assert_eq!(f(18.9, 5.0, 7.0, 19.0, 19.0), 0.0);
+    }
+
+    #[test]
+    fn a_far_lights_shape_is_marked_by_its_extra_data_name() {
+        let mut e = engine();
+        const LEAF: u32 = 0xdead_40a0;
+        for (name, marked) in [
+            (&b"FarLights"[..], true),
+            (b"farlights", true),
+            (b"FarLightsX", false),
+            (b"FarLight", false),
+            (b"Prn", false),
+        ] {
+            let shape = named_shape(&mut e, LEAF, name);
+            assert_eq!(is_far_lights_shape(&e, shape), marked, "{name:?}");
+        }
+        let plain = object(&mut e, 0x40, &[]);
+        assert!(!is_far_lights_shape(&e, plain), "no extra data");
+        assert!(!is_far_lights_shape(&e, 0));
+    }
+
+    /// A block whose root node holds the block mesh and a far-lights shape, with the prepare's calls doubled.
+    fn block_with_far_lights(e: &mut Engine) -> (u32, u32, u32, u32) {
+        let block = e.mem.alloc(0x80);
+        e.mem.set_u32(block + BLOCK_NODE, 0x4300);
+        e.register(CHILD_COUNT_00453470, |e, a| ret(e.mem.u32(a[0] + 8)));
+        e.register(NODE_FIND_MESH, |e, a| ret(e.mem.u32(a[0] + 0xc + 4 * a[1])));
+        const LEAF_SLOT_DOUBLE: u32 = 0xdead_4090;
+        e.register(LEAF_SLOT_DOUBLE, |_, _| ret(0));
+        let first = object(e, 0x40, &[(OBJECT_SLOT_C, LEAF_SLOT_DOUBLE)]);
+        let lights = named_shape(e, LEAF_SLOT_DOUBLE, b"FarLights");
+        let node = e.mem.alloc(0x40);
+        e.mem.set_u32(node + 8, 2);
+        e.mem.set_u32(node + 0xc, first);
+        e.mem.set_u32(node + 0x10, lights);
+        e.mem.set_u32(block + BLOCK_SCENE_NODE, node);
+        e.mem.set_u32(block + BLOCK_MESH, first);
+        let building = object(e, 0x40, &[(SHADER_SLOT_CLONE, CLONE_SLOT_DOUBLE)]);
+        let unlit = object(e, 0x40, &[(SHADER_SLOT_CLONE, CLONE_SLOT_DOUBLE)]);
+        let owner = object(e, 8, &[(OWNER_SLOT_118, OWNER_SLOT_DOUBLE)]);
+        let renderer = object(e, 8, &[(RENDERER_SLOT_EC, RENDERER_SLOT_DOUBLE)]);
+        e.register(PROPERTY_TYPE_40DF90, |_, _| ret(9));
+        e.register(NI_ALLOCATE, |_, _| ret(0x6600));
+        e.register(PROPERTY_CONSTRUCT, |_, a| ret(a[0]));
+        e.register(SHADER_PROPERTY_TYPE, |_, _| ret(3));
+        e.register_double(GET_PROPERTY, move |_, a| {
+            ret(if a[0] == lights { unlit } else { building })
+        });
+        e.register(CLONE_SLOT_DOUBLE, |_, _| ret(0));
+        e.register(SHADER_ID, |_, _| ret(0x11));
+        e.register(GET_SHADER, |_, a| ret(a[0] + 0x100));
+        e.register(MESH_DATA, |_, _| ret(0x6800));
+        e.register_double(MESH_OWNER_4030B0, move |_, _| ret(owner));
+        e.register_double(RENDERER, move |_, _| ret(renderer));
+        e.register(OWNER_SLOT_DOUBLE, |_, _| ret(0x55));
+        quiet(
+            e,
+            &[
+                REMOVE_PROPERTY,
+                PROPERTY_SET_4393C0,
+                PROPERTY_SET_49ED90,
+                PROPERTY_SET_94DB80,
+                PROPERTY_SET_4393E0,
+                ATTACH_PROPERTY,
+                SHADER_SET_FLAG,
+                SET_SHADER,
+                UPDATE_DATA_CONSTRUCT,
+                UPDATE_PROPERTIES,
+                UPDATE_DOWNWARD,
+                UPDATE_BLOCK_VISIBILITY,
+                DATA_SET_4410D0,
+                DATA_SET_CONSISTENCY,
+                DATA_SET_4410F0,
+                RENDERER_SLOT_DOUBLE,
+                RENDERER_E74120,
+                MESHES_DIFFER,
+                SET_HIDDEN_00450F90,
+            ],
+        );
+        (block, first, lights, unlit)
+    }
+
+    #[test]
+    fn a_far_lights_shape_keeps_its_own_properties_and_is_hidden_while_the_setting_is_off() {
+        let _one = FAR_LIGHTS_TESTS.lock().unwrap_or_else(|p| p.into_inner());
+        far_lights::reset();
+        let mut e = engine();
+        let (block, first, lights, unlit) = block_with_far_lights(&mut e);
+        e.mem.set_f32(unlit + 0x28, 1.0);
+        e.call_log = Some(vec![]);
+        e.call(0x006f_66e0, &args![block]);
+        // The block mesh is prepared as a far building; the far-lights shape is not.
+        assert_eq!(
+            calls(&e, REMOVE_PROPERTY),
+            vec![vec![first, 9]],
+            "no clone here"
+        );
+        assert!(calls(&e, SHADER_SET_FLAG).iter().all(|c| c[0] != unlit));
+        assert!(calls(&e, ATTACH_PROPERTY).iter().all(|c| c[0] == first));
+        // It gets its own shader and the renderer gets it, then it is hidden.
+        assert_eq!(
+            calls(&e, SET_SHADER),
+            vec![vec![first, 0x111], vec![lights, 0x111]]
+        );
+        assert_eq!(calls(&e, RENDERER_SLOT_DOUBLE).len(), 2);
+        assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 1]]);
+        assert_eq!(e.mem.f32(unlit + 0x28), 1.0, "its alpha untouched");
+    }
+
+    #[test]
+    fn far_lights_are_shown_by_night_and_the_blocks_are_visited_only_when_the_factor_changes() {
+        let _one = FAR_LIGHTS_TESTS.lock().unwrap_or_else(|p| p.into_inner());
+        far_lights::reset();
+        let mut e = engine();
+        let (block, _first, lights, unlit) = block_with_far_lights(&mut e);
+        // The block on `BlocksLoaded` (the list's head node holds it, no next node).
+        e.mem.set_u32(BLOCKS_LOADED, block);
+        e.mem.set_u32(BLOCKS_LOADED + 4, 0);
+        e.register(LIST_NODE_ITEM, |_, a| ret(a[0]));
+        e.register(LIST_NODE_NEXT, |e, a| ret(e.mem.u32(a[0] + 4)));
+        // Off: the sky's update does not call in at all.
+        assert!(!far_lights::wanted());
+        // On at dusk: shown at the factor.
+        far_lights::set(true);
+        assert!(far_lights::wanted());
+        e.call_log = Some(vec![]);
+        far_lights_frame(&mut e, 0.5);
+        assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 0]]);
+        assert_eq!(e.mem.f32(unlit + 0x28), 0.5);
+        // The same factor next frame: the blocks are not visited.
+        e.call_log = Some(vec![]);
+        far_lights_frame(&mut e, 0.5);
+        assert!(calls(&e, SET_HIDDEN_00450F90).is_empty());
+        assert!(calls(&e, CHILD_COUNT_00453470).is_empty());
+        // Night: full.
+        far_lights_frame(&mut e, 1.0);
+        assert_eq!(e.mem.f32(unlit + 0x28), 1.0);
+        // A block prepared now takes the factor the others have.
+        e.mem.set_u8(block + BLOCK_PREPARED, 0);
+        e.call_log = Some(vec![]);
+        e.call(0x006f_66e0, &args![block]);
+        assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 0]]);
+        // Day: hidden.
+        e.call_log = Some(vec![]);
+        far_lights_frame(&mut e, 0.0);
+        assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 1]]);
+        // Turned off at night: hidden, and then nothing is wanted.
+        far_lights_frame(&mut e, 1.0);
+        far_lights::set(false);
+        assert!(far_lights::wanted(), "still shown");
+        e.call_log = Some(vec![]);
+        far_lights_frame(&mut e, 1.0);
+        assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 1]]);
+        assert!(!far_lights::wanted());
+        far_lights::reset();
     }
 
     #[test]
