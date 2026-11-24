@@ -208,9 +208,8 @@ pub fn stream_commands(cmd_rs: &str, methods: &[String]) -> Vec<(String, BTreeSe
             }
             out.push((name, named));
         }
-        if !t.starts_with("///") && !t.is_empty() && !t.starts_with("//") && indent == 4 {
-            doc.clear();
-        }
+        // Anything but a doc line ends the documentation it belongs to.
+        doc.clear();
     }
     out
 }
@@ -235,6 +234,11 @@ pub fn handled(backend_rs: &str) -> BTreeSet<String> {
 pub fn without_tests(text: &str) -> &str {
     let k = crate::extenders::inline_tests_at(text).unwrap_or(text.len());
     &text[..k]
+}
+
+/// Code only: [`without_tests`], then without comments.
+pub fn code_only(text: &str) -> String {
+    crate::extenders::strip_comments(without_tests(text))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

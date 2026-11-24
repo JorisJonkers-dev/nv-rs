@@ -23,10 +23,15 @@ pub fn read(text: &str, defined: &[&str]) -> Vec<Line> {
     // Each level: (this branch is on, some branch of the group was on, the enclosing level is on).
     let mut stack: Vec<(bool, bool, bool)> = Vec::new();
     let on = |stack: &Vec<(bool, bool, bool)>| stack.last().map_or(true, |l| l.0 && l.2);
+    // A directive continued with `\` at the end of its line goes on over the next.
+    let mut continued = false;
     for (i, line) in code.lines().enumerate() {
         let t = line.trim_start();
         let mut keep = String::new();
-        if let Some(d) = t.strip_prefix('#') {
+        if continued {
+            continued = line.trim_end().ends_with('\\');
+        } else if let Some(d) = t.strip_prefix('#') {
+            continued = line.trim_end().ends_with('\\');
             let d = d.trim_start();
             let word: String = d.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
             let rest = d[word.len()..].trim();
@@ -102,8 +107,12 @@ fn strip_comments(text: &str) -> (String, Vec<Option<u32>>) {
                 j += 1;
             }
             let body: String = b[start..j.min(b.len())].iter().collect();
-            if line_start && body.len() == 4 && body.chars().all(|c| c.is_ascii_hexdigit()) {
-                *opcodes.last_mut().unwrap() = u32::from_str_radix(&body, 16).ok();
+            let body = body.trim();
+            if line_start
+                && (4..=5).contains(&body.len())
+                && body.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                *opcodes.last_mut().unwrap() = u32::from_str_radix(body, 16).ok();
             }
             for &ch in &b[i..(j + 2).min(b.len())] {
                 if ch == '\n' {
@@ -115,7 +124,12 @@ fn strip_comments(text: &str) -> (String, Vec<Option<u32>>) {
             i = j + 2;
             continue;
         }
-        if c == '"' || c == '\'' {
+        // A `'` after a digit is C++14's digit separator (`1'000`), not a character literal.
+        let separator = c == '\''
+            && i > 0
+            && b[i - 1].is_ascii_hexdigit()
+            && b.get(i + 1).is_some_and(|n| n.is_ascii_hexdigit());
+        if (c == '"' || c == '\'') && !separator {
             out.push(c);
             i += 1;
             while i < b.len() && b[i] != c && b[i] != '\n' {
@@ -320,7 +334,8 @@ pub fn bodies(lines: &[Line], head: impl Fn(&str) -> bool) -> Vec<&[Line]> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < lines.len() {
-        if !head(&lines[i].code) {
+        // A declaration (`void f();`) has no body.
+        if !head(&lines[i].code) || lines[i].code.trim_end().ends_with(';') {
             i += 1;
             continue;
         }
@@ -397,6 +412,26 @@ void Load()
             names(&lines),
             ["First", "Third", "Fourth", "Fifth // not a comment"]
         );
+    }
+
+    #[test]
+    fn continued_directives_separators_and_spaced_opcodes() {
+        let src = "#define REG(x) \\\n\tREG_CMD(InAMacro)\n\t/* 2201 */ REG_CMD(Spaced);\n\tint n = 1'000; REG_CMD(After);\n";
+        let lines = read(src, &[]);
+        let names: Vec<String> = lines
+            .iter()
+            .flat_map(|l| calls(&l.code))
+            .map(|c| c.first)
+            .collect();
+        assert_eq!(names, ["Spaced", "After"]);
+        assert_eq!(lines[2].opcode, Some(0x2201));
+        let decl = read(
+            "void T::AddV1();\nint x;\nvoid T::AddV1()\n{\n  Y(1);\n}\n",
+            &[],
+        );
+        let b = bodies(&decl, |c| c.contains("T::AddV"));
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0][0].no, 3);
     }
 
     #[test]

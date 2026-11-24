@@ -3,8 +3,8 @@
 # update it in place otherwise. Idempotent. Adapted from the organisation template's apply-ruleset.sh,
 # which handles one ruleset; this one loops so the release-tag ruleset is applied too.
 # The progress App (scripts/fork/setup-progress-bot.py, docs/fork/PROGRESS.md) bypasses "Fork line" to push its
-# pictures: when the repository's Actions variable PROGRESS_APP_ID is set, that one bypass actor is added to what the
-# file says, so applying the file never drops it.
+# pictures: on JorisJonkers-dev/nv-rs, when its Actions variable PROGRESS_APP_ID is set, that one bypass actor is
+# added to what the file says (the file's own list is empty), so applying the file never drops it.
 # Usage: scripts/fork/apply-ruleset.sh <owner/repo>   (default: the current repository)
 set -euo pipefail
 
@@ -17,7 +17,7 @@ trap 'rm -f "$tmp"' EXIT
 
 for file in "$dir"/*.json; do
   name="$(jq -r .name "$file")"
-  if [[ $name == "Fork line" && $progress_app =~ ^[0-9]+$ ]]; then
+  if [[ $repo == JorisJonkers-dev/nv-rs && $name == "Fork line" && $progress_app =~ ^[0-9]+$ ]]; then
     jq --argjson id "$progress_app" '.bypass_actors += [{"actor_id": $id, "actor_type": "Integration", "bypass_mode": "always"}]' "$file" >"$tmp"
     file="$tmp"
   fi

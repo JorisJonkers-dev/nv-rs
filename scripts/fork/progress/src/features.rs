@@ -52,7 +52,14 @@ pub fn read_list(tsv: &str) -> Result<Vec<Capability>, String> {
 /// The declarations of `atlas.rs`: `("module.setting", &["id", ...])`, by setting key.
 pub fn read_declarations(atlas_rs: &str) -> BTreeMap<String, Vec<String>> {
     let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut rest = atlas_rs;
+    // Only the table itself, without comments: a row in a comment or a test declares nothing.
+    let code = crate::extenders::strip_comments(crate::d3d9::without_tests(atlas_rs));
+    let Some(start) = code.find("pub static ATLAS") else {
+        return out;
+    };
+    let table = &code[start..];
+    let table = &table[..table.find("];").unwrap_or(table.len())];
+    let mut rest = table;
     while let Some(k) = rest.find("(\"") {
         rest = &rest[k + 2..];
         let Some(end) = rest.find('"') else { break };
@@ -163,7 +170,14 @@ mod tests {
         assert_eq!(f.done, [("ao".to_string(), vec!["ao.enabled".to_string()])]);
         assert_eq!(f.declared.len(), 1);
         assert_eq!(f.open, ["sky"]);
-        let bad = read_declarations("(\"x.y\", &[\"nope\"]),");
+        assert!(
+            read_declarations(
+                "// (\"ao.enabled\", &[\"sky\"]),\npub static ATLAS: &[(&str, &[&str])] = &[];\n"
+            )
+            .is_empty(),
+            "a row outside the table declares nothing"
+        );
+        let bad = read_declarations("pub static ATLAS: X = &[(\"x.y\", &[\"nope\"]),];");
         assert!(
             classify(&list, &bad, &tests).is_err(),
             "an id not in the list"

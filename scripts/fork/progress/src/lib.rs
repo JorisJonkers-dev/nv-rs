@@ -72,7 +72,7 @@ fn d3d9(root: &Path, sources: &Path) -> Result<D3d9, String> {
         return Err("crates/d3d9-stream/src/cmd.rs: no command read".into());
     }
     let backend = read(root, "crates/d3d9-wgpu/src/lib.rs")?;
-    let handled = d3d9::handled(d3d9::without_tests(&backend));
+    let handled = d3d9::handled(&d3d9::code_only(&backend));
     let carried_lc: BTreeSet<String> = cmds
         .iter()
         .filter(|(c, _)| handled.contains(c))
@@ -95,7 +95,7 @@ fn d3d9(root: &Path, sources: &Path) -> Result<D3d9, String> {
         .iter()
         .filter(|f| !f.to_string_lossy().ends_with("_tests.rs"))
         .filter_map(|f| std::fs::read_to_string(f).ok())
-        .map(|t| d3d9::without_tests(&t).to_string())
+        .map(|t| d3d9::code_only(&t))
         .collect();
     let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
     let (mut mapped, mut warned, mut ignored) = (Vec::new(), Vec::new(), Vec::new());
@@ -140,7 +140,8 @@ pub fn measure(inp: &Inputs) -> Result<Progress, String> {
     })
 }
 
-/// The counts a pull request must not lower without saying why, by name.
+/// The counts a pull request must not lower without saying why, by name. The reference lists'
+/// lengths are among them: a reader that suddenly reads a list short shows as a drop.
 pub fn counts(p: &Progress) -> Vec<(String, usize)> {
     let mut c = vec![
         ("engine.by_hand".to_string(), p.port.by_hand),
@@ -160,6 +161,10 @@ pub fn counts(p: &Progress) -> Vec<(String, usize)> {
             p.d3d9.carried.len() + p.d3d9.answered_only.len(),
         ),
         ("d3d9.states_mapped".into(), p.d3d9.mapped.len()),
+        ("d3d9.reference_methods".into(), p.d3d9.methods.len()),
+        ("d3d9.reference_states".into(), p.d3d9.states),
+        ("engine.game_functions".into(), p.port.game_functions()),
+        ("features.reference".into(), p.features.total),
         ("features.done".into(), p.features.done.len()),
         (
             "features.declared".into(),
@@ -168,6 +173,7 @@ pub fn counts(p: &Progress) -> Vec<(String, usize)> {
     ];
     for e in &p.extenders {
         c.push((format!("extenders.{}.tested", e.id), e.tested.len()));
+        c.push((format!("extenders.{}.reference", e.id), e.total));
         c.push((
             format!("extenders.{}.built", e.id),
             e.tested.len() + e.untested.len(),

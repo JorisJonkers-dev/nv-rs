@@ -4,10 +4,13 @@
 # changed means nothing is committed. The pull-request side (the same generator in check mode, and the rule that a count
 # may not go down without a reason) is the "Progress counts" job of the pipeline (fork-ci.yml).
 #
-# The push is made with the token of the fork's progress App (raul-progress-bot: contents write, metadata read; a bypass
-# actor on the "Fork line" ruleset only; scripts/fork/setup-progress-bot.py). Without its secrets the run counts, shows
-# the result in its summary and pushes nothing. The repository's code runs before the token exists; the token is made
-# only for the push step and is never in the environment of a build.
+# Two jobs, so the token never meets the repository's code:
+# - `count` builds and runs the generator, with no token, and hands on the six files as an artifact;
+# - `commit` makes a fresh checkout, runs no code of the repository, copies exactly the six files named below (a fixed
+#   list, not one the generator prints), and commits and pushes them with the token of the fork's progress App
+#   (raul-progress-bot: contents write, metadata read; a bypass actor on the "Fork line" ruleset only;
+#   scripts/fork/setup-progress-bot.py). Git hooks are off for that commit and push.
+# Without the App's variable and secret, `count` still counts and shows the result in its summary; nothing is pushed.
 name: Progress pictures
 
 on:
@@ -23,13 +26,23 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # The only files the bot may commit (scripts/fork/progress: OUTPUTS).
+  PROGRESS_FILES: >-
+    docs/media/fork-progress.json
+    docs/media/fork-progress-engine.svg
+    docs/media/fork-progress-native.svg
+    docs/media/fork-progress-d3d9.svg
+    docs/media/fork-progress-extenders.svg
+    docs/media/fork-progress-features.svg
+
 jobs:
-  update:
-    name: Update the progress pictures
+  count:
+    name: Count
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      HAS_APP: ${{ vars.PROGRESS_APP_ID != '' && secrets.PROGRESS_APP_PRIVATE_KEY != '' }}
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,20 +60,21 @@ jobs:
           "${tool[@]}" fetch --sources "$RUNNER_TEMP/pins"
           "${tool[@]}" generate --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv"
           "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" >>"$GITHUB_STEP_SUMMARY"
-          "${tool[@]}" paths >"$RUNNER_TEMP/progress-paths"
 
-      # Only the generator's own files may change; anything else stops the run before a commit is made.
+      # Only the six files may change; anything else stops the run.
       - name: What changed
         id: diff
         run: |
           set -euo pipefail
+          # shellcheck disable=SC2086
+          printf '%s\n' $PROGRESS_FILES >"$RUNNER_TEMP/allowed"
           git status --porcelain --untracked-files=all | cut -c4- >"$RUNNER_TEMP/changed"
           if [ ! -s "$RUNNER_TEMP/changed" ]; then
             echo "changed=false" >>"$GITHUB_OUTPUT"
             echo "The progress files are up to date: nothing to commit." >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          other="$(grep -vxF -f "$RUNNER_TEMP/progress-paths" "$RUNNER_TEMP/changed" || true)"
+          other="$(grep -vxF -f "$RUNNER_TEMP/allowed" "$RUNNER_TEMP/changed" || true)"
           if [ -n "$other" ]; then
             echo "::error title=Progress pictures::files other than the progress files changed: $other"
             exit 1
@@ -68,36 +82,69 @@ jobs:
           echo "changed=true" >>"$GITHUB_OUTPUT"
           { echo "Changed:"; sed 's/^/- /' "$RUNNER_TEMP/changed"; } >>"$GITHUB_STEP_SUMMARY"
 
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ steps.diff.outputs.changed == 'true' }}
+        with:
+          name: progress-files
+          path: docs/media/fork-progress*
+          retention-days: 3
+
+  commit:
+    name: Commit
+    needs: count
+    if: ${{ needs.count.outputs.changed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HAS_APP: ${{ vars.PROGRESS_APP_ID != '' && secrets.PROGRESS_APP_PRIVATE_KEY != '' }}
+    steps:
       - name: No App to push with
-        if: ${{ steps.diff.outputs.changed == 'true' && env.HAS_APP != 'true' }}
+        if: ${{ env.HAS_APP != 'true' }}
         run: echo "::warning title=Progress pictures::the progress files changed, but the App's variable PROGRESS_APP_ID or secret PROGRESS_APP_PRIVATE_KEY is not set; nothing pushed (scripts/fork/setup-progress-bot.py)"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.HAS_APP == 'true' }}
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ env.HAS_APP == 'true' }}
+        with:
+          name: progress-files
+          path: ${{ runner.temp }}/progress-files
 
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
-        if: ${{ steps.diff.outputs.changed == 'true' && env.HAS_APP == 'true' }}
+        if: ${{ env.HAS_APP == 'true' }}
         with:
           app-id: ${{ vars.PROGRESS_APP_ID }}
           private-key: ${{ secrets.PROGRESS_APP_PRIVATE_KEY }}
           permission-contents: write
 
-      # The commit is made on the commit this run counted. If the branch moved on meanwhile, the run of the newer push
+      # The commit is made on the commit `count` counted. If the branch moved on meanwhile, the run of the newer push
       # counts again and commits; this one leaves it.
       - name: Commit and push
-        if: ${{ steps.diff.outputs.changed == 'true' && env.HAS_APP == 'true' }}
+        if: ${{ env.HAS_APP == 'true' }}
         env:
           TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          xargs -a "$RUNNER_TEMP/progress-paths" git add --
-          git diff --cached --name-only | grep -vxF -f "$RUNNER_TEMP/progress-paths" && { echo "::error::staged a file that is not a progress file"; exit 1; }
-          git commit --quiet -m "chore(progress): update the progress pictures [skip ci]"
+          for f in $PROGRESS_FILES; do
+            cp "$RUNNER_TEMP/progress-files/$(basename "$f")" "$f"
+          done
+          git=(git -c core.hooksPath=/dev/null -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com")
+          # shellcheck disable=SC2086
+          "${git[@]}" add -- $PROGRESS_FILES
+          if "${git[@]}" diff --cached --quiet; then
+            echo "Nothing to commit." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          "${git[@]}" commit --quiet -m "chore(progress): update the progress pictures [skip ci]"
           remote="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          head="$(git ls-remote "$remote" refs/heads/fork | cut -f1)"
+          head="$("${git[@]}" ls-remote "$remote" refs/heads/fork | cut -f1)"
           if [ "$head" != "$GITHUB_SHA" ]; then
             echo "::notice title=Progress pictures::the fork branch moved on ($head); the newer run commits"
             exit 0
           fi
-          git push --quiet "$remote" HEAD:refs/heads/fork
+          "${git[@]}" push --quiet "$remote" HEAD:refs/heads/fork
           echo "Pushed $(git rev-parse --short HEAD)." >>"$GITHUB_STEP_SUMMARY"

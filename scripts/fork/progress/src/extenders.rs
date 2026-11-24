@@ -258,7 +258,7 @@ pub fn test_texts(root: &Path, crate_dir: &str) -> Vec<(String, String)> {
             continue;
         };
         if part.contains("#[test]") {
-            out.push((rel, part.to_string()));
+            out.push((rel, strip_comments(part)));
         }
     }
     out
@@ -279,6 +279,54 @@ pub fn inline_tests_at(text: &str) -> Option<usize> {
         from = at + 12;
     }
     None
+}
+
+/// Rust source without its comments (`//` to the end of the line, `/* */`), string and character
+/// literals kept: a name in a comment ("Tests of `X`") is no call of `X`.
+pub fn strip_comments(text: &str) -> String {
+    let b: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == '/' && b.get(i + 1) == Some(&'/') {
+            while i < b.len() && b[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == '/' && b.get(i + 1) == Some(&'*') {
+            i += 2;
+            while i + 1 < b.len() && !(b[i] == '*' && b[i + 1] == '/') {
+                if b[i] == '\n' {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+        if c == '"' {
+            out.push(c);
+            i += 1;
+            while i < b.len() && b[i] != '"' {
+                if b[i] == '\\' && i + 1 < b.len() {
+                    out.push(b[i]);
+                    i += 1;
+                }
+                out.push(b[i]);
+                i += 1;
+            }
+            if i < b.len() {
+                out.push('"');
+                i += 1;
+            }
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
 }
 
 pub fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -394,6 +442,15 @@ pub fn all(root: &Path, sources: &Path, caps: &Value) -> Result<Vec<Extender>, S
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        if !crate_dir.is_empty()
+            && (!crate_dir.starts_with("crates/")
+                || crate_dir.contains("..")
+                || crate_dir.contains('\\'))
+        {
+            return Err(format!(
+                "{display}: provided_by_source {crate_dir:?} is not a crate under crates/"
+            ));
+        }
         let tests = if crate_dir.is_empty() {
             Vec::new()
         } else {
@@ -546,6 +603,15 @@ void CommandTable::AddCommandsV1()
         let (t, u, _) = classify(&many, &names, &[("list_tests.rs".into(), list)]);
         assert!(t.is_empty());
         assert_eq!(u.len(), BULK + 1);
+    }
+
+    #[test]
+    fn comments_name_nothing() {
+        let t = strip_comments(
+            "// Tests of `Alpha`\nlet x = \"// Beta\"; /* Gamma\n */ call(0x2200);\n",
+        );
+        assert!(!t.contains("Alpha") && t.contains("// Beta") && !t.contains("Gamma"));
+        assert_eq!(t.lines().count(), 3, "lines kept");
     }
 
     #[test]

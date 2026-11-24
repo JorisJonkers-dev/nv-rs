@@ -278,6 +278,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           BODY: ${{ github.event.pull_request.body }}
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
           rustup toolchain install
@@ -292,9 +293,11 @@ jobs:
             baseline=(--baseline "$RUNNER_TEMP/baseline.json")
           fi
           allow=()
-          if printf '%s\n' "$BODY" | tr -d '\r' | grep -qE '^Progress-Drop: *[^ ]'; then allow=(--allow-drop); fi
-          # The upstream replay carries upstream's changes as they are: its drops are reported, not refused.
-          if [ "$HEAD_REF" = sync/upstream ]; then allow=(--allow-drop); fi
+          printf '%s\n' "$BODY" | tr -d '\r' >"$RUNNER_TEMP/pr-body.md"
+          if grep -qE '^Progress-Drop: *[^ ]' "$RUNNER_TEMP/pr-body.md"; then allow=(--allow-drop); fi
+          # The upstream replay (this repository's own sync branch) carries upstream's changes as they are: its drops
+          # are reported, not refused.
+          if [ "$HEAD_REF" = sync/upstream ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then allow=(--allow-drop); fi
           "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" "${baseline[@]}" "${allow[@]}" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 

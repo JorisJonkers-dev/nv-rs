@@ -24,6 +24,7 @@ Usage: scripts/fork/setup-progress-bot.py [--owner JorisJonkers-dev] [--name rau
 Needs: python3, gh (logged in as an owner of the organisation), openssl, a browser logged in to GitHub. Stdlib only.
 """
 import argparse
+import html
 import base64
 import http.server
 import json
@@ -62,13 +63,14 @@ def manifest(name: str, owner: str, port: int) -> dict:
 
 
 def page(owner: str, state: str, man: dict) -> bytes:
-    action = f"https://github.com/organizations/{owner}/settings/apps/new?state={state}"
-    value = json.dumps(man).replace("&", "&amp;").replace('"', "&quot;")
+    action = html.escape(f"https://github.com/organizations/{urllib.parse.quote(owner)}/settings/apps/new?state={state}",
+                         quote=True)
+    value = html.escape(json.dumps(man), quote=True)
     perms = ", ".join(f"{k}: {v}" for k, v in PERMISSIONS.items())
     return (
         "<!doctype html><meta charset=utf-8><title>Create the progress App</title>"
         "<body style='font:16px system-ui;max-width:40em;margin:3em auto'>"
-        f"<h1>Create the App {man['name']}</h1>"
+        f"<h1>Create the App {html.escape(man['name'])}</h1>"
         f"<p>Permissions: {perms}. No webhook, private.</p>"
         f"<form method=post action='{action}'><input type=hidden name=manifest value=\"{value}\">"
         "<button style='font-size:1.1em;padding:.5em 1.2em'>Continue to GitHub</button></form>"
@@ -139,7 +141,7 @@ class Key:
 
 def installation(owner: str, slug: str) -> "dict | None":
     """The App's installation in the organisation, as an owner sees it, or None."""
-    data = gh_json(f"orgs/{owner}/installations", "--paginate") or {}
+    data = gh_json(f"orgs/{owner}/installations?per_page=100") or {}
     for inst in data.get("installations", []):
         if inst.get("app_slug") == slug:
             return inst
@@ -221,13 +223,17 @@ def ensure_bypass(owner: str, app_id: int, yes: bool) -> None:
     if not step(f"{repo}: add the App (id {app_id}) as the only new bypass actor of ruleset '{RULESET_NAME}' "
                 f"({rs['id']}); its rules stay as they are", yes):
         return
-    body = {k: rs[k] for k in ("name", "target", "enforcement", "conditions", "rules")}
+    kept = ("name", "target", "enforcement", "conditions", "rules")
+    body = {k: rs[k] for k in kept}
     body["bypass_actors"] = actors + [{"actor_id": app_id, "actor_type": "Integration", "bypass_mode": "always"}]
     gh("api", "-X", "PUT", f"repos/{repo}/rulesets/{rs['id']}", "--input", "-", input_text=json.dumps(body))
     after = gh_json(f"repos/{repo}/rulesets/{rs['id']}")
-    if [r["type"] for r in after["rules"]] != [r["type"] for r in rs["rules"]]:
-        sys.exit("the ruleset's rules changed: check it at once in the repository settings")
-    print("   Done; the rules are unchanged.")
+    changed = [k for k in kept if after.get(k) != rs.get(k)]
+    new_actors = [a for a in after.get("bypass_actors") or [] if a not in actors]
+    if changed or [(a.get("actor_id"), a.get("actor_type")) for a in new_actors] != [(app_id, "Integration")]:
+        sys.exit(f"the ruleset changed beyond the one bypass actor ({changed or new_actors}): check it at once in the "
+                 "repository settings")
+    print("   Done; only the one bypass actor was added.")
 
 
 def selftest() -> None:

@@ -107,7 +107,11 @@ pub fn families(root: &Path) -> Vec<Family> {
             .unwrap_or(&f)
             .to_string_lossy()
             .replace('\\', "/");
-        out.extend(families_in(&text, &rel));
+        // A family declared in test code is no family of the engine.
+        if rel.split('/').any(|c| c == "tests") || rel.ends_with("_tests.rs") {
+            continue;
+        }
+        out.extend(families_in(&crate::d3d9::code_only(&text), &rel));
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out

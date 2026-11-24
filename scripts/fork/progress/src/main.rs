@@ -102,9 +102,10 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             }
             let before = match flag(args, "--baseline") {
                 Some(f) => match std::fs::read_to_string(f) {
-                    Ok(t) => baseline_counts(&t)?,
-                    // A first run has no baseline.
-                    Err(_) => Vec::new(),
+                    Ok(t) => baseline_counts(&t).map_err(|e| format!("{f}: {e}"))?,
+                    // A first run has no baseline; any other failure to read it stops the check.
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                    Err(e) => return Err(format!("{f}: {e}")),
                 },
                 None => Vec::new(),
             };

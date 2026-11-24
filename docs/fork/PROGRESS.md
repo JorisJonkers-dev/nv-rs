@@ -15,7 +15,9 @@ by hand. The pictures are drawn from the summary `docs/media/fork-progress.json`
 name behind a count, such as the commands that are missing or untested, and the device methods that are not answered.
 
 **Nobody edits these files.** After every push to `fork`, the workflow `Progress pictures` (`.github/workflows/fork-progress.yml`)
-counts again. When a file changed, it commits those six files and nothing else, as `chore(progress): ... [skip ci]`.
+counts again, with no token. When a file changed, a second job makes a fresh checkout and runs none of the repository's
+code. It copies exactly those six files, a fixed list in the workflow, and commits and pushes them with the App's token,
+as `chore(progress): ... [skip ci]`.
 
 ## What each count is, and what proves it
 
@@ -57,7 +59,8 @@ counts again. When a file changed, it commits those six files and nothing else, 
   `scripts/fork/release-files`; its test fails while the file is stale). Names are compared without case, as the game
   compares them.
 - *Tested*: a test file of the crate that builds the command names it, by its exact name as a word or by its opcode as a
-  hexadecimal literal. A test file is a `*_tests.rs`, `tests.rs` or `tests/` file, or the inline `#[cfg(test)] mod`.
+  hexadecimal literal, comments left out. A test file is a `*_tests.rs`, `tests.rs` or `tests/` file, or the inline
+  `#[cfg(test)] mod`.
   A file that names more than 200 of one extender's commands counts as a list and tests none of them. The tests must
   pass for a pull request to merge; the tool does not run them again.
 
@@ -76,8 +79,10 @@ The pipeline's job `Progress counts` (in `fork-ci.yml`, part of `Pipeline Comple
 - runs the generator's tests;
 - counts the merged tree twice, and fails when the two runs write different bytes or a reading fails, for example a
   pinned source that no longer parses;
-- compares every count with the base branch's summary. A count that goes down fails the job, unless the pull request
-  description has a line `Progress-Drop: <why>`. The upstream replay's drops are only reported;
+- compares every count with the base branch's summary, the reference lists' lengths included, so a reader that
+  suddenly reads a list short shows. A count that goes down fails the job, unless the pull request description has a
+  line `Progress-Drop: <why>`. The drops of the upstream replay (this repository's own `sync/upstream`) are only
+  reported;
 - lists, in the run summary, the built commands that have no test.
 
 ## Running it
