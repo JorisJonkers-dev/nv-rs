@@ -8,7 +8,7 @@
 //! does when a card cannot make it.
 //!
 //! The budget is `NV_GPU_BUDGET_MB` (0 switches it off), else 80 % of the first DRM card's VRAM
-//! (Linux, `mem_info_vram_total`), else none; a texture side over [`MAX_SIDE`] is always refused.
+//! (Linux, `mem_info_vram_total`) up to 8 GiB, else none; a texture side over [`MAX_SIDE`] is always refused.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -18,6 +18,11 @@ pub(crate) const MAX_SIDE: u32 = 16384;
 
 /// The share of the card's video memory the layer may use when nothing says otherwise, in percent.
 const DEFAULT_SHARE: u64 = 80;
+
+/// The most the layer may use when nothing says otherwise, whatever the card: a 142-plugin load order at 2560x1440
+/// makes about 2.1 GB of textures and buffers at most (nv-rs#899), so a large card keeps the rest for the desktop
+/// and other programs.
+const DEFAULT_MAX: u64 = 8 << 30;
 
 /// Why an allocation was refused.
 #[derive(Debug, PartialEq, Eq)]
@@ -147,7 +152,7 @@ pub(crate) fn limit_for(env_mb: Option<&str>, vram_total: Option<u64>) -> u64 {
     if let Some(mb) = env_mb.and_then(|v| v.trim().parse::<u64>().ok()) {
         return mb.saturating_mul(1 << 20);
     }
-    vram_total.map_or(0, |v| v / 100 * DEFAULT_SHARE)
+    vram_total.map_or(0, |v| (v / 100 * DEFAULT_SHARE).min(DEFAULT_MAX))
 }
 
 fn sysfs_vram_total() -> Option<u64> {
@@ -271,6 +276,14 @@ mod tests {
         assert_eq!(limit_for(Some("0"), Some(1 << 40)), 0);
         assert_eq!(limit_for(Some("x"), Some(100)), 80);
         assert_eq!(limit_for(None, Some(1000)), 800);
+        // A 24 GiB card: 8 GiB, not 80 %; an 8 GiB card: 80 %.
+        assert_eq!(limit_for(None, Some(24 << 30)), 8 << 30);
+        assert_eq!(limit_for(None, Some(8 << 30)), (8u64 << 30) / 100 * 80);
+        assert_eq!(
+            limit_for(Some("12000"), Some(24 << 30)),
+            12000 << 20,
+            "the variable wins"
+        );
         assert_eq!(limit_for(None, None), 0);
     }
 
@@ -328,7 +341,7 @@ mod tests {
 
     #[test]
     fn a_leak_of_render_targets_stops_at_the_budget() {
-        // 1920x1080 RGBA8 targets made and kept without end: the 24 GB card's 80 % budget.
+        // 1920x1080 RGBA8 targets made and kept without end: the 24 GB card's budget (8 GiB).
         let b = Budget::new(limit_for(None, Some(24 << 30)));
         let each = texture_bytes(1920, 1080, 1, 1, 1, 4, false);
         let mut kept = Vec::new();

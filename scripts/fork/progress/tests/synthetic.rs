@@ -34,7 +34,8 @@ fn tree(base: &Path, jip_tested: bool) -> (PathBuf, PathBuf) {
   {"id": "johnnyguitar", "provided_by_source": "crates/jg", "commands": {"implemented": 1, "total": 2, "implemented_names": ["GetQuestFailed"]}},
   {"id": "showoff", "provided_by_source": "crates/showoff", "commands": {"implemented": 0, "total": 1, "implemented_names": []}},
   {"id": "stewie-tweaks", "provided_by_source": "crates/stewie", "commands": {"implemented": 0, "total": 8, "implemented_names": []}},
-  {"id": "ttw-nvse", "provided_by_source": "crates/ttw-nvse", "commands": {"implemented": 1, "total": 1, "implemented_names": ["TTWThing"]}}
+  {"id": "ttw-nvse", "provided_by_source": "crates/ttw-nvse", "commands": {"implemented": 1, "total": 1, "implemented_names": ["TTWThing"]}},
+  {"id": "anh-nvse", "provided_by_source": "crates/anh-nvse", "commands": {"implemented": 0, "total": 2, "implemented_names": []}}
 ]}"#,
     );
     put(

@@ -12,7 +12,7 @@
 //!
 //! - [`commands`]: `ActorHasBaseFlag`, the one command Tale of Two Wastelands' scripts call, and
 //!   the table of the commands built since for the mods of a large modded profile, group by group
-//!   (`provenance/`): [`lists`] (`ListAddList`, `ListAddArray`), [`ini`] (the cached INI commands), [`lookups`] (`IsBaseForm`), [`weapons`] (weapon type and flags), [`ownership`] (`SetOwnershipTemp`), [`actor_reads`] (limbs, aiming, blocking, consumption sounds), [`aux_timers`] (the auxiliary timers, counted down every
+//!   (`provenance/`): [`lists`] (`ListAddList`, `ListAddArray`), [`ini`] (the cached INI commands), [`lookups`] (`IsBaseForm`), [`weapons`] (weapon type and flags), [`ownership`] (`SetOwnershipTemp`), [`actor_reads`] (limbs, aiming, blocking, consumption sounds), [`hotkey_icons`] (`GetItemHotkeyIconPath`), [`reference_links`] (`SetEnableParent`, `GetEquippedWeapon`), [`equipped_items`] (`GetEquippedItems`), [`easing`] (`ApplyEasing`), [`disable_alt`] (`DisableAlt`), [`aux_timers`] (the auxiliary timers, counted down every
 //!   frame through xNVSE's `MainGameLoop`). Every other command of the plugin
 //!   is not built: a script that calls one fails at that line.
 //!
@@ -25,11 +25,16 @@ pub mod actor_reads;
 pub mod aux_timers;
 pub mod commands;
 pub mod cosave;
+pub mod disable_alt;
+pub mod easing;
+pub mod equipped_items;
+pub mod hotkey_icons;
 pub mod identity;
 pub mod ini;
 pub mod lists;
 pub mod lookups;
 pub mod ownership;
+pub mod reference_links;
 #[cfg(test)]
 mod test_support;
 pub mod weapons;
@@ -41,7 +46,7 @@ use engine_core::prelude::*;
 pub const ANSWERS_INSTALLED: bool = false;
 
 /// The command names this crate builds (long names), for the capabilities file.
-pub const COMMAND_NAMES: [&str; 29] = commands::COMMAND_NAMES;
+pub const COMMAND_NAMES: [&str; 35] = commands::COMMAND_NAMES;
 
 /// ShowOff xNVSE built in on this engine: its state, one slot per engine ([`Engine::ext`]).
 #[derive(Default)]

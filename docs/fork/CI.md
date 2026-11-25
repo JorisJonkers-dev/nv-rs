@@ -117,6 +117,11 @@ part of the pipeline.
   the two pull-request-only jobs and the build when only documentation changed). Its summary lists each component's
   result, the longest job of the component and the duration, then every job with queue and run time, the job that finished
   last (the critical path of this run) and the failed steps. A Linux twin that failed is shown as "failed (informational)".
+  On a title or description edit (pull_request `edited`) only the checks that read them run (hygiene, PR title, the
+  replay point of Verify sync, Progress counts); the builds and code checks skip, and `Pipeline Complete` passes only
+  when the newest finished run of the commits on the same head commit passed (`scripts/fork/edit_run_gate.py`), so an
+  edit neither restarts the whole pipeline nor turns a red pull request green.
+  A change of the base branch is also an `edited` event; it runs the whole pipeline.
 - **Test-count check (acceptance for a change to the map):** the component summaries together must equal what
   `cargo test --workspace` ran (upstream's log: 57,444 passed, 53 ignored). A feature a job misses would silently skip tests;
   the counts reveal it.

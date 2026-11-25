@@ -1,24 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="646" viewBox="0 0 800 646" role="img" aria-label="nv-rs: All areas · Engine functions not counted: 3015 features, 1097 have a test, 1097 tested on some OSes, 1088 tested on all OSes; Direct3D 9 on wgpu: 222 features, 0 have a test, 0 tested on some OSes, 0 tested on all OSes; Engine functions: 69459 features, 27 have a test, 27 tested on some OSes, 26 tested on all OSes; Script extender commands: 2468 features, 1087 have a test, 1087 tested on some OSes, 1086 tested on all OSes; Engine features: 233 features, 10 have a test, 10 tested on some OSes, 2 tested on all OSes; Engine features, average share: 2.3% native, 97.7% works via the game's code; Graphics features: 92 features, 0 have a test, 0 tested on some OSes, 0 tested on all OSes">
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="646" viewBox="0 0 800 646" role="img" aria-label="nv-rs: All areas · Engine functions not counted: 3018 features, 1100 have a test, 1100 tested on some OSes, 1091 tested on all OSes; Direct3D 9 on wgpu: 222 features, 0 have a test, 0 tested on some OSes, 0 tested on all OSes; Engine functions: 69459 features, 27 have a test, 27 tested on some OSes, 26 tested on all OSes; Script extender commands: 2468 features, 1087 have a test, 1087 tested on some OSes, 1086 tested on all OSes; Engine features: 236 features, 13 have a test, 13 tested on some OSes, 5 tested on all OSes; Engine features, average share: 2.3% native, 97.7% works via the game's code; Graphics features: 92 features, 0 have a test, 0 tested on some OSes, 0 tested on all OSes">
   <title>nv-rs · feature catalogue</title>
   <rect x="0" y="0" width="800" height="646" rx="10" fill="#14110b"/>
   <text x="20" y="30" font-family="Consolas, 'Courier New', monospace" font-size="15" fill="#f2c14e">NV-RS · FEATURES</text>
   <text x="20" y="58" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#d9c9a3">All areas · Engine functions not counted</text>
-  <text x="780" y="58" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">3,015 features · 36.1% tested on all OSes</text>
+  <text x="780" y="58" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">3,018 features · 36.1% tested on all OSes</text>
   <clipPath id="c0"><rect x="20" y="66" width="760" height="12" rx="4"/></clipPath>
   <rect x="20" y="66" width="760" height="12" rx="4" fill="#2b2418"/>
-  <rect x="20" y="66" width="274" height="12" fill="#f2c14e" clip-path="url(#c0)"/>
-  <rect x="294" y="66" width="3" height="12" fill="#d9862b" clip-path="url(#c0)"/>
+  <rect x="20" y="66" width="275" height="12" fill="#f2c14e" clip-path="url(#c0)"/>
+  <rect x="295" y="66" width="2" height="12" fill="#d9862b" clip-path="url(#c0)"/>
   <rect x="297" y="66" width="219" height="12" fill="#6a5632" clip-path="url(#c0)"/>
   <rect x="516" y="66" width="43" height="12" fill="#4f6472" clip-path="url(#c0)"/>
   <rect x="20" y="66" width="760" height="12" rx="4" fill="none" stroke="#5c4a26" stroke-width="1"/>
   <rect x="20" y="85" width="10" height="10" fill="#f2c14e" stroke="#5c4a26" stroke-width="1"/>
-  <text x="36" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,088 tested on all OSes</text>
+  <text x="36" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,091 tested on all OSes</text>
   <rect x="213" y="85" width="10" height="10" fill="#d9862b" stroke="#5c4a26" stroke-width="1"/>
-  <text x="229" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,097 tested on some OSes</text>
+  <text x="229" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,100 tested on some OSes</text>
   <rect x="412" y="85" width="10" height="10" fill="#9c6f2c" stroke="#5c4a26" stroke-width="1"/>
-  <text x="428" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,097 have a test</text>
+  <text x="428" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,100 have a test</text>
   <rect x="559" y="85" width="10" height="10" fill="#6a5632" stroke="#5c4a26" stroke-width="1"/>
-  <text x="575" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,967 built</text>
+  <text x="575" y="94" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,970 built</text>
   <rect x="20" y="101" width="10" height="10" fill="#2b2418" stroke="#5c4a26" stroke-width="1"/>
   <text x="36" y="110" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">1,048 not built yet</text>
   <rect x="180" y="101" width="10" height="10" fill="#4f6472" stroke="#5c4a26" stroke-width="1"/>
@@ -77,22 +77,22 @@
   <text x="36" y="350" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">644 not built yet</text>
   <text x="20" y="366" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#a77d2a">not built yet: extenders.johnnyguitar.jglegacyworldtoscreen and 643 more</text>
   <text x="20" y="394" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#d9c9a3">Engine features</text>
-  <text x="780" y="394" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">233 features · 0.9% tested on all OSes</text>
+  <text x="780" y="394" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">236 features · 2.1% tested on all OSes</text>
   <clipPath id="c4"><rect x="20" y="402" width="760" height="12" rx="4"/></clipPath>
   <rect x="20" y="402" width="760" height="12" rx="4" fill="#2b2418"/>
-  <rect x="20" y="402" width="7" height="12" fill="#f2c14e" clip-path="url(#c4)"/>
-  <rect x="27" y="402" width="26" height="12" fill="#d9862b" clip-path="url(#c4)"/>
-  <rect x="53" y="402" width="16" height="12" fill="#6a5632" clip-path="url(#c4)"/>
-  <rect x="69" y="402" width="561" height="12" fill="#4f6472" clip-path="url(#c4)"/>
+  <rect x="20" y="402" width="16" height="12" fill="#f2c14e" clip-path="url(#c4)"/>
+  <rect x="36" y="402" width="26" height="12" fill="#d9862b" clip-path="url(#c4)"/>
+  <rect x="62" y="402" width="16" height="12" fill="#6a5632" clip-path="url(#c4)"/>
+  <rect x="78" y="402" width="554" height="12" fill="#4f6472" clip-path="url(#c4)"/>
   <rect x="20" y="402" width="760" height="12" rx="4" fill="none" stroke="#5c4a26" stroke-width="1"/>
   <rect x="20" y="421" width="10" height="10" fill="#f2c14e" stroke="#5c4a26" stroke-width="1"/>
-  <text x="36" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">2 tested on all OSes</text>
+  <text x="36" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">5 tested on all OSes</text>
   <rect x="186" y="421" width="10" height="10" fill="#d9862b" stroke="#5c4a26" stroke-width="1"/>
-  <text x="202" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">10 tested on some OSes</text>
+  <text x="202" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">13 tested on some OSes</text>
   <rect x="366" y="421" width="10" height="10" fill="#9c6f2c" stroke="#5c4a26" stroke-width="1"/>
-  <text x="382" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">10 have a test</text>
+  <text x="382" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">13 have a test</text>
   <rect x="493" y="421" width="10" height="10" fill="#6a5632" stroke="#5c4a26" stroke-width="1"/>
-  <text x="509" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">15 built</text>
+  <text x="509" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">18 built</text>
   <rect x="580" y="421" width="10" height="10" fill="#2b2418" stroke="#5c4a26" stroke-width="1"/>
   <text x="596" y="430" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">218 not built yet</text>
   <rect x="20" y="437" width="10" height="10" fill="#4f6472" stroke="#5c4a26" stroke-width="1"/>
