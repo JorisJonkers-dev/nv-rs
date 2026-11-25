@@ -367,10 +367,11 @@ fn a_polled_condition_switches_the_playing_group_both_ways() {
     assert_eq!(watched(&mut e), 1, "still playing");
 }
 
-/// The group is found in whatever slot it plays in, and one override taking another's place on
-/// the stack while it plays is started too.
+/// The group is found in the slot it plays in (here 3, not 0), started again with the slot word
+/// its start was given (-1: the slot of its type), and an override taking another's place on the
+/// stack while it plays is started too.
 #[test]
-fn polling_follows_the_slot_and_the_stack() {
+fn polling_finds_the_groups_slot_and_follows_the_stack() {
     let mut e = engine(true);
     put_with(&mut e, Target::Every, false, 1, LAMBDA, true);
     holds(&[LAMBDA]);
@@ -381,6 +382,17 @@ fn polling_follows_the_slot_and_the_stack() {
     poll(&mut e);
     assert_eq!(started(), [[NPC_ANIMATION, u32::from(SPRINT), 3]]);
     assert_ne!(playing(&e, NPC_ANIMATION, 3), first);
+    // Started with -1, the slot of the group's type: it plays in slot 2 and is started again with
+    // -1.
+    holds(&[]);
+    assert_eq!(play(&mut e, THIRD, SPRINT, 0xffff_ffff), GAME_SEQUENCE);
+    holds(&[LAMBDA]);
+    poll(&mut e);
+    assert!(started().contains(&[THIRD, u32::from(SPRINT), 0xffff_ffff]));
+    assert_ne!(
+        playing(&e, THIRD, crate::test_support::TYPE_SLOT),
+        GAME_SEQUENCE
+    );
 }
 
 /// Without the poll flag, or a polled flag without a condition, nothing is watched: the

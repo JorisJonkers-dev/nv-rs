@@ -68,12 +68,12 @@ pub fn start_group(e: &mut Engine, words: &[u32]) -> Option<u32> {
     if e.ext_free::<crate::Active>().count() == 0 {
         return None;
     }
-    let (animation, group) = (words[0], words[1] as u16);
+    let (animation, group, slot) = (words[0], words[1] as u16, words[2]);
     let (answer, polled) = choose(e, animation, group);
     if polled {
         let count = {
             let watched = &mut e.ext::<State>().watched;
-            watched.insert((animation, group));
+            watched.insert((animation, group), slot);
             watched.len()
         };
         crate::set_watched(e, count);
@@ -113,16 +113,21 @@ fn choose(e: &mut Engine, animation: u32, group: u16) -> (Option<u32>, bool) {
 }
 
 /// Each watched group, once a frame: dropped when it no longer plays in any slot (or no longer
-/// has a polled candidate), else started again in its slot when the overrides' answer is not the
-/// sequence playing: a sequence they answer that does not play, or one of theirs playing that
-/// they no longer answer.
+/// has a polled candidate), else started again, with the slot word its start was given (-1, a
+/// slot, or `0x14`/`0x15`), when the overrides' answer is not the sequence playing in its slot: a
+/// sequence they answer that does not play, or one of theirs playing that they no longer answer.
 pub fn poll(e: &mut Engine) {
     if e.ext_free::<crate::Active>().watched() == 0 {
         return;
     }
-    let watched: Vec<(u32, u16)> = e.ext::<State>().watched.iter().copied().collect();
+    let watched: Vec<((u32, u16), u32)> = e
+        .ext::<State>()
+        .watched
+        .iter()
+        .map(|(&k, &v)| (k, v))
+        .collect();
     let mut gone = Vec::new();
-    for (animation, group) in watched {
+    for ((animation, group), started_with) in watched {
         let slot = (0..SLOTS).find(|i| e.mem.u16(animation + ANIMATION_GROUPS + 2 * i) == group);
         let Some(slot) = slot else {
             gone.push((animation, group));
@@ -151,7 +156,7 @@ pub fn poll(e: &mut Engine) {
         if restart {
             e.call(
                 ANIMATION_START_GROUP,
-                &args![animation, u32::from(group), slot],
+                &args![animation, u32::from(group), started_with],
             );
         }
     }
@@ -162,7 +167,7 @@ pub fn poll(e: &mut Engine) {
 fn unwatch(e: &mut Engine, which: impl Fn(&(u32, u16)) -> bool) {
     let count = {
         let watched = &mut e.ext::<State>().watched;
-        watched.retain(|k| !which(k));
+        watched.retain(|k, _| !which(k));
         watched.len()
     };
     crate::set_watched(e, count);

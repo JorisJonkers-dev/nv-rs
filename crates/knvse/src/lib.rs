@@ -26,7 +26,7 @@ pub mod seam;
 pub mod store;
 
 use engine_core::prelude::*;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Whether kNVSE answers "installed". Off until the commands the owner's mods use are built; the one
@@ -61,8 +61,9 @@ pub struct State {
     /// model; the controller manager holds the sequence.
     pub cache: BTreeMap<(u32, u32), Cached>,
     /// The (animation, group) pairs that started with a polled override among their candidates
-    /// and are asked again every frame while they play (`seam::poll`).
-    pub watched: BTreeSet<(u32, u16)>,
+    /// and are asked again every frame while they play (`seam::poll`), with the slot word their
+    /// start was given.
+    pub watched: BTreeMap<(u32, u16), u32>,
 }
 
 /// The counts the seams read without the shared slot's lock ([`Engine::ext_free`]): the first

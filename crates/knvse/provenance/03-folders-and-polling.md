@@ -26,7 +26,8 @@ What the code does with that:
 - Polling: a group whose start had a polled candidate (poll flag set and a condition given) is
   watched as a pair (animation, group). Every frame (xNVSE's `MainGameLoop` message) the
   candidates are asked again for each watched group that still plays in one of the animation's
-  8 slots. The group is started again in that slot (`Animation::StartGroup`) in two cases:
+  8 slots. The group is started again (`Animation::StartGroup`, with the slot word its own start
+  was given: -1 for the slot of its type, or a slot) in two cases:
   - the answer is an override sequence that is not the one playing;
   - no override answers, but one of the overrides' sequences is playing.
 

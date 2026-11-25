@@ -178,7 +178,8 @@ pub fn engine_as(on: bool) -> Engine {
     });
     e.register(0x00af_e420, build_file_list);
     // `Animation::StartGroup`: asks the seam, then plays its answer, else the game's own sequence
-    // ([`GAME_SEQUENCE`]), in the slot.
+    // ([`GAME_SEQUENCE`]), in the slot (a slot word past 7, such as -1, is the slot of the group's
+    // type, here [`TYPE_SLOT`]).
     e.register(0x0049_48c0, |e, a| {
         WORLD.with(|w| w.borrow_mut().started.push([a[0], a[1], a[2]]));
         let sequence = play(e, a[0], a[1] as u16, a[2]);
@@ -310,15 +311,19 @@ pub fn set_script_mod(e: &mut Engine, index: u8) {
     e.mem.set_u8(file + 0x40c, index);
 }
 
+/// The slot of every group's type in the stand-in (where a start with -1 plays).
+pub const TYPE_SLOT: u32 = 2;
+
 /// The sequence the game's own path starts (the stand-in's sequence map).
 pub const GAME_SEQUENCE: u32 = 0x0303_f000;
 
-/// A group started in `slot` as `Animation::StartGroup` starts it: the seam's answer, else
+/// A group started with `slot_word` as `Animation::StartGroup` starts it: the seam's answer, else
 /// [`GAME_SEQUENCE`], put in the slot with the group (`+0x4c`, `+0xe0`).
-pub fn play(e: &mut Engine, animation: u32, group: u16, slot: u32) -> u32 {
+pub fn play(e: &mut Engine, animation: u32, group: u16, slot_word: u32) -> u32 {
     let sequence = e
-        .site(0x0049_48c0, &[animation, u32::from(group), slot])
+        .site(0x0049_48c0, &[animation, u32::from(group), slot_word])
         .unwrap_or(GAME_SEQUENCE);
+    let slot = if slot_word < 8 { slot_word } else { TYPE_SLOT };
     e.mem.set_u16(animation + 0x4c + 2 * slot, group);
     e.mem.set_u32(animation + 0xe0 + 4 * slot, sequence);
     sequence
