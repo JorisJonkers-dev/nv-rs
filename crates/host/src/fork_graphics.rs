@@ -123,6 +123,8 @@ pub struct Levels {
     pub placed_reflections: engine::placed_reflections::Level,
     /// `textures.precise_targets` (set at the start only: the game makes its targets then).
     pub precise_targets: bool,
+    /// `textures.dither` (set at the start only: the game makes its back buffers then).
+    pub dither: bool,
 }
 
 /// The light balance's shares as `f32` bits (the original's), read by the sky's sun light once a
@@ -260,6 +262,7 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
                 .module("textures")
                 .expect("built in")
                 .toggle("precise_targets"),
+            dither: r.module("textures").expect("built in").toggle("dither"),
         },
     )
 }
@@ -328,6 +331,7 @@ pub fn start(
     engine::lamp_distance::set(levels.lamp_distance);
     engine::placed_reflections::set(levels.placed_reflections);
     d3d9_wgpu::format::precise_targets::set(levels.precise_targets);
+    d3d9_wgpu::format::dither::set(levels.dither);
     if !r.is_original() {
         lines.push(format!(
             "nv-rs: graphics: ambient occlusion {} ({:?}, strength {}), sun shadows {} (maps {}), fill light outdoors {} indoors {}",
@@ -395,6 +399,7 @@ mod tests {
             lamp_distance: 1.0,
             placed_reflections: engine::placed_reflections::Level::Game,
             precise_targets: false,
+            dither: false,
         }
     }
 
@@ -595,6 +600,25 @@ mod tests {
         assert!(!on(&[]), "the game's formats by default");
         assert!(!on(&[("NV_GFX_PRESET", "original")]));
         assert!(on(&[("NV_GFX", "textures.precise_targets=true")]));
+    }
+
+    #[test]
+    fn the_last_step_is_dithered_only_when_chosen() {
+        let on = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.dither
+        };
+        assert!(!on(&[]), "the game's 8-bit back buffers by default");
+        assert!(!on(&[("NV_GFX_PRESET", "original")]));
+        assert!(
+            on(&[("NV_GFX_PRESET", "modern")]),
+            "modern shows the dithered frame"
+        );
+        assert!(!on(&[
+            ("NV_GFX_PRESET", "modern"),
+            ("NV_GFX", "textures.dither=false")
+        ]));
+        assert!(on(&[("NV_GFX", "textures.dither=true")]));
     }
 
     #[test]

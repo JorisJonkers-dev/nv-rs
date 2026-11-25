@@ -1,0 +1,3 @@
+crates/d3d9-wgpu/src/lib.rs  # the fork module dither (the dithered last step into 8 bits, graphics setting textures.dither, nv-rs#830)
+crates/d3d9-wgpu/src/device.rs  # back buffers kept in 16 bits and shown through the dithered pass under textures.dither; unchanged when off (nv-rs#830)
+crates/d3d9-wgpu/src/format.rs  # the next-start flag of textures.dither (nv-rs#830)
