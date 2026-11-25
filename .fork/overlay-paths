@@ -57,6 +57,7 @@ crates/jg/
 crates/showoff/
 crates/knvse/
 crates/ttw-nvse/
+crates/anh-nvse/
 crates/plugin-host/
 # Fork-only files inside upstream's crates (scripts/fork/verify-sync.sh fails on one that is not listed).
 crates/d3d9-wgpu/src/bin/d3d9-precompile.rs
@@ -75,6 +76,7 @@ crates/host/src/fork_heap.rs
 crates/host/src/fork_trace.rs
 crates/host/src/fork_ttw.rs
 crates/host/src/fork_plugins.rs
+crates/host/src/shader_overrides.rs
 crates/host/tests/linux_saves.rs
 # Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.
 crates/engine-core/src/exe.rs
@@ -94,6 +96,9 @@ crates/d3d9-wgpu/src/budget.rs
 crates/d3d9-wgpu/src/gputime.rs
 crates/host/src/fork_prestart.rs
 crates/d3d9-wgpu/src/gfx_overlay.rs
+crates/d3d9-wgpu/src/shader_override.rs
+crates/d3d9-wgpu/tests/shader_override.rs
+crates/engine-platform/tests/frame_view_overrides.rs
 crates/d3d9-wgpu/src/dither.rs
 crates/d3d9-wgpu/tests/gfx_overlay.rs
 # The progress pictures and their summary (scripts/fork/progress, docs/fork/PROGRESS.md), fork-only files in upstream's

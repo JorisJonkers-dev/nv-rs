@@ -19,6 +19,7 @@ showoff = { path = "../../../crates/showoff" }
 knvse = { path = "../../../crates/knvse" }
 stewie = { path = "../../../crates/stewie" }
 ttw-nvse = { path = "../../../crates/ttw-nvse" }
+anh-nvse = { path = "../../../crates/anh-nvse" }
 serde_json = "1"
 jsonschema = { version = "0.30", default-features = false }
 

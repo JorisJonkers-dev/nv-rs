@@ -1797,7 +1797,7 @@
     },
     {
       "commands": {
-        "implemented": 20,
+        "implemented": 23,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
@@ -1818,7 +1818,10 @@
           "SetWeaponVATSTraitNumeric",
           "GetPipBoyMode",
           "GetActorValueAlt",
-          "GetThresholdedActorValue"
+          "GetThresholdedActorValue",
+          "GetBodyPartTraitString",
+          "IsCellVisited",
+          "GetSequenceAnimGroup"
         ],
         "total": 412
       },
@@ -1830,7 +1833,7 @@
     },
     {
       "commands": {
-        "implemented": 29,
+        "implemented": 35,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
@@ -1860,7 +1863,13 @@
           "IsLimbCrippled",
           "GetIngestibleConsumeSound",
           "IsAiming",
-          "IsBlockingOrAiming"
+          "IsBlockingOrAiming",
+          "GetItemHotkeyIconPath",
+          "SetEnableParent",
+          "GetEquippedWeapon",
+          "GetEquippedItems",
+          "ApplyEasing",
+          "DisableAlt"
         ],
         "total": 215
       },
@@ -1910,6 +1919,19 @@
       "provided_by_source": "crates/ttw-nvse",
       "reported_installed": "when the data folder holds TaleOfTwoWastelands.esm (NV_TTW_PLUGINS=1 forces it, 0 turns it off)",
       "version": 1
+    },
+    {
+      "commands": {
+        "implemented": 2,
+        "implemented_names": [
+          "GetQuestCompletedAlt",
+          "Sv_PadStart"
+        ],
+        "total": 28
+      },
+      "id": "anh-nvse",
+      "name": "AnhNVSE",
+      "provided_by_source": "crates/anh-nvse"
     }
   ],
   "schema_version": 1

@@ -3,7 +3,7 @@
 //! the bench runs are halted or when the card's free VRAM or GTT cannot hold the run's budget plus a margin kept for
 //! the desktop, and the engine gets the VRAM budget as `NV_GPU_BUDGET_MB` (it refuses allocations past it with a
 //! `stop:` line). The host memory cap is the `gamerun` scope's (`nv-rs-scene` `--mem`).
-//! The shape is the old guard's: VRAM share 0.5 and margin 2048 MiB, GTT margin 1024 MiB; the GTT share is 0.4 (it was the
+//! The shape is the old guard's with a quarter of the VRAM (it was half; nv-rs#899) and margin 2048 MiB, GTT margin 1024 MiB; the GTT share is 0.4 (it was the
 //! old guard's 0.25, too little for the modded load orders' textures), `NV_GUARD_GTT_SHARE` sets it, at most 0.5.
 //! Also here, the other pieces of the old Python guard: the sampler that stops a run before the card's use reaches its
 //! cap ([`stop_at`], [`over`]; the scene tool reads the card every 100 ms while an engine runs), the session check (a GPU reset
@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 const MIB: f64 = 1_048_576.0;
-const VRAM_SHARE: f64 = 0.5;
+const VRAM_SHARE: f64 = 0.25;
 /// The run's share of the card's GTT by default, and the most `NV_GUARD_GTT_SHARE` may set.
 const GTT_SHARE: f64 = 0.4;
 const GTT_SHARE_MAX: f64 = 0.5;
@@ -78,7 +78,8 @@ pub fn gtt_share_from(value: Option<&str>) -> f64 {
     }
 }
 
-/// The run's budget on this card: half the VRAM and the GTT share ([`gtt_share_from`], 0.4 by default) of the GTT.
+/// The run's budget on this card: a quarter of the VRAM (a 142-plugin load order at 2560x1440 holds about 2.9 GiB
+/// on a long run, nv-rs#899) and the GTT share ([`gtt_share_from`], 0.4 by default) of the GTT.
 pub fn default_caps(gpu: &GpuMem) -> Caps {
     let share = gtt_share_from(std::env::var("NV_GUARD_GTT_SHARE").ok().as_deref());
     caps_with(gpu, share)
@@ -103,6 +104,125 @@ pub fn preflight(caps: &Caps, gpu: &GpuMem) -> Result<(), String> {
         return Err(format!("GTT: {free_g:.0} MiB free of {:.0}, the run needs {} plus {GTT_MARGIN_MIB:.0} kept for the desktop", gpu.gtt_total, caps.gtt_mib));
     }
     Ok(())
+}
+
+/// A run's own memory on the card in MiB: its processes' DRM clients (`drm-memory-vram`, `drm-memory-gtt` of
+/// `/proc/<pid>/fdinfo/*`), each client once.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct OwnMem {
+    pub vram: f64,
+    pub gtt: f64,
+}
+
+/// `pids` and every process below them, from the parent ids of `<proc_root>/<pid>/stat`.
+pub fn family(proc_root: &Path, pids: &[u32]) -> Vec<u32> {
+    let mut parents: Vec<(u32, u32)> = Vec::new();
+    if let Ok(dir) = std::fs::read_dir(proc_root) {
+        for e in dir.flatten() {
+            let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
+                continue;
+            };
+            let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) else {
+                continue;
+            };
+            // `pid (comm) state ppid ...`: the name may hold spaces and parentheses, so read after the last ')'.
+            let ppid = stat
+                .rsplit_once(')')
+                .and_then(|(_, rest)| rest.split_whitespace().nth(1)?.parse::<u32>().ok());
+            if let Some(ppid) = ppid {
+                parents.push((pid, ppid));
+            }
+        }
+    }
+    let mut out: Vec<u32> = pids.to_vec();
+    let mut k = 0;
+    while k < out.len() {
+        let p = out[k];
+        for &(child, parent) in &parents {
+            if parent == p && !out.contains(&child) {
+                out.push(child);
+            }
+        }
+        k += 1;
+    }
+    out
+}
+
+/// The run's own memory on the card: the DRM clients of `pids` and the processes below them, each client once;
+/// `None` while none of them holds one (the engine has not opened the card yet, or the system gives no `fdinfo`).
+pub fn own_gpu(proc_root: &Path, pids: &[u32]) -> Option<OwnMem> {
+    own_gpu_of(proc_root, &family(proc_root, pids))
+}
+
+/// [`own_gpu`] of the processes `family` alone (no walk for those below them). A client is the device
+/// (`drm-pdev`) and its id: ids are unique per device only.
+pub fn own_gpu_of(proc_root: &Path, family: &[u32]) -> Option<OwnMem> {
+    let value = |text: &str, key: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))
+            .and_then(|v| v.split_whitespace().next()?.parse::<f64>().ok())
+    };
+    let mut seen: Vec<(String, u64)> = Vec::new();
+    let mut sum = OwnMem::default();
+    for &pid in family {
+        let Ok(dir) = std::fs::read_dir(proc_root.join(pid.to_string()).join("fdinfo")) else {
+            continue;
+        };
+        for e in dir.flatten() {
+            let Ok(text) = std::fs::read_to_string(e.path()) else {
+                continue;
+            };
+            let Some(id) = value(&text, "drm-client-id") else {
+                continue;
+            };
+            let pdev = text
+                .lines()
+                .find_map(|l| l.strip_prefix("drm-pdev:"))
+                .map_or(String::new(), |v| v.trim().to_string());
+            let key = (pdev, id as u64);
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            sum.vram += value(&text, "drm-memory-vram").unwrap_or(0.0) / 1024.0;
+            sum.gtt += value(&text, "drm-memory-gtt").unwrap_or(0.0) / 1024.0;
+        }
+    }
+    (!seen.is_empty()).then_some(sum)
+}
+
+/// Why a run must stop by its own memory: [`STOP_AT`] of its cap reached by its own DRM clients ([`own_gpu`]), or the
+/// card within the desktop's margin of full whoever filled it. Other runs on the card do not count against this one.
+pub fn over_own(caps: &Caps, own: &OwnMem, now: &GpuMem) -> Option<String> {
+    let lv = caps.vram_mib as f64 * STOP_AT;
+    if own.vram >= lv {
+        return Some(format!(
+            "VRAM of the run {:.0} MiB reached the guard's stop at {lv:.0} (cap {})",
+            own.vram, caps.vram_mib
+        ));
+    }
+    let lg = caps.gtt_mib as f64 * STOP_AT;
+    if own.gtt >= lg {
+        return Some(format!(
+            "GTT of the run {:.0} MiB reached the guard's stop at {lg:.0} (cap {})",
+            own.gtt, caps.gtt_mib
+        ));
+    }
+    let full = now.vram_total - VRAM_MARGIN_MIB;
+    if now.vram_used >= full {
+        return Some(format!(
+            "VRAM {:.0} MiB on the card reached the desktop's margin ({full:.0} of {:.0})",
+            now.vram_used, now.vram_total
+        ));
+    }
+    let full = now.gtt_total - GTT_MARGIN_MIB;
+    if now.gtt_used >= full {
+        return Some(format!(
+            "GTT {:.0} MiB on the card reached the desktop's margin ({full:.0} of {:.0})",
+            now.gtt_used, now.gtt_total
+        ));
+    }
+    None
 }
 
 /// The halt file's reason when the bench runs are halted (`~/.cache/nv-rs/bench.halt`, written by the Python guard, removed
@@ -324,6 +444,12 @@ pub struct Watch {
     log_offset: u64,
     /// The highest card use seen: VRAM and GTT in MiB.
     pub peak: (f64, f64),
+    /// The highest own use of the run seen ([`own_gpu`]): VRAM and GTT in MiB.
+    pub own_peak: (f64, f64),
+    /// The run's processes ([`family`]) and when they were last looked for (once a second: the walk reads every
+    /// process's `stat`).
+    family: Vec<u32>,
+    family_at: Option<std::time::Instant>,
 }
 
 impl Watch {
@@ -338,6 +464,9 @@ impl Watch {
             last_health: None,
             log_offset: 0,
             peak,
+            own_peak: (0.0, 0.0),
+            family: Vec::new(),
+            family_at: None,
         }
     }
 
@@ -351,7 +480,26 @@ impl Watch {
             self.peak.0.max(now.vram_used),
             self.peak.1.max(now.gtt_used),
         );
-        if let Some(why) = over(&self.guarded.caps, &self.guarded.base, &now) {
+        // The run's own memory where the system says it (another run starting beside this one does not stop it);
+        // else the card's use over its use at the start.
+        if self
+            .family_at
+            .is_none_or(|t| t.elapsed().as_secs_f64() >= 1.0)
+        {
+            self.family = family(Path::new("/proc"), own);
+            self.family_at = Some(std::time::Instant::now());
+        }
+        let why = match own_gpu_of(Path::new("/proc"), &self.family) {
+            Some(mine) => {
+                self.own_peak = (
+                    self.own_peak.0.max(mine.vram),
+                    self.own_peak.1.max(mine.gtt),
+                );
+                over_own(&self.guarded.caps, &mine, &now)
+            }
+            None => over(&self.guarded.caps, &self.guarded.base, &now),
+        };
+        if let Some(why) = why {
             return Some(why);
         }
         if self
@@ -418,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn the_card_with_the_most_vram_is_read_and_its_budget_is_half_and_four_tenths() {
+    fn the_card_with_the_most_vram_is_read_and_its_budget_is_a_quarter_and_four_tenths() {
         let t = tmp("find");
         card(&t, "card0", (100, 512), (10, 1024));
         card(&t, "card1", (3000, 24576), (500, 32768));
@@ -428,7 +576,7 @@ mod tests {
         assert_eq!(
             caps_with(&gpu, GTT_SHARE),
             Caps {
-                vram_mib: 12288,
+                vram_mib: 6144,
                 gtt_mib: 13107
             }
         );
@@ -454,7 +602,7 @@ mod tests {
         assert_eq!(caps_with(&gpu, 0.4).gtt_mib, 9616);
         assert_eq!(
             caps_with(&gpu, 0.4).vram_mib,
-            12288,
+            6144,
             "the VRAM share is unchanged"
         );
     }
@@ -467,16 +615,16 @@ mod tests {
         assert_eq!(
             check(&t, &halt).unwrap(),
             Some(Caps {
-                vram_mib: 12288,
+                vram_mib: 6144,
                 gtt_mib: (32768.0
                     * gtt_share_from(std::env::var("NV_GUARD_GTT_SHARE").ok().as_deref()))
                     as u64
             })
         );
-        // 24576 - 12000 = 12576 free: less than 12288 + 2048.
-        card(&t, "card0", (12000, 24576), (500, 32768));
+        // 24576 - 17000 = 7576 free: less than 6144 + 2048.
+        card(&t, "card0", (17000, 24576), (500, 32768));
         let e = check(&t, &halt).unwrap_err();
-        assert!(e.starts_with("VRAM: 12576 MiB free of 24576"), "{e}");
+        assert!(e.starts_with("VRAM: 7576 MiB free of 24576"), "{e}");
         // 768 MiB free: less than the margin alone, whatever share NV_GUARD_GTT_SHARE sets.
         card(&t, "card0", (3000, 24576), (32000, 32768));
         assert!(check(&t, &halt).unwrap_err().starts_with("GTT:"));
@@ -608,5 +756,91 @@ mod tests {
         assert!(w.step(&log, &[]).unwrap().starts_with("VRAM"));
         assert!(w.peak.0 >= 20000.0);
         std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    fn proc_entry(root: &Path, pid: u32, ppid: u32, comm: &str, clients: &[(u32, u64, u64)]) {
+        let d = root.join(pid.to_string());
+        std::fs::create_dir_all(d.join("fdinfo")).unwrap();
+        std::fs::write(d.join("stat"), format!("{pid} ({comm}) S {ppid} 1 1 0\n")).unwrap();
+        for (k, (id, vram, gtt)) in clients.iter().enumerate() {
+            std::fs::write(
+                d.join("fdinfo").join((k + 3).to_string()),
+                format!("pos:\t0\ndrm-client-id:\t{id}\ndrm-memory-vram:\t{} KiB\ndrm-memory-gtt:\t{} KiB\n", vram * 1024, gtt * 1024),
+            )
+            .unwrap();
+        }
+    }
+
+    /// The run's processes are the started one and those below it (a name with spaces and parentheses read right); a
+    /// DRM client held by two of them counts once; another run's process does not count.
+    #[test]
+    fn a_runs_own_card_memory_is_its_processes_clients_each_once() {
+        let t = tmp("own");
+        proc_entry(&t, 100, 1, "gamerun", &[]);
+        proc_entry(
+            &t,
+            101,
+            100,
+            "nv viewer (x)",
+            &[(7, 2000, 50), (7, 2000, 50)],
+        );
+        proc_entry(&t, 102, 101, "worker", &[(7, 2000, 50), (8, 100, 10)]);
+        proc_entry(&t, 200, 1, "other run", &[(9, 5000, 0)]);
+        let mut fam = family(&t, &[100]);
+        fam.sort_unstable();
+        assert_eq!(fam, vec![100, 101, 102]);
+        assert_eq!(
+            own_gpu(&t, &[100]),
+            Some(OwnMem {
+                vram: 2100.0,
+                gtt: 60.0
+            })
+        );
+        assert_eq!(own_gpu(&t, &[300]), None, "no such process");
+        // The same client id on another device is another client.
+        let d = t.join("102").join("fdinfo").join("9");
+        std::fs::write(
+            &d,
+            "drm-pdev:\t0000:0b:00.0\ndrm-client-id:\t7\ndrm-memory-vram:\t1024 KiB\n",
+        )
+        .unwrap();
+        assert_eq!(own_gpu(&t, &[100]).map(|m| m.vram), Some(2101.0));
+        proc_entry(&t, 400, 1, "no card yet", &[]);
+        assert_eq!(own_gpu(&t, &[400]), None);
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    /// A run stops at its own cap, not at another run's memory; the card within the desktop's margin stops it whoever
+    /// filled it.
+    #[test]
+    fn a_run_stops_at_its_own_cap_or_a_full_card_not_at_another_runs_memory() {
+        let caps = Caps {
+            vram_mib: 6000,
+            gtt_mib: 1000,
+        };
+        let card = |vram_used: f64, gtt_used: f64| GpuMem {
+            vram_used,
+            vram_total: 24576.0,
+            gtt_used,
+            gtt_total: 32768.0,
+        };
+        let own = |vram: f64, gtt: f64| OwnMem { vram, gtt };
+        // Two runs of 5 GiB and the desktop: 12 GiB on the card, this run under its cap.
+        assert_eq!(
+            over_own(&caps, &own(5000.0, 100.0), &card(12500.0, 500.0)),
+            None
+        );
+        assert!(over_own(&caps, &own(5400.0, 100.0), &card(6000.0, 500.0))
+            .unwrap()
+            .starts_with("VRAM of the run 5400 MiB"));
+        assert!(over_own(&caps, &own(100.0, 900.0), &card(6000.0, 1000.0))
+            .unwrap()
+            .starts_with("GTT of the run 900 MiB"));
+        assert!(over_own(&caps, &own(100.0, 100.0), &card(22600.0, 500.0))
+            .unwrap()
+            .contains("desktop's margin"));
+        assert!(over_own(&caps, &own(100.0, 100.0), &card(1000.0, 31800.0))
+            .unwrap()
+            .starts_with("GTT 31800 MiB on the card"));
     }
 }

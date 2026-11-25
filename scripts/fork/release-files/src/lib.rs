@@ -153,6 +153,24 @@ const JG_TOTAL: usize = 412;
 /// ShowOff xNVSE 1.84 registers the opcodes `0x3C93` to `0x3D69` (its public registration list).
 const SHOWOFF_TOTAL: usize = 0x3d69 - 0x3c93 + 1;
 
+/// AnhNVSE: the two commands the owner's mods call. Its full command list and its version are
+/// in no public source, so the total is the block's slots up to the highest opcode those mods'
+/// scripts carry (at least that many), and the entry has no version and no installed condition
+/// (the plugin is not listed).
+fn anh_nvse_entry() -> Value {
+    let names = anh_nvse::COMMAND_NAMES
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    extender(
+        "anh-nvse",
+        "AnhNVSE",
+        "crates/anh-nvse",
+        names,
+        anh_nvse::KNOWN_SLOTS,
+    )
+}
+
 /// kNVSE's registration list at the pinned release holds 59 commands from `0x3920`
 /// (`.fork/catalogue/ref/knvse.tsv`).
 const KNVSE_TOTAL: usize = 59;
@@ -229,6 +247,7 @@ pub fn capabilities() -> Value {
                 &ttw_nvse::COMMAND_NAMES,
                 ttw_nvse::COMMAND_NAMES.len(),
             ),
+            anh_nvse_entry(),
         ],
     })
 }

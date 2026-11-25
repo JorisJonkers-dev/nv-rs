@@ -16,7 +16,8 @@ pub const VERSION_INT: u32 = 40;
 /// The first opcode of its block (`SetOpcodeBase`).
 pub const OPCODE_BASE: u32 = 0x3920;
 
-/// The plugin as the plugin list holds it: no co-save, no listener.
+/// The plugin as the plugin list holds it: no co-save; its listener polls conditions every frame
+/// (`seam::listen`).
 pub fn plugin() -> BuiltIn {
     BuiltIn {
         file: DLL,
@@ -24,7 +25,7 @@ pub fn plugin() -> BuiltIn {
         version: VERSION_INT,
         opcode_base: OPCODE_BASE,
         listed: true,
-        listener: None,
+        listener: Some(crate::seam::listen),
         save: None,
         load: None,
         pre_load: None,

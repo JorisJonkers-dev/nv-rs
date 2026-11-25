@@ -1,0 +1,4 @@
+Cargo.toml  # workspace member crates/anh-nvse, AnhNVSE's two commands the owner's mods call built in (nv-rs#511)
+Cargo.lock  # the anh-nvse crate
+crates/host/Cargo.toml  # dependency on anh-nvse (nv-rs#511)
+crates/host/src/lib.rs  # anh_nvse::install after ttw_nvse::install (nv-rs#511)

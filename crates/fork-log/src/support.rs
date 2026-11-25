@@ -84,6 +84,11 @@ const ANSWERED: &[(&str, Answer, &str)] = &[
     ),
     ("ttw_nvse.dll", Answer::BuiltIn, "TTW NVSE is built in"),
     (
+        "anhnvse.dll",
+        Answer::Partial,
+        "AnhNVSE: only GetQuestCompletedAlt and Sv_PadStart are built in",
+    ),
+    (
         "mcm.dll",
         Answer::BuiltIn,
         "The Mod Configuration Menu is built in",

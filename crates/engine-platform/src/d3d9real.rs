@@ -909,6 +909,15 @@ pub fn want_scene_light(read: fn(&Engine) -> Option<SceneView>, strength: f32) {
     engine_core::world_drawn::install_depth_clear_skipped(depth_clear_skipped);
 }
 
+/// Records the frame's camera (the new lighting's words) where the world is drawn, without the
+/// new lighting itself: for the backend's shader overrides (`d3d9_wgpu::shader_override`), which
+/// read the scene's depth through its near and far planes. Before the game makes its device; never
+/// called without an override.
+pub fn want_frame_view(read: fn(&Engine) -> Option<SceneView>) {
+    let _ = SCENE_LIGHT.set(read);
+    engine_core::world_drawn::install(world_drawn);
+}
+
 /// The frame draw's port-added point ([`engine_core::world_drawn`], installed by
 /// [`want_scene_light`]): the camera and sun recorded on the game's device.
 fn world_drawn(e: &mut Engine) {

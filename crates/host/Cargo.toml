@@ -40,6 +40,7 @@ showoff = { path = "../showoff" }
 knvse = { path = "../knvse" }
 # The plugin Tale of Two Wastelands ships for its scripts (fork-only crate), when `fork_ttw` asks.
 ttw-nvse = { path = "../ttw-nvse" }
+anh-nvse = { path = "../anh-nvse" }
 # Plugin DLLs of the mods, loaded when NV_PLUGIN_DLLS asks (off by default; ADR-0018).
 plugin-host = { path = "../plugin-host" }
 # lStewieAl's Tweaks built in, when its row is on: after JIP and MCM, before UIO (crates/stewie).

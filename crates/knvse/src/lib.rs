@@ -10,7 +10,9 @@
 //!   override's sequence in place of the one the game's sequence map holds, made once per
 //!   animation and model and dropped when the animation's controller manager is made again or
 //!   torn down (the seams in `0048ffd0` and `0048fb50`);
-//! - [`commands`]: `SetActorAnimationPath`, which fills the store;
+//!   Groups started with a polled condition are asked again every frame ([`seam::poll`]);
+//! - [`commands`]: `SetActorAnimationPath`, which fills the store (a `.kf` file or a folder of
+//!   them);
 //! - [`identity`]: the plugin as xNVSE's plugin list holds it.
 //!
 //! The other commands the owner's mods call follow, one step at a time (`provenance/`). The plugin
@@ -58,6 +60,10 @@ pub struct State {
     /// The sequences the seam made, by (animation, model). Each holds a manual reference on its
     /// model; the controller manager holds the sequence.
     pub cache: BTreeMap<(u32, u32), Cached>,
+    /// The (animation, group) pairs that started with a polled override among their candidates
+    /// and are asked again every frame while they play (`seam::poll`), with the slot word their
+    /// start was given.
+    pub watched: BTreeMap<(u32, u16), u32>,
 }
 
 /// The counts the seams read without the shared slot's lock ([`Engine::ext_free`]): the first
@@ -66,6 +72,7 @@ pub struct State {
 pub struct Active {
     overrides: AtomicU32,
     cached: AtomicU32,
+    watched: AtomicU32,
 }
 
 impl Active {
@@ -77,6 +84,11 @@ impl Active {
     /// The count of sequences the seam keeps.
     pub fn cached(&self) -> u32 {
         self.cached.load(Ordering::Relaxed)
+    }
+
+    /// The count of groups watched every frame.
+    pub fn watched(&self) -> u32 {
+        self.watched.load(Ordering::Relaxed)
     }
 }
 
@@ -108,6 +120,8 @@ pub fn install_as(e: &mut Engine, answers_installed: bool) {
         e.on_site(seam::TORN_DOWN, seam::forget_animation);
         commands::install(e);
         nvse::plugins::register(e, identity::plugin());
+        // Polled conditions are asked again every frame.
+        nvse::plugins::listen_per_frame(e);
     }
     // The game's state, not one engine's: real threads' engines share it.
     e.share_ext::<State>();
@@ -211,6 +225,13 @@ fn set_count(e: &mut Engine, count: usize) {
     let count = u32::try_from(count).unwrap_or(u32::MAX);
     e.ext_free::<Active>()
         .overrides
+        .store(count, Ordering::Relaxed);
+}
+
+pub(crate) fn set_watched(e: &mut Engine, count: usize) {
+    let count = u32::try_from(count).unwrap_or(u32::MAX);
+    e.ext_free::<Active>()
+        .watched
         .store(count, Ordering::Relaxed);
 }
 
