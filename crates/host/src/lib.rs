@@ -958,10 +958,15 @@ fn load_adapter_table(e: &mut Engine, data: &Path) -> Result<(), String> {
         // Fallout.ini and set only the play lines (sD3DDevice, [nv-rs] bWindowSizeChecked) in a
         // FalloutPrefs.ini the fork made. A table that names a Documents folder (an isolated
         // profile, slaterain/nv-rs#1004) wins over the fork's own, so the first start never
-        // writes into the normal profile for it.
+        // writes into the normal profile for it. A Documents entry it cannot read is said and
+        // the fork's folder taken, as the INI reader does (`game_ini::path_from_table`).
         #[cfg(not(windows))]
         if fixes::is_play_run(|name| std::env::var(name).ok()) {
-            let documents = first_profile::documents_from_table(&text)?.or_else(|| {
+            let named = first_profile::documents_from_table(&text).unwrap_or_else(|why| {
+                eprintln!("first start: {why}");
+                None
+            });
+            let documents = named.or_else(|| {
                 engine_platform::fork_platform::known_folders()
                     .into_iter()
                     .next()
