@@ -1,0 +1,41 @@
+key	title	group
+scene_graph	Scene graph nodes and objects	rendering
+scene_graph_bs	Scene graph nodes (Bethesda)	rendering
+geometry	Meshes and geometry data	rendering
+geometry_bs	Meshes and geometry data (Bethesda)	rendering
+culling	Visibility culling	rendering
+rooms_portals	Rooms, portals and multibounds	rendering
+camera	Camera and view	rendering
+materials	Materials, alpha and render properties	rendering
+textures	Textures and image loading	rendering
+lights	Lights	rendering
+shadows	Shadows	rendering
+shader_manager	Shader system and batching	rendering
+lighting_shader	Per-pixel lighting shader	rendering
+unlit_shader	Unlit and effect shaders	rendering
+blood_decals	Blood splatter and decals	rendering
+water	Water drawing	rendering
+sky	Sky, sun, moons, stars and clouds	rendering
+sky_other	Sky (other)	rendering
+precipitation	Rain and snow	rendering
+grass	Grass	rendering
+tree_shaders	Tree shaders	rendering
+trees	SpeedTree trees	rendering
+lod_terrain	LOD drawing: terrain	rendering
+lod_objects	LOD drawing: objects	rendering
+lod_trees	LOD drawing: trees	rendering
+lod_switching	LOD switching on models	rendering
+imagespace	Image-space effects (HDR, blur, refraction)	rendering
+particle_shader	Particle shader	rendering
+particles	Particle systems	rendering
+effect_shaders	Effect shaders (glows, hit effects)	rendering
+gpu_programs	GPU programs and shader cache	rendering
+vertex_buffers	Vertex and index buffers	rendering
+renderer_device	Renderer device and frames	rendering
+world_renderer	World renderer	rendering
+accumulators	Draw ordering and accumulators	rendering
+renderer_core	Renderer core	rendering
+temp_effects	Temporary effects (decals, debris, particles)	rendering
+screen_space	Screen elements and overlays	rendering
+particle_meshes	Particle meshes (Gamebryo)	rendering
+math	Maths (matrices, quaternions)	rendering

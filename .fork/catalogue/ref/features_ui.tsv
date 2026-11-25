@@ -1,0 +1,26 @@
+key	title	group
+loading_menu	Loading screen	ui
+debug_text	Debug text overlay	ui
+interface_manager	Interface manager and cursor	ui
+menu_system	Menu system and tiles	ui
+hud	HUD	ui
+pipboy	Pip-Boy	ui
+pipboy_stats	Pip-Boy stats	ui
+pipboy_inventory	Pip-Boy inventory	ui
+pipboy_map	Pip-Boy map and quests	ui
+console	Console	ui
+start_menu	Main and pause menu	ui
+dialogue_menu	Dialogue menu	ui
+barter_menu	Barter menu	ui
+container_menu	Container menu	ui
+levelup_menu	Level-up menu	ui
+lockpick_menu	Lockpicking	ui
+hacking_menu	Terminal hacking	ui
+vats_menu	V.A.T.S. menu	ui
+chargen	Character creation (race, face, name, traits, SPECIAL)	ui
+recipe_menu	Crafting menu	ui
+repair_menus	Repair and item mods	ui
+caravan_menu	Caravan card game	ui
+casino_menus	Blackjack, roulette and slots	ui
+companion_wheel	Companion wheel	ui
+message_menus	Messages, books, quantity, sleep and wait	ui

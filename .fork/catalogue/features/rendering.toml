@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "features.rendering"
+title = "Rendering"
+origin = "original"
+items_from = "ref/features_rendering.tsv"
+items_from_status = "missing"
+notes = "Engine features built from the exe's compile units (features.tsv, units.tsv; docs/fork/ENGINE-FEATURES.md). Implemented only when every function is native typed code; until then the evidence says the feature works through the translation of the game's own code, with its native share."

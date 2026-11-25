@@ -186,6 +186,17 @@ pub fn ref_lists(
                 .map(|c| (segment(&c.id), c.name.clone(), c.group.clone())),
         )?,
     });
+    for (file, text) in crate::engine_features::ref_lists(&crate::engine_features::read_features(
+        &std::fs::read_to_string(root.join(crate::engine_features::FEATURES))
+            .map_err(|e| format!("{}: {e}", crate::engine_features::FEATURES))?,
+    )?)? {
+        out.push(RefList {
+            file,
+            pin: None,
+            upstream: vec![crate::engine_features::FEATURES.into()],
+            text,
+        });
+    }
     out.push(RefList {
         file: "ref/engine_functions.tsv".into(),
         pin: None,
@@ -313,12 +324,15 @@ fn licence(pin: &str) -> &'static str {
     }
 }
 
-/// The implementation evidence of the groups tally has no importer for: `id<TAB>state` rows with
-/// the full item id, `implemented`, `partial` or `missing`, from the same reading of the code as
-/// the pictures (a device method carried to wgpu, or only answered; a render state mapped; a
-/// graphics capability a built-in setting declares).
-pub fn evidence(p: &Progress) -> String {
-    let mut out = String::from("id\tstate\n");
+/// The implementation evidence of the groups tally has no importer for: `id<TAB>state<TAB>share`
+/// rows with the full item id, `implemented`, `partial`, `missing` or (engine features) `translated`,
+/// from the same reading of the code as the pictures (a device method carried to wgpu, or only
+/// answered; a render state mapped; a graphics capability a built-in setting declares; the two
+/// Direct3D 9 roll-ups of the engine features, implemented when every method or every render state
+/// is), followed by the engine features' rows (`features`: `engine_features::evidence`, with
+/// shares).
+pub fn evidence(p: &Progress, features: &str) -> String {
+    let mut out = String::from("id\tstate\tshare\n");
     let mut row = |id: String, state: &str| out.push_str(&format!("{id}\t{state}\n"));
     for m in &p.d3d9.carried {
         row(format!("d3d9.methods.{}", segment(m)), "implemented");
@@ -341,6 +355,16 @@ pub fn evidence(p: &Progress) -> String {
     for id in &p.features.open {
         row(format!("gfx.features.{}", segment(id)), "missing");
     }
+    let all = |done: bool| if done { "implemented" } else { "missing" };
+    row(
+        "features.direct3d.methods_all".into(),
+        all(p.d3d9.answered_only.is_empty() && p.d3d9.not_answered.is_empty()),
+    );
+    row(
+        "features.direct3d.states_all".into(),
+        all(p.d3d9.warned.is_empty() && p.d3d9.ignored.is_empty()),
+    );
+    out.push_str(features);
     out
 }
 

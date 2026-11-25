@@ -1,0 +1,16 @@
+key	title	group
+inventory	Inventory and containers	gameplay
+items	Items (misc, books, keys)	gameplay
+perks	Perks and traits	gameplay
+quests	Quests, stages and objectives	gameplay
+challenges	Challenges	gameplay
+crafting	Crafting recipes	gameplay
+casino	Casino games and chips	gameplay
+hardcore	Radiation and hardcore needs	gameplay
+messages	Messages and load screens	gameplay
+effect_items	Spells, ingestibles and enchantments	gameplay
+magic_casting	Effect casting and targets	gameplay
+magic_projectiles	Effect projectiles	gameplay
+magic_effects	Effects (heal, cloak, paralysis, telekinesis...)	gameplay
+spell_lists	Ability and spell lists	gameplay
+calendar	Game time and calendar	gameplay

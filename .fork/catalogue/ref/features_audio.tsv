@@ -1,0 +1,7 @@
+key	title	group
+sound_core	Sound playback	audio
+game_audio	Game audio and media	audio
+radio	Radio	audio
+music	Music and media sets	audio
+sound_forms	Sound records and acoustic spaces	audio
+dialogue_audio	Dialogue topics and responses	audio

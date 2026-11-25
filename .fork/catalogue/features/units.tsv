@@ -1,0 +1,1737 @@
+# SPDX-License-Identifier: GPL-3.0-only
+unit	feature
+BSAudio/bsaudio.cpp	audio.sound_core
+BSAudio/bsaudiomanager.cpp	audio.sound_core
+BSAudio/bsgamesound.cpp	audio.sound_core
+BSAudio/bssoundhandle.cpp	audio.sound_core
+BSAudio/bsxenonaudio.cpp	audio.sound_core
+BSAudio/bsxenonaudiolistener.cpp	audio.sound_core
+BSAudio/run_00ad8790	audio.sound_core
+BSAudio/run_00ae91f0	audio.sound_core
+BSAudio/run_00aea020	audio.sound_core
+BSAudio/run_00aea4d0	audio.sound_core
+BSAudio/run_00aea5c0	audio.sound_core
+BSAudio/run_00aea770	audio.sound_core
+BSCore/abstractheap.cpp	platform.memory
+BSCore/bsblockmemheap.cpp	platform.memory
+BSCore/bscoremessage.cpp	platform.timers
+BSCore/bsperformancetimer.cpp	platform.timers
+BSCore/bsprecisiontimer.cpp	platform.timers
+BSCore/bsrandom.cpp	platform.timers
+BSCore/bsreadwritelock.cpp	platform.threads_tasks
+BSCore/bsthread_xenon.cpp	platform.threads_tasks
+BSCore/bstimer.cpp	platform.timers
+BSCore/memorymanager.cpp	platform.memory
+BSCore/memorypool.cpp	platform.memory
+BSCore/oei_io_thread.cpp	platform.threads_tasks
+BSCore/scrapheap.cpp	platform.memory
+BSCore/zerooverheadheap.cpp	platform.memory
+BSDevices/xcontrols.obj	platform.input
+BSDevices/xgamerprofile.obj	platform.input
+BSHavok/bhkaabbphantom.obj	physics.physics_world
+BSHavok/bhkacousticspacephantomcallbackshape.obj	physics.shapes
+BSHavok/bhkaction.obj	physics.physics_world
+BSHavok/bhkangulardashpotaction.obj	physics.physics_world
+BSHavok/bhkavoidbox.obj	physics.physics_world
+BSHavok/bhkballandsocketconstraint.obj	physics.constraints
+BSHavok/bhkballsocketconstraintchain.obj	physics.constraints
+BSHavok/bhkbinaryaction.obj	physics.physics_world
+BSHavok/bhkblendcollisionobject.obj	physics.physics_world
+BSHavok/bhkblendcollisionobjectaddrotation.obj	physics.physics_world
+BSHavok/bhkblendcontroller.obj	physics.physics_world
+BSHavok/bhkboxshape.obj	physics.shapes
+BSHavok/bhkbreakableconstraint.obj	physics.constraints
+BSHavok/bhkbvtreeshape.obj	physics.shapes
+BSHavok/bhkcachingshapephantom.obj	physics.shapes
+BSHavok/bhkcapsuleshape.obj	physics.shapes
+BSHavok/bhkcharactercontroller.obj	physics.character_controller
+BSHavok/bhkcharacterlistener.obj	physics.character_controller
+BSHavok/bhkcharacterpointcollector.obj	physics.character_controller
+BSHavok/bhkcharacterproxy.obj	physics.character_controller
+BSHavok/bhkcharacterstateclimbing.obj	physics.character_controller
+BSHavok/bhkcharacterstateinair.obj	physics.character_controller
+BSHavok/bhkcharacterstatejumping.obj	physics.character_controller
+BSHavok/bhkcharacterstateonground.obj	physics.character_controller
+BSHavok/bhkcharacterstateprojectile.obj	physics.character_controller
+BSHavok/bhkcharacterstateswimming.obj	physics.character_controller
+BSHavok/bhkcharcontrollershape.obj	physics.character_controller
+BSHavok/bhkcollisionbox.obj	physics.physics_world
+BSHavok/bhkcollisionfilter.obj	physics.physics_world
+BSHavok/bhkcollisionobject.obj	physics.physics_world
+BSHavok/bhkconstraint.obj	physics.constraints
+BSHavok/bhkconstraintchain.obj	physics.constraints
+BSHavok/bhkconstraintmanager.obj	physics.constraints
+BSHavok/bhkconvexlistshape.obj	physics.shapes
+BSHavok/bhkconvexshape.obj	physics.shapes
+BSHavok/bhkconvexsweepshape.obj	physics.shapes
+BSHavok/bhkconvextransformshape.obj	physics.shapes
+BSHavok/bhkconvexverticesshape.obj	physics.shapes
+BSHavok/bhkcylindershape.obj	physics.shapes
+BSHavok/bhkdashpotaction.obj	physics.physics_world
+BSHavok/bhkentity.obj	physics.physics_world
+BSHavok/bhkentitylistener.obj	physics.physics_world
+BSHavok/bhkextendedmeshshape.obj	physics.shapes
+BSHavok/bhkextradata.obj	physics.physics_world
+BSHavok/bhkfixedconstraint.obj	physics.constraints
+BSHavok/bhkforcecontroller.obj	physics.physics_world
+BSHavok/bhkgenericconstraint.obj	physics.constraints
+BSHavok/bhkgeometryutil.obj	physics.physics_world
+BSHavok/bhkheightfieldshape.obj	physics.shapes
+BSHavok/bhkhingeconstraint.obj	physics.constraints
+BSHavok/bhkhingelimitsconstraint.obj	physics.constraints
+BSHavok/bhklimitedhingeconstraint.obj	physics.constraints
+BSHavok/bhkliquidaction.obj	physics.physics_world
+BSHavok/bhklistshape.obj	physics.shapes
+BSHavok/bhkmalleableconstraint.obj	physics.constraints
+BSHavok/bhkmoppbvtreeshape.obj	physics.shapes
+BSHavok/bhkmotoraction.obj	physics.physics_world
+BSHavok/bhkmousespringaction.obj	physics.physics_world
+BSHavok/bhkmultisphereshape.obj	physics.shapes
+BSHavok/bhkmultithreadedsystem.obj	physics.physics_world
+BSHavok/bhknicollisionobject.obj	physics.physics_world
+BSHavok/bhknitristripsshape.obj	physics.shapes
+BSHavok/bhkorienthingedbodyaction.obj	physics.physics_world
+BSHavok/bhkpackednitristripsshape.obj	physics.shapes
+BSHavok/bhkpcollisionobject.obj	physics.physics_world
+BSHavok/bhkphantom.obj	physics.physics_world
+BSHavok/bhkphantomoverlaplistener.obj	physics.physics_world
+BSHavok/bhkplaneshape.obj	physics.shapes
+BSHavok/bhkpointtopathconstraint.obj	physics.constraints
+BSHavok/bhkposearray.obj	physics.physics_world
+BSHavok/bhkpositionconstraintmotor.obj	physics.constraints
+BSHavok/bhkprismaticconstraint.obj	physics.constraints
+BSHavok/bhkragdollconstraint.obj	actors.ragdoll
+BSHavok/bhkragdollcontroller.obj	actors.ragdoll
+BSHavok/bhkragdolllimitsconstraint.obj	actors.ragdoll
+BSHavok/bhkragdollpenetrationutil.obj	actors.ragdoll
+BSHavok/bhkragdolltemplate.obj	actors.ragdoll
+BSHavok/bhkrefobject.obj	physics.physics_world
+BSHavok/bhkrigidbody.obj	physics.physics_world
+BSHavok/bhkrigidbodyt.obj	physics.physics_world
+BSHavok/bhkserializable.obj	physics.physics_world
+BSHavok/bhkshape.obj	physics.shapes
+BSHavok/bhkshapecollection.obj	physics.shapes
+BSHavok/bhkshapephantom.obj	physics.shapes
+BSHavok/bhksimpleshapephantom.obj	physics.shapes
+BSHavok/bhkspcollisionobject.obj	physics.physics_world
+BSHavok/bhksphererepshape.obj	physics.shapes
+BSHavok/bhksphereshape.obj	physics.shapes
+BSHavok/bhkspringaction.obj	physics.physics_world
+BSHavok/bhkspringdamperconstraintmotor.obj	physics.constraints
+BSHavok/bhkstiffspringconstraint.obj	physics.constraints
+BSHavok/bhkstream.obj	physics.physics_world
+BSHavok/bhktransformshape.obj	physics.shapes
+BSHavok/bhktriangleshape.obj	physics.shapes
+BSHavok/bhktrisampledheightfieldbvtreeshape.obj	physics.shapes
+BSHavok/bhkunaryaction.obj	physics.physics_world
+BSHavok/bhkutilfunctions.obj	physics.physics_world
+BSHavok/bhkvelocityconstraintmotor.obj	physics.constraints
+BSHavok/bhkwaterphantomcallbackshape.obj	physics.shapes
+BSHavok/bhkwheelconstraint.obj	physics.constraints
+BSHavok/bhkwindlistener.obj	physics.physics_world
+BSHavok/bhkworld.obj	physics.physics_world
+BSHavok/bhkworldm.obj	physics.physics_world
+BSHavok/bhkworldobject.obj	physics.physics_world
+BSHavok/hkbsheightfieldshape.obj	physics.physics_world
+BSHavok/hkliquidaction.obj	physics.physics_world
+BSHavok/hknitristripsshape.obj	physics.physics_world
+BSHavok/hknormaltriangleshape.obj	physics.physics_world
+BSHavok/hkorienthingedbodyaction.obj	physics.physics_world
+BSHavok/hkpackednitristripsshape.obj	physics.physics_world
+BSHavok/run_00c6b540	physics.physics_world
+BSHavok/run_00c6c720	physics.physics_world
+BSHavok/run_00c741e0	physics.physics_world
+BSHavok/run_00c747d0	physics.physics_world
+BSHavok/run_00c74990	physics.physics_world
+BSHavok/run_00c81550	physics.physics_world
+BSHavok/run_00c827f0	physics.physics_world
+BSHavok/run_00c87c30	physics.physics_world
+BSHavok/run_00c87fc0	physics.physics_world
+BSHavok/run_00c8a800	physics.physics_world
+BSHavok/run_00c9a420	physics.physics_world
+BSHavok/run_00c9f320	physics.physics_world
+BSHavok/run_00ca0c40	physics.physics_world
+BSHavok/run_00ca2ad0	physics.physics_world
+BSHavok/run_00ca4120	physics.physics_world
+BSHavok/run_00ca4510	physics.physics_world
+BSHavok/run_00ca45b0	physics.physics_world
+BSHavok/run_00ca4d20	physics.physics_world
+BSHavok/run_00cafef0	physics.physics_world
+BSHavok/run_00cb9810	physics.physics_world
+BSHavok/run_00cb9cc0	physics.physics_world
+BSHavok/run_00cbd700	physics.physics_world
+BSHavok/run_00cc2a00	physics.physics_world
+BSHavok/run_00ccbb50	physics.physics_world
+BSHavok/run_00ccc2f0	physics.physics_world
+BSHavok/run_00cd3f90	physics.physics_world
+BSHavok/run_00cd4260	physics.physics_world
+BSHavok/run_00cd44c0	physics.physics_world
+BSHavok/run_00cd47e0	physics.physics_world
+BSHavok/run_00cf43b0	physics.physics_world
+BSHavok/run_00cf45d0	physics.physics_world
+BSHavok/weaponobject.obj	physics.physics_world
+BSMain/bsblastnode.obj	rendering.scene_graph_bs
+BSMain/bsbound.obj	rendering.rooms_portals
+BSMain/bscompoundfrustum.obj	rendering.culling
+BSMain/bscullingprocess.obj	rendering.culling
+BSMain/bsdamagestage1.obj	rendering.scene_graph_bs
+BSMain/bsdebrisnode.obj	rendering.scene_graph_bs
+BSMain/bsdecalpvextradata.obj	rendering.blood_decals
+BSMain/bsfurnituremarker.obj	world.furniture_markers
+BSMain/bsmasterparticlesystem.obj	rendering.particles
+BSMain/bsmultibound.obj	rendering.rooms_portals
+BSMain/bsmultiboundaabb.obj	rendering.rooms_portals
+BSMain/bsmultiboundcapsule.obj	rendering.rooms_portals
+BSMain/bsmultiboundnode.obj	rendering.rooms_portals
+BSMain/bsmultiboundobb.obj	rendering.rooms_portals
+BSMain/bsmultiboundroom.obj	rendering.rooms_portals
+BSMain/bsmultiboundshape.obj	rendering.rooms_portals
+BSMain/bsmultiboundsphere.obj	rendering.rooms_portals
+BSMain/bsninode.obj	rendering.scene_graph_bs
+BSMain/bsocclusionplane.obj	rendering.culling
+BSMain/bsocclusionquery.obj	rendering.culling
+BSMain/bsparalleltaskmanager.obj	platform.threads_tasks
+BSMain/bsparentvelocitymodifier.obj	rendering.particles
+BSMain/bsparticlesystemmanager.obj	rendering.particles
+BSMain/bspolygon.obj	rendering.geometry_bs
+BSMain/bsportal.obj	rendering.rooms_portals
+BSMain/bsportalgraph.obj	rendering.rooms_portals
+BSMain/bspsysarrayemitter.obj	rendering.particles
+BSMain/bspsysmultitargetemitterctlr.obj	rendering.particles
+BSMain/bspsyssimplecolormodifier.obj	rendering.particles
+BSMain/bspsysstripupdatemodifier.obj	rendering.particles
+BSMain/bsrangenode.obj	rendering.scene_graph_bs
+BSMain/bsreference.obj	rendering.scene_graph_bs
+BSMain/bsscenegraph.obj	rendering.scene_graph_bs
+BSMain/bsscissortrishape.obj	rendering.geometry_bs
+BSMain/bsstream.obj	world.model_loading
+BSMain/bstaskmanager_xenon.obj	platform.threads_tasks
+BSMain/bstempnodemanager.obj	rendering.scene_graph_bs
+BSMain/bstestobjects.obj	platform.messages
+BSMain/bstexturedata.obj	rendering.textures
+BSMain/bsutilities.obj	platform.messages
+BSMain/bsvaluenode.obj	rendering.scene_graph_bs
+BSMain/bswarray.obj	platform.messages
+BSMain/bswindmodifier.obj	rendering.particles
+BSMain/bsxflags.obj	rendering.scene_graph_bs
+BSMain/iomanager.obj	world.model_loading
+BSMain/messagehandler.obj	platform.messages
+BSMain/nibsbonelodcontroller.obj	rendering.lod_switching
+BSMain/niobjectgarbage.obj	platform.memory
+BSMain/queuedfiles.obj	world.model_loading
+BSMain/run_00c3a180	rendering.particles
+BSMain/run_00c3a250	rendering.particles
+BSMain/run_00c3a3f0	rendering.particles
+BSMain/run_00c3bb80	rendering.particles
+BSMain/run_00c3c230	rendering.particles
+BSMain/run_00c3c280	rendering.particles
+BSMain/run_00c3da50	rendering.particles
+BSMain/run_00c3dbf0	rendering.particles
+BSMain/run_00c3f160	rendering.particles
+BSMain/run_00c416a0	rendering.particles
+BSMain/run_00c41f40	rendering.particles
+BSMain/run_00c42180	rendering.particles
+BSMain/run_00c42960	rendering.particles
+BSMain/run_00c42f00	rendering.particles
+BSMain/run_00c44e20	rendering.particles
+BSMain/run_00c457e0	rendering.particles
+BSMain/run_00c46530	rendering.particles
+BSMain/run_00c4b220	rendering.particles
+BSMain/run_00c4c2d0	rendering.particles
+BSMain/run_00c4edf0	rendering.particles
+BSMain/run_00c4f360	rendering.particles
+BSMain/run_00c54030	rendering.particles
+BSMain/run_00c54dc0	rendering.particles
+BSMain/run_00c55360	rendering.particles
+BSMain/run_00c5a9d0	rendering.particles
+BSMain/run_00c5ae70	rendering.particles
+BSMain/run_00c5bb10	rendering.particles
+BSMain/run_00c5bda0	rendering.particles
+BSMain/run_00c5bfb0	rendering.particles
+BSMain/run_00c5ced0	rendering.particles
+BSMain/run_00c5d2b0	rendering.particles
+BSMain/run_00c5da70	rendering.particles
+BSMain/run_00c5dcb0	rendering.particles
+BSMain/run_00c5edc0	rendering.particles
+BSMain/run_00c5fc70	rendering.particles
+BSMain/run_00c60100	rendering.particles
+BSMain/run_00c612b0	rendering.particles
+BSMain/run_00c61610	rendering.particles
+BSMain/run_00c633b0	rendering.particles
+BSMain/run_00c63ab0	rendering.particles
+BSMain/run_00c63c10	rendering.particles
+BSMain/run_00c64640	rendering.particles
+BSMain/setting.obj	platform.settings
+BSMain/xinisetting.obj	platform.settings
+BSMain/xinisetting_xenon.obj	platform.settings
+BSMain/xregsetting.obj	platform.settings
+BSMenu/debugtext.cpp	ui.debug_text
+BSMenu/font.cpp	ui.menu_system
+BSMenu/menu.cpp	ui.menu_system
+BSMenu/radialtile.cpp	ui.menu_system
+BSMenu/tile.cpp	ui.menu_system
+BSMenu/tile3d.cpp	ui.menu_system
+BSMenu/tileimage.cpp	ui.menu_system
+BSMenu/tilemenu.cpp	ui.menu_system
+BSMenu/tilerect.cpp	ui.menu_system
+BSMenu/tiletext.cpp	ui.menu_system
+BSMenu/xuserinterface.cpp	ui.menu_system
+BSMovie/movieplayer.obj	platform.movies
+BSMovie/movieplayer_xenon.obj	platform.movies
+BSShader/boltshader.cpp	rendering.unlit_shader
+BSShader/bsbatchrenderer.cpp	rendering.shader_manager
+BSShader/bscubemapcamera.cpp	rendering.camera
+BSShader/bsdistanttreeshader.cpp	rendering.lod_trees
+BSShader/bsdistanttreeshaderproperty.cpp	rendering.lod_trees
+BSShader/bsfadenode.cpp	rendering.scene_graph_bs
+BSShader/bsfadenodeculler.cpp	rendering.culling
+BSShader/bsfogproperty.cpp	rendering.shader_manager
+BSShader/bsorderednode.cpp	rendering.scene_graph_bs
+BSShader/bsrenderedtexture.cpp	rendering.textures
+BSShader/bsrenderstate_xenon.cpp	rendering.shader_manager
+BSShader/bsshader.cpp	rendering.shader_manager
+BSShader/bsshaderaccumulator.cpp	rendering.shader_manager
+BSShader/bsshaderbloodsplatter.cpp	rendering.blood_decals
+BSShader/bsshaderbloodsplatterproperty.cpp	rendering.blood_decals
+BSShader/bsshaderdata.cpp	rendering.shader_manager
+BSShader/bsshaderlightingproperty.cpp	rendering.lights
+BSShader/bsshadermanager.cpp	rendering.shader_manager
+BSShader/bsshadernolighting.cpp	rendering.unlit_shader
+BSShader/bsshadernolightingproperty.cpp	rendering.unlit_shader
+BSShader/bsshaderpplightingproperty.cpp	rendering.lighting_shader
+BSShader/bsshaderpplightingproperty_passes_1x.cpp	rendering.lighting_shader
+BSShader/bsshaderpplightingproperty_passes_2x.cpp	rendering.lighting_shader
+BSShader/bsshaderproperty.cpp	rendering.shader_manager
+BSShader/bsshadersdm.cpp	rendering.shader_manager
+BSShader/bsshadertextureset.cpp	rendering.shader_manager
+BSShader/bsshaderutil.cpp	rendering.shader_manager
+BSShader/bstexturemanager.cpp	rendering.textures
+BSShader/debugshader.cpp	rendering.shader_manager
+BSShader/distantlodshader.cpp	rendering.lod_objects
+BSShader/distantlodshaderproperty.cpp	rendering.lod_objects
+BSShader/geometrydecalshader.cpp	rendering.blood_decals
+BSShader/geometrydecalshaderproperty.cpp	rendering.blood_decals
+BSShader/hairshaderproperty.cpp	rendering.unlit_shader
+BSShader/imagespaceeffect.cpp	rendering.imagespace
+BSShader/imagespaceeffecthdr.cpp	rendering.imagespace
+BSShader/imagespaceeffectmenubg.cpp	rendering.imagespace
+BSShader/imagespaceeffectrefraction.cpp	rendering.imagespace
+BSShader/imagespaceeffectwaterdisplacement.cpp	rendering.water
+BSShader/imagespaceeffectwaterfft.cpp	rendering.water
+BSShader/imagespacemanager.cpp	rendering.imagespace
+BSShader/imagespaceshader.cpp	rendering.imagespace
+BSShader/imagespaceshadermenuunpack.cpp	rendering.imagespace
+BSShader/imagespaceshaderparam.cpp	rendering.imagespace
+BSShader/imagespacetexture.cpp	rendering.imagespace
+BSShader/lighting30shader.cpp	rendering.lighting_shader
+BSShader/mtrenderingsystem.cpp	rendering.shader_manager
+BSShader/particleshader.cpp	rendering.particle_shader
+BSShader/particleshaderproperty.cpp	rendering.particle_shader
+BSShader/run_00b57e70	rendering.shader_manager
+BSShader/run_00b595b0	rendering.shader_manager
+BSShader/run_00b5a9a0	rendering.shader_manager
+BSShader/run_00b5aa00	rendering.shader_manager
+BSShader/run_00b5fd60	rendering.shader_manager
+BSShader/run_00b60a50	rendering.shader_manager
+BSShader/run_00b64d60	rendering.shader_manager
+BSShader/run_00b64ec0	rendering.shader_manager
+BSShader/run_00b664f0	rendering.shader_manager
+BSShader/run_00b66780	rendering.shader_manager
+BSShader/run_00b668b0	rendering.shader_manager
+BSShader/run_00b69e10	rendering.shader_manager
+BSShader/run_00b6adb0	rendering.shader_manager
+BSShader/run_00b6b330	rendering.shader_manager
+BSShader/run_00b6c0d0	rendering.shader_manager
+BSShader/run_00b6dd00	rendering.shader_manager
+BSShader/run_00b6f8d0	rendering.shader_manager
+BSShader/run_00b70260	rendering.shader_manager
+BSShader/run_00b71920	rendering.shader_manager
+BSShader/run_00b71b40	rendering.shader_manager
+BSShader/run_00b7fa40	rendering.shader_manager
+BSShader/run_00b81130	rendering.shader_manager
+BSShader/run_00b815e0	rendering.shader_manager
+BSShader/run_00b8a480	rendering.shader_manager
+BSShader/run_00b97900	rendering.shader_manager
+BSShader/run_00b98380	rendering.shader_manager
+BSShader/run_00b984f0	rendering.shader_manager
+BSShader/run_00b9b380	rendering.shader_manager
+BSShader/run_00ba02b0	rendering.shader_manager
+BSShader/run_00ba11e0	rendering.shader_manager
+BSShader/run_00ba2d40	rendering.shader_manager
+BSShader/run_00ba3750	rendering.shader_manager
+BSShader/run_00ba3aa0	rendering.shader_manager
+BSShader/run_00ba3e30	rendering.shader_manager
+BSShader/run_00ba58b0	rendering.shader_manager
+BSShader/run_00ba6cf0	rendering.shader_manager
+BSShader/run_00ba8a00	rendering.shader_manager
+BSShader/run_00baa0e0	rendering.shader_manager
+BSShader/run_00baa660	rendering.shader_manager
+BSShader/run_00bae560	rendering.shader_manager
+BSShader/run_00bae980	rendering.shader_manager
+BSShader/run_00bb04b0	rendering.shader_manager
+BSShader/run_00bb2fc0	rendering.shader_manager
+BSShader/run_00bb4520	rendering.shader_manager
+BSShader/run_00bb7160	rendering.shader_manager
+BSShader/run_00bb7210	rendering.shader_manager
+BSShader/run_00bb79d0	rendering.shader_manager
+BSShader/run_00bb7d70	rendering.shader_manager
+BSShader/run_00bb8250	rendering.shader_manager
+BSShader/run_00bc0360	rendering.shader_manager
+BSShader/run_00bc1ba0	rendering.shader_manager
+BSShader/run_00bc2960	rendering.shader_manager
+BSShader/run_00bc2bd0	rendering.shader_manager
+BSShader/run_00bc2cb0	rendering.shader_manager
+BSShader/run_00bc4340	rendering.shader_manager
+BSShader/run_00bc5510	rendering.shader_manager
+BSShader/run_00bca070	rendering.shader_manager
+BSShader/run_00bcb180	rendering.shader_manager
+BSShader/run_00bcb460	rendering.shader_manager
+BSShader/run_00bcc570	rendering.shader_manager
+BSShader/run_00bd2b60	rendering.shader_manager
+BSShader/run_00bd3f80	rendering.shader_manager
+BSShader/run_00bd4d00	rendering.shader_manager
+BSShader/run_00bd5d70	rendering.shader_manager
+BSShader/run_00bd8480	rendering.shader_manager
+BSShader/run_00bd93d0	rendering.shader_manager
+BSShader/run_00bd9840	rendering.shader_manager
+BSShader/run_00bd9bc0	rendering.shader_manager
+BSShader/run_00be2290	rendering.shader_manager
+BSShader/run_00c02ce0	rendering.shader_manager
+BSShader/run_00c04030	rendering.shader_manager
+BSShader/shadowlightshader.cpp	rendering.shadows
+BSShader/shadowlightshader_update_2x.cpp	rendering.shadows
+BSShader/shadowscenelight.cpp	rendering.lights
+BSShader/shadowscenenode.cpp	rendering.shadows
+BSShader/skyshader.cpp	rendering.sky
+BSShader/skyshaderproperty.cpp	rendering.sky
+BSShader/speedtreebranchshader.cpp	rendering.tree_shaders
+BSShader/speedtreefrondshader.cpp	rendering.tree_shaders
+BSShader/speedtreeleafshader.cpp	rendering.tree_shaders
+BSShader/speedtreeshader.cpp	rendering.tree_shaders
+BSShader/tallgrassshader.cpp	rendering.grass
+BSShader/tallgrassshaderproperty.cpp	rendering.grass
+BSShader/tileshader.cpp	rendering.unlit_shader
+BSShader/tileshaderproperty.cpp	rendering.unlit_shader
+BSShader/volumetricfogshader.cpp	rendering.unlit_shader
+BSShader/watershader.cpp	rendering.water
+BSShader/watershaderproperty.cpp	rendering.water
+BSSystem/archive.cpp	data.archives
+BSSystem/archive_xenon.cpp	data.archives
+BSSystem/bsfile.cpp	data.archives
+BSSystem/bsfile_xenon.cpp	data.archives
+BSSystem/bsfilecache.cpp	data.archives
+BSSystem/bssearchpath.cpp	data.archives
+BSSystem/bssystemfile_xenon.cpp	data.archives
+BSSystem/bstaskletmanager.cpp	platform.threads_tasks
+BSSystem/bstaskletmanager_xenon.cpp	platform.threads_tasks
+BSSystem/bsxenontaskletgroupdata.cpp	platform.threads_tasks
+BSSystem/bsxenontaskletmanager.cpp	platform.threads_tasks
+BSSystem/filefinder.cpp	data.archives
+BSSystemUtilities/bsawardssystemutility_xenon.cpp	platform.system_utilities
+BSSystemUtilities/bscachedrivesystemutility.cpp	platform.system_utilities
+BSSystemUtilities/bsdiscbootsystemutility.cpp	platform.system_utilities
+BSSystemUtilities/bsdlcsystemutility_xenon.cpp	platform.system_utilities
+BSSystemUtilities/bsgamedatasystemutility.cpp	platform.system_utilities
+BSSystemUtilities/bsmsgdialogsystemutility.cpp	platform.system_utilities
+BSSystemUtilities/bsmsgdialogsystemutility_xenon.cpp	platform.system_utilities
+BSSystemUtilities/bsnetworksystemutility_xenon.cpp	platform.system_utilities
+BSSystemUtilities/bssavedatasystemutility.cpp	platform.system_utilities
+BSSystemUtilities/bssysinfosystemutility.cpp	platform.system_utilities
+BSSystemUtilities/bssystemutilitiesstrings.cpp	platform.system_utilities
+BSSystemUtilities/bssystemutility.cpp	platform.system_utilities
+BSSystemUtilities/bssystemutility_xenon.cpp	platform.system_utilities
+BSSystemUtilities/run_00af25b0	platform.system_utilities
+BSSystemUtilities/run_00af2d20	platform.system_utilities
+BSSystemUtilities/run_00af2d60	platform.system_utilities
+BSSystemUtilities/run_00af2f80	platform.system_utilities
+BSSystemUtilities/run_00af3020	platform.system_utilities
+BSSystemUtilities/run_00af33f0	platform.system_utilities
+BSSystemUtilities/run_00af3470	platform.system_utilities
+BSSystemUtilities/run_00af37d0	platform.system_utilities
+BSSystemUtilities/run_00af3980	platform.system_utilities
+BSSystemUtilities/run_00af3a40	platform.system_utilities
+BSSystemUtilities/run_00af3b20	platform.system_utilities
+FaceGen/algs.obj	actors.facegen
+FaceGen/assert.obj	actors.facegen
+FaceGen/binaryfile.obj	actors.facegen
+FaceGen/egmfileio.obj	actors.facegen
+FaceGen/egtfileio_sdk.obj	actors.facegen
+FaceGen/fancontrols.obj	actors.facegen
+FaceGen/fanctlfile.obj	actors.facegen
+FaceGen/lasterror.obj	actors.facegen
+FaceGen/run_00aaf9a0	actors.facegen
+FaceGen/run_00aafa80	actors.facegen
+FaceGen/run_00aafbe0	actors.facegen
+FaceGen/run_00ab0a80	actors.facegen
+FaceGen/run_00ab0d50	actors.facegen
+FaceGen/run_00ab2e70	actors.facegen
+FaceGen/run_00ab3370	actors.facegen
+FaceGen/run_00ab46f0	actors.facegen
+FaceGen/run_00ab9bc0	actors.facegen
+FaceGen/run_00ab9eb0	actors.facegen
+FaceGen/run_00aba3c0	actors.facegen
+FaceGen/run_00ac6220	actors.facegen
+FaceGen/run_00ac68e0	actors.facegen
+FaceGen/trifileio.obj	actors.facegen
+NiAnimation/bsanimnote.cpp	actors.animation_interp
+NiAnimation/bsblendtreadtransfinterpolator.cpp	actors.animation_interp
+NiAnimation/bsfrustumfovcontroller.cpp	rendering.camera
+NiAnimation/bsgrabiknote.cpp	actors.animation_interp
+NiAnimation/bslookiknote.cpp	actors.animation_interp
+NiAnimation/bsmultitargettreadtransfcontroller.cpp	actors.animation_interp
+NiAnimation/bsrotaccumtransfinterpolator.cpp	actors.animation_interp
+NiAnimation/bstreadtransfinterpolator.cpp	actors.animation_interp
+NiAnimation/nialphacontroller.cpp	actors.animation_interp
+NiAnimation/nianimationkey.cpp	actors.animation_interp
+NiAnimation/niblendaccumtransforminterpolator.cpp	actors.animation_interp
+NiAnimation/niblendboolinterpolator.cpp	actors.animation_interp
+NiAnimation/niblendcolorinterpolator.cpp	actors.animation_interp
+NiAnimation/niblendfloatinterpolator.cpp	actors.animation_interp
+NiAnimation/niblendinterpolator.cpp	actors.animation_interp
+NiAnimation/niblendpoint3interpolator.cpp	actors.animation_interp
+NiAnimation/niblendquaternioninterpolator.cpp	actors.animation_interp
+NiAnimation/niblendtransforminterpolator.cpp	actors.animation_interp
+NiAnimation/nibonelodcontroller.cpp	rendering.lod_switching
+NiAnimation/nibooldata.cpp	actors.animation_interp
+NiAnimation/niboolinterpcontroller.cpp	actors.animation_interp
+NiAnimation/niboolinterpolator.cpp	actors.animation_interp
+NiAnimation/niboolkey.cpp	actors.animation_interp
+NiAnimation/nibooltimelineinterpolator.cpp	actors.animation_interp
+NiAnimation/nibsplinebasisdata.cpp	actors.animation_interp
+NiAnimation/nibsplinecolorinterpolator.cpp	actors.animation_interp
+NiAnimation/nibsplinecompcolorinterpolator.cpp	actors.animation_interp
+NiAnimation/nibsplinecompfloatinterpolator.cpp	actors.animation_interp
+NiAnimation/nibsplinecomppoint3interpolator.cpp	actors.animation_interp
+NiAnimation/nibsplinecomptransforminterpolator.cpp	actors.animation_interp
+NiAnimation/nibsplinedata.cpp	actors.animation_interp
+NiAnimation/nibsplinefloatinterpolator.cpp	actors.animation_interp
+NiAnimation/nibsplineinterpolator.cpp	actors.animation_interp
+NiAnimation/nibsplinepoint3interpolator.cpp	actors.animation_interp
+NiAnimation/nibsplinetransforminterpolator.cpp	actors.animation_interp
+NiAnimation/nicolordata.cpp	actors.animation_interp
+NiAnimation/nicolorextradatacontroller.cpp	actors.animation_interp
+NiAnimation/nicolorinterpolator.cpp	actors.animation_interp
+NiAnimation/nicolorkey.cpp	actors.animation_interp
+NiAnimation/nicontrollermanager.cpp	actors.animation_core
+NiAnimation/nicontrollersequence.cpp	actors.animation_core
+NiAnimation/niextradatacontroller.cpp	actors.animation_interp
+NiAnimation/niflipcontroller.cpp	actors.animation_interp
+NiAnimation/nifloatcontroller.cpp	actors.animation_interp
+NiAnimation/nifloatdata.cpp	actors.animation_interp
+NiAnimation/nifloatextradatacontroller.cpp	actors.animation_interp
+NiAnimation/nifloatinterpcontroller.cpp	actors.animation_interp
+NiAnimation/nifloatinterpolator.cpp	actors.animation_interp
+NiAnimation/nifloatkey.cpp	actors.animation_interp
+NiAnimation/nifloatsextradatacontroller.cpp	actors.animation_interp
+NiAnimation/nifloatsextradatapoint3controller.cpp	actors.animation_interp
+NiAnimation/nigeommorphercontroller.cpp	actors.animation_interp
+NiAnimation/nigeommorpherupdatetask.cpp	actors.animation_interp
+NiAnimation/niinterpcontroller.cpp	actors.animation_core
+NiAnimation/niinterpolator.cpp	actors.animation_interp
+NiAnimation/nikeybasedinterpolator.cpp	actors.animation_interp
+NiAnimation/nikeyframemanager.cpp	actors.animation_core
+NiAnimation/nikfmtool.cpp	actors.animation_interp
+NiAnimation/nilightcolorcontroller.cpp	actors.animation_interp
+NiAnimation/nilightdimmercontroller.cpp	actors.animation_interp
+NiAnimation/nilookatcontroller.cpp	actors.animation_interp
+NiAnimation/nilookatinterpolator.cpp	actors.animation_interp
+NiAnimation/nimaterialcolorcontroller.cpp	actors.animation_interp
+NiAnimation/nimorphdata.cpp	actors.animation_interp
+NiAnimation/nimultitargettransformcontroller.cpp	actors.animation_core
+NiAnimation/nioldanimationconverter.cpp	actors.animation_interp
+NiAnimation/nipathcontroller.cpp	actors.animation_interp
+NiAnimation/nipathinterpolator.cpp	actors.animation_interp
+NiAnimation/nipoint3interpcontroller.cpp	actors.animation_interp
+NiAnimation/nipoint3interpolator.cpp	actors.animation_interp
+NiAnimation/niposdata.cpp	actors.animation_interp
+NiAnimation/niposkey.cpp	actors.animation_interp
+NiAnimation/niquaternioninterpolator.cpp	actors.animation_interp
+NiAnimation/niquattransform.cpp	actors.animation_interp
+NiAnimation/nirollcontroller.cpp	actors.animation_interp
+NiAnimation/nirotdata.cpp	actors.animation_interp
+NiAnimation/nirotkey.cpp	actors.animation_interp
+NiAnimation/nisequence.cpp	actors.animation_core
+NiAnimation/nisequencestreamhelper.cpp	actors.animation_core
+NiAnimation/nisingleinterpcontroller.cpp	actors.animation_interp
+NiAnimation/nistringpalette.cpp	actors.animation_interp
+NiAnimation/nitcbrotkey.cpp	actors.animation_interp
+NiAnimation/nitextkey.cpp	actors.animation_interp
+NiAnimation/nitextkeyextradata.cpp	actors.animation_interp
+NiAnimation/nitexturetransformcontroller.cpp	actors.animation_interp
+NiAnimation/nitransformcontroller.cpp	actors.animation_core
+NiAnimation/nitransformdata.cpp	actors.animation_interp
+NiAnimation/nitransforminterpolator.cpp	actors.animation_interp
+NiAnimation/niuvcontroller.cpp	actors.animation_interp
+NiAnimation/niuvdata.cpp	actors.animation_interp
+NiAnimation/niviscontroller.cpp	actors.animation_interp
+NiAnimation/run_00a26d70	actors.animation_interp
+NiAnimation/run_00a276a0	actors.animation_interp
+NiAnimation/run_00a289b0	actors.animation_interp
+NiAnimation/run_00a298f0	actors.animation_interp
+NiAnimation/run_00a2bde0	actors.animation_interp
+NiAnimation/run_00a35860	actors.animation_interp
+NiAnimation/run_00a36070	actors.animation_interp
+NiAnimation/run_00a36890	actors.animation_interp
+NiAnimation/run_00a38de0	actors.animation_interp
+NiAnimation/run_00a39120	actors.animation_interp
+NiAnimation/run_00a3c340	actors.animation_interp
+NiAnimation/run_00a3c570	actors.animation_interp
+NiAnimation/run_00a3d520	actors.animation_interp
+NiAnimation/run_00a3d5d0	actors.animation_interp
+NiAnimation/run_00a40980	actors.animation_interp
+NiAnimation/run_00a413d0	actors.animation_interp
+NiAnimation/run_00a42050	actors.animation_interp
+NiAnimation/run_00a42b70	actors.animation_interp
+NiAnimation/run_00a42f60	actors.animation_interp
+NiAnimation/run_00a44f90	actors.animation_interp
+NiAnimation/run_00a473b0	actors.animation_interp
+NiAnimation/run_00a47540	actors.animation_interp
+NiAnimation/run_00a47ce0	actors.animation_interp
+NiAnimation/run_00a48990	actors.animation_interp
+NiAnimation/run_00a48d70	actors.animation_interp
+NiAnimation/run_00a4eaa0	actors.animation_interp
+NiAnimation/run_00a506c0	actors.animation_interp
+NiAnimation/run_00a509f0	actors.animation_interp
+NiAnimation/run_00a50aa0	actors.animation_interp
+NiAnimation/run_00a51e10	actors.animation_interp
+NiAnimation/run_00a53c30	actors.animation_interp
+NiAnimation/run_00a55a10	actors.animation_interp
+NiAnimation/run_00a56f90	actors.animation_interp
+NiAnimation/run_00a574b0	actors.animation_interp
+NiAnimation/run_00a57580	actors.animation_interp
+NiAnimation/run_00a57870	actors.animation_interp
+NiAnimation/run_00a57930	actors.animation_interp
+NiAnimation/run_00a62150	actors.animation_interp
+NiCollision/niboundingvolume.cpp	physics.ni_collision
+NiCollision/nibox.cpp	physics.ni_collision
+NiCollision/niboxbv.cpp	physics.ni_collision
+NiCollision/niboxcapsuleintersector.cpp	physics.ni_collision
+NiCollision/niboxsphereintersector.cpp	physics.ni_collision
+NiCollision/nicapsule.cpp	physics.ni_collision
+NiCollision/nicapsulebv.cpp	physics.ni_collision
+NiCollision/nicapsulecapsuleintersector.cpp	physics.ni_collision
+NiCollision/nicapsulesphereintersector.cpp	physics.ni_collision
+NiCollision/nicapsuletriintersector.cpp	physics.ni_collision
+NiCollision/nicollision.cpp	physics.ni_collision
+NiCollision/nicollisiondata.cpp	physics.ni_collision
+NiCollision/nidistpntseg.cpp	physics.ni_collision
+NiCollision/nidistpnttri.cpp	physics.ni_collision
+NiCollision/nidistsegseg.cpp	physics.ni_collision
+NiCollision/nidistsegtri.cpp	physics.ni_collision
+NiCollision/nihalfspacebv.cpp	physics.ni_collision
+NiCollision/niintersector.cpp	physics.ni_collision
+NiCollision/niobbleaf.cpp	physics.ni_collision
+NiCollision/niobbnode.cpp	physics.ni_collision
+NiCollision/niobbox.cpp	physics.ni_collision
+NiCollision/niobbroot.cpp	physics.ni_collision
+NiCollision/nipick.cpp	physics.ni_collision
+NiCollision/nisegment.cpp	physics.ni_collision
+NiCollision/nisphere.cpp	physics.ni_collision
+NiCollision/nispherebv.cpp	physics.ni_collision
+NiCollision/nispheretriintersector.cpp	physics.ni_collision
+NiCollision/nitrigon.cpp	physics.ni_collision
+NiCollision/niunionbv.cpp	physics.ni_collision
+NiCollision/run_00e99300	physics.ni_collision
+NiCollision/run_00e9c8c0	physics.ni_collision
+NiCollision/run_00eab9d0	physics.ni_collision
+NiCollision/run_00eada70	physics.ni_collision
+NiCollision/run_00eae6d0	physics.ni_collision
+NiCollision/run_00eae9e0	physics.ni_collision
+NiCollision/run_00eaedc0	physics.ni_collision
+NiCollision/run_00eaff20	physics.ni_collision
+NiCollision/run_00eb3230	physics.ni_collision
+NiCollision/run_00eb3750	physics.ni_collision
+NiCollision/run_00eb3890	physics.ni_collision
+NiCollision/run_00eb3c40	physics.ni_collision
+NiCollision/run_00eb42e0	physics.ni_collision
+NiCollision/run_00eb5e30	physics.ni_collision
+NiCollision/run_00eb6150	physics.ni_collision
+NiCollision/run_00eb8dc0	physics.ni_collision
+NiCollision/run_00eb9fa0	physics.ni_collision
+NiMain/bsdismemberskininstance.cpp	rendering.geometry
+NiMain/bspackedadditionalgeometrydata.cpp	rendering.geometry
+NiMain/bsresizabletrishape.cpp	rendering.geometry
+NiMain/bssegmentedtrishape.cpp	rendering.geometry
+NiMain/bstexturepalette.cpp	rendering.textures
+NiMain/ni2dbuffer.cpp	rendering.textures
+NiMain/niaccumulator.cpp	rendering.accumulators
+NiMain/niadditionalgeometrydata.cpp	rendering.geometry
+NiMain/nialphaaccumulator.cpp	rendering.accumulators
+NiMain/nialphaproperty.cpp	rendering.materials
+NiMain/niambientlight.cpp	rendering.lights
+NiMain/niavobject.cpp	rendering.scene_graph
+NiMain/niavobject_xenon.cpp	rendering.scene_graph
+NiMain/nibacktofrontaccumulator.cpp	rendering.accumulators
+NiMain/nibillboardnode.cpp	rendering.scene_graph
+NiMain/nibinaryextradata.cpp	rendering.scene_graph
+NiMain/nibooleanextradata.cpp	rendering.scene_graph
+NiMain/nibound.cpp	rendering.rooms_portals
+NiMain/nibound_xenon.cpp	rendering.rooms_portals
+NiMain/nibspnode.cpp	rendering.scene_graph
+NiMain/nicamera.cpp	rendering.camera
+NiMain/nicolor.cpp	rendering.math
+NiMain/nicolorextradata.cpp	rendering.scene_graph
+NiMain/nicullingprocess.cpp	rendering.culling
+NiMain/nicullingproperty.cpp	rendering.culling
+NiMain/niddsreader.cpp	rendering.textures
+NiMain/nidepthstencilbuffer.cpp	rendering.textures
+NiMain/nidevimageconverter.cpp	rendering.textures
+NiMain/nidirectionallight.cpp	rendering.lights
+NiMain/niditherproperty.cpp	rendering.materials
+NiMain/nidynamiceffect.cpp	rendering.materials
+NiMain/niextradata.cpp	rendering.scene_graph
+NiMain/nifloatextradata.cpp	rendering.scene_graph
+NiMain/nifloatsextradata.cpp	rendering.scene_graph
+NiMain/nifogproperty.cpp	rendering.materials
+NiMain/nifrustum.cpp	rendering.culling
+NiMain/nifrustumplanes.cpp	rendering.culling
+NiMain/nigeometry.cpp	rendering.geometry
+NiMain/nigeometrydata.cpp	rendering.geometry
+NiMain/nigpuprogramcache.cpp	rendering.gpu_programs
+NiMain/niimageconverter.cpp	rendering.textures
+NiMain/niintegerextradata.cpp	rendering.scene_graph
+NiMain/niintegersextradata.cpp	rendering.scene_graph
+NiMain/nilight.cpp	rendering.lights
+NiMain/nilines.cpp	rendering.geometry
+NiMain/nilinesdata.cpp	rendering.geometry
+NiMain/niloddata.cpp	rendering.lod_switching
+NiMain/nilodnode.cpp	rendering.lod_switching
+NiMain/nimaterial.cpp	rendering.materials
+NiMain/nimateriallibrary.cpp	rendering.materials
+NiMain/nimaterialproperty.cpp	rendering.materials
+NiMain/nimaterialresource.cpp	rendering.materials
+NiMain/nimath.cpp	rendering.math
+NiMain/nimatrix3.cpp	rendering.math
+NiMain/ninifimagereader.cpp	rendering.textures
+NiMain/ninode.cpp	rendering.scene_graph
+NiMain/niobject.cpp	rendering.scene_graph
+NiMain/niobjectnet.cpp	rendering.scene_graph
+NiMain/nioldscreenspace.cpp	rendering.screen_space
+NiMain/nipalette.cpp	rendering.textures
+NiMain/niparticlemeshes.cpp	rendering.particle_meshes
+NiMain/niparticlemeshesdata.cpp	rendering.particle_meshes
+NiMain/niparticles.cpp	rendering.particle_meshes
+NiMain/niparticlesdata.cpp	rendering.particle_meshes
+NiMain/nipersistentsrctexturerendererdata.cpp	rendering.textures
+NiMain/nipixeldata.cpp	rendering.textures
+NiMain/nipixelformat.cpp	rendering.textures
+NiMain/niplane.cpp	rendering.math
+NiMain/nipoint3.cpp	rendering.math
+NiMain/nipoint3_xenon.cpp	rendering.math
+NiMain/nipointlight.cpp	rendering.lights
+NiMain/niproperty.cpp	rendering.materials
+NiMain/nipropertystate.cpp	rendering.materials
+NiMain/niquaternion.cpp	rendering.math
+NiMain/nirangeloddata.cpp	rendering.lod_switching
+NiMain/nirenderedcubemap.cpp	rendering.textures
+NiMain/nirenderedtexture.cpp	rendering.textures
+NiMain/nirenderer.cpp	rendering.renderer_core
+NiMain/nirendertargetgroup.cpp	rendering.textures
+NiMain/nirtti.cpp	rendering.scene_graph
+NiMain/niscmextradata.cpp	rendering.scene_graph
+NiMain/niscreenelements.cpp	rendering.screen_space
+NiMain/niscreenelementsdata.cpp	rendering.screen_space
+NiMain/niscreenloddata.cpp	rendering.lod_switching
+NiMain/niscreentexture.cpp	rendering.textures
+NiMain/nishadeproperty.cpp	rendering.materials
+NiMain/nishader.cpp	rendering.renderer_core
+NiMain/nishaderconstantmap.cpp	rendering.renderer_core
+NiMain/nishaderdeclaration.cpp	rendering.renderer_core
+NiMain/nishaderfactory.cpp	rendering.renderer_core
+NiMain/nishaderlibrary.cpp	rendering.renderer_core
+NiMain/nishaderlibrarydesc.cpp	rendering.renderer_core
+NiMain/nisingleshadermaterial.cpp	rendering.renderer_core
+NiMain/nisingleshadermateriallibrary.cpp	rendering.renderer_core
+NiMain/niskindata.cpp	rendering.geometry
+NiMain/niskininstance.cpp	rendering.geometry
+NiMain/niskinpartition.cpp	rendering.geometry
+NiMain/nisortadjustnode.cpp	rendering.scene_graph
+NiMain/nisourcecubemap.cpp	rendering.textures
+NiMain/nisourcetexture.cpp	rendering.textures
+NiMain/nispecularproperty.cpp	rendering.materials
+NiMain/nispotlight.cpp	rendering.lights
+NiMain/nistencilproperty.cpp	rendering.materials
+NiMain/nistream.cpp	rendering.scene_graph
+NiMain/nistringextradata.cpp	rendering.scene_graph
+NiMain/nistringsextradata.cpp	rendering.scene_graph
+NiMain/niswitchnode.cpp	rendering.scene_graph
+NiMain/niswitchstringextradata.cpp	rendering.scene_graph
+NiMain/nitexture.cpp	rendering.textures
+NiMain/nitextureeffect.cpp	rendering.materials
+NiMain/nitexturingproperty.cpp	rendering.materials
+NiMain/nitransform.cpp	rendering.math
+NiMain/nitribasedgeom.cpp	rendering.geometry
+NiMain/nitribasedgeomdata.cpp	rendering.geometry
+NiMain/nitrishape.cpp	rendering.geometry
+NiMain/nitrishapedata.cpp	rendering.geometry
+NiMain/nitrishapedata_xenon.cpp	rendering.geometry
+NiMain/nitrishapedynamicdata.cpp	rendering.geometry
+NiMain/nitristrips.cpp	rendering.geometry
+NiMain/nitristripsdata.cpp	rendering.geometry
+NiMain/nitristripsdata_xenon.cpp	rendering.geometry
+NiMain/nitristripsdynamicdata.cpp	rendering.geometry
+NiMain/nivectorextradata.cpp	rendering.scene_graph
+NiMain/nivertexcolorproperty.cpp	rendering.materials
+NiMain/nivertweightsextradata.cpp	rendering.scene_graph
+NiMain/nizbufferproperty.cpp	rendering.materials
+NiParticle/bsstripparticlesystem.cpp	rendering.particles
+NiParticle/bsstrippsysdata.cpp	rendering.particles
+NiParticle/nimeshparticlesystem.cpp	rendering.particles
+NiParticle/nimeshpsysdata.cpp	rendering.particles
+NiParticle/niparticleinfo.cpp	rendering.particles
+NiParticle/niparticlesystem.cpp	rendering.particles
+NiParticle/nipsysagedeathmodifier.cpp	rendering.particles
+NiParticle/nipsysairfieldairfrictionctlr.cpp	rendering.particles
+NiParticle/nipsysairfieldinheritvelocityctlr.cpp	rendering.particles
+NiParticle/nipsysairfieldmodifier.cpp	rendering.particles
+NiParticle/nipsysairfieldspreadctlr.cpp	rendering.particles
+NiParticle/nipsysbombmodifier.cpp	rendering.particles
+NiParticle/nipsysboundupdatemodifier.cpp	rendering.particles
+NiParticle/nipsysboxemitter.cpp	rendering.particles
+NiParticle/nipsyscollider.cpp	rendering.particles
+NiParticle/nipsyscollidermanager.cpp	rendering.particles
+NiParticle/nipsyscolormodifier.cpp	rendering.particles
+NiParticle/nipsyscylinderemitter.cpp	rendering.particles
+NiParticle/nipsysdata.cpp	rendering.particles
+NiParticle/nipsysdragfieldmodifier.cpp	rendering.particles
+NiParticle/nipsysdragmodifier.cpp	rendering.particles
+NiParticle/nipsysemitter.cpp	rendering.particles
+NiParticle/nipsysemitterctlr.cpp	rendering.particles
+NiParticle/nipsysemitterctlrdata.cpp	rendering.particles
+NiParticle/nipsysemitterdeclinationctlr.cpp	rendering.particles
+NiParticle/nipsysemitterdeclinationvarctlr.cpp	rendering.particles
+NiParticle/nipsysemitterinitialradiusctlr.cpp	rendering.particles
+NiParticle/nipsysemitterlifespanctlr.cpp	rendering.particles
+NiParticle/nipsysemitterplanaranglectlr.cpp	rendering.particles
+NiParticle/nipsysemitterplanaranglevarctlr.cpp	rendering.particles
+NiParticle/nipsysemitterspeedctlr.cpp	rendering.particles
+NiParticle/nipsysfieldattenuationctlr.cpp	rendering.particles
+NiParticle/nipsysfieldmagnitudectlr.cpp	rendering.particles
+NiParticle/nipsysfieldmaxdistancectlr.cpp	rendering.particles
+NiParticle/nipsysfieldmodifier.cpp	rendering.particles
+NiParticle/nipsysgravityfieldmodifier.cpp	rendering.particles
+NiParticle/nipsysgravitymodifier.cpp	rendering.particles
+NiParticle/nipsysgravitystrengthctlr.cpp	rendering.particles
+NiParticle/nipsysgrowfademodifier.cpp	rendering.particles
+NiParticle/nipsysinitialrotanglectlr.cpp	rendering.particles
+NiParticle/nipsysinitialrotanglevarctlr.cpp	rendering.particles
+NiParticle/nipsysinitialrotspeedctlr.cpp	rendering.particles
+NiParticle/nipsysinitialrotspeedvarctlr.cpp	rendering.particles
+NiParticle/nipsysmeshemitter.cpp	rendering.particles
+NiParticle/nipsysmeshupdatemodifier.cpp	rendering.particles
+NiParticle/nipsysmodifier.cpp	rendering.particles
+NiParticle/nipsysmodifieractivectlr.cpp	rendering.particles
+NiParticle/nipsysmodifierboolctlr.cpp	rendering.particles
+NiParticle/nipsysmodifierctlr.cpp	rendering.particles
+NiParticle/nipsysmodifierfloatctlr.cpp	rendering.particles
+NiParticle/nipsysplanarcollider.cpp	rendering.particles
+NiParticle/nipsyspositionmodifier.cpp	rendering.particles
+NiParticle/nipsysradialfieldmodifier.cpp	rendering.particles
+NiParticle/nipsysresetonloopctlr.cpp	rendering.particles
+NiParticle/nipsysrotationmodifier.cpp	rendering.particles
+NiParticle/nipsysspawnmodifier.cpp	rendering.particles
+NiParticle/nipsyssphereemitter.cpp	rendering.particles
+NiParticle/nipsyssphericalcollider.cpp	rendering.particles
+NiParticle/nipsysturbulencefieldmodifier.cpp	rendering.particles
+NiParticle/nipsysupdatectlr.cpp	rendering.particles
+NiParticle/nipsysupdatetask.cpp	rendering.particles
+NiParticle/nipsysvolumeemitter.cpp	rendering.particles
+NiParticle/nipsysvortexfieldmodifier.cpp	rendering.particles
+NiParticle/run_00c21910	rendering.particles
+NiParticle/run_00c21f00	rendering.particles
+NiParticle/run_00c23b20	rendering.particles
+NiParticle/run_00c24c90	rendering.particles
+NiParticle/run_00c25850	rendering.particles
+NiParticle/run_00c25c40	rendering.particles
+NiParticle/run_00c26790	rendering.particles
+NiParticle/run_00c270f0	rendering.particles
+NiParticle/run_00c27350	rendering.particles
+NiParticle/run_00c283b0	rendering.particles
+NiParticle/run_00c28570	rendering.particles
+NiParticle/run_00c28b20	rendering.particles
+NiParticle/run_00c29d00	rendering.particles
+NiParticle/run_00c29e50	rendering.particles
+NiParticle/run_00c29f50	rendering.particles
+NiParticle/run_00c2a050	rendering.particles
+NiParticle/run_00c2a090	rendering.particles
+NiParticle/run_00c2a160	rendering.particles
+NiParticle/run_00c2a2b0	rendering.particles
+NiParticle/run_00c2a870	rendering.particles
+NiParticle/run_00c2b010	rendering.particles
+NiParticle/run_00c2b110	rendering.particles
+NiParticle/run_00c2b200	rendering.particles
+NiParticle/run_00c2b330	rendering.particles
+NiParticle/run_00c2b420	rendering.particles
+NiParticle/run_00c2b520	rendering.particles
+NiParticle/run_00c2b620	rendering.particles
+NiParticle/run_00c2b720	rendering.particles
+NiParticle/run_00c2b870	rendering.particles
+NiParticle/run_00c2b970	rendering.particles
+NiParticle/run_00c2ba60	rendering.particles
+NiParticle/run_00c2c7b0	rendering.particles
+NiParticle/run_00c2d690	rendering.particles
+NiParticle/run_00c2e4c0	rendering.particles
+NiParticle/run_00c2ef20	rendering.particles
+NiParticle/run_00c2f3a0	rendering.particles
+NiParticle/run_00c30600	rendering.particles
+NiParticle/run_00c30790	rendering.particles
+NiParticle/run_00c31260	rendering.particles
+NiParticle/run_00c31640	rendering.particles
+NiParticle/run_00c31af0	rendering.particles
+NiParticle/run_00c31e50	rendering.particles
+NiParticle/run_00c31ff0	rendering.particles
+NiParticle/run_00c32b60	rendering.particles
+NiParticle/run_00c32d80	rendering.particles
+NiParticle/run_00c32de0	rendering.particles
+NiSystem/bsniallocator.cpp	platform.memory
+NiSystem/nibinarystream.cpp	data.ni_files
+NiSystem/nifile.cpp	data.ni_files
+NiSystem/nifilename.cpp	data.ni_files
+NiSystem/nimemstream.cpp	data.ni_files
+NiSystem/nipath.cpp	data.ni_files
+NiSystem/nipath_xenon.cpp	data.ni_files
+NiSystem/nisearchpath.cpp	data.ni_files
+NiSystem/nistandardallocator.cpp	platform.memory
+NiSystem/nithread_xenon.cpp	platform.threads_tasks
+NiXenonRenderer/nid3ddefaultshader.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dgeometrygroupmanager.cpp	rendering.vertex_buffers
+NiXenonRenderer/nid3dgpuprogramcache.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dhlslpixelshader.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dhlslvertexshader.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dpass.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dpixelshader.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3drenderstategroup.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshader.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderconstantmanager.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderconstantmap.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderdeclaration.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderfactory.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderinterface.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderprogram.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderprogramcreator_xenon.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderprogramcreatorasm.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderprogramcreatorasm_xenon.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderprogramcreatorhlsl.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderprogramcreatorobj.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dshaderprogramfactory.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dtexturestage.cpp	rendering.renderer_device
+NiXenonRenderer/nid3dutility.cpp	rendering.gpu_programs
+NiXenonRenderer/nid3dvertexshader.cpp	rendering.gpu_programs
+NiXenonRenderer/nidynamicgeometrygroup.cpp	rendering.vertex_buffers
+NiXenonRenderer/nigeometrybufferdata.cpp	rendering.vertex_buffers
+NiXenonRenderer/nigeometrygroup.cpp	rendering.vertex_buffers
+NiXenonRenderer/nistaticgeometrygroup.cpp	rendering.vertex_buffers
+NiXenonRenderer/niunsharedgeometrygroup.cpp	rendering.vertex_buffers
+NiXenonRenderer/nivbset.cpp	rendering.vertex_buffers
+NiXenonRenderer/nixenondirect3dtexture.cpp	rendering.renderer_device
+NiXenonRenderer/nixenonerror.cpp	rendering.renderer_device
+NiXenonRenderer/nixenonerrorshader.cpp	rendering.gpu_programs
+NiXenonRenderer/nixenonfragmentshader.cpp	rendering.gpu_programs
+NiXenonRenderer/nixenonpersistentsrctexturerendererdata.cpp	rendering.renderer_device
+NiXenonRenderer/nixenonrenderer.cpp	rendering.renderer_device
+NiXenonRenderer/nixenonrenderersdm.cpp	rendering.renderer_device
+NiXenonRenderer/nixenonrenderstate.cpp	rendering.renderer_device
+NiXenonRenderer/nixenonshaderdeclaration.cpp	rendering.gpu_programs
+NiXenonRenderer/nixenontexturedata.cpp	rendering.renderer_device
+NiXenonRenderer/nixenonvbmanager.cpp	rendering.vertex_buffers
+NiXenonRenderer/run_00aa1ad0	rendering.renderer_device
+NiXenonRenderer/run_00aa1b60	rendering.renderer_device
+NiXenonRenderer/run_00b799c0	rendering.renderer_device
+NiXenonRenderer/run_00e6d310	rendering.renderer_device
+NiXenonRenderer/run_00e6d760	rendering.renderer_device
+NiXenonRenderer/run_00e6dfc0	rendering.renderer_device
+NiXenonRenderer/run_00e6e730	rendering.renderer_device
+NiXenonRenderer/run_00e6e8a0	rendering.renderer_device
+NiXenonRenderer/run_00e6fbb0	rendering.renderer_device
+NiXenonRenderer/run_00e715a0	rendering.renderer_device
+NiXenonRenderer/run_00e754a0	rendering.renderer_device
+NiXenonRenderer/run_00e75a70	rendering.renderer_device
+NiXenonRenderer/run_00e76660	rendering.renderer_device
+NiXenonRenderer/run_00e76c30	rendering.renderer_device
+NiXenonRenderer/run_00e78560	rendering.renderer_device
+NiXenonRenderer/run_00e7a640	rendering.renderer_device
+NiXenonRenderer/run_00e7acb0	rendering.renderer_device
+NiXenonRenderer/run_00e7af60	rendering.renderer_device
+NiXenonRenderer/run_00e7b200	rendering.renderer_device
+NiXenonRenderer/run_00e7bcd0	rendering.renderer_device
+NiXenonRenderer/run_00e7ca20	rendering.renderer_device
+NiXenonRenderer/run_00e7cc50	rendering.renderer_device
+NiXenonRenderer/run_00e7cd50	rendering.renderer_device
+NiXenonRenderer/run_00e7eea0	rendering.renderer_device
+NiXenonRenderer/run_00e7ef80	rendering.renderer_device
+NiXenonRenderer/run_00e81170	rendering.renderer_device
+NiXenonRenderer/run_00e87980	rendering.renderer_device
+NiXenonRenderer/run_00e88fc0	rendering.renderer_device
+NiXenonRenderer/run_00e89ed0	rendering.renderer_device
+NiXenonRenderer/run_00e8bfa0	rendering.renderer_device
+NiXenonRenderer/run_00e8c0d0	rendering.renderer_device
+NiXenonRenderer/run_00e8c570	rendering.renderer_device
+NiXenonRenderer/run_00e8d890	rendering.renderer_device
+NiXenonRenderer/run_00e8f190	rendering.renderer_device
+NiXenonRenderer/run_00e91ae0	rendering.renderer_device
+NiXenonRenderer/run_00e91d50	rendering.renderer_device
+NiXenonRenderer/run_00e93f50	rendering.renderer_device
+NiXenonRenderer/run_00e941a0	rendering.renderer_device
+NiXenonRenderer/run_00e94390	rendering.renderer_device
+NiXenonRenderer/run_00e944f0	rendering.renderer_device
+NiXenonRenderer/run_00e94810	rendering.renderer_device
+NiXenonRenderer/run_00e94d70	rendering.renderer_device
+NiXenonRenderer/run_00e95b60	rendering.renderer_device
+NiXenonRenderer/run_00e971d0	rendering.renderer_device
+NiXenonRenderer/run_00e97790	rendering.renderer_device
+NiXenonRenderer/run_00e983f0	rendering.renderer_device
+NiXenonRenderer/run_00e984d0	rendering.renderer_device
+NiXenonRenderer/run_00e987c0	rendering.renderer_device
+NiXenonRenderer/run_00e98910	rendering.renderer_device
+SpeedTree/billboardleaf.cpp	rendering.trees
+SpeedTree/branch.cpp	rendering.trees
+SpeedTree/branchinfo.cpp	rendering.trees
+SpeedTree/camera.cpp	rendering.trees
+SpeedTree/fileaccess.cpp	rendering.trees
+SpeedTree/frondengine.cpp	rendering.trees
+SpeedTree/idvrandom.cpp	rendering.trees
+SpeedTree/idvspline.cpp	rendering.trees
+SpeedTree/indexedgeometry.cpp	rendering.trees
+SpeedTree/leafinfo.cpp	rendering.trees
+SpeedTree/leaflod.cpp	rendering.trees
+SpeedTree/lightingengine.cpp	rendering.trees
+SpeedTree/projectedshadow.cpp	rendering.trees
+SpeedTree/robertdavies_random.cpp	rendering.trees
+SpeedTree/run_00b0d5d0	rendering.trees
+SpeedTree/run_00b0d7a0	rendering.trees
+SpeedTree/run_00b0dae0	rendering.trees
+SpeedTree/run_00b0dce0	rendering.trees
+SpeedTree/run_00b0e1a0	rendering.trees
+SpeedTree/run_00b0eca0	rendering.trees
+SpeedTree/run_00b156b0	rendering.trees
+SpeedTree/run_00b169c0	rendering.trees
+SpeedTree/run_00b1e3e0	rendering.trees
+SpeedTree/run_00b1e750	rendering.trees
+SpeedTree/run_00b1e970	rendering.trees
+SpeedTree/run_00b1eb00	rendering.trees
+SpeedTree/run_00b1f590	rendering.trees
+SpeedTree/run_00b1fab0	rendering.trees
+SpeedTree/run_00b1ff50	rendering.trees
+SpeedTree/run_00b23f10	rendering.trees
+SpeedTree/run_00b2ab50	rendering.trees
+SpeedTree/run_00b2daf0	rendering.trees
+SpeedTree/run_00b2df90	rendering.trees
+SpeedTree/run_00b2e250	rendering.trees
+SpeedTree/run_00b30c80	rendering.trees
+SpeedTree/run_00b31070	rendering.trees
+SpeedTree/run_00b32410	rendering.trees
+SpeedTree/run_00b37590	rendering.trees
+SpeedTree/run_00b3c3b0	rendering.trees
+SpeedTree/run_00b3c5a0	rendering.trees
+SpeedTree/run_00b3c910	rendering.trees
+SpeedTree/run_00b3d800	rendering.trees
+SpeedTree/run_00b3db50	rendering.trees
+SpeedTree/run_00b3efe0	rendering.trees
+SpeedTree/run_00b3f0a0	rendering.trees
+SpeedTree/run_00b40070	rendering.trees
+SpeedTree/run_00b40850	rendering.trees
+SpeedTree/run_00b40a60	rendering.trees
+SpeedTree/run_00b42a60	rendering.trees
+SpeedTree/speedtreert.cpp	rendering.trees
+SpeedTree/treeengine.cpp	rendering.trees
+SpeedTree/windengine.cpp	rendering.trees
+SpeedTree/windinfo.cpp	rendering.trees
+fallout shared/actionpoints.cpp	actors.actor_values
+fallout shared/actorcause.cpp	combat.combat_formulas
+fallout shared/actorvalue.cpp	actors.actor_values
+fallout shared/aiformulas.cpp	actors.actor_values
+fallout shared/animation.cpp	actors.animation_game
+fallout shared/audiomarkerdata.cpp	audio.sound_forms
+fallout shared/bgsacousticspace.cpp	audio.sound_forms
+fallout shared/bgsammoform.cpp	combat.weapons
+fallout shared/bgsautowater.cpp	rendering.water
+fallout shared/bgsbipedmodellist.cpp	actors.equipment
+fallout shared/bgsbodypart.cpp	actors.equipment
+fallout shared/bgsbodypartdata.cpp	actors.equipment
+fallout shared/bgscamerapath.cpp	world.cinematics
+fallout shared/bgscamerapathmanager.cpp	world.cinematics
+fallout shared/bgscamerashot.cpp	world.cinematics
+fallout shared/bgscliproundsform.cpp	combat.weapons
+fallout shared/bgsconstructibleobject.cpp	gameplay.crafting
+fallout shared/bgsdebris.cpp	world.destruction
+fallout shared/bgsdecalmanager.cpp	rendering.blood_decals
+fallout shared/bgsdecalnode.cpp	rendering.blood_decals
+fallout shared/bgsdefaultobjectmanager.cpp	data.forms
+fallout shared/bgsdestructibleobjectform.cpp	world.destruction
+fallout shared/bgsencounterzone.cpp	world.encounter_zones
+fallout shared/bgsentrypoint.cpp	gameplay.perks
+fallout shared/bgsentrypointfunction.cpp	gameplay.perks
+fallout shared/bgsequiptype.cpp	actors.equipment
+fallout shared/bgsexplosion.cpp	world.explosions
+fallout shared/bgsheadpart.cpp	actors.npcs_creatures
+fallout shared/bgsidlecollection.cpp	actors.animation_game
+fallout shared/bgsidlemarker.cpp	world.statics
+fallout shared/bgsimpactdata.cpp	world.impacts
+fallout shared/bgsimpactdataset.cpp	world.impacts
+fallout shared/bgslistform.cpp	data.forms
+fallout shared/bgsloadedreferencecollection.cpp	world.cells
+fallout shared/bgsmenuicon.cpp	gameplay.items
+fallout shared/bgsmessage.cpp	gameplay.messages
+fallout shared/bgsmessageicon.cpp	gameplay.items
+fallout shared/bgsmovablestatic.cpp	world.statics
+fallout shared/bgsnote.cpp	world.notes
+fallout shared/bgsopencloseform.cpp	world.doors_teleport
+fallout shared/bgsperk.cpp	gameplay.perks
+fallout shared/bgspickupputdownsounds.cpp	gameplay.items
+fallout shared/bgsplaceablewater.cpp	rendering.water
+fallout shared/bgsprimitive.cpp	world.statics
+fallout shared/bgsprojectile.cpp	combat.weapons
+fallout shared/bgsquestobjective.cpp	gameplay.quests
+fallout shared/bgsradiation.cpp	gameplay.hardcore
+fallout shared/bgsragdoll.cpp	actors.ragdoll
+fallout shared/bgsrepairitemlist.cpp	gameplay.items
+fallout shared/bgssceneinfo.cpp	data.forms
+fallout shared/bgsstaticcollection.cpp	world.statics
+fallout shared/bgstalkingactivator.cpp	world.statics
+fallout shared/bgsterminal.cpp	world.terminals
+fallout shared/bgstextureset.cpp	rendering.textures
+fallout shared/bgstextureusemap.cpp	rendering.textures
+fallout shared/bgstouchspellform.cpp	data.forms
+fallout shared/bgsvoicetype.cpp	actors.npcs_creatures
+fallout shared/bgsworldlocation.cpp	world.worldspaces
+fallout shared/bipedanim.cpp	actors.animation_game
+fallout shared/bsanimgroupsequence.cpp	actors.animation_game
+fallout shared/bsanimnotereceiver.cpp	actors.animation_game
+fallout shared/bsbipnode.cpp	actors.animation_game
+fallout shared/bsclonepool.cpp	platform.memory
+fallout shared/combatformulas.cpp	combat.combat_formulas
+fallout shared/containeritemextra.cpp	gameplay.inventory
+fallout shared/creaturesounds.cpp	actors.npcs_creatures
+fallout shared/decaldata.cpp	rendering.blood_decals
+fallout shared/distant terrain system/bgsdistantobjectblock.cpp	rendering.lod_objects
+fallout shared/distant terrain system/bgsdistanttreeblock.cpp	rendering.lod_trees
+fallout shared/distant terrain system/bgsterrainchunk.cpp	rendering.lod_terrain
+fallout shared/distant terrain system/bgsterrainmanager.cpp	rendering.lod_terrain
+fallout shared/distant terrain system/bgsterrainnode.cpp	rendering.lod_terrain
+fallout shared/distant terrain system/run_006fa160	rendering.lod_terrain
+fallout shared/distant terrain system/run_006fa210	rendering.lod_terrain
+fallout shared/distant terrain system/run_006fa6a0	rendering.lod_terrain
+fallout shared/distant terrain system/run_006faa30	rendering.lod_terrain
+fallout shared/distant terrain system/run_006fc490	rendering.lod_terrain
+fallout shared/distant terrain system/run_006fd010	rendering.lod_terrain
+fallout shared/doorlock.cpp	world.doors_teleport
+fallout shared/experiencepoints.cpp	actors.actor_values
+fallout shared/expression.cpp	scripting.script_runtime
+fallout shared/exteriorcellloader.cpp	world.cells
+fallout shared/extradatacell.cpp	world.cells
+fallout shared/extradatalist.cpp	world.references
+fallout shared/extradataobjects.cpp	world.references
+fallout shared/facegen/bsfacegenimage.cpp	actors.facegen
+fallout shared/facegen/bsfacegenkeyframe.cpp	actors.facegen
+fallout shared/facegen/bsfacegenmanager.cpp	actors.facegen
+fallout shared/facegen/bsfacegenmodel.cpp	actors.facegen
+fallout shared/facegen/bsfacegenmorph.cpp	actors.facegen
+fallout shared/facegen/bsfacegenmorphdata.cpp	actors.facegen
+fallout shared/facegen/bsfacegenninode.cpp	actors.facegen
+fallout shared/facegen/run_0064d880	actors.facegen
+fallout shared/facegen/run_0064dbd0	actors.facegen
+fallout shared/facegen/run_0064dc30	actors.facegen
+fallout shared/facegen/run_0064fcd0	actors.facegen
+fallout shared/facegen/run_00658f30	actors.facegen
+fallout shared/facegen/run_00659230	actors.facegen
+fallout shared/facegen/run_006592c0	actors.facegen
+fallout shared/facegen/run_006599d0	actors.facegen
+fallout shared/facegen/run_00659ab0	actors.facegen
+fallout shared/facegen/run_0065f2b0	actors.facegen
+fallout shared/facegen/run_00662760	actors.facegen
+fallout shared/facegen/run_00662890	actors.facegen
+fallout shared/formcomponentcollection.cpp	data.forms
+fallout shared/foscriptfunctions.cpp	scripting.script_runtime
+fallout shared/gameplayformulas.cpp	actors.actor_values
+fallout shared/globalfunc.cpp	scripting.script_runtime
+fallout shared/gridarray.cpp	world.cells
+fallout shared/gridcell.cpp	world.cells
+fallout shared/havok/bgsacousticspacelistener.cpp	audio.sound_forms
+fallout shared/havok/bgszonetargetlistener.cpp	physics.havok_game
+fallout shared/havok/cameracaster.cpp	physics.havok_game
+fallout shared/havok/cellmopp.cpp	physics.havok_game
+fallout shared/havok/decalcaster.cpp	rendering.blood_decals
+fallout shared/havok/focollisionlistener.cpp	physics.havok_game
+fallout shared/havok/foislandactivationlistener.cpp	physics.havok_game
+fallout shared/havok/havokstream.cpp	physics.havok_game
+fallout shared/havok/hitcaster.cpp	physics.havok_game
+fallout shared/havok/loadedareabound.cpp	physics.havok_game
+fallout shared/havok/run_0061fba0	physics.havok_game
+fallout shared/havok/run_00620180	physics.havok_game
+fallout shared/havok/run_00620230	physics.havok_game
+fallout shared/havok/run_00621370	physics.havok_game
+fallout shared/havok/run_00621a90	physics.havok_game
+fallout shared/havok/run_00621b60	physics.havok_game
+fallout shared/havok/run_00621c40	physics.havok_game
+fallout shared/havok/run_00622470	physics.havok_game
+fallout shared/havok/run_006227e0	physics.havok_game
+fallout shared/havok/run_00623290	physics.havok_game
+fallout shared/havok/run_00623370	physics.havok_game
+fallout shared/havok/run_00624020	physics.havok_game
+fallout shared/havok/run_00624070	physics.havok_game
+fallout shared/havok/run_00624150	physics.havok_game
+fallout shared/havok/run_00626560	physics.havok_game
+fallout shared/havok/run_006266f0	physics.havok_game
+fallout shared/havok/run_00626790	physics.havok_game
+fallout shared/havok/run_00626da0	physics.havok_game
+fallout shared/havok/run_0062a0b0	physics.havok_game
+fallout shared/havok/run_0062a3b0	physics.havok_game
+fallout shared/havok/run_0062ab60	physics.havok_game
+fallout shared/havok/run_0062e230	physics.havok_game
+fallout shared/havok/run_0062e290	physics.havok_game
+fallout shared/havok/run_0062e350	physics.havok_game
+fallout shared/havok/run_0062e630	physics.havok_game
+fallout shared/havok/run_0062e860	physics.havok_game
+fallout shared/havok/run_0062e940	physics.havok_game
+fallout shared/havok/run_006319e0	physics.havok_game
+fallout shared/havok/specificitemcollector.cpp	physics.havok_game
+fallout shared/havok/tesarrowtargetlistener.cpp	physics.havok_game
+fallout shared/havok/teshavokutilities.cpp	physics.havok_game
+fallout shared/havok/testraplistener.cpp	world.traps
+fallout shared/havok/teswaterlistener.cpp	world.water_physics
+fallout shared/havok/teswindlistener.cpp	physics.havok_game
+fallout shared/havok/viewcaster.cpp	physics.havok_game
+fallout shared/havok/xblendsettings.cpp	physics.havok_game
+fallout shared/imagespacemodifierinstance.cpp	rendering.imagespace
+fallout shared/inventorychanges.cpp	gameplay.inventory
+fallout shared/lipsynchanim.cpp	actors.lipsync
+fallout shared/magic/alchemyitem.cpp	gameplay.effect_items
+fallout shared/magic/effectarchetype.cpp	gameplay.effect_items
+fallout shared/magic/effectitem.cpp	gameplay.effect_items
+fallout shared/magic/effectitemlist.cpp	gameplay.effect_items
+fallout shared/magic/effectsetting.cpp	gameplay.effect_items
+fallout shared/magic/effectsettingcollection.cpp	gameplay.effect_items
+fallout shared/magic/enchantmentitem.cpp	gameplay.effect_items
+fallout shared/magic/ingredientitem.cpp	gameplay.effect_items
+fallout shared/magic/magicformulas.cpp	gameplay.effect_items
+fallout shared/magic/magicitem.cpp	gameplay.effect_items
+fallout shared/magic/magicitemobject.cpp	gameplay.effect_items
+fallout shared/magic/magicsystem.cpp	gameplay.effect_items
+fallout shared/magic/run_00402bc0	gameplay.effect_items
+fallout shared/magic/run_00402d00	gameplay.effect_items
+fallout shared/magic/run_00403720	gameplay.effect_items
+fallout shared/magic/run_00403b30	gameplay.effect_items
+fallout shared/magic/run_00406f60	gameplay.effect_items
+fallout shared/magic/run_00408b20	gameplay.effect_items
+fallout shared/magic/run_00409060	gameplay.effect_items
+fallout shared/magic/run_004098d0	gameplay.effect_items
+fallout shared/magic/run_00409da0	gameplay.effect_items
+fallout shared/magic/run_0040c0e0	gameplay.effect_items
+fallout shared/magic/run_0040ca10	gameplay.effect_items
+fallout shared/magic/run_0040dee0	gameplay.effect_items
+fallout shared/magic/spellitem.cpp	gameplay.effect_items
+fallout shared/mapmarkerdata.cpp	world.map_markers
+fallout shared/medialocationcontroller.cpp	audio.music
+fallout shared/mediaset.cpp	audio.music
+fallout shared/miscstats.cpp	actors.actor_values
+fallout shared/modelloader.cpp	world.model_loading
+fallout shared/multiboundmarkerdata.cpp	rendering.rooms_portals
+fallout shared/niformarray.cpp	data.forms
+fallout shared/package.cpp	actors.ai_packages
+fallout shared/packagedataambush.cpp	actors.ai_packages
+fallout shared/packagedatadialogue.cpp	actors.ai_packages
+fallout shared/packagedataeat.cpp	actors.ai_packages
+fallout shared/packagedataescort.cpp	actors.ai_packages
+fallout shared/packagedatafollow.cpp	actors.ai_packages
+fallout shared/packagedatapatrol.cpp	actors.ai_packages
+fallout shared/packagedatauseitem.cpp	actors.ai_packages
+fallout shared/packagedatauseweapon.cpp	actors.ai_packages
+fallout shared/packageeventaction.cpp	actors.ai_packages
+fallout shared/packagelist.cpp	actors.ai_packages
+fallout shared/packagelocation.cpp	actors.ai_packages
+fallout shared/packagetarget.cpp	actors.ai_packages
+fallout shared/pathfinding/navmesh.cpp	navigation.navmesh
+fallout shared/pathfinding/navmesh_loadsave.cpp	navigation.navmesh
+fallout shared/pathfinding/navmesh_util.cpp	navigation.navmesh
+fallout shared/pathfinding/navmeshbounds.cpp	navigation.navmesh
+fallout shared/pathfinding/navmeshgrid.cpp	navigation.navmesh
+fallout shared/pathfinding/navmeshinfo.cpp	navigation.navmesh
+fallout shared/pathfinding/navmeshinfomap.cpp	navigation.navmesh
+fallout shared/pathfinding/navmeshinfosearch.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshmath.cpp	navigation.navmesh
+fallout shared/pathfinding/navmeshobstaclecutter.cpp	navigation.obstacles
+fallout shared/pathfinding/navmeshobstaclemanager.cpp	navigation.obstacles
+fallout shared/pathfinding/navmeshobstacletask.cpp	navigation.obstacles
+fallout shared/pathfinding/navmeshportal.cpp	navigation.navmesh
+fallout shared/pathfinding/navmeshpovsearch.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshrender.cpp	navigation.navmesh
+fallout shared/pathfinding/navmeshsearch.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshsearchclosepoint.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshsearchflee.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshsearchhide.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshsearchlos.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshsearchmaxcost.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshsearchmultiplegoals.cpp	navigation.navmesh_search
+fallout shared/pathfinding/navmeshsearchslpoint.cpp	navigation.navmesh_search
+fallout shared/pathfinding/pathbuilder.cpp	navigation.path_building
+fallout shared/pathfinding/pathfind.cpp	navigation.path_manager
+fallout shared/pathfinding/pathingavoidnode.cpp	navigation.path_building
+fallout shared/pathfinding/pathingdebuggeometry.cpp	navigation.path_building
+fallout shared/pathfinding/pathinglocation.cpp	navigation.path_building
+fallout shared/pathfinding/pathinglosgridmap.cpp	navigation.line_of_sight
+fallout shared/pathfinding/pathinglosmap.cpp	navigation.line_of_sight
+fallout shared/pathfinding/pathingrequest.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingrequestclosepoint.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingrequestcover.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingrequestcoveredmove.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingrequestflee.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingrequesthide.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingrequestlos.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingrequestoptimallocation.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingrequestsafestraightline.cpp	navigation.path_requests
+fallout shared/pathfinding/pathingsearchraycast.cpp	navigation.path_building
+fallout shared/pathfinding/pathingsolution.cpp	navigation.path_building
+fallout shared/pathfinding/pathmanager.cpp	navigation.path_manager
+fallout shared/pathfinding/pathsmoother.cpp	navigation.path_building
+fallout shared/pathfinding/pathsmootherpov.cpp	navigation.path_building
+fallout shared/pathfinding/run_006919a0	navigation.pathing_other
+fallout shared/pathfinding/run_00691c60	navigation.pathing_other
+fallout shared/pathfinding/run_00692290	navigation.pathing_other
+fallout shared/pathfinding/run_006927d0	navigation.pathing_other
+fallout shared/pathfinding/run_00695370	navigation.pathing_other
+fallout shared/pathfinding/run_0069d0f0	navigation.pathing_other
+fallout shared/pathfinding/run_0069dd50	navigation.pathing_other
+fallout shared/pathfinding/run_0069e090	navigation.pathing_other
+fallout shared/pathfinding/run_006a64b0	navigation.pathing_other
+fallout shared/pathfinding/run_006a65b0	navigation.pathing_other
+fallout shared/pathfinding/run_006a68b0	navigation.pathing_other
+fallout shared/pathfinding/run_006a6a40	navigation.pathing_other
+fallout shared/pathfinding/run_006a8a30	navigation.pathing_other
+fallout shared/pathfinding/run_006a9200	navigation.pathing_other
+fallout shared/pathfinding/run_006a9cb0	navigation.pathing_other
+fallout shared/pathfinding/run_006aa620	navigation.pathing_other
+fallout shared/pathfinding/run_006ab360	navigation.pathing_other
+fallout shared/pathfinding/run_006ab410	navigation.pathing_other
+fallout shared/pathfinding/run_006abf60	navigation.pathing_other
+fallout shared/pathfinding/run_006ac010	navigation.pathing_other
+fallout shared/pathfinding/run_006ad180	navigation.pathing_other
+fallout shared/pathfinding/run_006b46a0	navigation.pathing_other
+fallout shared/pathfinding/run_006b4850	navigation.pathing_other
+fallout shared/pathfinding/run_006b5560	navigation.pathing_other
+fallout shared/pathfinding/run_006b5cd0	navigation.pathing_other
+fallout shared/pathfinding/run_006b8310	navigation.pathing_other
+fallout shared/pathfinding/run_006b9790	navigation.pathing_other
+fallout shared/pathfinding/run_006bab00	navigation.pathing_other
+fallout shared/pathfinding/run_006bc870	navigation.pathing_other
+fallout shared/pathfinding/run_006bcfe0	navigation.pathing_other
+fallout shared/pathfinding/run_006bfd40	navigation.pathing_other
+fallout shared/pathfinding/run_006c00d0	navigation.pathing_other
+fallout shared/pathfinding/run_006c72f0	navigation.pathing_other
+fallout shared/pathfinding/run_006c7530	navigation.pathing_other
+fallout shared/pathfinding/run_006c75c0	navigation.pathing_other
+fallout shared/pathfinding/run_006c7850	navigation.pathing_other
+fallout shared/pathfinding/run_006c8a90	navigation.pathing_other
+fallout shared/pathfinding/run_006c8d00	navigation.pathing_other
+fallout shared/pathfinding/run_006cfe30	navigation.pathing_other
+fallout shared/pathfinding/run_006d03a0	navigation.pathing_other
+fallout shared/pathfinding/run_006dbcf0	navigation.pathing_other
+fallout shared/pathfinding/run_006dbde0	navigation.pathing_other
+fallout shared/pathfinding/run_006dc100	navigation.pathing_other
+fallout shared/pathfinding/run_006dc890	navigation.pathing_other
+fallout shared/pathfinding/run_006dc9f0	navigation.pathing_other
+fallout shared/pathfinding/run_006df160	navigation.pathing_other
+fallout shared/pathfinding/run_006df200	navigation.pathing_other
+fallout shared/pathfinding/run_006e1280	navigation.pathing_other
+fallout shared/pathfinding/run_006e2210	navigation.pathing_other
+fallout shared/pathfinding/run_006e3c90	navigation.pathing_other
+fallout shared/pathfinding/run_006e3e70	navigation.pathing_other
+fallout shared/pathfinding/run_006e6da0	navigation.pathing_other
+fallout shared/pathfinding/run_006e6f90	navigation.pathing_other
+fallout shared/pathfinding/run_006e7620	navigation.pathing_other
+fallout shared/pathfinding/run_006e95d0	navigation.pathing_other
+fallout shared/pathfinding/run_006e9700	navigation.pathing_other
+fallout shared/pathfinding/run_006e9ab0	navigation.pathing_other
+fallout shared/pathfinding/run_006f30e0	navigation.pathing_other
+fallout shared/pathfinding/run_006f31f0	navigation.pathing_other
+fallout shared/pathfinding/run_006f4cd0	navigation.pathing_other
+fallout shared/pathfinding/teleportdoorsearch.cpp	navigation.door_paths
+fallout shared/pathfinding/teleportpath.cpp	navigation.door_paths
+fallout shared/pathfinding/virtualpathingnode.cpp	navigation.path_building
+fallout shared/ragdolldata.cpp	actors.ragdoll
+fallout shared/region system/run_004f15a0	world.regions
+fallout shared/region system/run_004f1ed0	world.regions
+fallout shared/region system/run_004f2480	world.regions
+fallout shared/region system/run_004f32e0	world.regions
+fallout shared/region system/run_004f3610	world.regions
+fallout shared/region system/run_004f4280	world.regions
+fallout shared/region system/run_004f5040	world.regions
+fallout shared/region system/run_004f5d90	world.regions
+fallout shared/region system/run_004f5e80	world.regions
+fallout shared/region system/run_004f6de0	world.regions
+fallout shared/region system/run_004f7030	world.regions
+fallout shared/region system/tesregion.cpp	world.regions
+fallout shared/region system/tesregiondata.cpp	world.regions
+fallout shared/region system/tesregiondatagrass.cpp	rendering.grass
+fallout shared/region system/tesregiondataimposter.cpp	world.regions
+fallout shared/region system/tesregiondatalandscape.cpp	world.regions
+fallout shared/region system/tesregiondatalist.cpp	world.regions
+fallout shared/region system/tesregiondatamanager.cpp	world.regions
+fallout shared/region system/tesregiondatamap.cpp	world.regions
+fallout shared/region system/tesregiondatasound.cpp	world.regions
+fallout shared/region system/tesregiondataweather.cpp	world.regions
+fallout shared/region system/tesregiongrassobject.cpp	rendering.grass
+fallout shared/region system/tesregiongrassobjectlist.cpp	rendering.grass
+fallout shared/region system/tesregionlist.cpp	world.regions
+fallout shared/region system/tesregionpoint.cpp	world.regions
+fallout shared/region system/tesregionpointlist.cpp	world.regions
+fallout shared/renderer.cpp	rendering.world_renderer
+fallout shared/screencustomsplatter.cpp	rendering.blood_decals
+fallout shared/screensplatter.cpp	rendering.blood_decals
+fallout shared/settings/xgamesetting.cpp	platform.settings
+fallout shared/sky/atmosphere.cpp	rendering.sky
+fallout shared/sky/clouds.cpp	rendering.sky
+fallout shared/sky/moon.cpp	rendering.sky
+fallout shared/sky/precipitation.cpp	rendering.precipitation
+fallout shared/sky/run_00633b40	rendering.sky_other
+fallout shared/sky/run_00633c90	rendering.sky_other
+fallout shared/sky/run_006366b0	rendering.sky_other
+fallout shared/sky/run_006368f0	rendering.sky_other
+fallout shared/sky/run_00639ce0	rendering.sky_other
+fallout shared/sky/run_0063f790	rendering.sky_other
+fallout shared/sky/run_0063fb70	rendering.sky_other
+fallout shared/sky/run_006404b0	rendering.sky_other
+fallout shared/sky/sky.cpp	rendering.sky
+fallout shared/sky/skyobject.cpp	rendering.sky
+fallout shared/sky/skytexturemanager.cpp	rendering.sky
+fallout shared/sky/stars.cpp	rendering.sky
+fallout shared/sky/sun.cpp	rendering.sky
+fallout shared/speedtree/bstreemanager.cpp	rendering.trees
+fallout shared/speedtree/bstreemodel.cpp	rendering.trees
+fallout shared/speedtree/bstreenode.cpp	rendering.trees
+fallout shared/speedtree/run_006662a0	rendering.trees
+fallout shared/speedtree/run_0066b0b0	rendering.trees
+fallout shared/teleportdata.cpp	world.doors_teleport
+fallout shared/tempeffects/bstecreatetask.cpp	rendering.temp_effects
+fallout shared/tempeffects/bstempeffect.cpp	rendering.temp_effects
+fallout shared/tempeffects/bstempeffectdebris.cpp	rendering.temp_effects
+fallout shared/tempeffects/bstempeffectgeometrydecal.cpp	rendering.temp_effects
+fallout shared/tempeffects/bstempeffectparticle.cpp	rendering.temp_effects
+fallout shared/tempeffects/bstempeffectsimpledecal.cpp	rendering.temp_effects
+fallout shared/tempeffects/run_00682510	rendering.temp_effects
+fallout shared/tempeffects/run_0068a8d0	rendering.temp_effects
+fallout shared/tempeffects/run_0068ab60	rendering.temp_effects
+fallout shared/tes.cpp	world.core_tes
+fallout shared/tesactorbase.cpp	actors.npcs_creatures
+fallout shared/tesactorbasedata.cpp	actors.npcs_creatures
+fallout shared/tesaiform.cpp	data.forms
+fallout shared/tesammo.cpp	combat.weapons
+fallout shared/tesammoeffect.cpp	combat.weapons
+fallout shared/tesanimation.cpp	actors.animation_game
+fallout shared/tesanimgroup.cpp	actors.animation_game
+fallout shared/tesattackdamageform.cpp	combat.combat_formulas
+fallout shared/tesattributes.cpp	actors.actor_values
+fallout shared/tesbipedmodelform.cpp	actors.equipment
+fallout shared/tescaravan.cpp	gameplay.casino
+fallout shared/tescasinochips.cpp	gameplay.casino
+fallout shared/teschallenge.cpp	gameplay.challenges
+fallout shared/tesclass.cpp	actors.npcs_creatures
+fallout shared/tesclimate.cpp	world.weather
+fallout shared/tescondition.cpp	scripting.conditions
+fallout shared/tesconditionfunctions.cpp	scripting.condition_functions
+fallout shared/tesconditionitem.cpp	scripting.conditions
+fallout shared/tescontainer.cpp	gameplay.inventory
+fallout shared/tescreature.cpp	actors.npcs_creatures
+fallout shared/tesdatahandler.cpp	data.data_handler
+fallout shared/tesdescription.cpp	gameplay.items
+fallout shared/teseffectshader.cpp	rendering.effect_shaders
+fallout shared/tesenchantableform.cpp	gameplay.items
+fallout shared/teseyes.cpp	actors.npcs_creatures
+fallout shared/tesfaction.cpp	actors.factions
+fallout shared/tesfile.cpp	data.data_handler
+fallout shared/tesflora.cpp	world.statics
+fallout shared/tesform.cpp	data.forms
+fallout shared/tesfullname.cpp	gameplay.items
+fallout shared/tesfurniture.cpp	world.statics
+fallout shared/teshair.cpp	actors.npcs_creatures
+fallout shared/teshealthform.cpp	actors.actor_values
+fallout shared/tesidleform.cpp	actors.animation_game
+fallout shared/tesidlemanager.cpp	actors.animation_game
+fallout shared/tesimagespace.cpp	rendering.imagespace
+fallout shared/tesimagespacemodifiableform.cpp	rendering.imagespace
+fallout shared/tesimagespacemodifier.cpp	rendering.imagespace
+fallout shared/tesland.cpp	world.land
+fallout shared/teslandtexture.cpp	world.land
+fallout shared/teslevcreature.cpp	actors.npcs_creatures
+fallout shared/tesleveledlist.cpp	actors.npcs_creatures
+fallout shared/teslight.cpp	rendering.lights
+fallout shared/tesloadscreen.cpp	gameplay.messages
+fallout shared/tesloadscreentype.cpp	gameplay.messages
+fallout shared/tesmodel.cpp	gameplay.items
+fallout shared/tesmodellist.cpp	gameplay.items
+fallout shared/tesmodeltextureswap.cpp	data.texture_swaps
+fallout shared/tesnpc.cpp	actors.npcs_creatures
+fallout shared/tesobject.cpp	world.statics
+fallout shared/tesobjectacti.cpp	world.statics
+fallout shared/tesobjectanio.cpp	world.statics
+fallout shared/tesobjectarma.cpp	actors.equipment
+fallout shared/tesobjectarmo.cpp	actors.equipment
+fallout shared/tesobjectbook.cpp	gameplay.items
+fallout shared/tesobjectcell.cpp	world.cells
+fallout shared/tesobjectclot.cpp	actors.equipment
+fallout shared/tesobjectcont.cpp	gameplay.inventory
+fallout shared/tesobjectdoor.cpp	world.doors_teleport
+fallout shared/tesobjectimod.cpp	combat.weapons
+fallout shared/tesobjectmisc.cpp	gameplay.items
+fallout shared/tesobjectrefr.cpp	world.references
+fallout shared/tesobjectstat.cpp	world.statics
+fallout shared/tesobjecttree.cpp	world.statics
+fallout shared/tesobjectweap.cpp	combat.weapons
+fallout shared/tesparameters.cpp	data.forms
+fallout shared/tesproduceform.cpp	gameplay.items
+fallout shared/tesquest.cpp	gameplay.quests
+fallout shared/tesqueststage.cpp	gameplay.quests
+fallout shared/tesquesttarget.cpp	gameplay.quests
+fallout shared/tesrace.cpp	actors.npcs_creatures
+fallout shared/tesraceform.cpp	actors.npcs_creatures
+fallout shared/tesreactionform.cpp	actors.factions
+fallout shared/tesrecipe.cpp	gameplay.crafting
+fallout shared/tesreputation.cpp	actors.factions
+fallout shared/tesresponse.cpp	audio.dialogue_audio
+fallout shared/tessaveloadgame.cpp	data.save_game
+fallout shared/tesscript.cpp	scripting.script_runtime
+fallout shared/tesscriptableform.cpp	scripting.script_runtime
+fallout shared/tesscriptcompiler.cpp	scripting.script_compiler
+fallout shared/tesscriptfunctions.cpp	scripting.script_functions
+fallout shared/tesscriptrunmanager.cpp	scripting.script_runtime
+fallout shared/tesscriptvariable.cpp	scripting.script_runtime
+fallout shared/tesskill.cpp	actors.actor_values
+fallout shared/tessound.cpp	audio.sound_forms
+fallout shared/tessoundfile.cpp	audio.sound_forms
+fallout shared/tesspelllist.cpp	gameplay.spell_lists
+fallout shared/testerrainlodmanager.cpp	rendering.lod_objects
+fallout shared/testexture.cpp	rendering.textures
+fallout shared/testopic.cpp	audio.dialogue_audio
+fallout shared/testopicinfo.cpp	audio.dialogue_audio
+fallout shared/tesvalueform.cpp	gameplay.items
+fallout shared/teswater.cpp	rendering.water
+fallout shared/teswaterform.cpp	rendering.water
+fallout shared/tesweather.cpp	world.weather
+fallout shared/tesweatherlist.cpp	world.weather
+fallout shared/tesweightform.cpp	gameplay.items
+fallout shared/tesworldspace.cpp	world.worldspaces
+fallout/ai/actor.cpp	actors.actor_core
+fallout/ai/actor_magic.cpp	gameplay.magic_effects
+fallout/ai/actorpackage.cpp	actors.ai_packages
+fallout/ai/actorpackagedata.cpp	actors.ai_packages
+fallout/ai/actorvaluecache.cpp	actors.actor_processes
+fallout/ai/ailineartaskthread.cpp	actors.ai_tasks
+fallout/ai/ailineartaskthreadmanager.cpp	actors.ai_tasks
+fallout/ai/aitaskmanager.cpp	actors.ai_tasks
+fallout/ai/alarmpackage.cpp	actors.ai_packages
+fallout/ai/arrowprojectile.cpp	combat.projectiles
+fallout/ai/backuppackage.cpp	actors.ai_packages
+fallout/ai/baseprocess.cpp	actors.actor_processes
+fallout/ai/bsplayerdistancecheckcontroller.cpp	actors.low_process
+fallout/ai/camerashake.cpp	actors.player
+fallout/ai/character.cpp	actors.npcs_creatures
+fallout/ai/combat/beamprojectile.cpp	combat.projectiles
+fallout/ai/combat/combataction.cpp	combat.combat_actions
+fallout/ai/combat/combatactions.cpp	combat.combat_actions
+fallout/ai/combat/combatcovermap.cpp	combat.combat_manager
+fallout/ai/combat/combatdialoguemanager.cpp	combat.combat_manager
+fallout/ai/combat/combatgoal.cpp	combat.combat_manager
+fallout/ai/combat/combatgroup.cpp	combat.combat_manager
+fallout/ai/combat/combatgroupstrategy.cpp	combat.combat_manager
+fallout/ai/combat/combatmanager.cpp	combat.combat_manager
+fallout/ai/combat/combatplan.cpp	combat.combat_manager
+fallout/ai/combat/combatplanner.cpp	combat.combat_manager
+fallout/ai/combat/combatprocedure.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureactivateobject.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureattackgrenade.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureattacklow.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureattackmelee.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureattackranged.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedurebeincover.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureengagetarget.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureevade.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedurehidefromtarget.cpp	combat.combat_procedures
+fallout/ai/combat/combatproceduremove.cpp	combat.combat_procedures
+fallout/ai/combat/combatproceduresearch.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureswitchweapon.cpp	combat.combat_procedures
+fallout/ai/combat/combatprocedureusecombatitem.cpp	combat.combat_procedures
+fallout/ai/combat/combatstate.cpp	combat.combat_controller
+fallout/ai/combat/combattargetmap.cpp	combat.combat_manager
+fallout/ai/combat/combatthreatmap.cpp	combat.combat_manager
+fallout/ai/combat/combattimer.cpp	combat.combat_manager
+fallout/ai/combat/combatutilities.cpp	combat.combat_manager
+fallout/ai/combat/combatworldstate.cpp	combat.combat_manager
+fallout/ai/combat/continuousbeamprojectile.cpp	combat.projectiles
+fallout/ai/combat/explosion.cpp	world.explosions
+fallout/ai/combat/flameprojectile.cpp	combat.projectiles
+fallout/ai/combat/hitdata.cpp	combat.projectiles
+fallout/ai/combat/missileprojectile.cpp	combat.projectiles
+fallout/ai/combat/muzzleflash.cpp	combat.projectiles
+fallout/ai/combat/projectile.cpp	combat.projectiles
+fallout/ai/combat/vats.cpp	combat.vats
+fallout/ai/combatcontroller.cpp	combat.combat_controller
+fallout/ai/creature.cpp	actors.npcs_creatures
+fallout/ai/dialoguepackage.cpp	actors.ai_packages
+fallout/ai/escortpackage.cpp	actors.ai_packages
+fallout/ai/falloutcharacterprogression.cpp	actors.player
+fallout/ai/fleepackage.cpp	actors.ai_packages
+fallout/ai/followerbarks.cpp	actors.followers
+fallout/ai/guardpackage.cpp	actors.ai_packages
+fallout/ai/gunwobble.cpp	actors.player
+fallout/ai/highactorculler.cpp	rendering.culling
+fallout/ai/highprocess.cpp	actors.high_process
+fallout/ai/lipsyncbackgroundmanager.cpp	actors.lipsync
+fallout/ai/lowprocess.cpp	actors.low_process
+fallout/ai/middlehighprocess.cpp	actors.high_process
+fallout/ai/middlelowprocess.cpp	actors.low_process
+fallout/ai/mobileobject.cpp	actors.actor_movement
+fallout/ai/modifierlist.cpp	actors.actor_processes
+fallout/ai/movement/actormover.cpp	actors.actor_movement
+fallout/ai/movement/actorpathhandler.cpp	actors.actor_movement
+fallout/ai/movement/detailedactorpathhandler.cpp	actors.actor_movement
+fallout/ai/movement/playermover.cpp	actors.actor_movement
+fallout/ai/movement/virtualactorpathhandler.cpp	actors.actor_movement
+fallout/ai/patrolpackage.cpp	actors.ai_packages
+fallout/ai/playercharacter.cpp	actors.player
+fallout/ai/procedure.cpp	actors.ai_packages
+fallout/ai/processarray.cpp	actors.actor_processes
+fallout/ai/processlists.cpp	actors.actor_processes
+fallout/ai/sandboxpackage.cpp	actors.ai_packages
+fallout/ai/searchpackage.cpp	actors.ai_packages
+fallout/ai/spectatorpackage.cpp	actors.ai_packages
+fallout/ai/trespasspackage.cpp	actors.ai_packages
+fallout/audio/falloutaudio.cpp	audio.game_audio
+fallout/audio/falloutaudiomedia.cpp	audio.game_audio
+fallout/audio/falloutradio.cpp	audio.radio
+fallout/audio/impactmixer.cpp	world.impacts
+fallout/dialogue/conversation.cpp	audio.dialogue_audio
+fallout/dialogue/dialogueitem.cpp	audio.dialogue_audio
+fallout/dialogue/dialogueresponse.cpp	audio.dialogue_audio
+fallout/dialogue/menutopic.cpp	audio.dialogue_audio
+fallout/interface/animatingtext.cpp	ui.interface_manager
+fallout/interface/bgsmenupacker.cpp	ui.interface_manager
+fallout/interface/fadermanager.cpp	ui.menu_system
+fallout/interface/fohudeffectmanager.cpp	ui.interface_manager
+fallout/interface/fopipboymanager.cpp	ui.pipboy
+fallout/interface/forenderedmenu.cpp	ui.pipboy
+fallout/interface/forenderedmenuracesex.cpp	ui.chargen
+fallout/interface/forenderedterminal.cpp	ui.hacking_menu
+fallout/interface/fovatseffectmanager.cpp	ui.interface_manager
+fallout/interface/hotkeyswheel.cpp	ui.interface_manager
+fallout/interface/interface.cpp	ui.interface_manager
+fallout/interface/interfacemanager.cpp	ui.interface_manager
+fallout/interface/listbox.cpp	ui.interface_manager
+fallout/interface/menuconsole.cpp	ui.console
+fallout/interface/menumanager.cpp	ui.menu_system
+fallout/interface/menus/bartermenu.cpp	ui.barter_menu
+fallout/interface/menus/blackjackmenu.cpp	ui.casino_menus
+fallout/interface/menus/bookmenu.cpp	ui.message_menus
+fallout/interface/menus/caravanmenu.cpp	ui.caravan_menu
+fallout/interface/menus/chargenmenu.cpp	ui.chargen
+fallout/interface/menus/companionwheelmenu.cpp	ui.companion_wheel
+fallout/interface/menus/computersmenu.cpp	ui.hacking_menu
+fallout/interface/menus/containermenu.cpp	ui.container_menu
+fallout/interface/menus/creditsmenu.cpp	ui.message_menus
+fallout/interface/menus/dialogmenu.cpp	ui.dialogue_menu
+fallout/interface/menus/hackingmenu.cpp	ui.hacking_menu
+fallout/interface/menus/hudmainmenu.cpp	ui.hud
+fallout/interface/menus/inventorymenu.cpp	ui.pipboy_inventory
+fallout/interface/menus/itemmodmenu.cpp	ui.repair_menus
+fallout/interface/menus/levelupmenu.cpp	ui.levelup_menu
+fallout/interface/menus/loadingmenu.cpp	ui.loading_menu
+fallout/interface/menus/lockpickmenu.cpp	ui.lockpick_menu
+fallout/interface/menus/lovetestermenu.cpp	ui.chargen
+fallout/interface/menus/mapmenu.cpp	ui.pipboy_map
+fallout/interface/menus/messagemenu.cpp	ui.message_menus
+fallout/interface/menus/playernameentrymenu.cpp	ui.chargen
+fallout/interface/menus/quantitymenu.cpp	ui.message_menus
+fallout/interface/menus/racesexmenu.cpp	ui.chargen
+fallout/interface/menus/recipemenu.cpp	ui.recipe_menu
+fallout/interface/menus/repairmenu.cpp	ui.repair_menus
+fallout/interface/menus/repairservicesmenu.cpp	ui.repair_menus
+fallout/interface/menus/roulettemenu.cpp	ui.casino_menus
+fallout/interface/menus/sleepwaitmenu.cpp	ui.message_menus
+fallout/interface/menus/slotmachinemenu.cpp	ui.casino_menus
+fallout/interface/menus/specialbookmenu.cpp	ui.chargen
+fallout/interface/menus/startmenu.cpp	ui.start_menu
+fallout/interface/menus/statsmenu.cpp	ui.pipboy_stats
+fallout/interface/menus/surgerymenu.cpp	ui.chargen
+fallout/interface/menus/traitmenu.cpp	ui.chargen
+fallout/interface/menus/traitselectmenu.cpp	ui.chargen
+fallout/interface/menus/tutorialmenu.cpp	ui.message_menus
+fallout/interface/menus/vatsmenu.cpp	ui.vats_menu
+fallout/magic/absorbeffect.cpp	gameplay.magic_effects
+fallout/magic/activeeffect.cpp	gameplay.magic_casting
+fallout/magic/associateditemeffect.cpp	gameplay.magic_effects
+fallout/magic/bhkcharacterlistenerspell.cpp	gameplay.magic_effects
+fallout/magic/bhktelekinesislistener.cpp	gameplay.magic_effects
+fallout/magic/bounditemeffect.cpp	gameplay.magic_effects
+fallout/magic/calmeffect.cpp	gameplay.magic_effects
+fallout/magic/chameleoneffect.cpp	gameplay.magic_effects
+fallout/magic/commandcreatureeffect.cpp	gameplay.magic_effects
+fallout/magic/commandeffect.cpp	gameplay.magic_effects
+fallout/magic/commandhumanoideffect.cpp	gameplay.magic_effects
+fallout/magic/concussioneffect.cpp	gameplay.magic_effects
+fallout/magic/cureeffect.cpp	gameplay.magic_effects
+fallout/magic/darknesseffect.cpp	gameplay.magic_effects
+fallout/magic/demoralizeeffect.cpp	gameplay.magic_effects
+fallout/magic/detectlifeeffect.cpp	gameplay.magic_effects
+fallout/magic/disintegratearmoreffect.cpp	gameplay.magic_effects
+fallout/magic/disintegrateweaponeffect.cpp	gameplay.magic_effects
+fallout/magic/dispeleffect.cpp	gameplay.magic_effects
+fallout/magic/frenzyeffect.cpp	gameplay.magic_effects
+fallout/magic/invisibilityeffect.cpp	gameplay.magic_effects
+fallout/magic/lighteffect.cpp	gameplay.magic_effects
+fallout/magic/limbconditioneffect.cpp	gameplay.magic_effects
+fallout/magic/lockeffect.cpp	gameplay.magic_effects
+fallout/magic/magicballprojectile.cpp	gameplay.magic_projectiles
+fallout/magic/magicboltprojectile.cpp	gameplay.magic_projectiles
+fallout/magic/magiccaster.cpp	gameplay.magic_casting
+fallout/magic/magicfogprojectile.cpp	gameplay.magic_projectiles
+fallout/magic/magichiteffect.cpp	gameplay.magic_effects
+fallout/magic/magiclight.cpp	gameplay.magic_effects
+fallout/magic/magicmodelhiteffect.cpp	gameplay.magic_effects
+fallout/magic/magicprojectile.cpp	gameplay.magic_projectiles
+fallout/magic/magicshaderhiteffect.cpp	gameplay.magic_effects
+fallout/magic/magicsprayprojectile.cpp	gameplay.magic_projectiles
+fallout/magic/magictarget.cpp	gameplay.magic_casting
+fallout/magic/nighteyeeffect.cpp	gameplay.magic_effects
+fallout/magic/nonactormagiccaster.cpp	gameplay.magic_casting
+fallout/magic/nonactormagictarget.cpp	gameplay.magic_casting
+fallout/magic/openeffect.cpp	gameplay.magic_effects
+fallout/magic/paralysiseffect.cpp	gameplay.magic_effects
+fallout/magic/reanimateeffect.cpp	gameplay.magic_effects
+fallout/magic/scripteffect.cpp	scripting.script_effects
+fallout/magic/shieldeffect.cpp	gameplay.magic_effects
+fallout/magic/summoncreatureeffect.cpp	gameplay.magic_effects
+fallout/magic/sundamageeffect.cpp	gameplay.magic_effects
+fallout/magic/telekinesiseffect.cpp	gameplay.magic_effects
+fallout/magic/turnundeadeffect.cpp	gameplay.magic_effects
+fallout/magic/valueandconditionseffect.cpp	gameplay.magic_effects
+fallout/magic/valuemodifiereffect.cpp	gameplay.magic_effects
+fallout/magic/vampirismeffect.cpp	gameplay.magic_effects
+fallout/misc/appmemory.cpp	platform.memory
+fallout/misc/appmemory_xenon.cpp	platform.memory
+fallout/misc/bgsmovieplayer.cpp	platform.movies
+fallout/misc/calendar.cpp	gameplay.calendar
+fallout/misc/garbagecollector.cpp	platform.memory
+fallout/misc/main.cpp	platform.main_loop
+fallout/misc/memorylevelmanager.cpp	platform.memory
+fallout/misc/memorymanagerfile.cpp	platform.memory
+fallout/misc/saveload/bgschangeflags.cpp	data.save_game
+fallout/misc/saveload/bgsloadformbuffer.cpp	data.save_buffers
+fallout/misc/saveload/bgsloadgamebuffer.cpp	data.save_buffers
+fallout/misc/saveload/bgsloadgamesubbuffer.cpp	data.save_buffers
+fallout/misc/saveload/bgsreconstructformsinallfilesmap.cpp	data.save_game
+fallout/misc/saveload/bgssaveformbuffer.cpp	data.save_buffers
+fallout/misc/saveload/bgssavegamebuffer.cpp	data.save_buffers
+fallout/misc/saveload/bgssaveloadchangesmap.cpp	data.save_game
+fallout/misc/saveload/bgssaveloaddefines.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadfile.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadformidmap.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadgame.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadglobaldata.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadheader.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadhistory.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadinitialdata.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadmanager.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadreferencesmap.cpp	data.save_game
+fallout/misc/saveload/bgssaveloadstructs.cpp	data.save_game
+fallout/misc/saveload/bgsunloadedformbuffer.cpp	data.save_buffers
+fallout/misc/screenshot.cpp	platform.screenshots
+fallout/misc/seendata.cpp	data.save_game
+fallout/misc/taskqueueinterface.cpp	platform.threads_tasks

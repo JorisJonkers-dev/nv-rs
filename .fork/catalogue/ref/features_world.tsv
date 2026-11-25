@@ -1,0 +1,22 @@
+key	title	group
+core_tes	World core (TES)	world
+cells	Cells and cell loading	world
+worldspaces	Worldspaces	world
+land	Land and land textures	world
+references	Placed objects (references)	world
+model_loading	Model and asset loading	world
+doors_teleport	Doors, locks and teleports	world
+regions	Regions	world
+weather	Weather and climate	world
+map_markers	Map markers	world
+encounter_zones	Encounter zones	world
+destruction	Destructible objects and debris	world
+statics	Statics, activators and furniture	world
+furniture_markers	Furniture markers	world
+explosions	Explosions	world
+impacts	Impact effects	world
+cinematics	Camera paths and shots	world
+terminals	Terminals	world
+notes	Notes and holotapes	world
+water_physics	Water and buoyancy	world
+traps	Traps	world

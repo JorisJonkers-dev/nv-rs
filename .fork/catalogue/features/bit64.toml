@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "features.bit64"
+title = "64-bit readiness"
+origin = "ours"
+notes = "The move from the 32-bit game model to native 64-bit code (ADR-0012, ADR-0014, ADR-0015). Kept by hand: a row is implemented only on merged proof, never on a plan."
+
+[[item]]
+id = "host_64bit"
+title = "The engine is a 64-bit program on Linux, Windows and macOS"
+status = "implemented"
+notes = "proof: fork-build.yml builds and tests the 64-bit engine on all three systems"
+evidence = [".github/workflows/fork-build.yml"]
+
+[[item]]
+id = "no_exe_code"
+title = "No 32-bit code of the exe is run: every function is translated or typed"
+status = "implemented"
+notes = "docs/LEDGER.md: every function of the exe is translated, run from a generated table, or platform and library code."
+evidence = ["docs/LEDGER.md"]
+
+[[item]]
+id = "stage2_by_default"
+title = "A typed family keeps its objects in host memory by default (stage 2)"
+status = "missing"
+label = "lockfree can move only on request"
+
+[[item]]
+id = "stage2_lockfree"
+title = "The lock-free lists live in host memory by default"
+status = "missing"
+
+[[item]]
+id = "stage2_geometry"
+title = "Geometry arrays live in host memory by default"
+status = "missing"
+
+[[item]]
+id = "stage2_anim_keys"
+title = "Animation keys live in host memory by default"
+status = "missing"
+
+[[item]]
+id = "beyond_4gb"
+title = "Game objects are no longer held to the 4 GB of the 32-bit model"
+status = "missing"
+
+[[item]]
+id = "typed_extender_access"
+title = "Built-in extenders reach moved objects through typed calls only"
+status = "missing"
+
+[[item]]
+id = "plugin_base_clear"
+title = "Plugin DLLs load clear of the host-memory handle range"
+status = "missing"
+
+[[item]]
+id = "typed_traces"
+title = "Trace runs compare the exe with typed code switched on"
+status = "missing"
+
+[[item]]
+id = "pixel_gates"
+title = "Pixel gates compare typed drawing with the original game"
+status = "missing"

@@ -1,0 +1,174 @@
+# SPDX-License-Identifier: GPL-3.0-only
+id	group	title
+scene_graph	rendering	Scene graph nodes and objects
+scene_graph_bs	rendering	Scene graph nodes (Bethesda)
+geometry	rendering	Meshes and geometry data
+geometry_bs	rendering	Meshes and geometry data (Bethesda)
+culling	rendering	Visibility culling
+rooms_portals	rendering	Rooms, portals and multibounds
+camera	rendering	Camera and view
+materials	rendering	Materials, alpha and render properties
+textures	rendering	Textures and image loading
+lights	rendering	Lights
+shadows	rendering	Shadows
+shader_manager	rendering	Shader system and batching
+lighting_shader	rendering	Per-pixel lighting shader
+unlit_shader	rendering	Unlit and effect shaders
+blood_decals	rendering	Blood splatter and decals
+water	rendering	Water drawing
+sky	rendering	Sky, sun, moons, stars and clouds
+sky_other	rendering	Sky (other)
+precipitation	rendering	Rain and snow
+grass	rendering	Grass
+tree_shaders	rendering	Tree shaders
+trees	rendering	SpeedTree trees
+lod_terrain	rendering	LOD drawing: terrain
+lod_objects	rendering	LOD drawing: objects
+lod_trees	rendering	LOD drawing: trees
+lod_switching	rendering	LOD switching on models
+imagespace	rendering	Image-space effects (HDR, blur, refraction)
+particle_shader	rendering	Particle shader
+particles	rendering	Particle systems
+effect_shaders	rendering	Effect shaders (glows, hit effects)
+gpu_programs	rendering	GPU programs and shader cache
+vertex_buffers	rendering	Vertex and index buffers
+renderer_device	rendering	Renderer device and frames
+world_renderer	rendering	World renderer
+accumulators	rendering	Draw ordering and accumulators
+renderer_core	rendering	Renderer core
+actor_core	actors	Actors (shared actor code)
+high_process	actors	High process (nearby actors)
+low_process	actors	Low process (distant actors)
+combat_controller	combat	Combat controller and state
+script_functions	scripting	Game script functions
+condition_functions	scripting	Condition functions
+loading_menu	ui	Loading screen
+debug_text	ui	Debug text overlay
+temp_effects	rendering	Temporary effects (decals, debris, particles)
+screen_space	rendering	Screen elements and overlays
+particle_meshes	rendering	Particle meshes (Gamebryo)
+math	rendering	Maths (matrices, quaternions)
+core_tes	world	World core (TES)
+cells	world	Cells and cell loading
+worldspaces	world	Worldspaces
+land	world	Land and land textures
+references	world	Placed objects (references)
+model_loading	world	Model and asset loading
+doors_teleport	world	Doors, locks and teleports
+regions	world	Regions
+weather	world	Weather and climate
+map_markers	world	Map markers
+encounter_zones	world	Encounter zones
+destruction	world	Destructible objects and debris
+statics	world	Statics, activators and furniture
+furniture_markers	world	Furniture markers
+explosions	world	Explosions
+impacts	world	Impact effects
+cinematics	world	Camera paths and shots
+terminals	world	Terminals
+notes	world	Notes and holotapes
+water_physics	world	Water and buoyancy
+traps	world	Traps
+navmesh	navigation	Navmesh data
+navmesh_search	navigation	Navmesh path search
+obstacles	navigation	Dynamic obstacles on the navmesh
+path_requests	navigation	Path requests (cover, flee, hide, line of sight)
+path_building	navigation	Path building and smoothing
+path_manager	navigation	Path manager and pathing threads
+line_of_sight	navigation	Line-of-sight maps
+door_paths	navigation	Paths through doors
+pathing_other	navigation	Pathfinding (other)
+actor_processes	actors	Actor processes and process levels
+ai_tasks	actors	AI task threads
+ai_packages	actors	AI packages
+actor_movement	actors	Actor movement
+player	actors	Player character
+npcs_creatures	actors	NPCs and creatures
+actor_values	actors	Actor values (SPECIAL, skills, health)
+factions	actors	Factions, reputation and karma
+animation_core	actors	Animation controllers and sequences
+animation_interp	actors	Animation interpolators and keys
+animation_game	actors	Animation groups, idles and biped animation
+ragdoll	actors	Ragdolls
+facegen	actors	FaceGen faces
+lipsync	actors	Lip sync
+followers	actors	Companions and followers
+equipment	actors	Armour and biped models
+combat_manager	combat	Combat groups and planning
+combat_procedures	combat	Combat procedures (melee, ranged, cover, grenades)
+combat_actions	combat	Combat actions
+combat_formulas	combat	Damage and combat formulas
+projectiles	combat	Projectiles
+vats	combat	V.A.T.S.
+weapons	combat	Weapons and ammo
+script_effects	scripting	Script effects
+texture_swaps	data	Texture swaps
+inventory	gameplay	Inventory and containers
+items	gameplay	Items (misc, books, keys)
+perks	gameplay	Perks and traits
+quests	gameplay	Quests, stages and objectives
+challenges	gameplay	Challenges
+crafting	gameplay	Crafting recipes
+casino	gameplay	Casino games and chips
+hardcore	gameplay	Radiation and hardcore needs
+messages	gameplay	Messages and load screens
+effect_items	gameplay	Spells, ingestibles and enchantments
+magic_casting	gameplay	Effect casting and targets
+magic_projectiles	gameplay	Effect projectiles
+magic_effects	gameplay	Effects (heal, cloak, paralysis, telekinesis...)
+spell_lists	gameplay	Ability and spell lists
+calendar	gameplay	Game time and calendar
+interface_manager	ui	Interface manager and cursor
+menu_system	ui	Menu system and tiles
+hud	ui	HUD
+pipboy	ui	Pip-Boy
+pipboy_stats	ui	Pip-Boy stats
+pipboy_inventory	ui	Pip-Boy inventory
+pipboy_map	ui	Pip-Boy map and quests
+console	ui	Console
+start_menu	ui	Main and pause menu
+dialogue_menu	ui	Dialogue menu
+barter_menu	ui	Barter menu
+container_menu	ui	Container menu
+levelup_menu	ui	Level-up menu
+lockpick_menu	ui	Lockpicking
+hacking_menu	ui	Terminal hacking
+vats_menu	ui	V.A.T.S. menu
+chargen	ui	Character creation (race, face, name, traits, SPECIAL)
+recipe_menu	ui	Crafting menu
+repair_menus	ui	Repair and item mods
+caravan_menu	ui	Caravan card game
+casino_menus	ui	Blackjack, roulette and slots
+companion_wheel	ui	Companion wheel
+message_menus	ui	Messages, books, quantity, sleep and wait
+sound_core	audio	Sound playback
+game_audio	audio	Game audio and media
+radio	audio	Radio
+music	audio	Music and media sets
+sound_forms	audio	Sound records and acoustic spaces
+dialogue_audio	audio	Dialogue topics and responses
+script_runtime	scripting	Script runtime
+script_compiler	scripting	Script compiler
+conditions	scripting	Conditions
+forms	data	Form records and form lists
+data_handler	data	Plugin loading (data handler)
+archives	data	Archives (BSA) and files
+ni_files	data	Model file reading
+save_buffers	data	Save and load buffers
+save_game	data	Save games
+character_controller	physics	Character controller
+constraints	physics	Constraints and joints
+shapes	physics	Collision shapes
+physics_world	physics	Physics world and actions
+havok_game	physics	Game physics glue (casters, listeners, streams)
+ni_collision	physics	Picking and bounding volumes
+main_loop	platform	Main loop and start-up
+memory	platform	Memory heaps and pools
+threads_tasks	platform	Threads and background tasks
+timers	platform	Timers and random numbers
+settings	platform	Settings (INI and game settings)
+input	platform	Input devices
+movies	platform	Movie playback
+screenshots	platform	Screenshots
+system_utilities	platform	System services (saves, DLC, profile)
+messages	platform	Engine messages

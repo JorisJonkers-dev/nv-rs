@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "features.direct3d"
+title = "Direct3D 9 roll-ups"
+origin = "ours"
+notes = "Read from the same code as d3d9.methods and d3d9.states (scripts/fork/progress, evidence rows): implemented only when every item there is."
+
+[[item]]
+id = "methods_all"
+title = "Every Direct3D 9 device method is carried to wgpu"
+status = "missing"
+
+[[item]]
+id = "states_all"
+title = "Every Direct3D 9 render state is mapped"
+status = "missing"

@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "features.backend"
+title = "Rendering backend (wgpu and Vulkan)"
+origin = "ours"
+notes = "How the game's Direct3D 9 drawing runs on wgpu and, later, native Vulkan (the area:vulkan issues). The roll-ups of every device method and render state are in features.direct3d, read from d3d9.methods and d3d9.states."
+
+[[item]]
+id = "shaders_translated"
+title = "The game's shaders (shader model 1 to 3) are translated to WGSL"
+status = "implemented"
+evidence = ["crates/d3d9-wgpu/src/sm/wgsl.rs"]
+
+[[item]]
+id = "linux_window_surface"
+title = "Window, Vulkan surface and input on X11 and Wayland"
+status = "implemented"
+notes = "nv-rs #197 (closed as done); proof: the window code in crates/d3d9-replay"
+evidence = ["crates/d3d9-replay/src/window.rs"]
+
+[[item]]
+id = "software_adapter_ci"
+title = "The backend tests run in CI on a software Vulkan adapter (lavapipe)"
+status = "implemented"
+notes = "nv-rs #183; proof: the Linux job of fork-build.yml runs the backend tests on lavapipe"
+evidence = [".github/workflows/fork-build.yml#lavapipe"]
+
+[[item]]
+id = "depth_bias"
+title = "Depth bias and slope-scaled depth bias"
+status = "implemented"
+notes = "nv-rs #680; proof: the bias cells of crates/d3d9-wgpu/tests/frame.rs (#761) pass in the Linux job on lavapipe"
+evidence = ["crates/d3d9-wgpu/src/state.rs#DEPTHBIAS"]
+
+[[item]]
+id = "reset_rules"
+title = "Reset refuses while default-pool resources are alive, as Direct3D 9 does"
+status = "implemented"
+notes = "nv-rs #685; proof: reset_answers_as_measured (crates/engine-platform/src/d3d9device.rs)"
+evidence = ["crates/engine-platform/src/d3d9device.rs#fn reset_answers_as_measured"]
+
+[[item]]
+id = "fixed_function_fog"
+title = "Fixed-function fog: vertex and pixel, linear, exp and exp2, range"
+status = "missing"
+notes = "nv-rs #682"
+
+[[item]]
+id = "srgb"
+title = "sRGB writes and sRGB texture reads"
+status = "missing"
+notes = "nv-rs #681"
+
+[[item]]
+id = "resz_depth_formats"
+title = "RESZ depth resolve and the DF16 and DF24 depth formats"
+status = "missing"
+notes = "nv-rs #683"
+
+[[item]]
+id = "vendor_render_states"
+title = "Vendor render states (NVDB, CENT, INST, SSAA) accepted"
+status = "missing"
+notes = "nv-rs #684"
+
+[[item]]
+id = "texture_budget"
+title = "Textures fit the video-memory budget: SetLOD, kept bytes, dropped top mips"
+status = "missing"
+notes = "nv-rs #701, #702, #703"
+
+[[item]]
+id = "shader_hash_contract"
+title = "A stable shader hash with a dump of the translated shaders"
+status = "missing"
+notes = "nv-rs #282"
+
+[[item]]
+id = "vulkan_s0_verdict"
+title = "Vulkan S0: measured under the bench lock, verdict written"
+status = "missing"
+notes = "nv-rs #322"
+
+[[item]]
+id = "vulkan_s1_executor"
+title = "Vulkan S1: device model and executor split, a Vulkan hot path"
+status = "missing"
+notes = "nv-rs #262"
+
+[[item]]
+id = "vulkan_s2_parity"
+title = "Vulkan S2: parity on every pass and shader"
+status = "missing"
+notes = "nv-rs #263"
+
+[[item]]
+id = "vulkan_s3_default_linux"
+title = "Vulkan S3: the default on Linux with wgpu as the fallback"
+status = "missing"
+notes = "nv-rs #264"
