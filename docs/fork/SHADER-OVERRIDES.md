@@ -36,6 +36,14 @@ occlusion count). None of the game shader's instructions are converted. The prog
 
 It writes the outputs: `oC0` (and `oC1`.. where the shader has them).
 
+The program's first lines that start with `// nv:` say how it is drawn, by words:
+
+| Word | What it does |
+| --- | --- |
+| `late` | its draws are kept and drawn where the world is drawn (after the world pass, at the frame's camera words), so the scene's depth it reads holds the whole world, also what the game draws after the shader's own draws; they keep their order, states and targets |
+| `blend` | its draws blend over what is behind them by the program's alpha (source alpha over one minus source alpha), whatever blending the game set |
+| `registers=N` | it reads the float constants `c0` to `c<N-1>` (all of them when not said) |
+
 ## How it is drawn
 
 An overridden draw takes a pipeline of its own, made on a thread of its own the first time it is needed. Until it is
@@ -48,6 +56,12 @@ surface, the device ends the render pass, turns the depth's first sample into di
 overridden draws of the frame on that surface read the same distances, so a draw never reads what an overridden
 draw before it wrote. The camera words are recorded for the new lighting; with the new lighting off, the platform
 records them for the overrides alone (`engine_platform::d3d9real::want_frame_view`).
+
+A late draw keeps what the pass is given for it (its pipeline, textures, vertices, the pass's settings) and the bytes
+of its registers, which are written again when it is drawn: the batch may have been sent by then. A late draw of a
+frame that never reaches the world's point (no camera words), or whose targets are not the bound ones there, is
+dropped and counted, never drawn into a later frame. A draw from the game's memory (`DrawPrimitiveUP`) is never
+late.
 
 An overridden draw is never held back to be drawn with others, and never written into the pipeline list for the
 next start: the list stays what the game's own draws make. Cost: one full-screen step a frame while an overridden

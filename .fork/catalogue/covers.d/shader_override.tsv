@@ -12,3 +12,5 @@ crates/d3d9-wgpu/tests/shader_override.rs::without_the_frame_s_camera_the_game_s
 crates/d3d9-wgpu/tests/shader_override.rs::an_override_of_another_shader_changes_no_pixel	features.backend.shader_overrides
 crates/host/src/shader_overrides.rs::a_folder_s_programs_are_named_by_their_files	features.backend.shader_overrides
 crates/engine-platform/tests/frame_view_overrides.rs::the_overrides_record_the_camera_where_the_world_is_drawn_only	features.backend.shader_overrides
+crates/d3d9-wgpu/src/shader_override.rs::a_program_s_first_lines_say_how_it_is_drawn	features.backend.shader_overrides
+crates/d3d9-wgpu/tests/shader_override.rs::a_late_override_reads_what_is_drawn_after_it_and_blends	features.backend.shader_overrides

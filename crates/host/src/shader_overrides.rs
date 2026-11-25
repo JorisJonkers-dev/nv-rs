@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! The run's shader overrides (`d3d9_wgpu::shader_override`): what the graphics settings ask for,
 //! and the engineers' folder `NV_SHADER_OVERRIDES` (each `<shader name>.wgsl` in it, such as
-//! `WATER033.pso.wgsl`, replaces that shader: for trying a program without a build). Resolved
+//! `WATER033.pso.wgsl`, replaces that shader: for trying a program without a build; its first
+//! `// nv:` lines say how it is drawn, `d3d9_wgpu::shader_override::Spec::of`). Resolved
 //! against the game's shader packages in the data folder and set before the device is made.
 //! Nothing is set without either: the device is then what it was.
 
@@ -38,12 +39,7 @@ pub fn specs_in(dir: &Path) -> (Vec<Spec>, Vec<String>) {
             continue;
         };
         match std::fs::read_to_string(&f) {
-            Ok(source) => specs.push(Spec {
-                shader,
-                source,
-                registers: d3d9_wgpu::sm::wgsl::FLOAT_CONSTANTS,
-                why: ENV.into(),
-            }),
+            Ok(source) => specs.push(Spec::of(&shader, &source, ENV)),
             Err(e) => lines.push(format!("nv-rs: {ENV}: {}: {e}", f.display())),
         }
     }

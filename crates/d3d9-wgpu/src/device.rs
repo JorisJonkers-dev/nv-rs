@@ -859,6 +859,26 @@ struct PassBinds {
     light: Option<u32>,
 }
 
+/// A shader override's draw kept to be drawn where the world is drawn
+/// ([`shader_override::Override::late`], [`Device::draw_late`]): what the pass is given for it,
+/// with its registers' bytes (written again when it is drawn: the ring may be sent by then).
+struct LateDraw {
+    name: String,
+    targets: Targets,
+    pipeline: wgpu::RenderPipeline,
+    groups: Vec<wgpu::BindGroup>,
+    /// The vertex and pixel headers and float constants ([`Device::write_blocks`]' four blocks).
+    regs: [Vec<u8>; 4],
+    streams: [Option<(wgpu::Buffer, u64)>; 8],
+    index: Option<(wgpu::Buffer, bool)>,
+    /// Indexed, the first vertex or index, how many, the base vertex.
+    range: (bool, u32, u32, i32),
+    viewport: [u32; 6],
+    scissor: (u32, u32, u32, u32),
+    stencil: u32,
+    blend: u32,
+}
+
 /// The render states a pipeline is made from.
 const PIPELINE_STATES: [usize; 30] = [
     rs::ZENABLE,
@@ -1579,6 +1599,10 @@ pub struct Device {
     frame_view: Option<scene_light::Params>,
     /// Overridden draws so far (for the log's first line).
     overridden: u64,
+    /// The late overrides' draws of this frame not drawn yet ([`Device::draw_late`]), and those
+    /// dropped (their targets were not bound where the world is drawn) so far.
+    late: Vec<LateDraw>,
+    late_dropped: u64,
 }
 
 /// A sun-shadow caster pipeline's key: vertex shader, declaration, strides, primitive type,
@@ -2357,6 +2381,8 @@ impl Device {
             override_failed: HashSet::new(),
             frame_view: None,
             overridden: 0,
+            late: Vec::new(),
+            late_dropped: 0,
         };
         // The card's times when asked for (`NV_WGPU_GPU_TIMES`): none where the driver has no
         // timestamps (said once).
@@ -6381,8 +6407,10 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         self.write_blocks([1.0 / vw as f32, -1.0 / vh as f32], [vs.fregs, ps.fregs]);
         // An overridden draw's scene depth, taken at the frame's first on this depth surface
         // (between passes).
-        if use_over {
-            self.override_snapshot(&ps);
+        // (Never a draw from the game's memory (`DrawPrimitiveUP`): its vertices are the batch's.)
+        let late = use_over && up.is_none() && ps.over.as_ref().is_some_and(|o| o.late);
+        if use_over && !late {
+            self.override_snapshot(ps.over.as_ref().map_or("?", |o| o.name.as_str()));
         }
         self.begin_pass(None);
         let scissor = if self.st.rs[rs::SCISSORTESTENABLE] != 0 {
@@ -6499,6 +6527,65 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             depth_range[1],
         ]
         .map(f32::to_bits);
+        // A late override's draw: kept, to be drawn where the world is drawn ([`Device::draw_late`]).
+        if late {
+            let index = if indexed {
+                self.st
+                    .indices
+                    .as_ref()
+                    .map(|b| (b.buffer.clone(), b.index32))
+            } else {
+                None
+            };
+            let mut all_streams: [Option<(wgpu::Buffer, u64)>; 8] = Default::default();
+            for (k, a) in attributes.iter().enumerate() {
+                if !a.is_empty() {
+                    all_streams[k] = self.st.streams[k]
+                        .buffer
+                        .as_ref()
+                        .map(|b| (b.buffer.clone(), u64::from(self.st.streams[k].offset)));
+                }
+            }
+            let lens = [
+                wgsl::REGS_C_OFFSET as usize,
+                wgsl::REGS_C_OFFSET as usize,
+                16 * vs.fregs as usize,
+                16 * ps.fregs as usize,
+            ];
+            let regs: [Vec<u8>; 4] = std::array::from_fn(|k| {
+                let at = self.blocks[k] as usize;
+                self.ring.get(at..at + lens[k]).unwrap_or_default().to_vec()
+            });
+            let pipeline = self
+                .last_pipeline
+                .as_ref()
+                .and_then(|(_, p, _)| p.as_ref())
+                .expect("the draw's pipeline, checked above")
+                .0
+                .clone();
+            let groups = self
+                .last_groups
+                .iter()
+                .map(|(_, g)| g.clone().expect("the draw's groups, set above"))
+                .collect();
+            let targets = self.current_targets();
+            self.late.push(LateDraw {
+                name: ps.over.as_ref().map_or(String::new(), |o| o.name.clone()),
+                targets,
+                pipeline,
+                groups,
+                regs,
+                streams: all_streams,
+                index,
+                range: (indexed, start, n, base_vertex),
+                viewport,
+                scissor,
+                stencil: stencil_ref,
+                blend: bf,
+            });
+            self.draws += 1;
+            return;
+        }
         // Held: its list and place; else given now: its instance (its draw table entry's number).
         let (held, instance) = if hold || after {
             let state = self.draw_digests.is_some().then(|| {
@@ -8384,6 +8471,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         // The shader overrides take the frame's near and far planes from them.
         if !self.overrides.is_empty() {
             self.frame_view = scene_light::Params::from_words(words);
+            self.draw_late();
         }
         // The sun shadows take the frame's camera from the same words ([`Device::sun_shadows`]).
         if let Some(sun) = &mut self.sun {
@@ -10654,7 +10742,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// at the frame's first overridden draw on the bound depth surface the pass is ended and the
     /// depth's first sample turned into distances (through the frame's near and far planes); the
     /// later draws of the frame on that surface read the same.
-    fn override_snapshot(&mut self, ps: &Shader) {
+    fn override_snapshot(&mut self, name: &str) {
         let (Some(ds), Some(view)) = (self.st.ds.clone(), self.frame_view) else {
             return;
         };
@@ -10677,7 +10765,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         if gpu.taken.is_none() {
             fork_log::info!(target: "d3d9",
                 "NV_D3D9 wgpu: shader override {}: first drawn at present {} on a {}x{} depth surface ({} samples), near {}, far {}",
-                ps.over.as_ref().map_or("?", |o| o.name.as_str()),
+                name,
                 self.presents, ds.width, ds.height, ds.samples, view.near, view.far
             );
         }
@@ -10697,6 +10785,104 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         gpu.taken = Some(at);
         self.override_gpu = Some(gpu);
         depth.batch.store(self.batch, Ordering::Relaxed);
+    }
+
+    /// Draws the late overrides' draws kept this frame ([`LateDraw`]), where the world is drawn
+    /// (the frame's camera words): the scene's depth is taken now ([`Device::override_snapshot`],
+    /// the whole world in it), then each draw is given to a pass on the bound targets with its
+    /// registers written again, in the order the game drew them. A draw whose targets are not the
+    /// bound ones is dropped (counted). The registers and the pass's settings the next draw of the
+    /// game takes are written and set again.
+    fn draw_late(&mut self) {
+        if self.late.is_empty() {
+            return;
+        }
+        let list = std::mem::take(&mut self.late);
+        let targets = self.current_targets();
+        let (keep, drop): (Vec<LateDraw>, Vec<LateDraw>) =
+            list.into_iter().partition(|d| d.targets == targets);
+        if !drop.is_empty() {
+            if self.late_dropped == 0 {
+                self.warn(format!(
+                    "shader override {}: late draws whose targets are not bound where the world is drawn (dropped)",
+                    drop[0].name
+                ));
+            }
+            self.late_dropped += drop.len() as u64;
+        }
+        let Some(first) = keep.first() else {
+            return;
+        };
+        let name = first.name.clone();
+        self.emit_held();
+        if let Some(g) = self.override_gpu.as_mut() {
+            g.taken = None;
+        }
+        self.override_snapshot(&name);
+        let Some(group) = self.override_gpu.as_ref().and_then(|g| g.group.clone()) else {
+            return;
+        };
+        for d in keep {
+            self.make_ring_room();
+            let blocks: [u32; 4] = std::array::from_fn(|k| {
+                if k < 2 {
+                    write_block(&mut self.ring, &d.regs[k], &[])
+                } else {
+                    write_block(&mut self.ring, &[], &d.regs[k])
+                }
+            });
+            self.begin_pass(None);
+            let instance = match self.storage_regs_gpu.as_ref().filter(|_| self.storage_regs) {
+                Some(_) => {
+                    let at = (self.table.len() / 16) as u32;
+                    for o in blocks {
+                        self.table.extend_from_slice(&(o / 16).to_le_bytes());
+                    }
+                    at
+                }
+                None => 0,
+            };
+            let storage = self
+                .storage_regs_gpu
+                .as_ref()
+                .filter(|_| self.storage_regs)
+                .map(|s| s.group.clone());
+            let pass = self.pass.as_mut().expect("a pass is open");
+            pass.set_pipeline(&d.pipeline);
+            match &storage {
+                Some(g) => pass.set_bind_group(0, g, &[]),
+                None => pass.set_bind_group(0, &self.ring_group, &blocks),
+            }
+            for (k, g) in d.groups.iter().enumerate() {
+                pass.set_bind_group(1 + k as u32, g, &[]);
+            }
+            pass.set_bind_group(3, &group, &[]);
+            let f = d.viewport.map(f32::from_bits);
+            pass.set_viewport(f[0], f[1], f[2], f[3], f[4], f[5]);
+            pass.set_scissor_rect(d.scissor.0, d.scissor.1, d.scissor.2, d.scissor.3);
+            pass.set_stencil_reference(d.stencil);
+            pass.set_blend_constant(blend_colour(d.blend));
+            for (slot, s) in d.streams.iter().enumerate() {
+                if let Some((buffer, offset)) = s {
+                    pass.set_vertex_buffer(slot as u32, buffer.slice(*offset..));
+                }
+            }
+            let (indexed, start, n, base) = d.range;
+            match (&d.index, indexed) {
+                (Some((buffer, index32)), true) => {
+                    pass.set_index_buffer(buffer.slice(..), index_format(*index32));
+                    pass.draw_indexed(start..start + n, base, instance..instance + 1);
+                }
+                (_, true) => {}
+                _ => pass.draw(start..start + n, instance..instance + 1),
+            }
+            // What the pass holds is the game's again only when set again.
+            self.binds = PassBinds::default();
+            self.pass_draws += 1;
+        }
+        // The game's next draw writes its registers again.
+        self.st.dirty = [true; 2];
+        self.st.header_dirty = [true; 2];
     }
 
     /// Whether the shader override's variant pipeline of `key` is ready (then it is in the
@@ -10770,6 +10956,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         let device = self.device.clone();
         let registers = self.registers_layout(vkey.5).clone();
         let name = over.name.clone();
+        let blend = over.blend;
         let (tx, rx) = std::sync::mpsc::channel();
         let made = std::thread::Builder::new()
             .name("nv-wgpu-override".into())
@@ -10777,6 +10964,12 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 let made = (|| -> Result<Pipe, String> {
                     let mut job = job;
                     job.pm = create_module(&device, source.map_err(|e| e.to_string())?)?;
+                    // Blended over what is behind by the program's alpha.
+                    if blend {
+                        if let Some(Some(t)) = job.targets.first_mut() {
+                            t.blend = Some(wgpu::BlendState::ALPHA_BLENDING);
+                        }
+                    }
                     job.layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: Some("shader override: a draw"),
                         bind_group_layouts: &[
@@ -11770,6 +11963,17 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     }
 
     pub(crate) fn present(&mut self, frame: u32) {
+        // Late overrides' draws the frame kept but never reached where the world is drawn (no
+        // camera words this frame): dropped, never drawn into a later frame.
+        if !self.late.is_empty() {
+            if self.late_dropped == 0 {
+                self.warn(
+                    "shader override: late draws in a frame without the world's point (dropped)",
+                );
+            }
+            self.late_dropped += self.late.len() as u64;
+            self.late.clear();
+        }
         self.perf.frame_end();
         let _perf = crate::perf::span(crate::perf::Cat::Present);
         fork_hitch::add(fork_hitch::Counter::Presents, 1);

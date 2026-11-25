@@ -38,7 +38,10 @@
 //! the pass goes on. It needs the frame's camera (its near and far planes, the new lighting's
 //! words, `crate::scene_light::Params`), recorded where the world is drawn; until one is there the
 //! game's shader draws. An overridden draw is never held with others or listed for a later start
-//! (`crate::prepare`): the list stays what the game's draws make.
+//! (`crate::prepare`): the list stays what the game's draws make. A [`Override::late`] override's
+//! draws wait for where the world is drawn (the frame's camera words) and the depth is taken
+//! there; a [`Override::blend`] one blends by the program's alpha. A program's first `// nv:` lines
+//! ask for either ([`Spec::of`]).
 //!
 //! The game's bytecode is never copied: the override is the fork's own program, and the packages
 //! are only read for the names' hashes on the player's machine.
@@ -55,8 +58,48 @@ pub struct Spec {
     pub source: String,
     /// How many float constants (`c0` up) the WGSL reads at most.
     pub registers: u32,
+    /// Drawn where the world is drawn rather than where the game draws it ([`Override::late`]).
+    pub late: bool,
+    /// Blended over what is behind by the program's alpha ([`Override::blend`]).
+    pub blend: bool,
     /// Who asks, for the log (`water.far_water`).
     pub why: String,
+}
+
+impl Spec {
+    /// The spec of `source` for `shader`: its first lines that start with `// nv:` say how it is
+    /// drawn, by words: `late` ([`Override::late`]), `blend` ([`Override::blend`]) and
+    /// `registers=N` (the float constants it reads; all of them when not said).
+    pub fn of(shader: &str, source: &str, why: &str) -> Spec {
+        let mut spec = Spec {
+            shader: shader.into(),
+            source: source.into(),
+            registers: crate::sm::wgsl::FLOAT_CONSTANTS,
+            late: false,
+            blend: false,
+            why: why.into(),
+        };
+        for line in source.lines().map(str::trim) {
+            let Some(words) = line.strip_prefix("// nv:") else {
+                if line.is_empty() || line.starts_with("//") {
+                    continue;
+                }
+                break;
+            };
+            for w in words.split_whitespace() {
+                match w {
+                    "late" => spec.late = true,
+                    "blend" => spec.blend = true,
+                    _ => {
+                        if let Some(n) = w.strip_prefix("registers=").and_then(|n| n.parse().ok()) {
+                            spec.registers = n;
+                        }
+                    }
+                }
+            }
+        }
+        spec
+    }
 }
 
 /// One override as the device takes it.
@@ -68,6 +111,14 @@ pub struct Override {
     pub shaders: Vec<u64>,
     pub source: String,
     pub registers: u32,
+    /// Its draws are kept and drawn where the world is drawn (after the world pass, before the
+    /// rest of the frame: the frame's camera words), so the scene's depth it reads holds the whole
+    /// world, also what the game draws after it (the far land is drawn after the far water). The
+    /// draws keep their order among themselves, their states and their targets.
+    pub late: bool,
+    /// Its draws blend over what is behind them by the program's alpha (source alpha, one minus
+    /// source alpha), whatever blending the game set.
+    pub blend: bool,
 }
 
 static SET: RwLock<Vec<Arc<Override>>> = RwLock::new(Vec::new());
@@ -139,6 +190,8 @@ pub fn resolve(roots: &[PathBuf], specs: &[Spec]) -> (Vec<Override>, Vec<String>
             shaders,
             source: spec.source.clone(),
             registers: spec.registers.min(crate::sm::wgsl::FLOAT_CONSTANTS),
+            late: spec.late,
+            blend: spec.blend,
         });
     }
     (out, lines)
@@ -470,6 +523,8 @@ mod tests {
             shader: shader.into(),
             source: "fn nv_main() { oC0 = vec4<f32>(1.0); }".into(),
             registers: 300,
+            late: true,
+            blend: false,
             why: "test".into(),
         }
     }
@@ -591,6 +646,21 @@ mod tests {
         }
         let v = crate::sm::parse(&[0xFFFE_0300, crate::sm::END]).unwrap();
         assert!(wgsl::convert_replaced(&v, &Link::default(), program).is_err());
+    }
+
+    /// A program's first `// nv:` lines say how it is drawn; later ones and other comments do not.
+    #[test]
+    fn a_program_s_first_lines_say_how_it_is_drawn() {
+        let s = Spec::of(
+            "WATER033.pso",
+            "// The far water.\n// nv: late blend\n// nv: registers=14\nfn nv_main() {}\n// nv: registers=2\n",
+            "test",
+        );
+        assert!(s.late && s.blend);
+        assert_eq!(s.registers, 14);
+        let plain = Spec::of("A.pso", "fn nv_main() {}\n// nv: late", "test");
+        assert!(!plain.late && !plain.blend);
+        assert_eq!(plain.registers, crate::sm::wgsl::FLOAT_CONSTANTS);
     }
 
     #[test]

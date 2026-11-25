@@ -2,7 +2,8 @@
 //! Shader overrides (`d3d9_wgpu::shader_override`) through the whole backend on the GPU: an
 //! overridden pixel shader's draw is drawn with the override's program, which reads the scene's
 //! depth as distances (what was drawn before it) and its own; until the frame's camera is known
-//! it draws the game's shader; an override for another shader changes no pixel.
+//! it draws the game's shader; an override for another shader changes no pixel; a late override's
+//! draw waits for where the world is drawn, so it reads what the game drew after it, and blends.
 //!
 //! The scene and shaders are built here (no game file). A machine without a GPU adapter skips
 //! with a message.
@@ -165,6 +166,32 @@ fn backend(samples: u32, overrides: Vec<Override>) -> Option<WgpuBackend> {
             surface: DS,
         },
     );
+    for (vb, data) in [
+        (VB_LAND, rectangle_vertices(1.0, -1.0, depth(LAND))),
+        (VB_WATER, rectangle_vertices(1.0, 0.0, depth(WATER))),
+    ] {
+        run(
+            &mut b,
+            Cmd::CreateBuffer {
+                device: DEVICE,
+                buffer: vb,
+                index: false,
+                length: data.len() as u32,
+                usage: 0,
+                format: 0,
+                pool: 1,
+            },
+        );
+        run(
+            &mut b,
+            Cmd::UploadBuffer {
+                buffer: vb,
+                offset: 0,
+                flags: 0,
+                data: Data::Bytes(&data),
+            },
+        );
+    }
     // No culling, depth test and writes on.
     for (state, value) in [(22, 1), (7, 1), (14, 1)] {
         run(
@@ -186,6 +213,8 @@ fn water_override() -> Override {
         shaders: vec![shader_override::hash_of(&words(&pixel_shader(1)))],
         source: PROGRAM.into(),
         registers: 4,
+        late: false,
+        blend: false,
     }
 }
 
@@ -203,8 +232,12 @@ fn constant(b: &mut WgpuBackend, n: u32, c: [f32; 4]) {
     );
 }
 
-/// A rectangle from `top` to `bottom` (clip-space y) across the target at depth `z`.
-fn rectangle(b: &mut WgpuBackend, top: f32, bottom: f32, z: f32) {
+/// The land's vertices (the whole target at [`LAND`]) and the water's (the top half at [`WATER`]).
+const VB_LAND: u32 = 0x1500;
+const VB_WATER: u32 = 0x1501;
+
+/// A rectangle from `top` to `bottom` (clip-space y) across the target at depth `z`, as vertices.
+fn rectangle_vertices(top: f32, bottom: f32, z: f32) -> Vec<u8> {
     let corners = [
         [-1.0, bottom],
         [-1.0, top],
@@ -214,15 +247,28 @@ fn rectangle(b: &mut WgpuBackend, top: f32, bottom: f32, z: f32) {
         [1.0, bottom],
     ];
     let v: Vec<f32> = corners.iter().flat_map(|c| [c[0], c[1], z, 1.0]).collect();
-    let bytes = floats(&v);
+    floats(&v)
+}
+
+/// Draws the rectangle in the vertex buffer `vb`.
+fn rectangle(b: &mut WgpuBackend, vb: u32) {
     run(
         b,
-        Cmd::DrawPrimitiveUp {
+        Cmd::SetStreamSource {
+            device: DEVICE,
+            stream: 0,
+            buffer: vb,
+            offset: 0,
+            stride: 16,
+        },
+    );
+    run(
+        b,
+        Cmd::DrawPrimitive {
             device: DEVICE,
             kind: 4,
+            start: 0,
             count: 2,
-            stride: 16,
-            vertices: Data::Bytes(&bytes),
         },
     );
 }
@@ -252,7 +298,7 @@ fn frame(b: &mut WgpuBackend, n: u32, camera: bool) -> Vec<[u8; 4]> {
         },
     );
     constant(b, 0, [0.5, 0.5, 0.5, 1.0]);
-    rectangle(b, 1.0, -1.0, depth(LAND));
+    rectangle(b, VB_LAND);
     if camera {
         let r = 37.5f32.to_radians().tan();
         let m = Params {
@@ -285,7 +331,7 @@ fn frame(b: &mut WgpuBackend, n: u32, camera: bool) -> Vec<[u8; 4]> {
         },
     );
     constant(b, 1, [0.0, 1.0, 0.75, 1.0]);
-    rectangle(b, 1.0, 0.0, depth(WATER));
+    rectangle(b, VB_WATER);
     let d = b.device().expect("the device");
     let (_, _, px) = d.read_surface_pixels(RT).expect("the target's pixels");
     let px = px
@@ -386,5 +432,126 @@ fn an_override_of_another_shader_changes_no_pixel() {
             frame(&mut with, n, true),
             "frame {n}"
         );
+    }
+}
+
+/// The frame of a late override: the water first (the game draws the far water before the far
+/// land), then the land, then the camera's words (where the world is drawn); its pixels.
+fn frame_late(b: &mut WgpuBackend, n: u32) -> Vec<[u8; 4]> {
+    run(
+        b,
+        Cmd::Clear {
+            device: DEVICE,
+            count: 0,
+            rects: None,
+            flags: 7,
+            colour: 0xFF00_0000,
+            z: 1.0f32.to_bits(),
+            stencil: 0,
+            model: 0,
+        },
+    );
+    run(
+        b,
+        Cmd::SetShader {
+            device: DEVICE,
+            pixel: true,
+            shader: PS_WATER,
+        },
+    );
+    constant(b, 1, [0.0, 1.0, 0.75, 1.0]);
+    rectangle(b, VB_WATER);
+    run(
+        b,
+        Cmd::SetShader {
+            device: DEVICE,
+            pixel: true,
+            shader: PS_LAND,
+        },
+    );
+    constant(b, 0, [0.5, 0.5, 0.5, 1.0]);
+    rectangle(b, VB_LAND);
+    let r = 37.5f32.to_radians().tan();
+    let m = Params {
+        near: NEAR,
+        far: FAR,
+        left: -r,
+        right: r,
+        bottom: -r,
+        top: r,
+        sun: [0.0, 0.8, -0.6],
+        shadow: 0.0,
+        strength: scene_light::STRENGTH,
+    }
+    .to_words();
+    run(
+        b,
+        Cmd::SetTransform {
+            device: DEVICE,
+            state: scene_light::STATE,
+            matrix: Data::from_words(&m),
+        },
+    );
+    let d = b.device().expect("the device");
+    let (_, _, px) = d.read_surface_pixels(RT).expect("the target's pixels");
+    let px = px
+        .chunks_exact(4)
+        .map(|p| [p[0], p[1], p[2], p[3]])
+        .collect();
+    run(
+        b,
+        Cmd::Present {
+            device: DEVICE,
+            source: None,
+            dest: None,
+            window: 0,
+            dirty: false,
+            model: 0,
+            frame: n + 1,
+        },
+    );
+    px
+}
+
+/// A late override's draw is drawn where the world is drawn: it reads the land the game drew
+/// after it, and blends over it by the program's alpha; the game's own order would have hidden
+/// the land under the water.
+#[test]
+fn a_late_override_reads_what_is_drawn_after_it_and_blends() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    for samples in [1, 4] {
+        let late = Override {
+            source: PROGRAM.replace(", 1.0);", ", 0.5);"),
+            late: true,
+            blend: true,
+            ..water_override()
+        };
+        let Some(mut b) = backend(samples, vec![late]) else {
+            return;
+        };
+        let mut got = None;
+        for n in 0..400 {
+            let (water, land) = water_and_land(&frame_late(&mut b, n));
+            // The game's shader: green, opaque. The override: half its colour over the land.
+            if water[1] != 255 {
+                got = Some((water, land));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let (water, land) = got.unwrap_or_else(|| panic!("{samples} samples: never drawn late"));
+        let want = |v: f32| (0.5 * v * 255.0 + 0.5 * 128.0).round() as i32;
+        let near = |got: u8, v: f32| (i32::from(got) - want(v)).abs() <= 3;
+        // B, G, R, A.
+        assert!(
+            near(water[2], LAND / FAR),
+            "{samples} samples: behind {water:?}"
+        );
+        assert!(
+            near(water[1], WATER / FAR),
+            "{samples} samples: own {water:?}"
+        );
+        assert!(near(water[0], 0.75), "{samples} samples: c1.z {water:?}");
+        assert_eq!(land, [128, 128, 128, 255], "{samples} samples: the land");
     }
 }
