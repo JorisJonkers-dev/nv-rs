@@ -113,6 +113,17 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | `lamp_distance` | how far away lamps, street lights and lit signs still light their surroundings, as a multiple of the game's light fade distance (Options, light fade); every point light alike, shadows untouched | 1 | live |
 | `sky_dome` | how much of the fill follows the sky, 0 (the game's flat light) to 1; needs sun shadows | 0 | live |
 | `shade_fill` | how much more sky light reaches surfaces the sun or moon does not, 0 to 2; needs `sky_dome` | 0 | live |
+| `far_lights` | `false`, `true`: a far-view block's light-point shape (marked `FarLights`) drawn by night, faded over the sunset and sunrise; off, never drawn | `false` | live |
+
+`far_lights` (`engine::far_lights`, `bgsdistantobjectblock.rs`): a far-object block file may hold, as a direct child of its
+root node after the block mesh, a shape carrying an extra data object named `FarLights`: small unlit points where the
+world's lamps stand, written by a far-view tool. The block's prepare leaves that shape out of the far-building treatment
+(no alpha test, no far-building flags, no shader clone) and gives it the shader its own property names. Off, the shape is
+hidden, so the far view is the game's. On, the sky's update works out a night factor from the climate's transition
+hours (0 from the end of the sunrise to the start of the sunset, rising linearly to 1 over the sunset, 1 at night, falling
+over the sunrise; steps of 1/64) and, when it changes, gives every loaded block's far-lights shapes that factor as their
+shader property's alpha (`fAlpha`), hidden at 0. The format the shape is drawn with is the file's: an additive
+`NiAlphaProperty` with source alpha (`SRC_ALPHA`, `ONE`, as the game's own glow effects) fades with that alpha.
 
 With `sky_dome`, faces toward the sky take the sky's colour and faces toward the ground a warm bounce, in shadow too, and
 ambient occlusion outdoors dims only this sky light, not the direct light. At night the moon's direct light follows the
