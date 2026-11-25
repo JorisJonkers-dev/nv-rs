@@ -124,6 +124,7 @@ pub fn all() -> impl Iterator<Item = &'static Cmd> {
         .iter()
         .chain(crate::math::COMMANDS.iter())
         .chain(crate::lookups::COMMANDS.iter())
+        .chain(crate::form_traits::COMMANDS.iter())
         .chain(crate::game_reads::COMMANDS.iter())
 }
 
