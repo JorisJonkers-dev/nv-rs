@@ -127,6 +127,7 @@ pub fn all() -> impl Iterator<Item = &'static Cmd> {
         .chain(crate::form_traits::COMMANDS.iter())
         .chain(crate::game_reads::COMMANDS.iter())
         .chain(crate::body_parts::COMMANDS.iter())
+        .chain(crate::cell_visits::COMMANDS.iter())
 }
 
 /// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).

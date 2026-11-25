@@ -1797,7 +1797,7 @@
     },
     {
       "commands": {
-        "implemented": 21,
+        "implemented": 22,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
@@ -1819,7 +1819,8 @@
           "GetPipBoyMode",
           "GetActorValueAlt",
           "GetThresholdedActorValue",
-          "GetBodyPartTraitString"
+          "GetBodyPartTraitString",
+          "IsCellVisited"
         ],
         "total": 412
       },

@@ -133,3 +133,9 @@ id = "getbodyparttraitstring"
 title = "GetBodyPartTraitString"
 status = "implemented"
 ref = ["johnnyguitar:getbodyparttraitstring"]
+
+[[item]]
+id = "iscellvisited"
+title = "IsCellVisited"
+status = "implemented"
+ref = ["johnnyguitar:iscellvisited"]
