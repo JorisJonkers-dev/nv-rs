@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.26.0...v0.27.0) (2026-11-25)
+
+
+### Features
+
+* **gfx:** modern shows a far view's lamp points by night (light.far_lights on) ([#893](https://github.com/JorisJonkers-dev/nv-rs/issues/893)) ([f37dad8](https://github.com/JorisJonkers-dev/nv-rs/commit/f37dad82d98d589ceb654c6a15aa1e36f802bc59))
+* **knvse:** SetActorAnimationPath folder paths and polled conditions ([#895](https://github.com/JorisJonkers-dev/nv-rs/issues/895)) ([8bf761f](https://github.com/JorisJonkers-dev/nv-rs/commit/8bf761f057dda615892f9e44e8d08af61f926f41))
+
 ## [0.26.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.25.0...v0.26.0) (2026-11-25)
 
 

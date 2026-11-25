@@ -11,6 +11,5 @@ notes = "Every command the plugin registers at the pinned version (sources.toml)
 [[item]]
 id = "setactoranimationpath"
 title = "SetActorAnimationPath"
-status = "partial"
-reason = "the command is registered and answers single .kf file paths for the first-person and third-person animation groups (crates/knvse, nv-rs#865); folder paths and the poll flag (condition asked again during play) are not built yet"
+status = "implemented"
 ref = ["knvse:setactoranimationpath"]
