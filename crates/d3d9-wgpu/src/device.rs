@@ -1453,6 +1453,8 @@ pub struct Device {
     /// game last gave them (`UploadSurface`) or `GetRenderTargetData` wrote them.
     keeps: Map<Handle, Vec<Handle>>,
     kept: Map<Handle, Vec<u8>>,
+    /// `NV_GPU_ALLOC_WATCH=1`: the most the allocator's blocks held when last said.
+    alloc_watch: Option<u64>,
     /// The occlusion query counting now (its `D3DISSUE_BEGIN` until its `END`) and its slot.
     counting: Option<(Handle, u32)>,
     pass_count: Option<CountSegment>,
@@ -2291,6 +2293,7 @@ impl Device {
             header_atoc: false,
             keeps: Map::default(),
             kept: Map::default(),
+            alloc_watch: (std::env::var("NV_GPU_ALLOC_WATCH").as_deref() == Ok("1")).then_some(0),
             counting: None,
             pass_count: None,
             count_targets: Map::default(),
@@ -11861,6 +11864,16 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         if self.presents % memstats::PUBLISH_EVERY == 0 {
             self.publish_memstats();
         }
+        if let Some(top) = &mut self.alloc_watch {
+            // `NV_GPU_ALLOC_WATCH=1`: the allocator's blocks said whenever they grow past the
+            // largest seen by 128 MB (one report a present: for finding what fills them).
+            if let Some(r) = self.device.generate_allocator_report() {
+                if r.total_reserved_bytes > *top + (128 << 20) {
+                    *top = r.total_reserved_bytes;
+                    fork_log::info!(target: "d3d9", "NV_D3D9 wgpu: present {}: {}", self.presents, allocator_summary(&r));
+                }
+            }
+        }
         if let Some(c) = &mut self.casters {
             c.save_if_due(self.presents, false);
         }
@@ -14202,16 +14215,31 @@ fn render_times(query: &wgpu::QuerySet, index: u32) -> wgpu::RenderPassTimestamp
 }
 
 /// The driver allocator's block sizes (`NV_GPU_MEMORY_HINT`): `performance` is wgpu's 128 to 256 MB
-/// blocks; anything else (the default) its small ones, 8 to 64 MB. With the large blocks a long
-/// run's blocks stayed partly used after the places that filled them were left: the game's
-/// textures of one place are about 1.5 GB, the blocks held grew past 4.5 GB in 18 minutes and
-/// were never given back.
+/// blocks, `memory` its 8 to 64 MB ones, `MIN-MAX` (MB, 4 to 256) blocks of those sizes; the
+/// default is [`SMALL_BLOCKS_MB`]. With large blocks a long run's blocks stayed partly used after
+/// the places that filled them were left: the game's textures of one place are about 1.5 GB, the
+/// blocks held grew past 4.5 GB in 18 minutes and were never given back.
 fn memory_hints(env: Option<&str>) -> wgpu::MemoryHints {
+    const MB: u64 = 1 << 20;
+    let manual = |min: u64, max: u64| wgpu::MemoryHints::Manual {
+        suballocated_device_memory_block_size: min * MB..max * MB,
+    };
     match env.map(str::trim) {
         Some("performance") => wgpu::MemoryHints::Performance,
-        _ => wgpu::MemoryHints::MemoryUsage,
+        Some("memory") => wgpu::MemoryHints::MemoryUsage,
+        Some(v) => match v
+            .split_once('-')
+            .map(|(a, b)| (a.trim().parse::<u64>(), b.trim().parse::<u64>()))
+        {
+            Some((Ok(min), Ok(max))) if (4..=max).contains(&min) && max <= 256 => manual(min, max),
+            _ => manual(SMALL_BLOCKS_MB.0, SMALL_BLOCKS_MB.1),
+        },
+        None => manual(SMALL_BLOCKS_MB.0, SMALL_BLOCKS_MB.1),
     }
 }
+
+/// The allocator's block sizes by default, MB: the smallest and the largest.
+const SMALL_BLOCKS_MB: (u64, u64) = (4, 16);
 
 /// The driver allocator's blocks in one line ([`blocks_line`]).
 fn allocator_summary(r: &wgpu::AllocatorReport) -> String {
@@ -14287,17 +14315,37 @@ fn blocks_line(
 mod tests {
     #[test]
     fn the_small_allocator_blocks_are_the_default() {
-        assert!(matches!(
-            super::memory_hints(None),
-            wgpu::MemoryHints::MemoryUsage
-        ));
-        assert!(matches!(
-            super::memory_hints(Some("x")),
-            wgpu::MemoryHints::MemoryUsage
-        ));
+        let blocks = |v| match super::memory_hints(v) {
+            wgpu::MemoryHints::Manual {
+                suballocated_device_memory_block_size: r,
+            } => Some((r.start >> 20, r.end >> 20)),
+            _ => None,
+        };
+        assert_eq!(blocks(None), Some(super::SMALL_BLOCKS_MB));
+        assert_eq!(blocks(Some("x")), Some(super::SMALL_BLOCKS_MB));
+        assert_eq!(blocks(Some("8-32")), Some((8, 32)));
+        assert_eq!(
+            blocks(Some("2-32")),
+            Some(super::SMALL_BLOCKS_MB),
+            "below 4 MB"
+        );
+        assert_eq!(
+            blocks(Some("64-32")),
+            Some(super::SMALL_BLOCKS_MB),
+            "min above max"
+        );
+        assert_eq!(
+            blocks(Some("8-512")),
+            Some(super::SMALL_BLOCKS_MB),
+            "above 256 MB"
+        );
         assert!(matches!(
             super::memory_hints(Some(" performance")),
             wgpu::MemoryHints::Performance
+        ));
+        assert!(matches!(
+            super::memory_hints(Some("memory")),
+            wgpu::MemoryHints::MemoryUsage
         ));
     }
 
