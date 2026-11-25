@@ -915,6 +915,13 @@ fn start_one(
     if let Some(report) = o.progress {
         progress_poll(report, &log_path, &mut progress_at);
     }
+    // The run's own memory on the card, as the guard read it ([`crate::guard::own_gpu`]).
+    if let Some(w) = watch.as_ref().filter(|w| w.own_peak.0 > 0.0) {
+        say(&format!(
+            "{name}: card memory of the run: peak {:.0} MiB VRAM, {:.0} MiB GTT (cap {} MiB VRAM)",
+            w.own_peak.0, w.own_peak.1, w.guarded.caps.vram_mib
+        ));
+    }
     if mem.peak > 0 {
         let line = mem.describe(name);
         say(&line);

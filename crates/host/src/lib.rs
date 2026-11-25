@@ -45,6 +45,7 @@ pub mod player_move;
 pub mod report_place;
 pub mod save_out;
 pub mod scene_light;
+pub mod shader_overrides;
 #[cfg(test)]
 mod start_up_tests;
 pub mod thread_races;
@@ -236,6 +237,12 @@ impl Host {
         for line in gfx_lines {
             fork_log::info!(target: "host", "{line}");
         }
+        // Shader overrides (`d3d9_wgpu::shader_override`, nothing unless asked): the engineers'
+        // `NV_SHADER_OVERRIDES` folder, resolved against the data folder's shader packages and set
+        // before the game makes its device.
+        for line in shader_overrides::install(data, Vec::new(), |name| std::env::var(name).ok()) {
+            fork_log::info!(target: "host", "{line}");
+        }
         let choice = &detected;
         // The light balance (`light.ambient_*`, nv-rs#768): the sun light takes the share of the
         // game's ambient colour the settings give (both 1, the exe's code, unless set).
@@ -407,6 +414,10 @@ impl Host {
                 "nv-rs: new lighting on (ambient occlusion at strength {}; Vulkan only)",
                 choice.ambient_occlusion_strength
             );
+        } else if d3d9_wgpu::shader_override::any() {
+            // The shader overrides read the scene's depth through the frame's near and far planes:
+            // the frame's camera is recorded where the world is drawn (no occlusion).
+            engine_platform::d3d9real::want_frame_view(reader);
         }
         // The sun shadows (`fixes::Choice::sun_shadows`: `NV_SUN_SHADOWS`; else, in a launcher's play
         // run, Fallout.ini's `[nv-rs Display] bSunShadows`; off by default). Off: nothing is

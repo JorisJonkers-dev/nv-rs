@@ -1,0 +1,2 @@
+crates/d3d9-wgpu/src/device.rs  # texture uploads submitted every 64 MB so a load's staging copies go as it runs (`bound_upload_staging`, NV_GPU_UPLOAD_SUBMIT_MB) (nv-rs#899)
+crates/d3d9-wgpu/tests/frame.rs  # texture uploads submitted in parts and read back whole (nv-rs#899)
