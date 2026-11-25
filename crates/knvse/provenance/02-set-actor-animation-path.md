@@ -48,12 +48,10 @@ Left open by the pages, decided here:
   saved and not cleared on a load; it lasts the session, as a plugin's own memory would.
 - `match base anim group id`: no public page describes it. It is read and not used.
 
-Not built in this step (the command answers 0 and sets nothing):
+Not built in this step (both built in step 03, `03-folders-and-polling.md`):
 
-- A folder path. The game's own folder listing (`ModelLoader::BuildKFFileList`) also hands the
-  folder to the idle manager, so it is not called for a mod's path; the next step lists the
-  folder without that.
-- Polling: the poll flag is kept; the condition is asked at each start of the group, not again
-  while the animation plays. The next step asks it each frame for the groups playing.
-- A sequence the manager refuses is not deleted (the game's `AddAnimation` reports it and removes
-  the group's entry; here the group's own sequence plays).
+- A folder path.
+- Polling: the poll flag is kept, but the condition is asked only at each start of the group.
+- A sequence the manager refuses is not deleted. The game's `AddAnimation` reports it and
+  removes the group's entry; here the group's own sequence plays, and the refusal is kept, so
+  the same manager is not handed a new block at every start.

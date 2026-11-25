@@ -29,6 +29,66 @@ pub struct World {
     pub built: Vec<[u32; 3]>,
     pub next_block: u32,
     pub refuse_add: bool,
+    /// Extra names the file finder lists (as archives hold them: any case, maybe twice).
+    pub listed: Vec<Vec<u8>>,
+    /// Every `(pattern, path)` the file finder was asked for.
+    pub searched: Vec<(Vec<u8>, Vec<u8>)>,
+    /// Every `(animation, group, slot)` `Animation::StartGroup` was called with.
+    pub started: Vec<[u32; 3]>,
+    /// Names freed, lists deleted.
+    pub freed: Vec<u32>,
+    pub deleted: Vec<u32>,
+}
+
+/// Where the file finder stand-in puts its lists and names.
+const LISTS: u32 = 0x0301_8000;
+
+/// The file finder stand-in (`FileFinder::BuildFileList`): the files of [`World::files`] directly
+/// in the pattern's folder and the [`World::listed`] names in it, each named by the directory
+/// part of `path` (as the game names them), in a list of nodes `[item, next]`; 0 for none.
+fn build_file_list(e: &mut Engine, a: &[u32]) -> Ret {
+    let pattern = e.mem.cstr(a[0]).to_vec();
+    let path = e.mem.cstr(a[1]).to_vec();
+    let dir_end = path.iter().rposition(|&b| b == b'\\').map_or(0, |i| i + 1);
+    let dir = path[..dir_end].to_ascii_lowercase();
+    let names: Vec<Vec<u8>> = WORLD.with(|w| {
+        let mut w = w.borrow_mut();
+        w.searched.push((pattern, path.clone()));
+        let mut names: Vec<Vec<u8>> = w
+            .files
+            .iter()
+            .map(|(n, _)| n.clone())
+            .chain(w.listed.iter().cloned())
+            .filter(|n| {
+                n.to_ascii_lowercase().starts_with(&dir) && !n[dir.len()..].contains(&b'\\')
+            })
+            .collect();
+        names.reverse();
+        names
+    });
+    if names.is_empty() {
+        return Ret::default();
+    }
+    let list = LISTS;
+    let mut node = list;
+    let mut text = LISTS + 0x1000;
+    for (i, name) in names.iter().enumerate() {
+        e.mem.write(text, name);
+        e.mem.set_u8(text + name.len() as u32, 0);
+        e.mem.set_u32(node, text);
+        let next = if i + 1 < names.len() {
+            LISTS + 0x10 * (i as u32 + 1)
+        } else {
+            0
+        };
+        e.mem.set_u32(node + 4, next);
+        node = next;
+        text += 0x110;
+    }
+    Ret {
+        eax: list,
+        ..Ret::default()
+    }
 }
 
 thread_local! {
@@ -115,6 +175,38 @@ pub fn engine_as(on: bool) -> Engine {
             eax: u32::from(!refuse),
             ..Ret::default()
         }
+    });
+    e.register(0x00af_e420, build_file_list);
+    // `Animation::StartGroup`: asks the seam, then plays its answer, else the game's own sequence
+    // ([`GAME_SEQUENCE`]), in the slot (a slot word past 7, such as -1, is the slot of the group's
+    // type, here [`TYPE_SLOT`]).
+    e.register(0x0049_48c0, |e, a| {
+        WORLD.with(|w| w.borrow_mut().started.push([a[0], a[1], a[2]]));
+        let sequence = play(e, a[0], a[1] as u16, a[2]);
+        Ret {
+            eax: sequence,
+            ..Ret::default()
+        }
+    });
+    e.register(0x0040_1030, |_, a| {
+        WORLD.with(|w| w.borrow_mut().freed.push(a[0]));
+        Ret::default()
+    });
+    // Takes the head off: the next node's words move up, or the list is emptied.
+    e.register(0x0063_f7b0, |e, a| {
+        let next = e.mem.u32(a[0] + 4);
+        let (item, after) = if next == 0 {
+            (0, 0)
+        } else {
+            (e.mem.u32(next), e.mem.u32(next + 4))
+        };
+        e.mem.set_u32(a[0], item);
+        e.mem.set_u32(a[0] + 4, after);
+        Ret::default()
+    });
+    e.register(0x0047_02f0, |_, a| {
+        WORLD.with(|w| w.borrow_mut().deleted.push(a[0]));
+        Ret::default()
     });
     nvse::table::install(&mut e);
     crate::install_as(&mut e, on);
@@ -217,4 +309,32 @@ pub fn set_script_mod(e: &mut Engine, index: u8) {
     e.mem.set_u32(SCRIPT + 0x10, file);
     e.mem.set_u32(SCRIPT + 0x14, 0);
     e.mem.set_u8(file + 0x40c, index);
+}
+
+/// The slot of every group's type in the stand-in (where a start with -1 plays).
+pub const TYPE_SLOT: u32 = 2;
+
+/// The sequence the game's own path starts (the stand-in's sequence map).
+pub const GAME_SEQUENCE: u32 = 0x0303_f000;
+
+/// A group started with `slot_word` as `Animation::StartGroup` starts it: the seam's answer, else
+/// [`GAME_SEQUENCE`], put in the slot with the group (`+0x4c`, `+0xe0`).
+pub fn play(e: &mut Engine, animation: u32, group: u16, slot_word: u32) -> u32 {
+    let sequence = e
+        .site(0x0049_48c0, &[animation, u32::from(group), slot_word])
+        .unwrap_or(GAME_SEQUENCE);
+    let slot = if slot_word < 8 { slot_word } else { TYPE_SLOT };
+    e.mem.set_u16(animation + 0x4c + 2 * slot, group);
+    e.mem.set_u32(animation + 0xe0 + 4 * slot, sequence);
+    sequence
+}
+
+/// The sequence playing in `animation`'s `slot`.
+pub fn playing(e: &Engine, animation: u32, slot: u32) -> u32 {
+    e.mem.u32(animation + 0xe0 + 4 * slot)
+}
+
+/// The `StartGroup` calls so far, taken.
+pub fn started() -> Vec<[u32; 3]> {
+    WORLD.with(|w| std::mem::take(&mut w.borrow_mut().started))
 }
