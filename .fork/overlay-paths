@@ -55,6 +55,7 @@ crates/fork-overlay/
 # The built-in JohnnyGuitar NVSE and ShowOff xNVSE (fork-only crates).
 crates/jg/
 crates/showoff/
+crates/knvse/
 crates/ttw-nvse/
 crates/plugin-host/
 # Fork-only files inside upstream's crates (scripts/fork/verify-sync.sh fails on one that is not listed).

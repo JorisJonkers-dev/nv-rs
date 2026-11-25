@@ -130,6 +130,9 @@ pub enum Owner {
     /// JohnnyGuitar NVSE built in (`crates/johnnyguitar`): xNVSE loads its plugins by DLL name, so
     /// `johnnyguitarnvse.dll` after `jip_nvse.dll` and before `nvse_stewie_tweaks.dll`.
     JohnnyGuitar,
+    /// kNVSE built in (`crates/knvse`): `kNVSE.dll` after `johnnyguitarnvse.dll` and before
+    /// `nvse_stewie_tweaks.dll`.
+    Knvse,
     /// lStewieAl's Tweaks built in (`crates/stewie`): xNVSE loads its plugins by DLL name, so
     /// `nvse_stewie_tweaks.dll` after `jip_nvse.dll` (and `MCM.dll`) and before `ui_organizer.dll`.
     Stewie,
@@ -139,7 +142,7 @@ pub enum Owner {
 }
 
 impl Owner {
-    /// Its place in the order: rows, then `nvse`, then `jip`, `johnnyguitar`, `stewie` and `uio`
+    /// Its place in the order: rows, then `nvse`, then `jip`, `johnnyguitar`, `knvse`, `stewie` and `uio`
     /// (the plugins' DLL names in order).
     const fn rank(self) -> u8 {
         match self {
@@ -147,8 +150,9 @@ impl Owner {
             Owner::Nvse => 1,
             Owner::Jip => 2,
             Owner::JohnnyGuitar => 3,
-            Owner::Stewie => 4,
-            Owner::Uio => 5,
+            Owner::Knvse => 4,
+            Owner::Stewie => 5,
+            Owner::Uio => 6,
         }
     }
 
@@ -158,6 +162,7 @@ impl Owner {
             (Owner::Nvse, Owner::Nvse)
             | (Owner::Jip, Owner::Jip)
             | (Owner::JohnnyGuitar, Owner::JohnnyGuitar)
+            | (Owner::Knvse, Owner::Knvse)
             | (Owner::Stewie, Owner::Stewie)
             | (Owner::Uio, Owner::Uio) => true,
             _ => false,
@@ -194,6 +199,7 @@ const JIP: &[Owner] = &[Owner::Jip];
 const NVSE_JIP: &[Owner] = &[Owner::Nvse, Owner::Jip];
 const UIO: &[Owner] = &[Owner::Uio];
 const STEWIE: &[Owner] = &[Owner::Stewie];
+const KNVSE: &[Owner] = &[Owner::Knvse];
 
 /// Every exe address a built-in may wrap (ADR-0016 §3, "Wrappers"), by address. Each is a
 /// function entry registered by a translation (or a fix row's copy of it) and reached by
@@ -311,6 +317,14 @@ pub const SITES: &[Entry] = &[
         addr: 0x0048_3669,
         owners: NVSE,
         step: "I-9",
+    },
+    // Animation::StartGroup 004948c0, after its test of group 0xff and before the sequence map
+    // is asked: kNVSE's animation-path overrides (`crates/knvse`, nv-rs#865). A native seam,
+    // keyed by the function's address: kNVSE's own patch is not read.
+    Entry {
+        addr: 0x0049_48c0,
+        owners: KNVSE,
+        step: "K-1",
     },
     // Animation::StartGroup_ov2 004949a0, after the slot's group and sequence stores: JIP LN
     // NVSE's SetAnimGroup (the play-group events).
@@ -3127,7 +3141,10 @@ mod tests {
         ] {
             assert!(find(SITES, Owner::Nvse, a).is_some(), "{a:08x}");
         }
-        assert_eq!(SITES.len(), 131);
+        assert_eq!(SITES.len(), 132);
+        // kNVSE's animation-path overrides in Animation::StartGroup, its alone.
+        assert!(find(SITES, Owner::Knvse, 0x0049_48c0).is_some());
+        assert!(find(SITES, Owner::Jip, 0x0049_48c0).is_none());
         // lStewieAl's Tweaks' (its seams in the text key event and Idle), Tweaks' alone.
         for a in [0x0070_e4db, 0x0070_e500, 0x0071_5563] {
             assert!(find(SITES, Owner::Stewie, a).is_some(), "{a:08x}");

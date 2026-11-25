@@ -1611,6 +1611,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "knvse"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "fork-catalogue",
+]
+
+[[package]]
 name = "kurbo"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
