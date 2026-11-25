@@ -183,6 +183,24 @@ jobs:
           TITLE: ${{ matrix.name }}
         run: |
           "$PY" -I scripts/fork/libtest_summary.py --title "$TITLE" --timings "$RUNNER_TEMP/timings.txt" "$RUNNER_TEMP/test.log" >>"$GITHUB_STEP_SUMMARY"
+      # The test log goes to the coverage catalogue's results (job "Catalogue results" of fork-ci.yml reads every job's
+      # log with `tally ingest --libtest`; the OS is in the file name, the job index keeps the names apart).
+      - name: Keep the test log
+        if: ${{ !cancelled() }}
+        env:
+          INDEX: ${{ strategy.job-index }}
+        run: |
+          os="$(tr '[:upper:]' '[:lower:]' <<<"$RUNNER_OS")"
+          mkdir -p "$RUNNER_TEMP/testlog"
+          if [ -s "$RUNNER_TEMP/test.log" ]; then cp "$RUNNER_TEMP/test.log" "$RUNNER_TEMP/testlog/test-$os-$INDEX.log"; fi
+          echo "TESTLOG=testlog-$os-$INDEX" >>"$GITHUB_ENV"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: ${{ env.TESTLOG }}
+          path: ${{ runner.temp }}/testlog/
+          if-no-files-found: warn
+          retention-days: 7
 
   clippy:
     name: Clippy (whole workspace)
