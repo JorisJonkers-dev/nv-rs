@@ -776,6 +776,8 @@ impl CasterList {
         let lines: Vec<String> = entries.iter().map(prepare::Caster::line).collect();
         let shared = Arc::new(ListFile {
             file,
+            // No shipped casters list: the size cap may drop any of its lines, oldest first.
+            shipped: 0,
             written: std::sync::atomic::AtomicUsize::new(lines.len()),
             lines: std::sync::Mutex::new(lines),
             writing: std::sync::Mutex::new(()),
