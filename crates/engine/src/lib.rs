@@ -72,6 +72,8 @@ pub use engine_core::{AbiFn, Engine, Field, Inline, Layout, Mem, OpenHandler, Pt
 /// What placed outdoor water reflects (the host sets it from the graphics settings).
 pub use engine_fallout_cell::units::fallout_shared::teswater::placed_reflections;
 pub use engine_fallout_cell::{extra_data, reference};
+/// Far lights at night (the host sets them from the graphics settings).
+pub use engine_fallout_env::units::fallout_shared_distant_terrain_system::bgsdistantobjectblock::far_lights;
 /// The sky's sun (the host turns on its port-added light from the sky's discs).
 pub use engine_fallout_env::units::fallout_shared_sky::sun as sky_sun;
 /// The typed families (their family ids and exports: the drawing thread's wiring in the host reads them).
