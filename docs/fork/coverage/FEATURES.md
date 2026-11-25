@@ -8,8 +8,8 @@ Generated on fork by tally from `.fork/catalogue` (docs/fork/CATALOGUE.md). Do n
 | **Direct3D 9 on wgpu** | 123/222 | 0 | 0 | 0 | 99 | 0 | 0 |
 | IDirect3DDevice9 methods on wgpu (`d3d9.methods`) | 80/119 | 0 | 0 | 0 | 39 | 0 | 0 |
 | Direct3D 9 render states on wgpu (`d3d9.states`) | 43/103 | 0 | 0 | 0 | 60 | 0 | 0 |
-| **Engine functions** | 69459/69459 | 0 | 0 | 0 | 0 | 0 | 29 |
-| FalloutNV.exe functions (`engine.functions`) | 69459/69459 | 0 | 0 | 0 | 0 | 0 | 29 |
+| **Engine functions** | 69459/69459 | 26 | 26 | 0 | 0 | 0 | 29 |
+| FalloutNV.exe functions (`engine.functions`) | 69459/69459 | 26 | 26 | 0 | 0 | 0 | 29 |
 | **Script extender commands** | 1823/2468 | 574 | 574 | 574 | 645 | 0 | 0 |
 | JIP LN NVSE commands (`extenders.jip_ln`) | 1117/1117 | 522 | 522 | 522 | 0 | 0 | 0 |
 | JohnnyGuitar NVSE commands (`extenders.johnnyguitar`) | 20/412 | 20 | 20 | 20 | 392 | 0 | 0 |
