@@ -20,4 +20,6 @@ paths = [
 ]
 regexes = [
   '''EXAMPLE_[A-Z0-9_]+''',
+  # The made-up Sentry client key of the launcher's crash-report tests (crates/nv-launcher/src/crash, upstream code).
+  '''^0123456789abcdef(0123456789abcdef)?$''',
 ]
