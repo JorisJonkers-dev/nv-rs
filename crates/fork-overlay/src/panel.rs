@@ -132,6 +132,10 @@ impl Panel {
             .default_pos(egui::pos2(24.0, 24.0))
             .collapsible(false)
             .resizable(false)
+            // One row per setting: on a small frame the list scrolls instead of running off the
+            // bottom of the screen.
+            .vscroll(true)
+            .max_height((ctx.content_rect().height() - 96.0).max(120.0))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Preset");
