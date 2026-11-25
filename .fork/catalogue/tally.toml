@@ -11,6 +11,10 @@ name = "nv-rs"
 # Fork-owned code only: a test in a file upstream owns is tagged from covers.d/ instead.
 paths = ["crates/fork-catalogue", "crates/fork-gfx", "crates/jg", "crates/showoff", "crates/ttw-nvse"]
 
+# Tests in files upstream owns are tagged from covers maps: one TSV per extender or topic (docs/fork/CATALOGUE.md).
+[[map]]
+files = ".fork/catalogue/covers.d/*.tsv"
+
 [ids]
 generator = ".fork/catalogue/tally_ids_gen.rs"
 

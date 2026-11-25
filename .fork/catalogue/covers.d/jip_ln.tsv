@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# JIP LN commands proven by tests in crates/jip (upstream-owned files, so tagged here; docs/fork/CATALOGUE.md).
+# A row names only the commands the test calls and whose answer or effect it asserts.
+test	covers
+crates/jip/src/commands/jip_fn_camera_tests.rs::both_start_on_and_the_seams_leave_the_game_alone	extenders.jip_ln.togglevanitywheel extenders.jip_ln.togglecameracollision
+crates/jip/src/commands/jip_fn_camera_tests.rs::zero_turns_off_and_any_other_value_turns_on	extenders.jip_ln.togglevanitywheel extenders.jip_ln.togglecameracollision
+crates/jip/src/commands/jip_fn_class_tests.rs::tag_skills_and_attributes	extenders.jip_ln.getclasstraitnumeric extenders.jip_ln.setclasstraitnumeric
+crates/jip/src/commands/jip_fn_class_tests.rs::flags_and_services	extenders.jip_ln.getclassflag extenders.jip_ln.setclassflag
+crates/jip/src/commands/jip_fn_faction_tests.rs::the_reputation	extenders.jip_ln.getfactionreputationtype extenders.jip_ln.setfactionreputationtype
+crates/jip/src/commands/jip_fn_faction_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.getfactionreputationtype extenders.jip_ln.setfactionreputationtype
+crates/jip/src/commands/jip_fn_package_tests.rs::the_flags	extenders.jip_ln.getpackageflag extenders.jip_ln.setpackageflag
+crates/jip/src/commands/jip_fn_package_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.getpackageflag extenders.jip_ln.setpackageflag
+crates/jip/src/commands/jip_fn_perk_tests.rs::the_flags	extenders.jip_ln.getperkflag extenders.jip_ln.setperkflag
+crates/jip/src/commands/jip_fn_perk_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.getperkflag extenders.jip_ln.setperkflag
+crates/jip/src/commands/jip_fn_water_tests.rs::the_noise_texture	extenders.jip_ln.getwaternoisetexture extenders.jip_ln.setwaternoisetexture
+crates/jip/src/commands/jip_fn_water_tests.rs::the_effect_and_the_sound	extenders.jip_ln.setwaterformeffect extenders.jip_ln.getwatersound extenders.jip_ln.setwatersound
+crates/jip/src/commands/jip_fn_moon_tests.rs::a_phase_replaced_and_the_moon_rebuilt	extenders.jip_ln.setmoontexture
+crates/jip/src/commands/jip_fn_moon_tests.rs::nothing_without_a_sky_or_past_seven	extenders.jip_ln.setmoontexture
+crates/jip/src/commands/jip_fn_string_tests.rs::string_hashes	extenders.jip_ln.getstringhash
+crates/jip/src/commands/jip_fn_string_tests.rs::string_hash_console_echo	extenders.jip_ln.getstringhash
+crates/jip/src/commands/jip_fn_input_tests.rs::controls_held_by_keys	extenders.jip_ln.holdcontrol extenders.jip_ln.releasecontrol
+crates/jip/src/commands/jip_fn_input_tests.rs::controls_held_on_the_pad	extenders.jip_ln.holdcontrol extenders.jip_ln.releasecontrol
+crates/jip/src/commands/jip_fn_input_tests.rs::mouse_wheel	extenders.jip_ln.scrollmousewheel
+crates/jip/src/commands/jip_fn_miscellaneous_depth_tests.rs::the_game_clears_until_a_script_says_0	extenders.jip_ln.toggledepthclear
+crates/jip/src/commands/jip_fn_misc_ref_code_tests.rs::no_z_pos_reset_flags_and_the_seams	extenders.jip_ln.togglenozposreset
+crates/jip/src/commands/jip_fn_misc_ref_code_tests.rs::object_collision_off_and_on	extenders.jip_ln.toggleobjectcollision
+crates/jip/src/commands/jip_fn_rock_it_tests.rs::the_launcher_has_no_ammo	extenders.jip_ln.initrockitlauncher
+crates/jip/src/commands/ln_fn_load_screen_tests.rs::the_texture	extenders.jip_ln.getloadscreentexture extenders.jip_ln.setloadscreentexture
+crates/jip/src/commands/ln_fn_load_screen_tests.rs::the_type	extenders.jip_ln.getloadscreentype extenders.jip_ln.setloadscreentype
+crates/jip/src/commands/ln_fn_load_screen_tests.rs::the_text_colour	extenders.jip_ln.getloadscreentypetextrgb extenders.jip_ln.setloadscreentypetextrgb
+crates/jip/src/commands/ln_fn_radio_ref_tests.rs::is_a_radio	extenders.jip_ln.isradioref
+crates/jip/src/commands/ln_fn_radio_ref_tests.rs::radius_static_and_position_for_range_type_0	extenders.jip_ln.getradiobroadcasttype extenders.jip_ln.getradioradius extenders.jip_ln.setradioradius extenders.jip_ln.getradiostatic extenders.jip_ln.setradiostatic extenders.jip_ln.getradioposref extenders.jip_ln.setradioposref
+crates/jip/src/commands/ln_fn_radio_ref_tests.rs::another_range_type	extenders.jip_ln.getradiobroadcasttype extenders.jip_ln.setradiobroadcasttype extenders.jip_ln.getradioradius extenders.jip_ln.setradioradius extenders.jip_ln.getradiostatic extenders.jip_ln.getradioposref extenders.jip_ln.setradioposref
+crates/jip/src/commands/jip_fn_actor_p2_r6_tests.rs::the_players_perks_with_and_without_hidden	extenders.jip_ln.getplayerperks extenders.jip_ln.getallperks
+crates/jip/src/commands/jip_fn_actor_p2_r6_tests.rs::an_npcs_own_perks_while_the_patch_is_on	extenders.jip_ln.removeallperks extenders.jip_ln.getallperks
+crates/jip/src/commands/jip_fn_actor_p2_r6_tests.rs::remove_all_perks_for_the_player_calls_remove_perk_for_each	extenders.jip_ln.removeallperks
+crates/jip/src/commands/jip_fn_actor_p2_r6_tests.rs::excluded_combat_actions_kept_and_answered	extenders.jip_ln.getexcludedcombatactions extenders.jip_ln.setexcludedcombatactions
+crates/jip/src/commands/jip_fn_ammo_effect_tests.rs::the_effect_list	extenders.jip_ln.getnumammoeffects extenders.jip_ln.getnthammoeffect
+crates/jip/src/commands/jip_fn_ammo_effect_tests.rs::effects_added_and_removed	extenders.jip_ln.addammoeffect extenders.jip_ln.removeammoeffect
+crates/jip/src/commands/jip_fn_ammo_effect_tests.rs::the_effect_numbers	extenders.jip_ln.getammoeffecttraitnumeric extenders.jip_ln.setammoeffecttraitnumeric
+crates/jip/src/commands/jip_fn_ammo_effect_tests.rs::the_effect_numbers_only_on_an_effect	extenders.jip_ln.getammoeffecttraitnumeric extenders.jip_ln.setammoeffecttraitnumeric
+crates/jip/src/commands/jip_fn_ammo_tests.rs::the_numeric_traits_at_their_offsets	extenders.jip_ln.getammotraitnumeric
+crates/jip/src/commands/jip_fn_ammo_tests.rs::the_numeric_traits_set_with_jips_casts	extenders.jip_ln.setammotraitnumeric
+crates/jip/src/commands/jip_fn_ammo_tests.rs::the_projectile	extenders.jip_ln.getammoprojectile extenders.jip_ln.setammoprojectile
+crates/jip/src/commands/jip_fn_ammo_tests.rs::the_casing	extenders.jip_ln.setammocasing
+crates/jip/src/commands/jip_fn_combat_style_tests.rs::every_trait_at_jips_offset	extenders.jip_ln.getcombatstyletraitnumeric extenders.jip_ln.setcombatstyletraitnumeric
+crates/jip/src/commands/jip_fn_combat_style_tests.rs::bytes_narrowed_as_jip_does	extenders.jip_ln.setcombatstyletraitnumeric
+crates/jip/src/commands/jip_fn_combat_style_tests.rs::the_flags	extenders.jip_ln.getcombatstyleflag extenders.jip_ln.setcombatstyleflag
+crates/jip/src/commands/jip_fn_combat_style_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.getcombatstyletraitnumeric extenders.jip_ln.setcombatstyletraitnumeric extenders.jip_ln.getcombatstyleflag extenders.jip_ln.setcombatstyleflag
+crates/jip/src/commands/jip_fn_grass_tests.rs::the_numbers_at_their_offsets	extenders.jip_ln.getgrasstraitnumeric
+crates/jip/src/commands/jip_fn_grass_tests.rs::the_numbers_set_with_jips_casts	extenders.jip_ln.setgrasstraitnumeric
+crates/jip/src/commands/jip_fn_grass_tests.rs::the_model	extenders.jip_ln.getgrassmodel extenders.jip_ln.setgrassmodel
+crates/jip/src/commands/jip_fn_grass_tests.rs::the_ranges_each_in_place	extenders.jip_ln.setgrasstraitnumeric
+crates/jip/src/commands/jip_fn_miscellaneous_r1_tests.rs::hit_effects_answer_on_while_the_word_is_zero	extenders.jip_ln.togglehiteffects
+crates/jip/src/commands/jip_fn_miscellaneous_r1_tests.rs::hit_effects_keep_immortal_modes_bit	extenders.jip_ln.toggleimmortalmode extenders.jip_ln.togglehiteffects
+crates/jip/src/commands/jip_fn_miscellaneous_r1_tests.rs::biped_slots_start_at_0x7c	extenders.jip_ln.togglebipedslotvisibility
+crates/jip/src/commands/jip_fn_miscellaneous_r1_tests.rs::biped_slots_set_and_cleared_by_a_second_argument	extenders.jip_ln.togglebipedslotvisibility
