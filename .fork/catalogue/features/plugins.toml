@@ -55,7 +55,8 @@ notes = "every id 0 to 9 has its table; not built yet (a call stops and names it
 [[item]]
 id = "fs_segment"
 title = "fs: accesses reach a thread block (SEH chain, TLS) (#805)"
-status = "missing"
+status = "implemented"
+notes = "gs:, movs through fs: and 16-bit addressing other than a bare 16-bit offset stop the call; TLS callbacks are not run"
 
 [[item]]
 id = "string_scans"

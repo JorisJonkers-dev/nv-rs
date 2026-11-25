@@ -102,6 +102,13 @@ pub struct Cpu {
     pub steps: u64,
     /// Where writes into the game's code go ([`crate::patches`]).
     pub shadow: Option<crate::patches::Shared>,
+    /// The base of the `fs` segment: the thread block ([`crate::thread`]).
+    pub fs_base: u32,
+    /// The segment base the instruction being run adds to its memory operands (an `fs:` prefix:
+    /// [`Cpu::fs_base`]; else 0, as `ds`, `es` and `ss` are flat).
+    pub(crate) seg: u32,
+    /// The instruction being run has an address-size prefix (`0x67`).
+    pub(crate) addr16: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -262,6 +269,19 @@ impl Cpu {
                 loc: Loc::Reg(rm),
             });
         }
+        if self.addr16 {
+            // 16-bit addressing (`0x67` before a memory operand): only the bare 16-bit offset
+            // (mod 0, r/m 6), as in `67 64 ff 36 00 00` (`push fs:[0]`); register-based forms
+            // are not built.
+            if md == 0 && rm == 6 {
+                let off = self.f16(e)?;
+                return Ok(Modrm {
+                    reg,
+                    loc: Loc::Mem(off.wrapping_add(self.seg)),
+                });
+            }
+            return Err(Stop::Missing("16-bit addressing (0x67 prefix)".into()));
+        }
         let mut addr: u32;
         if rm == 4 {
             let sib = self.f8(e)?;
@@ -288,7 +308,7 @@ impl Cpu {
         }
         Ok(Modrm {
             reg,
-            loc: Loc::Mem(addr),
+            loc: Loc::Mem(addr.wrapping_add(self.seg)),
         })
     }
 
@@ -444,15 +464,34 @@ impl Cpu {
         let start = self.eip;
         let mut size = 4u32;
         let mut rep = 0u8;
+        self.seg = 0;
+        self.addr16 = false;
+        let mut fs = false;
         let mut op = self.f8(e)?;
         loop {
             match op {
                 0x66 => size = 2,
                 0xf2 | 0xf3 => rep = op as u8,
                 0x2e | 0x3e | 0x26 | 0x36 => {}
+                0x64 => fs = true,
+                0x67 => self.addr16 = true,
+                // `gs` has no base on 32-bit Windows; a plugin reading through it is not built.
+                0x65 => return Err(self.bad(e, start)),
                 _ => break,
             }
             op = self.f8(e)?;
+        }
+        if fs {
+            // `movs` reads its source through the segment and has no operand to carry it.
+            if matches!(op, 0xa4 | 0xa5) {
+                return Err(self.bad(e, start));
+            }
+            self.seg = self.fs_base;
+        }
+        // With `0x67` the string and count-register instructions use `si`, `di` and `cx`: not
+        // built.
+        if self.addr16 && matches!(op, 0xa4..=0xaf | 0xe0..=0xe3) {
+            return Err(self.bad(e, start));
         }
         match op {
             // ALU, eight forms for each of the eight operations
@@ -595,7 +634,8 @@ impl Cpu {
             0x8d => {
                 let m = self.modrm(e)?;
                 match m.loc {
-                    Loc::Mem(a) => self.set_reg(m.reg, size, a),
+                    // `lea` gives the offset: a segment prefix does not add its base.
+                    Loc::Mem(a) => self.set_reg(m.reg, size, a.wrapping_sub(self.seg)),
                     Loc::Reg(_) => return Err(self.bad(e, start)),
                 }
             }
@@ -647,7 +687,13 @@ impl Cpu {
             }
             0xa0..=0xa3 => {
                 let sz = if op & 1 == 0 { 1 } else { size };
-                let at = self.f32(e)?;
+                // With `0x67` the offset is 16 bits (`64 67 a1 18 00`: `mov eax, fs:[0x18]`).
+                let off = if self.addr16 {
+                    self.f16(e)?
+                } else {
+                    self.f32(e)?
+                };
+                let at = off.wrapping_add(self.seg);
                 if op < 0xa2 {
                     let v = self.rd(e, at, sz)?;
                     self.set_reg(EAX, sz, v);
