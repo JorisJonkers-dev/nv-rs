@@ -348,15 +348,16 @@ fn set_callback(e: &mut Engine, a: &[u32], which: fn(&mut Callbacks) -> &mut u32
     let Some(p) = handle_plugin(e, a[0]) else {
         return 0;
     };
-    if let Ok(me) = current(e) {
-        if me != p {
-            let file = state(e).plugins[me].file.clone();
-            report(
-                e,
-                format!("{file}: a co-save callback for another plugin's handle is not set"),
-            );
-            return 0;
-        }
+    let Ok(me) = current(e) else {
+        return 0;
+    };
+    if me != p {
+        let file = state(e).plugins[me].file.clone();
+        report(
+            e,
+            format!("{file}: a co-save callback for another plugin's handle is not set"),
+        );
+        return 0;
     }
     let plugin = &mut state(e).plugins[p];
     *which(&mut plugin.callbacks) = a[1];
@@ -525,12 +526,12 @@ fn read_hook(e: &mut Engine, n: usize, cb: u32, r: &mut Reader) -> Result<(), Ou
     if cb == 0 {
         return Ok(());
     }
-    ifaces(e).reading = Some(Reading {
+    let outer = ifaces(e).reading.replace(Reading {
         chunks,
         ..Reading::default()
     });
     guarded(e, n, "co-save read", cb, &[0]);
-    ifaces(e).reading = None;
+    ifaces(e).reading = outer;
     Ok(())
 }
 
