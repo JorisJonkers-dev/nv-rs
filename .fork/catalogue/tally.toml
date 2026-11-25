@@ -15,6 +15,11 @@ paths = ["crates/fork-catalogue", "crates/fork-gfx", "crates/jg", "crates/showof
 [[map]]
 files = ".fork/catalogue/covers.d/*.tsv"
 
+# The engine area has one item per function of the exe (about 69,000): it keeps its own row, but the first row of the
+# reports leaves it out so the other areas stay readable (the JSON totals and the ratchet still count it).
+[report]
+leave_out_of_total = ["engine"]
+
 [ids]
 generator = ".fork/catalogue/tally_ids_gen.rs"
 
