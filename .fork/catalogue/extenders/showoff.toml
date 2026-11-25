@@ -187,3 +187,15 @@ id = "getitemhotkeyiconpath"
 title = "GetItemHotkeyIconPath"
 status = "implemented"
 ref = ["showoff:getitemhotkeyiconpath"]
+
+[[item]]
+id = "setenableparent"
+title = "SetEnableParent"
+status = "implemented"
+ref = ["showoff:setenableparent"]
+
+[[item]]
+id = "getequippedweapon"
+title = "GetEquippedWeapon"
+status = "implemented"
+ref = ["showoff:getequippedweapon"]

@@ -69,7 +69,7 @@ fn the_record_is_at_its_opcode() {
         [ANY_FORM, 0]
     );
     assert_eq!([e.mem.u32(params + 16), e.mem.u32(params + 20)], [INT, 1]);
-    assert_eq!(crate::COMMAND_NAMES.last(), Some(&"GetItemHotkeyIconPath"));
+    assert!(crate::COMMAND_NAMES.contains(&"GetItemHotkeyIconPath"));
 }
 
 /// Without an override (none can be set), the item's texture path, as `GetTexturePath` reads
