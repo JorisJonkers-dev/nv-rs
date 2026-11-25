@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The plugin host's fs: segment and thread block (features/plugins.toml), proven by tests in crates/plugin-host/src/thread_tests.rs.
+# A row names an item only when the test runs it and asserts its result.
+test	covers
+crates/plugin-host/src/thread_tests.rs::an_fs_prefix_reads_and_writes_the_thread_block	features.plugins.fs_segment
+crates/plugin-host/src/thread_tests.rs::a_16_bit_offset_and_a_register_operand_use_the_segment_and_lea_does_not	features.plugins.fs_segment
+crates/plugin-host/src/thread_tests.rs::the_thread_block_has_the_fields_compiled_code_reads	features.plugins.fs_segment
+crates/plugin-host/src/thread_tests.rs::a_call_sees_the_block_through_fs_and_the_chain_is_put_back	features.plugins.fs_segment
+crates/plugin-host/src/thread_tests.rs::an_images_tls_template_is_copied_into_its_slot	features.plugins.fs_segment
+crates/plugin-host/src/thread_tests.rs::gs_fs_movs_and_16_bit_addressing_stop_the_call	features.plugins.failure_contained

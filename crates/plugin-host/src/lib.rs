@@ -29,6 +29,7 @@ pub mod x86;
 
 mod crt;
 mod printf;
+pub mod thread;
 mod winapi;
 
 use engine_core::prelude::*;
@@ -119,6 +120,8 @@ pub struct State {
     shadow: patches::Shared,
     /// Exports of the runtime DLLs the user supplied: (DLL file name lower case, name) -> address.
     runtime_exports: HashMap<(String, String), u32>,
+    /// The thread block `fs` points at ([`thread`]).
+    pub(crate) thread: thread::Thread,
 }
 
 fn state(e: &mut Engine) -> &mut State {
@@ -332,16 +335,14 @@ pub(crate) fn call_guest(
     addr: u32,
     args: &[u32],
 ) -> Result<u32, Stop> {
-    if state(e).stack_top == 0 {
-        let size = 1 << 20;
-        let base = e.mem.alloc(size);
-        let st = state(e);
-        st.stack_top = base + size - 64;
-        st.sp = st.stack_top;
-    }
+    let teb = thread::thread_block(e);
+    // The SEH chain as the call found it: a frame the plugin pushed and never popped (it stopped
+    // between the two) is not left in the chain.
+    let chain = e.mem.u32(teb + thread::EXCEPTION_LIST);
     let saved = state(e).sp;
     let mut cpu = Cpu {
         r: [0; 8],
+        fs_base: teb,
         ..Cpu::default()
     };
     cpu.r[ESP] = saved;
@@ -364,7 +365,21 @@ pub(crate) fn call_guest(
     st.shadow.borrow_mut().who = prior;
     st.running.pop();
     st.sp = saved;
+    e.mem.set_u32(teb + thread::EXCEPTION_LIST, chain);
     r.map(|()| cpu.r[EAX])
+}
+
+/// The guest stack all plugin calls share, made on first use: (its top, its bottom).
+pub(crate) fn guest_stack(e: &mut Engine) -> (u32, u32) {
+    const SIZE: u32 = 1 << 20;
+    if state(e).stack_top == 0 {
+        let base = e.mem.alloc(SIZE);
+        let st = state(e);
+        st.stack_top = base + SIZE - 64;
+        st.sp = st.stack_top;
+    }
+    let top = state(e).stack_top + 64;
+    (top, top - SIZE)
 }
 
 /// Marks a plugin failed, takes its commands out of the table (a script that calls one then
@@ -813,6 +828,14 @@ pub enum LoadError {
     Refused(String),
 }
 
+/// The image's implicit thread-local storage, when it has any ([`thread::attach_tls`]).
+fn attach_tls(e: &mut Engine, image: &pe::Pe, base: u32) -> Result<(), LoadError> {
+    if image.tls == 0 {
+        return Ok(());
+    }
+    thread::attach_tls(e, base, image.tls).map_err(|m| LoadError::Pe(format!("TLS: {m}")))
+}
+
 /// Maps a runtime DLL the user supplied (`msvcp140.dll`: the C++ library the plugins import),
 /// binds its own imports, runs its entry point and makes its exports answer a plugin's imports of
 /// that DLL name. Nothing of Microsoft's is shipped: the file is the user's own (or fetched on
@@ -838,6 +861,7 @@ pub fn supply_runtime(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<(), Lo
             *addr
         })
         .map_err(|x| LoadError::Pe(x.to_string()))?;
+    attach_tls(e, &image, base)?;
     let idx = state(e).plugins.len();
     state(e).plugins.push(Plugin {
         file: file.to_string(),
@@ -966,6 +990,7 @@ fn map_one(e: &mut Engine, file: &str, bytes: &[u8]) -> Result<usize, LoadError>
             *addr
         })
         .map_err(|x| LoadError::Pe(x.to_string()))?;
+    attach_tls(e, &image, base)?;
     let idx = state(e).plugins.len();
     let query = image.export("NVSEPlugin_Query").map(|r| base + r);
     let load_fn = image.export("NVSEPlugin_Load").map(|r| base + r);

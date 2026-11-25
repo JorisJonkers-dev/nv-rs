@@ -70,6 +70,8 @@ pub struct Pe {
     pub imports: Vec<Import>,
     pub exports: Vec<(String, u32)>,
     pub headers_size: u32,
+    /// The RVA of the TLS directory (data directory 9), 0 for none.
+    pub tls: u32,
 }
 
 fn u16_at(b: &[u8], o: usize) -> Result<u32, PeError> {
@@ -134,6 +136,7 @@ impl Pe {
             imports: Vec::new(),
             exports: Vec::new(),
             headers_size,
+            tls: dir(9).map_or(0, |(rva, _)| rva),
         };
         let file_of = |pe: &Pe, rva: u32| -> Option<usize> {
             if rva < pe.headers_size {

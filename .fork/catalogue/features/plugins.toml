@@ -55,7 +55,8 @@ notes = "only messaging today"
 [[item]]
 id = "fs_segment"
 title = "fs: accesses reach a thread block (SEH chain, TLS) (#805)"
-status = "missing"
+status = "implemented"
+notes = "gs:, movs through fs: and 16-bit addressing stop the call; TLS callbacks are not run"
 
 [[item]]
 id = "string_scans"
