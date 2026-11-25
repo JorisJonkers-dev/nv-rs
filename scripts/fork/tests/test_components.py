@@ -283,7 +283,7 @@ class Affected(unittest.TestCase):
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
         self.assertIn("integration", got)
-        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 15)
+        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 16)
 
     def test_a_fallout_change_reaches_every_component_whose_tests_link_it(self):
         _, got = self.reached(["crates/engine-fallout-cell/src/lib.rs"])
@@ -355,7 +355,7 @@ class RealMap(unittest.TestCase):
     def test_the_typed_jobs_build_the_harness_crates_at_opt_level_1_and_the_aggregator_does_not(self):
         got = {e["name"]: e["script"] for e in real_model().entries("integration")}
         typed = [v for k, v in got.items() if "typed" in k]
-        self.assertEqual(len(typed), 14)
+        self.assertEqual(len(typed), 15)
         for script in typed:
             for crate in ("engine-core", "engine-typed", "engine"):
                 self.assertIn(f"--config profile.dev.package.{crate}.opt-level=1", script)

@@ -71,6 +71,13 @@ status = "missing"
 notes = "nv-rs #684"
 
 [[item]]
+id = "memory_breakdown"
+title = "The layer's memory by kind and the process's own card memory in the NV_MEMLOG timeline"
+status = "implemented"
+notes = "docs/fork/MEMLOG.md: textures by kind, targets, buffers, host copies, the allocator's blocks, fdinfo VRAM and GTT"
+evidence = ["crates/d3d9-wgpu/src/memstats.rs", "crates/fork-memlog/src/lib.rs"]
+
+[[item]]
 id = "texture_budget"
 title = "Textures fit the video-memory budget: SetLOD, kept bytes, dropped top mips"
 status = "missing"

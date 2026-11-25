@@ -1479,6 +1479,8 @@ pub struct Device {
     /// game last gave them (`UploadSurface`) or `GetRenderTargetData` wrote them.
     keeps: Map<Handle, Vec<Handle>>,
     kept: Map<Handle, Vec<u8>>,
+    /// `NV_GPU_ALLOC_WATCH=1`: the most the allocator's blocks held when last said.
+    alloc_watch: Option<u64>,
     /// The occlusion query counting now (its `D3DISSUE_BEGIN` until its `END`) and its slot.
     counting: Option<(Handle, u32)>,
     pass_count: Option<CountSegment>,
@@ -2335,6 +2337,7 @@ impl Device {
             header_atoc: false,
             keeps: Map::default(),
             kept: Map::default(),
+            alloc_watch: (std::env::var("NV_GPU_ALLOC_WATCH").as_deref() == Ok("1")).then_some(0),
             counting: None,
             pass_count: None,
             count_targets: Map::default(),
@@ -2652,7 +2655,8 @@ impl Device {
             self.budget.note_refused();
             Err(budget::Refusal::Size)
         } else {
-            self.budget.take(width, height, bytes)
+            let kind = budget::Kind::of_texture(format.block, format.depth, target, samples);
+            self.budget.take(kind, width, height, bytes)
         };
         let charge = match charge {
             Ok(c) => c,
@@ -2923,7 +2927,12 @@ impl Device {
         );
         self.st.bound.forget(buffer);
         let size = u64::from(length.max(4).div_ceil(4) * 4);
-        let charge = match self.budget.take(1, 1, size) {
+        let kind = if index {
+            budget::Kind::Index
+        } else {
+            budget::Kind::Vertex
+        };
+        let charge = match self.budget.take(kind, 1, 1, size) {
             Ok(c) => c,
             Err(why) => {
                 self.refuse_allocation("buffer", length, 1, size, &why);
@@ -9335,7 +9344,10 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                     index32: true,
                     batch: AtomicU64::new(0),
                     uploads: AtomicU64::new(0),
-                    _charge: self.budget.take(0, 0, bytes.len() as u64).ok(),
+                    _charge: self
+                        .budget
+                        .take(budget::Kind::Own, 0, 0, bytes.len() as u64)
+                        .ok(),
                     id: Buf::next_id(),
                     released: AtomicBool::new(false),
                     seq: 0,
@@ -11510,10 +11522,13 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     pub(crate) fn read_surface(&self, surface: Handle, size: u32) -> Option<Vec<u8>> {
         let _perf = crate::perf::span(crate::perf::Cat::ReadBack);
         let _hitch = fork_hitch::span(fork_hitch::Counter::GpuWaitNs, None);
-        self.kept
+        let bytes = self
+            .kept
             .get(&surface)
             .filter(|b| b.len() == size as usize)
-            .cloned()
+            .cloned();
+        memstats::note_read(bytes.as_ref().map_or(0, |b| b.len() as u64));
+        bytes
     }
 
     /// The pixels of a level as wgpu holds them, rows packed (a multisampled surface resolved
@@ -12312,13 +12327,17 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             l.save_if_due(self.presents, false);
         }
         if self.presents % memstats::PUBLISH_EVERY == 0 {
-            memstats::publish(memstats::GpuMemStats {
-                kept_bytes: self.kept.values().map(|k| k.len() as u64).sum(),
-                kept_levels: self.kept.values().filter(|k| !k.is_empty()).count() as u64,
-                bind_groups: self.groups.len() as u64,
-                pipelines: self.pipelines.len() as u64,
-                presents: self.presents,
-            });
+            self.publish_memstats();
+        }
+        if let Some(top) = &mut self.alloc_watch {
+            // `NV_GPU_ALLOC_WATCH=1`: the allocator's blocks said whenever they grow past the
+            // largest seen by 128 MB (one report a present: for finding what fills them).
+            if let Some(r) = self.device.generate_allocator_report() {
+                if r.total_reserved_bytes > *top + (128 << 20) {
+                    *top = r.total_reserved_bytes;
+                    fork_log::info!(target: "d3d9", "NV_D3D9 wgpu: present {}: {}", self.presents, allocator_summary(&r));
+                }
+            }
         }
         if let Some(c) = &mut self.casters {
             c.save_if_due(self.presents, false);
@@ -12729,6 +12748,95 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             .map(|t| t.texture.usage())
     }
 
+    /// One line: the game's textures by D3D format, largest first: count, MB on the card, how
+    /// many have one level only, how many are as big as 1024 or more on a side.
+    fn textures_by_format(&self) -> String {
+        let mut by: Map<u32, (u64, u64, u64, u64)> = Map::default();
+        for t in self.objects.textures.values() {
+            let e = by.entry(t.format.d3d).or_default();
+            e.0 += 1;
+            e.1 += t._charge.bytes();
+            e.2 += u64::from(t.levels == 1);
+            e.3 += u64::from(t.width.max(t.height) >= 1024);
+        }
+        let mut rows: Vec<_> = by.into_iter().collect();
+        rows.sort_by_key(|r| std::cmp::Reverse(r.1 .1));
+        let mut line = format!(
+            "NV_D3D9 wgpu: memory by format at present {}:",
+            self.presents
+        );
+        for (fmt, (n, bytes, one, big)) in rows {
+            line.push_str(&format!(
+                " {fmt:#x} n={n} mb={:.1} one_level={one} side1024={big};",
+                bytes as f64 / 1_048_576.0
+            ));
+        }
+        line
+    }
+
+    /// Posts the layer's memory counters ([`memstats`]); the driver allocator's report is read
+    /// every tenth post only (it lists every block).
+    fn publish_memstats(&mut self) {
+        let of = |k| self.budget.of_kind(k).0;
+        let (alloc_allocated, alloc_reserved) = if self.presents % (memstats::PUBLISH_EVERY * 10)
+            == 0
+            || memstats::snapshot().parts.alloc_reserved == 0
+        {
+            self.device.generate_allocator_report().map_or((0, 0), |r| {
+                (r.total_allocated_bytes, r.total_reserved_bytes)
+            })
+        } else {
+            let last = memstats::snapshot().parts;
+            (last.alloc_allocated, last.alloc_reserved)
+        };
+        let buffer_copies = self
+            .objects
+            .all
+            .values()
+            .map(|o| match o {
+                Obj::Buffer(_, shadow) => shadow.len() as u64,
+                _ => 0,
+            })
+            .sum();
+        let textures = budget::Kind::ALL[..5]
+            .iter()
+            .map(|&k| self.budget.of_kind(k).1)
+            .sum();
+        let modules = (self.vs_modules.values().filter(|m| m.is_some()).count()
+            + self.ps_modules.values().filter(|m| m.is_some()).count())
+            as u64;
+        if self.presents % (memstats::PUBLISH_EVERY * 60) == 0 {
+            fork_log::info!(target: "d3d9", "{}", self.textures_by_format());
+            if let Some(r) = self.device.generate_allocator_report() {
+                fork_log::info!(target: "d3d9", "NV_D3D9 wgpu: {}", allocator_summary(&r));
+            }
+        }
+        memstats::publish(memstats::GpuMemStats {
+            kept_bytes: self.kept.values().map(|k| k.len() as u64).sum(),
+            kept_levels: self.kept.values().filter(|k| !k.is_empty()).count() as u64,
+            bind_groups: self.groups.len() as u64,
+            pipelines: self.pipelines.len() as u64,
+            presents: self.presents,
+            parts: memstats::Parts {
+                tex_compressed: of(budget::Kind::Compressed),
+                tex_plain: of(budget::Kind::Plain),
+                targets: of(budget::Kind::Target),
+                targets_msaa: of(budget::Kind::Multisampled),
+                depth: of(budget::Kind::Depth),
+                vertex: of(budget::Kind::Vertex),
+                index: of(budget::Kind::Index),
+                own: of(budget::Kind::Own),
+                textures,
+                buffer_copies,
+                alloc_allocated,
+                alloc_reserved,
+                modules,
+                reads: memstats::reads().0,
+                read_bytes: memstats::reads().1,
+            },
+        });
+    }
+
     pub fn read_surface_pixels(&mut self, surface: Handle) -> Option<(u32, u32, Vec<u8>)> {
         let s = self.surface_of(surface)?;
         let pixels = self.read_level(&s)?;
@@ -13059,7 +13167,7 @@ fn open(
         label: Some("d3d9-wgpu"),
         required_features: features,
         required_limits: adapter.limits(),
-        memory_hints: wgpu::MemoryHints::Performance,
+        memory_hints: memory_hints(std::env::var("NV_GPU_MEMORY_HINT").ok().as_deref()),
         experimental_features: Default::default(),
         trace: Default::default(),
     }))
@@ -14573,8 +14681,154 @@ fn render_times(query: &wgpu::QuerySet, index: u32) -> wgpu::RenderPassTimestamp
     }
 }
 
+/// The driver allocator's block sizes (`NV_GPU_MEMORY_HINT`): `performance` is wgpu's 128 to 256 MB
+/// blocks, `memory` its 8 to 64 MB ones, `MIN-MAX` (MB, 4 to 256) blocks of those sizes; the
+/// default is [`SMALL_BLOCKS_MB`]. With large blocks a long run's blocks stayed partly used after
+/// the places that filled them were left: the game's textures of one place are about 1.5 GB, the
+/// blocks held grew past 4.5 GB in 18 minutes and were never given back.
+fn memory_hints(env: Option<&str>) -> wgpu::MemoryHints {
+    const MB: u64 = 1 << 20;
+    let manual = |min: u64, max: u64| wgpu::MemoryHints::Manual {
+        suballocated_device_memory_block_size: min * MB..max * MB,
+    };
+    match env.map(str::trim) {
+        Some("performance") => wgpu::MemoryHints::Performance,
+        Some("memory") => wgpu::MemoryHints::MemoryUsage,
+        Some(v) => match v
+            .split_once('-')
+            .map(|(a, b)| (a.trim().parse::<u64>(), b.trim().parse::<u64>()))
+        {
+            Some((Ok(min), Ok(max))) if (4..=max).contains(&min) && max <= 256 => manual(min, max),
+            _ => manual(SMALL_BLOCKS_MB.0, SMALL_BLOCKS_MB.1),
+        },
+        None => manual(SMALL_BLOCKS_MB.0, SMALL_BLOCKS_MB.1),
+    }
+}
+
+/// The allocator's block sizes by default, MB: the smallest and the largest.
+const SMALL_BLOCKS_MB: (u64, u64) = (4, 16);
+
+/// The driver allocator's blocks in one line ([`blocks_line`]).
+fn allocator_summary(r: &wgpu::AllocatorReport) -> String {
+    let blocks: Vec<(u64, u64)> = r
+        .blocks
+        .iter()
+        .map(|b| {
+            let used = r.allocations[b.allocations.clone()]
+                .iter()
+                .map(|a| a.size)
+                .sum();
+            (b.size, used)
+        })
+        .collect();
+    let names: Vec<(&str, u64)> = r
+        .allocations
+        .iter()
+        .map(|a| (a.name.as_str(), a.size))
+        .collect();
+    blocks_line(
+        r.total_allocated_bytes,
+        r.total_reserved_bytes,
+        &blocks,
+        &names,
+    )
+}
+
+/// The allocator's blocks (size, bytes used) in one line: how many and their sizes, how many are
+/// empty or under a quarter used, and the largest users by allocation name.
+fn blocks_line(
+    allocated: u64,
+    reserved: u64,
+    blocks: &[(u64, u64)],
+    names: &[(&str, u64)],
+) -> String {
+    let mb = |b: u64| b as f64 / 1_048_576.0;
+    let mut sizes: std::collections::BTreeMap<u64, u64> = Default::default();
+    let (mut empty, mut sparse) = (0u64, 0u64);
+    for &(size, used) in blocks {
+        *sizes.entry(size).or_default() += 1;
+        if used == 0 {
+            empty += 1;
+        } else if used * 4 < size {
+            sparse += 1;
+        }
+    }
+    let mut by: Map<&str, u64> = Map::default();
+    for &(n, size) in names {
+        *by.entry(n).or_default() += size;
+    }
+    let mut by: Vec<_> = by.into_iter().collect();
+    by.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let sizes: Vec<String> = sizes
+        .iter()
+        .map(|(size, n)| format!("{n}x{:.0}", mb(*size)))
+        .collect();
+    let by: Vec<String> = by
+        .iter()
+        .take(8)
+        .map(|(n, b)| format!("{}={:.1}", if n.is_empty() { "-" } else { n }, mb(*b)))
+        .collect();
+    format!(
+        "allocator {:.1} MB allocated of {:.1} MB in {} blocks (MB: {}), {empty} empty, {sparse} under a quarter used; by name (MB): {}",
+        mb(allocated),
+        mb(reserved),
+        blocks.len(),
+        sizes.join(" "),
+        by.join(" ")
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_small_allocator_blocks_are_the_default() {
+        let blocks = |v| match super::memory_hints(v) {
+            wgpu::MemoryHints::Manual {
+                suballocated_device_memory_block_size: r,
+            } => Some((r.start >> 20, r.end >> 20)),
+            _ => None,
+        };
+        assert_eq!(blocks(None), Some(super::SMALL_BLOCKS_MB));
+        assert_eq!(blocks(Some("x")), Some(super::SMALL_BLOCKS_MB));
+        assert_eq!(blocks(Some("8-32")), Some((8, 32)));
+        assert_eq!(
+            blocks(Some("2-32")),
+            Some(super::SMALL_BLOCKS_MB),
+            "below 4 MB"
+        );
+        assert_eq!(
+            blocks(Some("64-32")),
+            Some(super::SMALL_BLOCKS_MB),
+            "min above max"
+        );
+        assert_eq!(
+            blocks(Some("8-512")),
+            Some(super::SMALL_BLOCKS_MB),
+            "above 256 MB"
+        );
+        assert!(matches!(
+            super::memory_hints(Some(" performance")),
+            wgpu::MemoryHints::Performance
+        ));
+        assert!(matches!(
+            super::memory_hints(Some("memory")),
+            wgpu::MemoryHints::MemoryUsage
+        ));
+    }
+
+    #[test]
+    fn the_allocator_line_counts_empty_and_sparse_blocks_and_names() {
+        let line = super::blocks_line(
+            65 << 20,
+            136 << 20,
+            &[(64 << 20, 64 << 20), (64 << 20, 1 << 20), (8 << 20, 0)],
+            &[("tex", 10 << 20), ("tex", 54 << 20), ("buf", 1 << 20)],
+        );
+        assert!(line.contains("in 3 blocks (MB: 1x8 2x64)"), "{line}");
+        assert!(line.contains("1 empty, 1 under a quarter used"), "{line}");
+        assert!(line.contains("by name (MB): tex=64.0 buf=1.0"), "{line}");
+    }
+
     use super::*;
     use wgpu::TextureFormat as F;
 
