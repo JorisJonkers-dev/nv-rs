@@ -1,0 +1,7 @@
+### Built-ins and tools upstream removed, kept by the fork
+- Files: the entries `.fork/allowed-divergence.d/upstream-1023-tweaks-kept`, `upstream-1022-mcm-kept`, `upstream-1014-plugin-fixes-kept` and `upstream-1031-cleanup-skipped`, and the paths listed for them at the end of `.fork/overlay-paths`
+- Upstream approach: between 7d700255 and 318b0322 upstream took out lStewieAl's Tweaks built in (slaterain/nv-rs#1023, follow-up #1032), the Mod Configuration Menu's plugin (#1022), the four fixes learned from other plugins (#1014: V.A.T.S. wait, witness lists, radio lengths, thread races), and its docs, research tools, measuring tools and crates/fos (#1031). It also took out UI Organizer, JohnnyGuitar NVSE and JIP LN's game patches (#1021, #1024, #1026) and put them back (#1030)
+- Fork approach: those commits are not replayed. The fork keeps every built-in, row, setting, test and document they removed; the round trip of UI Organizer, JohnnyGuitar and JIP's patches is not replayed either, so those stay as they were
+- Decision: kept for good. Revisit a part only when the fork has a replacement at least as good (for example Tweaks rebuilt as nv-rs's own)
+- Reason: the fork keeps features that work for its players; Tale of Two Wastelands' start-up check reads lStewieAl's Tweaks' version, and the owner's modded profile uses MCM and the Tweaks fixes
+- Evidence: the sync pull request's per-commit table
