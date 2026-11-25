@@ -667,7 +667,7 @@
     },
     {
       "commands": {
-        "implemented": 1118,
+        "implemented": 1117,
         "implemented_names": [
           "GetLNVersion",
           "FileExists",
@@ -1020,7 +1020,6 @@
           "SetCombatStyleTraitNumeric",
           "GetCombatStyleFlag",
           "SetCombatStyleFlag",
-          "SetLinkedReference",
           "GetEnableChildren",
           "GetLinkedChildren",
           "GetFollowers",
@@ -1788,7 +1787,7 @@
           "IsAttackQueued",
           "GetReticleTargetLimb"
         ],
-        "total": 1118
+        "total": 1117
       },
       "id": "jip-ln",
       "name": "JIP LN NVSE",
