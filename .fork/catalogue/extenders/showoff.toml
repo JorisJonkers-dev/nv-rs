@@ -181,3 +181,39 @@ id = "isblockingoraiming"
 title = "IsBlockingOrAiming"
 status = "implemented"
 ref = ["showoff:isblockingoraiming"]
+
+[[item]]
+id = "getitemhotkeyiconpath"
+title = "GetItemHotkeyIconPath"
+status = "implemented"
+ref = ["showoff:getitemhotkeyiconpath"]
+
+[[item]]
+id = "setenableparent"
+title = "SetEnableParent"
+status = "implemented"
+ref = ["showoff:setenableparent"]
+
+[[item]]
+id = "getequippedweapon"
+title = "GetEquippedWeapon"
+status = "implemented"
+ref = ["showoff:getequippedweapon"]
+
+[[item]]
+id = "getequippeditems"
+title = "GetEquippedItems"
+status = "implemented"
+ref = ["showoff:getequippeditems"]
+
+[[item]]
+id = "applyeasing"
+title = "ApplyEasing"
+status = "implemented"
+ref = ["showoff:applyeasing"]
+
+[[item]]
+id = "disablealt"
+title = "DisableAlt"
+status = "implemented"
+ref = ["showoff:disablealt"]
