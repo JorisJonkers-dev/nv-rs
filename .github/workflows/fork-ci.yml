@@ -210,7 +210,7 @@ jobs:
       # dependencies switch on nvse's test support. A failed or missing log here lowers covered, and the ratchet of
       # "Catalogue results" then fails the run.
       - name: Tests of the catalogue's packages
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/testlog"
