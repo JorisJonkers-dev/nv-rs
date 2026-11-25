@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "features.threading"
+title = "Multi-threading"
+origin = "ours"
+notes = "Real threads and parallel work (ADR-0015, the area:threading issues). Kept by hand: a row is implemented only when its issue's proof has landed."
+
+[[item]]
+id = "real_threads_default"
+title = "Real OS threads are the default and proven against the stepped reference"
+status = "missing"
+label = "waits for the proof run (#245)"
+notes = "nv-rs #245"
+
+[[item]]
+id = "main_wait_census"
+title = "Where the main thread waits is measured by cause"
+status = "missing"
+notes = "nv-rs #252"
+
+[[item]]
+id = "largest_wait_removed"
+title = "The largest main-thread wait is removed"
+status = "missing"
+notes = "nv-rs #253"
+
+[[item]]
+id = "asset_services_pool"
+title = "Files, textures, video and sound are read and decoded on a worker pool"
+status = "missing"
+notes = "nv-rs #254"
+
+[[item]]
+id = "state_hash_replay"
+title = "Per-frame state hash with input record and replay"
+status = "missing"
+notes = "nv-rs #255"
+
+[[item]]
+id = "loom_models"
+title = "The five synchronisation structures are model-checked"
+status = "missing"
+notes = "nv-rs #256"
+
+[[item]]
+id = "parallel_draw_side"
+title = "Culling, sorting and constant packing run as parallel tasks"
+status = "missing"
+notes = "nv-rs #258"
+
+[[item]]
+id = "stage5_gates"
+title = "Per-family gates: differential, save round trip, race soak and measurement"
+status = "missing"
+notes = "nv-rs #259"
+
+[[item]]
+id = "render_thread_linux"
+title = "A render thread on Linux after a full A/B"
+status = "missing"
+notes = "nv-rs #192"
+
+[[item]]
+id = "draw_thread_overlap"
+title = "The drawing thread overlap is measured and checked"
+status = "missing"
+notes = "nv-rs #191"
+
+[[item]]
+id = "loaders_off_main"
+title = "Mesh, cell and audio updates leave the main thread"
+status = "missing"
+notes = "nv-rs #317"
+
+[[item]]
+id = "parallel_recording"
+title = "Commands are recorded in parallel in the wgpu backend"
+status = "missing"
+notes = "nv-rs #244"
+
+[[item]]
+id = "parallel_drawing"
+title = "Parallel drawing posts frames equal to serial drawing"
+status = "missing"
+notes = "nv-rs #816"
+
+[[item]]
+id = "race_soak_linux"
+title = "A Linux soak of real threads finds no race"
+status = "missing"
+notes = "nv-rs #230"

@@ -1,0 +1,9 @@
+key	title	group
+combat_controller	Combat controller and state	combat
+combat_manager	Combat groups and planning	combat
+combat_procedures	Combat procedures (melee, ranged, cover, grenades)	combat
+combat_actions	Combat actions	combat
+combat_formulas	Damage and combat formulas	combat
+projectiles	Projectiles	combat
+vats	V.A.T.S.	combat
+weapons	Weapons and ammo	combat

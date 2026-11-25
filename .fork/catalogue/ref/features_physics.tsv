@@ -1,0 +1,7 @@
+key	title	group
+character_controller	Character controller	physics
+constraints	Constraints and joints	physics
+shapes	Collision shapes	physics
+physics_world	Physics world and actions	physics
+havok_game	Game physics glue (casters, listeners, streams)	physics
+ni_collision	Picking and bounding volumes	physics

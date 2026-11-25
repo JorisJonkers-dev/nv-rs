@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Engine features: the graphics plan's capabilities (`docs/fork/graphics-features.tsv`, the
+//! The graphics plan: its capabilities (`docs/fork/graphics-features.tsv`, the
 //! reference list) against the settings that declare them in code (`crates/fork-gfx/src/atlas.rs`,
 //! whose own test checks every key is a real setting and every id is in the list). A capability
 //! is *done* when a setting declares it and a test names that setting (`module.setting`, or the

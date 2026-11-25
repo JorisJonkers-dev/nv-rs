@@ -1,0 +1,20 @@
+key	title	group
+actor_core	Actors (shared actor code)	actors
+high_process	High process (nearby actors)	actors
+low_process	Low process (distant actors)	actors
+actor_processes	Actor processes and process levels	actors
+ai_tasks	AI task threads	actors
+ai_packages	AI packages	actors
+actor_movement	Actor movement	actors
+player	Player character	actors
+npcs_creatures	NPCs and creatures	actors
+actor_values	Actor values (SPECIAL, skills, health)	actors
+factions	Factions, reputation and karma	actors
+animation_core	Animation controllers and sequences	actors
+animation_interp	Animation interpolators and keys	actors
+animation_game	Animation groups, idles and biped animation	actors
+ragdoll	Ragdolls	actors
+facegen	FaceGen faces	actors
+lipsync	Lip sync	actors
+followers	Companions and followers	actors
+equipment	Armour and biped models	actors

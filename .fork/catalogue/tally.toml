@@ -20,6 +20,7 @@ files = ".fork/catalogue/covers.d/*.tsv"
 [report]
 leave_out_of_total = ["engine"]
 
+
 [ids]
 generator = ".fork/catalogue/tally_ids_gen.rs"
 
@@ -28,6 +29,7 @@ extenders = "Script extender commands"
 d3d9 = "Direct3D 9 on wgpu"
 gfx = "Graphics features"
 engine = "Engine functions"
+features = "Engine features"
 
 # The script commands each built-in extender implements (scripts/fork/release-files writes the file).
 [[evidence]]
@@ -48,3 +50,14 @@ path = "target/catalogue/evidence.tsv"
 status_column = "state"
 implemented = ["implemented", "partial"]
 groups = ["d3d9.methods", "d3d9.states", "gfx.features"]
+
+# The engine features (docs/fork/ENGINE-FEATURES.md), read from the ledger and the unit map by the same command:
+# implemented only when every function is native typed code, else `translated` (it works through the translation of
+# the game's own code; the share native/translated/total in functions is the third column); and the two Direct3D 9
+# roll-ups.
+[[evidence]]
+kind = "tsv"
+path = "target/catalogue/evidence.tsv"
+status_column = "state"
+implemented = ["implemented"]
+groups = ["features.rendering", "features.world", "features.navigation", "features.actors", "features.combat", "features.gameplay", "features.ui", "features.audio", "features.scripting", "features.data", "features.physics", "features.platform", "features.direct3d"]
