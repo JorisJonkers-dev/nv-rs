@@ -1830,7 +1830,7 @@
     },
     {
       "commands": {
-        "implemented": 25,
+        "implemented": 29,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
@@ -1856,7 +1856,11 @@
           "AuxTimerTimeLeft",
           "SetOnAuxTimerStartHandler",
           "SetOnAuxTimerStopHandler",
-          "SetOnAuxTimerUpdateHandler"
+          "SetOnAuxTimerUpdateHandler",
+          "IsLimbCrippled",
+          "GetIngestibleConsumeSound",
+          "IsAiming",
+          "IsBlockingOrAiming"
         ],
         "total": 215
       },

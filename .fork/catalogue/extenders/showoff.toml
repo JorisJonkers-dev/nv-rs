@@ -157,3 +157,27 @@ id = "setonauxtimerupdatehandler"
 title = "SetOnAuxTimerUpdateHandler"
 status = "implemented"
 ref = ["showoff:setonauxtimerupdatehandler"]
+
+[[item]]
+id = "islimbcrippled"
+title = "IsLimbCrippled"
+status = "implemented"
+ref = ["showoff:islimbcrippled"]
+
+[[item]]
+id = "getingestibleconsumesound"
+title = "GetIngestibleConsumeSound"
+status = "implemented"
+ref = ["showoff:getingestibleconsumesound"]
+
+[[item]]
+id = "isaiming"
+title = "IsAiming"
+status = "implemented"
+ref = ["showoff:isaiming"]
+
+[[item]]
+id = "isblockingoraiming"
+title = "IsBlockingOrAiming"
+status = "implemented"
+ref = ["showoff:isblockingoraiming"]
