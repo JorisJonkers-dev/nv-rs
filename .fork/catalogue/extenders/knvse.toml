@@ -11,6 +11,5 @@ notes = "Every command the plugin registers at the pinned version (sources.toml)
 [[item]]
 id = "setactoranimationpath"
 title = "SetActorAnimationPath"
-status = "partial"
-reason = "the override store and its seam in Animation::StartGroup are built (crates/knvse, nv-rs#865); the command itself is not registered yet"
+status = "implemented"
 ref = ["knvse:setactoranimationpath"]

@@ -16,6 +16,7 @@ nvse = { path = "../../../crates/nvse" }
 jip = { path = "../../../crates/jip" }
 jg = { path = "../../../crates/jg" }
 showoff = { path = "../../../crates/showoff" }
+knvse = { path = "../../../crates/knvse" }
 stewie = { path = "../../../crates/stewie" }
 ttw-nvse = { path = "../../../crates/ttw-nvse" }
 anh-nvse = { path = "../../../crates/anh-nvse" }

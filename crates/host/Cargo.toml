@@ -37,6 +37,7 @@ jip = { path = "../jip" }
 johnnyguitar = { path = "../johnnyguitar" }
 jg = { path = "../jg" }
 showoff = { path = "../showoff" }
+knvse = { path = "../knvse" }
 # The plugin Tale of Two Wastelands ships for its scripts (fork-only crate), when `fork_ttw` asks.
 ttw-nvse = { path = "../ttw-nvse" }
 anh-nvse = { path = "../anh-nvse" }

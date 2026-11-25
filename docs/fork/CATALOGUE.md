@@ -74,9 +74,10 @@ results. On a push the job renders `docs/fork/coverage/FEATURES.md`, `tally-repo
 Covered needs a pass on macOS too. On pull requests the macOS job tests only `fork-window`, `d3d9-wgpu` and
 `engine-platform`. On a push to `fork`, the schedule and a manual run it also tests the packages the catalogue tags
 (`nvse`, `jip`, `jg`, `showoff`, `ttw-nvse`, `fork-catalogue`, `fork-gfx`) into `test-macos-tagged.log` in the same
-artifact. A macOS job of its own, "macOS (tagged engine tests)", runs on the same events the engine's test files that
-`covers.d/engine_typed.tsv` names, into `test-macos-engine.log`, and "Linux (tagged engine tests)" does the same on
-Linux into `test-linux-engine.log`, because the component jobs run the engine's test files on Windows only.
+artifact, and the engine's test files that `covers.d/engine_typed.tsv` names into `test-macos-engine.log`. "Linux
+(tagged engine tests)" runs those engine test files on Linux into `test-linux-engine.log`, because the component jobs
+run the engine's test files on Windows only. Both use `scripts/fork/tagged-engine-tests.sh`: one build, then the test
+binaries side by side, the log in `cargo test`'s format.
 "Catalogue results" fails when any of these logs is missing, so a lost upload cannot pass the ratchet.
 
 ## Running it locally

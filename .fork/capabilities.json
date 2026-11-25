@@ -1872,6 +1872,19 @@
     },
     {
       "commands": {
+        "implemented": 1,
+        "implemented_names": [
+          "SetActorAnimationPath"
+        ],
+        "total": 59
+      },
+      "id": "knvse",
+      "name": "kNVSE",
+      "provided_by_source": "crates/knvse",
+      "version": 40
+    },
+    {
+      "commands": {
         "implemented": 0,
         "implemented_names": [],
         "total": 8

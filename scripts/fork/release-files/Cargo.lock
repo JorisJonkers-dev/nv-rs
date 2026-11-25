@@ -364,6 +364,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "knvse"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "nvse",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -646,6 +654,7 @@ dependencies = [
  "jg",
  "jip",
  "jsonschema",
+ "knvse",
  "nvse",
  "serde_json",
  "showoff",

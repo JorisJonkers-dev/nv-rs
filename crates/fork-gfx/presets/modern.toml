@@ -21,6 +21,7 @@ moon = 0.75
 moon_max_height = 45.0
 moon_specular = 2.0
 lamp_distance = 4.0
+far_lights = true
 sky_dome = 1.0
 shade_fill = 0.2
 

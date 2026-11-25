@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.27.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.26.0...v0.27.0) (2026-11-25)
+
+
+### Features
+
+* **gfx:** modern shows a far view's lamp points by night (light.far_lights on) ([#893](https://github.com/JorisJonkers-dev/nv-rs/issues/893)) ([f37dad8](https://github.com/JorisJonkers-dev/nv-rs/commit/f37dad82d98d589ceb654c6a15aa1e36f802bc59))
+* **knvse:** SetActorAnimationPath folder paths and polled conditions ([#895](https://github.com/JorisJonkers-dev/nv-rs/issues/895)) ([8bf761f](https://github.com/JorisJonkers-dev/nv-rs/commit/8bf761f057dda615892f9e44e8d08af61f926f41))
+
+## [0.26.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.25.0...v0.26.0) (2026-11-25)
+
+
+### Features
+
+* **catalogue:** engine features area with native shares from the ledger and the exe's compile units ([#886](https://github.com/JorisJonkers-dev/nv-rs/issues/886)) ([213f58b](https://github.com/JorisJonkers-dev/nv-rs/commit/213f58bf879533e425e6d95f7bca52de7d364586))
+* **catalogue:** tag 181 JIP LN tests of the ln_fn command files through the covers map ([#883](https://github.com/JorisJonkers-dev/nv-rs/issues/883)) ([2d13dff](https://github.com/JorisJonkers-dev/nv-rs/commit/2d13dffbcf5da948811dba61a4654ba090471603))
+* **catalogue:** tag 294 JIP LN tests of the move to worldspace command files through the covers map ([#882](https://github.com/JorisJonkers-dev/nv-rs/issues/882)) ([16bd17e](https://github.com/JorisJonkers-dev/nv-rs/commit/16bd17e20a0a0229ac49c512427fc5dbbdcb21cf))
+* **knvse:** animation-path override store and its seam in Animation::StartGroup ([#888](https://github.com/JorisJonkers-dev/nv-rs/issues/888)) ([54ed7ec](https://github.com/JorisJonkers-dev/nv-rs/commit/54ed7ecfc5b83c0df25f969d444510405503d544))
+* **plugin-host:** load a DLL only for a plugin the engine does not carry, or one the player picks ([#890](https://github.com/JorisJonkers-dev/nv-rs/issues/890)) ([6a5f954](https://github.com/JorisJonkers-dev/nv-rs/commit/6a5f954535e92141282cfcd2d8278247d5c1d8a4))
+* **sync:** curated replay of upstream to 318b0322: typed AI, cell, archive and face-gen families, sun casters ahead, crash reports; built-in Tweaks and MCM kept ([#874](https://github.com/JorisJonkers-dev/nv-rs/issues/874)) ([1ae48e0](https://github.com/JorisJonkers-dev/nv-rs/commit/1ae48e032e25cd9accfe77fe9d8e0f55c0921748))
+
 ## [0.25.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.24.0...v0.25.0) (2026-11-25)
 
 
