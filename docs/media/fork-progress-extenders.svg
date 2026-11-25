@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="456" viewBox="0 0 800 456" role="img" aria-label="Script extender commands: xNVSE 654 of 654 commands built, 501 tested; JIP LN NVSE 1118 of 1118 commands built, 1063 tested; JohnnyGuitar NVSE 11 of 412 commands built, 11 tested; ShowOff xNVSE 25 of 215 commands built, 25 tested; kNVSE 0 of 59 commands built, 0 tested; lStewieAl's Tweaks 0 of 8 commands built, 0 tested; TTW NVSE 3 of 3 commands built, 3 tested">
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="456" viewBox="0 0 800 456" role="img" aria-label="Script extender commands: xNVSE 654 of 654 commands built, 501 tested; JIP LN NVSE 1118 of 1118 commands built, 1063 tested; JohnnyGuitar NVSE 17 of 412 commands built, 17 tested; ShowOff xNVSE 25 of 215 commands built, 25 tested; kNVSE 0 of 59 commands built, 0 tested; lStewieAl's Tweaks 0 of 8 commands built, 0 tested; TTW NVSE 3 of 3 commands built, 3 tested">
   <title>BUILT-IN SCRIPT EXTENDERS · commands</title>
   <rect x="0" y="0" width="800" height="456" rx="10" fill="#14110b"/>
   <text x="20" y="30" font-family="Consolas, 'Courier New', monospace" font-size="15" fill="#f2c14e">BUILT-IN SCRIPT EXTENDERS · commands</text>
@@ -25,15 +25,15 @@
   <rect x="188" y="143" width="10" height="10" fill="#a77d2a" stroke="#5c4a26" stroke-width="1"/>
   <text x="204" y="152" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">55 built, no test (4.9%)</text>
   <text x="20" y="174" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#d9c9a3">JohnnyGuitar NVSE</text>
-  <text x="780" y="174" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">11 of 412 built</text>
+  <text x="780" y="174" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">17 of 412 built</text>
   <clipPath id="c2"><rect x="20" y="182" width="760" height="12" rx="4"/></clipPath>
   <rect x="20" y="182" width="760" height="12" rx="4" fill="#2b2418"/>
-  <rect x="20" y="182" width="20" height="12" fill="#f2c14e" clip-path="url(#c2)"/>
+  <rect x="20" y="182" width="31" height="12" fill="#f2c14e" clip-path="url(#c2)"/>
   <rect x="20" y="182" width="760" height="12" rx="4" fill="none" stroke="#5c4a26" stroke-width="1"/>
   <rect x="20" y="201" width="10" height="10" fill="#f2c14e" stroke="#5c4a26" stroke-width="1"/>
-  <text x="36" y="210" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">11 tested (2.7%)</text>
+  <text x="36" y="210" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">17 tested (4.1%)</text>
   <rect x="162" y="201" width="10" height="10" fill="#2b2418" stroke="#5c4a26" stroke-width="1"/>
-  <text x="178" y="210" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">401 not built (97.3%)</text>
+  <text x="178" y="210" font-family="Consolas, 'Courier New', monospace" font-size="11" fill="#d9c9a3">395 not built (95.9%)</text>
   <text x="20" y="232" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#d9c9a3">ShowOff xNVSE</text>
   <text x="780" y="232" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">25 of 215 built</text>
   <clipPath id="c3"><rect x="20" y="240" width="760" height="12" rx="4"/></clipPath>
