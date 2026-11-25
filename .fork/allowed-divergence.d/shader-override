@@ -1,0 +1,5 @@
+crates/d3d9-wgpu/src/lib.rs  # `pub mod shader_override;` (fork-only file: a named game pixel shader drawn with the fork's own WGSL)
+crates/d3d9-wgpu/src/device.rs  # shader overrides: a replaced pixel shader's draws take a variant pipeline with the scene depth's snapshot in group 3 (made off-thread, never held or listed); the depth surfaces can be sampled while an override is set; the frame's camera words kept for them; unchanged with none set
+crates/d3d9-wgpu/src/sm/wgsl.rs  # convert_replaced: a pixel shader's module with a shader override's program in place of its converted body
+crates/engine-platform/src/d3d9real.rs  # want_frame_view: the frame's camera recorded where the world is drawn for the shader overrides, without the new lighting
+crates/host/src/lib.rs  # `pub mod shader_overrides;` and its install before the device is made; the frame's camera asked for the overrides when the new lighting is off
