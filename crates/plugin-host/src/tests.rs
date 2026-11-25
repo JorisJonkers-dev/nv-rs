@@ -524,8 +524,15 @@ mod runtime_functions {
             13,
             "too small"
         );
-        assert_eq!(call(&mut e, k("GetModuleFileNameA"), &[0, buf, 4]), 3);
+        assert_eq!(
+            call(&mut e, k("GetModuleFileNameA"), &[0, buf, 4]),
+            4,
+            "truncated"
+        );
         assert_eq!(e.mem.cstr(buf), b"C:\\");
+        e.mem.set_u8(buf, b'x');
+        assert_eq!(call(&mut e, k("GetModuleFileNameA"), &[0, buf, 0]), 0);
+        assert_eq!(e.mem.u8(buf), b'x', "size 0 writes nothing");
     }
 
     #[test]

@@ -85,11 +85,17 @@ fn module_file_name(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
         who.unwrap_or_else(|| "FalloutNV.exe".to_string())
             .into_bytes(),
     );
-    s.truncate((a[2] as usize).saturating_sub(1));
+    // As measured for the game's own call (`engine_platform::process`): size 0 writes nothing
+    // and answers 0; a short buffer gets `size - 1` characters and a zero and answers `size`.
     let n = s.len() as u32;
+    if a[2] == 0 {
+        return Ok(0);
+    }
+    let answer = if a[2] > n { n } else { a[2] };
+    s.truncate(answer.min(a[2] - 1) as usize);
     s.push(0);
     wr(e, a[1], &s)?;
-    Ok(n)
+    Ok(answer)
 }
 /// `GetCurrentDirectoryA(size, buffer)`: the game's folder; with a buffer too small, the size
 /// it needs (with its zero) and nothing written.
