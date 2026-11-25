@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::test_support::{call, engine, n, r, s, set_script_ref, z, SCRIPT};
+use fork_catalogue::{covers, ids};
 
 const START: u32 = 0x3d3e;
 const STOP: u32 = 0x3d3f;
@@ -170,6 +171,13 @@ fn the_plugin_listens_to_every_frame() {
 
 #[test]
 fn a_started_timer_answers_its_times_and_a_missing_one_minus_one() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::AUXTIMERPAUSED,
+        ids::extenders::showoff::AUXTIMERTIMEELAPSED,
+        ids::extenders::showoff::AUXTIMERTIMETOCOUNTDOWN,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     assert_eq!(left(&mut e, "*_t"), -1.0);
     assert_eq!(result(&mut e, ELAPSED, 0, &[s("*_t")]), -1.0);
@@ -188,6 +196,11 @@ fn a_started_timer_answers_its_times_and_a_missing_one_minus_one() {
 /// turbo or the time multiplier take the other steps; a frame-based timer counts frames.
 #[test]
 fn each_timer_counts_by_the_rule_of_its_flags() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::AUXTIMERTIMEELAPSED,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     result(&mut e, START, 0, &[s("*_both"), z(10.0)]);
     result(&mut e, START, 0, &[s("*_turbo"), z(10.0), n(2 | 4 | 512)]);
@@ -212,6 +225,11 @@ fn each_timer_counts_by_the_rule_of_its_flags() {
 
 #[test]
 fn paused_timers_and_timers_that_stop_while_the_game_is_paused_do_not_count() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::AUXTIMERPAUSED,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     result(&mut e, START, 0, &[s("*_p"), z(5.0), n(2 | 32)]);
     result(&mut e, START, 0, &[s("*_np"), z(5.0), n(1 | 2 | 128)]);
@@ -236,6 +254,12 @@ fn paused_timers_and_timers_that_stop_while_the_game_is_paused_do_not_count() {
 /// the auto-restart flag starts again and calls its start handlers.
 #[test]
 fn a_timer_that_runs_out_fires_its_stop_event_and_is_erased_or_restarts() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::SETONAUXTIMERSTARTHANDLER,
+        ids::extenders::showoff::SETONAUXTIMERSTOPHANDLER,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     result(&mut e, ON_STOP, 0, &[n(1), r(2), s("*_Once")]);
     result(&mut e, ON_STOP, 0, &[n(1), r(2), s("*_again")]);
@@ -263,6 +287,10 @@ fn a_timer_that_runs_out_fires_its_stop_event_and_is_erased_or_restarts() {
 
 #[test]
 fn update_handlers_get_the_time_counted_each_frame() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::SETONAUXTIMERUPDATEHANDLER,
+    ]);
     let mut e = setup();
     result(&mut e, ON_UPDATE, 0, &[n(1), r(2), s("*_u")]);
     result(&mut e, ON_UPDATE, 0, &[n(1), r(2), s("*_f")]);
@@ -284,6 +312,12 @@ fn update_handlers_get_the_time_counted_each_frame() {
 
 #[test]
 fn stop_erases_and_fires_only_when_asked() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::AUXTIMERSTOP,
+        ids::extenders::showoff::SETONAUXTIMERSTOPHANDLER,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     result(&mut e, ON_STOP, 0, &[n(1), r(2), s("*_a")]);
     result(&mut e, START, 0, &[s("*_a"), z(5.0)]);
@@ -299,6 +333,10 @@ fn stop_erases_and_fires_only_when_asked() {
 /// Removing a handler stops its calls; adding one twice calls it once.
 #[test]
 fn handlers_are_added_once_and_removed() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::SETONAUXTIMERSTOPHANDLER,
+    ]);
     let mut e = setup();
     result(&mut e, ON_STOP, 0, &[n(1), r(2), s("*_a")]);
     result(&mut e, ON_STOP, 0, &[n(1), r(2), s("*_a")]);
@@ -315,6 +353,11 @@ fn handlers_are_added_once_and_removed() {
 /// own time again, and without a timer to restart nothing is made.
 #[test]
 fn start_restarts_a_timer_that_exists() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::AUXTIMERPAUSED,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     result(&mut e, START, 0, &[s("*_r"), z(4.0), n(2 | 32)]);
     assert_eq!(result(&mut e, PAUSED, 0, &[s("*_r")]), 1.0);
@@ -332,6 +375,10 @@ fn start_restarts_a_timer_that_exists() {
 /// own timer of a name; names compare without case.
 #[test]
 fn the_owner_and_the_name_choose_the_timer() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     result(&mut e, START, 0, &[s("*_o"), z(1.0)]);
     result(&mut e, START, NPC, &[s("*_o"), z(2.0)]);
@@ -346,6 +393,10 @@ fn the_owner_and_the_name_choose_the_timer() {
 /// A name without `_` belongs to the calling script's mod; with it, to every mod.
 #[test]
 fn a_private_name_belongs_to_the_scripts_mod() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     result(&mut e, START, 0, &[s("*mine"), z(1.0)]);
     result(&mut e, START, 0, &[s("*_ours"), z(1.0)]);
@@ -370,6 +421,10 @@ fn a_private_name_belongs_to_the_scripts_mod() {
 
 #[test]
 fn a_timer_whose_owner_is_gone_is_erased_without_an_event() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::SETONAUXTIMERSTOPHANDLER,
+    ]);
     let mut e = setup();
     result(&mut e, ON_STOP, 0, &[n(1), r(2), s("*_g"), r(3)]);
     result(&mut e, START, 0, &[s("*_g"), z(5.0), n(7), r(3)]);
@@ -384,6 +439,11 @@ fn a_timer_whose_owner_is_gone_is_erased_without_an_event() {
 /// temporary timer without the auto-remove flag stays. A new game drops only permanent timers.
 #[test]
 fn a_load_clears_handlers_and_the_timers_that_do_not_outlast_it() {
+    covers(&[
+        ids::extenders::showoff::AUXTIMERSTART,
+        ids::extenders::showoff::SETONAUXTIMERSTOPHANDLER,
+        ids::extenders::showoff::AUXTIMERTIMELEFT,
+    ]);
     let mut e = setup();
     for kind in [msg::PRE_LOAD_GAME, msg::EXIT_TO_MAIN_MENU] {
         result(&mut e, ON_STOP, 0, &[n(1), r(2), s("*_stays")]);
