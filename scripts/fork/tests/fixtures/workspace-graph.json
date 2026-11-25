@@ -1798,7 +1798,13 @@
    "name": "fork-catalogue"
   },
   {
-   "dependencies": [],
+   "dependencies": [
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "fork-catalogue"
+    }
+   ],
    "features": [],
    "manifest_path": "/ws/crates/fork-gfx/Cargo.toml",
    "name": "fork-gfx"

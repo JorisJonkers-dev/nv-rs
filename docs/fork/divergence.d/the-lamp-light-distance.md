@@ -4,5 +4,5 @@
 - Fork approach: `light.lamp_distance` (nv-rs#827) multiplies both fade distances, for every point light alike; the shadow fade distances are not touched. At its default of 1 the distances are the exe's, bit for bit
 - Decision: keep
 - Reason: the maintainer wants lamps and their light to show from further off at night, with nothing specific to one mod
-- Presets: `original` and `performance` keep 1; `modern` takes 16, so at the game's default light fade every lamp of the loaded cells lights its ground (4 dropped lamps past about 6,000 units)
+- Presets: `original` and `performance` keep 1; `modern` takes 16, so at the game's default light fade (1000 + 500) no lamp of the 5x5 loaded cells is dropped (the fade runs from 16,000 to 24,000 units; at 4 it ran from 4,000 to 6,000)
 - Evidence: `lamp_distance_scales_the_fade_and_one_keeps_the_game_s`, `test_frustum_cull_fades_with_the_distance`, `modern_lamps_light_their_ground_out_to_the_loaded_cells`, `the_lamp_distance_is_the_game_s_unless_chosen`; night lamp views under both presets (pull requests)

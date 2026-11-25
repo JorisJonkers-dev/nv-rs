@@ -386,8 +386,8 @@ mod tests {
     }
 
     /// nv-rs#911: under `modern` a lamp keeps lighting its ground out to the loaded cells. At the
-    /// game's default light fade (1000 units, plus 500 to drop) the lamps the game has loaded reach
-    /// about 14,500 units with 5x5 loaded cells; `modern` must fade them no nearer than that.
+    /// game's default light fade (start 1000 units) the 5x5 loaded cells end about 14,500 units from
+    /// the middle cell's centre on the diagonal; `modern` must not start the fade nearer than that.
     /// `original` and `performance` keep the game's fade.
     #[test]
     fn modern_lamps_light_their_ground_out_to_the_loaded_cells() {
