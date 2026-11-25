@@ -48,13 +48,23 @@ pub struct Card {
 }
 
 /// The GPU layer's counters.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Gpu {
     pub kept_bytes: u64,
     pub kept_levels: u64,
     pub bind_groups: u64,
     pub pipelines: u64,
     pub presents: u64,
+    /// The layer's memory by kind (`gpu_tex_bc=…` and the rest), appended in this order.
+    pub parts: Vec<(&'static str, u64)>,
+}
+
+/// This process's own memory on the card (Linux DRM `fdinfo`: `drm-memory-vram`, `drm-memory-gtt`),
+/// summed over its DRM clients; unlike [`Card`] it holds no other process's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProcGpu {
+    pub vram: u64,
+    pub gtt: u64,
 }
 
 /// The sampler: the interval, the clock and the running peak of heap use.
@@ -173,7 +183,56 @@ pub fn format_line(
             c.vram_used, c.vram_total, c.gtt_used, c.gtt_total
         ));
     }
+    // The layer's breakdown, after the stable keys.
+    for (k, v) in &gpu.parts {
+        line.push_str(&format!(" {k}={v}"));
+    }
     line
+}
+
+/// One DRM client's memory from the text of a `/proc/self/fdinfo/N` file: its client id and its
+/// `drm-memory-vram` and `drm-memory-gtt` (KiB) in bytes; `None` when it is no DRM client.
+pub fn parse_drm_fdinfo(text: &str) -> Option<(u64, ProcGpu)> {
+    let value = |key: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))
+            .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
+    };
+    let id = value("drm-client-id")?;
+    Some((
+        id,
+        ProcGpu {
+            vram: value("drm-memory-vram").unwrap_or(0).saturating_mul(1024),
+            gtt: value("drm-memory-gtt").unwrap_or(0).saturating_mul(1024),
+        },
+    ))
+}
+
+/// This process's memory on the card now, each DRM client counted once; `None` without one.
+#[cfg(target_os = "linux")]
+pub fn proc_gpu_now() -> Option<ProcGpu> {
+    let mut seen = Vec::new();
+    let mut sum = ProcGpu::default();
+    for e in std::fs::read_dir("/proc/self/fdinfo").ok()?.flatten() {
+        let Ok(text) = std::fs::read_to_string(e.path()) else {
+            continue;
+        };
+        let Some((id, g)) = parse_drm_fdinfo(&text) else {
+            continue;
+        };
+        if !seen.contains(&id) {
+            seen.push(id);
+            sum.vram += g.vram;
+            sum.gtt += g.gtt;
+        }
+    }
+    (!seen.is_empty()).then_some(sum)
+}
+
+/// Other platforms: no per-process card numbers.
+#[cfg(not(target_os = "linux"))]
+pub fn proc_gpu_now() -> Option<ProcGpu> {
+    None
 }
 
 /// A sysfs counter: one decimal number and a newline.
@@ -381,8 +440,28 @@ mod tests {
                 bind_groups: 5,
                 pipelines: 6,
                 presents: 7,
+                parts: Vec::new(),
             },
         )
+    }
+
+    #[test]
+    fn parts_append_after_the_stable_keys() {
+        let (h, o, mut g) = sample();
+        let base = format_line(0.0, 1, 1, &h, 1, &o, &g, None);
+        g.parts = vec![("gpu_tex_bc", 5), ("proc_vram", 9)];
+        let with = format_line(0.0, 1, 1, &h, 1, &o, &g, None);
+        assert_eq!(with, format!("{base} gpu_tex_bc=5 proc_vram=9"));
+    }
+
+    #[test]
+    fn drm_fdinfo_parses_client_vram_and_gtt() {
+        let text = "pos:\t0\ndrm-driver:\tamdgpu\ndrm-client-id:\t2822\ndrm-total-vram:\t6863756 KiB\ndrm-memory-vram:\t6732684 KiB\ndrm-memory-gtt: \t363928 KiB\n";
+        let (id, g) = parse_drm_fdinfo(text).unwrap();
+        assert_eq!(id, 2822);
+        assert_eq!(g.vram, 6_732_684 * 1024);
+        assert_eq!(g.gtt, 363_928 * 1024);
+        assert_eq!(parse_drm_fdinfo("pos:\t0\nflags:\t02\n"), None);
     }
 
     #[test]

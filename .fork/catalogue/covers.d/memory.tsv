@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The memory timeline's breakdown (docs/fork/MEMLOG.md), proven by tests in files the scan does not read (docs/fork/CATALOGUE.md).
+# A row names the item only when the test runs it and asserts its numbers.
+test	covers
+crates/d3d9-wgpu/src/budget.rs::each_kind_counts_its_live_bytes_and_objects	features.backend.memory_breakdown
+crates/d3d9-wgpu/src/memstats.rs::publish_then_snapshot	features.backend.memory_breakdown
+crates/d3d9-wgpu/src/device.rs::the_allocator_line_counts_empty_and_sparse_blocks_and_names	features.backend.memory_breakdown
+crates/fork-memlog/src/lib.rs::parts_append_after_the_stable_keys	features.backend.memory_breakdown
+crates/fork-memlog/src/lib.rs::drm_fdinfo_parses_client_vram_and_gtt	features.backend.memory_breakdown

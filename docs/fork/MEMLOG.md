@@ -13,6 +13,13 @@ loop (no thread; one clock read per frame when idle). Numbers only, `key=value`,
 | `vm_size`, `rss_anon` | the process's virtual size (`VmSize`, the guest's 4 GiB reservation counted in full) and the anonymous part of the resident set (`RssAnon`: committed guest pages, host heap, the GPU layer's CPU copies). Linux only; appended after the `gpu_*` keys, absent elsewhere |
 | `gpu_kept_bytes`, `gpu_kept_levels`, `gpu_bind_groups`, `gpu_pipelines`, `gpu_presents` | `d3d9-wgpu` counters, posted every 30 presents |
 | `vram_used`, `vram_total`, `gtt_used`, `gtt_total` | the card's own memory from amdgpu sysfs (`/sys/class/drm/card*/device/mem_info_*`, the card with most VRAM); what every process holds. Appended after the other keys, and absent when the driver gives no such files |
+| `gpu_tex_bc`, `gpu_tex_plain`, `gpu_targets`, `gpu_targets_msaa`, `gpu_depth`, `gpu_vertex`, `gpu_index`, `gpu_own` | video memory the layer made, by kind (its budget's charges): sampled textures kept block-compressed, other sampled textures, colour targets of one sample (with their copies), multisampled targets, depth surfaces, the game's vertex and index buffers, the layer's own charged buffers. Appended after the card keys |
+| `gpu_textures`, `gpu_buffer_copies`, `gpu_modules` | live textures; the host copy kept of every game vertex and index buffer (bytes); compiled shader modules |
+| `gpu_alloc_allocated`, `gpu_alloc_reserved` | the driver allocator's report: bytes handed out and bytes held in its blocks (read every 300 presents; 0 where the backend gives none). The difference is held memory no object uses |
+| `gpu_reads`, `gpu_read_bytes` | `ReadSurface` answers so far and their bytes |
+| `proc_vram`, `proc_gtt` | this process's own memory on the card (`drm-memory-vram`, `drm-memory-gtt` in `/proc/self/fdinfo`, each DRM client once; Linux). Unlike `vram_used` it holds no other process's. Last on the line |
 
 Read-only: `Mem::heap_stats` and `d3d9_wgpu::memstats::snapshot` only read. `nv-rs-dev smoke` reports peak RSS and guest heap when the
-line is present (`NV_MEMLOG=5 nv-rs-dev smoke`). A wgpu allocator report is not included: wgpu 30 would need a device handle the sampler does not hold.
+line is present (`NV_MEMLOG=5 nv-rs-dev smoke`). Every 1800 presents the log also gets two info lines from `d3d9`: the live textures by D3D format (count, MB, single-level ones, ones 1024 or more on a side) and the allocator's blocks (sizes, empty and under a quarter used, the largest users by name).
+
+`NV_GPU_MEMORY_HINT=performance` gives wgpu's large allocator blocks (128 to 256 MB) back; the default is its small ones (8 to 64 MB), see nv-rs's d3d9-wgpu `memory_hints`.

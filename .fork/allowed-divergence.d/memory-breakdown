@@ -1,0 +1,2 @@
+crates/d3d9-wgpu/src/device.rs  # the layer's memory by kind posted for NV_MEMLOG (`publish_memstats`, budget kinds on each charge, ReadSurface counted), the textures-by-format and allocator-block info lines, and wgpu's small allocator blocks by default (`memory_hints`, NV_GPU_MEMORY_HINT=performance for the large ones)
+viewer/src/main.rs  # the NV_MEMLOG line carries the layer's breakdown and the process's own card memory (fdinfo)
