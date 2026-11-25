@@ -1,0 +1,263 @@
+{
+  "schema": "tally-report.v1",
+  "tool": "tally 0.4.0",
+  "repo": "nv-rs",
+  "results": true,
+  "totals": {
+    "total": 72241,
+    "missing": 835,
+    "implemented": 71406,
+    "tagged": 48,
+    "passing": 48,
+    "covered": 0,
+    "gated": 0,
+    "not_applicable": 29,
+    "deferred": 0
+  },
+  "areas": [
+    {
+      "id": "d3d9",
+      "title": "Direct3D 9 on wgpu",
+      "counts": {
+        "total": 222,
+        "missing": 99,
+        "implemented": 123,
+        "tagged": 0,
+        "passing": 0,
+        "covered": 0,
+        "gated": 0,
+        "not_applicable": 0,
+        "deferred": 0
+      },
+      "groups": [
+        {
+          "id": "d3d9.methods",
+          "title": "IDirect3DDevice9 methods on wgpu",
+          "origin": "original",
+          "counts": {
+            "total": 119,
+            "missing": 39,
+            "implemented": 80,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "d3d9.states",
+          "title": "Direct3D 9 render states on wgpu",
+          "origin": "original",
+          "counts": {
+            "total": 103,
+            "missing": 60,
+            "implemented": 43,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "title": "Engine functions",
+      "counts": {
+        "total": 69459,
+        "missing": 0,
+        "implemented": 69459,
+        "tagged": 0,
+        "passing": 0,
+        "covered": 0,
+        "gated": 0,
+        "not_applicable": 29,
+        "deferred": 0
+      },
+      "groups": [
+        {
+          "id": "engine.functions",
+          "title": "FalloutNV.exe functions",
+          "origin": "original",
+          "counts": {
+            "total": 69459,
+            "missing": 0,
+            "implemented": 69459,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 29,
+            "deferred": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "extenders",
+      "title": "Script extender commands",
+      "counts": {
+        "total": 2468,
+        "missing": 649,
+        "implemented": 1819,
+        "tagged": 48,
+        "passing": 48,
+        "covered": 0,
+        "gated": 0,
+        "not_applicable": 0,
+        "deferred": 0
+      },
+      "groups": [
+        {
+          "id": "extenders.jip_ln",
+          "title": "JIP LN NVSE commands",
+          "origin": "original",
+          "counts": {
+            "total": 1117,
+            "missing": 0,
+            "implemented": 1117,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "extenders.johnnyguitar",
+          "title": "JohnnyGuitar NVSE commands",
+          "origin": "original",
+          "counts": {
+            "total": 412,
+            "missing": 392,
+            "implemented": 20,
+            "tagged": 20,
+            "passing": 20,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "extenders.knvse",
+          "title": "kNVSE commands",
+          "origin": "original",
+          "counts": {
+            "total": 59,
+            "missing": 59,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "extenders.showoff",
+          "title": "ShowOff xNVSE commands",
+          "origin": "original",
+          "counts": {
+            "total": 215,
+            "missing": 190,
+            "implemented": 25,
+            "tagged": 25,
+            "passing": 25,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "extenders.stewie_tweaks",
+          "title": "lStewieAl's Tweaks commands",
+          "origin": "original",
+          "counts": {
+            "total": 8,
+            "missing": 8,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "extenders.ttw_nvse",
+          "title": "Tale of Two Wastelands plugin (ttw_nvse) commands",
+          "origin": "original",
+          "counts": {
+            "total": 3,
+            "missing": 0,
+            "implemented": 3,
+            "tagged": 3,
+            "passing": 3,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "extenders.xnvse",
+          "title": "xNVSE commands",
+          "origin": "original",
+          "counts": {
+            "total": 654,
+            "missing": 0,
+            "implemented": 654,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "gfx",
+      "title": "Graphics features",
+      "counts": {
+        "total": 92,
+        "missing": 87,
+        "implemented": 5,
+        "tagged": 0,
+        "passing": 0,
+        "covered": 0,
+        "gated": 0,
+        "not_applicable": 0,
+        "deferred": 0
+      },
+      "groups": [
+        {
+          "id": "gfx.features",
+          "title": "Graphics plan capabilities",
+          "origin": "ours",
+          "counts": {
+            "total": 92,
+            "missing": 87,
+            "implemented": 5,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        }
+      ]
+    }
+  ]
+}

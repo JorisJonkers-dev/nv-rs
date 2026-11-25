@@ -73,3 +73,57 @@ id = "initextramiscstat"
 title = "InitExtraMiscStat"
 status = "implemented"
 ref = ["johnnyguitar:initextramiscstat"]
+
+[[item]]
+id = "getbaseeffectav"
+title = "GetBaseEffectAV"
+status = "implemented"
+ref = ["johnnyguitar:getbaseeffectav"]
+
+[[item]]
+id = "getbaseeffectarchetype"
+title = "GetBaseEffectArchetype"
+status = "implemented"
+ref = ["johnnyguitar:getbaseeffectarchetype"]
+
+[[item]]
+id = "getinteriorlightingtraitnumeric"
+title = "GetInteriorLightingTraitNumeric"
+status = "implemented"
+ref = ["johnnyguitar:getinteriorlightingtraitnumeric"]
+
+[[item]]
+id = "setinteriorlightingtraitnumeric"
+title = "SetInteriorLightingTraitNumeric"
+status = "implemented"
+ref = ["johnnyguitar:setinteriorlightingtraitnumeric"]
+
+[[item]]
+id = "getweaponvatstraitnumeric"
+title = "GetWeaponVATSTraitNumeric"
+status = "implemented"
+ref = ["johnnyguitar:getweaponvatstraitnumeric"]
+
+[[item]]
+id = "setweaponvatstraitnumeric"
+title = "SetWeaponVATSTraitNumeric"
+status = "implemented"
+ref = ["johnnyguitar:setweaponvatstraitnumeric"]
+
+[[item]]
+id = "getpipboymode"
+title = "GetPipBoyMode"
+status = "implemented"
+ref = ["johnnyguitar:getpipboymode"]
+
+[[item]]
+id = "getactorvaluealt"
+title = "GetActorValueAlt"
+status = "implemented"
+ref = ["johnnyguitar:getactorvaluealt"]
+
+[[item]]
+id = "getthresholdedactorvalue"
+title = "GetThresholdedActorValue"
+status = "implemented"
+ref = ["johnnyguitar:getthresholdedactorvalue"]
