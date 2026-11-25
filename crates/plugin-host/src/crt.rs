@@ -74,7 +74,7 @@ pub(crate) fn wr(e: &mut Engine, a: u32, d: &[u8]) -> Result<(), Stop> {
     Ok(())
 }
 
-fn cstr(e: &Engine, a: u32) -> Result<Vec<u8>, Stop> {
+pub(crate) fn cstr(e: &Engine, a: u32) -> Result<Vec<u8>, Stop> {
     let mut b = [0u8; 1];
     e.mem.try_read(a, &mut b).map_err(|_| Stop::Fault {
         addr: a,

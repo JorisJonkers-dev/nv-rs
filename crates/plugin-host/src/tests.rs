@@ -535,6 +535,88 @@ mod runtime_functions {
         assert_eq!(e.mem.u8(buf), b'x', "size 0 writes nothing");
     }
 
+    /// What the C runtime's start-up asks of kernel32 before a plugin's `DllMain` returns:
+    /// `LoadLibraryExW` of an optional set answers none (`ERROR_MOD_NOT_FOUND`) and of a loaded
+    /// plugin its base, a heap is made, a block is resized keeping its bytes and measured, and
+    /// the time is given as a calendar date.
+    #[test]
+    fn the_runtime_start_up_calls_answer() {
+        let mut e = eng();
+        let k = |n: &str| {
+            winapi::lookup("KERNEL32.dll", n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .0
+        };
+        let wide = |e: &mut Engine, s: &str| {
+            let p = e.mem.alloc(2 * s.len() as u32 + 2);
+            for (i, c) in s.encode_utf16().chain([0]).enumerate() {
+                e.mem.set_u16(p + 2 * i as u32, c);
+            }
+            p
+        };
+        let set = wide(&mut e, "api-ms-win-core-synch-l1-2-0");
+        assert_eq!(call(&mut e, k("LoadLibraryExW"), &[set, 0, 0x800]), 0);
+        assert_eq!(call(&mut e, k("GetLastError"), &[]), 126);
+        crate::state(&mut e).plugins.push(crate::Plugin {
+            file: "Mine.dll".into(),
+            base: 0x2000_0000,
+            ..crate::Plugin::default()
+        });
+        let mine = wide(&mut e, "mine.dll");
+        assert_eq!(
+            call(&mut e, k("LoadLibraryExW"), &[mine, 0, 0]),
+            0x2000_0000
+        );
+        let mine_a = put(&mut e, b"MINE.DLL");
+        assert_eq!(
+            call(&mut e, k("LoadLibraryExA"), &[mine_a, 0, 0]),
+            0x2000_0000
+        );
+        assert_eq!(call(&mut e, k("FreeLibrary"), &[0x2000_0000]), 1);
+
+        let h = call(&mut e, k("HeapCreate"), &[0, 0x1000, 0]);
+        assert_ne!(h, 0);
+        let p = call(&mut e, k("HeapAlloc"), &[h, 0, 4]);
+        e.mem.write(p, b"abcd");
+        assert_eq!(call(&mut e, k("HeapSize"), &[h, 0, p]), 4);
+        let q = call(&mut e, k("HeapReAlloc"), &[h, 8, p, 8]);
+        assert_eq!(e.mem.bytes(q, 8), b"abcd\0\0\0\0".to_vec());
+        assert_eq!(call(&mut e, k("HeapSize"), &[h, 0, q]), 8);
+        let small = call(&mut e, k("HeapReAlloc"), &[h, 0, q, 2]);
+        assert_eq!(e.mem.bytes(small, 2), b"ab".to_vec());
+        assert_eq!(
+            call(&mut e, k("HeapReAlloc"), &[h, 0, 0x1234, 8]),
+            0,
+            "not the heap's"
+        );
+        assert_eq!(call(&mut e, k("HeapSize"), &[h, 0, 0x1234]), u32::MAX);
+
+        let st = e.mem.alloc(16);
+        call(&mut e, k("GetLocalTime"), &[st]);
+        let year = e.mem.u16(st);
+        assert!((2026..2200).contains(&year), "{year}");
+        assert!((1..=12).contains(&e.mem.u16(st + 2)));
+        assert!((1..=31).contains(&e.mem.u16(st + 6)));
+    }
+
+    /// The calendar fields of a `SYSTEMTIME`: the epoch (a Thursday) and a leap day.
+    #[test]
+    fn system_time_fields_are_the_civil_date() {
+        let words = |b: [u8; 16]| -> Vec<u16> {
+            b.chunks(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect()
+        };
+        assert_eq!(
+            words(winapi::system_time_fields(0)),
+            [1970, 1, 4, 1, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            words(winapi::system_time_fields(951_827_696_789)),
+            [2000, 2, 2, 29, 12, 34, 56, 789]
+        );
+    }
+
     #[test]
     fn kernel32_last_error_time_conversion_and_locals() {
         let mut e = eng();

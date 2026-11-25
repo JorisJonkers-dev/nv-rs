@@ -334,21 +334,119 @@ fn get_module_handle(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     let n = e.mem.cstr(a[0]);
     Ok(module_by_name(e, &n))
 }
+/// A NUL-ended UTF-16 name a plugin passed, as ASCII (`?` for anything else); one that runs into
+/// unmapped memory, or past 32 K units (the longest Windows path), stops the call.
+fn wide_name(e: &mut Engine, at: u32) -> Result<Vec<u8>, Stop> {
+    let mut n = Vec::new();
+    let mut p = at;
+    loop {
+        let b = rd(e, p, 2)?;
+        let c = u16::from_le_bytes([b[0], b[1]]);
+        if c == 0 {
+            return Ok(n);
+        }
+        if n.len() >= 0x8000 {
+            return Err(Stop::Fault {
+                addr: p,
+                write: false,
+            });
+        }
+        n.push(if c < 0x80 { c as u8 } else { b'?' });
+        p = p.wrapping_add(2);
+    }
+}
 fn get_module_handle_w(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     if a[0] == 0 {
         return Ok(0x0040_0000);
     }
-    let mut n = Vec::new();
-    let mut p = a[0];
-    loop {
-        let c = e.mem.u16(p);
-        if c == 0 {
-            break;
-        }
-        n.push(if c < 0x80 { c as u8 } else { b'?' });
-        p += 2;
-    }
+    let n = wide_name(e, a[0])?;
     Ok(module_by_name(e, &n))
+}
+/// `ERROR_MOD_NOT_FOUND`.
+const ERROR_MOD_NOT_FOUND: u32 = 126;
+/// `LoadLibraryExW(name, file, flags)` (and the A form): a plugin or a supplied runtime DLL by
+/// its name; nothing else is loaded (0, `ERROR_MOD_NOT_FOUND`), which is what the C runtime's
+/// start-up expects for the optional `api-ms-win-core-*` sets it probes, and it then uses its
+/// own fall-backs.
+fn load_library_ex_w(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
+    let n = wide_name(e, a[0])?;
+    let base = module_by_name(e, &n);
+    found_or_not(e, base)
+}
+fn load_library_ex_a(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
+    let n = crate::crt::cstr(e, a[0])?;
+    let base = module_by_name(e, &n);
+    found_or_not(e, base)
+}
+fn found_or_not(e: &mut Engine, base: u32) -> Result<u32, Stop> {
+    if base == 0 {
+        rt(e).last_error = ERROR_MOD_NOT_FOUND;
+    }
+    Ok(base)
+}
+/// `GetLocalTime` / `GetSystemTime(SYSTEMTIME*)`: the current time in UTC for both (the host
+/// has no time zone of the player's here), as the eight 16-bit fields year, month, weekday, day,
+/// hour, minute, second, millisecond.
+fn system_time(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
+    let d = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    wr(e, a[0], &system_time_fields(d.as_millis() as u64))?;
+    Ok(0)
+}
+/// The `SYSTEMTIME` bytes of `ms` milliseconds after 1970-01-01 00:00 UTC (the civil calendar
+/// from a day count, Howard Hinnant's public-domain `civil_from_days`).
+pub(crate) fn system_time_fields(ms: u64) -> [u8; 16] {
+    let days = (ms / 86_400_000) as i64;
+    let rest = ms % 86_400_000;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    // 1970-01-01 was a Thursday (4; Sunday is 0).
+    let weekday = (days + 4).rem_euclid(7);
+    let fields = [
+        year,
+        month,
+        weekday,
+        day,
+        (rest / 3_600_000) as i64,
+        (rest / 60_000 % 60) as i64,
+        (rest / 1000 % 60) as i64,
+        (rest % 1000) as i64,
+    ];
+    let mut out = [0u8; 16];
+    for (i, f) in fields.iter().enumerate() {
+        out[2 * i..2 * i + 2].copy_from_slice(&(*f as u16).to_le_bytes());
+    }
+    out
+}
+/// `HeapSize(heap, flags, block)`: the size asked for, -1 for a block the heap did not give.
+fn heap_size(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
+    Ok(e.mem.asked_size(a[2]).unwrap_or(u32::MAX))
+}
+/// `HeapReAlloc(heap, flags, block, size)`: a new block with the old bytes up to the smaller
+/// size, the bytes added zeroed with `HEAP_ZERO_MEMORY` (8); 0 for a block the heap did not
+/// give, which is left as it is.
+fn heap_realloc(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
+    let Some(old) = e.mem.asked_size(a[2]) else {
+        return Ok(0);
+    };
+    let size = a[3].max(1);
+    let p = e.mem.alloc_asked(size);
+    if a[1] & 8 != 0 {
+        e.mem.zero(p, size);
+    }
+    let keep = old.min(a[3]);
+    let bytes = rd(e, a[2], keep)?;
+    e.mem.write(p, &bytes);
+    e.mem.free_asked(a[2]);
+    Ok(p)
 }
 fn get_proc_address(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     // The host has no export table of its own to look in: a function asked for by name is
@@ -426,6 +524,15 @@ pub const KERNEL32: &[(&str, HostFn, u32)] = &[
     ("GetFileAttributesExW", zero, 3),
     ("CreateDirectoryW", zero, 2),
     ("FormatMessageA", zero, 7),
+    ("LoadLibraryExW", load_library_ex_w, 3),
+    ("LoadLibraryExA", load_library_ex_a, 3),
+    ("FreeLibrary", one, 1),
+    ("HeapCreate", heap_handle, 3),
+    ("HeapDestroy", one, 1),
+    ("HeapSize", heap_size, 3),
+    ("HeapReAlloc", heap_realloc, 4),
+    ("GetLocalTime", system_time, 1),
+    ("GetSystemTime", system_time, 1),
 ];
 
 /// (name, function, argument words); all stdcall.
