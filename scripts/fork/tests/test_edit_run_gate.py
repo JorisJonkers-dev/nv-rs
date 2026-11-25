@@ -50,5 +50,44 @@ class Verdict(unittest.TestCase):
         self.assertFalse(g.verdict([run(2, "skipped")])[0])
 
 
+class AllJobs(unittest.TestCase):
+    def test_jobs_past_the_first_page_are_read(self):
+        # 105 jobs, "Pipeline Complete" last: one page of 100 would not see it
+        jobs = [{"name": f"Build / Component {i}"} for i in range(104)] + [{"name": "Pipeline Complete"}]
+        pages = []
+
+        def get_page(rid, page, n):
+            pages.append(page)
+            return {"total_count": len(jobs), "jobs": jobs[(page - 1) * n:page * n]}
+
+        got = g.all_jobs(get_page, 7)
+        self.assertEqual(len(got), 105)
+        self.assertEqual(got[-1]["name"], "Pipeline Complete")
+        self.assertEqual(pages, [1, 2])
+
+    def test_one_short_page_is_one_request(self):
+        pages = []
+
+        def get_page(rid, page, n):
+            pages.append(page)
+            return {"total_count": 2, "jobs": [{"name": "a"}, {"name": "b"}]}
+
+        self.assertEqual(len(g.all_jobs(get_page, 7)), 2)
+        self.assertEqual(pages, [1])
+
+
+class OfThisPullRequest(unittest.TestCase):
+    def test_a_run_naming_another_pull_request_is_left_out(self):
+        r = {"pull_requests": [{"number": 5}], "head_branch": "b", "head_repository": {"full_name": "o/r"}}
+        self.assertFalse(g.of_this_pull_request(r, 6, "b", "o/r"))
+        self.assertTrue(g.of_this_pull_request(r, 5, "b", "o/r"))
+
+    def test_a_run_from_a_fork_matches_by_head_branch_and_repository(self):
+        r = {"pull_requests": [], "head_branch": "b", "head_repository": {"full_name": "someone/r"}}
+        self.assertTrue(g.of_this_pull_request(r, 6, "b", "someone/r"))
+        self.assertFalse(g.of_this_pull_request(r, 6, "b", "other/r"))
+        self.assertFalse(g.of_this_pull_request(r, 6, "c", "someone/r"))
+
+
 if __name__ == "__main__":
     unittest.main()

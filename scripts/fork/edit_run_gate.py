@@ -9,7 +9,8 @@ the same head commit whose "Repository checks" job ran (a run of the commits, no
   check on the commit and counts);
 - no such run: exit 1.
 
-Environment: GH_TOKEN, REPO (owner/name), HEAD_SHA, RUN_ID (this run, left out).
+Environment: GH_TOKEN, REPO (owner/name), HEAD_SHA, RUN_ID (this run, left out), PR_NUMBER, HEAD_REF and
+HEAD_REPO (runs of other pull requests on the same commit are left out).
 """
 import json
 import os
@@ -24,6 +25,18 @@ GATE_JOB = "Pipeline Complete"
 def api(path):
     out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=True).stdout
     return json.loads(out)
+
+
+def all_jobs(get_page, run_id, per_page=100):
+    """Every job of the run's latest attempt. A run of the commits has more than 100 jobs (the build alone is about 95)
+    and "Pipeline Complete" is created last, so one page would miss it."""
+    jobs, page = [], 1
+    while True:
+        got = get_page(run_id, page, per_page)
+        jobs += got["jobs"]
+        if len(got["jobs"]) < per_page or len(jobs) >= got.get("total_count", 0):
+            return jobs
+        page += 1
 
 
 def verdict(runs):
@@ -42,13 +55,25 @@ def verdict(runs):
     return False, "no run of the commits on this head commit"
 
 
+def of_this_pull_request(run, number, head_ref, head_repo):
+    """A run on the same head commit can belong to another pull request (the same branch opened against another
+    base): its result says nothing about this one. A run from a branch of this repository names its pull requests;
+    a run from a fork names none, so the head branch and repository must match."""
+    prs = run.get("pull_requests") or []
+    if prs:
+        return any(p.get("number") == number for p in prs)
+    return run.get("head_branch") == head_ref and (run.get("head_repository") or {}).get("full_name") == head_repo
+
+
 def main():
     repo, sha, me = os.environ["REPO"], os.environ["HEAD_SHA"], int(os.environ["RUN_ID"])
+    number, head_ref, head_repo = int(os.environ["PR_NUMBER"]), os.environ["HEAD_REF"], os.environ["HEAD_REPO"]
     listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?head_sha={sha}&event=pull_request&per_page=50")
-    runs = sorted((r for r in listed["workflow_runs"] if r["id"] != me), key=lambda r: r["run_started_at"], reverse=True)
+    mine = (r for r in listed["workflow_runs"] if r["id"] != me and of_this_pull_request(r, number, head_ref, head_repo))
+    runs = sorted(mine, key=lambda r: r["run_started_at"], reverse=True)
     full = []
     for r in runs:
-        jobs = api(f"repos/{repo}/actions/runs/{r['id']}/jobs?per_page=100")["jobs"]
+        jobs = all_jobs(lambda rid, page, n: api(f"repos/{repo}/actions/runs/{rid}/jobs?per_page={n}&page={page}"), r["id"])
         full.append({"id": r["id"], "jobs": jobs})
         if any(j["name"] == CODE_JOB and j.get("conclusion") != "skipped" for j in jobs):
             break  # the newest run of the commits is all verdict() needs

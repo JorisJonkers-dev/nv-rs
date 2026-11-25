@@ -121,6 +121,7 @@ part of the pipeline.
   replay point of Verify sync, Progress counts); the builds and code checks skip, and `Pipeline Complete` passes only
   when the newest finished run of the commits on the same head commit passed (`scripts/fork/edit_run_gate.py`), so an
   edit neither restarts the whole pipeline nor turns a red pull request green.
+  A change of the base branch is also an `edited` event; it runs the whole pipeline.
 - **Test-count check (acceptance for a change to the map):** the component summaries together must equal what
   `cargo test --workspace` ran (upstream's log: 57,444 passed, 53 ignored). A feature a job misses would silently skip tests;
   the counts reveal it.
