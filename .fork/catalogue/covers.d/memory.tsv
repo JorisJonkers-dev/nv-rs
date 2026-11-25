@@ -8,3 +8,4 @@ crates/d3d9-wgpu/src/device.rs::the_allocator_line_counts_empty_and_sparse_block
 crates/fork-memlog/src/lib.rs::parts_append_after_the_stable_keys	features.backend.memory_breakdown
 crates/fork-memlog/src/lib.rs::drm_fdinfo_parses_client_vram_and_gtt	features.backend.memory_breakdown
 crates/fork-memlog/src/lib.rs::a_process_card_memory_counts_each_client_once	features.backend.memory_breakdown
+crates/d3d9-wgpu/tests/frame.rs::managed_levels_are_read_back_from_the_card_without_a_host_copy	features.backend.managed_levels_on_card

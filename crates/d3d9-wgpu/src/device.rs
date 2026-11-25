@@ -1453,6 +1453,17 @@ pub struct Device {
     /// game last gave them (`UploadSurface`) or `GetRenderTargetData` wrote them.
     keeps: Map<Handle, Vec<Handle>>,
     kept: Map<Handle, Vec<u8>>,
+    /// The managed levels of those whose bytes are kept by their texture alone (their kept host
+    /// bytes are empty): the level, and its bytes' length. Each was last given whole, in a format
+    /// the texture holds as the game gave it, so `ReadSurface` reads it back from the card
+    /// ([`Device::read_back_level`]) instead of the layer holding a second copy of every texture
+    /// the game loads.
+    on_card: Map<Handle, usize>,
+    /// The managed levels among the kept ones (only they may be [`Device::on_card`]).
+    managed: HashSet<Handle>,
+    /// `NV_D3D9_HOST_COPIES=1`: every kept level keeps its host copy, as before
+    /// [`Device::on_card`] (for comparing).
+    host_copies: bool,
     /// `NV_GPU_ALLOC_WATCH=1`: the most the allocator's blocks held when last said.
     alloc_watch: Option<u64>,
     /// The occlusion query counting now (its `D3DISSUE_BEGIN` until its `END`) and its slot.
@@ -2293,6 +2304,9 @@ impl Device {
             header_atoc: false,
             keeps: Map::default(),
             kept: Map::default(),
+            on_card: Map::default(),
+            managed: HashSet::default(),
+            host_copies: std::env::var("NV_D3D9_HOST_COPIES").as_deref() == Ok("1"),
             alloc_watch: (std::env::var("NV_GPU_ALLOC_WATCH").as_deref() == Ok("1")).then_some(0),
             counting: None,
             pass_count: None,
@@ -2738,6 +2752,12 @@ impl Device {
         }
         for &h in levels {
             self.kept.insert(h, Vec::new());
+            self.on_card.remove(&h);
+            if pool == POOL_MANAGED {
+                self.managed.insert(h);
+            } else {
+                self.managed.remove(&h);
+            }
         }
         self.keeps.insert(owner, levels.to_vec());
     }
@@ -3038,6 +3058,8 @@ impl Device {
         if let Some(levels) = self.keeps.remove(&object) {
             for h in levels {
                 self.kept.remove(&h);
+                self.on_card.remove(&h);
+                self.managed.remove(&h);
             }
         }
         if self.counting.is_some_and(|(q, _)| q == object) {
@@ -3296,11 +3318,23 @@ impl Device {
                 let (row, rows) = format::level_layout(&s.format, s.width, s.height);
                 (row * rows) as usize
             });
-            if let Some(bytes) = self.kept.get_mut(&surface) {
-                if bytes.len() < data.len().max(level) {
-                    bytes.resize(data.len().max(level), 0);
+            if self.held_by_card(surface, data.len(), level) {
+                // The texture keeps these bytes as they are: the host copy goes.
+                self.kept.insert(surface, Vec::new());
+                self.on_card.insert(surface, level);
+            } else {
+                // Part of a level the card holds: its bytes come back first, then the new ones
+                // go over them, as with a host copy.
+                if self.on_card.remove(&surface).is_some() {
+                    let back = self.read_back_level(surface).unwrap_or_default();
+                    self.kept.insert(surface, back);
                 }
-                bytes[..data.len()].copy_from_slice(data);
+                if let Some(bytes) = self.kept.get_mut(&surface) {
+                    if bytes.len() < data.len().max(level) {
+                        bytes.resize(data.len().max(level), 0);
+                    }
+                    bytes[..data.len()].copy_from_slice(data);
+                }
             }
         }
         let Some(s) = self.surface_of(surface) else {
@@ -11065,16 +11099,97 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
 
     /// `ReadSurface`: the bytes of a managed or system-memory level as the backend keeps them
     /// (`size` of them, rows packed); none for another level or another size.
-    pub(crate) fn read_surface(&self, surface: Handle, size: u32) -> Option<Vec<u8>> {
+    pub(crate) fn read_surface(&mut self, surface: Handle, size: u32) -> Option<Vec<u8>> {
         let _perf = crate::perf::span(crate::perf::Cat::ReadBack);
         let _hitch = fork_hitch::span(fork_hitch::Counter::GpuWaitNs, None);
-        let bytes = self
-            .kept
-            .get(&surface)
-            .filter(|b| b.len() == size as usize)
-            .cloned();
+        let bytes = if self.on_card.get(&surface) == Some(&(size as usize)) {
+            self.read_back_level(surface)
+                .filter(|b| b.len() == size as usize)
+        } else {
+            self.kept
+                .get(&surface)
+                .filter(|b| b.len() == size as usize)
+                .cloned()
+        };
         memstats::note_read(bytes.as_ref().map_or(0, |b| b.len() as u64));
         bytes
+    }
+
+    /// Whether an upload of `len` bytes to the kept level `surface` (`level` bytes long) leaves
+    /// its bytes to the texture alone: a managed level given whole, of a texture that was made,
+    /// in a format the texture holds as the game gives it (not widened, not a precise target).
+    fn held_by_card(&self, surface: Handle, len: usize, level: usize) -> bool {
+        if self.host_copies || !self.managed.contains(&surface) || len != level || level == 0 {
+            return false;
+        }
+        self.surface_of(surface).is_some_and(|s| {
+            s.tex.is_some()
+                && s.samples == 1
+                && !s.format.depth
+                && s.format.upload == format::Upload::Copy
+                && !format::is_precise(&s.format)
+        })
+    }
+
+    /// The bytes of a level the card holds ([`Device::on_card`]) in the game's layout, rows
+    /// packed: block-compressed levels as whole blocks. Waits for the GPU.
+    fn read_back_level(&mut self, surface: Handle) -> Option<Vec<u8>> {
+        let s = self.surface_of(surface)?;
+        let tex = s.tex.clone()?;
+        self.end_pass();
+        let (packed, rows) = format::level_layout(&s.format, s.width, s.height);
+        let (w, h) = if s.format.block {
+            (s.width.div_ceil(4) * 4, s.height.div_ceil(4) * 4)
+        } else {
+            (s.width, s.height)
+        };
+        let row = packed.div_ceil(256) * 256;
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("level read-back"),
+            size: u64::from(row * rows),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        self.encoder().copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &tex.texture,
+                mip_level: s.level,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: s.layer,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(row),
+                    rows_per_image: Some(rows),
+                },
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.flush();
+        self.sync();
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        let _ = hitch::timed(hitch::Call::GpuWait, || {
+            self.device.poll(wgpu::PollType::wait_indefinitely())
+        });
+        let mut out = Vec::with_capacity((packed * rows) as usize);
+        {
+            let data = buffer.slice(..).get_mapped_range().ok()?;
+            for y in 0..rows {
+                out.extend_from_slice(&data[(y * row) as usize..(y * row + packed) as usize]);
+            }
+        }
+        buffer.unmap();
+        Some(out)
     }
 
     /// The pixels of a level as wgpu holds them, rows packed (a multisampled surface resolved
@@ -12131,6 +12246,15 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// Whether the device submits on a queue thread ([`Submitter`]; tests).
     pub fn has_queue_thread(&self) -> bool {
         self.submitter.is_some()
+    }
+
+    /// The host bytes kept for `ReadSurface` and the levels whose bytes only their texture keeps
+    /// ([`Device::on_card`]) (tests).
+    pub fn kept_for_tests(&self) -> (u64, usize) {
+        (
+            self.kept.values().map(|k| k.len() as u64).sum(),
+            self.on_card.len(),
+        )
     }
 
     /// The layer's video-memory budget as it stands: live bytes and allocations refused (tests).
