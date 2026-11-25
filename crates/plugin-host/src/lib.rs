@@ -18,8 +18,10 @@
 //! What this first step has: the PE mapper ([`pe`]), the integer core ([`x86`]), the import
 //! binding with a small set of kernel32 functions, the `NVSEInterface` (`RegisterCommand`,
 //! `SetOpcodeBase`, `QueryInterface`, `GetPluginHandle`, `RegisterTypedCommand`,
-//! `GetRuntimeDirectory`), the messaging interface, plugin commands in the table, and the
-//! plugin's place in xNVSE's plugin list. What is not built yet is listed in ADR-0018 and in the
+//! `GetRuntimeDirectory`), the messaging interface and the others `QueryInterface` hands out
+//! ([`interfaces`]: serialization, console, command table, string and array variables, script,
+//! data, event manager, logging), plugin commands in the table, and the plugin's place in xNVSE's
+//! plugin list. What is not built yet is listed in ADR-0018 and in the
 //! report of [`x86`].
 
 pub mod patches;
@@ -28,6 +30,7 @@ pub mod verdicts;
 pub mod x86;
 
 mod crt;
+mod interfaces;
 mod printf;
 pub mod thread;
 mod winapi;
@@ -67,6 +70,9 @@ struct Thunk {
     f: Option<HostFn>,
     argc: u32,
     stdcall: bool,
+    /// Words a variadic function may get past its `argc`: read while they are mapped, 0 past
+    /// the stack's end.
+    extra: u32,
 }
 
 /// A plugin as loaded.
@@ -96,6 +102,8 @@ pub struct Plugin {
     /// `NVSEPlugin_Query` answered yes / `NVSEPlugin_Load` answered yes.
     pub queried: bool,
     pub loaded: bool,
+    /// The co-save callbacks it set through the serialization interface.
+    pub callbacks: interfaces::Callbacks,
 }
 
 #[derive(Default)]
@@ -122,6 +130,8 @@ pub struct State {
     runtime_exports: HashMap<(String, String), u32>,
     /// The thread block `fs` points at ([`thread`]).
     pub(crate) thread: thread::Thread,
+    /// The interfaces other than messaging ([`interfaces`]).
+    ifaces: interfaces::Ifaces,
 }
 
 fn state(e: &mut Engine) -> &mut State {
@@ -251,6 +261,7 @@ fn thunk(e: &mut Engine, key: &str, f: Option<HostFn>, argc: u32, stdcall: bool)
             f: None,
             argc: 0,
             stdcall: false,
+            extra: 0,
         });
     }
     let addr = THUNK_BASE + 16 * st.thunks.len() as u32;
@@ -260,9 +271,18 @@ fn thunk(e: &mut Engine, key: &str, f: Option<HostFn>, argc: u32, stdcall: bool)
         f,
         argc,
         stdcall,
+        extra: 0,
     });
     st.by_name.insert(key.to_string(), addr);
     addr
+}
+
+/// Makes the thunk at `addr` read up to `extra` more argument words (a variadic function).
+fn set_variadic(e: &mut Engine, addr: u32, extra: u32) {
+    let idx = ((addr - THUNK_BASE) / 16) as usize;
+    if let Some(t) = state(e).thunks.get_mut(idx) {
+        t.extra = extra;
+    }
 }
 
 struct Host;
@@ -283,10 +303,13 @@ impl Bridge for Host {
             return Some(Err(Stop::Missing(t.name)));
         };
         let sp = cpu.r[ESP];
-        let mut args = Vec::with_capacity(t.argc as usize);
-        for i in 0..t.argc {
+        let mut args = Vec::with_capacity((t.argc + t.extra) as usize);
+        for i in 0..t.argc + t.extra {
             match e.mem.try_read(sp.wrapping_add(4 + 4 * i), &mut [0u8; 4]) {
                 Ok(()) => args.push(e.mem.u32(sp.wrapping_add(4 + 4 * i))),
+                // A variadic function's words past the fixed ones: what the caller did not
+                // push may lie past the stack's end.
+                Err(_) if i >= t.argc => args.push(0),
                 Err(_) => {
                     return Some(Err(Stop::Fault {
                         addr: sp.wrapping_add(4 + 4 * i),
@@ -659,6 +682,7 @@ fn nvse_runtime_dir(e: &mut Engine, _: &[u32]) -> Result<u32, Stop> {
 fn nvse_query_interface(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     match a[0] {
         2 => Ok(state(e).msg),
+        id if interfaces::query(e, id) != 0 => Ok(interfaces::query(e, id)),
         id => {
             let p = current(e)?;
             let file = state(e).plugins[p].file.clone();
@@ -810,6 +834,7 @@ fn build_interfaces(e: &mut Engine) {
     let st = state(e);
     st.nvse = nvse;
     st.msg = msg;
+    interfaces::build(e);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1084,6 +1109,20 @@ fn load_one(e: &mut Engine, idx: usize) -> Result<(), LoadError> {
         let p = &state(e).plugins[idx];
         (p.name.clone(), p.version, p.opcode_base)
     };
+    // Its co-save callbacks: its section's header is its opcode base, so a plugin with none has
+    // no section (xNVSE's `GetInfoFromBase` refuses base 0).
+    let (save, load, pre_load, new_game) = interfaces::hooks(e, idx);
+    let (save, load, pre_load) = if opcode_base == 0 {
+        if save.is_some() || load.is_some() || pre_load.is_some() {
+            report(
+                e,
+                format!("{file}: co-save callbacks of a plugin with no opcode base are not called"),
+            );
+        }
+        (None, None, None)
+    } else {
+        (save, load, pre_load)
+    };
     plugins::register(
         e,
         BuiltIn {
@@ -1098,10 +1137,10 @@ fn load_one(e: &mut Engine, idx: usize) -> Result<(), LoadError> {
             },
             listed: true,
             listener: Some(LISTENERS[idx]),
-            save: None,
-            load: None,
-            pre_load: None,
-            new_game: None,
+            save,
+            load,
+            pre_load,
+            new_game,
         },
     );
     Ok(())

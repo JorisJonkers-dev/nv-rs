@@ -49,8 +49,8 @@ status = "implemented"
 [[item]]
 id = "nvse_interfaces"
 title = "QueryInterface answers every NVSE interface (command table, variables, script, data, events, logging)"
-status = "missing"
-notes = "only messaging today"
+status = "partial"
+notes = "every id 0 to 9 has its table; not built yet (a call stops and names itself): GetSavePath, GetRequiredNVSEVersion, ExtractFormatStringArgs, DecompileToBuffer, every event-manager function but DispatchEvent; GetSingleton and most of GetFunc answer 0 and are reported"
 
 [[item]]
 id = "fs_segment"
