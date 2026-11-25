@@ -208,12 +208,12 @@ pub fn parse_drm_fdinfo(text: &str) -> Option<(u64, ProcGpu)> {
     ))
 }
 
-/// This process's memory on the card now, each DRM client counted once; `None` without one.
-#[cfg(target_os = "linux")]
-pub fn proc_gpu_now() -> Option<ProcGpu> {
+/// The memory on the card of the DRM clients whose `fdinfo` files are in `dir`, each client counted
+/// once (a process may hold several descriptors of one client); `None` without one.
+pub fn proc_gpu_in(dir: &std::path::Path) -> Option<ProcGpu> {
     let mut seen = Vec::new();
     let mut sum = ProcGpu::default();
-    for e in std::fs::read_dir("/proc/self/fdinfo").ok()?.flatten() {
+    for e in std::fs::read_dir(dir).ok()?.flatten() {
         let Ok(text) = std::fs::read_to_string(e.path()) else {
             continue;
         };
@@ -227,6 +227,12 @@ pub fn proc_gpu_now() -> Option<ProcGpu> {
         }
     }
     (!seen.is_empty()).then_some(sum)
+}
+
+/// This process's memory on the card now ([`proc_gpu_in`] of `/proc/self/fdinfo`).
+#[cfg(target_os = "linux")]
+pub fn proc_gpu_now() -> Option<ProcGpu> {
+    proc_gpu_in(std::path::Path::new("/proc/self/fdinfo"))
 }
 
 /// Other platforms: no per-process card numbers.
@@ -454,10 +460,31 @@ mod tests {
         assert_eq!(with, format!("{base} gpu_tex_bc=5 proc_vram=9"));
     }
 
-    /// The test process opens no card: its fdinfo files are read and none is a DRM client.
+    /// Two descriptors of one client count once; another client adds; files of no DRM client
+    /// and an empty folder give nothing.
     #[test]
-    fn a_process_without_a_card_has_no_card_memory_of_its_own() {
-        assert_eq!(proc_gpu_now(), None);
+    fn a_process_card_memory_counts_each_client_once() {
+        let dir = std::env::temp_dir().join(format!("fork-memlog-fdinfo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(proc_gpu_in(&dir), None);
+        let client = |id: u32, vram: u64, gtt: u64| {
+            format!("pos:\t0\ndrm-client-id:\t{id}\ndrm-memory-vram:\t{vram} KiB\ndrm-memory-gtt:\t{gtt} KiB\n")
+        };
+        std::fs::write(dir.join("3"), "pos:\t0\nflags:\t02\n").unwrap();
+        assert_eq!(proc_gpu_in(&dir), None);
+        std::fs::write(dir.join("7"), client(5, 100, 10)).unwrap();
+        std::fs::write(dir.join("8"), client(5, 100, 10)).unwrap();
+        std::fs::write(dir.join("9"), client(6, 1, 2)).unwrap();
+        assert_eq!(
+            proc_gpu_in(&dir),
+            Some(ProcGpu {
+                vram: 101 * 1024,
+                gtt: 12 * 1024
+            })
+        );
+        assert_eq!(proc_gpu_in(&dir.join("missing")), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

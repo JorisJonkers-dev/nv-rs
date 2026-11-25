@@ -12313,15 +12313,17 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// every tenth post only (it lists every block).
     fn publish_memstats(&mut self) {
         let of = |k| self.budget.of_kind(k).0;
-        let (alloc_allocated, alloc_reserved) =
-            if self.presents % (memstats::PUBLISH_EVERY * 10) == 0 {
-                self.device.generate_allocator_report().map_or((0, 0), |r| {
-                    (r.total_allocated_bytes, r.total_reserved_bytes)
-                })
-            } else {
-                let last = memstats::snapshot().parts;
-                (last.alloc_allocated, last.alloc_reserved)
-            };
+        let (alloc_allocated, alloc_reserved) = if self.presents % (memstats::PUBLISH_EVERY * 10)
+            == 0
+            || memstats::snapshot().parts.alloc_reserved == 0
+        {
+            self.device.generate_allocator_report().map_or((0, 0), |r| {
+                (r.total_allocated_bytes, r.total_reserved_bytes)
+            })
+        } else {
+            let last = memstats::snapshot().parts;
+            (last.alloc_allocated, last.alloc_reserved)
+        };
         let buffer_copies = self
             .objects
             .all

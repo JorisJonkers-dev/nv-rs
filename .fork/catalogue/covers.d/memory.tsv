@@ -7,3 +7,4 @@ crates/d3d9-wgpu/src/memstats.rs::publish_then_snapshot	features.backend.memory_
 crates/d3d9-wgpu/src/device.rs::the_allocator_line_counts_empty_and_sparse_blocks_and_names	features.backend.memory_breakdown
 crates/fork-memlog/src/lib.rs::parts_append_after_the_stable_keys	features.backend.memory_breakdown
 crates/fork-memlog/src/lib.rs::drm_fdinfo_parses_client_vram_and_gtt	features.backend.memory_breakdown
+crates/fork-memlog/src/lib.rs::a_process_card_memory_counts_each_client_once	features.backend.memory_breakdown
