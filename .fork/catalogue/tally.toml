@@ -11,6 +11,15 @@ name = "nv-rs"
 # Fork-owned code only: a test in a file upstream owns is tagged from covers.d/ instead.
 paths = ["crates/fork-catalogue", "crates/fork-gfx", "crates/jg", "crates/knvse", "crates/showoff", "crates/ttw-nvse"]
 
+# Tests in files upstream owns are tagged from covers maps: one TSV per extender or topic (docs/fork/CATALOGUE.md).
+[[map]]
+files = ".fork/catalogue/covers.d/*.tsv"
+
+# The engine area has one item per function of the exe (about 69,000): it keeps its own row, but the first row of the
+# reports leaves it out so the other areas stay readable (the JSON totals and the ratchet still count it).
+[report]
+leave_out_of_total = ["engine"]
+
 [ids]
 generator = ".fork/catalogue/tally_ids_gen.rs"
 

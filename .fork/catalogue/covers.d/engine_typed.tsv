@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Engine functions proven by the differential tests of the typed families in crates/engine/tests (upstream-owned
+# files, so tagged here; docs/fork/CATALOGUE.md): each test runs the typed function and its translation on the same
+# world and asserts the same result and memory.
+test	covers
+crates/engine/tests/typed_ai_queries.rs::package_type	engine.functions.f0041ca90
+crates/engine/tests/typed_ai_queries.rs::byte_at_104	engine.functions.f00493bb0
+crates/engine/tests/typed_ai_queries.rs::word_at_2c	engine.functions.f0055b980
+crates/engine/tests/typed_ai_queries.rs::word_at_40	engine.functions.f008d6f30
+crates/engine/tests/typed_ai_queries.rs::location_reference	engine.functions.f0067f390
+crates/engine/tests/typed_ai_queries.rs::held_package	engine.functions.f007fa950
+crates/engine/tests/typed_ai_queries.rs::package_that_is_running	engine.functions.f00859670
+crates/engine/tests/typed_ai_queries.rs::current_package	engine.functions.f009344a0
+crates/engine/tests/typed_ai_queries.rs::combat_controller	engine.functions.f008a02d0
+crates/engine/tests/typed_ai_queries.rs::is_running_run_once	engine.functions.f00881570
+crates/engine/tests/typed_ai_queries.rs::is_fleeing	engine.functions.f008a6650
+crates/engine/tests/typed_ai_queries.rs::current_target	engine.functions.f008815a0
+crates/engine/tests/typed_cell_refs.rs::references_after_load	engine.functions.f0054bcf0
+crates/engine/tests/typed_cell_refs.rs::init_action_list	engine.functions.f005ac190
+crates/engine/tests/typed_cell_refs.rs::kind_3d_to_40_or_69	engine.functions.f005725b0
+crates/engine/tests/typed_archives.rs::owner_of	engine.functions.f00af6910
+crates/engine/tests/typed_archives.rs::archive_holds	engine.functions.f00afdc00
+crates/engine/tests/typed_archives.rs::directory_holds	engine.functions.f00afdbc0
+crates/engine/tests/typed_facegen_colours.rs::facegen_colours_assign	engine.functions.f0064dcf0
+crates/engine/tests/typed_facegen_colours.rs::facegen_colours_erase	engine.functions.f0064dc50
+crates/engine/tests/typed_facegen_coords.rs::facegen_coords_sum	engine.functions.f00652af0
+crates/engine/tests/typed_facegen_matrix.rs::facegen_matrix_product	engine.functions.f00658360
+crates/engine/tests/typed_facegen_matrix.rs::facegen_matrix_shape_statistic	engine.functions.f00652230
+crates/engine/tests/typed_facegen_matrix.rs::facegen_matrix_failing_checks	engine.functions.f00652230 engine.functions.f00658360
+crates/engine/tests/typed_lockfree.rs::task_map_key_not_below	engine.functions.f00c3f6b0
+crates/engine/tests/typed_lockfree.rs::task_map_search	engine.functions.f00c416a0
+crates/engine/tests/typed_lockfree.rs::task_map_search_meanwhile	engine.functions.f00c416a0
+crates/engine/tests/typed_lockfree.rs::task_map_search_next_link_changed	engine.functions.f00c416a0
+crates/engine/tests/typed_facegen_head.rs::facegen_head_morphs_reading_their_own_writes	engine.functions.f0065a970

@@ -7,6 +7,7 @@
 .cargo/config.toml
 .github/rulesets/
 .github/zizmor.yml
+.gitleaksignore
 .github/workflows/fork-build.yml
 .github/workflows/fork-coverage.yml
 .github/workflows/fork-divergence.yml
@@ -104,3 +105,37 @@ docs/media/fork-progress-d3d9.svg
 docs/media/fork-progress-extenders.svg
 docs/media/fork-progress-features.svg
 crates/fork-catalogue/
+# Kept by the fork where upstream removed them in the replay to 318b0322 (docs/fork/divergence.d/upstream-removals-kept.md):
+# lStewieAl's Tweaks (slaterain/nv-rs#1023), the Mod Configuration Menu's plugin (#1022), the fixes learned from other
+# plugins (#1014), and upstream's docs, research and measuring tools and crates/fos (#1031).
+AGENTS.md
+CLAUDE.md
+crates/engine-core/src/extend/stewie.rs
+crates/engine-core/src/extend/stewie/
+crates/engine/tests/save_changes_map.rs
+crates/engine/tests/stewie_fixes.rs
+crates/engine/tests/stewie_fixes/
+crates/fos/
+crates/host/src/thread_races.rs
+crates/host/tests/support/
+crates/host/tests/thread_races.rs
+crates/host/tests/thread_races_stepped.rs
+crates/host/tests/thread_races_vanilla.rs
+crates/mcm/
+crates/stewie/
+docs/
+research/families/
+research/ghidra/
+research/initgen/
+research/nv-oracle/
+research/nv-trace/
+research/pdb/
+scripts/d3dx-tex-verify/
+scripts/dshow-measure/
+scripts/dsmix-measure/
+scripts/dsound-oracle/
+scripts/engine-map.ps1
+scripts/estimate-measure/
+scripts/ledger/
+scripts/mmio-measure/
+scripts/vorbis-record/

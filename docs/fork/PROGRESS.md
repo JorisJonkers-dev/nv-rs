@@ -2,6 +2,15 @@
 
 The fork's progress bars, in the look of upstream's `docs/media/progress.svg`:
 
+<p align="center">
+  <img src="../media/fork-progress-engine.svg" alt="Progress of the engine port" width="100%">
+  <img src="../media/fork-progress-extenders.svg" alt="Progress of the built-in script extenders" width="100%">
+  <img src="../media/fork-progress-features.svg" alt="Progress of the engine's graphics features" width="100%">
+</p>
+
+The README shows the coverage catalogue's picture instead (`docs/fork/coverage/tally.svg`, docs/fork/CATALOGUE.md),
+which counts tests by system.
+
 | Picture | What it counts |
 | --- | --- |
 | `docs/media/fork-progress-engine.svg` | The engine port: FalloutNV.exe 1.4.0.525's game functions, split as upstream's bar splits them |

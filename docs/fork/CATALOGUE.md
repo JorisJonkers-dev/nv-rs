@@ -50,8 +50,10 @@ must be in the scan paths of `.fork/catalogue/tally.toml`. An id that does not e
 tests that only check registration, opcode or name tables. A test that names more than ten ids needs a
 `// covers-table: <reason>` comment.
 
-Tests in files upstream owns are not edited. They will be tagged from `.fork/catalogue/covers.d/*.tsv` (rows of
-`test<TAB>covers`) once the pinned tally reads covers maps.
+Tests in files upstream owns are not edited. They are tagged from `.fork/catalogue/covers.d/*.tsv`, one file per
+extender or topic, rows of `test<TAB>covers`: `test` is `<file>::<function>`, `covers` the full ids, separated by
+spaces. A row names only the commands the test calls and whose answer or effect it asserts. A command that is only
+called to set up the case is left out. `tally check` fails when the function is not a `#[test]` in that file.
 
 ## States and reports
 
@@ -69,8 +71,10 @@ report of the commit before. Pull requests run only the components a change reac
 results. On a push the job renders `docs/fork/coverage/FEATURES.md`, `tally-report.json` (areas and groups) and
 `tally.svg`, and the job "Catalogue reports" commits those three files as raul-progress-bot. Nobody edits them.
 
-Covered needs a pass on macOS too. The macOS job runs only `fork-window`, `d3d9-wgpu` and `engine-platform` so far, so
-the tagged crates show passing, not covered, until their tests run there.
+Covered needs a pass on macOS too. On pull requests the macOS job tests only `fork-window`, `d3d9-wgpu` and
+`engine-platform`. On a push to `fork`, the schedule and a manual run it also tests the packages the catalogue tags
+(`nvse`, `jip`, `jg`, `showoff`, `ttw-nvse`, `fork-catalogue`, `fork-gfx`) into `test-macos-tagged.log` in the same
+artifact. "Catalogue results" fails when either macOS log is missing, so a lost upload cannot pass the ratchet.
 
 ## Running it locally
 

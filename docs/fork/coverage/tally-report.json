@@ -1,18 +1,35 @@
 {
   "schema": "tally-report.v1",
-  "tool": "tally 0.4.0",
+  "tool": "tally 0.5.0",
   "repo": "nv-rs",
   "results": true,
   "totals": {
     "total": 72241,
-    "missing": 835,
-    "implemented": 71406,
-    "tagged": 48,
-    "passing": 48,
-    "covered": 0,
+    "missing": 831,
+    "implemented": 71410,
+    "tagged": 1112,
+    "passing": 1112,
+    "covered": 1086,
     "gated": 0,
     "not_applicable": 29,
     "deferred": 0
+  },
+  "headline": {
+    "title": "All areas except Engine functions",
+    "left_out": [
+      "engine"
+    ],
+    "counts": {
+      "total": 2782,
+      "missing": 831,
+      "implemented": 1951,
+      "tagged": 1086,
+      "passing": 1086,
+      "covered": 1086,
+      "gated": 0,
+      "not_applicable": 0,
+      "deferred": 0
+    }
   },
   "areas": [
     {
@@ -71,8 +88,8 @@
         "total": 69459,
         "missing": 0,
         "implemented": 69459,
-        "tagged": 0,
-        "passing": 0,
+        "tagged": 26,
+        "passing": 26,
         "covered": 0,
         "gated": 0,
         "not_applicable": 29,
@@ -87,8 +104,8 @@
             "total": 69459,
             "missing": 0,
             "implemented": 69459,
-            "tagged": 0,
-            "passing": 0,
+            "tagged": 26,
+            "passing": 26,
             "covered": 0,
             "gated": 0,
             "not_applicable": 29,
@@ -102,11 +119,11 @@
       "title": "Script extender commands",
       "counts": {
         "total": 2468,
-        "missing": 649,
-        "implemented": 1819,
-        "tagged": 48,
-        "passing": 48,
-        "covered": 0,
+        "missing": 645,
+        "implemented": 1823,
+        "tagged": 1086,
+        "passing": 1086,
+        "covered": 1086,
         "gated": 0,
         "not_applicable": 0,
         "deferred": 0
@@ -120,9 +137,9 @@
             "total": 1117,
             "missing": 0,
             "implemented": 1117,
-            "tagged": 0,
-            "passing": 0,
-            "covered": 0,
+            "tagged": 1034,
+            "passing": 1034,
+            "covered": 1034,
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0
@@ -138,7 +155,7 @@
             "implemented": 20,
             "tagged": 20,
             "passing": 20,
-            "covered": 0,
+            "covered": 20,
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0
@@ -166,11 +183,11 @@
           "origin": "original",
           "counts": {
             "total": 215,
-            "missing": 190,
-            "implemented": 25,
-            "tagged": 25,
-            "passing": 25,
-            "covered": 0,
+            "missing": 186,
+            "implemented": 29,
+            "tagged": 29,
+            "passing": 29,
+            "covered": 29,
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0
@@ -202,7 +219,7 @@
             "implemented": 3,
             "tagged": 3,
             "passing": 3,
-            "covered": 0,
+            "covered": 3,
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0

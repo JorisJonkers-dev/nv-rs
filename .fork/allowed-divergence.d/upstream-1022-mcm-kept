@@ -1,0 +1,5 @@
+crates/engine-core/src/mod_files.rs  # the Mod Configuration Menu's plugin built in, kept: upstream took it out (slaterain/nv-rs#1022), the fork keeps it
+crates/engine-platform/src/mod_files.rs  # the Mod Configuration Menu's plugin built in, kept: upstream took it out (slaterain/nv-rs#1022), the fork keeps it
+crates/host/src/start_up_tests.rs  # the Mod Configuration Menu's plugin built in, kept: upstream took it out (slaterain/nv-rs#1022), the fork keeps it
+distribution/READ ME.txt  # the Mod Configuration Menu's plugin built in, kept: upstream took it out (slaterain/nv-rs#1022), the fork keeps it
+distribution/mods/READ ME.txt  # the Mod Configuration Menu's plugin built in, kept: upstream took it out (slaterain/nv-rs#1022), the fork keeps it

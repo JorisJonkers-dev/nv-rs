@@ -57,9 +57,9 @@
     "extenders.knvse.built": 0,
     "extenders.knvse.reference": 59,
     "extenders.knvse.tested": 0,
-    "extenders.showoff.built": 25,
+    "extenders.showoff.built": 29,
     "extenders.showoff.reference": 215,
-    "extenders.showoff.tested": 25,
+    "extenders.showoff.tested": 29,
     "extenders.stewie-tweaks.built": 0,
     "extenders.stewie-tweaks.reference": 8,
     "extenders.stewie-tweaks.tested": 0,
@@ -72,9 +72,9 @@
     "features.declared": 5,
     "features.done": 5,
     "features.reference": 92,
-    "native.families": 27,
+    "native.families": 30,
     "native.stage2_families": 1,
-    "native.typed": 1067
+    "native.typed": 1092
   },
   "engine_port": {
     "game_functions": 69459,
@@ -87,11 +87,14 @@
     "library": 16
   },
   "native_64bit": {
-    "typed": 1067,
+    "typed": 1092,
     "translated_by_hand": 47733,
     "families": [
+      "ai_queries",
       "anim_keys",
       "animation",
+      "archives",
+      "cell_refs",
       "collision",
       "crt",
       "culling",
@@ -1000,7 +1003,7 @@
       "reference": "Demorome/ShowOff-NVSE 1.84 (f45d069)",
       "crate": "crates/showoff",
       "total": 215,
-      "tested": 25,
+      "tested": 29,
       "untested": [],
       "missing": [
         "ModNumericGameSetting",
@@ -1051,7 +1054,6 @@
         "PlayerIsDrinkingPlacedWater",
         "SetIsPCAMurderer",
         "IsNight",
-        "IsLimbCrippled",
         "GetNumCrippledLimbs",
         "GetCrippledLimbsAsBitMask",
         "GetNumBrokenEquippedItems",
@@ -1100,7 +1102,6 @@
         "SetNoEquipShowOff",
         "GetNoEquipShowOff",
         "SetShowOffOnCornerMessageEventHandler",
-        "GetIngestibleConsumeSound",
         "SetIngestibleConsumeSound",
         "SetFactionCombatReactionTemp",
         "GetEquippedItemRefForItem",
@@ -1162,8 +1163,6 @@
         "SetAmmoName",
         "GetAmmoName",
         "KillAllHostiles",
-        "IsAiming",
-        "IsBlockingOrAiming",
         "SetItemHotkeyIconPath",
         "GetItemHotkeyIconPath",
         "GetExplosionHitDamage",

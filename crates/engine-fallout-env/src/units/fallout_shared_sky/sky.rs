@@ -18,6 +18,9 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use crate::units::fallout_shared_distant_terrain_system::bgsdistantobjectblock::{
+    far_lights, far_lights_frame,
+};
 
 // ---- callees outside this file ----
 
@@ -1029,6 +1032,17 @@ pub fn sky_update(e: &mut Engine, this: Ptr<Sky>, delta: f32) {
         e.call(FOG_COLOR_UPDATE, &args![this.addr() + 0x48]);
         let flags = e.get(this, Sky::uiFlags);
         e.set(this, Sky::uiFlags, flags & !3);
+        // Fork: far lights by night (`light.far_lights`); nothing at all while it is off and none are shown.
+        if far_lights::wanted() {
+            let night = far_lights::night_factor(
+                e.get(this, Sky::fCurrentGameHour),
+                fn_0063b9b0(e, this),
+                e.call(SKY_SUNRISE_END, &args![this]).f32(),
+                e.call(SKY_SUNSET_BEGIN, &args![this]).f32(),
+                fn_0063ba30(e, this),
+            );
+            far_lights_frame(e, night);
+        }
     });
 }
 

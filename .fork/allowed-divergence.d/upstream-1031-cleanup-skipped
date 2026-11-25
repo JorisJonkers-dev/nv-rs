@@ -1,0 +1,9 @@
+.github/ISSUE_TEMPLATE/config.yml  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed
+.github/ISSUE_TEMPLATE/task.yml  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed
+.github/pull_request_template.md  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed
+CONTRIBUTING.md  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed
+crates/engine-fallout-misc/src/units/fallout_misc/bgssaveloadmanager.rs  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed
+crates/nvinspect/tests/repo_hygiene.rs  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed
+research/engine-map/README.md  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed
+scripts/check-unix-package.ps1  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed
+scripts/package-playtest.sh  # upstream's docs, research and measuring tools and crates/fos, kept: upstream's cleanup (slaterain/nv-rs#1031) was not replayed

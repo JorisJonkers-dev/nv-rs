@@ -29,8 +29,8 @@ permissions:
 env:
   # The pinned tally release (https://github.com/JorisJonkers-dev/tally) and the SHA-256 of its Linux binary, from
   # that release's SHA256SUMS.
-  TALLY_VERSION: v0.4.0
-  TALLY_SHA256: 82db1f5144f99f3796d9f981bf639161cd506dfc0876760d4cf88914ba339aa6
+  TALLY_VERSION: v0.6.0
+  TALLY_SHA256: 4869bf6028f3833c62d8c9fd40167bfa749dc753b1999c82b9cbea0b4ef45377
   # The generated coverage-catalogue reports: the only files the `reports` job may commit on fork.
   REPORT_FILES: >-
     docs/fork/coverage/FEATURES.md
@@ -205,6 +205,16 @@ jobs:
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/testlog"
           cargo test --locked --no-fail-fast -p fork-window -p d3d9-wgpu -p engine-platform 2>&1 | tee "$RUNNER_TEMP/testlog/test-macos.log"
+      # The packages whose tests the coverage catalogue tags (docs/fork/CATALOGUE.md), so an item can be covered on all
+      # three systems. Pushes, the schedule and manual runs only: pull requests keep the short macOS job. The dev
+      # dependencies switch on nvse's test support. A failed or missing log here lowers covered, and the ratchet of
+      # "Catalogue results" then fails the run.
+      - name: Tests of the catalogue's packages
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/testlog"
+          cargo test --locked --no-fail-fast -p nvse -p jip -p jg -p showoff -p ttw-nvse -p fork-catalogue -p fork-gfx 2>&1 | tee "$RUNNER_TEMP/testlog/test-macos-tagged.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
@@ -330,6 +340,7 @@ jobs:
       - name: Catalogue (tally)
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           export CARGO_TARGET_DIR="$RUNNER_TEMP/progress-target"
@@ -341,7 +352,9 @@ jobs:
           echo "$TALLY_SHA256  $RUNNER_TEMP/tally" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/tally"
           # Pull requests never carry the generated reports, so none can lower the bar the ratchet on fork measures against.
-          if git diff --name-only "$BASE" HEAD -- docs/fork/coverage | grep -q .; then
+          # Only the branch's own changes count (from where it left fork): a report the bot commits on fork while the
+          # pull request runs is not the pull request's change.
+          if git diff --name-only "$BASE...$PR_HEAD" -- docs/fork/coverage | grep -q .; then
             echo "::error title=Catalogue::docs/fork/coverage/ is generated on fork; leave it out of the pull request"; exit 1
           fi
           "$RUNNER_TEMP/tally" check --catalogue .fork/catalogue --base "$BASE" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -407,6 +420,13 @@ jobs:
               echo "::error title=Catalogue::no test log from $os; the covered count needs all three systems"; exit 1
             fi
             for f in "${found[@]}"; do logs+=(--libtest "$f"); done
+          done
+          # The macOS job writes two logs, and the glob above is satisfied by either: require both by name, or a lost
+          # one would drop covered without an error.
+          for f in test-macos.log test-macos-tagged.log; do
+            if [ ! -f "$LOGS/$f" ]; then
+              echo "::error title=Catalogue::no macOS test log $f"; exit 1
+            fi
           done
           "${tally[@]}" ingest "${logs[@]}" --out "$RUNNER_TEMP/results.json"
           args=(--catalogue .fork/catalogue --results "$RUNNER_TEMP/results.json")
