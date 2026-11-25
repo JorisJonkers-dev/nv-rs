@@ -910,6 +910,9 @@ fn prepared_meshes(e: &mut Engine, base: u32) -> Vec<u32> {
     out
 }
 
+/// The most extra data objects [`is_far_lights_shape`] looks at on one shape.
+const FAR_LIGHTS_MAX_EXTRA: u32 = 64;
+
 /// Whether `object` carries an extra data object named [`far_lights::MARKER`] (ASCII case ignored): its
 /// `NiObjectNET` extra data array (`m_ppkExtra` +0x10, count `m_usExtraDataSize` +0x14), each entry's name
 /// handle at +8 (a pointer to its characters). Read straight from memory: no call, no lock.
@@ -917,7 +920,8 @@ fn is_far_lights_shape(e: &Engine, object: u32) -> bool {
     if object == 0 {
         return false;
     }
-    let count = u32::from(e.mem.u16(object + 0x14));
+    // A shape carries a handful of extra data objects; a larger count is not a shape's (read no further).
+    let count = u32::from(e.mem.u16(object + 0x14)).min(FAR_LIGHTS_MAX_EXTRA);
     let array = e.mem.u32(object + 0x10);
     if array == 0 {
         return false;
