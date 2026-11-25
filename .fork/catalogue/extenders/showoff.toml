@@ -205,3 +205,9 @@ id = "getequippeditems"
 title = "GetEquippedItems"
 status = "implemented"
 ref = ["showoff:getequippeditems"]
+
+[[item]]
+id = "applyeasing"
+title = "ApplyEasing"
+status = "implemented"
+ref = ["showoff:applyeasing"]
