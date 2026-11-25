@@ -2,6 +2,10 @@
 # check (estate convention). The build is one job per engine component (fork-build.yml, .fork/components.toml,
 # docs/fork/CI.md); the repository's own checks run in parallel with it; Pipeline Complete gathers every result
 # and prints each component's result and duration. The two reusable workflows (hygiene, PR title) are jobs.
+# A description or title edit (pull_request `edited`) runs only the checks that read them (hygiene, PR title, the
+# replay point of Verify sync, Progress counts); the builds and code checks skip, and Pipeline Complete takes the
+# code's result from the latest finished run of the commits on the same head commit, so an edit cannot turn a red
+# pull request green and does not start the whole pipeline again.
 # Upstream's own gate, .github/workflows/ci.yml (Windows, ~140 minutes), is not required here.
 name: Pipeline
 
@@ -103,13 +107,14 @@ jobs:
   build:
     name: Build
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' && github.event.action != 'edited' }}
     uses: ./.github/workflows/fork-build.yml
 
   # The repository's own checks, in parallel with the builds. Separate steps so one failing check does not hide
   # the others.
   lint:
     name: Repository checks
+    if: ${{ github.event.action != 'edited' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -140,6 +145,7 @@ jobs:
   # builds them. Runs on every pull request and push to fork: the crates are fork-owned, so the `changes` filter would skip them.
   facade:
     name: Facade crates
+    if: ${{ github.event.action != 'edited' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -171,7 +177,7 @@ jobs:
   macos:
     name: macOS
     needs: changes
-    if: ${{ needs.changes.outputs.native == 'true' }}
+    if: ${{ needs.changes.outputs.native == 'true' && github.event.action != 'edited' }}
     runs-on: macos-latest
     timeout-minutes: 120
     env:
@@ -265,7 +271,7 @@ jobs:
   # (fork-coverage.yml, docs/fork/COVERAGE.md). Pull requests only; the nightly baseline is that workflow's own schedule.
   coverage:
     name: Coverage
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' }}
     permissions:
       contents: read
       actions: read
@@ -306,6 +312,7 @@ jobs:
   # tests at lowered windows state the ranges' sizes, so a moved constant fails them. Cheap when nothing moved.
   layout-window:
     name: Layout window test
+    if: ${{ github.event.action != 'edited' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -533,14 +540,27 @@ jobs:
 
       # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
       # its override label is set), "Catalogue results" and the Linux tagged-engine-test job on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
-      # when only documentation changed.
+      # when only documentation changed. On a description edit the builds and code checks skip (the next step).
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
+          ACTION: ${{ github.event.action }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" --arg act "$ACTION" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") or ((.key | IN("build", "macos", "lint", "facade", "layout-window")) and $act == "edited") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
+
+      # A description edit checked only the title and description; the code's result is that of the newest run of this
+      # workflow on the same head commit whose "Repository checks" ran (a run of the commits, not of another edit). While
+      # that run is still going this fails, and that run's own Pipeline Complete, finishing later, is the one that counts.
+      - name: The commits' run passed
+        if: ${{ github.event.action == 'edited' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 -I scripts/fork/edit_run_gate.py
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.
       - name: Summary of the run
