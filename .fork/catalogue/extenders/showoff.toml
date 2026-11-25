@@ -211,3 +211,9 @@ id = "applyeasing"
 title = "ApplyEasing"
 status = "implemented"
 ref = ["showoff:applyeasing"]
+
+[[item]]
+id = "disablealt"
+title = "DisableAlt"
+status = "implemented"
+ref = ["showoff:disablealt"]
