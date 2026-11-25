@@ -21,3 +21,4 @@ crates/plugin-host/src/interfaces_tests.rs::string_variables_are_made_read_and_s
 crates/plugin-host/src/interfaces_tests.rs::array_variables_are_made_read_and_changed	features.plugins.nvse_interfaces
 crates/plugin-host/src/interfaces_tests.rs::co_save_records_are_written_and_read_back	features.plugins.nvse_interfaces
 crates/plugin-host/src/interfaces_tests.rs::a_save_callback_set_in_load_is_called_by_the_save	features.plugins.nvse_interfaces
+crates/plugin-host/src/interfaces_tests.rs::bad_arguments_stop_the_call_and_another_plugins_handle_sets_nothing	features.plugins.failure_contained

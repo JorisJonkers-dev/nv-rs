@@ -148,7 +148,11 @@ fn the_command_table_finds_commands_and_their_plugins() {
     e.mem.set_u32(BUF + 0x100 + 8, 0x1500);
     let nvse_info = call(&mut e, i, 3, 6, &[BUF + 0x100]);
     assert_eq!(e.mem.cstr(e.mem.u32(nvse_info + 4)), b"NVSE");
-    assert_eq!(e.mem.u32(nvse_info + 8), nvse::PACKED_VERSION);
+    assert_eq!(
+        e.mem.u32(nvse_info + 8),
+        nvse::VERSION.0,
+        "NVSE_VERSION_INTEGER"
+    );
 }
 
 /// String variables: made by a script's mod, read, set; with no owning script nothing is made.
@@ -405,4 +409,43 @@ fn the_log_path_is_the_game_folder_and_an_unknown_event_is_not_dispatched() {
     assert_eq!(e.mem.cstr(path), b"");
     let name = put_text(&mut e, BUF, b"NoSuchEvent");
     assert_eq!(call(&mut e, i, 8, 1, &[name, 0]), 0);
+}
+
+/// What a broken or hostile plugin hands the interfaces stops that call and never the engine: a
+/// text that runs into unmapped memory, a record length or element count past the limits, an
+/// element list that wraps the address space; and a plugin cannot set another plugin's
+/// co-save callback.
+#[test]
+fn bad_arguments_stop_the_call_and_another_plugins_handle_sets_nothing() {
+    let (mut e, i) = loaded();
+    let end = DATA + 0x1_0000;
+    assert!(
+        e.mem.try_read(end, &mut [0u8; 1]).is_err(),
+        "unmapped after DATA"
+    );
+    // A text with no NUL before the unmapped page: GetByName stops, no host panic.
+    e.mem.write(end - 0x20, &[b'a'; 0x20]);
+    let by_name = word(&mut e, 3, 3);
+    assert!(call_guest(&mut e, i, by_name, &[end - 0x20]).is_err());
+    // WriteRecord with a length past the limit stops before reading it.
+    ifaces(&mut e).writing = Some(Records::default());
+    let write = word(&mut e, 0, 3);
+    assert!(call_guest(&mut e, i, write, &[0x5445_5354, 1, BUF, u32::MAX]).is_err());
+    ifaces(&mut e).writing = None;
+    // CreateArray with a count past the limit, and a list that wraps past 4 GB.
+    let create = word(&mut e, 5, 0);
+    assert!(call_guest(&mut e, i, create, &[BUF, u32::MAX, SCRIPT]).is_err());
+    let map = word(&mut e, 5, 2);
+    assert!(call_guest(&mut e, i, map, &[0xffff_fff8, BUF, 4, SCRIPT]).is_err());
+    // A second plugin's handle: nothing set, and the report says why.
+    let j = crate::map_one(&mut e, "other.dll", &build_ifaces()).expect("a second plugin maps");
+    assert_ne!(i, j);
+    call(&mut e, i, 0, 0, &[j as u32, BUF + 0x100]);
+    assert_eq!(state(&mut e).plugins[j].callbacks.save, 0);
+    assert!(reports(&mut e)
+        .iter()
+        .any(|l| l.contains("another plugin's handle is not set")));
+    // Its own handle still sets it.
+    call(&mut e, j, 0, 0, &[j as u32, BUF + 0x100]);
+    assert_eq!(state(&mut e).plugins[j].callbacks.save, BUF + 0x100);
 }

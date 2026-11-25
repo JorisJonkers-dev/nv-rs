@@ -34,6 +34,13 @@ pub const LOOKUP_FORM: u32 = 0x0048_39c0;
 const VARIADIC: u32 = 15;
 /// `PluginInfo::kInfoVersion`.
 const INFO_VERSION: u32 = 1;
+/// The longest text a plugin passes that is read (xNVSE's longest string is `kMaxMessageLength`,
+/// 0x4000; a text with no NUL within this stops the call instead of reading on).
+const MAX_TEXT: u32 = 0x10_0000;
+/// The most bytes one co-save record write reads from the plugin.
+const MAX_RECORD: u32 = 0x100_0000;
+/// The most elements one `Create*` call reads.
+const MAX_ELEMENTS: u32 = 0x10_0000;
 
 /// One function word of a table: its name in the report, the host function (none: the call
 /// stops and names it), its fixed argument words and how many more a variadic call may pass.
@@ -84,15 +91,53 @@ fn fault(addr: u32, write: bool) -> Stop {
     Stop::Fault { addr, write }
 }
 
-/// A NUL-ended text a plugin passed (0: none).
+/// A NUL-ended text a plugin passed (0: none), read a page at a time: one that runs into
+/// unmapped memory or past [`MAX_TEXT`] stops the call.
 fn text(e: &Engine, at: u32) -> Result<Vec<u8>, Stop> {
+    const PAGE: u32 = 0x1000;
+    let mut out = Vec::new();
     if at == 0 {
-        return Ok(Vec::new());
+        return Ok(out);
     }
-    e.mem
-        .try_read(at, &mut [0u8; 1])
-        .map_err(|_| fault(at, false))?;
-    Ok(e.mem.cstr(at))
+    let mut p = at;
+    loop {
+        let n = PAGE - (p & (PAGE - 1));
+        let mut chunk = vec![0u8; n as usize];
+        e.mem.try_read(p, &mut chunk).map_err(|_| fault(p, false))?;
+        if let Some(end) = chunk.iter().position(|&b| b == 0) {
+            out.extend_from_slice(&chunk[..end]);
+            return Ok(out);
+        }
+        out.extend_from_slice(&chunk);
+        if out.len() as u32 >= MAX_TEXT {
+            return Err(fault(p, false));
+        }
+        p = p.checked_add(n).ok_or_else(|| fault(p, false))?;
+    }
+}
+
+/// `len` bytes a plugin passed for a co-save record; more than [`MAX_RECORD`] stops the call.
+fn record_bytes(e: &mut Engine, at: u32, len: u32) -> Result<Vec<u8>, Stop> {
+    if len > MAX_RECORD {
+        return Err(fault(at, false));
+    }
+    rd(e, at, len)
+}
+
+/// The address of element `i` of a plugin's list at `base`, `size` bytes each: past the end of
+/// the address space stops the call.
+fn nth(base: u32, size: u32, i: u32) -> Result<u32, Stop> {
+    size.checked_mul(i)
+        .and_then(|off| base.checked_add(off))
+        .ok_or_else(|| fault(base, false))
+}
+
+/// A plugin's element count: more than [`MAX_ELEMENTS`] stops the call.
+fn count(n: u32, at: u32) -> Result<u32, Stop> {
+    if n > MAX_ELEMENTS {
+        return Err(fault(at, false));
+    }
+    Ok(n)
 }
 
 fn put32(e: &mut Engine, at: u32, v: u32) -> Result<(), Stop> {
@@ -297,10 +342,22 @@ fn handle_plugin(e: &mut Engine, handle: u32) -> Option<usize> {
     ((handle as usize) < n && !state(e).plugins[handle as usize].runtime).then_some(handle as usize)
 }
 
+/// A plugin sets only its own callbacks: a handle that is no plugin, or another plugin's, sets
+/// nothing (the callback would run in that plugin's name).
 fn set_callback(e: &mut Engine, a: &[u32], which: fn(&mut Callbacks) -> &mut u32) -> u32 {
     let Some(p) = handle_plugin(e, a[0]) else {
         return 0;
     };
+    if let Ok(me) = current(e) {
+        if me != p {
+            let file = state(e).plugins[me].file.clone();
+            report(
+                e,
+                format!("{file}: a co-save callback for another plugin's handle is not set"),
+            );
+            return 0;
+        }
+    }
     let plugin = &mut state(e).plugins[p];
     *which(&mut plugin.callbacks) = a[1];
     if plugin.loaded {
@@ -339,14 +396,14 @@ fn with_records(e: &mut Engine, f: impl FnOnce(&mut Records)) -> u32 {
 }
 
 fn ser_write_record(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
-    let bytes = rd(e, a[2], a[3])?;
+    let bytes = record_bytes(e, a[2], a[3])?;
     Ok(with_records(e, |r| r.record(a[0], a[1], &bytes)))
 }
 fn ser_open_record(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     Ok(with_records(e, |r| r.open(a[0], a[1])))
 }
 fn ser_write_data(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
-    let bytes = rd(e, a[0], a[1])?;
+    let bytes = record_bytes(e, a[0], a[1])?;
     let open = ifaces(e)
         .writing
         .as_ref()
@@ -569,7 +626,7 @@ fn opcode_of(e: &mut Engine, record: u32) -> Result<u32, Stop> {
     if record == 0 {
         return Ok(0);
     }
-    get32(e, record + 8)
+    get32(e, record.wrapping_add(8))
 }
 fn cmd_return_type(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     use nvse::table::Returns;
@@ -609,7 +666,8 @@ fn cmd_parent_plugin(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
         return Ok(0);
     }
     if op < NVSE_OPCODE_TEST {
-        return Ok(info(e, "NVSE", nvse::PACKED_VERSION));
+        // `g_NVSEPluginInfo` (xNVSE `CommandTable.cpp`) carries `NVSE_VERSION_INTEGER`.
+        return Ok(info(e, "NVSE", nvse::VERSION.0));
     }
     Ok(match nvse::plugins::parent_of(e, op, false) {
         Some(p) => info(e, p.name, p.version),
@@ -702,7 +760,7 @@ fn read_element(e: &mut Engine, at: u32) -> Result<Option<Value>, Stop> {
         T_FORM => Some(Value::Form(if word == 0 {
             0
         } else {
-            get32(e, word + 0xc)?
+            get32(e, word.wrapping_add(0xc))?
         })),
         T_STRING => Some(Value::Str(text(e, word)?)),
         T_ARRAY => Some(Value::Array(word)),
@@ -766,28 +824,28 @@ fn create(e: &mut Engine, key_type: u8, packed: bool, script: u32) -> u32 {
 /// `CreateArray(data, size, script)`: a packed array of the elements.
 fn arr_create(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     let id = create(e, vars::KEY_NUMBER, true, a[2]);
-    for i in 0..a[1] {
-        let v = read_element(e, a[0] + ELEMENT * i)?;
+    for i in 0..count(a[1], a[0])? {
+        let v = read_element(e, nth(a[0], ELEMENT, i)?)?;
         set_from(e, id, &Key::Number(f64::from(i)), v);
     }
     Ok(id)
 }
 fn arr_create_string_map(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     let id = create(e, vars::KEY_STRING, false, a[3]);
-    for i in 0..a[2] {
-        let key_at = get32(e, a[0] + 4 * i)?;
+    for i in 0..count(a[2], a[0])? {
+        let key_at = get32(e, nth(a[0], 4, i)?)?;
         let key = text(e, key_at)?;
-        let v = read_element(e, a[1] + ELEMENT * i)?;
+        let v = read_element(e, nth(a[1], ELEMENT, i)?)?;
         set_from(e, id, &Key::Str(key), v);
     }
     Ok(id)
 }
 fn arr_create_map(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     let id = create(e, vars::KEY_NUMBER, false, a[3]);
-    for i in 0..a[2] {
-        let k = rd(e, a[0] + 8 * i, 8)?;
+    for i in 0..count(a[2], a[0])? {
+        let k = rd(e, nth(a[0], 8, i)?, 8)?;
         let key = f64::from_le_bytes([k[0], k[1], k[2], k[3], k[4], k[5], k[6], k[7]]);
-        let v = read_element(e, a[1] + ELEMENT * i)?;
+        let v = read_element(e, nth(a[1], ELEMENT, i)?)?;
         set_from(e, id, &Key::Number(key), v);
     }
     Ok(id)
@@ -864,12 +922,12 @@ fn arr_get_elements(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     for (i, key) in keys.iter().enumerate() {
         let i = i as u32;
         if a[2] != 0 {
-            write_element(e, a[2] + ELEMENT * i, &key_data(key))?;
+            write_element(e, nth(a[2], ELEMENT, i)?, &key_data(key))?;
         }
         let data = vars::get_element(e, a[0], key)
             .map(|el| el.data)
             .unwrap_or_default();
-        write_element(e, a[1] + ELEMENT * i, &data)?;
+        write_element(e, nth(a[1], ELEMENT, i)?, &data)?;
     }
     Ok(1)
 }
