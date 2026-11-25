@@ -109,6 +109,9 @@ pub struct Cpu {
     pub(crate) seg: u32,
     /// The instruction being run has an address-size prefix (`0x67`).
     pub(crate) addr16: bool,
+    /// The step count at which the running call's budget ends ([`Cpu::run`]); each round of a
+    /// repeated string instruction counts as a step against it.
+    pub(crate) limit: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -459,6 +462,16 @@ impl Cpu {
         }
     }
 
+    /// One more round of a repeated string instruction, counted against the call's budget (a
+    /// round past it stops the call as a loop that does not end would).
+    fn rep_round(&mut self) -> R<()> {
+        self.steps += 1;
+        if self.limit != 0 && self.steps >= self.limit {
+            return Err(Stop::Budget);
+        }
+        Ok(())
+    }
+
     /// Runs one instruction.
     pub fn step(&mut self, e: &mut Engine) -> R<()> {
         let start = self.eip;
@@ -684,6 +697,7 @@ impl Cpu {
                         break;
                     }
                     self.r[ECX] -= 1;
+                    self.rep_round()?;
                 }
             }
             // cmps, lods, scas; with `rep`/`repe` (`f3`) or `repne` (`f2`) for cmps and scas.
@@ -718,6 +732,7 @@ impl Cpu {
                         break;
                     }
                     self.r[ECX] = self.r[ECX].wrapping_sub(1);
+                    self.rep_round()?;
                     // repe stops at the first difference, repne at the first match.
                     if compares && ((rep == 0xf3 && !self.zf) || (rep == 0xf2 && self.zf)) {
                         break;
@@ -975,6 +990,7 @@ impl Cpu {
         budget: u64,
     ) -> R<()> {
         let end = self.steps + budget;
+        self.limit = end;
         loop {
             if self.eip == stop_at {
                 return Ok(());

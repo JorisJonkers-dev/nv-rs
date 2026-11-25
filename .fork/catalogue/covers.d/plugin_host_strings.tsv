@@ -7,3 +7,4 @@ crates/plugin-host/src/x86_string_tests.rs::repe_cmpsb_stops_at_the_first_differ
 crates/plugin-host/src/x86_string_tests.rs::scasd_compares_one_word_and_follows_the_direction_flag	features.plugins.string_scans
 crates/plugin-host/src/x86_string_tests.rs::lodsb_loads_al_and_a_zero_count_repeats_nothing	features.plugins.string_scans
 crates/plugin-host/src/x86_string_tests.rs::a_scan_into_unmapped_memory_faults_and_lods_through_fs_stops	features.plugins.failure_contained
+crates/plugin-host/src/x86_string_tests.rs::a_long_repeat_runs_out_the_budget	features.plugins.failure_contained

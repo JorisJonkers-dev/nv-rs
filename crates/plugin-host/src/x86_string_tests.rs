@@ -113,3 +113,12 @@ fn a_scan_into_unmapped_memory_faults_and_lods_through_fs_stops() {
     let (_, r, _) = run(&[0x64, 0xac], b"", |_, _| {});
     assert!(matches!(r, Err(Stop::BadOpcode { .. })), "{r:?}");
 }
+
+/// Each round of a repeated string instruction counts against the call's budget: a scan over a
+/// long run of non-zero bytes stops as a loop that does not end would, not after 4 G rounds.
+#[test]
+fn a_long_repeat_runs_out_the_budget() {
+    let code = [0x31, 0xc0, 0x83, 0xc9, 0xff, 0xf2, 0xae];
+    let (_, r, _) = run(&code, &[1; 0x1000], |c, d| c.r[EDI] = d);
+    assert_eq!(r, Err(Stop::Budget));
+}
