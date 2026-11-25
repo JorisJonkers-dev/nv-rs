@@ -578,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn far_lights_are_off_unless_chosen() {
+    fn far_lights_are_on_in_modern_and_off_otherwise_unless_chosen() {
         let on = |pairs: &[(&str, &str)]| {
             let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
             apply(Choice::vanilla(), &r).1.far_lights
@@ -586,9 +586,14 @@ mod tests {
         assert!(!on(&[]), "the game's far view by default");
         assert!(!on(&[("NV_GFX_PRESET", "original")]));
         assert!(
-            !on(&[("NV_GFX_PRESET", "modern")]),
-            "off in modern until proven"
+            on(&[("NV_GFX_PRESET", "modern")]),
+            "modern shows the light points by night"
         );
+        assert!(!on(&[
+            ("NV_GFX_PRESET", "modern"),
+            ("NV_GFX", "light.far_lights=false")
+        ]));
+        assert!(!on(&[("NV_GFX_PRESET", "performance")]));
         assert!(on(&[("NV_GFX", "light.far_lights=true")]));
     }
 
