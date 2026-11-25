@@ -50,8 +50,10 @@ must be in the scan paths of `.fork/catalogue/tally.toml`. An id that does not e
 tests that only check registration, opcode or name tables. A test that names more than ten ids needs a
 `// covers-table: <reason>` comment.
 
-Tests in files upstream owns are not edited. They will be tagged from `.fork/catalogue/covers.d/*.tsv` (rows of
-`test<TAB>covers`) once the pinned tally reads covers maps.
+Tests in files upstream owns are not edited. They are tagged from `.fork/catalogue/covers.d/*.tsv`, one file per
+extender or topic, rows of `test<TAB>covers`: `test` is `<file>::<function>`, `covers` the full ids, separated by
+spaces. A row names only the commands the test calls and whose answer or effect it asserts. A command that is only
+called to set up the case is left out. `tally check` fails when the function is not a `#[test]` in that file.
 
 ## States and reports
 
