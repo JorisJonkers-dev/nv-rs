@@ -25,6 +25,7 @@ pub mod actor_reads;
 pub mod aux_timers;
 pub mod commands;
 pub mod cosave;
+pub mod hotkey_icons;
 pub mod identity;
 pub mod ini;
 pub mod lists;
@@ -41,7 +42,7 @@ use engine_core::prelude::*;
 pub const ANSWERS_INSTALLED: bool = false;
 
 /// The command names this crate builds (long names), for the capabilities file.
-pub const COMMAND_NAMES: [&str; 29] = commands::COMMAND_NAMES;
+pub const COMMAND_NAMES: [&str; 30] = commands::COMMAND_NAMES;
 
 /// ShowOff xNVSE built in on this engine: its state, one slot per engine ([`Engine::ext`]).
 #[derive(Default)]

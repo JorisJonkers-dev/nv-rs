@@ -1830,7 +1830,7 @@
     },
     {
       "commands": {
-        "implemented": 29,
+        "implemented": 30,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
@@ -1860,7 +1860,8 @@
           "IsLimbCrippled",
           "GetIngestibleConsumeSound",
           "IsAiming",
-          "IsBlockingOrAiming"
+          "IsBlockingOrAiming",
+          "GetItemHotkeyIconPath"
         ],
         "total": 215
       },

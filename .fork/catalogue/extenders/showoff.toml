@@ -181,3 +181,9 @@ id = "isblockingoraiming"
 title = "IsBlockingOrAiming"
 status = "implemented"
 ref = ["showoff:isblockingoraiming"]
+
+[[item]]
+id = "getitemhotkeyiconpath"
+title = "GetItemHotkeyIconPath"
+status = "implemented"
+ref = ["showoff:getitemhotkeyiconpath"]

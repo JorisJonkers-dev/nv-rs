@@ -20,7 +20,7 @@ use nvse::{handled, CommandArgs, EvalArgs};
 
 /// The command names the capabilities file lists, long names: the first is built here, the rest
 /// are the groups' tables in the order of [`all`].
-pub const COMMAND_NAMES: [&str; 29] = [
+pub const COMMAND_NAMES: [&str; 30] = [
     "GetActorHasBaseFlag",
     "ListAddList",
     "ListAddArray",
@@ -50,6 +50,7 @@ pub const COMMAND_NAMES: [&str; 29] = [
     "GetIngestibleConsumeSound",
     "IsAiming",
     "IsBlockingOrAiming",
+    "GetItemHotkeyIconPath",
 ];
 
 /// One command as the plugin registers it, for the groups' tables (the first command above is
@@ -80,6 +81,7 @@ pub fn all() -> impl Iterator<Item = &'static Cmd> {
         .chain(crate::ownership::COMMANDS.iter())
         .chain(crate::aux_timers::COMMANDS.iter())
         .chain(crate::actor_reads::COMMANDS.iter())
+        .chain(crate::hotkey_icons::COMMANDS.iter())
 }
 
 /// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).
