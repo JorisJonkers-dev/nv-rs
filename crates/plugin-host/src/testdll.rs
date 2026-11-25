@@ -22,6 +22,13 @@
 //! bool Execute(COMMAND_ARGS) { *result = 42.0; return true; }
 //! void Listener(Message *msg) { g_last_type = msg->type; g_count++; }
 //! ```
+//!
+//! [`build_ifaces`] adds, at the end of `Load`:
+//!
+//! ```c
+//! for (id in 0, 1, 3, 4, 5, 6, 7, 8, 9) g_iface[id] = nvse->QueryInterface(id);
+//! g_found = ((NVSECommandTableInterface *)g_iface[3])->GetByName("TestPluginAnswer");
+//! ```
 
 pub const IMAGE_BASE: u32 = 0x1000_0000;
 const SECTION_RVA: u32 = 0x1000;
@@ -35,6 +42,9 @@ pub const G_LAST: u32 = 0x40;
 pub const G_COUNT: u32 = 0x44;
 pub const G_PID: u32 = 0x48;
 pub const G_EXTRA: u32 = 0x4c;
+/// `g_iface[10]` and `g_found` of [`build_ifaces`].
+pub const G_IFACE: u32 = 0x700;
+pub const G_FOUND: u32 = 0x728;
 const CMD: u32 = 0x50;
 const EXPORTS: u32 = 0x80;
 const IMPORTS: u32 = 0x100;
@@ -74,13 +84,18 @@ pub fn build(extra_import: Option<&str>, spin: bool) -> Vec<u8> {
 
 /// [`build`] with the second import from a DLL of its own; its answer is stored in `G_EXTRA`.
 pub fn build_from(extra_import: Option<(&str, &str)>, spin: bool) -> Vec<u8> {
-    assemble(extra_import, spin, false)
+    assemble(extra_import, spin, false, false)
+}
+
+/// [`build`] whose `Load` also asks for every interface and looks its own command up by name.
+pub fn build_ifaces() -> Vec<u8> {
+    assemble(None, false, false, true)
 }
 
 /// [`build`] whose `Load` also writes `0xCAFEBABE` to the game's address `0x00500123` and keeps
 /// the word it reads from `0x00500200` in `G_EXTRA`.
 pub fn build_patching() -> Vec<u8> {
-    assemble(None, false, true)
+    assemble(None, false, true, false)
 }
 
 /// [`build`] with the base-relocation data directory cleared: the declared image has no
@@ -93,7 +108,7 @@ pub fn build_no_relocs() -> Vec<u8> {
     f
 }
 
-fn assemble(extra_import: Option<(&str, &str)>, spin: bool, patch: bool) -> Vec<u8> {
+fn assemble(extra_import: Option<(&str, &str)>, spin: bool, patch: bool, ifaces: bool) -> Vec<u8> {
     let mut s = vec![0u8; 0x800];
     let mut relocs: Vec<u32> = Vec::new();
     put_str(&mut s, NAME, "TestPlugin");
@@ -170,6 +185,13 @@ fn assemble(extra_import: Option<(&str, &str)>, spin: bool, patch: bool) -> Vec<
         relocs.push(CODE + c.len() as u32);
         c.extend(abs(G_EXTRA).to_le_bytes());
     }
+    // The interface walk, a function of its own at CODE + 0x180 (ebx still holds nvse).
+    let walk_at = CODE + 0x180;
+    if ifaces {
+        let next = CODE + c.len() as u32 + 5;
+        c.push(0xe8); // call walk
+        c.extend((walk_at.wrapping_sub(next)).to_le_bytes());
+    }
     c.extend([0xb8, 1, 0, 0, 0, 0x5f, 0x5e, 0x5b, 0xc3]); // mov eax,1; pop edi; pop esi; pop ebx; ret
     assert!(CODE + (c.len() as u32) <= execute_at);
     while (CODE + c.len() as u32) < execute_at {
@@ -196,6 +218,30 @@ fn assemble(extra_import: Option<(&str, &str)>, spin: bool, patch: bool) -> Vec<
     relocs.push(CODE + c.len() as u32);
     c.extend(abs(G_COUNT).to_le_bytes());
     c.push(0xc3);
+    if ifaces {
+        while (CODE + c.len() as u32) < walk_at {
+            c.push(0xcc);
+        }
+        for id in [0u8, 1, 3, 4, 5, 6, 7, 8, 9] {
+            c.extend([0x6a, id, 0xff, 0x53, 0x18, 0x83, 0xc4, 0x04]); // push id; call [ebx+0x18]; add esp,4
+            c.push(0xa3); // mov [g_iface + 4 * id],eax
+            relocs.push(CODE + c.len() as u32);
+            c.extend(abs(G_IFACE + 4 * u32::from(id)).to_le_bytes());
+        }
+        c.push(0xa1); // mov eax,[g_iface + 12]
+        relocs.push(CODE + c.len() as u32);
+        c.extend(abs(G_IFACE + 12).to_le_bytes());
+        c.push(0x68); // push "TestPluginAnswer"
+        relocs.push(CODE + c.len() as u32);
+        c.extend(abs(CMD_NAME).to_le_bytes());
+        c.extend([0xff, 0x50, 0x10, 0x83, 0xc4, 0x04]); // call [eax+0x10] (GetByName); add esp,4
+        c.push(0xa3); // mov [g_found],eax
+        relocs.push(CODE + c.len() as u32);
+        c.extend(abs(G_FOUND).to_le_bytes());
+        c.push(0xc3);
+    }
+    assert!(CODE + (c.len() as u32) <= G_IFACE);
+    assert!(RELOCS + 8 + 2 * relocs.len() as u32 <= CODE);
     s[CODE as usize..CODE as usize + c.len()].copy_from_slice(&c);
 
     // Exports.
