@@ -52,7 +52,7 @@ class Verdict(unittest.TestCase):
 
 class AllJobs(unittest.TestCase):
     def test_jobs_past_the_first_page_are_read(self):
-        # 105 jobs, "Pipeline Complete" last: one page of 100 would not see it
+        # 105 jobs, "Pipeline Complete" last: one page would not see it
         jobs = [{"name": f"Build / Component {i}"} for i in range(104)] + [{"name": "Pipeline Complete"}]
         pages = []
 
@@ -63,7 +63,7 @@ class AllJobs(unittest.TestCase):
         got = g.all_jobs(get_page, 7)
         self.assertEqual(len(got), 105)
         self.assertEqual(got[-1]["name"], "Pipeline Complete")
-        self.assertEqual(pages, [1, 2])
+        self.assertEqual(pages, [1, 2, 3])
 
     def test_one_short_page_is_one_request(self):
         pages = []
@@ -74,6 +74,30 @@ class AllJobs(unittest.TestCase):
 
         self.assertEqual(len(g.all_jobs(get_page, 7)), 2)
         self.assertEqual(pages, [1])
+
+
+class Api(unittest.TestCase):
+    class Done:
+        def __init__(self, code, out="", err=""):
+            self.returncode, self.stdout, self.stderr = code, out, err
+
+    def test_a_failed_call_is_tried_again(self):
+        answers = [self.Done(1, err="gh: Server Error (HTTP 502)"), self.Done(0, out='{"jobs": []}')]
+        waits = []
+        got = g.api("repos/x/actions/runs/1/jobs", run=lambda *a, **k: answers.pop(0), wait=waits.append)
+        self.assertEqual(got, {"jobs": []})
+        self.assertEqual(waits, [5])
+
+    def test_three_failed_calls_fail_the_gate(self):
+        calls = []
+
+        def run(*a, **k):
+            calls.append(a)
+            return self.Done(1, err="gh: Server Error (HTTP 502)")
+
+        with self.assertRaises(RuntimeError):
+            g.api("repos/x/actions/runs/1/jobs", run=run, wait=lambda s: None)
+        self.assertEqual(len(calls), 3)
 
 
 class OfThisPullRequest(unittest.TestCase):

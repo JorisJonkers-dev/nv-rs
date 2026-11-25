@@ -16,20 +16,30 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 WORKFLOW = "fork-ci.yml"
 CODE_JOB = "Repository checks"
 GATE_JOB = "Pipeline Complete"
 
 
-def api(path):
-    out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=True).stdout
-    return json.loads(out)
+def api(path, tries=3, run=subprocess.run, wait=time.sleep):
+    """GET a REST path through gh. A failed call (GitHub answers 502 now and then) is tried again; its error goes to
+    stderr, so a red gate shows why."""
+    for attempt in range(1, tries + 1):
+        got = run(["gh", "api", path], capture_output=True, text=True)
+        if got.returncode == 0:
+            return json.loads(got.stdout)
+        print(f"gh api {path} (try {attempt} of {tries}): {got.stderr.strip()}", file=sys.stderr)
+        if attempt < tries:
+            wait(5 * attempt)
+    raise RuntimeError(f"gh api {path} failed {tries} times")
 
 
-def all_jobs(get_page, run_id, per_page=100):
+def all_jobs(get_page, run_id, per_page=50):
     """Every job of the run's latest attempt. A run of the commits has more than 100 jobs (the build alone is about 95)
-    and "Pipeline Complete" is created last, so one page would miss it."""
+    and "Pipeline Complete" is created last, so one page would miss it. Pages of 50: GitHub answers a page of 100 jobs
+    of such a run with HTTP 502 (seen on run 45686261367, every try)."""
     jobs, page = [], 1
     while True:
         got = get_page(run_id, page, per_page)
