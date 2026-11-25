@@ -1,0 +1,3 @@
+# Test placeholder keys in an upstream test crash-report DSN, not secrets.
+6253bd0176a7bb4e010e284cb7dfc116a196d92d:crates/nv-launcher/src/crash/send.rs:generic-api-key:394
+6253bd0176a7bb4e010e284cb7dfc116a196d92d:crates/nv-launcher/src/crash/send.rs:generic-api-key:730
