@@ -318,6 +318,21 @@ pub const SITES: &[Entry] = &[
         owners: NVSE,
         step: "I-9",
     },
+    // ~Animation 0048fb50, after the controller manager is let go: kNVSE forgets the sequences
+    // it made for that animation (`crates/knvse`, nv-rs#865). Keyed by the function's address.
+    Entry {
+        addr: 0x0048_fb50,
+        owners: KNVSE,
+        step: "K-2",
+    },
+    // The animation's set-up 0048ffd0, after its new controller manager is stored: kNVSE forgets
+    // the sequences it made for the old one (`crates/knvse`, nv-rs#865). Keyed by the function's
+    // address.
+    Entry {
+        addr: 0x0048_ffd0,
+        owners: KNVSE,
+        step: "K-2",
+    },
     // Animation::StartGroup 004948c0, after its test of group 0xff and before the sequence map
     // is asked: kNVSE's animation-path overrides (`crates/knvse`, nv-rs#865). A native seam,
     // keyed by the function's address: kNVSE's own patch is not read.
@@ -3141,10 +3156,13 @@ mod tests {
         ] {
             assert!(find(SITES, Owner::Nvse, a).is_some(), "{a:08x}");
         }
-        assert_eq!(SITES.len(), 132);
-        // kNVSE's animation-path overrides in Animation::StartGroup, its alone.
-        assert!(find(SITES, Owner::Knvse, 0x0049_48c0).is_some());
-        assert!(find(SITES, Owner::Jip, 0x0049_48c0).is_none());
+        assert_eq!(SITES.len(), 134);
+        // kNVSE's animation-path overrides in Animation::StartGroup and its two manager seams
+        // (~Animation, the animation's set-up), its alone.
+        for a in [0x0049_48c0, 0x0048_fb50, 0x0048_ffd0] {
+            assert!(find(SITES, Owner::Knvse, a).is_some(), "{a:08x}");
+            assert!(find(SITES, Owner::Jip, a).is_none(), "{a:08x}");
+        }
         // lStewieAl's Tweaks' (its seams in the text key event and Idle), Tweaks' alone.
         for a in [0x0070_e4db, 0x0070_e500, 0x0071_5563] {
             assert!(find(SITES, Owner::Stewie, a).is_some(), "{a:08x}");

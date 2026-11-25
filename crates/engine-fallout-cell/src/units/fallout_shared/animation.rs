@@ -1680,6 +1680,9 @@ pub fn fn_0048fb50(e: &mut Engine, this: Ptr<Animation>) {
         }
         e.call(NI_POINTER_SET, &args![a + 0xd8, 0u32]);
     }
+    // The seam after the manager is let go (`0x48FB50`, ADR-0016; nv-rs#865): kNVSE forgets the
+    // sequences it made for this animation. Its answer is not read; no handler: nothing.
+    e.site(0x0048_fb50, &[a]);
 
     // Delete the sequence containers of the map.
     let map = e.get(this, Animation::pAnimSequenceMap).addr();
@@ -1840,6 +1843,9 @@ pub fn fn_0048ffd0(
                     .u32()
             };
             e.call(NI_POINTER_SET, &args![a + 0xd8, manager]);
+            // The seam after the new manager is stored (`0x48FFD0`, ADR-0016; nv-rs#865): kNVSE
+            // forgets the sequences it made for the old one. Its answer is not read.
+            e.site(0x0048_ffd0, &[a]);
             let queue_cloning = animation_should_queue_sequence_cloning(e, this);
             while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
                 let item = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, list));
@@ -9895,9 +9901,13 @@ mod tests {
         e.mem.set_u32(this.addr() + 0x134, item);
         e.mem.set_u32(this.addr() + 0x138, next);
 
+        on_rebuild_seam(&mut e, 0x0048_fb50);
         start_log(&mut e);
         e.call(0x0048_fb50, &args![this]);
         let log = end_log(&mut e);
+        // kNVSE's seam is asked once, with the animation, after the manager is let go
+        // (nv-rs#865: the sequences made for it are forgotten).
+        assert_eq!(REBUILD_ASKED.with(|s| s.take()), [(vec![this.addr()], 0)]);
         let addresses: Vec<u32> = log.iter().map(|(a, _)| *a).collect();
         let position = |address: u32| addresses.iter().position(|a| *a == address).unwrap();
 
@@ -9958,9 +9968,12 @@ mod tests {
         e.mem.write(this.addr() + 0x134, &[0; 8]);
         e.mem.write(this.addr() + 0x12c, &[0; 8]);
         e.register(SIMPLE_LIST_IS_EMPTY, |_, _| ret(1));
+        on_rebuild_seam(&mut e, 0x0048_fb50);
         start_log(&mut e);
         e.call(0x0048_fb50, &args![this]);
         let addresses = called(&mut e);
+        // Without a manager kNVSE's seam is still asked once.
+        assert_eq!(REBUILD_ASKED.with(|s| s.take()), [(vec![this.addr()], 0)]);
         assert!(!addresses.contains(&GET_CONTROLLER));
         assert!(!addresses.contains(&REMOVE_CONTROLLER));
         assert!(!addresses.contains(&MANAGER_RESET));
@@ -10123,12 +10136,20 @@ mod tests {
         e.mem.set_u32(sequence_vtable + 0x8c, 0x00f0_008c);
         e.set(this, Animation::pAccumRoot, Ptr::new(0x5151));
 
+        on_rebuild_seam(&mut e, 0x0048_ffd0);
         start_log(&mut e);
         let result = e
             .call(0x0048_ffd0, &args![this, list, root, actor, true])
             .bool();
         let log = end_log(&mut e);
         assert!(result);
+        // kNVSE's seam is asked once, with the animation, once its new manager is stored
+        // (nv-rs#865: the sequences made for the old manager are forgotten).
+        let manager = e.get(this, Animation::spManager).addr();
+        assert_eq!(
+            REBUILD_ASKED.with(|s| s.take()),
+            [(vec![this.addr()], manager)]
+        );
         assert_eq!(e.get(this, Animation::pActorRef).addr(), actor);
         assert_eq!(e.get(this, Animation::pAnimRoot).addr(), root);
         // The bone found for the one named entry is stored at its index.
@@ -11929,6 +11950,26 @@ mod tests {
     fn override_handler(_: &mut Engine, a: &[u32]) -> Option<u32> {
         OVERRIDE_ASKED.with(|s| s.borrow_mut().push(a.to_vec()));
         OVERRIDE_ANSWER.with(|c| c.get())
+    }
+
+    thread_local! {
+        static REBUILD_ASKED: std::cell::RefCell<Vec<(Vec<u32>, u32)>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// A handler at the manager-made and torn-down seams (nv-rs#865): records its words and the
+    /// manager the animation holds when it is asked; answers nothing.
+    fn rebuild_handler(e: &mut Engine, a: &[u32]) -> Option<u32> {
+        let manager = e.mem.u32(a[0] + 0xd8);
+        REBUILD_ASKED.with(|s| s.borrow_mut().push((a.to_vec(), manager)));
+        None
+    }
+
+    /// Registers [`rebuild_handler`] at the seam of `at` (`0x48FB50` or `0x48FFD0`).
+    fn on_rebuild_seam(e: &mut Engine, at: u32) {
+        use engine_core::extend::{Owner, SiteSlot};
+        REBUILD_ASKED.with(|s| s.take());
+        e.on_site(SiteSlot::new(Owner::Knvse, at), rebuild_handler);
     }
 
     /// Regression guard for the animation-path seam (nv-rs#865): with no handler there, and with

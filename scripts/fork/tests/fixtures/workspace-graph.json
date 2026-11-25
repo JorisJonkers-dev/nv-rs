@@ -2129,6 +2129,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "knvse"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "mcm"
     },
     {
@@ -2299,6 +2304,11 @@
      "features": [],
      "kind": null,
      "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
     },
     {
      "features": [],
