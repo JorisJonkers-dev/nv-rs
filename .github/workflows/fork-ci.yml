@@ -215,6 +215,13 @@ jobs:
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/testlog"
           cargo test --locked --no-fail-fast -p nvse -p jip -p jg -p showoff -p ttw-nvse -p fork-catalogue -p fork-gfx 2>&1 | tee "$RUNNER_TEMP/testlog/test-macos-tagged.log"
+      # The engine's tests that the catalogue tags (.fork/catalogue/covers.d/engine_typed.tsv), so those engine functions
+      # can be covered on all three systems: built once, the test binaries side by side (scripts/fork/tagged-engine-tests.sh).
+      # In this job, not one of its own: one macOS runner per run (a second one waited in the queue for this one), one
+      # cache, and the crates.io and platform crates built above are reused. Same events as the step above.
+      - name: Tagged engine tests
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: scripts/fork/tagged-engine-tests.sh "$RUNNER_TEMP/testlog/test-macos-engine.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
@@ -223,49 +230,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # The engine's tests that the coverage catalogue tags (.fork/catalogue/covers.d/engine_typed.tsv), on macOS, so those
-  # engine functions can be covered on all three systems. A job of its own: the engine crate is a long build on the
-  # 7 GB runner and must not slow the macOS job above. Pushes, the schedule and manual runs only; the test files run
-  # are read from the covers map, so a new tagged file is picked up without a change here.
-  macos-engine:
-    name: macOS (tagged engine tests)
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: macos-latest
-    timeout-minutes: 90
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      CARGO_TERM_COLOR: always
-      CARGO_TERM_PROGRESS_WHEN: never
-      # Apple silicon runners have 7 GB of memory: two compilers at a time.
-      CARGO_BUILD_JOBS: 2
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: macos-engine
-          save-if: ${{ github.ref == 'refs/heads/fork' }}
-      - name: Tagged engine tests
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/testlog"
-          tests=()
-          while IFS= read -r t; do tests+=(--test "$t"); done < <(
-            grep -o '^crates/engine/tests/[a-z0-9_]*\.rs' .fork/catalogue/covers.d/engine_typed.tsv | sed 's|.*/||; s|\.rs$||' | sort -u)
-          if [ ${#tests[@]} -eq 0 ]; then echo "no tagged engine test files" | tee "$RUNNER_TEMP/testlog/test-macos-engine.log"; exit 0; fi
-          cargo test --locked --no-fail-fast -p engine "${tests[@]}" 2>&1 | tee "$RUNNER_TEMP/testlog/test-macos-engine.log"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ !cancelled() }}
-        with:
-          name: testlog-macos-engine
-          path: ${{ runner.temp }}/testlog/
-          if-no-files-found: warn
-          retention-days: 7
-
-  # The same tagged engine tests on Linux: the component jobs run crates/engine/tests only on Windows, so without this
+  # The tagged engine tests (as in the macOS job) on Linux: the component jobs run crates/engine/tests only on Windows, so without this
   # none of those engine functions could be covered. Pushes, the schedule and manual runs only.
   linux-engine:
     name: Linux (tagged engine tests)
@@ -287,14 +252,7 @@ jobs:
           shared-key: linux-engine
           save-if: ${{ github.ref == 'refs/heads/fork' }}
       - name: Tagged engine tests
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/testlog"
-          tests=()
-          while IFS= read -r t; do tests+=(--test "$t"); done < <(
-            grep -o '^crates/engine/tests/[a-z0-9_]*\.rs' .fork/catalogue/covers.d/engine_typed.tsv | sed 's|.*/||; s|\.rs$||' | sort -u)
-          if [ ${#tests[@]} -eq 0 ]; then echo "no tagged engine test files" | tee "$RUNNER_TEMP/testlog/test-linux-engine.log"; exit 0; fi
-          cargo test --locked --no-fail-fast -p engine "${tests[@]}" 2>&1 | tee "$RUNNER_TEMP/testlog/test-linux-engine.log"
+        run: scripts/fork/tagged-engine-tests.sh "$RUNNER_TEMP/testlog/test-linux-engine.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
@@ -449,7 +407,7 @@ jobs:
   # check without results in "Progress counts".
   catalogue:
     name: Catalogue results
-    needs: [changes, build, macos, macos-engine, linux-engine]
+    needs: [changes, build, macos, linux-engine]
     if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -501,7 +459,7 @@ jobs:
             fi
             for f in "${found[@]}"; do logs+=(--libtest "$f"); done
           done
-          # The macOS jobs and the Linux engine job write logs the glob above does not single out: require each by name, or a lost
+          # The macOS job and the Linux engine job write logs the glob above does not single out: require each by name, or a lost
           # one would drop covered without an error.
           for f in test-macos.log test-macos-tagged.log test-macos-engine.log test-linux-engine.log; do
             if [ ! -f "$LOGS/$f" ]; then
@@ -560,7 +518,7 @@ jobs:
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, macos-engine, linux-engine, catalogue]
+    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -574,14 +532,14 @@ jobs:
           sparse-checkout: scripts/fork
 
       # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
-      # its override label is set), "Catalogue results" and the two tagged-engine-test jobs on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
+      # its override label is set), "Catalogue results" and the Linux tagged-engine-test job on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
       # when only documentation changed.
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue" or .key == "macos-engine" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.
