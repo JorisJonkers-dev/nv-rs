@@ -72,9 +72,9 @@
     "features.declared": 5,
     "features.done": 5,
     "features.reference": 92,
-    "native.families": 27,
+    "native.families": 30,
     "native.stage2_families": 1,
-    "native.typed": 1067
+    "native.typed": 1092
   },
   "engine_port": {
     "game_functions": 69459,
@@ -87,11 +87,14 @@
     "library": 16
   },
   "native_64bit": {
-    "typed": 1067,
+    "typed": 1092,
     "translated_by_hand": 47733,
     "families": [
+      "ai_queries",
       "anim_keys",
       "animation",
+      "archives",
+      "cell_refs",
       "collision",
       "crt",
       "culling",
