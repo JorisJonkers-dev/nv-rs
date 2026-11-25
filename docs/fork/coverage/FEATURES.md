@@ -4,17 +4,18 @@ Generated on fork by tally from `.fork/catalogue` (docs/fork/CATALOGUE.md). Do n
 
 | | Built | Has a test | Tested on some OSes | Tested on all OSes | Not built yet | Needs the game to test | Not needed | Works via the game's code |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **Total, except Engine functions** | 1970/3018 | 1100 | 1100 | 1091 | 1048 | 0 | 0 | 172 |
+| **Total, except Engine functions** | 1981/3020 | 1111 | 1111 | 1100 | 1039 | 0 | 0 | 172 |
 | **Direct3D 9 on wgpu** | 123/222 | 0 | 0 | 0 | 99 | 0 | 0 | 0 |
 | IDirect3DDevice9 methods on wgpu (`d3d9.methods`) | 80/119 | 0 | 0 | 0 | 39 | 0 | 0 | 0 |
 | Direct3D 9 render states on wgpu (`d3d9.states`) | 43/103 | 0 | 0 | 0 | 60 | 0 | 0 | 0 |
 | **Engine functions** | 69459/69459 | 27 | 27 | 26 | 0 | 0 | 29 | 0 |
 | FalloutNV.exe functions (`engine.functions`) | 69459/69459 | 27 | 27 | 26 | 0 | 0 | 29 | 0 |
-| **Script extender commands** | 1824/2468 | 1087 | 1087 | 1086 | 644 | 0 | 0 | 0 |
+| **Script extender commands** | 1835/2470 | 1098 | 1098 | 1095 | 635 | 0 | 0 | 0 |
+| AnhNVSE commands (`extenders.anh_nvse`) | 2/2 | 2 | 2 | 0 | 0 | 0 | 0 | 0 |
 | JIP LN NVSE commands (`extenders.jip_ln`) | 1117/1117 | 1034 | 1034 | 1034 | 0 | 0 | 0 | 0 |
-| JohnnyGuitar NVSE commands (`extenders.johnnyguitar`) | 20/412 | 20 | 20 | 20 | 392 | 0 | 0 | 0 |
+| JohnnyGuitar NVSE commands (`extenders.johnnyguitar`) | 23/412 | 23 | 23 | 23 | 389 | 0 | 0 | 0 |
 | kNVSE commands (`extenders.knvse`) | 1/59 | 1 | 1 | 0 | 58 | 0 | 0 | 0 |
-| ShowOff xNVSE commands (`extenders.showoff`) | 29/215 | 29 | 29 | 29 | 186 | 0 | 0 | 0 |
+| ShowOff xNVSE commands (`extenders.showoff`) | 35/215 | 35 | 35 | 35 | 180 | 0 | 0 | 0 |
 | lStewieAl's Tweaks commands (`extenders.stewie_tweaks`) | 0/8 | 0 | 0 | 0 | 8 | 0 | 0 | 0 |
 | Tale of Two Wastelands plugin (ttw_nvse) commands (`extenders.ttw_nvse`) | 3/3 | 3 | 3 | 3 | 0 | 0 | 0 | 0 |
 | xNVSE commands (`extenders.xnvse`) | 654/654 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
