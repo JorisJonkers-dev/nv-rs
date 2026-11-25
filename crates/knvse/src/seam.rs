@@ -11,10 +11,15 @@
 //! - The animation's controller manager made (`0048ffd0`, after it is stored) and the animation
 //!   torn down (`0048fb50`, after the manager is let go): the sequences kept for that animation are
 //!   forgotten and their models' references given back, so a rebuilt 3D or manager gets new ones.
+//! - Every frame ([`poll`], xNVSE's `MainGameLoop`): for each group that started with a polled
+//!   override among its candidates and still plays, the choice is made again; when it differs
+//!   from the sequence playing (the condition began or stopped holding), the group is started
+//!   again in its slot, so the seam's new answer, or the game's own sequence, takes over.
 
 use crate::{Cached, State};
 use engine_core::extend::{Owner, SiteSlot};
 use engine_core::prelude::*;
+use nvse::plugins::{msg, Message};
 
 /// The seam in `Animation::StartGroup`.
 pub const START_GROUP: SiteSlot = SiteSlot::new(Owner::Knvse, 0x0049_48c0);
@@ -33,6 +38,13 @@ const ANIMATION_ACTOR: u32 = 0x4;
 const ANIMATION_MANAGER: u32 = 0xd8;
 /// `TESForm +0xC`: the form id.
 const FORM_ID: u32 = 0xc;
+/// `Animation +0x4c`: the group playing in each of the 8 slots (`u16[8]`); `+0xe0`: the sequence
+/// playing in each (`BSAnimGroupSequence*[8]`).
+const ANIMATION_GROUPS: u32 = 0x4c;
+const ANIMATION_CURRENT_SEQUENCES: u32 = 0xe0;
+const SLOTS: u32 = 8;
+/// `Animation::StartGroup(group, slot)`, the function the seam is in.
+const ANIMATION_START_GROUP: u32 = 0x0049_48c0;
 
 /// `KFModel` getters: its sequence (+4) and its animation group (+8).
 pub(crate) const KF_MODEL_SEQUENCE: u32 = 0x007f_a950;
@@ -51,36 +63,123 @@ pub(crate) const ACCUM_ROOT_NAME: u32 = 0x011f_49e0;
 /// empty, for an animation of no actor or without a controller manager, and when no override
 /// answers (none for that actor, person and group, no condition holds, or no sequence could be
 /// made).
+/// A polled override among them, the group is watched while it plays ([`poll`]).
 pub fn start_group(e: &mut Engine, words: &[u32]) -> Option<u32> {
     if e.ext_free::<crate::Active>().count() == 0 {
         return None;
     }
     let (animation, group) = (words[0], words[1] as u16);
+    let (answer, polled) = choose(e, animation, group);
+    if polled {
+        let count = {
+            let watched = &mut e.ext::<State>().watched;
+            watched.insert((animation, group));
+            watched.len()
+        };
+        crate::set_watched(e, count);
+    }
+    answer
+}
+
+/// The sequence the overrides answer now for `animation`'s `group` (the first candidate whose
+/// condition holds and that has a sequence), and whether a candidate polls its condition.
+fn choose(e: &mut Engine, animation: u32, group: u16) -> (Option<u32>, bool) {
     let actor = e.mem.u32(animation + ANIMATION_ACTOR);
     if actor == 0 {
-        return None;
+        return (None, false);
     }
     let form_id = e.mem.u32(actor + FORM_ID);
     let player: u32 = e.global(PLAYER_SINGLETON);
     let first_person = player != 0
         && actor == player
         && e.call(PLAYER_GET_ANIMATION, &args![player, 1u32]).u32() == animation;
-    let candidates: Vec<(u32, u32)> = e
+    let candidates: Vec<(u32, u32, bool)> = e
         .ext::<State>()
         .store
         .candidates(form_id, first_person, group)
         .filter(|o| o.kf != 0)
-        .map(|o| (o.kf, o.condition))
+        .map(|o| (o.kf, o.condition, o.poll && o.condition != 0))
         .collect();
-    for (kf, condition) in candidates {
+    let polled = candidates.iter().any(|c| c.2);
+    for (kf, condition, _) in candidates {
         if condition != 0 && !condition_holds(e, condition, actor) {
             continue;
         }
         if let Some(sequence) = sequence_for(e, animation, kf) {
-            return Some(sequence);
+            return (Some(sequence), polled);
         }
     }
-    None
+    (None, polled)
+}
+
+/// Each watched group, once a frame: dropped when it no longer plays in any slot (or no longer
+/// has a polled candidate), else started again in its slot when the overrides' answer is not the
+/// sequence playing: a sequence they answer that does not play, or one of theirs playing that
+/// they no longer answer.
+pub fn poll(e: &mut Engine) {
+    if e.ext_free::<crate::Active>().watched() == 0 {
+        return;
+    }
+    let watched: Vec<(u32, u16)> = e.ext::<State>().watched.iter().copied().collect();
+    let mut gone = Vec::new();
+    for (animation, group) in watched {
+        let slot = (0..SLOTS).find(|i| e.mem.u16(animation + ANIMATION_GROUPS + 2 * i) == group);
+        let Some(slot) = slot else {
+            gone.push((animation, group));
+            continue;
+        };
+        let playing = e
+            .mem
+            .u32(animation + ANIMATION_CURRENT_SEQUENCES + 4 * slot);
+        let (wanted, polled) = if e.ext_free::<crate::Active>().count() == 0 {
+            (None, false)
+        } else {
+            choose(e, animation, group)
+        };
+        let ours = playing != 0
+            && e.ext::<State>()
+                .cache
+                .iter()
+                .any(|(&(a, _), c)| a == animation && c.sequence == playing);
+        let restart = match wanted {
+            Some(sequence) => sequence != playing,
+            None => ours,
+        };
+        if !polled {
+            gone.push((animation, group));
+        }
+        if restart {
+            e.call(
+                ANIMATION_START_GROUP,
+                &args![animation, u32::from(group), slot],
+            );
+        }
+    }
+    unwatch(e, |k| gone.contains(k));
+}
+
+/// Stops watching the groups `which` picks.
+fn unwatch(e: &mut Engine, which: impl Fn(&(u32, u16)) -> bool) {
+    let count = {
+        let watched = &mut e.ext::<State>().watched;
+        watched.retain(|k| !which(k));
+        watched.len()
+    };
+    crate::set_watched(e, count);
+}
+
+/// The plugin's listener: [`poll`] every frame; a load or the main menu ends every watch (the
+/// animations are torn down with their actors).
+pub fn listen(e: &mut Engine, m: &Message) {
+    match m.kind {
+        msg::MAIN_GAME_LOOP => poll(e),
+        msg::PRE_LOAD_GAME | msg::EXIT_TO_MAIN_MENU
+            if e.ext_free::<crate::Active>().watched() != 0 =>
+        {
+            unwatch(e, |_| true);
+        }
+        _ => {}
+    }
 }
 
 /// The sequence made from `kf` for `animation`: the one kept while the animation still has the
@@ -132,12 +231,15 @@ fn sequence_for(e: &mut Engine, animation: u32, kf: u32) -> Option<u32> {
 }
 
 /// The handler of the manager-made and torn-down seams: words `[animation]`. Forgets the
-/// sequences kept for that animation; answers nothing.
+/// sequences kept for that animation and stops watching its groups; answers nothing.
 pub fn forget_animation(e: &mut Engine, words: &[u32]) -> Option<u32> {
+    let animation = words[0];
+    if e.ext_free::<crate::Active>().watched() != 0 {
+        unwatch(e, |&(a, _)| a == animation);
+    }
     if e.ext_free::<crate::Active>().cached() == 0 {
         return None;
     }
-    let animation = words[0];
     forget(e, |&(a, _)| a == animation);
     None
 }

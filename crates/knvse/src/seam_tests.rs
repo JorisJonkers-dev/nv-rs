@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::store::{Key, Override, Target};
-use crate::test_support::{engine_as, kf_file, refs, WORLD};
+use crate::test_support::{engine_as, kf_file, play, playing, refs, started, GAME_SEQUENCE, WORLD};
+use nvse::plugins::{dispatch, msg};
 
 const PLAYER: u32 = 0x0303_9000;
 const NPC: u32 = 0x0303_9100;
@@ -45,6 +46,18 @@ fn ask(e: &mut Engine, animation: u32, group: u16) -> Option<u32> {
 /// A `.kf` model for `SPRINT` as the command would hold it (loaded: one manual reference) put on
 /// the stack of `target` and person for `owner`, with `condition`.
 fn put(e: &mut Engine, target: Target, first_person: bool, owner: u32, condition: u32) -> u32 {
+    put_with(e, target, first_person, owner, condition, false)
+}
+
+/// [`put`] with the poll flag given.
+fn put_with(
+    e: &mut Engine,
+    target: Target,
+    first_person: bool,
+    owner: u32,
+    condition: u32,
+    poll: bool,
+) -> u32 {
     let path = format!("mod{owner}\\sprint{}.kf", u8::from(first_person));
     let kf = kf_file(
         e,
@@ -67,7 +80,7 @@ fn put(e: &mut Engine, target: Target, first_person: bool, owner: u32, condition
             path: path.into_bytes(),
             kf,
             condition,
-            poll: false,
+            poll,
         },
     );
     kf
@@ -321,4 +334,124 @@ fn an_empty_store_calls_nothing_and_writes_nothing() {
         assert_eq!(e.call_log.take().unwrap(), []);
         assert_eq!(memory(&e), before);
     }
+}
+
+fn watched(e: &mut Engine) -> u32 {
+    e.ext_free::<crate::Active>().watched()
+}
+
+/// A polled condition is asked again every frame while its group plays: when it starts to hold
+/// the group is started again in its slot and the override plays; when it stops, again, and the
+/// game's own sequence plays. While the answer stays the same nothing is started.
+#[test]
+fn a_polled_condition_switches_the_playing_group_both_ways() {
+    let mut e = engine(true);
+    put_with(&mut e, Target::Every, false, 1, LAMBDA, true);
+    holds(&[]);
+    assert_eq!(play(&mut e, THIRD, SPRINT, 0), GAME_SEQUENCE);
+    assert_eq!(watched(&mut e), 1);
+    poll(&mut e);
+    assert!(started().is_empty(), "the answer did not change");
+    holds(&[LAMBDA]);
+    poll(&mut e);
+    assert_eq!(started(), [[THIRD, u32::from(SPRINT), 0]]);
+    let ours = playing(&e, THIRD, 0);
+    assert_ne!(ours, GAME_SEQUENCE);
+    assert_eq!(built().len(), 1);
+    poll(&mut e);
+    assert!(started().is_empty());
+    holds(&[]);
+    poll(&mut e);
+    assert_eq!(started(), [[THIRD, u32::from(SPRINT), 0]]);
+    assert_eq!(playing(&e, THIRD, 0), GAME_SEQUENCE);
+    assert_eq!(watched(&mut e), 1, "still playing");
+}
+
+/// The group is found in whatever slot it plays in, and one override taking another's place on
+/// the stack while it plays is started too.
+#[test]
+fn polling_follows_the_slot_and_the_stack() {
+    let mut e = engine(true);
+    put_with(&mut e, Target::Every, false, 1, LAMBDA, true);
+    holds(&[LAMBDA]);
+    let first = play(&mut e, NPC_ANIMATION, SPRINT, 3);
+    assert_ne!(first, GAME_SEQUENCE);
+    put_with(&mut e, Target::Actor(NPC_ID), false, 2, LAMBDA_2, true);
+    holds(&[LAMBDA, LAMBDA_2]);
+    poll(&mut e);
+    assert_eq!(started(), [[NPC_ANIMATION, u32::from(SPRINT), 3]]);
+    assert_ne!(playing(&e, NPC_ANIMATION, 3), first);
+}
+
+/// Without the poll flag, or a polled flag without a condition, nothing is watched: the
+/// condition is asked at the start only.
+#[test]
+fn an_unpolled_condition_is_asked_at_the_start_only() {
+    let mut e = engine(true);
+    put_with(&mut e, Target::Every, false, 1, LAMBDA, false);
+    put_with(&mut e, Target::Actor(NPC_ID), false, 2, 0, true);
+    holds(&[]);
+    play(&mut e, THIRD, SPRINT, 0);
+    play(&mut e, NPC_ANIMATION, SPRINT, 0);
+    assert_eq!(watched(&mut e), 0);
+    conditions_asked();
+    holds(&[LAMBDA]);
+    poll(&mut e);
+    assert!(conditions_asked().is_empty());
+    assert!(started().is_empty());
+}
+
+/// A watch ends when its group no longer plays in any slot, when the animation is torn down or
+/// its manager made again, on a load and on the way to the main menu; with none left a frame
+/// asks nothing.
+#[test]
+fn a_watch_ends_with_its_group_or_its_animation() {
+    let mut e = engine(true);
+    put_with(&mut e, Target::Every, false, 1, LAMBDA, true);
+    holds(&[]);
+    play(&mut e, THIRD, SPRINT, 0);
+    play(&mut e, NPC_ANIMATION, SPRINT, 0);
+    assert_eq!(watched(&mut e), 2);
+    // Another group takes the third-person animation's slot.
+    play(&mut e, THIRD, SPRINT + 1, 0);
+    conditions_asked();
+    poll(&mut e);
+    assert_eq!(watched(&mut e), 1);
+    assert_eq!(
+        conditions_asked(),
+        [(LAMBDA, NPC)],
+        "only the group still playing"
+    );
+    e.site(0x0048_fb50, &[NPC_ANIMATION]);
+    assert_eq!(watched(&mut e), 0);
+    play(&mut e, NPC_ANIMATION, SPRINT, 0);
+    e.site(0x0048_ffd0, &[NPC_ANIMATION]);
+    assert_eq!(watched(&mut e), 0);
+    for kind in [msg::PRE_LOAD_GAME, msg::EXIT_TO_MAIN_MENU] {
+        play(&mut e, NPC_ANIMATION, SPRINT, 0);
+        assert_eq!(watched(&mut e), 1);
+        dispatch(&mut e, kind, 0, 0);
+        assert_eq!(watched(&mut e), 0, "{kind}");
+    }
+    conditions_asked();
+    holds(&[LAMBDA]);
+    poll(&mut e);
+    assert!(conditions_asked().is_empty());
+    assert!(started().is_empty());
+}
+
+/// The plugin's listener polls on xNVSE's frame message; off, nothing listens.
+#[test]
+fn the_frame_message_polls() {
+    let mut e = engine(true);
+    put_with(&mut e, Target::Every, false, 1, LAMBDA, true);
+    holds(&[]);
+    play(&mut e, THIRD, SPRINT, 0);
+    holds(&[LAMBDA]);
+    dispatch(&mut e, msg::MAIN_GAME_LOOP, 0, 0);
+    assert_eq!(started(), [[THIRD, u32::from(SPRINT), 0]]);
+    let mut off = engine(false);
+    put_with(&mut off, Target::Every, false, 1, LAMBDA, true);
+    dispatch(&mut off, msg::MAIN_GAME_LOOP, 0, 0);
+    assert!(started().is_empty());
 }
