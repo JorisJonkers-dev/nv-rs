@@ -29,7 +29,8 @@ pub struct Key {
 pub struct Override {
     /// Who set it: the mod index of the calling script's form.
     pub owner: u32,
-    /// The `.kf` file or folder, lower case with `\` separators, as the mod gave it.
+    /// The `.kf` file or folder the mod gave, as [`normal_path`] keeps it (lower case, `\`
+    /// separators).
     pub path: Vec<u8>,
     /// The sequence (`BSAnimGroupSequence`) started in place of the group's; 0 while none is
     /// loaded, which answers nothing.

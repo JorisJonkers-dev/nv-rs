@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
-use fork_catalogue::{covers, ids};
 
 const ACTOR: u32 = 0x0010_0abc;
 const OTHER: u32 = 0x0010_0def;
@@ -24,7 +23,6 @@ fn entry(owner: u32, path: &str, sequence: u32) -> Override {
 
 #[test]
 fn an_empty_store_answers_nothing() {
-    covers(&[ids::extenders::knvse::SETACTORANIMATIONPATH]);
     let store = Store::default();
     assert!(store.is_empty());
     assert_eq!(store.len(), 0);
@@ -36,7 +34,6 @@ fn an_empty_store_answers_nothing() {
 /// An override answers for its actor, person and group only.
 #[test]
 fn an_override_answers_for_its_actor_person_and_group_only() {
-    covers(&[ids::extenders::knvse::SETACTORANIMATIONPATH]);
     let mut store = Store::default();
     store.enable(
         key(Target::Actor(ACTOR), false),
@@ -59,7 +56,6 @@ fn an_override_answers_for_its_actor_person_and_group_only() {
 /// older empties the stack.
 #[test]
 fn overrides_stack_and_unstack() {
-    covers(&[ids::extenders::knvse::SETACTORANIMATIONPATH]);
     let mut store = Store::default();
     let k = key(Target::Actor(ACTOR), true);
     store.enable(k, entry(1, "one\\sprint.kf", 0x50));
@@ -77,7 +73,6 @@ fn overrides_stack_and_unstack() {
 /// did not set removes nothing.
 #[test]
 fn disabling_takes_only_that_owners_entry_for_that_path() {
-    covers(&[ids::extenders::knvse::SETACTORANIMATIONPATH]);
     let mut store = Store::default();
     let k = key(Target::Actor(ACTOR), false);
     store.enable(k, entry(1, "one\\sprint.kf", 0x50));
@@ -93,7 +88,6 @@ fn disabling_takes_only_that_owners_entry_for_that_path() {
 /// path is matched without case and with either slash.
 #[test]
 fn enabling_again_moves_the_entry_to_the_top() {
-    covers(&[ids::extenders::knvse::SETACTORANIMATIONPATH]);
     let mut store = Store::default();
     let k = key(Target::Actor(ACTOR), false);
     store.enable(k, entry(1, "One/Sprint.KF", 0x50));
@@ -111,7 +105,6 @@ fn enabling_again_moves_the_entry_to_the_top() {
 /// first.
 #[test]
 fn an_actors_own_override_comes_before_every_actors() {
-    covers(&[ids::extenders::knvse::SETACTORANIMATIONPATH]);
     let mut store = Store::default();
     store.enable(key(Target::Every, false), entry(1, "all\\sprint.kf", 0x50));
     assert_eq!(
@@ -135,7 +128,6 @@ fn an_actors_own_override_comes_before_every_actors() {
 
 #[test]
 fn clearing_empties_every_stack() {
-    covers(&[ids::extenders::knvse::SETACTORANIMATIONPATH]);
     let mut store = Store::default();
     store.enable(key(Target::Every, false), entry(1, "a.kf", 0x50));
     store.enable(key(Target::Actor(ACTOR), true), entry(2, "b.kf", 0x60));

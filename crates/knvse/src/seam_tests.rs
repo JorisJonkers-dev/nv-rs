@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::store::{Key, Override, Target};
-use fork_catalogue::{covers, ids};
 
 const PLAYER: u32 = 0x0300_0000;
 const NPC: u32 = 0x0300_0100;
@@ -59,10 +58,6 @@ fn enable(e: &mut Engine, target: Target, first_person: bool, owner: u32, sequen
 /// the game's own path.
 #[test]
 fn the_seam_answers_nothing_while_the_store_is_empty_or_the_plugin_is_off() {
-    covers(&[
-        ids::extenders::knvse::SETACTORANIMATIONPATH,
-        ids::engine::functions::F004948C0,
-    ]);
     let mut e = engine(true);
     assert_eq!(e.ext_free::<crate::Active>().count(), 0);
     for animation in [FIRST, THIRD, NPC_ANIMATION, NO_ACTOR] {
@@ -80,10 +75,6 @@ fn the_seam_answers_nothing_while_the_store_is_empty_or_the_plugin_is_off() {
 /// NPC's take third-person ones, each for the actor set; another group answers nothing.
 #[test]
 fn the_seam_answers_the_override_for_the_actor_and_person() {
-    covers(&[
-        ids::extenders::knvse::SETACTORANIMATIONPATH,
-        ids::engine::functions::F004948C0,
-    ]);
     let mut e = engine(true);
     enable(&mut e, Target::Actor(PLAYER_ID), true, 1, 0x50);
     assert_eq!(ask(&mut e, FIRST, SPRINT), Some(0x50));
@@ -107,10 +98,6 @@ fn the_seam_answers_the_override_for_the_actor_and_person() {
 /// an override whose sequence is not loaded answers nothing; clearing empties the count.
 #[test]
 fn the_seam_follows_the_stack() {
-    covers(&[
-        ids::extenders::knvse::SETACTORANIMATIONPATH,
-        ids::engine::functions::F004948C0,
-    ]);
     let mut e = engine(true);
     enable(&mut e, Target::Actor(NPC_ID), false, 1, 0x50);
     enable(&mut e, Target::Actor(NPC_ID), false, 2, 0x60);
@@ -134,8 +121,39 @@ fn the_seam_follows_the_stack() {
 /// A second install does nothing (one handler at the seam).
 #[test]
 fn installing_twice_registers_the_seam_once() {
-    covers(&[ids::extenders::knvse::SETACTORANIMATIONPATH]);
     let mut e = engine(true);
     crate::install_as(&mut e, true);
     assert_eq!(e.site_owners(0x0049_48c0), [Owner::Knvse]);
+}
+
+/// Regression guard (nv-rs#865): installed with an empty store, fresh or emptied again, the
+/// handler answers nothing, calls nothing and leaves every mapped byte as it was, so
+/// `Animation::StartGroup` goes on along the exe's path.
+#[test]
+fn an_empty_store_calls_nothing_and_writes_nothing() {
+    let fresh = engine(true);
+    let emptied = {
+        let mut e = engine(true);
+        enable(&mut e, Target::Actor(NPC_ID), false, 1, 0x50);
+        enable(&mut e, Target::Every, true, 2, 0x60);
+        crate::clear(&mut e);
+        e
+    };
+    for mut e in [fresh, emptied] {
+        let memory = |e: &Engine| {
+            (
+                e.mem.bytes(0x011d_e000, 0x1000),
+                e.mem.bytes(0x0300_0000, 0x1000),
+            )
+        };
+        let before = memory(&e);
+        e.call_log = Some(vec![]);
+        for animation in [FIRST, THIRD, NPC_ANIMATION, NO_ACTOR] {
+            for group in [SPRINT, 0, 0xfe] {
+                assert_eq!(ask(&mut e, animation, group), None);
+            }
+        }
+        assert_eq!(e.call_log.take().unwrap(), []);
+        assert_eq!(memory(&e), before);
+    }
 }

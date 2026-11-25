@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Engine functions proven by the tests of kNVSE's animation-path seam in upstream-owned files (so tagged here;
+# docs/fork/CATALOGUE.md). Each test starts groups through Animation::StartGroup and asserts its calls, answer and
+# the animation's memory.
+test	covers
+crates/engine-fallout-cell/src/units/fallout_shared/animation.rs::start_group_without_an_override_is_the_exes_path	engine.functions.f004948c0
+crates/engine-fallout-cell/src/units/fallout_shared/animation.rs::start_group_starts_the_overrides_sequence	engine.functions.f004948c0
