@@ -109,3 +109,21 @@ id = "setweaponvatstraitnumeric"
 title = "SetWeaponVATSTraitNumeric"
 status = "implemented"
 ref = ["johnnyguitar:setweaponvatstraitnumeric"]
+
+[[item]]
+id = "getpipboymode"
+title = "GetPipBoyMode"
+status = "implemented"
+ref = ["johnnyguitar:getpipboymode"]
+
+[[item]]
+id = "getactorvaluealt"
+title = "GetActorValueAlt"
+status = "implemented"
+ref = ["johnnyguitar:getactorvaluealt"]
+
+[[item]]
+id = "getthresholdedactorvalue"
+title = "GetThresholdedActorValue"
+status = "implemented"
+ref = ["johnnyguitar:getthresholdedactorvalue"]

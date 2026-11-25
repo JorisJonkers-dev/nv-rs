@@ -59,6 +59,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: ONE_OPTIONAL_FORM,
         execute: get_editor_id,
         eval: None,
+        needs_ref: false,
         returns: Returns::String,
     },
     Cmd {
@@ -68,6 +69,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: ONE_FORM,
         execute: get_form_override_index,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     },
     Cmd {
@@ -77,6 +79,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: ONE_STRING,
         execute: editor_id_to_form_id,
         eval: None,
+        needs_ref: false,
         returns: Returns::Form,
     },
 ];

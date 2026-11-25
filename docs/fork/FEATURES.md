@@ -53,6 +53,7 @@ What `modern` turns on, each also adjustable on its own:
 | Lamp light distance | Lamps, street lights and lit signs light their surroundings from further away. |
 | Water reflections | Every outdoor lake and river (Lake Mead, the Colorado below Hoover Dam, the Potomac) mirrors the land, buildings and statics around it, not only the sky. |
 | Anisotropic filtering | Textures seen at a grazing angle (roads, fences, roofs) stay sharp; `modern` uses x16. |
+| Smooth gradients | The night sky, fog and sunsets show no hard colour bands: the frame is kept finer than 8 bits until it is shown, then spread into a fine, fixed grain. |
 
 <p align="center">
   <img src="images/graphics-lake-mead-water.jpg" alt="Lake Mead side by side: on the left the game's water mirrors only the sky, on the right the hills, the island and the piers are mirrored in their colours" width="100%">
@@ -66,7 +67,7 @@ What `modern` turns on, each also adjustable on its own:
   (left), and forced x16 anisotropic filtering as <code>modern</code> sets it (right).</em>
 </p>
 
-Lamp light distance, water reflections and anisotropic filtering are on the `fork` branch and come with the next
+Lamp light distance, water reflections, anisotropic filtering and smooth gradients are on the `fork` branch and come with the next
 release after v0.24.0; the other settings are in v0.24.0.
 
 ## More

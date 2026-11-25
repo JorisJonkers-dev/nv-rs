@@ -29,3 +29,4 @@ placed_reflections = "high"
 
 [global.textures]
 anisotropy = "x16"
+dither = true

@@ -33,6 +33,7 @@ pub mod bright;
 mod budget;
 mod cache;
 pub mod device;
+pub mod dither;
 mod ffp;
 #[cfg(test)]
 mod fingerprint;

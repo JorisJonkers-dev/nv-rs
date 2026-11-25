@@ -17,8 +17,9 @@
 //!   the Stats menu. [`math`]: `Clamp`, `Lerp` and `Sign`, written from the plugin's wiki pages
 //!   (`provenance/01-math.md`); [`lookups`]: `EditorIDToFormID` and `GetEditorID`
 //!   (`provenance/02-lookups.md`); [`form_traits`]: the base effect, interior lighting and weapon
-//!   V.A.T.S. traits (`provenance/03-form-traits.md`). Every other command of the plugin is not
-//!   built.
+//!   V.A.T.S. traits (`provenance/03-form-traits.md`); [`game_reads`]: `GetPipBoyMode`,
+//!   `GetThresholdedActorValue` and `GetActorValueAlt` (`provenance/04-game-reads.md`). Every other
+//!   command of the plugin is not built.
 //!
 //! The plugin answers "installed" only together with those commands ([`install_as`]): a mod that
 //! checks for it and needs another command then fails at that line. Off ([`ANSWERS_INSTALLED`],
@@ -28,6 +29,7 @@
 pub mod commands;
 pub mod cosave;
 pub mod form_traits;
+pub mod game_reads;
 pub mod identity;
 pub mod lookups;
 pub mod math;
@@ -61,7 +63,7 @@ pub fn set_answers_installed(e: &mut Engine, on: bool) {
 }
 
 /// The long names of the commands this crate builds, for the capabilities report.
-pub const COMMAND_NAMES: [&str; 17] = [
+pub const COMMAND_NAMES: [&str; 20] = [
     "GetQuestFailed",
     "IsDLLLoaded",
     "GetExtraMiscStat",
@@ -79,6 +81,9 @@ pub const COMMAND_NAMES: [&str; 17] = [
     "SetInteriorLightingTraitNumeric",
     "GetWeaponVATSTraitNumeric",
     "SetWeaponVATSTraitNumeric",
+    "GetPipBoyMode",
+    "GetActorValueAlt",
+    "GetThresholdedActorValue",
 ];
 
 /// Builds the plugin into the engine, after xNVSE, when it answers "installed"
