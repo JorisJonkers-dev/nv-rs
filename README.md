@@ -35,6 +35,12 @@ An engine is the program that runs a game: it draws the world and runs its rules
 </p>
 
 <p align="center">
+  <img src="docs/fork/images/graphics-primm-lamps.jpg" alt="Primm at night seen from a hill, side by side: on the left the street lamps light almost nothing, on the right they light pools on the streets and squares" width="100%">
+  <br><em>Primm at night: lamps that fade out close by (left), and the <code>modern</code> preset (right), where every
+  street lamp around you lights its ground.</em>
+</p>
+
+<p align="center">
   <img src="docs/fork/images/graphics-dither-dusk.jpg" alt="A sunset over the Mojave side by side, each with a contrast-stretched inset of the sky: hard steps on the left, a smooth fine grain on the right" width="100%">
   <br><em>Sunsets and the night sky: 8-bit colour bands (left) and the smooth last step of <code>modern</code> (right).</em>
 </p>
