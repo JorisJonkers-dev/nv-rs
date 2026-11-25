@@ -1,18 +1,19 @@
 {
   "schema": "tally-report.v1",
-  "tool": "tally 0.5.0",
+  "tool": "tally 0.7.0",
   "repo": "nv-rs",
   "results": true,
   "totals": {
-    "total": 72241,
-    "missing": 831,
-    "implemented": 71410,
-    "tagged": 120,
-    "passing": 120,
-    "covered": 0,
+    "total": 72455,
+    "missing": 1037,
+    "implemented": 71418,
+    "tagged": 1115,
+    "passing": 1115,
+    "covered": 1088,
     "gated": 0,
     "not_applicable": 29,
-    "deferred": 0
+    "deferred": 0,
+    "works": 172
   },
   "headline": {
     "title": "All areas except Engine functions",
@@ -20,15 +21,16 @@
       "engine"
     ],
     "counts": {
-      "total": 2782,
-      "missing": 831,
-      "implemented": 1951,
-      "tagged": 120,
-      "passing": 120,
-      "covered": 0,
+      "total": 2996,
+      "missing": 1037,
+      "implemented": 1959,
+      "tagged": 1088,
+      "passing": 1088,
+      "covered": 1088,
       "gated": 0,
       "not_applicable": 0,
-      "deferred": 0
+      "deferred": 0,
+      "works": 172
     }
   },
   "areas": [
@@ -88,8 +90,8 @@
         "total": 69459,
         "missing": 0,
         "implemented": 69459,
-        "tagged": 0,
-        "passing": 0,
+        "tagged": 27,
+        "passing": 27,
         "covered": 0,
         "gated": 0,
         "not_applicable": 29,
@@ -104,8 +106,8 @@
             "total": 69459,
             "missing": 0,
             "implemented": 69459,
-            "tagged": 0,
-            "passing": 0,
+            "tagged": 27,
+            "passing": 27,
             "covered": 0,
             "gated": 0,
             "not_applicable": 29,
@@ -119,11 +121,11 @@
       "title": "Script extender commands",
       "counts": {
         "total": 2468,
-        "missing": 645,
-        "implemented": 1823,
-        "tagged": 120,
-        "passing": 120,
-        "covered": 0,
+        "missing": 644,
+        "implemented": 1824,
+        "tagged": 1086,
+        "passing": 1086,
+        "covered": 1086,
         "gated": 0,
         "not_applicable": 0,
         "deferred": 0
@@ -137,9 +139,9 @@
             "total": 1117,
             "missing": 0,
             "implemented": 1117,
-            "tagged": 68,
-            "passing": 68,
-            "covered": 0,
+            "tagged": 1034,
+            "passing": 1034,
+            "covered": 1034,
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0
@@ -155,7 +157,7 @@
             "implemented": 20,
             "tagged": 20,
             "passing": 20,
-            "covered": 0,
+            "covered": 20,
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0
@@ -167,8 +169,8 @@
           "origin": "original",
           "counts": {
             "total": 59,
-            "missing": 59,
-            "implemented": 0,
+            "missing": 58,
+            "implemented": 1,
             "tagged": 0,
             "passing": 0,
             "covered": 0,
@@ -187,7 +189,7 @@
             "implemented": 29,
             "tagged": 29,
             "passing": 29,
-            "covered": 0,
+            "covered": 29,
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0
@@ -219,7 +221,7 @@
             "implemented": 3,
             "tagged": 3,
             "passing": 3,
-            "covered": 0,
+            "covered": 3,
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0
@@ -239,6 +241,357 @@
             "gated": 0,
             "not_applicable": 0,
             "deferred": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "features",
+      "title": "Engine features",
+      "counts": {
+        "total": 214,
+        "missing": 207,
+        "implemented": 7,
+        "tagged": 2,
+        "passing": 2,
+        "covered": 2,
+        "gated": 0,
+        "not_applicable": 0,
+        "deferred": 0,
+        "works": 172
+      },
+      "share": {
+        "items": 172,
+        "done": 0.023423,
+        "works": 0.976577
+      },
+      "groups": [
+        {
+          "id": "features.actors",
+          "title": "Actors and animation",
+          "origin": "original",
+          "counts": {
+            "total": 19,
+            "missing": 19,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 19
+          },
+          "share": {
+            "items": 19,
+            "done": 0.017194,
+            "works": 0.982806
+          }
+        },
+        {
+          "id": "features.audio",
+          "title": "Audio and dialogue",
+          "origin": "original",
+          "counts": {
+            "total": 6,
+            "missing": 6,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 6
+          },
+          "share": {
+            "items": 6,
+            "done": 0.007758,
+            "works": 0.992242
+          }
+        },
+        {
+          "id": "features.backend",
+          "title": "Rendering backend (wgpu and Vulkan)",
+          "origin": "ours",
+          "counts": {
+            "total": 15,
+            "missing": 10,
+            "implemented": 5,
+            "tagged": 2,
+            "passing": 2,
+            "covered": 2,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "features.bit64",
+          "title": "64-bit readiness",
+          "origin": "ours",
+          "counts": {
+            "total": 11,
+            "missing": 9,
+            "implemented": 2,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "features.combat",
+          "title": "Combat",
+          "origin": "original",
+          "counts": {
+            "total": 8,
+            "missing": 8,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 8
+          },
+          "share": {
+            "items": 8,
+            "done": 0.000531,
+            "works": 0.999469
+          }
+        },
+        {
+          "id": "features.data",
+          "title": "Data, plugins and saves",
+          "origin": "original",
+          "counts": {
+            "total": 7,
+            "missing": 7,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 7
+          },
+          "share": {
+            "items": 7,
+            "done": 0.011368,
+            "works": 0.988632
+          }
+        },
+        {
+          "id": "features.direct3d",
+          "title": "Direct3D 9 roll-ups",
+          "origin": "ours",
+          "counts": {
+            "total": 2,
+            "missing": 2,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "features.gameplay",
+          "title": "Gameplay systems",
+          "origin": "original",
+          "counts": {
+            "total": 15,
+            "missing": 15,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 15
+          },
+          "share": {
+            "items": 15,
+            "done": 0.002877,
+            "works": 0.997123
+          }
+        },
+        {
+          "id": "features.navigation",
+          "title": "Navigation and pathfinding",
+          "origin": "original",
+          "counts": {
+            "total": 9,
+            "missing": 9,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 9
+          },
+          "share": {
+            "items": 9,
+            "done": 0.055778,
+            "works": 0.944222
+          }
+        },
+        {
+          "id": "features.physics",
+          "title": "Physics and collision",
+          "origin": "original",
+          "counts": {
+            "total": 6,
+            "missing": 6,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 6
+          },
+          "share": {
+            "items": 6,
+            "done": 0.003832,
+            "works": 0.996168
+          }
+        },
+        {
+          "id": "features.platform",
+          "title": "Platform services",
+          "origin": "original",
+          "counts": {
+            "total": 10,
+            "missing": 10,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 10
+          },
+          "share": {
+            "items": 10,
+            "done": 0.007224,
+            "works": 0.992777
+          }
+        },
+        {
+          "id": "features.rendering",
+          "title": "Rendering",
+          "origin": "original",
+          "counts": {
+            "total": 40,
+            "missing": 40,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 40
+          },
+          "share": {
+            "items": 40,
+            "done": 0.057881,
+            "works": 0.942119
+          }
+        },
+        {
+          "id": "features.scripting",
+          "title": "Scripting",
+          "origin": "original",
+          "counts": {
+            "total": 6,
+            "missing": 6,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 6
+          },
+          "share": {
+            "items": 6,
+            "done": 0.033781,
+            "works": 0.966219
+          }
+        },
+        {
+          "id": "features.threading",
+          "title": "Multi-threading",
+          "origin": "ours",
+          "counts": {
+            "total": 14,
+            "missing": 14,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0
+          }
+        },
+        {
+          "id": "features.ui",
+          "title": "Menus and HUD",
+          "origin": "original",
+          "counts": {
+            "total": 25,
+            "missing": 25,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 25
+          },
+          "share": {
+            "items": 25,
+            "done": 0.006912,
+            "works": 0.993088
+          }
+        },
+        {
+          "id": "features.world",
+          "title": "World",
+          "origin": "original",
+          "counts": {
+            "total": 21,
+            "missing": 21,
+            "implemented": 0,
+            "tagged": 0,
+            "passing": 0,
+            "covered": 0,
+            "gated": 0,
+            "not_applicable": 0,
+            "deferred": 0,
+            "works": 21
+          },
+          "share": {
+            "items": 21,
+            "done": 0.011457,
+            "works": 0.988543
           }
         }
       ]

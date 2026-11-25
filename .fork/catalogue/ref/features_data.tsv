@@ -1,0 +1,8 @@
+key	title	group
+texture_swaps	Texture swaps	data
+forms	Form records and form lists	data
+data_handler	Plugin loading (data handler)	data
+archives	Archives (BSA) and files	data
+ni_files	Model file reading	data
+save_buffers	Save and load buffers	data
+save_game	Save games	data

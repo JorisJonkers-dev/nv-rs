@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="108" viewBox="0 0 800 108" role="img" aria-label="Engine features: 5 of 92 graphics plan capabilities done, 0 more declared by a setting without a test">
-  <title>ENGINE FEATURES</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="108" viewBox="0 0 800 108" role="img" aria-label="Graphics plan: 5 of 92 graphics plan capabilities done, 0 more declared by a setting without a test">
+  <title>GRAPHICS PLAN</title>
   <rect x="0" y="0" width="800" height="108" rx="10" fill="#14110b"/>
-  <text x="20" y="30" font-family="Consolas, 'Courier New', monospace" font-size="15" fill="#f2c14e">ENGINE FEATURES</text>
+  <text x="20" y="30" font-family="Consolas, 'Courier New', monospace" font-size="15" fill="#f2c14e">GRAPHICS PLAN</text>
   <text x="20" y="58" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#d9c9a3">Graphics plan capabilities (docs/fork/graphics-features.tsv)</text>
   <text x="780" y="58" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#f2c14e">5 of 92 done</text>
   <clipPath id="c0"><rect x="20" y="66" width="760" height="12" rx="4"/></clipPath>

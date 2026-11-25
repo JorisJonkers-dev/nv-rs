@@ -24,8 +24,8 @@
 //! `cargo run --release --manifest-path scripts/ledger/Cargo.toml -- --tsv FILE`.
 
 use progress::{
-    baseline_counts, catalogue, counts, drops, measure, pins, render, render_summary, report,
-    Inputs,
+    baseline_counts, catalogue, counts, drops, engine_features, measure, pins, render,
+    render_summary, report, Inputs,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -118,7 +118,9 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                 }
             }
             if let Some(f) = flag(args, "--evidence") {
-                std::fs::write(f, catalogue::evidence(&p)).map_err(|e| format!("{f}: {e}"))?;
+                let (_, features) = engine_features::read(&root, &tsv)?;
+                std::fs::write(f, catalogue::evidence(&p, &features))
+                    .map_err(|e| format!("{f}: {e}"))?;
             }
             if !stale.is_empty() {
                 for s in &stale {

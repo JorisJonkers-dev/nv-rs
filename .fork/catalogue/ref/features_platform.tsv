@@ -1,0 +1,11 @@
+key	title	group
+main_loop	Main loop and start-up	platform
+memory	Memory heaps and pools	platform
+threads_tasks	Threads and background tasks	platform
+timers	Timers and random numbers	platform
+settings	Settings (INI and game settings)	platform
+input	Input devices	platform
+movies	Movie playback	platform
+screenshots	Screenshots	platform
+system_utilities	System services (saves, DLC, profile)	platform
+messages	Engine messages	platform

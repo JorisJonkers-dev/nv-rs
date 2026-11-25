@@ -9,7 +9,7 @@ name = "nv-rs"
 
 [scan]
 # Fork-owned code only: a test in a file upstream owns is tagged from covers.d/ instead.
-paths = ["crates/fork-catalogue", "crates/fork-gfx", "crates/jg", "crates/showoff", "crates/ttw-nvse"]
+paths = ["crates/fork-catalogue", "crates/fork-gfx", "crates/jg", "crates/knvse", "crates/showoff", "crates/ttw-nvse"]
 
 # Tests in files upstream owns are tagged from covers maps: one TSV per extender or topic (docs/fork/CATALOGUE.md).
 [[map]]
@@ -19,6 +19,11 @@ files = ".fork/catalogue/covers.d/*.tsv"
 # reports leaves it out so the other areas stay readable (the JSON totals and the ratchet still count it).
 [report]
 leave_out_of_total = ["engine"]
+# Engine features that are not yet native typed code still work, through the translation of the game's own code
+# (docs/fork/ENGINE-FEATURES.md): the bar shows them as their own segment, and a second bar the average native share.
+works_label = "works via the game's code"
+share_label = "native"
+
 
 [ids]
 generator = ".fork/catalogue/tally_ids_gen.rs"
@@ -28,6 +33,7 @@ extenders = "Script extender commands"
 d3d9 = "Direct3D 9 on wgpu"
 gfx = "Graphics features"
 engine = "Engine functions"
+features = "Engine features"
 
 # The script commands each built-in extender implements (scripts/fork/release-files writes the file).
 [[evidence]]
@@ -48,3 +54,16 @@ path = "target/catalogue/evidence.tsv"
 status_column = "state"
 implemented = ["implemented", "partial"]
 groups = ["d3d9.methods", "d3d9.states", "gfx.features"]
+
+# The engine features (docs/fork/ENGINE-FEATURES.md), read from the ledger and the unit map by the same command:
+# implemented only when every function is native typed code, else `translated` (it works through the translation of
+# the game's own code: the grey-blue segment), with the share native/translated/total in functions (the second
+# bar); and the two Direct3D 9 roll-ups.
+[[evidence]]
+kind = "tsv"
+path = "target/catalogue/evidence.tsv"
+status_column = "state"
+implemented = ["implemented"]
+works = ["translated"]
+share_column = "share"
+groups = ["features.rendering", "features.world", "features.navigation", "features.actors", "features.combat", "features.gameplay", "features.ui", "features.audio", "features.scripting", "features.data", "features.physics", "features.platform", "features.direct3d"]

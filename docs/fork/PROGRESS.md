@@ -2,13 +2,22 @@
 
 The fork's progress bars, in the look of upstream's `docs/media/progress.svg`:
 
+<p align="center">
+  <img src="../media/fork-progress-engine.svg" alt="Progress of the engine port" width="100%">
+  <img src="../media/fork-progress-extenders.svg" alt="Progress of the built-in script extenders" width="100%">
+  <img src="../media/fork-progress-features.svg" alt="Progress of the engine's graphics features" width="100%">
+</p>
+
+The README shows the coverage catalogue's picture instead (`docs/fork/coverage/tally.svg`, docs/fork/CATALOGUE.md),
+which counts tests by system.
+
 | Picture | What it counts |
 | --- | --- |
 | `docs/media/fork-progress-engine.svg` | The engine port: FalloutNV.exe 1.4.0.525's game functions, split as upstream's bar splits them |
 | `docs/media/fork-progress-native.svg` | Native 64-bit code: typed functions (ADR-0014 stage 1) and typed families with a stage-2 store |
 | `docs/media/fork-progress-d3d9.svg` | Direct3D 9 on wgpu (Vulkan on Linux and Windows, Metal on macOS): device methods and render states |
 | `docs/media/fork-progress-extenders.svg` | The built-in script extenders' commands: tested, built without a test, not built |
-| `docs/media/fork-progress-features.svg` | Engine features: the graphics plan's capabilities, done, declared without a test, open |
+| `docs/media/fork-progress-features.svg` | Graphics plan: its capabilities, done, declared without a test, open |
 
 Every number comes from the code and from reference lists read from pinned outside sources. No file holds a count kept
 by hand. The pictures are drawn from the summary `docs/media/fork-progress.json` alone. The summary also lists every
@@ -64,7 +73,8 @@ as `chore(progress): ... [skip ci]`.
   A file that names more than 200 of one extender's commands counts as a list and tests none of them. The tests must
   pass for a pull request to merge; the tool does not run them again.
 
-**Engine features.**
+**Graphics plan.** (The engine features players and modders know, LOD drawing, V.A.T.S. or save games, are the
+catalogue's `features` area: docs/fork/ENGINE-FEATURES.md.)
 - The reference is the graphics plan's capability list, `docs/fork/graphics-features.tsv` (id, group, name). It changes
   only when the plan changes.
 - What is built is declared in code: `crates/fork-gfx/src/atlas.rs` maps each built-in setting (`module.setting`) to the

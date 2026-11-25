@@ -1,0 +1,187 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# JIP LN commands B to I (jip_fn_b* to jip_fn_i*) proven by tests in crates/jip (upstream-owned files, so tagged here;
+# docs/fork/CATALOGUE.md). A row names only the commands the test calls and whose answer or effect it asserts.
+test	covers
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::the_skeleton	extenders.jip_ln.getbodypartdataskeleton extenders.jip_ln.setbodypartdataskeleton
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::the_ragdoll	extenders.jip_ln.getbodypartdataragdoll extenders.jip_ln.setbodypartdataragdoll
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::which_parts_it_has	extenders.jip_ln.getbodypartdatahaspart
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::the_numeric_traits	extenders.jip_ln.getbodyparttraitnumeric
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::the_numeric_traits_set	extenders.jip_ln.setbodyparttraitnumeric
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::the_form_traits	extenders.jip_ln.getbodyparttraitform extenders.jip_ln.setbodyparttraitform
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::the_part_name	extenders.jip_ln.getbodypartname extenders.jip_ln.setbodypartname
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::the_limb_replacement_model	extenders.jip_ln.getbodypartreplacementmodel extenders.jip_ln.setbodypartreplacementmodel
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::the_flags	extenders.jip_ln.getbodypartflag extenders.jip_ln.setbodypartflag
+crates/jip/src/commands/jip_fn_body_part_data_tests.rs::a_byte_trait_past_the_int_range	extenders.jip_ln.setbodyparttraitnumeric
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::on_load_finds_the_hud_values_in_jips_order	extenders.jip_ln.ccconload
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::a_missing_tile_is_the_load_error	extenders.jip_ln.ccconload
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::no_component_is_the_load_error	extenders.jip_ln.ccconload
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::an_old_version_says_so_and_fails	extenders.jip_ln.ccconload
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::saved_forms_of_the_mods_loaded	extenders.jip_ln.ccconload extenders.jip_ln.cccsavedform
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::set_float_and_set_string_write_a_value	extenders.jip_ln.cccsetfloat extenders.jip_ln.cccsetstring extenders.jip_ln.cccsettrait
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::avatars_by_name_folder_and_kind	extenders.jip_ln.ccconload extenders.jip_ln.cccsettrait
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::trait_0_health_distance_and_action	extenders.jip_ln.cccsettrait
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::sms_stops_cccs_shaders_on_the_reference	extenders.jip_ln.cccsms
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::a_hud_value_missing_is_the_load_error	extenders.jip_ln.ccconload
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::no_duif3_is_the_load_error	extenders.jip_ln.ccconload
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::no_hud_root_is_the_load_error	extenders.jip_ln.ccconload
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::avatar_ini_split_order_and_folder	extenders.jip_ln.ccconload extenders.jip_ln.cccsettrait
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::trait_0_far_at_8192_units	extenders.jip_ln.cccsettrait
+crates/jip/src/commands/jip_fn_ccc_hud_tests.rs::trait_0_actions	extenders.jip_ln.cccsettrait
+crates/jip/src/commands/jip_fn_ccc_tests.rs::distance	extenders.jip_ln.cccgetdistance
+crates/jip/src/commands/jip_fn_ccc_tests.rs::in_faction	extenders.jip_ln.cccinfaction
+crates/jip/src/commands/jip_fn_ccc_tests.rs::in_faction_with_a_list_that_loops_back	extenders.jip_ln.cccinfaction
+crates/jip/src/commands/jip_fn_ccc_tests.rs::nccs	extenders.jip_ln.cccsetnccs extenders.jip_ln.cccloadnccs
+crates/jip/src/commands/jip_fn_ccc_tests.rs::encumbrance	extenders.jip_ln.getencumbrancerate
+crates/jip/src/commands/jip_fn_ccc_tests.rs::reputation	extenders.jip_ln.cccgetreputation
+crates/jip/src/commands/jip_fn_ccc_tests.rs::say_to_runs_the_end_script	extenders.jip_ln.cccsayto
+crates/jip/src/commands/jip_fn_ccc_tests.rs::result_scripts	extenders.jip_ln.cccrunresultscripts
+crates/jip/src/commands/jip_fn_ccc_tests.rs::position_text	extenders.jip_ln.reftoposstr
+crates/jip/src/commands/jip_fn_ccc_tests.rs::task_package_flags	extenders.jip_ln.ccctaskpackageflags
+crates/jip/src/commands/jip_fn_ccc_tests.rs::location_names	extenders.jip_ln.ccclocationname
+crates/jip/src/commands/jip_fn_ccc_tests.rs::location_directions	extenders.jip_ln.ccclocationname
+crates/jip/src/commands/jip_fn_ccc_tests.rs::location_two_markers_in_one_ring	extenders.jip_ln.ccclocationname
+crates/jip/src/commands/jip_fn_ccc_tests.rs::a_leveled_actor_uses_its_raw_base	extenders.jip_ln.cccinfaction extenders.jip_ln.cccsetnccs extenders.jip_ln.cccgetreputation
+crates/jip/src/commands/jip_fn_cell_tests.rs::the_water_form	extenders.jip_ln.setcellwaterform
+crates/jip/src/commands/jip_fn_cell_tests.rs::the_climate	extenders.jip_ln.getcellclimate extenders.jip_ln.setcellclimate
+crates/jip/src/commands/jip_fn_cell_tests.rs::the_noise_texture	extenders.jip_ln.getcellnoisetexture extenders.jip_ln.setcellnoisetexture
+crates/jip/src/commands/jip_fn_cell_tests.rs::the_owner	extenders.jip_ln.getownerofcell
+crates/jip/src/commands/jip_fn_cell_tests.rs::the_north_rotation	extenders.jip_ln.getcellnorthrotation
+crates/jip/src/commands/jip_fn_climate_tests.rs::the_sun_textures	extenders.jip_ln.getclimatesuntexture extenders.jip_ln.getclimatesunglaretexture
+crates/jip/src/commands/jip_fn_climate_tests.rs::the_sun_textures_set	extenders.jip_ln.setclimatesuntexture extenders.jip_ln.setclimatesunglaretexture
+crates/jip/src/commands/jip_fn_climate_tests.rs::an_empty_text_needs_no_buffer	extenders.jip_ln.setclimatesuntexture
+crates/jip/src/commands/jip_fn_climate_tests.rs::the_night_sky_model_through_the_virtual_functions	extenders.jip_ln.getclimatenightskymodel extenders.jip_ln.setclimatenightskymodel
+crates/jip/src/commands/jip_fn_climate_tests.rs::the_numeric_traits	extenders.jip_ln.getclimatetraitnumeric
+crates/jip/src/commands/jip_fn_climate_tests.rs::the_numeric_traits_set	extenders.jip_ln.setclimatetraitnumeric
+crates/jip/src/commands/jip_fn_climate_tests.rs::the_weather_list_read	extenders.jip_ln.getclimatenumweathertypes extenders.jip_ln.getclimatenthweathertype extenders.jip_ln.getclimatenthweatherchance extenders.jip_ln.getclimatenthweatherglobal
+crates/jip/src/commands/jip_fn_climate_tests.rs::a_weather_added	extenders.jip_ln.climateaddweathertype
+crates/jip/src/commands/jip_fn_climate_tests.rs::a_weather_removed	extenders.jip_ln.climateremoveweathertype
+crates/jip/src/commands/jip_fn_climate_tests.rs::the_current_climate	extenders.jip_ln.getcurrentclimate extenders.jip_ln.setcurrentclimate extenders.jip_ln.refreshcurrentclimate
+crates/jip/src/commands/jip_fn_climate_tests.rs::the_current_climate_echoed	extenders.jip_ln.getcurrentclimate
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::health_and_targetable	extenders.jip_ln.getdestructiondatahealth extenders.jip_ln.setdestructiondatahealth extenders.jip_ln.getdestructiondatatargetable extenders.jip_ln.setdestructiondatatargetable extenders.jip_ln.getdestructiondatanumstages
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::the_stage_traits	extenders.jip_ln.getnthdestructionstagetrait
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::the_stage_traits_set	extenders.jip_ln.setnthdestructionstagetrait
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::the_stage_forms	extenders.jip_ln.getnthdestructionstageexplosion extenders.jip_ln.setnthdestructionstageexplosion extenders.jip_ln.getnthdestructionstagedebris extenders.jip_ln.setnthdestructionstagedebris
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::the_stage_replacement	extenders.jip_ln.getnthdestructionstagereplacement extenders.jip_ln.setnthdestructionstagereplacement
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::a_stage_added	extenders.jip_ln.adddestructionstage
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::a_first_stage_makes_the_data	extenders.jip_ln.adddestructionstage
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::a_stage_removed	extenders.jip_ln.removedestructionstage
+crates/jip/src/commands/jip_fn_destruction_data_tests.rs::a_later_stage_removed	extenders.jip_ln.removedestructionstage
+crates/jip/src/commands/jip_fn_effect_tests.rs::counting_and_reading_effects	extenders.jip_ln.getnumeffects extenders.jip_ln.getntheffectbase extenders.jip_ln.getntheffecttraitnumeric
+crates/jip/src/commands/jip_fn_effect_tests.rs::setting_numbers_and_the_base_effect	extenders.jip_ln.setntheffecttraitnumeric extenders.jip_ln.setntheffectbase
+crates/jip/src/commands/jip_fn_effect_tests.rs::the_actors_get_the_changed_effect	extenders.jip_ln.setntheffecttraitnumeric
+crates/jip/src/commands/jip_fn_effect_tests.rs::adding_effects	extenders.jip_ln.addneweffect
+crates/jip/src/commands/jip_fn_effect_tests.rs::removing_effects	extenders.jip_ln.removentheffect
+crates/jip/src/commands/jip_fn_effect_tests.rs::removing_effects_while_the_target_updates	extenders.jip_ln.removentheffect
+crates/jip/src/commands/jip_fn_effect_tests.rs::removing_the_tail_and_past_the_end	extenders.jip_ln.removentheffect
+crates/jip/src/commands/jip_fn_effect_tests.rs::object_effects	extenders.jip_ln.setobjecteffect
+crates/jip/src/commands/jip_fn_effect_tests.rs::an_actor_bases_effects	extenders.jip_ln.getnumactoreffects extenders.jip_ln.getnthactoreffect extenders.jip_ln.getactorunarmedeffect extenders.jip_ln.setactorunarmedeffect
+crates/jip/src/commands/jip_fn_effect_tests.rs::addiction	extenders.jip_ln.getaddictioneffect extenders.jip_ln.setaddictioneffect extenders.jip_ln.getaddictionchance extenders.jip_ln.setaddictionchance
+crates/jip/src/commands/jip_fn_effect_tests.rs::poison	extenders.jip_ln.getispoison
+crates/jip/src/commands/jip_fn_effect_tests.rs::active_effects	extenders.jip_ln.getactiveeffects
+crates/jip/src/commands/jip_fn_effect_tests.rs::timed_effects	extenders.jip_ln.gettempeffects
+crates/jip/src/commands/jip_fn_effect_tests.rs::timed_effect_values_and_ties	extenders.jip_ln.gettempeffects
+crates/jip/src/commands/jip_fn_effect_tests.rs::removing_a_timed_effect	extenders.jip_ln.removenthtempeffect
+crates/jip/src/commands/jip_fn_effect_tests.rs::effect_flags	extenders.jip_ln.geteffectflag extenders.jip_ln.seteffectflag
+crates/jip/src/commands/jip_fn_effect_tests.rs::base_effect_flags_and_scripts	extenders.jip_ln.getbaseeffectflag extenders.jip_ln.setbaseeffectflag extenders.jip_ln.getbaseeffectscript extenders.jip_ln.setbaseeffectscript
+crates/jip/src/commands/jip_fn_effect_tests.rs::is_spell_target_alt	extenders.jip_ln.isspelltargetalt
+crates/jip/src/commands/jip_fn_effect_tests.rs::is_spell_target_list	extenders.jip_ln.isspelltargetlist
+crates/jip/src/commands/jip_fn_effect_tests.rs::cast_immediate_casts_with_the_flag_set_around_the_cast	extenders.jip_ln.castimmediate
+crates/jip/src/commands/jip_fn_effect_tests.rs::cast_immediate_needs_an_actor_with_3d_and_no_ability	extenders.jip_ln.castimmediate
+crates/jip/src/commands/jip_fn_effect_tests.rs::h23_cast_immediate_makes_the_cast_take_the_immediate_target	extenders.jip_ln.castimmediate
+crates/jip/src/commands/jip_fn_explosion_tests.rs::the_numbers_at_their_offsets	extenders.jip_ln.getexplosiontraitnumeric
+crates/jip/src/commands/jip_fn_explosion_tests.rs::the_numbers_set_with_jips_casts	extenders.jip_ln.setexplosiontraitnumeric
+crates/jip/src/commands/jip_fn_explosion_tests.rs::the_forms	extenders.jip_ln.getexplosiontraitform extenders.jip_ln.setexplosiontraitform
+crates/jip/src/commands/jip_fn_explosion_tests.rs::the_flags	extenders.jip_ln.getexplosionflag extenders.jip_ln.setexplosionflag
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::set_then_has_and_get_on_a_reference	extenders.jip_ln.refhasextradata extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::numbers_are_kept_as_floats_and_zero_unuses	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::forms_are_kept_as_ids	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::a_null_form_unuses_and_keeps_other_form_bits_only_where_used	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::texts_at_18_and_19	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::indexes_past_19_and_missing_values_are_refused	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::a_mod_index_that_is_no_number_is_the_scripts	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::mod_indexes_0xff_and_up_are_refused	extenders.jip_ln.refhasextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::every_command_takes_the_extra_data_lock_once	extenders.jip_ln.refhasextradata extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::erase_the_mod_and_the_last_mod_takes_the_extra_off	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_inventory_stack_keeps_the_data_and_the_container_is_marked	extenders.jip_ln.refhasextradata extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_inventory_reference_without_a_stack_gets_one_with_its_count	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_inventory_stack_left_with_only_its_count_goes	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_inventory_stack_with_more_than_its_count_stays	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_emptied_stack_whose_item_has_no_entry_stays	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_emptied_stack_is_forgotten_by_its_reference	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::every_reference_on_a_freed_stack_forgets_it	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_emptied_stack_the_entry_does_not_hold_is_not_freed	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_emptied_stack_with_a_deferred_action_on_it_is_not_freed	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_extra_jip_taken_off_a_kept_stack_leaves_the_references_copy	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::a_new_stack_survives_the_loops_write_back	extenders.jip_ln.refhasextradata extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::an_extra_jip_added_to_a_stack_survives_the_write_back_and_a_changed_copy_is_left	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::a_stack_holding_only_jip_data_goes	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::two_stacks_only_the_emptied_one_goes	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::nothing_at_a_text_index_still_makes_the_data	extenders.jip_ln.refhasextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::a_container_without_changes_gets_nothing	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::has_with_a_key_missing_from_the_map	extenders.jip_ln.refhasextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::the_getter_sets_the_expected_return_type	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::the_getter_takes_mod_index_0xfe	extenders.jip_ln.getrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::texts_are_kept_as_jips_strings_hold_them	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::two_threads_at_once_neither_wait_forever_nor_lose_a_value	extenders.jip_ln.getrefextradata extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_extra_data_tests.rs::a_stack_a_running_container_loop_still_lists_is_not_freed	extenders.jip_ln.setrefextradata
+crates/jip/src/commands/jip_fn_global_var_tests.rs::the_value	extenders.jip_ln.getglobalvariable extenders.jip_ln.setglobalvariable
+crates/jip/src/commands/jip_fn_global_var_tests.rs::a_ref_set_and_read	extenders.jip_ln.getglobalref extenders.jip_ln.setglobalref
+crates/jip/src/commands/jip_fn_global_var_tests.rs::a_ref_from_a_save_is_mapped_once	extenders.jip_ln.getglobalref
+crates/jip/src/commands/jip_fn_global_var_tests.rs::a_ref_of_a_file_no_longer_loaded_becomes_0	extenders.jip_ln.getglobalref
+crates/jip/src/commands/jip_fn_imagespace_tests.rs::image_space_values	extenders.jip_ln.getimagespacetrait extenders.jip_ln.setimagespacetrait
+crates/jip/src/commands/jip_fn_imagespace_tests.rs::modifier_numbers_and_bytes	extenders.jip_ln.getimagespacemodtrait extenders.jip_ln.setimagespacemodtrait
+crates/jip/src/commands/jip_fn_imagespace_tests.rs::modifier_animated_values	extenders.jip_ln.getimagespacemodtrait extenders.jip_ln.setimagespacemodtrait
+crates/jip/src/commands/jip_fn_imagespace_tests.rs::the_running_modifiers	extenders.jip_ln.getactiveimods
+crates/jip/src/commands/jip_fn_impact_data_tests.rs::the_model	extenders.jip_ln.getimpactdatamodel extenders.jip_ln.setimpactdatamodel
+crates/jip/src/commands/jip_fn_impact_data_tests.rs::the_traits_read_at_their_offsets	extenders.jip_ln.getimpactdatatrait
+crates/jip/src/commands/jip_fn_impact_data_tests.rs::the_traits_set_with_jips_casts	extenders.jip_ln.setimpactdatatraitnumeric
+crates/jip/src/commands/jip_fn_impact_data_tests.rs::the_forms_set	extenders.jip_ln.setimpactdatatraitform
+crates/jip/src/commands/jip_fn_impact_data_tests.rs::the_set_per_material	extenders.jip_ln.getimpactdatasetform extenders.jip_ln.setimpactdatasetform
+crates/jip/src/commands/jip_fn_inventory_tests.rs::values	extenders.jip_ln.getvaluealt extenders.jip_ln.setvaluealt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::unique_items	extenders.jip_ln.isitemunique
+crates/jip/src/commands/jip_fn_inventory_tests.rs::base_items	extenders.jip_ln.getbaseitems
+crates/jip/src/commands/jip_fn_inventory_tests.rs::weapon_poison	extenders.jip_ln.getequippedweaponpoison
+crates/jip/src/commands/jip_fn_inventory_tests.rs::weapon_mod_flags_of_an_inventory_reference_or_a_reference	extenders.jip_ln.getweaponrefmodflags
+crates/jip/src/commands/jip_fn_inventory_tests.rs::no_unequip_marks	extenders.jip_ln.getnounequip extenders.jip_ln.setnounequip
+crates/jip/src/commands/jip_fn_inventory_tests.rs::all_items_in_address_order_with_filters	extenders.jip_ln.getallitems
+crates/jip/src/commands/jip_fn_inventory_tests.rs::all_items_into_a_form_list	extenders.jip_ln.getallitems
+crates/jip/src/commands/jip_fn_inventory_tests.rs::all_items_of_a_creature_keep_its_worn_armor	extenders.jip_ln.getallitems
+crates/jip/src/commands/jip_fn_inventory_tests.rs::all_items_of_a_non_actor_ignore_equipped	extenders.jip_ln.getallitems
+crates/jip/src/commands/jip_fn_inventory_tests.rs::all_item_refs_one_per_stack	extenders.jip_ln.getallitemrefs
+crates/jip/src/commands/jip_fn_inventory_tests.rs::all_item_refs_into_a_form_list_and_filters	extenders.jip_ln.getallitemrefs
+crates/jip/src/commands/jip_fn_inventory_tests.rs::equipped_armor_refs_per_slot	extenders.jip_ln.getequippedarmorrefs
+crates/jip/src/commands/jip_fn_inventory_tests.rs::equipped_item_ref_with_and_without_3d	extenders.jip_ln.getequippeditemref
+crates/jip/src/commands/jip_fn_inventory_tests.rs::hotkey_item_ref_of_the_player	extenders.jip_ln.gethotkeyitemref
+crates/jip/src/commands/jip_fn_inventory_tests.rs::self_as_inventory_ref_by_the_running_locals	extenders.jip_ln.getselfasinventoryref
+crates/jip/src/commands/jip_fn_inventory_tests.rs::item_ref_current_health	extenders.jip_ln.getitemrefcurrenthealth
+crates/jip/src/commands/jip_fn_inventory_tests.rs::armor_effective_dt_and_dr	extenders.jip_ln.getarmoreffectivedt extenders.jip_ln.getarmoreffectivedr
+crates/jip/src/commands/jip_fn_inventory_tests.rs::remove_item_target_stacks_then_the_rest	extenders.jip_ln.removeitemtarget
+crates/jip/src/commands/jip_fn_inventory_tests.rs::remove_item_target_through_a_list_with_a_quantity	extenders.jip_ln.removeitemtarget
+crates/jip/src/commands/jip_fn_inventory_tests.rs::remove_item_target_a_stack_without_a_count_stays_first	extenders.jip_ln.removeitemtarget
+crates/jip/src/commands/jip_fn_inventory_tests.rs::equipped_item_ref_first_covering_slot_weapon_and_null_forms	extenders.jip_ln.getequippeditemref
+crates/jip/src/commands/jip_fn_inventory_tests.rs::add_item_alt_an_item_at_a_condition_equipped	extenders.jip_ln.additemalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::add_item_alt_lists_leveled_items_and_health_by_type	extenders.jip_ln.additemalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::equip_item_alt_counts_by_type	extenders.jip_ln.equipitemalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::unequip_item_alt_the_worn_stack	extenders.jip_ln.unequipitemalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::drop_alt_stacks_one_by_one_then_the_rest	extenders.jip_ln.dropalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::drop_alt_scripted_stacks_and_large_rests	extenders.jip_ln.dropalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::drop_me_alt_and_remove_me_ir_alt_mark_the_reference	extenders.jip_ln.dropmealt extenders.jip_ln.removemeiralt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::drop_alt_caps_a_stack_at_the_count_asked	extenders.jip_ln.dropalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::drop_alt_scripted_form_without_a_script_extra_drops_the_stack	extenders.jip_ln.dropalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::drop_alt_a_count_above_the_total_drops_the_total	extenders.jip_ln.dropalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::drop_alt_and_drop_me_alt_weapons_by_type	extenders.jip_ln.dropalt extenders.jip_ln.dropmealt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::add_item_alt_equips_only_on_an_actor	extenders.jip_ln.additemalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::remove_me_ir_alt_caps_the_quantity_at_the_count	extenders.jip_ln.removemeiralt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::unequip_item_alt_no_message_is_the_whole_word	extenders.jip_ln.unequipitemalt
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_weapon_ref_mod_flags_changes_and_removes	extenders.jip_ln.setweaponrefmodflags
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_weapon_ref_mod_flags_zero_keeps_a_list_with_more	extenders.jip_ln.setweaponrefmodflags
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_weapon_ref_mod_flags_new_on_a_single_stack	extenders.jip_ln.setweaponrefmodflags
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_weapon_ref_mod_flags_splits_one_off_a_stack	extenders.jip_ln.setweaponrefmodflags
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_weapon_ref_mod_flags_split_of_two_frees_an_emptied_stack	extenders.jip_ln.setweaponrefmodflags
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_weapon_ref_mod_flags_without_a_stack_makes_one	extenders.jip_ln.setweaponrefmodflags
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_weapon_ref_mod_flags_masks_each_empty_slot	extenders.jip_ln.setweaponrefmodflags
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_item_ref_current_health_capped_and_by_part	extenders.jip_ln.setitemrefcurrenthealth
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_item_ref_current_health_new_extra_or_stack	extenders.jip_ln.setitemrefcurrenthealth
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_item_ref_current_health_full_health_from_the_entry	extenders.jip_ln.setitemrefcurrenthealth
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_hotkey_item_ref_takes_the_key	extenders.jip_ln.sethotkeyitemref
+crates/jip/src/commands/jip_fn_inventory_tests.rs::set_hotkey_item_ref_moves_a_key_and_makes_a_stack	extenders.jip_ln.sethotkeyitemref

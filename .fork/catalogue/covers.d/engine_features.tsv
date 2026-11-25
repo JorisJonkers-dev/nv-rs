@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Engine features (docs/fork/ENGINE-FEATURES.md) proven by tests in files the scan does not read, so tagged here
+# (docs/fork/CATALOGUE.md). A row names a feature only when the test exercises it and asserts its result, and would
+# fail without it. Engine features built from the exe's units cannot be tagged until they are implemented (fully
+# native): tally refuses a tag on a missing item.
+test	covers
+crates/engine-platform/src/d3d9device.rs::reset_answers_as_measured	features.backend.reset_rules
+crates/d3d9-wgpu/src/sm/wgsl.rs::a_vertex_shader_converts_to_valid_wgsl	features.backend.shaders_translated
+crates/d3d9-wgpu/src/sm/wgsl.rs::flow_control_converts_to_valid_wgsl	features.backend.shaders_translated
+crates/d3d9-wgpu/src/sm/wgsl.rs::texture_instructions_convert_to_valid_wgsl	features.backend.shaders_translated

@@ -1,0 +1,10 @@
+key	title	group
+navmesh	Navmesh data	navigation
+navmesh_search	Navmesh path search	navigation
+obstacles	Dynamic obstacles on the navmesh	navigation
+path_requests	Path requests (cover, flee, hide, line of sight)	navigation
+path_building	Path building and smoothing	navigation
+path_manager	Path manager and pathing threads	navigation
+line_of_sight	Line-of-sight maps	navigation
+door_paths	Paths through doors	navigation
+pathing_other	Pathfinding (other)	navigation

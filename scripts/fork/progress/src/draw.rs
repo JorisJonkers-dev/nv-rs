@@ -172,9 +172,9 @@ fn features(s: &Value) -> Result<String, String> {
         rest: "open".into(),
     };
     Ok(svg::panel(
-        "ENGINE FEATURES",
+        "GRAPHICS PLAN",
         &format!(
-            "Engine features: {done} of {total} graphics plan capabilities done, {declared} more declared by a setting without a test"
+            "Graphics plan: {done} of {total} graphics plan capabilities done, {declared} more declared by a setting without a test"
         ),
         &[row],
     ))

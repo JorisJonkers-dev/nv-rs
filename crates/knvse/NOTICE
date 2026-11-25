@@ -1,0 +1,13 @@
+This crate is an original implementation for nv-rs of the role kNVSE plays for mods (ADR-0016's
+"later built-ins"; nv-rs#865). It contains no code of the plugin and no decompiled code of it, and
+none was read for it: it is written from public behaviour and documentation only.
+
+Plugin: kNVSE (DLL file name kNVSE.dll). Its public repository states no licence, so this crate
+takes nothing but facts: command names, parameter lists and behaviour as the GECK Wiki pages of
+the commands and of the plugin describe them (the owner's saved copies of 2026-11-21). No code or
+example text of a page is copied. The pages state no licence of their own.
+
+Where kNVSE changes the game's animation code, this crate does not copy the change: the engine's
+translated Animation::StartGroup (004948c0) asks a seam of its own (ADR-0016's seams) and this
+crate answers it from its override store. One file per step in `provenance/` names the pages it
+was written from and what they leave open.

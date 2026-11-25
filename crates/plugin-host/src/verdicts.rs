@@ -6,7 +6,12 @@
 //!
 //! Verdicts: `built into the engine` (the DLL is not loaded), `engine already has the fix`,
 //! `not needed here`, `feature missing` (a ticket says what to rebuild natively), and for the
-//! plugins the host itself must run: `serves commands`, `loads`, `not working`.
+//! plugins the host itself must run: `serves commands`, `loads`, `not working`; and
+//! `turned off by the player` for a DLL the player's choice leaves out.
+//!
+//! The loader follows the same table ([`decide`]): a DLL for a plugin the engine carries (built
+//! in, has the fix, not needed) is not loaded, unless the player picks it (`NV_PLUGIN_PICK`); a
+//! DLL the player turns off (`NV_PLUGIN_SKIP`) is never loaded.
 
 use crate::Engine;
 
@@ -35,6 +40,7 @@ pub const CURATED: &[(&str, Class, &str, u32, &str)] = &[
     ("mcm.dll", Class::BuiltIn, "The Mod Configuration Menu", 0, "native (crates/mcm, row NV_MCM)"),
     ("ui_organizer.dll", Class::BuiltIn, "UIO - User Interface Organizer", 0, "native (row NV_UIO)"),
     ("engineoptimizations.dll", Class::BuiltIn, "IStewieAI Engine Optimizations", 522, "single rows native; the speed-ups are goals (#522)"),
+    ("knvse.dll", Class::BuiltIn, "kNVSE Animation Plugin", 550, "its animation commands are built natively (#550)"),
     ("nvtf.dll", Class::BuiltIn, "NVTF", 541, "fixed-step part native; fMaxTime and spider hands decided in #541"),
     ("actorcausesavebloatfix.dll", Class::EngineHasFix, "ActorCause Save Bloat Fix", 510, "row NV_ACTOR_CAUSE"),
     ("celloffsetgenerator.dll", Class::EngineHasFix, "Cell Offset Generator - NVSE", 514, "row NV_CELL_OFFSETS"),
@@ -73,7 +79,6 @@ pub const CURATED: &[(&str, Class, &str, u32, &str)] = &[
     ("race_menu_presets.dll", Class::Host, "Character Preset Menu", 515, "the preset menu of character creation"),
     ("nvse_console_clipboard.dll", Class::Host, "Console Paste", 519, "paste into the console"),
     ("improved_console.dll", Class::Host, "Improved Console", 531, "a better in-game console"),
-    ("knvse.dll", Class::Host, "kNVSE Animation Plugin", 550, "animation commands and exports"),
     ("supnvse.dll", Class::Host, "SUP NVSE Plugin", 543, "script commands and UI elements"),
     ("yui.dll", Class::Host, "yUI", 551, "the interface framework and ySI sorting"),
     ("modernminimap.dll", Class::Host, "Modern Minimap", 536, "the minimap and its HUD"),
@@ -106,14 +111,93 @@ pub struct Verdict {
     pub observed: Observed,
 }
 
+/// A file name as the table and the player's lists compare it: without spaces around it and
+/// without case.
+fn key(file: &str) -> String {
+    file.trim().to_ascii_lowercase()
+}
+
 fn curated(file: &str) -> Option<&'static (&'static str, Class, &'static str, u32, &'static str)> {
-    let f = file.to_ascii_lowercase();
+    let f = key(file);
     CURATED.iter().find(|c| c.0 == f)
 }
 
+/// The player's choice of plugin DLLs: file names, without case. `pick` loads a DLL although the
+/// engine carries its plugin; `skip` never loads it (it wins over `pick`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Choice {
+    pub pick: Vec<String>,
+    pub skip: Vec<String>,
+}
+
+fn names(list: Option<&str>) -> Vec<String> {
+    list.unwrap_or("")
+        .split(',')
+        .map(key)
+        .filter(|n| !n.is_empty())
+        .collect()
+}
+
+impl Choice {
+    /// From the two settings' values (`NV_PLUGIN_PICK`, `NV_PLUGIN_SKIP`): comma-separated file
+    /// names, without case; spaces around a name are dropped.
+    pub fn parse(pick: Option<&str>, skip: Option<&str>) -> Choice {
+        Choice {
+            pick: names(pick),
+            skip: names(skip),
+        }
+    }
+    fn picks(&self, file: &str) -> bool {
+        self.pick.contains(&key(file))
+    }
+    fn skips(&self, file: &str) -> bool {
+        self.skip.contains(&key(file))
+    }
+}
+
+/// What the loader does with one DLL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decision {
+    /// Loaded: nothing in the engine carries the plugin.
+    Load,
+    /// Loaded because the player picked it, though the engine carries the plugin (the class).
+    Picked(Class),
+    /// Not loaded: the engine carries the plugin (built in, has the fix, or does not need it).
+    Carried(Class),
+    /// Not loaded: the player turned it off.
+    Skipped,
+}
+
+/// The class of a plugin the engine carries itself, so that its DLL is not loaded: built in, the
+/// fix is a row of the engine's, or the native engine does not need it.
+pub fn carried(file: &str) -> Option<Class> {
+    curated(file)
+        .map(|r| r.1)
+        .filter(|c| matches!(c, Class::BuiltIn | Class::EngineHasFix | Class::NotNeeded))
+}
+
+/// Whether the loader loads `file`: only a plugin the engine does not carry, or one the player
+/// picks; never one the player turns off.
+pub fn decide(file: &str, choice: &Choice) -> Decision {
+    if choice.skips(file) {
+        return Decision::Skipped;
+    }
+    match carried(file) {
+        Some(c) if choice.picks(file) => Decision::Picked(c),
+        Some(c) => Decision::Carried(c),
+        None => Decision::Load,
+    }
+}
+
 /// The verdict for one file given what was observed (`None`: the host did not look, because the
-/// engine builds the plugin in).
+/// engine builds the plugin in), with no choice of the player's.
 pub fn verdict_for(file: &str, seen: Option<Observed>) -> Verdict {
+    verdict_with(file, seen, &Choice::default())
+}
+
+/// [`verdict_for`] with the player's choice: a DLL turned off says so, a picked one is judged by
+/// what the host saw and names the engine's own answer it was picked over.
+pub fn verdict_with(file: &str, seen: Option<Observed>, choice: &Choice) -> Verdict {
     let row = curated(file);
     let observed = seen.clone().unwrap_or_default();
     let (class, mod_name, ticket, why) = match row {
@@ -131,17 +215,42 @@ pub fn verdict_for(file: &str, seen: Option<Observed>) -> Verdict {
             o.stopped.as_deref().unwrap_or("unknown reason")
         ),
     };
-    let (verdict, reason) = match class {
-        Some(Class::BuiltIn) => ("built into the engine", why),
-        Some(Class::EngineHasFix) => ("engine already has the fix", why),
-        Some(Class::NotNeeded) => ("not needed here", why),
-        Some(Class::FeatureMissing) => ("feature missing", format!("{why}{ran}")),
-        Some(Class::Host) | None => match &seen {
-            Some(o) if o.loaded && o.commands > 0 => ("serves commands", format!("{why}{ran}")),
-            Some(o) if o.loaded => ("loads", format!("{why}{ran}")),
-            Some(_) => ("not working", format!("{why}{ran}")),
-            None => ("not working", format!("{why}; not looked at")),
-        },
+    let judged = |why: String| match &seen {
+        Some(o) if o.loaded && o.commands > 0 => ("serves commands", format!("{why}{ran}")),
+        Some(o) if o.loaded => ("loads", format!("{why}{ran}")),
+        Some(_) => ("not working", format!("{why}{ran}")),
+        None => ("not working", format!("{why}; not looked at")),
+    };
+    let (verdict, reason) = match (decide(file, choice), class) {
+        (Decision::Skipped, _) => (
+            "turned off by the player",
+            format!(
+                "not loaded: NV_PLUGIN_SKIP names it{}",
+                if why.is_empty() {
+                    String::new()
+                } else {
+                    format!("; {why}")
+                }
+            ),
+        ),
+        (Decision::Picked(_), _) => {
+            let own = verdict_for(file, None).verdict;
+            match seen {
+                // Not run (the loader is off): the engine's own answer stands.
+                None => (
+                    own,
+                    format!("picked by the player (NV_PLUGIN_PICK), not run: {why}"),
+                ),
+                Some(_) => judged(format!(
+                    "picked by the player over the engine's own answer ({own}): {why}"
+                )),
+            }
+        }
+        (_, Some(Class::BuiltIn)) => ("built into the engine", why),
+        (_, Some(Class::EngineHasFix)) => ("engine already has the fix", why),
+        (_, Some(Class::NotNeeded)) => ("not needed here", why),
+        (_, Some(Class::FeatureMissing)) => ("feature missing", format!("{why}{ran}")),
+        (_, Some(Class::Host) | None) => judged(why),
     };
     Verdict {
         file: file.to_string(),
@@ -180,6 +289,11 @@ pub fn observed(e: &mut Engine) -> Vec<(String, Observed)> {
 /// The verdicts of `files` (the DLLs found): for a plugin the host loaded, with what it saw; for
 /// one the engine builds in or has the fix for, without.
 pub fn verdicts(e: &mut Engine, files: &[String]) -> Vec<Verdict> {
+    verdicts_with(e, files, &Choice::default())
+}
+
+/// [`verdicts`] with the player's choice ([`verdict_with`]).
+pub fn verdicts_with(e: &mut Engine, files: &[String], choice: &Choice) -> Vec<Verdict> {
     let seen = observed(e);
     files
         .iter()
@@ -188,7 +302,7 @@ pub fn verdicts(e: &mut Engine, files: &[String]) -> Vec<Verdict> {
                 .iter()
                 .find(|(n, _)| n.eq_ignore_ascii_case(f))
                 .map(|s| s.1.clone());
-            verdict_for(f, o)
+            verdict_with(f, o, choice)
         })
         .collect()
 }

@@ -4125,6 +4125,13 @@ pub fn animation_start_group(e: &mut Engine, this: Ptr<Animation>, group: u16, s
     if group == 0xff {
         return Ptr::NULL;
     }
+    // The seam before the map is asked (`0x4948C0`, ADR-0016; nv-rs#865): kNVSE's
+    // animation-path overrides answer the sequence that replaces the group for this actor, with
+    // the animation, the group and the slot. No handler, or no override: the exe's path below,
+    // unchanged.
+    if let Some(sequence) = e.site(0x0049_48c0, &[this.addr(), u32::from(group), slot as u32]) {
+        return animation_start_group_ov2(e, this, Ptr::new(sequence), group, slot);
+    }
     let Some(entry) = sequence_map_get(e, this, group) else {
         return Ptr::NULL;
     };
@@ -11880,6 +11887,102 @@ mod tests {
             arguments_of(&log, SPECIAL_IDLE_WORKING),
             [[this.addr(), sequence]]
         );
+    }
+
+    /// An engine, an animation whose map holds group 5 with one sequence, and that sequence;
+    /// a special idle takes every start, so the start ends at its first question.
+    fn start_group_case() -> (Engine, Ptr<Animation>, u32) {
+        let mut e = engine_two();
+        let this: Ptr<Animation> = e.new_object();
+        let map = map_for(&mut e, this);
+        e.register(SPECIAL_IDLE_WORKING, |_, _| ret(1));
+        set_type(&mut e, 5, 2, 1);
+        let sequence = sequence_with_group(&mut e, 0, 0);
+        let entry = map_entry(&mut e, sequence, true);
+        map_add(&mut e, map, 5, entry);
+        (e, this, sequence)
+    }
+
+    /// The calls, the answer and the animation's words of one start of `group` in `slot`.
+    fn start_group_trace(
+        e: &mut Engine,
+        this: Ptr<Animation>,
+        group: u32,
+        slot: i32,
+    ) -> (Vec<(u32, Vec<u32>)>, u32, Vec<u32>) {
+        start_log(e);
+        let answer = e.call(0x0049_48c0, &args![this, group, slot]).u32();
+        let log = end_log(e);
+        let words = (0..0x100 / 4)
+            .map(|i| e.mem.u32(this.addr() + i * 4))
+            .collect();
+        (log, answer, words)
+    }
+
+    thread_local! {
+        static OVERRIDE_ASKED: std::cell::RefCell<Vec<Vec<u32>>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+        static OVERRIDE_ANSWER: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// A handler at the animation-path seam: records its words, answers `OVERRIDE_ANSWER`.
+    fn override_handler(_: &mut Engine, a: &[u32]) -> Option<u32> {
+        OVERRIDE_ASKED.with(|s| s.borrow_mut().push(a.to_vec()));
+        OVERRIDE_ANSWER.with(|c| c.get())
+    }
+
+    /// Regression guard for the animation-path seam (nv-rs#865): with no handler there, and with
+    /// one that has no override, every start (a known group in a slot, by its type's slot, an
+    /// unknown group, group 0xff) makes the same calls with the same words, answers the same and
+    /// leaves the animation's words as the exe's path does.
+    #[test]
+    fn start_group_without_an_override_is_the_exes_path() {
+        use engine_core::extend::{Owner, SiteSlot};
+        let cases = [(5u32, 4i32), (5, -1), (9, -1), (0xff, -1)];
+        let (mut e, this, _) = start_group_case();
+        let plain: Vec<_> = cases
+            .iter()
+            .map(|&(g, s)| start_group_trace(&mut e, this, g, s))
+            .collect();
+        let (mut e, this, _) = start_group_case();
+        e.on_site(SiteSlot::new(Owner::Knvse, 0x0049_48c0), override_handler);
+        OVERRIDE_ANSWER.with(|c| c.set(None));
+        let asked: Vec<_> = cases
+            .iter()
+            .map(|&(g, s)| start_group_trace(&mut e, this, g, s))
+            .collect();
+        assert_eq!(asked, plain);
+        // Asked for every group but 0xff, before the map, with the animation, group and slot.
+        assert_eq!(
+            OVERRIDE_ASKED.with(|s| s.take()),
+            [
+                vec![this.addr(), 5, 4],
+                vec![this.addr(), 5, u32::MAX],
+                vec![this.addr(), 9, u32::MAX]
+            ]
+        );
+    }
+
+    /// An override's sequence is started in place of the map's, for a known group and for one the
+    /// map does not hold; the map is not asked.
+    #[test]
+    fn start_group_starts_the_overrides_sequence() {
+        use engine_core::extend::{Owner, SiteSlot};
+        let (mut e, this, sequence) = start_group_case();
+        let replacement = sequence_with_group(&mut e, 0, 0);
+        e.on_site(SiteSlot::new(Owner::Knvse, 0x0049_48c0), override_handler);
+        OVERRIDE_ANSWER.with(|c| c.set(Some(replacement)));
+        for group in [5u32, 9] {
+            let (log, _, _) = start_group_trace(&mut e, this, group, 4);
+            assert_eq!(
+                arguments_of(&log, SPECIAL_IDLE_WORKING),
+                [[this.addr(), replacement]]
+            );
+            assert!(arguments_of(&log, MAP_GET_AT).is_empty(), "map not asked");
+        }
+        assert_ne!(replacement, sequence);
+        OVERRIDE_ANSWER.with(|c| c.set(None));
+        OVERRIDE_ASKED.with(|s| s.take());
     }
 
     #[test]

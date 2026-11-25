@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Plugin DLLs of the mods, loaded when `NV_PLUGIN_DLLS` is on (off by default; ADR-0018): the
 //! `.dll` files of `Data\NVSE\Plugins`, read through the mod-files seam as the built-ins read their
-//! settings, in xNVSE's order (by file name without case). A DLL for a plugin the engine builds in
-//! is not loaded; a DLL for which nothing is built in is.
+//! settings, in xNVSE's order (by file name without case). A DLL is loaded only for a plugin the
+//! engine does not carry (built in, has the fix, not needed: `plugin_host::verdicts::decide`), or
+//! one the player picks (`NV_PLUGIN_PICK`); a DLL the player turns off (`NV_PLUGIN_SKIP`) never.
 
 use engine_core::prelude::*;
 
@@ -18,20 +19,52 @@ pub const CODE_ENV: &str = "NV_PLUGIN_CODE";
 pub const VERDICTS_ENV: &str = "NV_PLUGIN_VERDICTS";
 const FOLDER: &[u8] = b"Data\\NVSE\\Plugins";
 
-/// DLLs whose plugin the engine has built in: not loaded (the built-in answers), by file name
-/// without case. The profile's own copies of xNVSE's plugins are in it.
-pub const BUILT_IN: &[&str] = &[
-    "jip_nvse.dll",
-    "johnnyguitar.dll",
-    "showoffnvse.dll",
-    "nvse_stewie_tweaks.dll",
-    "ttw_nvse.dll",
-    "mcm.dll",
-    "ui_organizer.dll",
-];
+/// DLLs the player picks although the engine carries their plugin: file names, comma separated,
+/// without case (raul writes it from the Profile's choice).
+pub const PICK_ENV: &str = "NV_PLUGIN_PICK";
+/// DLLs the player turns off: never loaded, whatever the engine carries.
+pub const SKIP_ENV: &str = "NV_PLUGIN_SKIP";
 
-pub fn built_in(file: &str) -> bool {
-    BUILT_IN.contains(&file.to_ascii_lowercase().as_str())
+/// The player's choice, from [`PICK_ENV`] and [`SKIP_ENV`].
+pub fn choice_from_env() -> plugin_host::verdicts::Choice {
+    plugin_host::verdicts::Choice::parse(
+        std::env::var(PICK_ENV).ok().as_deref(),
+        std::env::var(SKIP_ENV).ok().as_deref(),
+    )
+}
+
+/// What the loader does with each DLL of `files`: the files to load, in the given order, and a
+/// log line for each one it leaves out.
+pub fn plan(
+    files: &[String],
+    choice: &plugin_host::verdicts::Choice,
+) -> (Vec<String>, Vec<String>) {
+    use plugin_host::verdicts::{decide, Class, Decision};
+    let mut load = Vec::new();
+    let mut lines = Vec::new();
+    for file in files {
+        match decide(file, choice) {
+            Decision::Load => load.push(file.clone()),
+            Decision::Picked(_) => {
+                lines.push(format!(
+                    "plugin DLLs: {file}: picked by the player ({PICK_ENV}) over the engine's own answer"
+                ));
+                load.push(file.clone());
+            }
+            Decision::Carried(c) => lines.push(format!(
+                "plugin DLLs: {file}: not loaded, {}",
+                match c {
+                    Class::BuiltIn => "the engine has it built in",
+                    Class::EngineHasFix => "the engine already has the fix",
+                    _ => "the engine does not need it",
+                }
+            )),
+            Decision::Skipped => lines.push(format!(
+                "plugin DLLs: {file}: not loaded, the player turned it off ({SKIP_ENV})"
+            )),
+        }
+    }
+    (load, lines)
 }
 
 /// The folder's DLL names, by file name without case.
@@ -51,7 +84,7 @@ fn dll_names(e: &Engine) -> Vec<String> {
 /// fix for needs no run. Returns the line for the log.
 pub fn write_verdicts(e: &mut Engine, path: &str) -> String {
     let names = dll_names(e);
-    let v = plugin_host::verdicts::verdicts(e, &names);
+    let v = plugin_host::verdicts::verdicts_with(e, &names, &choice_from_env());
     match std::fs::write(path, plugin_host::verdicts::to_json(&v)) {
         Ok(()) => format!("plugin DLLs: {} verdict(s) written to {path}", v.len()),
         Err(err) => format!("plugin DLLs: verdicts not written to {path}: {err}"),
@@ -118,14 +151,10 @@ pub fn load_with(e: &mut Engine, var: Option<&str>, runtime: Option<&str>) -> Ve
             Err(err) => format!("plugin DLLs: {path} cannot be read: {err}"),
         });
     }
+    let (wanted, left_out) = plan(&files, &choice_from_env());
+    lines.extend(left_out);
     let mut todo: Vec<(String, Vec<u8>)> = Vec::new();
-    for file in files {
-        if built_in(&file) {
-            lines.push(format!(
-                "plugin DLLs: {file}: not loaded, the engine has it built in"
-            ));
-            continue;
-        }
+    for file in wanted {
         let mut path = FOLDER.to_vec();
         path.push(b'\\');
         path.extend_from_slice(file.as_bytes());
@@ -162,11 +191,62 @@ pub fn load_with(e: &mut Engine, var: Option<&str>, runtime: Option<&str>) -> Ve
 mod tests {
     use super::*;
 
+    use plugin_host::verdicts::Choice;
+
+    fn files(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
     #[test]
-    fn the_engines_own_extenders_are_not_loaded_without_case() {
-        assert!(built_in("JIP_NVSE.dll"));
-        assert!(built_in("MCM.dll"));
-        assert!(!built_in("kNVSE.dll"));
+    fn a_dll_the_engine_carries_is_not_loaded_without_case() {
+        let all = files(&[
+            "JIP_NVSE.dll",
+            "kNVSE.dll",
+            "EngineOptimizations.dll",
+            "NVTF.dll",
+            "MCM.dll",
+            "VATSLagFix.dll",
+            "CrashLogger.dll",
+            "AnhNVSE.dll",
+            "HighResBloom.dll",
+            "mystery.dll",
+        ]);
+        let (load, lines) = plan(&all, &Choice::default());
+        // only plugins nothing in the engine carries: one the host must run, a patch the engine
+        // lacks, and a file nobody has heard of
+        assert_eq!(
+            load,
+            files(&["AnhNVSE.dll", "HighResBloom.dll", "mystery.dll"])
+        );
+        assert_eq!(lines.len(), 7, "{lines:?}");
+        assert!(lines[0].contains("JIP_NVSE.dll: not loaded, the engine has it built in"));
+        assert!(lines[1].contains("kNVSE.dll: not loaded, the engine has it built in"));
+        assert!(lines[5].contains("VATSLagFix.dll: not loaded, the engine already has the fix"));
+        assert!(lines[6].contains("CrashLogger.dll: not loaded, the engine does not need it"));
+    }
+
+    #[test]
+    fn the_players_pick_loads_a_carried_dll_and_skip_keeps_any_out() {
+        let all = files(&["johnnyguitar.dll", "AnhNVSE.dll", "ShowOffNVSE.dll"]);
+        let choice = Choice::parse(
+            Some(" JohnnyGuitar.DLL ,showoffnvse.dll"),
+            Some("ShowOffNVSE.dll,anhnvse.dll"),
+        );
+        let (load, lines) = plan(&all, &choice);
+        assert_eq!(load, files(&["johnnyguitar.dll"]));
+        assert!(
+            lines[0].contains("johnnyguitar.dll: picked by the player (NV_PLUGIN_PICK)"),
+            "{lines:?}"
+        );
+        assert!(
+            lines[1].contains("AnhNVSE.dll: not loaded, the player turned it off (NV_PLUGIN_SKIP)"),
+            "{lines:?}"
+        );
+        // skip wins over pick
+        assert!(
+            lines[2].contains("ShowOffNVSE.dll: not loaded, the player turned it off"),
+            "{lines:?}"
+        );
     }
 
     #[test]

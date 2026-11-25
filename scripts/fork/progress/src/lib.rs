@@ -9,6 +9,7 @@ pub mod cpp;
 pub mod d3d9;
 pub mod draw;
 pub mod engine;
+pub mod engine_features;
 pub mod extenders;
 pub mod features;
 pub mod json;

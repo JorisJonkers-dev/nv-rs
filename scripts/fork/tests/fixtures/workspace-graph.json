@@ -2302,6 +2302,23 @@
     },
     {
      "features": [],
+     "kind": "dev",
+     "name": "fork-catalogue"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/knvse/Cargo.toml",
+   "name": "knvse"
+  },
+  {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
      "kind": null,
      "name": "nvse"
     },
