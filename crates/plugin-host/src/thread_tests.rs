@@ -157,7 +157,7 @@ fn an_images_tls_template_is_copied_into_its_slot() {
     ] {
         e.mem.set_u32(base + dir + off, v);
     }
-    attach_tls(&mut e, base, dir).expect("TLS given");
+    attach_tls(&mut e, base, 0x1000, dir).expect("TLS given");
     assert_eq!(e.mem.u32(base + index_at), 0, "the first slot");
     let b = thread_block(&mut e);
     let block = e.mem.u32(e.mem.u32(b + TLS_POINTER));
@@ -166,7 +166,7 @@ fn an_images_tls_template_is_copied_into_its_slot() {
     assert_eq!((e.mem.u32(block + 8), e.mem.u32(block + 12)), (0, 0));
     // A second image gets the next slot.
     e.mem.set_u32(base + index_at, 0xffff_ffff);
-    attach_tls(&mut e, base, dir).expect("TLS given");
+    attach_tls(&mut e, base, 0x1000, dir).expect("TLS given");
     assert_eq!(e.mem.u32(base + index_at), 1);
 
     // mov eax, fs:[0x2c]; mov eax, [eax]; mov eax, [eax+4]; ret
@@ -178,8 +178,9 @@ fn an_images_tls_template_is_copied_into_its_slot() {
     assert_eq!(call_guest(&mut e, 0, at, &[]), Ok(0x0bad_beef));
 }
 
-/// A TLS directory that does not fit: the template ends before it starts, or the directory is
-/// outside mapped memory. The image is refused with the reason, nothing written.
+/// A TLS directory that does not fit: the template ends before it starts, the directory or the
+/// index word lies outside the image, or the block is too large. The image is refused with the
+/// reason, nothing written.
 #[test]
 fn a_bad_tls_directory_is_refused_with_its_reason() {
     let mut e = Engine::new();
@@ -187,8 +188,23 @@ fn a_bad_tls_directory_is_refused_with_its_reason() {
     e.mem.zero(base, 0x1000);
     e.mem.set_u32(base + 0x100, base + 0x210);
     e.mem.set_u32(base + 0x104, base + 0x200);
-    let err = attach_tls(&mut e, base, 0x100).unwrap_err();
+    let err = attach_tls(&mut e, base, 0x1000, 0x100).unwrap_err();
     assert!(err.contains("ends before it starts"), "{err}");
-    let err = attach_tls(&mut e, 0x10, 0).unwrap_err();
+    let err = attach_tls(&mut e, 0x10, 0x1000, 0).unwrap_err();
     assert!(err.contains("outside"), "{err}");
+    // An index word outside the image (here: the thread block's TLS pointer) is refused and the
+    // block is left as it was.
+    let b = thread_block(&mut e);
+    let tls = e.mem.u32(b + TLS_POINTER);
+    e.mem.set_u32(base + 0x100, base + 0x200);
+    e.mem.set_u32(base + 0x104, base + 0x208);
+    e.mem.set_u32(base + 0x108, b + TLS_POINTER);
+    let err = attach_tls(&mut e, base, 0x1000, 0x100).unwrap_err();
+    assert!(err.contains("index lies outside"), "{err}");
+    assert_eq!(e.mem.u32(b + TLS_POINTER), tls);
+    // A zero fill past the limit is refused before anything is made.
+    e.mem.set_u32(base + 0x108, base + 0x300);
+    e.mem.set_u32(base + 0x110, 0x100_0000);
+    let err = attach_tls(&mut e, base, 0x1000, 0x100).unwrap_err();
+    assert!(err.contains("larger than"), "{err}");
 }

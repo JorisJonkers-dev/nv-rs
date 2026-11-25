@@ -833,7 +833,8 @@ fn attach_tls(e: &mut Engine, image: &pe::Pe, base: u32) -> Result<(), LoadError
     if image.tls == 0 {
         return Ok(());
     }
-    thread::attach_tls(e, base, image.tls).map_err(|m| LoadError::Pe(format!("TLS: {m}")))
+    thread::attach_tls(e, base, image.size_of_image, image.tls)
+        .map_err(|m| LoadError::Pe(format!("TLS: {m}")))
 }
 
 /// Maps a runtime DLL the user supplied (`msvcp140.dll`: the C++ library the plugins import),

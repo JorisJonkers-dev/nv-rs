@@ -80,9 +80,19 @@ struct TlsDir {
 
 /// The implicit TLS of an image mapped at `base` whose TLS directory is at `rva`: the template
 /// copied into a new block, the block put in the next slot of the thread's array and the slot's
-/// number written where the image keeps its index (`AddressOfIndex`). TLS callbacks are not
-/// run. `Err` names why the image's TLS cannot be given.
-pub fn attach_tls(e: &mut Engine, base: u32, rva: u32) -> Result<(), String> {
+/// number written where the image keeps its index (`AddressOfIndex`); `size` is the image's.
+/// TLS callbacks are not run. `Err` names why the image's TLS cannot be given.
+pub fn attach_tls(e: &mut Engine, base: u32, size: u32, rva: u32) -> Result<(), String> {
+    // Every address the directory names lies inside the image, so it cannot point the host at the
+    // thread block or another image.
+    let inside = |a: u32, n: u32| {
+        a >= base
+            && a.checked_add(n)
+                .is_some_and(|end| end <= base.wrapping_add(size))
+    };
+    if !inside(base.wrapping_add(rva), 24) {
+        return Err("the TLS directory lies outside the image".into());
+    }
     let dir = base.wrapping_add(rva);
     let mut b = [0u8; 24];
     e.mem
@@ -101,8 +111,14 @@ pub fn attach_tls(e: &mut Engine, base: u32, rva: u32) -> Result<(), String> {
         .ok_or("the TLS template ends before it starts")?;
     let total = len
         .checked_add(d.zero_fill)
-        .filter(|&n| n <= 0x100_0000)
-        .ok_or("the TLS block is larger than 16 MiB")?;
+        .filter(|&n| n <= 0x10_0000)
+        .ok_or("the TLS block is larger than 1 MiB")?;
+    if !inside(d.start, len) {
+        return Err("the TLS template lies outside the image".into());
+    }
+    if !inside(d.index_at, 4) {
+        return Err("the TLS index lies outside the image".into());
+    }
     let mut template = vec![0u8; len as usize];
     e.mem
         .try_read(d.start, &mut template)
