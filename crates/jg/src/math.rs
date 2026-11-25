@@ -44,6 +44,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: THREE_FLOATS,
         execute: clamp,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     },
     Cmd {
@@ -53,6 +54,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: THREE_FLOATS,
         execute: lerp,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     },
     Cmd {
@@ -62,6 +64,7 @@ pub static COMMANDS: [Cmd; 3] = [
         params: ONE_FLOAT,
         execute: sign,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     },
 ];
