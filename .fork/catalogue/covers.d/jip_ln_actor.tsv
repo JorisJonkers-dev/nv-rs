@@ -1,0 +1,114 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# JIP LN actor commands proven by tests in crates/jip (upstream-owned files, so tagged here; docs/fork/CATALOGUE.md).
+# A row names only the commands the test calls and whose answer or effect it asserts.
+test	covers
+crates/jip/src/commands/jip_fn_actor_anim_tests.rs::reload_char_controller_drops_the_controller_then_sets_up_havok	extenders.jip_ln.reloadcharcontroller
+crates/jip/src/commands/jip_fn_actor_c3_tests.rs::the_players_radiation_is_its_process_values	extenders.jip_ln.getradiationlevelalt
+crates/jip/src/commands/jip_fn_actor_c3_tests.rs::water_radiation_by_the_water_reference_and_swimming	extenders.jip_ln.getradiationlevelalt
+crates/jip/src/commands/jip_fn_actor_c3_tests.rs::water_radiation_by_the_cell_without_a_water_reference	extenders.jip_ln.getradiationlevelalt
+crates/jip/src/commands/jip_fn_actor_c3_tests.rs::loaded_emitters_add_by_how_far_inside_their_radius	extenders.jip_ln.getradiationlevelalt
+crates/jip/src/commands/jip_fn_actor_c3_tests.rs::radiation_alt_needs_an_actor_with_a_high_process	extenders.jip_ln.getradiationlevelalt
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::fall_times_read_their_own_fields	extenders.jip_ln.getfalltimeelapsed extenders.jip_ln.getfalltimeremaining
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::the_controller_needs_an_actor_with_a_process_of_level_0_or_1	extenders.jip_ln.getfalltimeelapsed
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::reset_fall_time_stores_the_z_and_zero	extenders.jip_ln.resetfalltime
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::actor_velocity_by_axis_and_its_length	extenders.jip_ln.getactorvelocity
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::in_air_is_state_bit_1	extenders.jip_ln.isinair
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::object_under_feet_is_the_bodys_reference	extenders.jip_ln.getobjectunderfeet
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::tilt_angles_in_degrees_for_x_and_y_only	extenders.jip_ln.getactortiltangle
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::tilt_angle_set_in_radians_as_floats	extenders.jip_ln.setactortiltangle
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::gravity_read_and_stored	extenders.jip_ln.getactorgravitymult extenders.jip_ln.setactorgravitymult
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::actor_velocity_set_on_the_proxy	extenders.jip_ln.setactorvelocity
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::actor_velocity_alt_world_and_local	extenders.jip_ln.getactorvelocityalt
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::hit_node_is_the_first_body_on_this_actor	extenders.jip_ln.gethitnode
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::hit_node_needs_a_projectile_and_a_hit	extenders.jip_ln.gethitnode
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::vats_targetable_flips_the_flag_and_the_hooks_users	extenders.jip_ln.setvatstargetable
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::attach_ash_pile_ex_keeps_the_form_and_runs_the_games_command	extenders.jip_ln.attachashpileex
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::attach_ash_pile_ex_needs_an_actor_and_an_ash_pile_form	extenders.jip_ln.attachashpileex
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::update_player_3d_queues_the_player_once	extenders.jip_ln.updateplayer3d
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::push_actor_away_alt_relative_and_absolute	extenders.jip_ln.pushactorawayalt
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::push_actor_away_alt_needs_a_high_process_actor	extenders.jip_ln.pushactorawayalt
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::dismember_limb_sets_the_part_and_makes_the_piece	extenders.jip_ln.dismemberlimb
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::dismember_limb_refusals	extenders.jip_ln.dismemberlimb
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::add_ref_map_marker_links_the_teammates_and_counts	extenders.jip_ln.addrefmapmarker extenders.jip_ln.refhasmapmarker
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::add_ref_map_marker_wants_a_reference_valid_for_hooks	extenders.jip_ln.addrefmapmarker extenders.jip_ln.refhasmapmarker
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::remove_ref_map_marker_unlinks_and_the_last_empties	extenders.jip_ln.addrefmapmarker extenders.jip_ln.removerefmapmarker extenders.jip_ln.refhasmapmarker
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::map_markers_reset_before_a_load	extenders.jip_ln.addrefmapmarker extenders.jip_ln.refhasmapmarker
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::session_time_counts_from_the_deferred_start	extenders.jip_ln.getsessiontime
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::play_sound_3d_node_plays_at_the_named_node	extenders.jip_ln.playsound3dnode
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::play_sound_3d_node_needs_a_key_and_a_node	extenders.jip_ln.playsound3dnode
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::ground_material_from_the_support_material	extenders.jip_ln.getgroundmaterial
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::ground_material_on_land_is_the_texture_under_the_actor	extenders.jip_ln.getgroundmaterial
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::move_away_from_player_starts_a_backup_package	extenders.jip_ln.moveawayfromplayer
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::move_away_from_player_refusals	extenders.jip_ln.moveawayfromplayer
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::add_ref_map_marker_without_a_player_links_nothing	extenders.jip_ln.addrefmapmarker extenders.jip_ln.refhasmapmarker
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::map_markers_reset_by_the_pre_load_and_exit_messages	extenders.jip_ln.addrefmapmarker extenders.jip_ln.refhasmapmarker
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::session_time_starts_at_the_deferred_init_message	extenders.jip_ln.getsessiontime
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::dismember_limb_takes_part_13	extenders.jip_ln.dismemberlimb
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::play_sound_3d_node_needs_a_sound_form	extenders.jip_ln.playsound3dnode
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::move_away_from_uses_its_distance_and_flags	extenders.jip_ln.moveawayfrom
+crates/jip/src/commands/jip_fn_actor_p2_c1_tests.rs::travel_to_ref_needs_the_same_cell_or_world	extenders.jip_ln.traveltoref
+crates/jip/src/commands/jip_fn_actor_p2_c3_tests.rs::armour_penetrated_is_bit_31_of_the_last_hits_flags	extenders.jip_ln.getarmourpenetrated
+crates/jip/src/commands/jip_fn_actor_p2_c3_tests.rs::teammate_killable_answers_and_flips_bit_4_of_jip_flags_2	extenders.jip_ln.toggleteammatekillable
+crates/jip/src/commands/jip_fn_actor_p2_c3_tests.rs::play_idle_ex_plays_a_given_idle_with_its_group	extenders.jip_ln.playidleex
+crates/jip/src/commands/jip_fn_actor_p2_c3_tests.rs::play_idle_ex_without_an_idle_plays_the_managers_pick	extenders.jip_ln.playidleex
+crates/jip/src/commands/jip_fn_actor_p2_c3_tests.rs::play_idle_ex_picks_the_first_child_whose_conditions_hold	extenders.jip_ln.playidleex
+crates/jip/src/commands/jip_fn_actor_p2_c3_tests.rs::play_idle_ex_plays_nothing_when_no_child_holds	extenders.jip_ln.playidleex
+crates/jip/src/commands/jip_fn_actor_p2_c3_tests.rs::play_idle_ex_counts_children_by_the_word_at_8	extenders.jip_ln.playidleex
+crates/jip/src/commands/jip_fn_actor_p2_c3_tests.rs::play_idle_ex_needs_an_actor_with_a_high_process_and_animation_data	extenders.jip_ln.playidleex
+crates/jip/src/commands/jip_fn_actor_p2_r1_tests.rs::no_gun_wobble_answers_and_flips_bit_8_of_jip_flags_2	extenders.jip_ln.togglenogunwobble
+crates/jip/src/commands/jip_fn_actor_p2_r4_tests.rs::fire_weapon_ex_queues_the_shot	extenders.jip_ln.fireweaponex
+crates/jip/src/commands/jip_fn_actor_p2_r4_tests.rs::fire_weapon_ex_refused	extenders.jip_ln.fireweaponex
+crates/jip/src/commands/jip_fn_actor_p2_r4_tests.rs::h01_turns_on_with_fire_weapon_ex	extenders.jip_ln.fireweaponex
+crates/jip/src/commands/jip_fn_actor_p2_r4_tests.rs::h01_stays_off_after_a_refused_call	extenders.jip_ln.fireweaponex
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::the_last_hit_values	extenders.jip_ln.gethitlimbdamage extenders.jip_ln.gethitattacker extenders.jip_ln.gethitprojectile extenders.jip_ln.gethitweapon extenders.jip_ln.gethitbaseweapondamage extenders.jip_ln.gethitfatiguedamage
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::hit_flags_by_the_table	extenders.jip_ln.gethitextendedflag
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::hit_3d_data_by_type	extenders.jip_ln.gethit3ddata
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::the_last_hit_without_an_attacker_or_projectile	extenders.jip_ln.gethitattacker extenders.jip_ln.gethitprojectile extenders.jip_ln.gethitweapon
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::base_spell_list	extenders.jip_ln.addbaseeffectlisteffect extenders.jip_ln.removebaseeffectlisteffect
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::base_spell_list_that_loops_back	extenders.jip_ln.addbaseeffectlisteffect extenders.jip_ln.removebaseeffectlisteffect
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::base_spell_list_that_loops_back_stops_without_the_list_guard	extenders.jip_ln.removebaseeffectlisteffect
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::skeleton_models_and_templates	extenders.jip_ln.getskeletonmodel extenders.jip_ln.setnpcskeletonmodel extenders.jip_ln.setcreskeletonmodel
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::weapon_lists_death_items_and_leveled_lists	extenders.jip_ln.getcreatureweaponlist extenders.jip_ln.getdeathitem extenders.jip_ln.setdeathitem extenders.jip_ln.getactorleveledlist
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::impact_materials_and_sound_templates	extenders.jip_ln.getimpactmaterialtype extenders.jip_ln.setimpactmaterialtype extenders.jip_ln.getcreaturesoundstemplate extenders.jip_ln.setcreaturesoundstemplate
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::body_part_vats_targets	extenders.jip_ln.getbodypartvatstarget
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::factions_and_faction_lists	extenders.jip_ln.getfactions extenders.jip_ln.getinfactionlist
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::cripple_limb_damages_the_condition	extenders.jip_ln.cripplelimb
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::kill_xp_through_the_game	extenders.jip_ln.getkillxp
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::the_killer_of_a_dead_actor	extenders.jip_ln.getkiller
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::kill_actor_alt_is_the_games_command	extenders.jip_ln.killactoralt
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::played_idles	extenders.jip_ln.getplayedidle extenders.jip_ln.isidleplayingex
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::set_weapon_out_calls_the_game	extenders.jip_ln.setweaponout
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::water_immersion	extenders.jip_ln.getwaterimmersionperc
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::interrupt_package_type	extenders.jip_ln.getinterruptpackage
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::fleeing_by_package	extenders.jip_ln.isfleeing
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::current_ammo_rounds	extenders.jip_ln.setcurrentammorounds
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::unreachable_targets_and_movement_flags	extenders.jip_ln.gettargetunreachable extenders.jip_ln.getactormovementflags
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::the_first_equipped_item_of_a_list	extenders.jip_ln.getequippedex
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::equipped_slots_against_an_armour	extenders.jip_ln.testequippedslots
+crates/jip/src/commands/jip_fn_actor_p2_tests.rs::eaten_marks	extenders.jip_ln.donnerreedkuruparty
+crates/jip/src/commands/jip_fn_actor_r1_tests.rs::get_answers_the_flag	extenders.jip_ln.getwheeldisabled
+crates/jip/src/commands/jip_fn_actor_r1_tests.rs::set_flips_only_when_asked_differs	extenders.jip_ln.setwheeldisabled
+crates/jip/src/commands/jip_fn_actor_tests.rs::templates_voice_types_and_the_leveled_base	extenders.jip_ln.getactortemplate extenders.jip_ln.getleveledactorbase extenders.jip_ln.getactorvoicetype extenders.jip_ln.setactorvoicetype
+crates/jip/src/commands/jip_fn_actor_tests.rs::creature_damage_reach_and_immobility	extenders.jip_ln.getcreaturedamage extenders.jip_ln.setcreaturedamage extenders.jip_ln.getcreaturereach extenders.jip_ln.getisimmobile
+crates/jip/src/commands/jip_fn_actor_tests.rs::leveling_data	extenders.jip_ln.getactorlevelingdata extenders.jip_ln.setactorlevelingdata
+crates/jip/src/commands/jip_fn_actor_tests.rs::creature_models	extenders.jip_ln.togglecreaturemodel extenders.jip_ln.creaturehasmodel extenders.jip_ln.getcreaturemodels
+crates/jip/src/commands/jip_fn_actor_tests.rs::creature_models_first_and_only	extenders.jip_ln.togglecreaturemodel extenders.jip_ln.getcreaturemodels
+crates/jip/src/commands/jip_fn_actor_tests.rs::creature_models_with_a_list_that_loops_back	extenders.jip_ln.togglecreaturemodel extenders.jip_ln.creaturehasmodel
+crates/jip/src/commands/jip_fn_actor_tests.rs::base_actor_values	extenders.jip_ln.modbaseactorvalue extenders.jip_ln.getbaseactorvaluealt
+crates/jip/src/commands/jip_fn_actor_tests.rs::processes	extenders.jip_ln.getactorprocessinglevel extenders.jip_ln.getactorlightamount extenders.jip_ln.getactoralpha extenders.jip_ln.getactordivebreath extenders.jip_ln.setactordivebreath extenders.jip_ln.stopidle extenders.jip_ln.holsterweapon
+crates/jip/src/commands/jip_fn_actor_tests.rs::attacking_ragdolled_and_in_water	extenders.jip_ln.isattacking extenders.jip_ln.isinwater extenders.jip_ln.getisragdolled
+crates/jip/src/commands/jip_fn_actor_tests.rs::actors_by_processing_level	extenders.jip_ln.getactorsbyprocessinglevel
+crates/jip/src/commands/jip_fn_actor_tests.rs::combat_targets_and_allies	extenders.jip_ln.getcombattargets extenders.jip_ln.getcombatallies extenders.jip_ln.isincombatwith
+crates/jip/src/commands/jip_fn_actor_tests.rs::detection_values_and_actors	extenders.jip_ln.getdetectedactors extenders.jip_ln.getdetectingactors extenders.jip_ln.getdetectionvalue
+crates/jip/src/commands/jip_fn_actor_tests.rs::the_stable_package	extenders.jip_ln.getcurrentstablepackage
+crates/jip/src/commands/jip_fn_actor_tests.rs::followers_dropped_items_and_ash_piles	extenders.jip_ln.getfollowers extenders.jip_ln.getdroppedrefs extenders.jip_ln.getashpilesource
+crates/jip/src/commands/jip_fn_actor_tests.rs::ammo	extenders.jip_ln.getcurrentammo extenders.jip_ln.getcurrentammorounds
+crates/jip/src/commands/jip_fn_actor_tests.rs::turning	extenders.jip_ln.faceobject extenders.jip_ln.turn
+crates/jip/src/commands/jip_fn_actor_tests.rs::names_set_on_bases_and_cells	extenders.jip_ln.setfullnamealt
+crates/jip/src/commands/jip_fn_actor_tests.rs::speed_mult	extenders.jip_ln.setspeedmult
+crates/jip/src/commands/jip_fn_actor_tests.rs::poisoned_and_actor_value_modifiers	extenders.jip_ln.getispoisoned extenders.jip_ln.getactorvaluemodifier
+crates/jip/src/commands/jip_fn_actor_tests.rs::perk_modifiers	extenders.jip_ln.getperkmodifier
+crates/jip/src/commands/jip_fn_actor_tests.rs::hit_health_damage	extenders.jip_ln.gethithealthdamage
+crates/jip/src/commands/jip_fn_actor_tests.rs::pick_from_a_list	extenders.jip_ln.pickfromlist
+crates/jip/src/commands/jip_fn_actor_tests.rs::pick_from_a_list_with_lists_that_loop_back	extenders.jip_ln.pickfromlist
+crates/jip/src/commands/jip_fn_actor_tests.rs::array_walks_with_a_huge_count	extenders.jip_ln.getactorsbyprocessinglevel extenders.jip_ln.getcombattargets extenders.jip_ln.getcombatallies extenders.jip_ln.getdetectingactors extenders.jip_ln.isincombatwith
