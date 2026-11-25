@@ -106,5 +106,28 @@ built in, and sets up the game and your mods for you.
 - [What the fork adds, in detail](docs/fork/FEATURES.md): graphics settings, Linux and macOS, downloads, contributing.
 - [Graphics settings](docs/fork/GRAPHICS.md) and [every other document](docs/README.md).
 
+## Credits
+
+nv-rs builds these mods in, translated into Rust from their published source and distributed as
+their licences allow (each crate's `NOTICE` and every package carry the notices). No C++ of theirs
+is included; one data file, UI Organizer's list of the UI mods it supports (`supported.txt`), is
+included unchanged.
+
+- **[xNVSE](https://github.com/xNVSE/NVSE)**, the New Vegas Script Extender: the original NVSE by
+  Ian Patterson, Stephen Abel, Paul Connelly and Hugues LE PORS (ianpatt, behippo, scruggsywuggsy
+  the ferret and hlp); xNVSE by korri123, cnf13, jazzisparis, Demorome and its contributors, with
+  the code xNVSE carries from Algohol (entim) and the MT19937 generator (Makoto Matsumoto and
+  Takuji Nishimura).
+- **[JIP LN NVSE](https://github.com/jazzisparis/JIP-LN-NVSE)** by jazzisparis, with its game
+  patches and the commands that began as the lutana NVSE plugin.
+- **[UI Organizer](https://github.com/jazzisparis/UIO-User-Interface-Organizer)** by jazzisparis
+  (Jef).
+- **[JohnnyGuitar NVSE](https://github.com/carxt/JohnnyGuitarNVSE)** by carxt and its
+  contributors: its editor ids and its corrections to JIP LN's co-save.
+- The fixes preset's "No LOD Water" flag on The Strip, found by Aqua Performa's author.
+
+The community decompilation [fnv_decomp](https://github.com/momusdigital/fnv_decomp) is read
+alongside the game's program as a reference for names, types and logic.
+
 nv-rs is not affiliated with Bethesda, ZeniMax, Obsidian or Microsoft, and contains no game files: you need your own
 copy of the game. GPL v3 or later; see [LEGAL.md](LEGAL.md) and [LICENSE](LICENSE).
