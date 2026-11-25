@@ -237,7 +237,13 @@ impl Host {
         // Shader overrides (`d3d9_wgpu::shader_override`, nothing unless asked): the engineers'
         // `NV_SHADER_OVERRIDES` folder, resolved against the data folder's shader packages and set
         // before the game makes its device.
-        for line in shader_overrides::install(data, Vec::new(), |name| std::env::var(name).ok()) {
+        // `water.near_fade` (nv-rs#897) asks for a patch of the water shaders that read a depth map.
+        let specs = if fork_graphics::near_fade() {
+            shader_overrides::near_water_fade(data)
+        } else {
+            Vec::new()
+        };
+        for line in shader_overrides::install(data, specs, |name| std::env::var(name).ok()) {
             fork_log::info!(target: "host", "{line}");
         }
         let choice = &detected;

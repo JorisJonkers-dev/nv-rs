@@ -641,6 +641,9 @@ struct Gen<'a> {
     skinned: bool,
     /// A shader override's WGSL ([`convert_replaced`]): its `nv_main()` in place of the body.
     replace: Option<&'a str>,
+    /// The override is a patch ([`convert_patched`]): the body is converted as usual and every
+    /// float constant it reads from the device passes through the WGSL's `nv_patch_c(n, value)`.
+    patch: bool,
 }
 
 /// The register of the sun's light colour in a lit pixel shader of the game: `PSLightColor`'s first
@@ -729,7 +732,7 @@ pub fn convert_with_sun(
     } else {
         None
     };
-    convert_inner(p, link, Some(sun), blank, skinned, None)
+    convert_inner(p, link, Some(sun), blank, skinned, None, false)
 }
 
 /// The sampler of the game's own projected actor shadows in a lit pixel shader (`ShadowMap`, s6 in
@@ -747,7 +750,7 @@ pub fn game_shadow_sampler(p: &Program) -> Option<u32> {
 
 /// Converts a shader to WGSL, linked as `link` says.
 pub fn convert(p: &Program, link: &Link) -> Result<String, Error> {
-    convert_inner(p, link, None, None, false, None)
+    convert_inner(p, link, None, None, false, None, false)
 }
 
 /// A pixel shader's module with a shader override's WGSL (`crate::shader_override`) in place of
@@ -760,7 +763,21 @@ pub fn convert_replaced(p: &Program, link: &Link, source: &str) -> Result<String
     if p.stage != Stage::Pixel {
         return Err(Error::Unsupported("a vertex shader override".into()));
     }
-    convert_inner(p, link, None, None, false, Some(source))
+    convert_inner(p, link, None, None, false, Some(source), false)
+}
+
+/// A pixel shader's module converted as [`convert`] makes it, with a shader override's patch WGSL
+/// (`crate::shader_override`): the same names as [`convert_replaced`] gives (`nv_frag`,
+/// `nv_texcoord`, `nv_color`, `nv_c`, `nv_const_<Name>()`, `nv_sample_<Name>()`, the declarations)
+/// and `const nv_reg_<Name>: i32` (each float constant's first register by the shader's table),
+/// then `source`, which defines `fn nv_patch_c(n: i32, v: vec4<f32>) -> vec4<f32>`: every float
+/// constant the converted body reads from the device (not the shader's own `def` values) is the
+/// answer of `nv_patch_c` for its register and the device's value. An error for a vertex shader.
+pub fn convert_patched(p: &Program, link: &Link, source: &str) -> Result<String, Error> {
+    if p.stage != Stage::Pixel {
+        return Err(Error::Unsupported("a vertex shader override".into()));
+    }
+    convert_inner(p, link, None, None, false, Some(source), true)
 }
 
 fn convert_inner(
@@ -770,6 +787,7 @@ fn convert_inner(
     blank: Option<u32>,
     skinned: bool,
     replace: Option<&str>,
+    patch: bool,
 ) -> Result<String, Error> {
     if p.stage == Stage::Pixel && p.major < 2 {
         return Err(Error::Unsupported(format!("{} pixel shaders", p.profile())));
@@ -832,6 +850,7 @@ fn convert_inner(
         blank,
         skinned,
         replace,
+        patch,
     };
     for ins in &p.ins {
         match ins.op {
@@ -1063,12 +1082,18 @@ impl Gen<'_> {
                     }
                     _ => {}
                 }
+                if self.patch && c.set == 2 {
+                    let _ = writeln!(self.out, "const nv_reg_{}: i32 = {n};", c.name);
+                }
             }
             self.out.push_str(crate::shader_override::DECLARATIONS);
             self.out.push_str(source);
-            self.out.push_str("\nfn body() {\n    nv_main();\n}\n");
-            self.pixel_entry();
-            return Ok(());
+            self.out.push('\n');
+            if !self.patch {
+                self.out.push_str("fn body() {\n    nv_main();\n}\n");
+                self.pixel_entry();
+                return Ok(());
+            }
         }
         // The body: the main program, then each subroutine.
         let ins = &self.p.ins;
@@ -1373,7 +1398,11 @@ impl Gen<'_> {
                         reg::LOOP => "aL".to_string(),
                         _ => format!("a0.{}", COMPONENTS[rel.comp as usize]),
                     };
-                    format!("cr(i32({n}) + {index})")
+                    if self.patch {
+                        format!("nv_patch_c(i32({n}) + {index}, cr(i32({n}) + {index}))")
+                    } else {
+                        format!("cr(i32({n}) + {index})")
+                    }
                 }
                 None => match self.defs.get(&n) {
                     Some(v) => format!(
@@ -1400,6 +1429,9 @@ impl Gen<'_> {
                             "({} * vec4<f32>(sky_fill, 1.0))",
                             const_read(self.link, &n.to_string())
                         ),
+                        _ if self.patch => {
+                            format!("nv_patch_c({n}, {})", const_read(self.link, &n.to_string()))
+                        }
                         _ => const_read(self.link, &n.to_string()),
                     },
                 },

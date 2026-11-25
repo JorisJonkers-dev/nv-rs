@@ -215,6 +215,7 @@ fn water_override() -> Override {
         registers: 4,
         late: false,
         blend: false,
+        patch: false,
     }
 }
 
@@ -552,6 +553,38 @@ fn a_late_override_reads_what_is_drawn_after_it_and_blends() {
             "{samples} samples: own {water:?}"
         );
         assert!(near(water[0], 0.75), "{samples} samples: c1.z {water:?}");
+        assert_eq!(land, [128, 128, 128, 255], "{samples} samples: the land");
+    }
+}
+
+/// A patch override keeps the game's own shader and changes only the constant it patches: the
+/// water's shader writes `c1` (0, 1, 0.75, 1); the patch turns its red to 1 and leaves the rest,
+/// and the land, drawn with another shader, is the game's.
+#[test]
+fn a_patch_override_changes_only_the_constants_it_patches() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let patch = Override {
+        source: "// nv: patch\nfn nv_patch_c(n: i32, v: vec4<f32>) -> vec4<f32> {\n    if (n == 1) { return vec4<f32>(1.0, v.yzw); }\n    return v;\n}\n".into(),
+        patch: true,
+        ..water_override()
+    };
+    for samples in [1, 4] {
+        let Some(mut b) = backend(samples, vec![patch.clone()]) else {
+            return;
+        };
+        let mut seen = None;
+        for n in 0..400 {
+            let (water, land) = water_and_land(&frame(&mut b, n, true));
+            if water[2] > 0 {
+                seen = Some((water, land));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let (water, land) =
+            seen.unwrap_or_else(|| panic!("{samples} samples: the patch never drew"));
+        // B, G, R, A: blue 0.75, green 1 as the game's shader writes them, red 1 from the patch.
+        assert_eq!(water, [191, 255, 255, 255], "{samples} samples: the water");
         assert_eq!(land, [128, 128, 128, 255], "{samples} samples: the land");
     }
 }

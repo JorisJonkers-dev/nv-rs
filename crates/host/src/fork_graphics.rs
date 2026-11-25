@@ -123,6 +123,8 @@ pub struct Levels {
     pub far_lights: bool,
     /// `water.placed_reflections` (set while the game runs too).
     pub placed_reflections: engine::placed_reflections::Level,
+    /// `water.near_fade` (set at the start only: the shader overrides are set before the device).
+    pub near_fade: bool,
     /// `textures.precise_targets` (set at the start only: the game makes its targets then).
     pub precise_targets: bool,
     /// `textures.dither` (set at the start only: the game makes its back buffers then).
@@ -261,6 +263,7 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
                     .expect("built in")
                     .choice("placed_reflections"),
             ),
+            near_fade: r.module("water").expect("built in").toggle("near_fade"),
             precise_targets: r
                 .module("textures")
                 .expect("built in")
@@ -268,6 +271,15 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
             dither: r.module("textures").expect("built in").toggle("dither"),
         },
     )
+}
+
+/// `water.near_fade` as [`start`] read it ([`near_fade`]).
+static NEAR_FADE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the start's settings ask for the near water's fade (`water.near_fade`): the host then
+/// sets its shader overrides before the game makes its device (`crate::shader_overrides`).
+pub fn near_fade() -> bool {
+    NEAR_FADE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// `water.placed_reflections`' choice as the engine's level.
@@ -334,6 +346,7 @@ pub fn start(
     engine::lamp_distance::set(levels.lamp_distance);
     engine::far_lights::set(levels.far_lights);
     engine::placed_reflections::set(levels.placed_reflections);
+    NEAR_FADE.store(levels.near_fade, std::sync::atomic::Ordering::Relaxed);
     d3d9_wgpu::format::precise_targets::set(levels.precise_targets);
     d3d9_wgpu::format::dither::set(levels.dither);
     if !r.is_original() {
@@ -404,6 +417,7 @@ mod tests {
             lamp_distance: 1.0,
             far_lights: false,
             placed_reflections: engine::placed_reflections::Level::Game,
+            near_fade: false,
             precise_targets: false,
             dither: false,
         }
@@ -595,6 +609,24 @@ mod tests {
         ]));
         assert!(!on(&[("NV_GFX_PRESET", "performance")]));
         assert!(on(&[("NV_GFX", "light.far_lights=true")]));
+    }
+
+    /// nv-rs#897: the near water's fade in modern only, unless chosen.
+    #[test]
+    fn the_near_water_fades_in_modern_and_not_otherwise_unless_chosen() {
+        let on = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.near_fade
+        };
+        assert!(!on(&[]), "the game's water by default");
+        assert!(!on(&[("NV_GFX_PRESET", "original")]));
+        assert!(on(&[("NV_GFX_PRESET", "modern")]));
+        assert!(!on(&[
+            ("NV_GFX_PRESET", "modern"),
+            ("NV_GFX", "water.near_fade=false")
+        ]));
+        assert!(!on(&[("NV_GFX_PRESET", "performance")]));
+        assert!(on(&[("NV_GFX", "water.near_fade=true")]));
     }
 
     #[test]

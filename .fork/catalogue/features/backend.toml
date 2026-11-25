@@ -119,3 +119,10 @@ id = "vulkan_s3_default_linux"
 title = "Vulkan S3: the default on Linux with wgpu as the fallback"
 status = "missing"
 notes = "nv-rs #264"
+
+[[item]]
+id = "shader_patches"
+title = "A game pixel shader converted as always with the float constants it reads patched by the fork's own WGSL"
+status = "implemented"
+notes = "nv-rs #897; docs/fork/SHADER-OVERRIDES.md, Patches"
+evidence = ["crates/d3d9-wgpu/src/sm/wgsl.rs#fn convert_patched"]

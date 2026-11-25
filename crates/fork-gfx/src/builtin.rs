@@ -284,21 +284,36 @@ static PLACED_REFLECTIONS: [Choice; 3] = [
     },
 ];
 
-/// Water (nv-rs#844): what the game's water reflects.
+/// Water (nv-rs#844, nv-rs#897): what the game's water reflects, and how clear near water stays toward
+/// the far view.
 pub static WATER: ModuleSpec = ModuleSpec {
     id: "water",
     label: "Water",
-    help: "What lakes and rivers mirror. The original mirrors the land only in water at the world's own water level; lakes and rivers placed at another height (Lake Mead, the Colorado) mirror the sky alone.",
-    settings: &[Setting {
-        key: "placed_reflections",
-        label: "Lakes and rivers reflect",
-        help: "Sky only: the original. Far land: lakes and rivers away from the world's water level mirror the sky and the far hills, built and objects the water's type names, through the game's own reflection of a water group. Far land and nearby: also the land, buildings and objects near the water; costs most.",
-        applies: Applies::Live,
-        kind: Kind::Choice { options: &PLACED_REFLECTIONS, default: "game" },
-    }],
-    owns: &[Owns::GameValue(
-        "the reflection outdoor water away from the world's water level draws (the game's sky reflection, or its own reflection of the water group)",
-    )],
+    help: "What lakes and rivers mirror, and how near water meets the far view's water. The original mirrors the land only in water at the world's own water level; lakes and rivers placed at another height (Lake Mead, the Colorado) mirror the sky alone.",
+    settings: &[
+        Setting {
+            key: "placed_reflections",
+            label: "Lakes and rivers reflect",
+            help: "Sky only: the original. Far land: lakes and rivers away from the world's water level mirror the sky and the far hills, built and objects the water's type names, through the game's own reflection of a water group. Far land and nearby: also the land, buildings and objects near the water; costs most.",
+            applies: Applies::Live,
+            kind: Kind::Choice { options: &PLACED_REFLECTIONS, default: "game" },
+        },
+        Setting {
+            key: "near_fade",
+            label: "Near water meets far water",
+            help: "Near lakes and rivers stay clear close by and turn as opaque as the far view's water toward the edge of the loaded area, so a lake seen from above has no line where the far view begins. Off, the original: near water is see-through up to that edge.",
+            applies: Applies::NextStart,
+            kind: Kind::Toggle { default: false },
+        },
+    ],
+    owns: &[
+        Owns::GameValue(
+            "the reflection outdoor water away from the world's water level draws (the game's sky reflection, or its own reflection of the water group)",
+        ),
+        Owns::GameValue(
+            "how much of what lies under near water shows through it with distance (the game's water shaders' opacity and depth falloff)",
+        ),
+    ],
     cost: "docs/fork/GRAPHICS.md, water",
 };
 
@@ -436,6 +451,15 @@ mod tests {
         assert!(modern.module("textures").unwrap().toggle("dither"));
         assert!(!perf.module("textures").unwrap().toggle("dither"));
         assert!(!at("original").module("textures").unwrap().toggle("dither"));
+        // nv-rs#897: Modern fades the near water's clarity toward the loaded edge; the others keep
+        // the game's water.
+        assert!(modern.module("water").unwrap().toggle("near_fade"));
+        for preset in ["original", "performance"] {
+            assert!(
+                !at(preset).module("water").unwrap().toggle("near_fade"),
+                "{preset}"
+            );
+        }
         // Modern shows a far view's light points by night; the others keep the game's far view.
         assert!(modern.module("light").unwrap().toggle("far_lights"));
         for preset in ["original", "performance"] {

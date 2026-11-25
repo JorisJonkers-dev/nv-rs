@@ -40,8 +40,8 @@ cell layers take effect while playing in the next slice; until then the start an
 | `modern` | on, medium, strength 0.7 | on, medium (2048) | 0.7, 1, with light from the sky (see Light balance) |
 | `performance` | on, low, strength 0.6 | off | 1, 1 |
 
-`modern` also makes placed lakes and rivers mirror the land (`water.placed_reflections` `high`, see Water) and shows a far
-view's lamp points by night (`light.far_lights`).
+`modern` also makes placed lakes and rivers mirror the land (`water.placed_reflections` `high`, see Water), lets near water
+meet the far view's water with no line (`water.near_fade`) and shows a far view's lamp points by night (`light.far_lights`).
 
 A preset is a settings file (`crates/fork-gfx/presets/`); a value set in the profile's file wins over it.
 
@@ -216,6 +216,7 @@ the far land and objects, the near land and the references its water form names,
 | Setting | What it does | Default | Applies |
 | --- | --- | --- | --- |
 | `placed_reflections` | `game`: the original (sky only); `low`: outdoor groups away from the world's water height draw the game's own group reflection at low detail (sky, far land and far objects); `high`: every outdoor group, also at the world's water height, draws its own reflection holding the whole loaded scene (the game's world scene graph, as its world reflection holds it with `bForceHighDetailReflections`): land, statics, trees and buildings around the water, drawn in their colours (not as the sky-coloured silhouettes `bAutoWaterSilhouetteReflections` gives) | `game` | live |
+| `near_fade` | `false`: the original; `true`: near water turns as opaque as the far (LOD) water toward the edge of the loaded cells (below) | `false` (`modern`: `true`) | next start |
 
 With `low` or `high` the far (LOD) water takes the reflection of the highest such group below the viewer: its blocks
 hold every lake and river of the world in one shape, so it cannot be split by height; the near water is the one the
@@ -228,6 +229,21 @@ courtyard built from statics mirrored nothing but the sky and the land. Water at
 below Hoover Dam at the Mojave's -2300, the Potomac at the Capital's 10500) took the world reflection map, which outdoors
 holds only the sky and the far land. With `high` such groups take their own reflection too; `low` keeps the world map for
 them. A water type that is nearly opaque (a short fog distance) shows little of any reflection: that is the data.
+
+Near water meets the far water (`near_fade`, nv-rs#897). The game draws near (placed) water with a depth map: its
+opacity over what lies under it is the water type's `FogAmount` times a falloff of the water's depth. The shaders already
+read every depth as deep between 4096 and 8192 units from the eye, but the opacity stays the `FogAmount` (0.62 for the
+Mojave's lakes), so the lakebed shows through up to the edge of the loaded cells. The far (LOD) water beyond is drawn by
+shaders without a depth map or refraction and shows nothing under it. Seen from above, Lake Mead had a line where the
+loaded cells end, faint on the plain game and strong with a water mod that makes the water clear (Natural Waters). With
+`true` the game's water pixel shaders that read a depth map (picked by the constants they name: `EyePos`, `FogColor`,
+`DepthFalloff`, `DepthMap`) are drawn with a patch override (docs/fork/SHADER-OVERRIDES.md): converted as always, with
+the opacity rising to 1 and the depth falloff reading every depth as deep between 4096 and 8192 units across the ground
+from the eye (one and two cells: the loaded cells of the default `uGridsToLoad` 5 reach at least two cells from the
+viewer). Within a cell of the viewer the water is the game's. Every such shader in the game's 16 packages takes that
+distance as the game's own depth fade does (`EyePos` minus the first texture coordinate). The faint one-pixel line along
+the near water's last row of pixels goes too (the depth falloff then reads that row as deep as well). Cost: the overrides' full-screen depth step once a
+frame while near water is drawn.
 
 Cost: one more scene pass into a reflection target while placed water is in range (the pass the game draws indoors). At
 Lake Mead on the plain game (`nv-rs-scene bench`, 1280x720 offscreen, five passes of 400 frames) two runs each of `game`

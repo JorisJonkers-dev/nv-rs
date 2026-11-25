@@ -49,6 +49,8 @@ with them, and `progress catalogue --check` in CI says when they were not regene
   ADR-0015).
 - `features.threading`: the area:threading issues, one item each.
 - `features.backend`: the area:vulkan issues and what the wgpu backend has proven.
+- `features.looks`: what the fork's own graphics settings change in the game's drawing beyond the graphics plan's rows
+  (the near water's fade).
 - `features.direct3d`: two roll-ups, read from the same code as `d3d9.methods` and `d3d9.states` (every method carried,
   every render state mapped). They are not duplicated as items.
 

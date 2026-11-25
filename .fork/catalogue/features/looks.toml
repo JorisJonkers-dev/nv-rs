@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "features.looks"
+title = "Fork looks (graphics settings of the fork's own)"
+origin = "ours"
+notes = "What the fork's graphics settings change in the game's own drawing beyond the graphics plan's rows (docs/fork/GRAPHICS.md). Kept by hand: a row is implemented only when its setting, a test of its effect and its pictures (in the pull request) have landed."
+
+[[item]]
+id = "near_water_fade"
+title = "Near water turns as opaque as the far water toward the edge of the loaded cells"
+status = "implemented"
+notes = "nv-rs #897; setting water.near_fade (on in modern); docs/fork/GRAPHICS.md, water"
+evidence = ["crates/host/src/shader_overrides.rs#NEAR_WATER_FADE_PROGRAM"]

@@ -62,6 +62,8 @@ pub struct Spec {
     pub late: bool,
     /// Blended over what is behind by the program's alpha ([`Override::blend`]).
     pub blend: bool,
+    /// A patch of the game's own shader rather than a program in its place ([`Override::patch`]).
+    pub patch: bool,
     /// Who asks, for the log (`water.far_water`).
     pub why: String,
 }
@@ -77,6 +79,7 @@ impl Spec {
             registers: crate::sm::wgsl::FLOAT_CONSTANTS,
             late: false,
             blend: false,
+            patch: false,
             why: why.into(),
         };
         for line in source.lines().map(str::trim) {
@@ -90,6 +93,7 @@ impl Spec {
                 match w {
                     "late" => spec.late = true,
                     "blend" => spec.blend = true,
+                    "patch" => spec.patch = true,
                     _ => {
                         if let Some(n) = w.strip_prefix("registers=").and_then(|n| n.parse().ok()) {
                             spec.registers = n;
@@ -119,6 +123,10 @@ pub struct Override {
     /// Its draws blend over what is behind them by the program's alpha (source alpha, one minus
     /// source alpha), whatever blending the game set.
     pub blend: bool,
+    /// The game's shader is converted as without the override and the program only patches the
+    /// float constants it reads (`crate::sm::wgsl::convert_patched`: the program defines
+    /// `nv_patch_c(n, value)` instead of `nv_main()`).
+    pub patch: bool,
 }
 
 static SET: RwLock<Vec<Arc<Override>>> = RwLock::new(Vec::new());
@@ -192,9 +200,46 @@ pub fn resolve(roots: &[PathBuf], specs: &[Spec]) -> (Vec<Override>, Vec<String>
             registers: spec.registers.min(crate::sm::wgsl::FLOAT_CONSTANTS),
             late: spec.late,
             blend: spec.blend,
+            patch: spec.patch,
         });
     }
     (out, lines)
+}
+
+/// The names (as the packages under `roots` give them, each once, sorted) of the pixel shaders
+/// whose name starts with `prefix` (any case) and whose constant table, in every package that has
+/// the name, names each of `constants`: a setting picks the shaders a patch fits by what they read,
+/// not by a list of names.
+pub fn names_naming(roots: &[PathBuf], prefix: &str, constants: &[&str]) -> Vec<String> {
+    let (packages, _) = crate::precompile::find_packages(roots);
+    let prefix = prefix.to_ascii_lowercase();
+    let mut fits: std::collections::BTreeMap<String, (String, bool)> = Default::default();
+    for package in packages
+        .iter()
+        .filter_map(|p| std::fs::read(p).ok())
+        .filter_map(|b| crate::sm::package::Package::parse(&b).ok())
+    {
+        for s in &package.shaders {
+            let key = s.name.to_ascii_lowercase();
+            if !key.starts_with(&prefix) || !key.ends_with(".pso") {
+                continue;
+            }
+            let names = crate::sm::tokens(&s.bytecode)
+                .and_then(|t| crate::sm::parse(&t))
+                .map(|p| {
+                    constants
+                        .iter()
+                        .all(|c| p.constants.iter().any(|k| k.name == *c))
+                })
+                .unwrap_or(false);
+            let entry = fits.entry(key).or_insert_with(|| (s.name.clone(), true));
+            entry.1 &= names;
+        }
+    }
+    fits.into_values()
+        .filter(|(_, all)| *all)
+        .map(|(name, _)| name)
+        .collect()
 }
 
 /// The declarations an override's WGSL reads (bind group 3), placed by the converter before it.
@@ -525,6 +570,7 @@ mod tests {
             registers: 300,
             late: true,
             blend: false,
+            patch: false,
             why: "test".into(),
         }
     }
@@ -579,6 +625,71 @@ mod tests {
         let _ = std::fs::remove_dir_all(d);
     }
 
+    /// A pixel shader's tokens: `ps_3_0` with a constant table of `names` (a `...Map` name a
+    /// sampler, any other a float4 at register `index`), then the end.
+    fn tabled(names: &[(&str, u16)]) -> Vec<u32> {
+        let mut b = Vec::new();
+        for v in [28u32, 0, 0xFFFF_0300, names.len() as u32, 28, 0, 0] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        let strings = 28 + 20 * names.len();
+        let mut text = Vec::new();
+        for &(name, index) in names {
+            b.extend_from_slice(&((strings + text.len()) as u32).to_le_bytes());
+            for v in [if name.ends_with("Map") { 3u16 } else { 2 }, index, 1, 0] {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+            b.extend_from_slice(&[0; 8]);
+            text.extend_from_slice(name.as_bytes());
+            text.push(0);
+        }
+        b.extend(text);
+        b.resize(b.len().div_ceil(4) * 4, 0);
+        let words: Vec<u32> = std::iter::once(u32::from_le_bytes(*b"CTAB"))
+            .chain(
+                b.chunks_exact(4)
+                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])),
+            )
+            .collect();
+        let mut t = vec![0xFFFF_0300, 0xFFFE | ((words.len() as u32) << 16)];
+        t.extend(words);
+        t.push(crate::sm::END);
+        t
+    }
+
+    /// The shaders a patch fits are picked by the constants they name, by prefix in any case, and
+    /// only when every package's bytecode of the name names them all.
+    #[test]
+    fn names_are_picked_by_the_constants_every_package_s_shader_names() {
+        let d = tmp("naming");
+        let full = tabled(&[("EyePos", 1), ("FogColor", 10), ("DepthMap", 4)]);
+        let short = tabled(&[("EyePos", 1), ("FogColor", 10)]);
+        std::fs::write(
+            d.join("Shaders/shaderpackage001.sdp"),
+            package(&[
+                ("WATER000.pso", &full),
+                ("WATER002.pso", &short),
+                ("WATER003.pso", &full),
+                ("WATER000.vso", &full),
+                ("SLS2000.pso", &full),
+            ]),
+        )
+        .unwrap();
+        std::fs::write(
+            d.join("Shaders/shaderpackage002.sdp"),
+            package(&[("water000.PSO", &full), ("WATER003.pso", &short)]),
+        )
+        .unwrap();
+        let got = names_naming(
+            std::slice::from_ref(&d),
+            "water",
+            &["EyePos", "FogColor", "DepthMap"],
+        );
+        assert_eq!(got, vec!["WATER000.pso".to_string()]);
+        assert!(names_naming(std::slice::from_ref(&d), "WATER", &["Missing"]).is_empty());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
     /// A shader no package has replaces nothing, and the log says so.
     #[test]
     fn a_missing_name_gives_no_override() {
@@ -598,6 +709,46 @@ mod tests {
     /// and outputs with the override's program in place of the converted body (none of the
     /// instructions: here no `discard` of the shader's `texkill`), valid with the registers in
     /// uniform blocks and in storage; never for a vertex shader.
+    /// A patch keeps the converted body and passes the device's float constants it reads through
+    /// the program's `nv_patch_c`, never the shader's own `def` values.
+    #[test]
+    fn a_patch_keeps_the_body_and_passes_the_device_s_constants_through_the_program() {
+        // ps_3_0: def c0 = (1, 2, 3, 4); add oC0, c0, c1.
+        let t = [
+            0xFFFF_0300,
+            0x0500_0051,
+            0xA00F_0000,
+            1.0f32.to_bits(),
+            2.0f32.to_bits(),
+            3.0f32.to_bits(),
+            4.0f32.to_bits(),
+            0x0300_0002,
+            0x800F_0800,
+            0xA0E4_0000,
+            0xA0E4_0001,
+            crate::sm::END,
+        ];
+        let p = crate::sm::parse(&t).unwrap();
+        let program = "// nv: patch\nfn nv_patch_c(n: i32, v: vec4<f32>) -> vec4<f32> {\n    return select(v, vec4<f32>(nv_frag.x), n == 1);\n}\n";
+        assert!(Spec::of("X.pso", program, "test").patch);
+        assert!(!Spec::of("X.pso", "fn nv_main() {}", "test").patch);
+        for storage in [false, true] {
+            let link = Link {
+                storage,
+                ..Link::default()
+            };
+            let s = wgsl::convert_patched(&p, &link, program).unwrap();
+            validate(&s);
+            assert!(s.contains("nv_patch_c(1, "), "{s}");
+            assert!(!s.contains("nv_patch_c(0, "), "the shader's own def: {s}");
+            assert!(s.contains("vec4<f32>(1.0, 2.0, 3.0, 4.0)"), "{s}");
+            assert!(s.contains("nv_frag = input.frag;"), "{s}");
+            assert!(!s.contains("nv_main"), "{s}");
+            let plain = wgsl::convert(&p, &link).unwrap();
+            assert!(!plain.contains("nv_"), "{plain}");
+        }
+    }
+
     #[test]
     fn an_override_replaces_the_body_and_keeps_the_frame() {
         // The ps_2_x shader of `texture_instructions_convert_to_valid_wgsl`, ending in texkill.

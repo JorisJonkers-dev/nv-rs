@@ -11030,7 +11030,12 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             self.override_failed.insert(key.clone());
             return false;
         };
-        let source = wgsl::convert_replaced(
+        let convert = if over.patch {
+            wgsl::convert_patched
+        } else {
+            wgsl::convert_replaced
+        };
+        let source = convert(
             &ps.program,
             &wgsl::Link {
                 inputs: Vec::new(),

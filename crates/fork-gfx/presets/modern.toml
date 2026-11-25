@@ -27,6 +27,7 @@ shade_fill = 0.2
 
 [global.water]
 placed_reflections = "high"
+near_fade = true
 
 [global.textures]
 anisotropy = "x16"

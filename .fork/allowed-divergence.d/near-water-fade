@@ -1,0 +1,3 @@
+crates/d3d9-wgpu/src/device.rs  # a patch shader override (`// nv: patch`) takes convert_patched for its variant pipeline (nv-rs#897); unchanged with none set
+crates/d3d9-wgpu/src/sm/wgsl.rs  # convert_patched: a pixel shader converted as usual with the device's float constants read through a patch override's nv_patch_c (nv-rs#897)
+crates/host/src/lib.rs  # water.near_fade asks for the near water's fade among the shader overrides set before the device is made (nv-rs#897)

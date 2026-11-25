@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Shader patches and the near water's fade (docs/fork/SHADER-OVERRIDES.md, docs/fork/GRAPHICS.md), tagged here because the scan does not read these crates (docs/fork/CATALOGUE.md).
+# Each test runs a patch and asserts what it changed; it fails without the patch mode.
+test	covers
+crates/d3d9-wgpu/src/shader_override.rs::a_patch_keeps_the_body_and_passes_the_device_s_constants_through_the_program	features.backend.shader_patches
+crates/d3d9-wgpu/tests/shader_override.rs::a_patch_override_changes_only_the_constants_it_patches	features.backend.shader_patches
+crates/d3d9-wgpu/src/shader_override.rs::names_are_picked_by_the_constants_every_package_s_shader_names	features.backend.shader_patches

@@ -43,6 +43,17 @@ The program's first lines that start with `// nv:` say how it is drawn, by words
 | `late` | its draws are kept and drawn where the world is drawn (after the world pass, at the frame's camera words), so the scene's depth it reads holds the whole world, also what the game draws after the shader's own draws; they keep their order, states and targets |
 | `blend` | its draws blend over what is behind them by the program's alpha (source alpha over one minus source alpha), whatever blending the game set |
 | `registers=N` | it reads the float constants `c0` to `c<N-1>` (all of them when not said) |
+| `patch` | the game's shader is converted as without the override and the program only patches the float constants it reads (below) |
+
+## Patches
+
+A program whose `// nv:` lines say `patch` does not replace the game's shader: the shader is converted as without an
+override, and every float constant its instructions read from the device (not the shader's own `def` values; a read
+through an address register too, by the register it reaches) is the answer of the program's `fn nv_patch_c(n: i32, v: vec4<f32>) -> vec4<f32>` for the register `n` and the device's value
+`v`. The program reads the same names as a replacement (`nv_frag`, `nv_texcoord[n]`, `nv_const_<Name>()`, ...) and
+`nv_reg_<Name>`, each float constant's first register by the shader's table. `water.near_fade` is one
+(docs/fork/GRAPHICS.md, water); `d3d9_wgpu::shader_override::names_naming` picks the shaders a patch fits by the
+constants they name.
 
 ## How it is drawn
 
