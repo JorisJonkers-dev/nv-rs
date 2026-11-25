@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.25.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.24.0...v0.25.0) (2026-11-25)
+
+
+### Features
+
+* **catalogue:** coverage catalogue of extender commands, Direct3D 9, the graphics plan and engine functions ([#861](https://github.com/JorisJonkers-dev/nv-rs/issues/861)) ([4a5bdf5](https://github.com/JorisJonkers-dev/nv-rs/commit/4a5bdf5b4ee64f3d409adc931d67c35ba72ddb72))
+* **catalogue:** tag 110 JIP LN actor tests through the covers map ([#875](https://github.com/JorisJonkers-dev/nv-rs/issues/875)) ([af0e794](https://github.com/JorisJonkers-dev/nv-rs/commit/af0e794072c48caa6615f10df6bb9641dd7a6c37))
+* **catalogue:** tag 183 JIP LN tests of the B to I command files through the covers map ([#878](https://github.com/JorisJonkers-dev/nv-rs/issues/878)) ([cc4843e](https://github.com/JorisJonkers-dev/nv-rs/commit/cc4843e039afb6f0f85d2a77f3bd70f7cc991ef9))
+* **catalogue:** tag 238 JIP LN tests of the armor, aux, L, marker, minimap and misc command files ([#879](https://github.com/JorisJonkers-dev/nv-rs/issues/879)) ([4198018](https://github.com/JorisJonkers-dev/nv-rs/commit/41980183730edc8d4f337266d49b36d4194574d8))
+* **catalogue:** tag 53 JIP LN tests through a covers map and pin tally 0.5.0 ([#870](https://github.com/JorisJonkers-dev/nv-rs/issues/870)) ([a4dd8b3](https://github.com/JorisJonkers-dev/nv-rs/commit/a4dd8b34c51dd18a44b32cb78215a71fd8ee00cb))
+* **fork-window:** name the window by the run's label; a minimised window for off screen runs ([#838](https://github.com/JorisJonkers-dev/nv-rs/issues/838)) ([9a1f5a1](https://github.com/JorisJonkers-dev/nv-rs/commit/9a1f5a1ecc8910bf0e99cc289ecd9d2d2cfa0807))
+* **fork:** let the progress bot setup add the bypass on another repository's ruleset ([#854](https://github.com/JorisJonkers-dev/nv-rs/issues/854)) ([3b0eac8](https://github.com/JorisJonkers-dev/nv-rs/commit/3b0eac849d3f61d272d704045978a094b84511dc))
+* **fork:** progress pictures counted from the code, kept current by a bot ([#852](https://github.com/JorisJonkers-dev/nv-rs/issues/852)) ([22a493b](https://github.com/JorisJonkers-dev/nv-rs/commit/22a493b4a1ead92a24b0ce708a2a510c4390493c))
+* **gfx:** light.far_lights shows the light points of far-view blocks by night ([#871](https://github.com/JorisJonkers-dev/nv-rs/issues/871)) ([e03ffae](https://github.com/JorisJonkers-dev/nv-rs/commit/e03ffae6a6935811881d5fa5ef52231df9dd7f05))
+* **gfx:** light.lamp_distance, lamps light their surroundings from further off (modern: 4) ([#843](https://github.com/JorisJonkers-dev/nv-rs/issues/843)) ([c72e5da](https://github.com/JorisJonkers-dev/nv-rs/commit/c72e5da5fbc4c6abe7aa99d7d184e5cca8397c50))
+* **gfx:** textures.anisotropy, forced anisotropic filtering (modern x16) ([#847](https://github.com/JorisJonkers-dev/nv-rs/issues/847)) ([6d16440](https://github.com/JorisJonkers-dev/nv-rs/commit/6d16440d0dd4758c4dcd490c85350812d1f676b9))
+* **gfx:** textures.dither shows the frame through a dithered last step into 8 bits ([#863](https://github.com/JorisJonkers-dev/nv-rs/issues/863)) ([f880148](https://github.com/JorisJonkers-dev/nv-rs/commit/f88014862d9d77aec62d5eb930008a1a6769fd82))
+* **gfx:** textures.precise_targets keeps 8-bit colour render targets in 16 bits ([#858](https://github.com/JorisJonkers-dev/nv-rs/issues/858)) ([7741930](https://github.com/JorisJonkers-dev/nv-rs/commit/77419302e58c14d9f1ccb7737613d880bc73d917))
+* **gfx:** water.placed_reflections, placed lakes and rivers mirror the land (modern: high) ([#845](https://github.com/JorisJonkers-dev/nv-rs/issues/845)) ([44faa4d](https://github.com/JorisJonkers-dev/nv-rs/commit/44faa4d93421804170b8327ebaf2a941d391cb7e))
+* **jg:** GetPipBoyMode, GetThresholdedActorValue and GetActorValueAlt ([#867](https://github.com/JorisJonkers-dev/nv-rs/issues/867)) ([ab2b0a8](https://github.com/JorisJonkers-dev/nv-rs/commit/ab2b0a8155f5371c6defcc8165ac54f1ef2bc11b))
+* **jg:** the base effect, interior lighting and weapon V.A.T.S. traits ([#862](https://github.com/JorisJonkers-dev/nv-rs/issues/862)) ([3cc92d7](https://github.com/JorisJonkers-dev/nv-rs/commit/3cc92d7a437879c8e8a3854051e18e7e1f22a0c0))
+* **showoff:** IsLimbCrippled, IsAiming, IsBlockingOrAiming and GetIngestibleConsumeSound ([#869](https://github.com/JorisJonkers-dev/nv-rs/issues/869)) ([9a19318](https://github.com/JorisJonkers-dev/nv-rs/commit/9a1931855aa82d1d2cbca8ab1feaf6751808e788))
+* **showoff:** the auxiliary timers and their handlers, from the plugin's wiki pages ([#860](https://github.com/JorisJonkers-dev/nv-rs/issues/860)) ([6a0e7ad](https://github.com/JorisJonkers-dev/nv-rs/commit/6a0e7ade855f034e910cec8fa8a1a81e7ddf504d))
+
+
+### Bug Fixes
+
+* **engine-fallout-forms:** declare the four words of the action-point cost function the game's callers pass ([76bcbf7](https://github.com/JorisJonkers-dev/nv-rs/commit/76bcbf70c2855512243c9a5f73d94349317e69d9))
+* **engine-fallout-forms:** the camera path teardown skips a child that is no longer a camera path instead of stopping the game at quit ([#840](https://github.com/JorisJonkers-dev/nv-rs/issues/840)) ([1501445](https://github.com/JorisJonkers-dev/nv-rs/commit/15014459c3f1a42c1c37084aef5827718d6d5704))
+* **engine-platform:** the run's borderless window is full screen on Linux, not framed under the top bar ([#842](https://github.com/JorisJonkers-dev/nv-rs/issues/842)) ([1a4d8a6](https://github.com/JorisJonkers-dev/nv-rs/commit/1a4d8a6a9ab095df926b6d139aee1995bdd0e5ee))
+* **fork-window:** the window takes the size Wayland gives its size request, follows resizes and matches HDMI-A-1 to HDMI-1 ([#839](https://github.com/JorisJonkers-dev/nv-rs/issues/839)) ([f1f396e](https://github.com/JorisJonkers-dev/nv-rs/commit/f1f396e801478b3b63a4f937022f024018692ca7))
+* **gfx:** water.placed_reflections high mirrors the scene around every outdoor water ([#853](https://github.com/JorisJonkers-dev/nv-rs/issues/853)) ([469bc54](https://github.com/JorisJonkers-dev/nv-rs/commit/469bc54f787e138eb1c384c8f98ffc03688a1f32))
+* **release-files:** count a command JIP LN registers at two opcodes once ([#859](https://github.com/JorisJonkers-dev/nv-rs/issues/859)) ([e12c8bb](https://github.com/JorisJonkers-dev/nv-rs/commit/e12c8bbb32b2664be427d1a8b130b1b2a12fd12b))
+* **scene:** --ini also sets keys the game reads from FalloutPrefs.ini ([#856](https://github.com/JorisJonkers-dev/nv-rs/issues/856)) ([1c7747b](https://github.com/JorisJonkers-dev/nv-rs/commit/1c7747b4f0ba4da86521b441ea176706ab2aea11))
+* **scene:** memory guard allows 0.4 of the GTT, NV_GUARD_GTT_SHARE up to 0.5 ([#850](https://github.com/JorisJonkers-dev/nv-rs/issues/850)) ([31009e4](https://github.com/JorisJonkers-dev/nv-rs/commit/31009e49235104045631f4fb7b6aed3f08b0f535))
+
 ## [0.24.0](https://github.com/JorisJonkers-dev/nv-rs/compare/v0.23.0...v0.24.0) (2026-11-24)
 
 
