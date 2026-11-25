@@ -16,7 +16,9 @@
 //!   or a load until the next one and are saved in the co-save ([`cosave`]); they are NOT shown in
 //!   the Stats menu. [`math`]: `Clamp`, `Lerp` and `Sign`, written from the plugin's wiki pages
 //!   (`provenance/01-math.md`); [`lookups`]: `EditorIDToFormID` and `GetEditorID`
-//!   (`provenance/02-lookups.md`). Every other command of the plugin is not built.
+//!   (`provenance/02-lookups.md`); [`game_reads`]: `GetPipBoyMode`, `GetThresholdedActorValue`
+//!   and `GetActorValueAlt` (`provenance/04-game-reads.md`). Every other command of the plugin is
+//!   not built.
 //!
 //! The plugin answers "installed" only together with those commands ([`install_as`]): a mod that
 //! checks for it and needs another command then fails at that line. Off ([`ANSWERS_INSTALLED`],
@@ -25,6 +27,7 @@
 
 pub mod commands;
 pub mod cosave;
+pub mod game_reads;
 pub mod identity;
 pub mod lookups;
 pub mod math;
@@ -58,7 +61,7 @@ pub fn set_answers_installed(e: &mut Engine, on: bool) {
 }
 
 /// The long names of the commands this crate builds, for the capabilities report.
-pub const COMMAND_NAMES: [&str; 11] = [
+pub const COMMAND_NAMES: [&str; 14] = [
     "GetQuestFailed",
     "IsDLLLoaded",
     "GetExtraMiscStat",
@@ -70,6 +73,9 @@ pub const COMMAND_NAMES: [&str; 11] = [
     "EditorIDToFormID",
     "GetEditorID",
     "GetFormOverrideIndex",
+    "GetPipBoyMode",
+    "GetActorValueAlt",
+    "GetThresholdedActorValue",
 ];
 
 /// Builds the plugin into the engine, after xNVSE, when it answers "installed"

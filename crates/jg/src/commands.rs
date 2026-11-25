@@ -58,6 +58,8 @@ pub struct Cmd {
     pub execute: AbiFn,
     /// The condition eval, for the one command that is also a condition function.
     pub eval: Option<AbiFn>,
+    /// Whether a calling reference is required (the declaration line's flag).
+    pub needs_ref: bool,
     /// What the command answers (a form or a string need their own result handling).
     pub returns: Returns,
 }
@@ -71,6 +73,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: ONE_QUEST,
         execute: get_quest_failed,
         eval: Some(get_quest_failed_eval),
+        needs_ref: false,
         returns: Returns::Default,
     },
     Cmd {
@@ -80,6 +83,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: IS_DLL_LOADED,
         execute: is_dll_loaded,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     },
     Cmd {
@@ -89,6 +93,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: ONE_STRING,
         execute: get_extra_misc_stat,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     },
     Cmd {
@@ -98,6 +103,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: ONE_STRING_ONE_INT,
         execute: mod_extra_misc_stat,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     },
     Cmd {
@@ -107,6 +113,7 @@ pub static COMMANDS: [Cmd; 5] = [
         params: ONE_STRING,
         execute: init_extra_misc_stat,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     },
 ];
@@ -117,6 +124,7 @@ pub fn all() -> impl Iterator<Item = &'static Cmd> {
         .iter()
         .chain(crate::math::COMMANDS.iter())
         .chain(crate::lookups::COMMANDS.iter())
+        .chain(crate::game_reads::COMMANDS.iter())
 }
 
 /// A parameter list in the built-ins' data (12 bytes a parameter: name, type, optional).
@@ -146,7 +154,7 @@ pub fn install(e: &mut Engine) {
         let record = PluginRecord {
             name: c.name,
             short: c.short,
-            needs_ref: false,
+            needs_ref: c.needs_ref,
             param_count: c.params.len() as u16,
             params: guest_params(e, c.params),
             execute,
