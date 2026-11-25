@@ -7353,3 +7353,112 @@ fn held_draws_over_one_surface_keep_their_order_across_keys() {
         assert_eq!(mismatches, 0, "each held draw drawn with its own state");
     }
 }
+
+/// A managed texture's levels given whole are kept by the texture alone, not by a second host
+/// copy, and `ReadSurface` still gives each one back as it was given: a DXT1 chain down to a
+/// level smaller than a block, and an A8R8G8B8 level. A 16-bit level (widened on the card) keeps
+/// its host copy, and a short upload to a level the card holds goes over its bytes read back.
+#[test]
+fn managed_levels_are_read_back_from_the_card_without_a_host_copy() {
+    let Some(mut g) = Gpu::new(2, 1) else { return };
+    const DXT1: u32 = u32::from_le_bytes(*b"DXT1");
+    const R5G6B5: u32 = 23;
+    const BC: u32 = 0x4200;
+    const BC_LEVELS: [u32; 4] = [0x4201, 0x4202, 0x4203, 0x4204];
+    const RGBA: u32 = 0x4300;
+    const RGBA_LEVEL: u32 = 0x4301;
+    const WIDE: u32 = 0x4400;
+    const WIDE_LEVEL: u32 = 0x4401;
+    let texture = |g: &mut Gpu, texture, levels: &[u32], side, format| {
+        let levels = words(levels);
+        g.run(Cmd::CreateTexture {
+            device: DEVICE,
+            texture,
+            levels: Data::Bytes(&levels),
+            width: side,
+            height: side,
+            usage: 0,
+            format,
+            pool: 1,
+        });
+    };
+    texture(&mut g, BC, &BC_LEVELS, 8, DXT1);
+    texture(&mut g, RGBA, &[RGBA_LEVEL], 4, A8R8G8B8);
+    texture(&mut g, WIDE, &[WIDE_LEVEL], 2, R5G6B5);
+    // 8x8 DXT1: 4 blocks of 8 bytes; 4x4, 2x2 and 1x1: one block each.
+    let given: Vec<Vec<u8>> = [32usize, 8, 8, 8]
+        .iter()
+        .enumerate()
+        .map(|(k, &n)| (0..n).map(|i| (i * 7 + k * 31) as u8).collect())
+        .collect();
+    for (k, bytes) in given.iter().enumerate() {
+        let row = if k == 0 { 16 } else { 8 };
+        g.run(Cmd::UploadSurface {
+            surface: BC_LEVELS[k],
+            row,
+            rows: bytes.len() as u32 / row,
+            data: Data::Bytes(bytes),
+        });
+    }
+    let rgba: Vec<u8> = (0..64).map(|i| (255 - i) as u8).collect();
+    g.run(Cmd::UploadSurface {
+        surface: RGBA_LEVEL,
+        row: 16,
+        rows: 4,
+        data: Data::Bytes(&rgba),
+    });
+    let wide: Vec<u8> = vec![0x1f, 0xf8, 0xe0, 0x07, 0x00, 0x00, 0xff, 0xff];
+    g.run(Cmd::UploadSurface {
+        surface: WIDE_LEVEL,
+        row: 4,
+        rows: 2,
+        data: Data::Bytes(&wide),
+    });
+    let (host, on_card) = g.b.device().expect("the device").kept_for_tests();
+    assert_eq!(on_card, 5, "the DXT1 chain and the A8R8G8B8 level");
+    assert_eq!(
+        host,
+        wide.len() as u64,
+        "only the widened level keeps a host copy"
+    );
+    let read = |g: &mut Gpu, surface, size| match g.run(Cmd::ReadSurface { surface, size }) {
+        Reply::Bytes(Some(b)) => b,
+        other => panic!("{surface:#x}: {other:?}"),
+    };
+    for (k, bytes) in given.iter().enumerate() {
+        assert_eq!(
+            &read(&mut g, BC_LEVELS[k], bytes.len() as u32),
+            bytes,
+            "DXT1 level {k}"
+        );
+    }
+    assert_eq!(read(&mut g, RGBA_LEVEL, 64), rgba);
+    assert_eq!(read(&mut g, WIDE_LEVEL, 8), wide);
+    // Another size: none, as with a host copy.
+    assert!(matches!(
+        g.run(Cmd::ReadSurface {
+            surface: RGBA_LEVEL,
+            size: 60,
+        }),
+        Reply::Bytes(None)
+    ));
+    // A short upload: the level's bytes come back to the host, the new ones over them.
+    g.run(Cmd::UploadSurface {
+        surface: RGBA_LEVEL,
+        row: 16,
+        rows: 1,
+        data: Data::Bytes(&[0xAA; 16]),
+    });
+    let mut changed = rgba.clone();
+    changed[..16].copy_from_slice(&[0xAA; 16]);
+    assert_eq!(read(&mut g, RGBA_LEVEL, 64), changed, "a short upload");
+    assert_eq!(
+        g.b.device().expect("the device").kept_for_tests(),
+        (wide.len() as u64 + 64, 4)
+    );
+    // Destroyed: nothing kept.
+    g.run(Cmd::Destroy { object: BC });
+    g.run(Cmd::Destroy { object: RGBA });
+    g.run(Cmd::Destroy { object: WIDE });
+    assert_eq!(g.b.device().expect("the device").kept_for_tests(), (0, 0));
+}

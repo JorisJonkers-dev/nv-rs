@@ -1,0 +1,2 @@
+crates/d3d9-wgpu/src/device.rs  # a managed level given whole keeps no host copy; ReadSurface reads it back from the card (`on_card`, `read_back_level`; NV_D3D9_HOST_COPIES=1 keeps the copies) (nv-rs#899)
+crates/d3d9-wgpu/tests/frame.rs  # managed levels read back from the card without a host copy (nv-rs#899)

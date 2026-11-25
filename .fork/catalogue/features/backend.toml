@@ -71,6 +71,13 @@ notes = "docs/fork/MEMLOG.md: textures by kind, targets, buffers, host copies, t
 evidence = ["crates/d3d9-wgpu/src/memstats.rs", "crates/fork-memlog/src/lib.rs"]
 
 [[item]]
+id = "managed_levels_on_card"
+title = "Managed texture levels kept by the card alone, read back for ReadSurface instead of a host copy"
+status = "implemented"
+notes = "nv-rs#899: a 142-plugin load order's RSS 4.4 -> 2.7 GiB; NV_D3D9_HOST_COPIES=1 keeps the copies"
+evidence = ["crates/d3d9-wgpu/src/device.rs"]
+
+[[item]]
 id = "texture_budget"
 title = "Textures fit the video-memory budget: SetLOD, kept bytes, dropped top mips"
 status = "missing"
