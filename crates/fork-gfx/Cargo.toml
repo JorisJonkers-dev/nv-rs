@@ -8,3 +8,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+
+[dev-dependencies]
+# The coverage catalogue's ids: tests say which graphics capabilities they prove (docs/fork/CATALOGUE.md).
+fork-catalogue = { path = "../fork-catalogue" }

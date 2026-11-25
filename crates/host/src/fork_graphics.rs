@@ -573,7 +573,7 @@ mod tests {
         };
         assert_eq!(distance(&[]), 1.0, "the game's fade by default");
         assert_eq!(distance(&[("NV_GFX_PRESET", "original")]), 1.0);
-        assert_eq!(distance(&[("NV_GFX_PRESET", "modern")]), 4.0);
+        assert_eq!(distance(&[("NV_GFX_PRESET", "modern")]), 16.0);
         assert_eq!(distance(&[("NV_GFX", "light.lamp_distance=8")]), 8.0);
     }
 

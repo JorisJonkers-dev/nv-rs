@@ -385,6 +385,36 @@ mod tests {
         assert!(!r.module("shadows").unwrap().toggle("enabled"));
     }
 
+    /// nv-rs#911: under `modern` a lamp keeps lighting its ground out to the loaded cells. At the
+    /// game's default light fade (1000 units, plus 500 to drop) the lamps the game has loaded reach
+    /// about 14,500 units with 5x5 loaded cells; `modern` must fade them no nearer than that.
+    /// `original` and `performance` keep the game's fade.
+    #[test]
+    fn modern_lamps_light_their_ground_out_to_the_loaded_cells() {
+        fork_catalogue::covers(&[fork_catalogue::ids::gfx::features::NIGHT_LIGHT]);
+        let specs = specs();
+        let presets = presets();
+        let distance = |id: &str| {
+            resolve(
+                &Inputs {
+                    specs: &specs,
+                    presets: &presets,
+                    file: None,
+                    override_preset: Some(id),
+                    overrides: None,
+                },
+                &Place::default(),
+            )
+            .module("light")
+            .unwrap()
+            .slider("lamp_distance")
+        };
+        let (game_start, loaded_reach) = (1000.0, 14_500.0);
+        assert!(distance("modern") * game_start >= loaded_reach, "modern");
+        assert_eq!(distance("original"), 1.0);
+        assert_eq!(distance("performance"), 1.0);
+    }
+
     #[test]
     fn the_presets_say_what_they_set() {
         let specs = specs();
