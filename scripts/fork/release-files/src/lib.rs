@@ -158,7 +158,10 @@ const SHOWOFF_TOTAL: usize = 0x3d69 - 0x3c93 + 1;
 /// scripts carry (at least that many), and the entry has no version and no installed condition
 /// (the plugin is not listed).
 fn anh_nvse_entry() -> Value {
-    let names = anh_nvse::COMMAND_NAMES.iter().map(|n| n.to_string()).collect();
+    let names = anh_nvse::COMMAND_NAMES
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
     extender(
         "anh-nvse",
         "AnhNVSE",
