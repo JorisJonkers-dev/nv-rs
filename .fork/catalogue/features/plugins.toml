@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "features.plugins"
+title = "Plugin DLLs of mods (plugin host)"
+origin = "ours"
+notes = "Script-extender plugin DLLs the engine does not carry, run by the plugin host in an x86 interpreter over the guest memory (ADR-0018, crates/plugin-host, off by default). Kept by hand: a row is implemented only on merged proof, never on a plan."
+
+[[item]]
+id = "off_by_default"
+title = "No plugin DLL loads unless NV_PLUGIN_DLLS is on"
+status = "implemented"
+
+[[item]]
+id = "loader_policy"
+title = "A DLL loads only when the engine does not carry its plugin (built in, has the fix, not needed)"
+status = "implemented"
+
+[[item]]
+id = "player_choice"
+title = "The player can pick a carried plugin's DLL (NV_PLUGIN_PICK) or turn any DLL off (NV_PLUGIN_SKIP)"
+status = "implemented"
+
+[[item]]
+id = "verdict_file"
+title = "Each plugin DLL gets a verdict in mod-support.json (NV_PLUGIN_VERDICTS)"
+status = "implemented"
+
+[[item]]
+id = "registered_command_runs"
+title = "A 32-bit DLL is mapped, queried and loaded, and the command it registers runs through xNVSE's table"
+status = "implemented"
+notes = "proof: a made-up DLL assembled in the test; no real plugin has served a command yet"
+
+[[item]]
+id = "failure_contained"
+title = "A plugin that fails stops only its own call, with a report line"
+status = "implemented"
+
+[[item]]
+id = "runtime_supplied"
+title = "The user's own C++ runtime DLL (NV_PLUGIN_RUNTIME) answers a plugin's imports of it"
+status = "implemented"
+
+[[item]]
+id = "patch_sites"
+title = "Writes into the game's code are kept as a patch-site table and reported"
+status = "implemented"
+
+[[item]]
+id = "nvse_interfaces"
+title = "QueryInterface answers every NVSE interface (command table, variables, script, data, events, logging)"
+status = "missing"
+notes = "only messaging today"
+
+[[item]]
+id = "fs_segment"
+title = "fs: accesses reach a thread block (SEH chain, TLS) (#805)"
+status = "missing"
+
+[[item]]
+id = "string_scans"
+title = "String scan and compare instructions (repne scas, cmps)"
+status = "missing"
+
+[[item]]
+id = "sse"
+title = "SSE and SSE2 in the x86 core (#802)"
+status = "missing"
+
+[[item]]
+id = "x87"
+title = "x87 in the x86 core (#803)"
+status = "missing"
+
+[[item]]
+id = "locked_ops"
+title = "lock-prefixed instructions and cmpxchg (#804)"
+status = "missing"
+
+[[item]]
+id = "entry_points"
+title = "Plugin entry points (DllMain) run (#807)"
+status = "missing"
+
+[[item]]
+id = "cxx_exceptions"
+title = "C++ exceptions and structured exception handling inside plugin calls (#808)"
+status = "missing"
+
+[[item]]
+id = "math_runtime"
+title = "The floating-point math runtime subset plugins import (#809)"
+status = "missing"
+
+[[item]]
+id = "preflight"
+title = "A preflight per DLL, cached by its SHA-256 and the engine version, for raul"
+status = "missing"
+
+[[item]]
+id = "real_plugin_serves"
+title = "A real plugin DLL of a mod serves a command its scripts call"
+status = "missing"

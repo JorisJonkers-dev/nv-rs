@@ -776,8 +776,12 @@ mod verdict_tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), verdicts::CURATED.len());
-        // The engine's own built-ins (fork_plugins::BUILT_IN) are all "built in" here.
+        // The engine's own built-ins are all "built in" here, kNVSE and the two Stewie plugins
+        // whose rows are native among them.
         for f in [
+            "knvse.dll",
+            "engineoptimizations.dll",
+            "nvtf.dll",
             "jip_nvse.dll",
             "johnnyguitar.dll",
             "showoffnvse.dll",
@@ -801,11 +805,11 @@ mod verdict_tests {
             commands,
             ..Observed::default()
         };
-        let serves = verdicts::verdict_for("KNVSE.dll", Some(loaded(3)));
+        let serves = verdicts::verdict_for("ANHNVSE.dll", Some(loaded(3)));
         assert_eq!(serves.verdict, "serves commands");
-        assert_eq!(serves.ticket, 550);
+        assert_eq!(serves.ticket, 511);
         assert_eq!(
-            verdicts::verdict_for("kNVSE.dll", Some(loaded(0))).verdict,
+            verdicts::verdict_for("AnhNVSE.dll", Some(loaded(0))).verdict,
             "loads"
         );
         let stopped = Observed {
@@ -813,11 +817,11 @@ mod verdict_tests {
             stopped: Some("instruction not built".into()),
             ..Observed::default()
         };
-        let v = verdicts::verdict_for("kNVSE.dll", Some(stopped));
+        let v = verdicts::verdict_for("AnhNVSE.dll", Some(stopped));
         assert_eq!(v.verdict, "not working");
         assert!(v.reason.contains("instruction not built"), "{}", v.reason);
         assert_eq!(
-            verdicts::verdict_for("kNVSE.dll", None).verdict,
+            verdicts::verdict_for("AnhNVSE.dll", None).verdict,
             "not working"
         );
         // a patch-only plugin is "feature missing" whatever the host saw, and says what it saw
@@ -830,6 +834,108 @@ mod verdict_tests {
         assert_eq!(
             verdicts::verdict_for("mystery.dll", None).verdict,
             "not working"
+        );
+    }
+
+    #[test]
+    fn the_loader_loads_only_what_the_engine_does_not_carry() {
+        use verdicts::{decide, Choice, Decision};
+        let none = Choice::default();
+        assert_eq!(
+            decide("JIP_NVSE.dll", &none),
+            Decision::Carried(Class::BuiltIn)
+        );
+        assert_eq!(
+            decide("kNVSE.dll", &none),
+            Decision::Carried(Class::BuiltIn)
+        );
+        assert_eq!(
+            decide("mlf.dll", &none),
+            Decision::Carried(Class::EngineHasFix)
+        );
+        assert_eq!(
+            decide("zlibUpdate.dll", &none),
+            Decision::Carried(Class::NotNeeded)
+        );
+        // not carried: the host must run it, a patch the engine lacks, a file nobody knows
+        assert_eq!(decide("yUI.dll", &none), Decision::Load);
+        assert_eq!(decide("HighResBloom.dll", &none), Decision::Load);
+        assert_eq!(decide("mystery.dll", &none), Decision::Load);
+        // spaces around a file name do not hide a carried plugin
+        assert_eq!(
+            decide(" JIP_NVSE.dll ", &none),
+            Decision::Carried(Class::BuiltIn)
+        );
+        let choice = Choice::parse(
+            Some("JohnnyGuitar.dll, mlf.dll,,"),
+            Some("yui.dll, MLF.DLL"),
+        );
+        assert_eq!(choice.pick, vec!["johnnyguitar.dll", "mlf.dll"]);
+        assert_eq!(
+            decide("johnnyguitar.dll", &choice),
+            Decision::Picked(Class::BuiltIn)
+        );
+        assert_eq!(decide("YUI.dll", &choice), Decision::Skipped);
+        // turned off wins over picked
+        assert_eq!(decide("mlf.dll", &choice), Decision::Skipped);
+        assert_eq!(Choice::parse(None, Some("")), Choice::default());
+    }
+
+    #[test]
+    fn a_picked_or_skipped_dll_says_so_in_its_verdict() {
+        use verdicts::{verdict_with, Choice};
+        let choice = Choice::parse(Some("johnnyguitar.dll"), Some("yui.dll,mystery.dll"));
+        let ran = Observed {
+            mapped: true,
+            queried: true,
+            loaded: true,
+            commands: 2,
+            ..Observed::default()
+        };
+        let picked = verdict_with("johnnyguitar.dll", Some(ran), &choice);
+        assert_eq!(picked.verdict, "serves commands");
+        assert!(
+            picked.reason.starts_with(
+                "picked by the player over the engine's own answer (built into the engine)"
+            ),
+            "{}",
+            picked.reason
+        );
+        let stopped = Observed {
+            mapped: true,
+            stopped: Some("read of unmapped address".into()),
+            ..Observed::default()
+        };
+        assert_eq!(
+            verdict_with("johnnyguitar.dll", Some(stopped), &choice).verdict,
+            "not working"
+        );
+        let off = verdict_with("yUI.dll", None, &choice);
+        assert_eq!((off.verdict, off.ticket), ("turned off by the player", 551));
+        assert!(
+            off.reason
+                .starts_with("not loaded: NV_PLUGIN_SKIP names it; "),
+            "{}",
+            off.reason
+        );
+        assert_eq!(
+            verdict_with("mystery.dll", None, &choice).reason,
+            "not loaded: NV_PLUGIN_SKIP names it"
+        );
+        // picked but not run (the loader is off): the engine's own answer stands
+        let not_run = verdict_with("johnnyguitar.dll", None, &choice);
+        assert_eq!(not_run.verdict, "built into the engine");
+        assert!(
+            not_run
+                .reason
+                .starts_with("picked by the player (NV_PLUGIN_PICK), not run: "),
+            "{}",
+            not_run.reason
+        );
+        // without a choice the carried verdict stays
+        assert_eq!(
+            verdict_with("johnnyguitar.dll", None, &Choice::default()).verdict,
+            "built into the engine"
         );
     }
 
