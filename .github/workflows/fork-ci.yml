@@ -418,10 +418,13 @@ jobs:
             fi
             for f in "${found[@]}"; do logs+=(--libtest "$f"); done
           done
-          # The macOS job runs the catalogue's packages in a step of their own; its log missing would drop covered.
-          if [ ! -f "$LOGS/test-macos-tagged.log" ]; then
-            echo "::error title=Catalogue::no test log of the catalogue's packages from macOS (test-macos-tagged.log)"; exit 1
-          fi
+          # The macOS job writes two logs, and the glob above is satisfied by either: require both by name, or a lost
+          # one would drop covered without an error.
+          for f in test-macos.log test-macos-tagged.log; do
+            if [ ! -f "$LOGS/$f" ]; then
+              echo "::error title=Catalogue::no macOS test log $f"; exit 1
+            fi
+          done
           "${tally[@]}" ingest "${logs[@]}" --out "$RUNNER_TEMP/results.json"
           args=(--catalogue .fork/catalogue --results "$RUNNER_TEMP/results.json")
           # The ratchet measures against the report of the commit before this push; on the schedule and a manual run,
