@@ -1,6 +1,6 @@
 {
   "schema": "tally-report.v1",
-  "tool": "tally 0.5.0",
+  "tool": "tally 0.6.0",
   "repo": "nv-rs",
   "results": true,
   "totals": {
