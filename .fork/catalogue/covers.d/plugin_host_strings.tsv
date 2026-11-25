@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The plugin host's string scan, compare and load instructions (features/plugins.toml), proven by tests in crates/plugin-host/src/x86_string_tests.rs.
+# A row names an item only when the test runs it and asserts its result.
+test	covers
+crates/plugin-host/src/x86_string_tests.rs::repne_scasb_finds_the_nul_and_gives_the_length	features.plugins.string_scans
+crates/plugin-host/src/x86_string_tests.rs::repe_cmpsb_stops_at_the_first_difference	features.plugins.string_scans
+crates/plugin-host/src/x86_string_tests.rs::scasd_compares_one_word_and_follows_the_direction_flag	features.plugins.string_scans
+crates/plugin-host/src/x86_string_tests.rs::lodsb_loads_al_and_a_zero_count_repeats_nothing	features.plugins.string_scans
+crates/plugin-host/src/x86_string_tests.rs::a_scan_into_unmapped_memory_faults_and_lods_through_fs_stops	features.plugins.failure_contained
+crates/plugin-host/src/x86_string_tests.rs::a_long_repeat_runs_out_the_budget	features.plugins.failure_contained

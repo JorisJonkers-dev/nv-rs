@@ -61,7 +61,8 @@ notes = "gs:, movs through fs: and 16-bit addressing other than a bare 16-bit of
 [[item]]
 id = "string_scans"
 title = "String scan and compare instructions (repne scas, cmps)"
-status = "missing"
+status = "implemented"
+notes = "scas, cmps and lods with rep/repe/repne; cmps and lods through fs: stop the call"
 
 [[item]]
 id = "sse"

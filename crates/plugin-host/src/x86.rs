@@ -109,6 +109,9 @@ pub struct Cpu {
     pub(crate) seg: u32,
     /// The instruction being run has an address-size prefix (`0x67`).
     pub(crate) addr16: bool,
+    /// The step count at which the running call's budget ends ([`Cpu::run`]); each round of a
+    /// repeated string instruction counts as a step against it.
+    pub(crate) limit: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -459,6 +462,16 @@ impl Cpu {
         }
     }
 
+    /// One more round of a repeated string instruction, counted against the call's budget (a
+    /// round past it stops the call as a loop that does not end would).
+    fn rep_round(&mut self) -> R<()> {
+        self.steps += 1;
+        if self.limit != 0 && self.steps >= self.limit {
+            return Err(Stop::Budget);
+        }
+        Ok(())
+    }
+
     /// Runs one instruction.
     pub fn step(&mut self, e: &mut Engine) -> R<()> {
         let start = self.eip;
@@ -482,8 +495,9 @@ impl Cpu {
             op = self.f8(e)?;
         }
         if fs {
-            // `movs` reads its source through the segment and has no operand to carry it.
-            if matches!(op, 0xa4 | 0xa5) {
+            // `movs`, `cmps` and `lods` read their source through the segment and have no operand
+            // to carry it.
+            if matches!(op, 0xa4..=0xa7 | 0xac | 0xad) {
                 return Err(self.bad(e, start));
             }
             self.seg = self.fs_base;
@@ -683,6 +697,46 @@ impl Cpu {
                         break;
                     }
                     self.r[ECX] -= 1;
+                    self.rep_round()?;
+                }
+            }
+            // cmps, lods, scas; with `rep`/`repe` (`f3`) or `repne` (`f2`) for cmps and scas.
+            0xa6 | 0xa7 | 0xac..=0xaf => {
+                let sz = if op & 1 == 0 { 1 } else { size };
+                let step = if self.df { 0u32.wrapping_sub(sz) } else { sz };
+                let compares = !matches!(op, 0xac | 0xad);
+                loop {
+                    if rep != 0 && self.r[ECX] == 0 {
+                        break;
+                    }
+                    match op {
+                        0xa6 | 0xa7 => {
+                            let a = self.rd(e, self.r[ESI], sz)?;
+                            let b = self.rd(e, self.r[EDI], sz)?;
+                            self.alu(7, a, b, sz);
+                            self.r[ESI] = self.r[ESI].wrapping_add(step);
+                            self.r[EDI] = self.r[EDI].wrapping_add(step);
+                        }
+                        0xac | 0xad => {
+                            let v = self.rd(e, self.r[ESI], sz)?;
+                            self.set_reg(EAX, sz, v);
+                            self.r[ESI] = self.r[ESI].wrapping_add(step);
+                        }
+                        _ => {
+                            let b = self.rd(e, self.r[EDI], sz)?;
+                            self.alu(7, self.reg(EAX, sz), b, sz);
+                            self.r[EDI] = self.r[EDI].wrapping_add(step);
+                        }
+                    }
+                    if rep == 0 {
+                        break;
+                    }
+                    self.r[ECX] = self.r[ECX].wrapping_sub(1);
+                    self.rep_round()?;
+                    // repe stops at the first difference, repne at the first match.
+                    if compares && ((rep == 0xf3 && !self.zf) || (rep == 0xf2 && self.zf)) {
+                        break;
+                    }
                 }
             }
             0xa0..=0xa3 => {
@@ -936,6 +990,7 @@ impl Cpu {
         budget: u64,
     ) -> R<()> {
         let end = self.steps + budget;
+        self.limit = end;
         loop {
             if self.eip == stop_at {
                 return Ok(());
@@ -960,3 +1015,7 @@ impl Cpu {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "x86_string_tests.rs"]
+mod string_tests;
