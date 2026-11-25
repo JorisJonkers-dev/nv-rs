@@ -589,6 +589,7 @@ mod tests {
             !on(&[("NV_GFX_PRESET", "modern")]),
             "off in modern until proven"
         );
+        assert!(!on(&[("NV_GFX_PRESET", "performance")]));
         assert!(on(&[("NV_GFX", "light.far_lights=true")]));
     }
 

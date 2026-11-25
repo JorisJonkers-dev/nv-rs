@@ -436,5 +436,12 @@ mod tests {
         assert!(modern.module("textures").unwrap().toggle("dither"));
         assert!(!perf.module("textures").unwrap().toggle("dither"));
         assert!(!at("original").module("textures").unwrap().toggle("dither"));
+        // Far lights stay off in every preset until a far view with light points is proven.
+        for preset in ["original", "modern", "performance"] {
+            assert!(
+                !at(preset).module("light").unwrap().toggle("far_lights"),
+                "{preset}"
+            );
+        }
     }
 }
