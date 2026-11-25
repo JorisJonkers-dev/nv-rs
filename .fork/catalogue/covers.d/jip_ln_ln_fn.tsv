@@ -6,11 +6,9 @@ test	covers
 crates/jip/src/commands/ln_fn_activator_tests.rs::the_forms_by_argument_and_by_caller	extenders.jip_ln.getactivatorradiostation extenders.jip_ln.setactivatorradiostation extenders.jip_ln.getactivatorsoundlooping extenders.jip_ln.setactivatorsoundlooping
 crates/jip/src/commands/ln_fn_activator_tests.rs::the_prompt	extenders.jip_ln.getactivatorprompt extenders.jip_ln.setactivatorprompt
 crates/jip/src/commands/ln_fn_activator_tests.rs::the_water_of_an_activator_or_a_placeable_water	extenders.jip_ln.getactivatorwatertype extenders.jip_ln.setactivatorwatertype
-crates/jip/src/commands/ln_fn_activator_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.setactivatorradiostation extenders.jip_ln.getactivatorprompt extenders.jip_ln.setactivatorprompt extenders.jip_ln.setactivatorwatertype extenders.jip_ln.setactivatorsoundlooping extenders.jip_ln.setactivatorsoundactivate
 crates/jip/src/commands/ln_fn_actor_c3_tests.rs::copy_face_gen_from_keeps_the_old_face_once_and_copies	extenders.jip_ln.copyfacegenfrom
 crates/jip/src/commands/ln_fn_actor_c3_tests.rs::copy_face_gen_from_without_an_npc_puts_the_old_face_back	extenders.jip_ln.copyfacegenfrom
 crates/jip/src/commands/ln_fn_actor_c3_tests.rs::copy_face_gen_from_on_the_players_base_changes_the_race_through_the_game	extenders.jip_ln.copyfacegenfrom
-crates/jip/src/commands/ln_fn_actor_c3_tests.rs::copy_face_gen_from_needs_a_character_and_an_npc	extenders.jip_ln.copyfacegenfrom
 crates/jip/src/commands/ln_fn_actor_tests.rs::aggro_radius	extenders.jip_ln.lngetaggroradius extenders.jip_ln.lnsetaggroradius
 crates/jip/src/commands/ln_fn_actor_tests.rs::services_and_template	extenders.jip_ln.getserviceflag extenders.jip_ln.setserviceflag extenders.jip_ln.getactortemplateflag extenders.jip_ln.setactortemplateflag extenders.jip_ln.lnsetactortemplate
 crates/jip/src/commands/ln_fn_actor_tests.rs::base_faction_ranks	extenders.jip_ln.getbasefactionrank extenders.jip_ln.setbasefactionrank
@@ -26,18 +24,16 @@ crates/jip/src/commands/ln_fn_actor_tests.rs::equip_match_rules	extenders.jip_ln
 crates/jip/src/commands/ln_fn_actor_tests.rs::faction_rank_zero_kept	extenders.jip_ln.getbasefactionrank extenders.jip_ln.setbasefactionrank
 crates/jip/src/commands/ln_fn_actor_tests.rs::faction_entries_added_and_removed_at_the_head	extenders.jip_ln.getbasefactionrank extenders.jip_ln.setbasefactionrank
 crates/jip/src/commands/ln_fn_actor_tests.rs::faction_entries_removed_in_the_middle_and_at_the_end	extenders.jip_ln.getbasefactionrank extenders.jip_ln.setbasefactionrank
-crates/jip/src/commands/ln_fn_actor_tests.rs::faction_ranks_of_an_actor_with_no_base	extenders.jip_ln.getbasefactionrank extenders.jip_ln.setbasefactionrank
+crates/jip/src/commands/ln_fn_actor_tests.rs::faction_ranks_of_an_actor_with_no_base	extenders.jip_ln.getbasefactionrank
 crates/jip/src/commands/ln_fn_actor_tests.rs::a_negative_aggro_radius	extenders.jip_ln.lngetaggroradius
 crates/jip/src/commands/ln_fn_actor_tests.rs::an_effect_of_another_base_effect	extenders.jip_ln.actorhaseffect
 crates/jip/src/commands/ln_fn_actor_tests.rs::the_slot_boundary	extenders.jip_ln.getequippeddata
 crates/jip/src/commands/ln_fn_actor_tests.rs::a_null_race	extenders.jip_ln.israceinlist
-crates/jip/src/commands/ln_fn_actor_tests.rs::null_answers_leave_the_result	extenders.jip_ln.getmerchantcontainer extenders.jip_ln.getbodypartdata
 crates/jip/src/commands/ln_fn_actor_tests.rs::the_console_echoes	extenders.jip_ln.getcreaturetype extenders.jip_ln.actorhaseffect
 crates/jip/src/commands/ln_fn_casino_tests.rs::the_integers	extenders.jip_ln.getcasinomaxwinnings extenders.jip_ln.setcasinomaxwinnings extenders.jip_ln.getcasinonumdecks extenders.jip_ln.setcasinonumdecks
 crates/jip/src/commands/ln_fn_casino_tests.rs::the_floats	extenders.jip_ln.getcasinobjpayout extenders.jip_ln.setcasinobjpayout extenders.jip_ln.getcasinoshufflepercent extenders.jip_ln.setcasinoshufflepercent
 crates/jip/src/commands/ln_fn_casino_tests.rs::the_soft_17_flag	extenders.jip_ln.getcasinobj17stand extenders.jip_ln.setcasinobj17stand
 crates/jip/src/commands/ln_fn_casino_tests.rs::the_reel_stops	extenders.jip_ln.getcasinoreelstops extenders.jip_ln.setcasinoreelstops
-crates/jip/src/commands/ln_fn_casino_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.setcasinomaxwinnings extenders.jip_ln.setcasinobjpayout extenders.jip_ln.setcasinobj17stand extenders.jip_ln.setcasinonumdecks extenders.jip_ln.setcasinoshufflepercent extenders.jip_ln.setcasinoreelstops
 crates/jip/src/commands/ln_fn_cell_tests.rs::water_height	extenders.jip_ln.getcellwaterheight extenders.jip_ln.setcellwaterheight
 crates/jip/src/commands/ln_fn_cell_tests.rs::water_form	extenders.jip_ln.getcellwaterform
 crates/jip/src/commands/ln_fn_cell_tests.rs::image_space_and_lighting_template	extenders.jip_ln.getcelllightingtemplate extenders.jip_ln.setcelllightingtemplate extenders.jip_ln.getcellimagespace
@@ -46,7 +42,6 @@ crates/jip/src/commands/ln_fn_challenge_tests.rs::the_type	extenders.jip_ln.getc
 crates/jip/src/commands/ln_fn_challenge_tests.rs::the_words_each_in_place	extenders.jip_ln.getchallengethreshold extenders.jip_ln.setchallengethreshold extenders.jip_ln.getchallengeflags extenders.jip_ln.setchallengeflags
 crates/jip/src/commands/ln_fn_challenge_tests.rs::the_16_bit_values	extenders.jip_ln.getchallengevalue1 extenders.jip_ln.setchallengevalue1 extenders.jip_ln.getchallengevalue2 extenders.jip_ln.setchallengevalue2
 crates/jip/src/commands/ln_fn_challenge_tests.rs::the_forms	extenders.jip_ln.getchallengeform1 extenders.jip_ln.setchallengeform1 extenders.jip_ln.getchallengeform2 extenders.jip_ln.setchallengeform2
-crates/jip/src/commands/ln_fn_challenge_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.setchallengethreshold extenders.jip_ln.setchallengeinterval extenders.jip_ln.setchallengevalue1 extenders.jip_ln.setchallengevalue2 extenders.jip_ln.setchallengevalue3 extenders.jip_ln.getchallengeform1 extenders.jip_ln.setchallengeform1 extenders.jip_ln.getchallengeform2 extenders.jip_ln.setchallengeform2 extenders.jip_ln.setchallengeflags
 crates/jip/src/commands/ln_fn_game_data_tests.rs::loaded_types_into_an_array	extenders.jip_ln.getloadedtypearray
 crates/jip/src/commands/ln_fn_game_data_tests.rs::loaded_types_into_a_form_list	extenders.jip_ln.getloadedtype
 crates/jip/src/commands/ln_fn_game_data_tests.rs::file_names_and_indexes	extenders.jip_ln.getmodname extenders.jip_ln.getselfmodindex
@@ -55,12 +50,10 @@ crates/jip/src/commands/ln_fn_game_data_tests.rs::a_form_by_file_and_id	extender
 crates/jip/src/commands/ln_fn_game_data_tests.rs::a_forms_references	extenders.jip_ln.getformrefs
 crates/jip/src/commands/ln_fn_game_data_tests.rs::string_settings	extenders.jip_ln.getstringsetting extenders.jip_ln.setstringsetting
 crates/jip/src/commands/ln_fn_game_data_tests.rs::all_settings_as_a_map	extenders.jip_ln.getgamesettings
-crates/jip/src/commands/ln_fn_game_data_tests.rs::search_prints_only_in_the_console	extenders.jip_ln.search
 crates/jip/src/commands/ln_fn_game_data_tests.rs::search_with_the_built_ins_data_full	extenders.jip_ln.search
 crates/jip/src/commands/ln_fn_game_data_tests.rs::search_in_the_console	extenders.jip_ln.search
 crates/jip/src/commands/ln_fn_game_data_tests.rs::search_type_filters	extenders.jip_ln.search
 crates/jip/src/commands/ln_fn_game_data_tests.rs::regions_radios_and_file_filters	extenders.jip_ln.getloadedtypearray
-crates/jip/src/commands/ln_fn_game_data_tests.rs::not_overridden_without_files	extenders.jip_ln.isformoverridden
 crates/jip/src/commands/ln_fn_game_data_tests.rs::a_negative_integer_setting	extenders.jip_ln.getgamesettings
 crates/jip/src/commands/ln_fn_gamepad_tests.rs::the_controller_and_its_echo	extenders.jip_ln.getcontroller
 crates/jip/src/commands/ln_fn_gamepad_tests.rs::buttons_pressed	extenders.jip_ln.isbuttonpressed extenders.jip_ln.getpressedbuttons
@@ -77,9 +70,7 @@ crates/jip/src/commands/ln_fn_inventory_tests.rs::no_form_clears_the_index	exten
 crates/jip/src/commands/ln_fn_inventory_tests.rs::a_form_not_carried_still_takes_the_index	extenders.jip_ln.sethotkey
 crates/jip/src/commands/ln_fn_inventory_tests.rs::hotkeys_saved_and_restored	extenders.jip_ln.savehotkeys extenders.jip_ln.restorehotkeys extenders.jip_ln.sethotkey
 crates/jip/src/commands/ln_fn_inventory_tests.rs::base_container_items	extenders.jip_ln.basegetitemcount extenders.jip_ln.baseadditem extenders.jip_ln.baseadditemhealth
-crates/jip/src/commands/ln_fn_inventory_tests.rs::base_items_removed	extenders.jip_ln.baseadditem extenders.jip_ln.baseremoveitem
-crates/jip/src/commands/ln_fn_inventory_tests.rs::no_new_list_with_flags	extenders.jip_ln.sethotkey
-crates/jip/src/commands/ln_fn_inventory_tests.rs::no_list_matches	extenders.jip_ln.sethotkey
+crates/jip/src/commands/ln_fn_inventory_tests.rs::base_items_removed	extenders.jip_ln.baseremoveitem
 crates/jip/src/commands/ln_fn_inventory_tests.rs::a_hotkey_reindexed	extenders.jip_ln.sethotkey
 crates/jip/src/commands/ln_fn_inventory_tests.rs::an_emptied_list_cleaned	extenders.jip_ln.sethotkey
 crates/jip/src/commands/ln_fn_inventory_tests.rs::an_actor_base_container_offset	extenders.jip_ln.basegetitemcount
@@ -115,7 +106,7 @@ crates/jip/src/commands/ln_fn_map_marker_tests.rs::the_reputation	extenders.jip_
 crates/jip/src/commands/ln_fn_math_tests.rs::distance_commands_and_conditions	extenders.jip_ln.getdistance2d extenders.jip_ln.getdistance3d
 crates/jip/src/commands/ln_fn_math_tests.rs::a_reference_with_no_parent_cell_uses_its_persistent_cell	extenders.jip_ln.getdistance2d extenders.jip_ln.getdistance3d
 crates/jip/src/commands/ln_fn_math_tests.rs::square_root_command	extenders.jip_ln.fsqrt
-crates/jip/src/commands/ln_fn_math_tests.rs::trigonometric_commands	extenders.jip_ln.fsin extenders.jip_ln.fatan2
+crates/jip/src/commands/ln_fn_math_tests.rs::trigonometric_commands	extenders.jip_ln.fsin extenders.jip_ln.fatan2 extenders.jip_ln.fcos extenders.jip_ln.ftan extenders.jip_ln.fasin extenders.jip_ln.facos extenders.jip_ln.fatan
 crates/jip/src/commands/ln_fn_miscellaneous_tests.rs::armor_class_of_an_armor_and_of_a_character	extenders.jip_ln.getarmorclass
 crates/jip/src/commands/ln_fn_miscellaneous_tests.rs::armor_class_echoes_in_the_console	extenders.jip_ln.getarmorclass
 crates/jip/src/commands/ln_fn_miscellaneous_tests.rs::set_global_value_by_name	extenders.jip_ln.setglobalvalue
@@ -159,7 +150,6 @@ crates/jip/src/commands/ln_fn_perk_tests.rs::setting_an_actors_rank	extenders.ji
 crates/jip/src/commands/ln_fn_race_tests.rs::the_voices	extenders.jip_ln.getracevoice extenders.jip_ln.setracevoice
 crates/jip/src/commands/ln_fn_race_tests.rs::the_age_races	extenders.jip_ln.getraceagerace extenders.jip_ln.setraceagerace
 crates/jip/src/commands/ln_fn_race_tests.rs::an_npcs_race	extenders.jip_ln.setrace
-crates/jip/src/commands/ln_fn_race_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.setracevoice extenders.jip_ln.setraceagerace
 crates/jip/src/commands/ln_fn_recipe_tests.rs::the_skill_and_its_level	extenders.jip_ln.getreciperequiredskill extenders.jip_ln.setreciperequiredskill extenders.jip_ln.getreciperequiredskilllevel extenders.jip_ln.setreciperequiredskilllevel
 crates/jip/src/commands/ln_fn_recipe_tests.rs::the_category_and_subcategory	extenders.jip_ln.getrecipecategory extenders.jip_ln.setrecipecategory extenders.jip_ln.getrecipesubcategory extenders.jip_ln.setrecipesubcategory
 crates/jip/src/commands/ln_fn_recipe_tests.rs::the_component_forms	extenders.jip_ln.getrecipeinputforms extenders.jip_ln.getrecipeoutputforms
@@ -181,7 +171,6 @@ crates/jip/src/commands/ln_fn_utility_tests.rs::forms_sorted_by_type	extenders.j
 crates/jip/src/commands/ln_fn_utility_tests.rs::forms_counted_by_type	extenders.jip_ln.getformcounttype
 crates/jip/src/commands/ln_fn_utility_tests.rs::ini_values_written_and_read_back	extenders.jip_ln.getinifloat extenders.jip_ln.getinistring extenders.jip_ln.setinifloat extenders.jip_ln.setinistring
 crates/jip/src/commands/ln_fn_utility_tests.rs::a_refused_name_writes_nothing	extenders.jip_ln.getinifloat extenders.jip_ln.getinistring extenders.jip_ln.setinifloat extenders.jip_ln.setinistring
-crates/jip/src/commands/ln_fn_utility_tests.rs::an_unreadable_file_is_left_alone	extenders.jip_ln.getinifloat extenders.jip_ln.getinistring extenders.jip_ln.setinifloat extenders.jip_ln.setinistring extenders.jip_ln.setinisection extenders.jip_ln.removeinikey extenders.jip_ln.removeinisection
 crates/jip/src/commands/ln_fn_utility_tests.rs::an_ini_section_as_a_map	extenders.jip_ln.getinisection
 crates/jip/src/commands/ln_fn_utility_tests.rs::an_ini_section_written_from_a_map	extenders.jip_ln.setinisection
 crates/jip/src/commands/ln_fn_utility_tests.rs::ini_section_names_as_an_array	extenders.jip_ln.getinisectionnames
@@ -195,4 +184,3 @@ crates/jip/src/commands/ln_fn_utility_tests.rs::the_filter_is_a_wildcard	extende
 crates/jip/src/commands/ln_fn_weapon_tests.rs::the_impulses_each_in_place	extenders.jip_ln.getweaponkillimpulse extenders.jip_ln.setweaponkillimpulse extenders.jip_ln.getweaponimpulsedistance extenders.jip_ln.setweaponimpulsedistance
 crates/jip/src/commands/ln_fn_weapon_tests.rs::the_vats_effect	extenders.jip_ln.getweaponvatseffect extenders.jip_ln.setweaponvatseffect
 crates/jip/src/commands/ln_fn_weapon_tests.rs::the_critical_flags	extenders.jip_ln.getweaponcritflags extenders.jip_ln.setweaponcritflags
-crates/jip/src/commands/ln_fn_weapon_tests.rs::another_form_type_is_left_alone	extenders.jip_ln.setweaponkillimpulse extenders.jip_ln.setweaponimpulsedistance extenders.jip_ln.getweaponvatseffect extenders.jip_ln.setweaponvatseffect extenders.jip_ln.setweaponcritflags
