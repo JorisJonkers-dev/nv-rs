@@ -7,22 +7,43 @@
 //! - [`store`]: the animation-path overrides, a stack per actor (or every actor), person and
 //!   animation group;
 //! - [`seam`]: the handler at the seam in `Animation::StartGroup` (`004948c0`) that starts an
-//!   override's sequence in place of the one the game's sequence map holds.
+//!   override's sequence in place of the one the game's sequence map holds, made once per
+//!   animation and model and dropped when the animation's controller manager is made again or
+//!   torn down (the seams in `0048ffd0` and `0048fb50`);
+//! - [`commands`]: `SetActorAnimationPath`, which fills the store;
+//! - [`identity`]: the plugin as xNVSE's plugin list holds it.
 //!
-//! The commands that fill the store (`SetActorAnimationPath` first) follow, one step at a time
-//! (`provenance/`). The plugin answers "installed" only when its commands are
-//! ([`ANSWERS_INSTALLED`], or the switch [`set_answers_installed`] gives). Off, [`install`]
-//! registers nothing, so the game runs as it did without this crate.
+//! The other commands the owner's mods call follow, one step at a time (`provenance/`). The plugin
+//! answers "installed" only when its commands are ([`ANSWERS_INSTALLED`], or the switch
+//! [`set_answers_installed`] gives). Off, [`install`] registers nothing, so the game runs as it
+//! did without this crate.
 
+pub mod commands;
+pub mod identity;
 pub mod seam;
 pub mod store;
 
 use engine_core::prelude::*;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Whether kNVSE answers "installed". Off until the commands the owner's mods use are built; the one
 /// place to turn it on.
 pub const ANSWERS_INSTALLED: bool = false;
+
+/// `KFModel` release of one manual reference (`0043bac0`, as `~Animation` runs it on its models).
+pub(crate) const KF_MODEL_RELEASE: u32 = 0x0043_bac0;
+/// `KFModel` add of one manual reference (`0043be10`, as `ModelLoader::LoadKF` takes it).
+pub(crate) const KF_MODEL_ADD_REF: u32 = 0x0043_be10;
+
+/// A sequence the seam made for one animation from one model (`seam`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cached {
+    /// The animation's controller manager the sequence was added to.
+    pub manager: u32,
+    /// The `BSAnimGroupSequence`; 0 when the manager refused it (not made again for that manager).
+    pub sequence: u32,
+}
 
 /// kNVSE built in on this engine: its state, one slot per engine ([`Engine::ext`]), shared by the
 /// real threads' engines once installed.
@@ -34,17 +55,28 @@ pub struct State {
     pub answers: Option<bool>,
     /// The animation-path overrides.
     pub store: store::Store,
+    /// The sequences the seam made, by (animation, model). Each holds a manual reference on its
+    /// model; the controller manager holds the sequence.
+    pub cache: BTreeMap<(u32, u32), Cached>,
 }
 
-/// How many overrides the store holds, read without the shared slot's lock ([`Engine::ext_free`]):
-/// the seam's first test on every group start.
+/// The counts the seams read without the shared slot's lock ([`Engine::ext_free`]): the first
+/// test on every group start and every manager rebuild.
 #[derive(Default)]
-pub struct Active(AtomicU32);
+pub struct Active {
+    overrides: AtomicU32,
+    cached: AtomicU32,
+}
 
 impl Active {
     /// The count of overrides in the store.
     pub fn count(&self) -> u32 {
-        self.0.load(Ordering::Relaxed)
+        self.overrides.load(Ordering::Relaxed)
+    }
+
+    /// The count of sequences the seam keeps.
+    pub fn cached(&self) -> u32 {
+        self.cached.load(Ordering::Relaxed)
     }
 }
 
@@ -72,19 +104,25 @@ pub fn install_as(e: &mut Engine, answers_installed: bool) {
     e.ext_free::<Active>();
     if answers_installed {
         e.on_site(seam::START_GROUP, seam::start_group);
+        e.on_site(seam::MANAGER_MADE, seam::forget_animation);
+        e.on_site(seam::TORN_DOWN, seam::forget_animation);
+        commands::install(e);
+        nvse::plugins::register(e, identity::plugin());
     }
     // The game's state, not one engine's: real threads' engines share it.
     e.share_ext::<State>();
 }
 
-/// Puts `entry` on top of `key`'s stack ([`store::Store::enable`]).
+/// Puts `entry` on top of `key`'s stack ([`store::Store::enable`]); what the entry it replaced
+/// held is given back.
 pub fn enable(e: &mut Engine, key: store::Key, entry: store::Override) {
-    let count = {
+    let (old, count) = {
         let store = &mut e.ext::<State>().store;
-        store.enable(key, entry);
-        store.len()
+        let old = store.enable(key, entry);
+        (old, store.len())
     };
     set_count(e, count);
+    release(e, old);
 }
 
 /// Takes `owner`'s entry for `path` off `key`'s stack ([`store::Store::disable`]); whether there
@@ -96,19 +134,95 @@ pub fn disable(e: &mut Engine, key: store::Key, owner: u32, path: &[u8]) -> bool
         (removed, store.len())
     };
     set_count(e, count);
-    removed
+    let was = removed.is_some();
+    release(e, removed);
+    was
 }
 
-/// Empties the store (a load, a new game).
+/// Takes `owner`'s entries for `path` off every stack of `target` and person
+/// ([`store::Store::disable_path`]); how many there were.
+pub fn disable_path(
+    e: &mut Engine,
+    target: store::Target,
+    first_person: bool,
+    owner: u32,
+    path: &[u8],
+) -> usize {
+    let (removed, count) = {
+        let store = &mut e.ext::<State>().store;
+        let removed = store.disable_path(target, first_person, owner, path);
+        (removed, store.len())
+    };
+    set_count(e, count);
+    let n = removed.len();
+    release(e, removed);
+    n
+}
+
+/// Empties the store.
 pub fn clear(e: &mut Engine) {
-    e.ext::<State>().store.clear();
+    let removed = e.ext::<State>().store.clear();
     set_count(e, 0);
+    release(e, removed);
+}
+
+/// Gives back what entries the store no longer holds took: the model's manual reference, the
+/// condition lambda's saved variables.
+fn release(e: &mut Engine, entries: impl IntoIterator<Item = store::Override>) {
+    for o in entries {
+        if o.kf != 0 {
+            e.call(KF_MODEL_RELEASE, &args![o.kf]);
+        }
+        if o.condition != 0 {
+            unsave_condition(e, o.condition);
+        }
+    }
+}
+
+/// The condition lambda's variables kept while the store holds it (xNVSE's lambda rules).
+#[cfg(not(test))]
+pub(crate) fn save_condition(e: &mut Engine, script: u32) {
+    nvse::lambda::save_variables(e, script);
+}
+
+#[cfg(not(test))]
+fn unsave_condition(e: &mut Engine, script: u32) {
+    nvse::lambda::unsave_variables(e, script);
+}
+
+// The unit tests count the saves and unsaves instead (no script runs in them).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SAVED: std::cell::RefCell<Vec<(u32, bool)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+pub(crate) fn save_condition(_: &mut Engine, script: u32) {
+    SAVED.with(|s| s.borrow_mut().push((script, true)));
+}
+
+#[cfg(test)]
+fn unsave_condition(_: &mut Engine, script: u32) {
+    SAVED.with(|s| s.borrow_mut().push((script, false)));
 }
 
 fn set_count(e: &mut Engine, count: usize) {
     let count = u32::try_from(count).unwrap_or(u32::MAX);
-    e.ext_free::<Active>().0.store(count, Ordering::Relaxed);
+    e.ext_free::<Active>()
+        .overrides
+        .store(count, Ordering::Relaxed);
 }
+
+pub(crate) fn set_cached(e: &mut Engine, count: usize) {
+    let count = u32::try_from(count).unwrap_or(u32::MAX);
+    e.ext_free::<Active>()
+        .cached
+        .store(count, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod test_support;
 
 // The unit tests' own program: no other crate's functions are linked in.
 #[cfg(test)]

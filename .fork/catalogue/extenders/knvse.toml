@@ -12,5 +12,5 @@ notes = "Every command the plugin registers at the pinned version (sources.toml)
 id = "setactoranimationpath"
 title = "SetActorAnimationPath"
 status = "partial"
-reason = "the override store and its seam in Animation::StartGroup are built (crates/knvse, nv-rs#865); the command itself is not registered yet"
+reason = "the command is registered and answers single .kf file paths for the first-person and third-person animation groups (crates/knvse, nv-rs#865); folder paths and the poll flag (condition asked again during play) are not built yet"
 ref = ["knvse:setactoranimationpath"]

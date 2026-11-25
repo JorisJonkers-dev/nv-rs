@@ -124,6 +124,10 @@ pub(crate) fn install_rows_and_extenders(engine: &mut Engine, choice: &fixes::Ch
     // when they answer "installed" (`crates/jg`, `crates/showoff`: when `fork_ttw` switched them
     // on for Tale of Two Wastelands).
     jg::install(engine);
+    // kNVSE (kNVSE.dll, after johnnyguitarnvse.dll): its animation-path overrides and their seams
+    // in the animation code, registered only when it answers "installed" (`crates/knvse`; off
+    // until the commands the owner's mods call are built).
+    knvse::install(engine);
     showoff::install(engine);
     // The plugin Tale of Two Wastelands ships for its scripts (`ttw_nvse`), when `fork_ttw`
     // switched it on (`crates/ttw-nvse`).
