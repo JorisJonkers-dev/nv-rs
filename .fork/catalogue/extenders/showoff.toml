@@ -199,3 +199,9 @@ id = "getequippedweapon"
 title = "GetEquippedWeapon"
 status = "implemented"
 ref = ["showoff:getequippedweapon"]
+
+[[item]]
+id = "getequippeditems"
+title = "GetEquippedItems"
+status = "implemented"
+ref = ["showoff:getequippeditems"]
