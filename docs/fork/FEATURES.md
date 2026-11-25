@@ -67,6 +67,12 @@ What `modern` turns on, each also adjustable on its own:
   (left), and forced x16 anisotropic filtering as <code>modern</code> sets it (right).</em>
 </p>
 
+<p align="center">
+  <img src="images/graphics-dither-dusk.jpg" alt="A sunset over the Mojave side by side, each with a contrast-stretched inset of the sky: hard steps on the left, a smooth fine grain on the right" width="100%">
+  <br><em>A Mojave sunset with the sky's brightness contrast-stretched in the inset: the game's 8-bit last step shows
+  bands (left); <code>textures.dither</code>, as <code>modern</code> sets it, spreads them into a fine grain (right).</em>
+</p>
+
 Lamp light distance, water reflections, anisotropic filtering and smooth gradients are on the `fork` branch and come with the next
 release after v0.24.0; the other settings are in v0.24.0.
 
