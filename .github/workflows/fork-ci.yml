@@ -340,6 +340,7 @@ jobs:
       - name: Catalogue (tally)
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           export CARGO_TARGET_DIR="$RUNNER_TEMP/progress-target"
@@ -351,7 +352,9 @@ jobs:
           echo "$TALLY_SHA256  $RUNNER_TEMP/tally" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/tally"
           # Pull requests never carry the generated reports, so none can lower the bar the ratchet on fork measures against.
-          if git diff --name-only "$BASE" HEAD -- docs/fork/coverage | grep -q .; then
+          # Only the branch's own changes count (from where it left fork): a report the bot commits on fork while the
+          # pull request runs is not the pull request's change.
+          if git diff --name-only "$BASE...$PR_HEAD" -- docs/fork/coverage | grep -q .; then
             echo "::error title=Catalogue::docs/fork/coverage/ is generated on fork; leave it out of the pull request"; exit 1
           fi
           "$RUNNER_TEMP/tally" check --catalogue .fork/catalogue --base "$BASE" | tee -a "$GITHUB_STEP_SUMMARY"
