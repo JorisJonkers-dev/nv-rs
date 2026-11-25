@@ -45,6 +45,7 @@ pub mod player_move;
 pub mod report_place;
 pub mod save_out;
 pub mod scene_light;
+pub mod shader_overrides;
 #[cfg(test)]
 mod start_up_tests;
 pub mod thread_races;
@@ -124,10 +125,17 @@ pub(crate) fn install_rows_and_extenders(engine: &mut Engine, choice: &fixes::Ch
     // when they answer "installed" (`crates/jg`, `crates/showoff`: when `fork_ttw` switched them
     // on for Tale of Two Wastelands).
     jg::install(engine);
+    // kNVSE (kNVSE.dll, after johnnyguitarnvse.dll): its animation-path overrides and their seams
+    // in the animation code, registered only when it answers "installed" (`crates/knvse`; off
+    // until the commands the owner's mods call are built).
+    knvse::install(engine);
     showoff::install(engine);
     // The plugin Tale of Two Wastelands ships for its scripts (`ttw_nvse`), when `fork_ttw`
     // switched it on (`crates/ttw-nvse`).
     ttw_nvse::install(engine);
+    // AnhNVSE's two commands the owner's mods call, at the opcodes their compiled scripts carry;
+    // the plugin itself is not listed (`crates/anh-nvse`).
+    anh_nvse::install(engine);
     // The Mod Configuration Menu's plugin, when its row is on: xNVSE loads MCM.dll after
     // jip_nvse.dll and before ui_organizer.dll (`crates/mcm`).
     mcm::install(engine);
@@ -227,6 +235,12 @@ impl Host {
         let (detected, gfx_lines) =
             fork_graphics::start(&detected, |name| std::env::var(name).ok())?;
         for line in gfx_lines {
+            fork_log::info!(target: "host", "{line}");
+        }
+        // Shader overrides (`d3d9_wgpu::shader_override`, nothing unless asked): the engineers'
+        // `NV_SHADER_OVERRIDES` folder, resolved against the data folder's shader packages and set
+        // before the game makes its device.
+        for line in shader_overrides::install(data, Vec::new(), |name| std::env::var(name).ok()) {
             fork_log::info!(target: "host", "{line}");
         }
         let choice = &detected;
@@ -400,6 +414,10 @@ impl Host {
                 "nv-rs: new lighting on (ambient occlusion at strength {}; Vulkan only)",
                 choice.ambient_occlusion_strength
             );
+        } else if d3d9_wgpu::shader_override::any() {
+            // The shader overrides read the scene's depth through the frame's near and far planes:
+            // the frame's camera is recorded where the world is drawn (no occlusion).
+            engine_platform::d3d9real::want_frame_view(reader);
         }
         // The sun shadows (`fixes::Choice::sun_shadows`: `NV_SUN_SHADOWS`; else, in a launcher's play
         // run, Fallout.ini's `[nv-rs Display] bSunShadows`; off by default). Off: nothing is

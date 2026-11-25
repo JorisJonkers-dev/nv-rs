@@ -436,5 +436,13 @@ mod tests {
         assert!(modern.module("textures").unwrap().toggle("dither"));
         assert!(!perf.module("textures").unwrap().toggle("dither"));
         assert!(!at("original").module("textures").unwrap().toggle("dither"));
+        // Modern shows a far view's light points by night; the others keep the game's far view.
+        assert!(modern.module("light").unwrap().toggle("far_lights"));
+        for preset in ["original", "performance"] {
+            assert!(
+                !at(preset).module("light").unwrap().toggle("far_lights"),
+                "{preset}"
+            );
+        }
     }
 }

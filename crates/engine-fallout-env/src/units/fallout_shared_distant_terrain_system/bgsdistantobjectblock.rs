@@ -2676,6 +2676,32 @@ mod tests {
         assert!(!is_far_lights_shape(&e, 0));
     }
 
+    #[test]
+    fn the_marker_check_reads_at_most_64_extra_data_objects() {
+        let mut e = engine();
+        const LEAF: u32 = 0xdead_40a0;
+        // A shape whose extra data array holds 100 unnamed entries and the marker at entry `at`.
+        let with_marker_at = |e: &mut Engine, at: u32| {
+            let shape = named_shape(e, LEAF, b"FarLights");
+            let marker = e.mem.u32(e.mem.u32(shape + 0x10));
+            let array = e.mem.alloc(4 * 100);
+            for i in 0..100 {
+                let extra = if i == at { marker } else { e.mem.alloc(0x10) };
+                e.mem.set_u32(array + 4 * i, extra);
+            }
+            e.mem.set_u32(shape + 0x10, array);
+            e.mem.set_u16(shape + 0x14, 100);
+            shape
+        };
+        let last_read = with_marker_at(&mut e, FAR_LIGHTS_MAX_EXTRA - 1);
+        assert!(is_far_lights_shape(&e, last_read), "the 64th entry is read");
+        let past_the_cap = with_marker_at(&mut e, FAR_LIGHTS_MAX_EXTRA);
+        assert!(
+            !is_far_lights_shape(&e, past_the_cap),
+            "the 65th entry is not"
+        );
+    }
+
     /// A block whose root node holds the block mesh and a far-lights shape, with the prepare's calls doubled.
     fn block_with_far_lights(e: &mut Engine) -> (u32, u32, u32, u32) {
         let block = e.mem.alloc(0x80);

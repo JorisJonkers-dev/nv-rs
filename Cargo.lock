@@ -93,6 +93,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "anh-nvse"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "fork-catalogue",
+ "nvse",
+]
+
+[[package]]
 name = "arboard"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1453,6 +1462,7 @@ checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 name = "host"
 version = "0.1.0"
 dependencies = [
+ "anh-nvse",
  "bsa",
  "d3d9-wgpu",
  "engine",
@@ -1467,6 +1477,7 @@ dependencies = [
  "jg",
  "jip",
  "johnnyguitar",
+ "knvse",
  "mcm",
  "nvse",
  "play-patch",
@@ -1616,6 +1627,7 @@ version = "0.1.0"
 dependencies = [
  "engine-core",
  "fork-catalogue",
+ "nvse",
 ]
 
 [[package]]

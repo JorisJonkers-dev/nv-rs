@@ -2,6 +2,35 @@
  "_note": "cargo metadata --no-deps of the workspace, reduced to what scripts/fork/components.py reads (name, manifest, features, dependencies: workspace ones with kind and the features they switch on, external ones by name and kind only). Refresh: see docs/fork/CI.md.",
  "packages": [
   {
+   "dependencies": [
+    {
+     "features": [],
+     "kind": null,
+     "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
+    },
+    {
+     "features": [],
+     "kind": "dev",
+     "name": "fork-catalogue"
+    },
+    {
+     "features": [
+      "test-support"
+     ],
+     "kind": "dev",
+     "name": "nvse"
+    }
+   ],
+   "features": [],
+   "manifest_path": "/ws/crates/anh-nvse/Cargo.toml",
+   "name": "anh-nvse"
+  },
+  {
    "dependencies": [],
    "features": [],
    "manifest_path": "/ws/crates/bink/Cargo.toml",
@@ -2069,6 +2098,11 @@
     {
      "features": [],
      "kind": null,
+     "name": "anh-nvse"
+    },
+    {
+     "features": [],
+     "kind": null,
      "name": "d3d9-wgpu"
     },
     {
@@ -2125,6 +2159,11 @@
      "features": [],
      "kind": null,
      "name": "johnnyguitar"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "knvse"
     },
     {
      "features": [],
@@ -2299,6 +2338,11 @@
      "features": [],
      "kind": null,
      "name": "engine-core"
+    },
+    {
+     "features": [],
+     "kind": null,
+     "name": "nvse"
     },
     {
      "features": [],

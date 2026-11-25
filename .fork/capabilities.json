@@ -1873,6 +1873,19 @@
     },
     {
       "commands": {
+        "implemented": 1,
+        "implemented_names": [
+          "SetActorAnimationPath"
+        ],
+        "total": 59
+      },
+      "id": "knvse",
+      "name": "kNVSE",
+      "provided_by_source": "crates/knvse",
+      "version": 40
+    },
+    {
+      "commands": {
         "implemented": 0,
         "implemented_names": [],
         "total": 8
@@ -1898,6 +1911,19 @@
       "provided_by_source": "crates/ttw-nvse",
       "reported_installed": "when the data folder holds TaleOfTwoWastelands.esm (NV_TTW_PLUGINS=1 forces it, 0 turns it off)",
       "version": 1
+    },
+    {
+      "commands": {
+        "implemented": 2,
+        "implemented_names": [
+          "GetQuestCompletedAlt",
+          "Sv_PadStart"
+        ],
+        "total": 28
+      },
+      "id": "anh-nvse",
+      "name": "AnhNVSE",
+      "provided_by_source": "crates/anh-nvse"
     }
   ],
   "schema_version": 1

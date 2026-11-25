@@ -40,7 +40,8 @@ cell layers take effect while playing in the next slice; until then the start an
 | `modern` | on, medium, strength 0.7 | on, medium (2048) | 0.7, 1, with light from the sky (see Light balance) |
 | `performance` | on, low, strength 0.6 | off | 1, 1 |
 
-`modern` also makes placed lakes and rivers mirror the land (`water.placed_reflections` `high`, see Water).
+`modern` also makes placed lakes and rivers mirror the land (`water.placed_reflections` `high`, see Water) and shows a far
+view's lamp points by night (`light.far_lights`).
 
 A preset is a settings file (`crates/fork-gfx/presets/`); a value set in the profile's file wins over it.
 
@@ -113,7 +114,7 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | `lamp_distance` | how far away lamps, street lights and lit signs still light their surroundings, as a multiple of the game's light fade distance (Options, light fade); every point light alike, shadows untouched | 1 | live |
 | `sky_dome` | how much of the fill follows the sky, 0 (the game's flat light) to 1; needs sun shadows | 0 | live |
 | `shade_fill` | how much more sky light reaches surfaces the sun or moon does not, 0 to 2; needs `sky_dome` | 0 | live |
-| `far_lights` | `false`, `true`: a far-view block's light-point shape (marked `FarLights`) drawn by night, faded over the sunset and sunrise; off, never drawn | `false` | live |
+| `far_lights` | `false`, `true`: a far-view block's light-point shape (marked `FarLights`) drawn by night, faded over the sunset and sunrise; off, never drawn | `false` (`modern`: `true`) | live |
 
 `far_lights` (`engine::far_lights`, `bgsdistantobjectblock.rs`): a far-object block file may hold, as a direct child of its
 root node after the block mesh, a shape carrying an extra data object named `FarLights`: small unlit points where the
@@ -124,6 +125,8 @@ hours (0 from the end of the sunrise to the start of the sunset, rising linearly
 over the sunrise; steps of 1/64) and, when it changes, gives every loaded block's far-lights shapes that factor as their
 shader property's alpha (`fAlpha`), hidden at 0. The format the shape is drawn with is the file's: an additive
 `NiAlphaProperty` with source alpha (`SRC_ALPHA`, `ONE`, as the game's own glow effects) fades with that alpha.
+`modern` turns it on: a far view without such shapes draws as before, and lodwright writes them with its request option
+`objects.far_lights`.
 
 With `sky_dome`, faces toward the sky take the sky's colour and faces toward the ground a warm bounce, in shadow too, and
 ambient occlusion outdoors dims only this sky light, not the direct light. At night the moon's direct light follows the

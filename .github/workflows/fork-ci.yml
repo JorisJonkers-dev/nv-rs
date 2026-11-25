@@ -2,6 +2,11 @@
 # check (estate convention). The build is one job per engine component (fork-build.yml, .fork/components.toml,
 # docs/fork/CI.md); the repository's own checks run in parallel with it; Pipeline Complete gathers every result
 # and prints each component's result and duration. The two reusable workflows (hygiene, PR title) are jobs.
+# A description or title edit (pull_request `edited`) runs only the checks that read them (hygiene, PR title, the
+# replay point of Verify sync, Progress counts); the builds and code checks skip, and Pipeline Complete takes the
+# code's result from the latest finished run of the commits on the same head commit, so an edit cannot turn a red
+# pull request green and does not start the whole pipeline again. A change of the base branch (also an `edited`
+# event, with `changes.base`) runs everything: the merge with the new base was never checked.
 # Upstream's own gate, .github/workflows/ci.yml (Windows, ~140 minutes), is not required here.
 name: Pipeline
 
@@ -20,7 +25,7 @@ on:
 # push; no label events trigger this workflow, so a bot labelling a new pull request starts nothing) and the fork
 # branch (every commit there runs to the end, so it always has a finished run and its caches are saved).
 concurrency:
-  group: pipeline-${{ github.ref == 'refs/heads/fork' && github.sha || format('{0}-{1}', github.event.pull_request.number || github.ref, github.event.action == 'edited' && github.run_id || 'commits') }}
+  group: pipeline-${{ github.ref == 'refs/heads/fork' && github.sha || format('{0}-{1}', github.event.pull_request.number || github.ref, github.event.action == 'edited' && !github.event.changes.base && github.run_id || 'commits') }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/fork' }}
 
 permissions:
@@ -29,8 +34,8 @@ permissions:
 env:
   # The pinned tally release (https://github.com/JorisJonkers-dev/tally) and the SHA-256 of its Linux binary, from
   # that release's SHA256SUMS.
-  TALLY_VERSION: v0.7.0
-  TALLY_SHA256: 310010ca96590c7ef0c325be8cef4fb0bf099ec7cadcd4ccabc9d3a503d4c3b7
+  TALLY_VERSION: v0.8.0
+  TALLY_SHA256: 5dc487d3f84248e5a80a06f989acb31b3040ee77342656971437f76493e925e6
   # The generated coverage-catalogue reports: the only files the `reports` job may commit on fork.
   REPORT_FILES: >-
     docs/fork/coverage/FEATURES.md
@@ -103,13 +108,14 @@ jobs:
   build:
     name: Build
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' && (github.event.action != 'edited' || github.event.changes.base) }}
     uses: ./.github/workflows/fork-build.yml
 
   # The repository's own checks, in parallel with the builds. Separate steps so one failing check does not hide
   # the others.
   lint:
     name: Repository checks
+    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -140,6 +146,7 @@ jobs:
   # builds them. Runs on every pull request and push to fork: the crates are fork-owned, so the `changes` filter would skip them.
   facade:
     name: Facade crates
+    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -171,7 +178,7 @@ jobs:
   macos:
     name: macOS
     needs: changes
-    if: ${{ needs.changes.outputs.native == 'true' }}
+    if: ${{ needs.changes.outputs.native == 'true' && (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: macos-latest
     timeout-minutes: 120
     env:
@@ -215,6 +222,13 @@ jobs:
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/testlog"
           cargo test --locked --no-fail-fast -p nvse -p jip -p jg -p showoff -p ttw-nvse -p fork-catalogue -p fork-gfx 2>&1 | tee "$RUNNER_TEMP/testlog/test-macos-tagged.log"
+      # The engine's tests that the catalogue tags (.fork/catalogue/covers.d/engine_typed.tsv), so those engine functions
+      # can be covered on all three systems: built once, the test binaries side by side (scripts/fork/tagged-engine-tests.sh).
+      # In this job, not one of its own: one macOS runner per run (a second one waited in the queue for this one), one
+      # cache, and the crates.io and platform crates built above are reused. Same events as the step above.
+      - name: Tagged engine tests
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: scripts/fork/tagged-engine-tests.sh "$RUNNER_TEMP/testlog/test-macos-engine.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
@@ -223,49 +237,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # The engine's tests that the coverage catalogue tags (.fork/catalogue/covers.d/engine_typed.tsv), on macOS, so those
-  # engine functions can be covered on all three systems. A job of its own: the engine crate is a long build on the
-  # 7 GB runner and must not slow the macOS job above. Pushes, the schedule and manual runs only; the test files run
-  # are read from the covers map, so a new tagged file is picked up without a change here.
-  macos-engine:
-    name: macOS (tagged engine tests)
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: macos-latest
-    timeout-minutes: 90
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      CARGO_TERM_COLOR: always
-      CARGO_TERM_PROGRESS_WHEN: never
-      # Apple silicon runners have 7 GB of memory: two compilers at a time.
-      CARGO_BUILD_JOBS: 2
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: macos-engine
-          save-if: ${{ github.ref == 'refs/heads/fork' }}
-      - name: Tagged engine tests
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/testlog"
-          tests=()
-          while IFS= read -r t; do tests+=(--test "$t"); done < <(
-            grep -o '^crates/engine/tests/[a-z0-9_]*\.rs' .fork/catalogue/covers.d/engine_typed.tsv | sed 's|.*/||; s|\.rs$||' | sort -u)
-          if [ ${#tests[@]} -eq 0 ]; then echo "no tagged engine test files" | tee "$RUNNER_TEMP/testlog/test-macos-engine.log"; exit 0; fi
-          cargo test --locked --no-fail-fast -p engine "${tests[@]}" 2>&1 | tee "$RUNNER_TEMP/testlog/test-macos-engine.log"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ !cancelled() }}
-        with:
-          name: testlog-macos-engine
-          path: ${{ runner.temp }}/testlog/
-          if-no-files-found: warn
-          retention-days: 7
-
-  # The same tagged engine tests on Linux: the component jobs run crates/engine/tests only on Windows, so without this
+  # The tagged engine tests (as in the macOS job) on Linux: the component jobs run crates/engine/tests only on Windows, so without this
   # none of those engine functions could be covered. Pushes, the schedule and manual runs only.
   linux-engine:
     name: Linux (tagged engine tests)
@@ -287,14 +259,7 @@ jobs:
           shared-key: linux-engine
           save-if: ${{ github.ref == 'refs/heads/fork' }}
       - name: Tagged engine tests
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/testlog"
-          tests=()
-          while IFS= read -r t; do tests+=(--test "$t"); done < <(
-            grep -o '^crates/engine/tests/[a-z0-9_]*\.rs' .fork/catalogue/covers.d/engine_typed.tsv | sed 's|.*/||; s|\.rs$||' | sort -u)
-          if [ ${#tests[@]} -eq 0 ]; then echo "no tagged engine test files" | tee "$RUNNER_TEMP/testlog/test-linux-engine.log"; exit 0; fi
-          cargo test --locked --no-fail-fast -p engine "${tests[@]}" 2>&1 | tee "$RUNNER_TEMP/testlog/test-linux-engine.log"
+        run: scripts/fork/tagged-engine-tests.sh "$RUNNER_TEMP/testlog/test-linux-engine.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
@@ -307,7 +272,7 @@ jobs:
   # (fork-coverage.yml, docs/fork/COVERAGE.md). Pull requests only; the nightly baseline is that workflow's own schedule.
   coverage:
     name: Coverage
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && (github.event.action != 'edited' || github.event.changes.base) }}
     permissions:
       contents: read
       actions: read
@@ -348,6 +313,7 @@ jobs:
   # tests at lowered windows state the ranges' sizes, so a moved constant fails them. Cheap when nothing moved.
   layout-window:
     name: Layout window test
+    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -449,7 +415,7 @@ jobs:
   # check without results in "Progress counts".
   catalogue:
     name: Catalogue results
-    needs: [changes, build, macos, macos-engine, linux-engine]
+    needs: [changes, build, macos, linux-engine]
     if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -501,7 +467,7 @@ jobs:
             fi
             for f in "${found[@]}"; do logs+=(--libtest "$f"); done
           done
-          # The macOS jobs and the Linux engine job write logs the glob above does not single out: require each by name, or a lost
+          # The macOS job and the Linux engine job write logs the glob above does not single out: require each by name, or a lost
           # one would drop covered without an error.
           for f in test-macos.log test-macos-tagged.log test-macos-engine.log test-linux-engine.log; do
             if [ ! -f "$LOGS/$f" ]; then
@@ -560,7 +526,7 @@ jobs:
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, macos-engine, linux-engine, catalogue]
+    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -574,15 +540,31 @@ jobs:
           sparse-checkout: scripts/fork
 
       # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
-      # its override label is set), "Catalogue results" and the two tagged-engine-test jobs on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
-      # when only documentation changed.
+      # its override label is set), "Catalogue results" and the Linux tagged-engine-test job on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
+      # when only documentation changed. On a description edit the builds and code checks skip (the next step).
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
+          ACTION: ${{ github.event.action == 'edited' && !github.event.changes.base && 'edited' || 'full' }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue" or .key == "macos-engine" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" --arg act "$ACTION" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") or ((.key | IN("build", "macos", "lint", "facade", "layout-window")) and $act == "edited") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
+
+      # A description edit checked only the title and description; the code's result is that of the newest run of this
+      # workflow on the same head commit whose "Repository checks" ran (a run of the commits, not of another edit). While
+      # that run is still going this fails, and that run's own Pipeline Complete, finishing later, is the one that counts.
+      - name: The commits' run passed
+        if: ${{ github.event.action == 'edited' && !github.event.changes.base }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: python3 -I scripts/fork/edit_run_gate.py
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.
       - name: Summary of the run
