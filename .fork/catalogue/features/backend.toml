@@ -15,28 +15,28 @@ evidence = ["crates/d3d9-wgpu/src/sm/wgsl.rs"]
 id = "linux_window_surface"
 title = "Window, Vulkan surface and input on X11 and Wayland"
 status = "implemented"
-notes = "nv-rs #197"
+notes = "nv-rs #197 (closed as done); proof: the window code in crates/d3d9-replay"
 evidence = ["crates/d3d9-replay/src/window.rs"]
 
 [[item]]
 id = "software_adapter_ci"
 title = "The backend tests run in CI on a software Vulkan adapter (lavapipe)"
 status = "implemented"
-notes = "nv-rs #183"
+notes = "nv-rs #183; proof: the Linux job of fork-build.yml runs the backend tests on lavapipe"
 evidence = [".github/workflows/fork-build.yml#lavapipe"]
 
 [[item]]
 id = "depth_bias"
 title = "Depth bias and slope-scaled depth bias"
 status = "implemented"
-notes = "nv-rs #680"
+notes = "nv-rs #680; proof: the bias cells of crates/d3d9-wgpu/tests/frame.rs (#761) pass in the Linux job on lavapipe"
 evidence = ["crates/d3d9-wgpu/src/state.rs#DEPTHBIAS"]
 
 [[item]]
 id = "reset_rules"
 title = "Reset refuses while default-pool resources are alive, as Direct3D 9 does"
 status = "implemented"
-notes = "nv-rs #685"
+notes = "nv-rs #685; proof: reset_answers_as_measured (crates/engine-platform/src/d3d9device.rs)"
 evidence = ["crates/engine-platform/src/d3d9device.rs#fn reset_answers_as_measured"]
 
 [[item]]

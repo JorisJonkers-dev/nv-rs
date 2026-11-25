@@ -9,6 +9,7 @@ notes = "The move from the 32-bit game model to native 64-bit code (ADR-0012, AD
 id = "host_64bit"
 title = "The engine is a 64-bit program on Linux, Windows and macOS"
 status = "implemented"
+notes = "proof: fork-build.yml builds and tests the 64-bit engine on all three systems"
 evidence = [".github/workflows/fork-build.yml"]
 
 [[item]]

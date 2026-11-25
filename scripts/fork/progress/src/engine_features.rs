@@ -176,7 +176,7 @@ pub fn count(
 }
 
 /// Whether a family declared in `text` (a `static NAME: Family = Family { ... }` before the file's
-/// test module) is off by default: `past_gate: false`.
+/// test module) is off by default: its `past_gate` is anything but `true`.
 fn declares_off_family(text: &str) -> bool {
     let code = text.split("\n#[cfg(test)]").next().unwrap_or("");
     let mut rest = code;
@@ -186,7 +186,15 @@ fn declares_off_family(text: &str) -> bool {
             .find("\n};")
             .or_else(|| body.find("};"))
             .unwrap_or(body.len());
-        if body[..end].contains("past_gate: false") {
+        // Anything but a plain `past_gate: true` (false, an expression, a missing field) counts as off, so
+        // a family is never taken as on by mistake.
+        let gate: String = body[..end]
+            .lines()
+            .find(|l| l.contains("past_gate"))
+            .unwrap_or("")
+            .split_whitespace()
+            .collect();
+        if gate != "past_gate:true," && gate != "past_gate:true" {
             return true;
         }
         rest = &body[end..];
