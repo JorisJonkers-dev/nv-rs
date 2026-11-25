@@ -1797,7 +1797,7 @@
     },
     {
       "commands": {
-        "implemented": 22,
+        "implemented": 23,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
@@ -1820,7 +1820,8 @@
           "GetActorValueAlt",
           "GetThresholdedActorValue",
           "GetBodyPartTraitString",
-          "IsCellVisited"
+          "IsCellVisited",
+          "GetSequenceAnimGroup"
         ],
         "total": 412
       },
