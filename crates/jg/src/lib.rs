@@ -18,14 +18,16 @@
 //!   (`provenance/01-math.md`); [`lookups`]: `EditorIDToFormID` and `GetEditorID`
 //!   (`provenance/02-lookups.md`); [`form_traits`]: the base effect, interior lighting and weapon
 //!   V.A.T.S. traits (`provenance/03-form-traits.md`); [`game_reads`]: `GetPipBoyMode`,
-//!   `GetThresholdedActorValue` and `GetActorValueAlt` (`provenance/04-game-reads.md`). Every other
-//!   command of the plugin is not built.
+//!   `GetThresholdedActorValue` and `GetActorValueAlt` (`provenance/04-game-reads.md`);
+//!   [`body_parts`]: `GetBodyPartTraitString` (`provenance/05-body-parts.md`). Every other command
+//!   of the plugin is not built.
 //!
 //! The plugin answers "installed" only together with those commands ([`install_as`]): a mod that
 //! checks for it and needs another command then fails at that line. Off ([`ANSWERS_INSTALLED`],
 //! the default, or [`set_answers_installed`]) [`install`] registers nothing, so a game, a save
 //! and a co-save are as they were without this crate.
 
+pub mod body_parts;
 pub mod commands;
 pub mod cosave;
 pub mod form_traits;
@@ -63,7 +65,7 @@ pub fn set_answers_installed(e: &mut Engine, on: bool) {
 }
 
 /// The long names of the commands this crate builds, for the capabilities report.
-pub const COMMAND_NAMES: [&str; 20] = [
+pub const COMMAND_NAMES: [&str; 21] = [
     "GetQuestFailed",
     "IsDLLLoaded",
     "GetExtraMiscStat",
@@ -84,6 +86,7 @@ pub const COMMAND_NAMES: [&str; 20] = [
     "GetPipBoyMode",
     "GetActorValueAlt",
     "GetThresholdedActorValue",
+    "GetBodyPartTraitString",
 ];
 
 /// Builds the plugin into the engine, after xNVSE, when it answers "installed"

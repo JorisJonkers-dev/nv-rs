@@ -1797,7 +1797,7 @@
     },
     {
       "commands": {
-        "implemented": 20,
+        "implemented": 21,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
@@ -1818,7 +1818,8 @@
           "SetWeaponVATSTraitNumeric",
           "GetPipBoyMode",
           "GetActorValueAlt",
-          "GetThresholdedActorValue"
+          "GetThresholdedActorValue",
+          "GetBodyPartTraitString"
         ],
         "total": 412
       },

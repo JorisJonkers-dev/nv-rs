@@ -127,3 +127,9 @@ id = "getthresholdedactorvalue"
 title = "GetThresholdedActorValue"
 status = "implemented"
 ref = ["johnnyguitar:getthresholdedactorvalue"]
+
+[[item]]
+id = "getbodyparttraitstring"
+title = "GetBodyPartTraitString"
+status = "implemented"
+ref = ["johnnyguitar:getbodyparttraitstring"]
