@@ -54,28 +54,54 @@ fn message_box(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     report(e, format!("{who}: MessageBox: {text}"));
     Ok(1)
 }
+/// The game's folder as the game sees it: the process's current directory (where Steam starts
+/// the game, `Engine::with_exe` sets it), or `.` when none is set (a trial without the game).
+fn game_folder(e: &Engine) -> Vec<u8> {
+    let d = &e.kernel.current_directory;
+    let mut d = if d.is_empty() {
+        b".".to_vec()
+    } else {
+        d.clone()
+    };
+    // One trailing separator off, but not a drive's root (`C:\\`).
+    while d.len() > 1 && d.ends_with(b"\\") && !(d.len() == 3 && d[1] == b':') {
+        d.pop();
+    }
+    d
+}
+
+/// `GetModuleFileNameA(module, buffer, size)`: a full path, as Windows gives it, so a plugin that
+/// cuts its own folder at the last backslash (to find its INI beside it) gets one: the game's
+/// folder and `Data\NVSE\Plugins\<file>` for a plugin's base, `FalloutNV.exe` for anything else.
 fn module_file_name(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     let who = state(e)
         .plugins
         .iter()
         .find(|p| p.base == a[0])
         .map(|p| format!("Data\\NVSE\\Plugins\\{}", p.file));
-    let mut s = who
-        .unwrap_or_else(|| "FalloutNV.exe".to_string())
-        .into_bytes();
+    let mut s = game_folder(e);
+    s.push(b'\\');
+    s.extend(
+        who.unwrap_or_else(|| "FalloutNV.exe".to_string())
+            .into_bytes(),
+    );
     s.truncate((a[2] as usize).saturating_sub(1));
     let n = s.len() as u32;
     s.push(0);
     wr(e, a[1], &s)?;
     Ok(n)
 }
+/// `GetCurrentDirectoryA(size, buffer)`: the game's folder; with a buffer too small, the size
+/// it needs (with its zero) and nothing written.
 fn current_directory(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
-    let s = b".";
-    if a[0] < 2 {
-        return Ok(2);
+    let mut s = game_folder(e);
+    let n = s.len() as u32;
+    if a[0] <= n {
+        return Ok(n + 1);
     }
-    wr(e, a[1], &[s[0], 0])?;
-    Ok(1)
+    s.push(0);
+    wr(e, a[1], &s)?;
+    Ok(n)
 }
 fn multi_byte_to_wide(e: &mut Engine, a: &[u32]) -> Result<u32, Stop> {
     // (codepage, flags, src, srclen, dst, dstlen); each byte is one UTF-16 unit

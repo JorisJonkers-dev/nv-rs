@@ -490,6 +490,44 @@ mod runtime_functions {
         assert_eq!((e.mem.u32(dst), e.mem.u32(dst + 4)), (0x1234, 0));
     }
 
+    /// A plugin's own path is a full path in the game's folder, so its folder is the text before
+    /// the last backslash (HighResBloom, BetterCaravan and lStewieAl's Tweaks cut it there to
+    /// find their INI; with no backslash they wrote through address 1); the executable's and
+    /// the current directory follow the same folder, and a short buffer gets what Windows gives.
+    #[test]
+    fn module_paths_are_full_paths_in_the_games_folder() {
+        let mut e = eng();
+        let k = |n: &str| {
+            winapi::lookup("KERNEL32.dll", n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .0
+        };
+        e.kernel.current_directory = b"C:\\Games\\FNV\\".to_vec();
+        crate::state(&mut e).plugins.push(crate::Plugin {
+            file: "Bloom.dll".into(),
+            base: 0x2000_0000,
+            ..crate::Plugin::default()
+        });
+        let buf = e.mem.alloc(128);
+        let n = call(&mut e, k("GetModuleFileNameA"), &[0x2000_0000, buf, 128]);
+        let path = e.mem.cstr(buf);
+        assert_eq!(path, b"C:\\Games\\FNV\\Data\\NVSE\\Plugins\\Bloom.dll");
+        assert_eq!(n as usize, path.len());
+        let cut = path.iter().rposition(|&c| c == b'\\').unwrap();
+        assert_eq!(&path[..cut], b"C:\\Games\\FNV\\Data\\NVSE\\Plugins");
+        call(&mut e, k("GetModuleFileNameA"), &[0, buf, 128]);
+        assert_eq!(e.mem.cstr(buf), b"C:\\Games\\FNV\\FalloutNV.exe");
+        assert_eq!(call(&mut e, k("GetCurrentDirectoryA"), &[128, buf]), 12);
+        assert_eq!(e.mem.cstr(buf), b"C:\\Games\\FNV");
+        assert_eq!(
+            call(&mut e, k("GetCurrentDirectoryA"), &[12, buf]),
+            13,
+            "too small"
+        );
+        assert_eq!(call(&mut e, k("GetModuleFileNameA"), &[0, buf, 4]), 3);
+        assert_eq!(e.mem.cstr(buf), b"C:\\");
+    }
+
     #[test]
     fn kernel32_last_error_time_conversion_and_locals() {
         let mut e = eng();
@@ -559,8 +597,8 @@ mod runtime_functions {
         // the directory and the module name
         let buf = e.mem.alloc(64);
         assert_eq!(call(&mut e, k("GetCurrentDirectoryA"), &[64, buf]), 1);
-        assert_eq!(call(&mut e, k("GetModuleFileNameA"), &[0, buf, 64]), 13);
-        assert_eq!(e.mem.cstr(buf), b"FalloutNV.exe");
+        assert_eq!(call(&mut e, k("GetModuleFileNameA"), &[0, buf, 64]), 15);
+        assert_eq!(e.mem.cstr(buf), b".\\FalloutNV.exe");
         assert_eq!(call(&mut e, k("GetPrivateProfileIntA"), &[0, 0, 7, 0]), 7);
         // the list head is cleared; locks and sleeps do nothing
         let l = e.mem.alloc(8);
@@ -650,7 +688,7 @@ mod runtime_functions {
         assert_eq!(call(&mut e, k("GetFileSize"), &[h, 0]), u32::MAX);
         assert_eq!(call(&mut e, k("ReadFile"), &[h, buf, 1, got, 0]), 0);
         let m = call(&mut e, k("GetModuleFileNameA"), &[0x1234, buf, 64]);
-        assert_eq!(m, 13);
+        assert_eq!(m, 15);
     }
 }
 
