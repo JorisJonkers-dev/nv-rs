@@ -270,7 +270,16 @@ impl Cpu {
             });
         }
         if self.addr16 {
-            // 16-bit addressing (`0x67` before a memory operand) is not built.
+            // 16-bit addressing (`0x67` before a memory operand): only the bare 16-bit offset
+            // (mod 0, r/m 6), as in `67 64 ff 36 00 00` (`push fs:[0]`); register-based forms
+            // are not built.
+            if md == 0 && rm == 6 {
+                let off = self.f16(e)?;
+                return Ok(Modrm {
+                    reg,
+                    loc: Loc::Mem(off.wrapping_add(self.seg)),
+                });
+            }
             return Err(Stop::Missing("16-bit addressing (0x67 prefix)".into()));
         }
         let mut addr: u32;

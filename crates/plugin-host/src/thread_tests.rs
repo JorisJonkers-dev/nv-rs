@@ -56,7 +56,8 @@ fn an_fs_prefix_reads_and_writes_the_thread_block() {
 }
 
 /// The short forms: `mov eax, fs:[0x2c]` with a 16-bit offset (`64 67 a1 2c 00`), an fs-based
-/// operand with a register (`64 8b 01`: `mov eax, fs:[ecx]`), and `lea` gives the offset alone.
+/// operand with a register (`64 8b 01`: `mov eax, fs:[ecx]`), `lea` gives the offset alone, and
+/// `push fs:[disp16]` with `0x67` (`67 64 ff 36`).
 #[test]
 fn a_16_bit_offset_and_a_register_operand_use_the_segment_and_lea_does_not() {
     let code = [
@@ -65,12 +66,15 @@ fn a_16_bit_offset_and_a_register_operand_use_the_segment_and_lea_does_not() {
         0xb9, 0x24, 0, 0, 0, // mov ecx, 0x24
         0x64, 0x8b, 0x01, // mov eax, fs:[ecx]
         0x64, 0x8d, 0x0d, 0x10, 0, 0, 0, // lea ecx, fs:[0x10]
+        0x67, 0x64, 0xff, 0x36, 0x24, 0x00, // push fs:[0x24] (a bare 16-bit offset)
+        0x5b, // pop ebx
     ];
     let (_, cpu, _, r) = run_fs(&code, &[(0x2c, 0x5555_0000), (0x24, 7)]);
     assert!(r.is_ok(), "{r:?}");
     assert_eq!(cpu.r[2], 0x5555_0000);
     assert_eq!(cpu.r[EAX], 7);
     assert_eq!(cpu.r[ECX], 0x10);
+    assert_eq!(cpu.r[3], 7, "pushed fs:[0x24]");
 }
 
 /// What is not built stops the call and says so: `gs:`, `movs` through `fs:`, 16-bit
