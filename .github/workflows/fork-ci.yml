@@ -269,7 +269,7 @@ jobs:
   # none of those engine functions could be covered. Pushes, the schedule and manual runs only.
   linux-engine:
     name: Linux (tagged engine tests)
-    if: ${{ true }}
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
