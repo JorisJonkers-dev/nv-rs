@@ -711,6 +711,14 @@ fn memlog_line(
             bind_groups: g.bind_groups,
             pipelines: g.pipelines,
             presents: g.presents,
+            parts: {
+                let mut p = g.parts.pairs().to_vec();
+                if let Some(own) = fork_memlog::proc_gpu_now() {
+                    p.push(("proc_vram", own.vram));
+                    p.push(("proc_gtt", own.gtt));
+                }
+                p
+            },
         },
         fork_memlog::card_now().as_ref(),
     )
