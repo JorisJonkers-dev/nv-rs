@@ -71,8 +71,10 @@ report of the commit before. Pull requests run only the components a change reac
 results. On a push the job renders `docs/fork/coverage/FEATURES.md`, `tally-report.json` (areas and groups) and
 `tally.svg`, and the job "Catalogue reports" commits those three files as raul-progress-bot. Nobody edits them.
 
-Covered needs a pass on macOS too. The macOS job runs only `fork-window`, `d3d9-wgpu` and `engine-platform` so far, so
-the tagged crates show passing, not covered, until their tests run there.
+Covered needs a pass on macOS too. On pull requests the macOS job tests only `fork-window`, `d3d9-wgpu` and
+`engine-platform`. On a push to `fork`, the schedule and a manual run it also tests the packages the catalogue tags
+(`nvse`, `jip`, `jg`, `showoff`, `ttw-nvse`, `fork-catalogue`, `fork-gfx`) into `test-macos-tagged.log` in the same
+artifact. "Catalogue results" fails when that log is missing, so a lost upload cannot pass the ratchet.
 
 ## Running it locally
 
