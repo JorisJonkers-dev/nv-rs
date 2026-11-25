@@ -8,8 +8,6 @@ crates/d3d9-wgpu/src/shader_override.rs::a_missing_name_gives_no_override	featur
 crates/d3d9-wgpu/src/shader_override.rs::an_override_replaces_the_body_and_keeps_the_frame	features.backend.shader_overrides
 crates/d3d9-wgpu/src/shader_override.rs::the_depth_step_reads_the_surface_it_is_made_for_and_validates	features.backend.shader_overrides
 crates/d3d9-wgpu/tests/shader_override.rs::an_overridden_shader_reads_the_scene_depth_and_its_own	features.backend.shader_overrides
-crates/d3d9-wgpu/tests/shader_override.rs::without_the_frame_s_camera_the_game_s_shader_draws	features.backend.shader_overrides
-crates/d3d9-wgpu/tests/shader_override.rs::an_override_of_another_shader_changes_no_pixel	features.backend.shader_overrides
 crates/host/src/shader_overrides.rs::a_folder_s_programs_are_named_by_their_files	features.backend.shader_overrides
 crates/engine-platform/tests/frame_view_overrides.rs::the_overrides_record_the_camera_where_the_world_is_drawn_only	features.backend.shader_overrides
 crates/d3d9-wgpu/src/shader_override.rs::a_program_s_first_lines_say_how_it_is_drawn	features.backend.shader_overrides
