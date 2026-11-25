@@ -202,6 +202,7 @@ pub const SHOWN: &[(&str, &str, Option<&str>)] = &[
     ("knvse", "kNVSE", Some("knvse")),
     ("stewie-tweaks", "lStewieAl's Tweaks", None),
     ("ttw-nvse", "TTW NVSE", None),
+    ("anh-nvse", "AnhNVSE", None),
 ];
 
 /// The reference list of a pinned extender, read from `sources`.

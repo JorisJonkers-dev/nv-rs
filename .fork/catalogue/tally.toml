@@ -9,7 +9,7 @@ name = "nv-rs"
 
 [scan]
 # Fork-owned code only: a test in a file upstream owns is tagged from covers.d/ instead.
-paths = ["crates/fork-catalogue", "crates/fork-gfx", "crates/jg", "crates/knvse", "crates/showoff", "crates/ttw-nvse"]
+paths = ["crates/fork-catalogue", "crates/fork-gfx", "crates/jg", "crates/knvse", "crates/showoff", "crates/ttw-nvse", "crates/anh-nvse"]
 
 # Tests in files upstream owns are tagged from covers maps: one TSV per extender or topic (docs/fork/CATALOGUE.md).
 [[map]]
@@ -39,7 +39,7 @@ features = "Engine features"
 [[evidence]]
 kind = "capabilities"
 path = ".fork/capabilities.json"
-groups = ["extenders.xnvse", "extenders.jip_ln", "extenders.johnnyguitar", "extenders.showoff", "extenders.stewie_tweaks", "extenders.ttw_nvse"]
+groups = ["extenders.xnvse", "extenders.jip_ln", "extenders.johnnyguitar", "extenders.showoff", "extenders.stewie_tweaks", "extenders.ttw_nvse", "extenders.anh_nvse"]
 
 # The function ledger: `cargo run --release --manifest-path scripts/ledger/Cargo.toml -- --tsv target/catalogue/ledger.tsv`.
 [[evidence]]

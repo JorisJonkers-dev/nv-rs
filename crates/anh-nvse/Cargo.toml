@@ -1,0 +1,17 @@
+[package]
+name = "anh-nvse"
+version = "0.1.0"
+description = "AnhNVSE built in: the two of its script commands the owner's mods call (GetQuestCompletedAlt and Sv_PadStart), at the opcodes their compiled scripts carry, written from public documentation"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+nvse = { path = "../nvse" }
+
+[dev-dependencies]
+# Every command test checks that each argument is read as its parameter type stores it.
+nvse = { path = "../nvse", features = ["test-support"] }
+# The coverage catalogue's ids: tests say which commands they prove (docs/fork/CATALOGUE.md).
+fork-catalogue = { path = "../fork-catalogue" }

@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[group]
+id = "extenders.anh_nvse"
+title = "AnhNVSE commands"
+origin = "original"
+notes = "The AnhNVSE commands the owner's mods call (no public source of its full command list). Built in by crates/anh-nvse; the plugin's other commands are not listed because their names are not known."
+
+[[item]]
+id = "getquestcompletedalt"
+title = "GetQuestCompletedAlt"
+status = "implemented"
+
+[[item]]
+id = "sv_padstart"
+title = "Sv_PadStart"
+status = "implemented"
