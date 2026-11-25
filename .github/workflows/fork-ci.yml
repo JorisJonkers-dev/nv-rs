@@ -229,7 +229,7 @@ jobs:
   # are read from the covers map, so a new tagged file is picked up without a change here.
   macos-engine:
     name: macOS (tagged engine tests)
-    if: ${{ true }}
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: macos-latest
     timeout-minutes: 90
     env:
