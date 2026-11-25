@@ -1,0 +1,299 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# JIP LN commands in jip_fn_move* to jip_fn_worldspace* proven by tests in crates/jip (upstream-owned files, so tagged here;
+# docs/fork/CATALOGUE.md). A row names only the commands the test calls and whose answer or effect it asserts, so the
+# test fails when the command is missing.
+test	covers
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_cell_moves_into_the_cell	extenders.jip_ln.movetocell
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_cell_in_a_worldspace_uses_its_persistent_cell	extenders.jip_ln.movetocell
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_cell_other_type_does_nothing	extenders.jip_ln.movetocell
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_cell_with_3d_in_the_cell_sets_the_position	extenders.jip_ln.movetocell
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_editor_position_actor_with_rotation	extenders.jip_ln.movetoeditorposition
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_editor_position_without_reset_keeps_the_angles	extenders.jip_ln.movetoeditorposition
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_editor_position_reference_uses_its_extras	extenders.jip_ln.movetoeditorposition
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_editor_position_reference_without_cell_extra_uses_its_cell	extenders.jip_ln.movetoeditorposition
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_editor_position_without_a_place_does_nothing	extenders.jip_ln.movetoeditorposition
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_pos_ex_absolute	extenders.jip_ln.setposex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_pos_ex_relative_adds_the_position	extenders.jip_ln.setposex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_pos_ex_translated_by_the_node	extenders.jip_ln.setposex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_pos_ex_translated_without_3d	extenders.jip_ln.setposex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_pos_ex_other_mode_does_nothing	extenders.jip_ln.setposex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_pos_str_moves_to_the_cell_and_position	extenders.jip_ln.movetoposstr
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_pos_str_resolves_the_id	extenders.jip_ln.movetoposstr
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_pos_str_bad_text_does_nothing	extenders.jip_ln.movetoposstr
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_editor_position_reference_in_a_persistent_cell	extenders.jip_ln.movetoeditorposition
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::commands_without_reference_do_nothing	extenders.jip_ln.movetonode
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_node_moves_to_the_node_plus_offsets	extenders.jip_ln.movetonode
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_node_empty_name_is_the_root_and_offsets_default_to_0	extenders.jip_ln.movetonode
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_node_uses_the_persistent_cell	extenders.jip_ln.movetonode
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_node_without_cell_or_node_does_nothing	extenders.jip_ln.movetonode
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_angle_ex_absolute_converts_degrees	extenders.jip_ln.setangleex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_angle_ex_mode_1_inverse	extenders.jip_ln.setangleex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_angle_ex_mode_2_rotates	extenders.jip_ln.setangleex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_angle_ex_mode_3_adds_the_current_angles	extenders.jip_ln.setangleex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_angle_ex_point_modes	extenders.jip_ln.setangleex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::rotate_around_point_cmd_converts_and_skips	extenders.jip_ln.rotatearoundpoint
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_reticle_moves_to_the_hit_plus_offsets	extenders.jip_ln.movetoreticle
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_reticle_defaults_and_the_persistent_cell	extenders.jip_ln.movetoreticle
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_reticle_without_a_hit_needs_translate	extenders.jip_ln.movetoreticle
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_reticle_without_a_cell_does_nothing	extenders.jip_ln.movetoreticle
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_reticle_casts_on_layer_6	extenders.jip_ln.movetoreticle
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::set_angle_ex_mode_3_player_uses_the_stored_angles	extenders.jip_ln.setangleex
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::new_commands_without_reference_or_with_a_failed_read_do_nothing	extenders.jip_ln.movetoreticle extenders.jip_ln.rotatearoundpoint
+crates/jip/src/commands/jip_fn_move_cmds_tests.rs::move_to_editor_position_line_without_argument_data	extenders.jip_ln.movetoeditorposition
+crates/jip/src/commands/jip_fn_projectile_tests.rs::the_numbers	extenders.jip_ln.getprojectiletraitnumeric extenders.jip_ln.setprojectiletraitnumeric
+crates/jip/src/commands/jip_fn_projectile_tests.rs::the_type_and_sound_level	extenders.jip_ln.setprojectiletraitnumeric
+crates/jip/src/commands/jip_fn_projectile_tests.rs::the_flags	extenders.jip_ln.getprojectileflag extenders.jip_ln.setprojectileflag
+crates/jip/src/commands/jip_fn_projectile_tests.rs::explosion_and_light	extenders.jip_ln.getprojectileexplosion extenders.jip_ln.setprojectileexplosion extenders.jip_ln.getprojectilelight extenders.jip_ln.setprojectilelight
+crates/jip/src/commands/jip_fn_projectile_tests.rs::the_muzzle_flash	extenders.jip_ln.getprojectilemuzzleflash extenders.jip_ln.setprojectilemuzzleflash
+crates/jip/src/commands/jip_fn_projectile_tests.rs::a_fired_projectile	extenders.jip_ln.getprojectilerefsource extenders.jip_ln.setprojectilerefsource extenders.jip_ln.getprojectilerefweapon extenders.jip_ln.setprojectilerefweapon extenders.jip_ln.getprojectilereflifetime extenders.jip_ln.getprojectilerefdistancetraveled extenders.jip_ln.getprojectilerefdamage extenders.jip_ln.setprojectilerefdamage extenders.jip_ln.getprojectilerefspeedmult extenders.jip_ln.setprojectilerefspeedmult
+crates/jip/src/commands/jip_fn_projectile_tests.rs::not_a_projectile	extenders.jip_ln.setprojectilerefsource extenders.jip_ln.setprojectilerefweapon extenders.jip_ln.getprojectilereflifetime extenders.jip_ln.getprojectilerefdistancetraveled extenders.jip_ln.getprojectilerefdamage extenders.jip_ln.setprojectilerefdamage extenders.jip_ln.getprojectilerefspeedmult extenders.jip_ln.setprojectilerefspeedmult extenders.jip_ln.getprojectilerefimpactmaterial
+crates/jip/src/commands/jip_fn_projectile_tests.rs::what_it_hit	extenders.jip_ln.getprojectilerefimpactref extenders.jip_ln.getprojectilerefimpactmaterial
+crates/jip/src/commands/jip_fn_projectile_tests.rs::the_detonation_timer	extenders.jip_ln.getdetonationtimer extenders.jip_ln.setdetonationtimer
+crates/jip/src/commands/jip_fn_projectile_tests.rs::an_armed_mine	extenders.jip_ln.getminearmed
+crates/jip/src/commands/jip_fn_quest_tests.rs::the_stage	extenders.jip_ln.setstagealt
+crates/jip/src/commands/jip_fn_quest_tests.rs::the_flags	extenders.jip_ln.setquestflag extenders.jip_ln.getquestflag
+crates/jip/src/commands/jip_fn_quest_tests.rs::failing_and_clearing	extenders.jip_ln.clearactivequest extenders.jip_ln.failquest
+crates/jip/src/commands/jip_fn_quest_tests.rs::the_player_quests	extenders.jip_ln.getquests
+crates/jip/src/commands/jip_fn_quest_tests.rs::the_objectives	extenders.jip_ln.getquestobjectives extenders.jip_ln.getactiveobjectives
+crates/jip/src/commands/jip_fn_quest_tests.rs::the_targets	extenders.jip_ln.getobjectivetargets extenders.jip_ln.getobjectivehastarget
+crates/jip/src/commands/jip_fn_quest_tests.rs::the_teleport_links	extenders.jip_ln.getobjectiveteleportlinks
+crates/jip/src/commands/jip_fn_quest_tests.rs::setting_the_nth_target	extenders.jip_ln.setobjectiventhtarget
+crates/jip/src/commands/jip_fn_quest_tests.rs::adding_a_target	extenders.jip_ln.addobjectivetarget
+crates/jip/src/commands/jip_fn_quest_tests.rs::removing_a_target	extenders.jip_ln.removeobjectivetarget
+crates/jip/src/commands/jip_fn_quest_tests.rs::the_text	extenders.jip_ln.getobjectivetext extenders.jip_ln.setobjectivetext
+crates/jip/src/commands/jip_fn_quest_tests.rs::targets_changed	extenders.jip_ln.getquesttargetschanged
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::where_a_map_goes_and_its_values	extenders.jip_ln.refmaparraygetsize extenders.jip_ln.refmaparraygettype extenders.jip_ln.refmaparraygetfloat extenders.jip_ln.refmaparraysetfloat extenders.jip_ln.refmaparraygetref extenders.jip_ln.refmaparraysetref extenders.jip_ln.refmaparraygetstring extenders.jip_ln.refmaparraysetstring extenders.jip_ln.refmaparraygetvalue
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::the_changed_flag_and_mark_modified	extenders.jip_ln.refmaparraysetfloat extenders.jip_ln.refmaparraysetref
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::set_from_an_array	extenders.jip_ln.refmaparraysetvalue
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::the_walk	extenders.jip_ln.refmaparraygetfirst extenders.jip_ln.refmaparraygetnext extenders.jip_ln.refmaparrayerase extenders.jip_ln.refmaparraysetfloat
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::keys_and_all_maps	extenders.jip_ln.refmaparraygetkeys extenders.jip_ln.refmaparraygetall extenders.jip_ln.refmaparraysetfloat
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::erasing_validating_destroying	extenders.jip_ln.refmaparrayerase extenders.jip_ln.refmaparraydestroy extenders.jip_ln.refmaparraysetfloat extenders.jip_ln.refmaparrayvalidate
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::the_maps_and_the_record	extenders.jip_ln.refmaparraysetfloat extenders.jip_ln.refmaparraysetstring
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::the_key_argument_of_the_setters	extenders.jip_ln.refmaparraysetref extenders.jip_ln.refmaparraysetstring extenders.jip_ln.refmaparraysetvalue
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::walk_rules	extenders.jip_ln.refmaparraygetfirst extenders.jip_ln.refmaparraygetnext extenders.jip_ln.refmaparrayerase extenders.jip_ln.refmaparraysetfloat
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::a_long_walk	extenders.jip_ln.refmaparraygetnext
+crates/jip/src/commands/jip_fn_ref_map_tests.rs::a_loaded_co_save	extenders.jip_ln.auxiliaryvariablegettype extenders.jip_ln.auxiliaryvariablegetfloat extenders.jip_ln.auxiliaryvariablegetref extenders.jip_ln.auxiliaryvariablegetstring extenders.jip_ln.auxiliaryvariablegetall extenders.jip_ln.refmaparraygetsize extenders.jip_ln.refmaparraygetfirst extenders.jip_ln.auxiliaryvariablegetasarray
+crates/jip/src/commands/jip_fn_script_tests.rs::quest_delay	extenders.jip_ln.getdelayelapsed extenders.jip_ln.setdelayelapsed
+crates/jip/src/commands/jip_fn_script_tests.rs::script_event_disabled	extenders.jip_ln.getscripteventdisabled
+crates/jip/src/commands/jip_fn_script_tests.rs::fake_script_event	extenders.jip_ln.fakescriptevent
+crates/jip/src/commands/jip_fn_script_tests.rs::fake_script_event_on_an_inventory_reference	extenders.jip_ln.fakescriptevent
+crates/jip/src/commands/jip_fn_script_tests.rs::waiting_scripts	extenders.jip_ln.isscriptwaiting extenders.jip_ln.stopscriptwaiting
+crates/jip/src/commands/jip_fn_script_tests.rs::script_blocks_disabled	extenders.jip_ln.getscriptblockdisabled extenders.jip_ln.setscriptblockdisabled
+crates/jip/src/commands/jip_fn_script_tests.rs::script_blocks_edges	extenders.jip_ln.getscriptblockdisabled extenders.jip_ln.setscriptblockdisabled
+crates/jip/src/commands/jip_fn_script_tests.rs::script_blocks_walk	extenders.jip_ln.hasscriptblock
+crates/jip/src/commands/jip_fn_script_tests.rs::has_script_block	extenders.jip_ln.setscriptblockdisabled extenders.jip_ln.hasscriptblock
+crates/jip/src/commands/jip_fn_script_tests.rs::scripted_activate	extenders.jip_ln.disablescriptedactivate
+crates/jip/src/commands/jip_fn_script_tests.rs::execute_script	extenders.jip_ln.executescript
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::add_makes_the_variable_in_the_script_and_the_event_list	extenders.jip_ln.addscriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::add_again_reuses_and_another_goes_first	extenders.jip_ln.addscriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::add_for_a_second_owner_of_the_script	extenders.jip_ln.addscriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::add_a_name_the_script_has_does_nothing	extenders.jip_ln.addscriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::add_a_temporary_name_is_not_kept	extenders.jip_ln.addscriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::add_owner_rules	extenders.jip_ln.addscriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::add_to_an_event_list_without_a_list	extenders.jip_ln.addscriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::has_variable_added_needs_all_four	extenders.jip_ln.addscriptvariable extenders.jip_ln.hasvariableadded extenders.jip_ln.removescriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::remove_script_variable_takes_the_saved_entry_out	extenders.jip_ln.addscriptvariable extenders.jip_ln.removescriptvariable
+crates/jip/src/commands/jip_fn_script_vars_tests.rs::remove_all_added_variables_takes_the_mods_entries	extenders.jip_ln.addscriptvariable extenders.jip_ln.removealladdedvariables
+crates/jip/src/commands/jip_fn_sound_playing_tests.rs::is_sound_playing_finds_the_forms_sounds_and_where_they_play	extenders.jip_ln.issoundplaying
+crates/jip/src/commands/jip_fn_sound_playing_tests.rs::without_the_game_patches_row_no_sound_is_found	extenders.jip_ln.issoundplaying extenders.jip_ln.getsoundplayers extenders.jip_ln.stopsound
+crates/jip/src/commands/jip_fn_sound_playing_tests.rs::stop_sound_stops_every_sound_of_the_form_there	extenders.jip_ln.stopsound
+crates/jip/src/commands/jip_fn_sound_playing_tests.rs::get_sound_players_lists_where_the_form_plays_by_each_sounds_key	extenders.jip_ln.issoundplaying extenders.jip_ln.getsoundplayers
+crates/jip/src/commands/jip_fn_sound_playing_tests.rs::the_walks_follow_a_buckets_chain	extenders.jip_ln.issoundplaying extenders.jip_ln.getsoundplayers extenders.jip_ln.stopsound
+crates/jip/src/commands/jip_fn_sound_playing_tests.rs::set_sound_trait_numeric_scales_and_clamps_each_number	extenders.jip_ln.setsoundtraitnumeric
+crates/jip/src/commands/jip_fn_sound_playing_tests.rs::the_frequency_and_static_attenuation_reach_the_playing_sounds	extenders.jip_ln.setsoundtraitnumeric
+crates/jip/src/commands/jip_fn_sound_tests.rs::the_numbers	extenders.jip_ln.getsoundtraitnumeric
+crates/jip/src/commands/jip_fn_sound_tests.rs::the_flags	extenders.jip_ln.getsoundflag extenders.jip_ln.setsoundflag
+crates/jip/src/commands/jip_fn_sound_tests.rs::the_file	extenders.jip_ln.getsoundsourcefile extenders.jip_ln.setsoundsourcefile
+crates/jip/src/commands/jip_fn_sound_tests.rs::the_music	extenders.jip_ln.ismusicplaying
+crates/jip/src/commands/jip_fn_sound_tests.rs::the_music_state	extenders.jip_ln.setmusicstate
+crates/jip/src/commands/jip_fn_sound_tests.rs::the_volumes	extenders.jip_ln.getgamevolume extenders.jip_ln.setgamevolume
+crates/jip/src/commands/jip_fn_sound_tests.rs::the_volume_boundaries	extenders.jip_ln.getgamevolume extenders.jip_ln.setgamevolume
+crates/jip/src/commands/jip_fn_sound_tests.rs::the_music_types_path	extenders.jip_ln.ismusicplaying
+crates/jip/src/commands/jip_fn_sound_tests.rs::a_long_path_with_the_list_guard	extenders.jip_ln.setsoundsourcefile
+crates/jip/src/commands/jip_fn_string_regex_tests.rs::regex_match_answers_for_the_whole_text	extenders.jip_ln.sv_regexmatch
+crates/jip/src/commands/jip_fn_string_regex_tests.rs::regex_search_lists_the_matches_in_turn	extenders.jip_ln.sv_regexsearch
+crates/jip/src/commands/jip_fn_string_regex_tests.rs::regex_search_moves_on_after_an_empty_match	extenders.jip_ln.sv_regexsearch
+crates/jip/src/commands/jip_fn_string_regex_tests.rs::regex_search_keeps_jips_answer_for_an_empty_match_further_in	extenders.jip_ln.sv_regexsearch
+crates/jip/src/commands/jip_fn_string_regex_tests.rs::regex_search_takes_a_repeated_empty_place_once	extenders.jip_ln.sv_regexsearch
+crates/jip/src/commands/jip_fn_string_regex_tests.rs::regex_search_keeps_what_it_found_before_a_runaway	extenders.jip_ln.sv_regexsearch
+crates/jip/src/commands/jip_fn_string_regex_tests.rs::regex_replace_uses_the_parts_around_the_bar	extenders.jip_ln.sv_regexreplace
+crates/jip/src/commands/jip_fn_string_regex_tests.rs::a_long_pattern_follows_the_buffer_rule	extenders.jip_ln.sv_regexmatch
+crates/jip/src/commands/jip_fn_texture_set_tests.rs::the_textures	extenders.jip_ln.gettexturesettexture extenders.jip_ln.settexturesettexture
+crates/jip/src/commands/jip_fn_texture_set_tests.rs::the_decal_numbers	extenders.jip_ln.gettexturesettraitnumeric extenders.jip_ln.settexturesettraitnumeric
+crates/jip/src/commands/jip_fn_texture_set_tests.rs::the_flags	extenders.jip_ln.gettexturesetflag extenders.jip_ln.settexturesetflag
+crates/jip/src/commands/jip_fn_texture_set_tests.rs::the_decal_floats_each_in_place	extenders.jip_ln.settexturesettraitnumeric
+crates/jip/src/commands/jip_fn_ui_code_tests.rs::unlock_sets_the_most_and_no_argument_is_no_limit	extenders.jip_ln.unlockrecipemenuquantity
+crates/jip/src/commands/jip_fn_ui_code_tests.rs::crafting_messages_toggle	extenders.jip_ln.togglecraftingmessages
+crates/jip/src/commands/jip_fn_ui_code_tests.rs::the_improved_menu_is_once_and_lifts_the_limit	extenders.jip_ln.unlockrecipemenuquantity extenders.jip_ln.enableimprovedrecipemenu
+crates/jip/src/commands/jip_fn_ui_code_tests.rs::the_improved_click	extenders.jip_ln.enableimprovedrecipemenu
+crates/jip/src/commands/jip_fn_ui_code_tests.rs::the_improved_close_refreshes_the_list	extenders.jip_ln.enableimprovedrecipemenu
+crates/jip/src/commands/jip_fn_ui_code_tests.rs::the_improved_close_plays_the_sound_when_messages_are_off	extenders.jip_ln.enableimprovedrecipemenu extenders.jip_ln.togglecraftingmessages
+crates/jip/src/commands/jip_fn_ui_code_tests.rs::quest_messages_hidden_for_one_frame	extenders.jip_ln.suppressquestmessages
+crates/jip/src/commands/jip_fn_ui_code_tests.rs::the_item_filter	extenders.jip_ln.inititemfilter extenders.jip_ln.setitemfilter
+crates/jip/src/commands/jip_fn_ui_cursor_tests.rs::set_cursor_pos_moves_the_cursor_in_menu_mode	extenders.jip_ln.setcursorpos
+crates/jip/src/commands/jip_fn_ui_cursor_tests.rs::set_cursor_pos_does_nothing_outside_menu_mode	extenders.jip_ln.setcursorpos
+crates/jip/src/commands/jip_fn_ui_cursor_tests.rs::set_cursor_pos_works_with_the_hud_cursor_on	extenders.jip_ln.setcursorpos extenders.jip_ln.togglehudcursor
+crates/jip/src/commands/jip_fn_ui_cursor_tests.rs::set_cursor_pos_without_a_cursor_node	extenders.jip_ln.setcursorpos
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::the_menu_is_shown_with_jips_routine	extenders.jip_ln.showquantitymenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::nothing_without_a_count_or_a_script	extenders.jip_ln.showquantitymenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::the_seam_gives_the_script_the_count_or_minus_one	extenders.jip_ln.showquantitymenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::the_seam_leaves_the_games_own_callbacks	extenders.jip_ln.showquantitymenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::the_routine_alone_gives_the_count	extenders.jip_ln.showquantitymenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::the_top_menu_or_every_menu_is_closed	extenders.jip_ln.closeactivemenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::nothing_in_game_mode	extenders.jip_ln.closeactivemenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::the_rendered_menu_is_closed_through_its_own_close	extenders.jip_ln.closeactivemenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::the_message_and_quantity_menus_give_up_their_scripts	extenders.jip_ln.showquantitymenu extenders.jip_ln.messageboxexalt extenders.jip_ln.closeactivemenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::each_menu_drops_only_its_own_script	extenders.jip_ln.showquantitymenu extenders.jip_ln.messageboxexalt extenders.jip_ln.closeactivemenu
+crates/jip/src/commands/jip_fn_ui_menus_tests.rs::the_pipboy_is_put_away	extenders.jip_ln.closeactivemenu
+crates/jip/src/commands/jip_fn_ui_nodes_tests.rs::attach_ui_xml_adds_the_new_tiles_node_under_the_named_node	extenders.jip_ln.attachuixml
+crates/jip/src/commands/jip_fn_ui_nodes_tests.rs::attach_ui_xml_uses_the_seen_root_and_needs_the_hud	extenders.jip_ln.attachuixml
+crates/jip/src/commands/jip_fn_ui_nodes_tests.rs::attach_ui_component_attaches_with_the_uio_row_on_or_off	extenders.jip_ln.attachuicomponent
+crates/jip/src/commands/jip_fn_ui_project_tests.rs::project_ui_tile_draws_the_interface_into_the_texture	extenders.jip_ln.projectuitile
+crates/jip/src/commands/jip_fn_ui_project_tests.rs::project_ui_tile_draws_the_tiles_node	extenders.jip_ln.projectuitile
+crates/jip/src/commands/jip_fn_ui_project_tests.rs::project_ui_tile_needs_a_texture_and_a_node	extenders.jip_ln.projectuitile
+crates/jip/src/commands/jip_fn_ui_r1_tests.rs::refresh_calls_the_first_shown_menus_refresh	extenders.jip_ln.refreshitemslist
+crates/jip/src/commands/jip_fn_ui_r1_tests.rs::hud_cursor_on_and_off	extenders.jip_ln.togglehudcursor
+crates/jip/src/commands/jip_fn_ui_r1_tests.rs::hud_cursor_needs_game_mode_and_no_controller	extenders.jip_ln.togglehudcursor
+crates/jip/src/commands/jip_fn_ui_r1_tests.rs::the_main_loop_ends_the_mode_in_a_menu	extenders.jip_ln.togglehudcursor
+crates/jip/src/commands/jip_fn_ui_r1_tests.rs::the_recipe_refresh_takes_the_filter_word_in_the_code	extenders.jip_ln.refreshitemslist
+crates/jip/src/commands/jip_fn_ui_r1_tests.rs::h02_the_hud_cursor_handles_the_mouse_over_the_hud	extenders.jip_ln.togglehudcursor
+crates/jip/src/commands/jip_fn_ui_r1_tests.rs::h02_a_draggable_tile_is_dragged_and_let_go	extenders.jip_ln.togglehudcursor
+crates/jip/src/commands/jip_fn_ui_r1_tests.rs::h02_the_wheel_moves_the_nearest_wheelable_parent	extenders.jip_ln.togglehudcursor
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::a_box_is_shown_with_the_callback_routine	extenders.jip_ln.messageboxexalt
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::the_answer_calls_the_newest_script_with_the_button	extenders.jip_ln.messageboxexalt
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::g55_widens_the_message_menu_while_a_box_waits	extenders.jip_ln.messageboxexalt
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::fifteen_boxes_at_most	extenders.jip_ln.messageboxexalt
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::a_font_file_made_once_and_put_in_its_slot	extenders.jip_ln.setfontfile
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::a_font_file_refused	extenders.jip_ln.setfontfile
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::fonts_above_8_need_jips_manager	extenders.jip_ln.setfontfile
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::the_callbacks_lambda_variables_are_kept_while_its_box_waits	extenders.jip_ln.messageboxexalt
+crates/jip/src/commands/jip_fn_ui_r2_tests.rs::g129_makes_jips_font_manager_and_set_font_file_uses_its_map	extenders.jip_ln.setfontfile
+crates/jip/src/commands/jip_fn_ui_tests.rs::paths_find_tiles_by_name_index_and_wildcard	extenders.jip_ln.iscomponentloaded extenders.jip_ln.unloaduicomponent
+crates/jip/src/commands/jip_fn_ui_tests.rs::ui_string_reads_a_trait_through_the_map	extenders.jip_ln.iscomponentloaded extenders.jip_ln.getuistring
+crates/jip/src/commands/jip_fn_ui_tests.rs::inject_xml_reads_the_file_into_the_tile	extenders.jip_ln.injectuixml
+crates/jip/src/commands/jip_fn_ui_tests.rs::click_menu_tile_pokes_clicked_when_targetable	extenders.jip_ln.clickmenutile
+crates/jip/src/commands/jip_fn_ui_tests.rs::gradual_floats_by_argument_count	extenders.jip_ln.setuifloatgradual
+crates/jip/src/commands/jip_fn_ui_tests.rs::templates_add_a_named_tile	extenders.jip_ln.addtilefromtemplate
+crates/jip/src/commands/jip_fn_ui_tests.rs::menu_buttons_click_through_the_vtable	extenders.jip_ln.clickmenubutton
+crates/jip/src/commands/jip_fn_ui_tests.rs::menu_button_clicks_with_the_size_caps_row	extenders.jip_ln.clickmenubutton
+crates/jip/src/commands/jip_fn_ui_tests.rs::child_list_running_back_ends	extenders.jip_ln.iscomponentloaded
+crates/jip/src/commands/jip_fn_ui_tests.rs::trait_bucket_running_back_ends	extenders.jip_ln.getuistring
+crates/jip/src/commands/jip_fn_ui_tests.rs::parent_chain_running_back_ends	extenders.jip_ln.clickmenubutton
+crates/jip/src/commands/jip_fn_ui_tests.rs::parent_menu_found_within_65536_steps	extenders.jip_ln.clickmenubutton
+crates/jip/src/commands/jip_fn_ui_tests.rs::trait_compare_reads_its_low_byte	extenders.jip_ln.getuistring
+crates/jip/src/commands/jip_fn_ui_tests.rs::trait_name_over_a_mebibyte_goes_cut_to_jips_buffer	extenders.jip_ln.getuistring
+crates/jip/src/commands/jip_fn_ui_tests.rs::xml_name_over_a_mebibyte_goes_cut_to_jips_buffer	extenders.jip_ln.injectuixml
+crates/jip/src/commands/jip_fn_ui_tests.rs::template_name_over_a_mebibyte_goes_cut_to_jips_buffer	extenders.jip_ln.addtilefromtemplate
+crates/jip/src/commands/jip_fn_ui_tests.rs::cursor_and_top_menu	extenders.jip_ln.getcursorpos extenders.jip_ln.getactivemenumode
+crates/jip/src/commands/jip_fn_ui_tests.rs::active_tile_name_path_and_id	extenders.jip_ln.getactiveuicomponentname extenders.jip_ln.getactiveuicomponentfullname extenders.jip_ln.getactiveuicomponentid
+crates/jip/src/commands/jip_fn_ui_tests.rs::menu_stack_full_reads_on_inside_the_manager	extenders.jip_ln.getactivemenumode
+crates/jip/src/commands/jip_fn_ui_tests.rs::active_tile_path_within_jips_24_entries	extenders.jip_ln.getactiveuicomponentname extenders.jip_ln.getactiveuicomponentfullname
+crates/jip/src/commands/jip_fn_ui_tests.rs::active_tile_missing_from_its_parents_children	extenders.jip_ln.getactiveuicomponentname extenders.jip_ln.getactiveuicomponentfullname
+crates/jip/src/commands/jip_fn_ui_tests.rs::char_gen_menus	extenders.jip_ln.isinchargen
+crates/jip/src/commands/jip_fn_ui_tests.rs::messages_disabled_flags_and_time	extenders.jip_ln.setmessagedisabled extenders.jip_ln.getmessagedisabled extenders.jip_ln.getmessageflags extenders.jip_ln.setmessageflags extenders.jip_ln.setmessagedisplaytime
+crates/jip/src/commands/jip_fn_ui_tests.rs::item_filters	extenders.jip_ln.getmenuitemfilter
+crates/jip/src/commands/jip_fn_ui_tests.rs::barter_caps_and_prices	extenders.jip_ln.getbartergoldalt extenders.jip_ln.getbarterpricemult extenders.jip_ln.setbarterpricemult
+crates/jip/src/commands/jip_fn_ui_tests.rs::recipe_menu	extenders.jip_ln.getrecipemenuselection extenders.jip_ln.getrecipemenucategory extenders.jip_ln.getrecipemenunumsubcategories
+crates/jip/src/commands/jip_fn_ui_tests.rs::font_files	extenders.jip_ln.getfontfile
+crates/jip/src/commands/jip_fn_ui_tests.rs::vats_targets	extenders.jip_ln.getvatstargets
+crates/jip/src/commands/jip_fn_ui_tests.rs::level_up_menu_with_points	extenders.jip_ln.showlevelupmenuex
+crates/jip/src/commands/jip_fn_ui_tests.rs::barter_offers_as_inventory_references	extenders.jip_ln.getbarteritems
+crates/jip/src/commands/jip_fn_ui_tests.rs::menu_item_lists_as_a_map	extenders.jip_ln.getmenuitemlistrefs
+crates/jip/src/commands/jip_fn_ui_tests.rs::terminal_models_set_replace_and_remove	extenders.jip_ln.setterminaluimodel
+crates/jip/src/commands/jip_fn_ui_tests.rs::inject_component_with_the_uio_row_on_or_off	extenders.jip_ln.injectuicomponent
+crates/jip/src/commands/jip_fn_ui_tests.rs::clear_message_queue_cmd	extenders.jip_ln.clearmessagequeue
+crates/jip/src/commands/jip_fn_ui_tests.rs::set_system_color_cmd	extenders.jip_ln.setsystemcolor
+crates/jip/src/commands/jip_fn_ui_tests.rs::toggle_pipboy_light_cmd_toggles	extenders.jip_ln.togglepipboylight
+crates/jip/src/commands/jip_fn_ui_tests.rs::string_ui_dimensions	extenders.jip_ln.getstringuidimensions
+crates/jip/src/commands/jip_fn_ui_tests.rs::message_ex_alt_queues	extenders.jip_ln.messageexalt
+crates/jip/src/commands/jip_fn_ui_tests.rs::c2_unreadable_arguments_and_no_interface_manager	extenders.jip_ln.messageexalt extenders.jip_ln.setsystemcolor extenders.jip_ln.getstringuidimensions
+crates/jip/src/commands/jip_fn_ui_tests.rs::menu_target_refs_of_the_menus_own_fields	extenders.jip_ln.getmenutargetref
+crates/jip/src/commands/jip_fn_ui_tests.rs::menu_target_dialog_hacking_level_up_trait_and_map	extenders.jip_ln.getmenutargetref
+crates/jip/src/commands/jip_fn_ui_tests.rs::menu_target_items_as_inventory_references	extenders.jip_ln.getmenutargetref
+crates/jip/src/commands/jip_fn_ui_tests.rs::selected_item_of_the_menu_on_top	extenders.jip_ln.getselecteditemref
+crates/jip/src/commands/jip_fn_ui_tests.rs::world_map_pos_mults_of_a_reference	extenders.jip_ln.getworldmapposmults
+crates/jip/src/commands/jip_fn_ui_tests.rs::message_ex_alt_is_marked_as_a_plugins_call	extenders.jip_ln.messageexalt
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::the_menu_is_built_as_jips_show_text_edit_menu	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::an_empty_title_hides_and_a_long_one_is_cut	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::nothing_without_a_script_a_menu_or_with_one_open	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::the_active_tile_loses_its_mouseover	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::the_font_number_is_rounded_for_its_heights	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::typing_puts_characters_in_at_the_cursor	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::the_most_and_least_lengths	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::editing_keys_move_and_erase	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::home_and_end_stay_in_the_line	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::the_numbers_flag_takes_numbers_only	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::enter_with_the_flag_clicks_ok	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::no_keys_while_inactive	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::the_cursor_blinks_every_500_ms	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::extended_props_set_the_lengths_and_flags	extenders.jip_ln.showtextinputmenu extenders.jip_ln.settextinputextendedprops
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::set_text_input_string_sets_the_text	extenders.jip_ln.showtextinputmenu extenders.jip_ln.settextinputstring
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::a_full_text_grows_by_one	extenders.jip_ln.showtextinputmenu extenders.jip_ln.settextinputstring
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::the_setters_need_jips_menu	extenders.jip_ln.showtextinputmenu extenders.jip_ln.settextinputextendedprops extenders.jip_ln.settextinputstring
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::ok_calls_the_script_with_the_text_and_takes_the_hooks_out	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::other_buttons_do_nothing_and_no_text_is_empty	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::close_active_menu_takes_the_hooks_out	extenders.jip_ln.showtextinputmenu extenders.jip_ln.closeactivemenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::the_setters_leave_a_game_menu_alone	extenders.jip_ln.settextinputextendedprops extenders.jip_ln.settextinputstring
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::with_the_row_jips_own_menu_keeps_its_routines	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::a_65535_byte_text_never_wraps_the_shown_texts_room	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_ui_text_tests.rs::without_the_size_caps_row_a_long_text_keeps_jips_16_bits	extenders.jip_ln.showtextinputmenu
+crates/jip/src/commands/jip_fn_utility_patches_tests.rs::get_optional_patch_answers_whether_the_switch_is_in	extenders.jip_ln.getoptionalpatch
+crates/jip/src/commands/jip_fn_utility_patches_tests.rs::set_optional_patch_switches_by_name	extenders.jip_ln.getoptionalpatch extenders.jip_ln.setoptionalpatch
+crates/jip/src/commands/jip_fn_utility_tests.rs::a_form_as_text	extenders.jip_ln.reftostring
+crates/jip/src/commands/jip_fn_utility_tests.rs::text_to_a_form_id	extenders.jip_ln.stringtoref
+crates/jip/src/commands/jip_fn_utility_tests.rs::text_to_a_form_id_is_kept	extenders.jip_ln.stringtoref
+crates/jip/src/commands/jip_fn_utility_tests.rs::smallest_and_largest	extenders.jip_ln.getminof extenders.jip_ln.getmaxof
+crates/jip/src/commands/jip_fn_utility_tests.rs::load_order_changed	extenders.jip_ln.getloadorderchanged
+crates/jip/src/commands/jip_fn_utility_tests.rs::mod_index_validated	extenders.jip_ln.validatemodindex
+crates/jip/src/commands/jip_fn_utility_tests.rs::a_mods_saved_data_cleared	extenders.jip_ln.clearjipsaveddata
+crates/jip/src/commands/jip_fn_utility_tests.rs::plugin_header_version	extenders.jip_ln.getpluginheaderversion
+crates/jip/src/commands/jip_fn_utility_tests.rs::an_array_value	extenders.jip_ln.getarrayvalue
+crates/jip/src/commands/jip_fn_utility_tests.rs::a_random_integer	extenders.jip_ln.getrandominrange
+crates/jip/src/commands/jip_fn_utility_tests.rs::shared_ref_maps_cleared	extenders.jip_ln.clearjipsaveddata
+crates/jip/src/commands/jip_fn_utility_tests.rs::large_address_aware	extenders.jip_ln.getislaa
+crates/jip/src/commands/jip_fn_utility_tests.rs::an_array_read_from_a_file	extenders.jip_ln.readarrayfromfile
+crates/jip/src/commands/jip_fn_utility_tests.rs::an_array_written_to_a_file	extenders.jip_ln.writearraytofile
+crates/jip/src/commands/jip_fn_utility_tests.rs::a_text_read_from_a_file	extenders.jip_ln.readstringfromfile
+crates/jip/src/commands/jip_fn_utility_tests.rs::mod_log_lines	extenders.jip_ln.modlogprint
+crates/jip/src/commands/jip_fn_utility_tests.rs::a_text_written_to_a_file	extenders.jip_ln.readarrayfromfile extenders.jip_ln.readstringfromfile extenders.jip_ln.writearraytofile extenders.jip_ln.writestringtofile
+crates/jip/src/commands/jip_fn_utility_tests.rs::appends_write_only_the_new_bytes	extenders.jip_ln.writearraytofile extenders.jip_ln.writestringtofile extenders.jip_ln.modlogprint
+crates/jip/src/commands/jip_fn_utility_tests.rs::a_text_read_stops_at_0x3fff_bytes	extenders.jip_ln.readstringfromfile
+crates/jip/src/commands/jip_fn_utility_tests.rs::a_text_read_stops_at_a_0_byte	extenders.jip_ln.readstringfromfile
+crates/jip/src/commands/jip_fn_utility_tests.rs::an_array_read_stops_at_byte_3	extenders.jip_ln.readarrayfromfile
+crates/jip/src/commands/jip_fn_utility_tests.rs::an_array_read_splits_at_0_bytes_after_the_first	extenders.jip_ln.readarrayfromfile
+crates/jip/src/commands/jip_fn_utility_tests.rs::an_array_file_that_fits_or_with_the_guard_is_read	extenders.jip_ln.readarrayfromfile
+crates/jip/src/commands/jip_fn_utility_tests.rs::an_array_written_with_editor_ids	extenders.jip_ln.writearraytofile
+crates/jip/src/commands/jip_fn_weapon_damage_tests.rs::a_named_weapon_for_the_player	extenders.jip_ln.getcalculatedweapondamage
+crates/jip/src/commands/jip_fn_weapon_damage_tests.rs::the_ammo_must_be_ammo_with_effects	extenders.jip_ln.getcalculatedweapondamage
+crates/jip/src/commands/jip_fn_weapon_damage_tests.rs::a_reference_on_the_ground	extenders.jip_ln.getcalculatedweapondamage
+crates/jip/src/commands/jip_fn_weapon_damage_tests.rs::an_inventory_reference_held_by_an_npc	extenders.jip_ln.getcalculatedweapondamage
+crates/jip/src/commands/jip_fn_weapon_damage_tests.rs::a_low_process_keeps_its_weapon_entry	extenders.jip_ln.getcalculatedweapondamage
+crates/jip/src/commands/jip_fn_weapon_damage_tests.rs::the_loaded_ammo_only_for_an_inventory_reference	extenders.jip_ln.getcalculatedweapondamage
+crates/jip/src/commands/jip_fn_weapon_damage_tests.rs::the_damage_mod_without_perks_ends_as_a_float	extenders.jip_ln.getcalculatedweapondamage
+crates/jip/src/commands/jip_fn_weapon_tests.rs::the_sound_level	extenders.jip_ln.getweapondetectionsoundlevel extenders.jip_ln.setweapondetectionsoundlevel
+crates/jip/src/commands/jip_fn_weapon_tests.rs::the_sounds	extenders.jip_ln.getweaponsound extenders.jip_ln.setweaponsound
+crates/jip/src/commands/jip_fn_weapon_tests.rs::the_mods	extenders.jip_ln.setweaponitemmod extenders.jip_ln.setweaponitemmodeffect extenders.jip_ln.setweaponitemmodvalue
+crates/jip/src/commands/jip_fn_weapon_tests.rs::the_reload_animation_and_embedded_value	extenders.jip_ln.getweaponmodreloadanim extenders.jip_ln.setweaponmodreloadanim extenders.jip_ln.setembeddedweaponav
+crates/jip/src/commands/jip_fn_weapon_tests.rs::on_hit_and_delays	extenders.jip_ln.getweapononhitsetting extenders.jip_ln.setweapononhitsetting extenders.jip_ln.getweaponsemiautofiredelay extenders.jip_ln.setweaponsemiautofiredelay
+crates/jip/src/commands/jip_fn_weapon_tests.rs::the_models_and_node_name	extenders.jip_ln.getweaponshellcasingmodel extenders.jip_ln.setweaponshellcasingmodel extenders.jip_ln.setembeddedweaponnode extenders.jip_ln.getweaponmodel extenders.jip_ln.setweaponmodel
+crates/jip/src/commands/jip_fn_weapon_tests.rs::silenced	extenders.jip_ln.isequippedweaponsilenced
+crates/jip/src/commands/jip_fn_weapon_tests.rs::scoped	extenders.jip_ln.isequippedweaponscoped
+crates/jip/src/commands/jip_fn_weapon_tests.rs::equipped_mod_type	extenders.jip_ln.equippedweaponhasmodtype
+crates/jip/src/commands/jip_fn_weapon_tests.rs::attack_queued	extenders.jip_ln.isattackqueued
+crates/jip/src/commands/jip_fn_weapon_tests.rs::shots_per_second	extenders.jip_ln.calculateshotspersec
+crates/jip/src/commands/jip_fn_weather_tests.rs::the_image_space_modifiers	extenders.jip_ln.getweatherimagespacemod extenders.jip_ln.setweatherimagespacemod
+crates/jip/src/commands/jip_fn_weather_tests.rs::the_cloud_textures	extenders.jip_ln.getweathertexture extenders.jip_ln.setweathertexture
+crates/jip/src/commands/jip_fn_weather_tests.rs::the_precipitation_model	extenders.jip_ln.getweatherprecipitationmodel extenders.jip_ln.setweatherprecipitationmodel
+crates/jip/src/commands/jip_fn_weather_tests.rs::the_numeric_traits	extenders.jip_ln.getweathertraitnumeric
+crates/jip/src/commands/jip_fn_weather_tests.rs::the_numeric_traits_set	extenders.jip_ln.setweathertraitnumeric
+crates/jip/src/commands/jip_fn_weather_tests.rs::the_colours	extenders.jip_ln.getweatherrgbcolor extenders.jip_ln.setweatherrgbcolor
+crates/jip/src/commands/jip_fn_weather_tests.rs::the_sky_now	extenders.jip_ln.getcurrentweather extenders.jip_ln.getwinddirection extenders.jip_ln.setwinddirection
+crates/jip/src/commands/jip_fn_weather_tests.rs::lightning_only_in_rain	extenders.jip_ln.triggerlightningfx
+crates/jip/src/commands/jip_fn_weather_tests.rs::the_clouds	extenders.jip_ln.resetclouds extenders.jip_ln.reloadcloudtextures
+crates/jip/src/commands/jip_fn_weather_tests.rs::a_classification_past_the_int_range	extenders.jip_ln.setweathertraitnumeric
+crates/jip/src/commands/jip_fn_worldspace_tests.rs::the_climate_through_parents	extenders.jip_ln.getworldspaceclimate
+crates/jip/src/commands/jip_fn_worldspace_tests.rs::the_climate_set	extenders.jip_ln.setworldspaceclimate
+crates/jip/src/commands/jip_fn_worldspace_tests.rs::the_flags	extenders.jip_ln.getworldspaceflag extenders.jip_ln.setworldspaceflag
+crates/jip/src/commands/jip_fn_worldspace_tests.rs::the_noise_texture	extenders.jip_ln.getworldspacenoisetexture extenders.jip_ln.setworldspacenoisetexture
+crates/jip/src/commands/jip_fn_worldspace_tests.rs::the_forms	extenders.jip_ln.getworldspacewatertype extenders.jip_ln.setworldspacewatertype extenders.jip_ln.getworldspaceimagespace extenders.jip_ln.setworldspaceimagespace extenders.jip_ln.getworldspacepersistentcell
+crates/jip/src/commands/jip_fn_worldspace_tests.rs::the_flag_stays_without_a_parent	extenders.jip_ln.setworldspaceclimate

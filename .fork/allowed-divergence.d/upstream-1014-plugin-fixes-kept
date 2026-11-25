@@ -1,0 +1,4 @@
+crates/engine-core/data/overridable.tsv  # the fixes learned from other plugins (V.A.T.S. wait, witness lists, radio lengths, thread races), kept: upstream took them out (slaterain/nv-rs#1014), the fork keeps them
+crates/engine-fallout-forms/src/units/fallout_shared/actorcause.rs  # the fixes learned from other plugins (V.A.T.S. wait, witness lists, radio lengths, thread races), kept: upstream took them out (slaterain/nv-rs#1014), the fork keeps them
+crates/engine-fallout-forms/src/units/fallout_shared/run_0066e010.rs  # the fixes learned from other plugins (V.A.T.S. wait, witness lists, radio lengths, thread races), kept: upstream took them out (slaterain/nv-rs#1014), the fork keeps them
+crates/engine-fallout-misc/src/units/fallout_audio/falloutaudiomedia.rs  # the fixes learned from other plugins (V.A.T.S. wait, witness lists, radio lengths, thread races), kept: upstream took them out (slaterain/nv-rs#1014), the fork keeps them
