@@ -302,8 +302,10 @@ name = "typed animation"
 args = ["-p engine --test typed_animation --test typed_anim_keys"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
-name = "typed runtime 1/5: process, idle HUD, leaves"
-args = ["-p engine --test typed_process --test typed_hud_idle --test typed_leaves --test typed_lockfree"]
+# typed_hud_idle (one test, 135 to 142 s) runs in 5/5: with it, 1/5 was the longest runtime job (15 m 38 s in run 45675930207,
+# typed_process 390 s of it), 5/5 the shortest (9 m 03 s).
+name = "typed runtime 1/5: process, leaves"
+args = ["-p engine --test typed_process --test typed_leaves --test typed_lockfree"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed runtime 2/5: facegen pass, crt, scripts"
@@ -321,8 +323,8 @@ name = "typed runtime 4/5: facegen colours, coords, matrix"
 args = ["-p engine --test typed_facegen_colours --test typed_facegen_coords --test typed_facegen_matrix"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
-name = "typed runtime 5/5: facegen, save, script lines"
-args = ["-p engine --test typed_facegen --test typed_save --test typed_script_lines --test typed_facegen_head --test typed_script_params"]
+name = "typed runtime 5/5: facegen, save, script lines, idle HUD"
+args = ["-p engine --test typed_facegen --test typed_save --test typed_script_lines --test typed_facegen_head --test typed_script_params --test typed_hud_idle"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
