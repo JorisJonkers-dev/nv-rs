@@ -7,3 +7,10 @@ reference = "knvse"
 items_from = "ref/knvse.tsv"
 items_from_status = "missing"
 notes = "Every command the plugin registers at the pinned version (sources.toml). Implemented means the built-in copy answers it; .fork/capabilities.json is the evidence."
+
+[[item]]
+id = "setactoranimationpath"
+title = "SetActorAnimationPath"
+status = "partial"
+reason = "the override store and its seam in Animation::StartGroup are built (crates/knvse, nv-rs#865); the command itself is not registered yet"
+ref = ["knvse:setactoranimationpath"]

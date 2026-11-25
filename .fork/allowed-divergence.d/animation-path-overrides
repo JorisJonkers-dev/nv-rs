@@ -1,0 +1,4 @@
+crates/engine-fallout-cell/src/units/fallout_shared/animation.rs  # Animation::StartGroup asks the kNVSE seam (0x4948C0) before the sequence map; no handler or no override: the exe's path (nv-rs#865); two tests of that
+crates/engine-core/src/extend.rs  # Owner::Knvse (after JohnnyGuitar, before Stewie) and the seam row 0x4948C0 in Animation::StartGroup (nv-rs#865)
+Cargo.toml  # workspace member crates/knvse, kNVSE built in (nv-rs#865)
+Cargo.lock  # the knvse crate
