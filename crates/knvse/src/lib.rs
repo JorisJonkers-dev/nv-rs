@@ -41,7 +41,7 @@ pub(crate) const KF_MODEL_ADD_REF: u32 = 0x0043_be10;
 pub struct Cached {
     /// The animation's controller manager the sequence was added to.
     pub manager: u32,
-    /// The `BSAnimGroupSequence`.
+    /// The `BSAnimGroupSequence`; 0 when the manager refused it (not made again for that manager).
     pub sequence: u32,
 }
 

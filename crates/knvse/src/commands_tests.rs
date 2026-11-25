@@ -210,7 +210,7 @@ fn an_override_set_by_the_command_answers_at_the_seam() {
         e.site(0x0049_48c0, &[animation, u32::from(SPRINT), 4]),
         None
     );
-    set(&mut e, ACTOR, &[n(0), n(1), s("a\\sprint.kf")]);
+    assert_eq!(set(&mut e, ACTOR, &[n(0), n(1), s("a\\sprint.kf")]), 1.0);
     let sequence = e.site(0x0049_48c0, &[animation, u32::from(SPRINT), 4]);
     assert!(sequence.is_some());
     assert_eq!(refs(&e, kf), 2, "the store's and the kept sequence's");

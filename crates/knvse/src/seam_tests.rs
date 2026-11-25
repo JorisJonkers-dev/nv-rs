@@ -211,7 +211,9 @@ fn a_kept_sequence_of_another_manager_is_not_answered() {
     assert_eq!(e.ext_free::<crate::Active>().cached(), 1);
 }
 
-/// No manager, a manager that refuses the sequence: nothing answers and no reference is kept.
+/// No manager: nothing answers and nothing is built. A manager that refuses the sequence: nothing
+/// answers, and the refusal is kept, so later starts build no new block for that manager; the
+/// teardown gives the kept reference back.
 #[test]
 fn without_a_manager_or_when_it_refuses_nothing_answers() {
     let mut e = engine(true);
@@ -221,6 +223,11 @@ fn without_a_manager_or_when_it_refuses_nothing_answers() {
     assert!(built().is_empty());
     WORLD.with(|w| w.borrow_mut().refuse_add = true);
     assert_eq!(ask(&mut e, NPC_ANIMATION, SPRINT), None);
+    assert_eq!(ask(&mut e, NPC_ANIMATION, SPRINT), None);
+    assert_eq!(built().len(), 1, "a refused sequence is not built again");
+    assert_eq!(refs(&e, kf), 2);
+    assert_eq!(e.ext_free::<crate::Active>().cached(), 1);
+    assert_eq!(e.site(0x0048_fb50, &[NPC_ANIMATION]), None);
     assert_eq!(refs(&e, kf), 1);
     assert_eq!(e.ext_free::<crate::Active>().cached(), 0);
 }

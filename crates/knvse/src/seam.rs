@@ -93,7 +93,8 @@ fn sequence_for(e: &mut Engine, animation: u32, kf: u32) -> Option<u32> {
     let kept = e.ext::<State>().cache.get(&(animation, kf)).copied();
     if let Some(c) = kept {
         if c.manager == manager {
-            return Some(c.sequence);
+            // A sequence this manager refused is not made again (sequence 0).
+            return (c.sequence != 0).then_some(c.sequence);
         }
         forget(e, |&(a, k)| a == animation && k == kf);
     }
@@ -117,10 +118,9 @@ fn sequence_for(e: &mut Engine, animation: u32, kf: u32) -> Option<u32> {
             &args![manager, sequence, ACCUM_ROOT_NAME, 1u32],
         )
         .bool();
-    if !added {
-        return None;
-    }
     // Kept with the model it was made from: the cache holds a manual reference until it forgets.
+    // A refused sequence is kept as 0, so this manager is not handed a new block at every start.
+    let sequence = if added { sequence } else { 0 };
     e.call(crate::KF_MODEL_ADD_REF, &args![kf]);
     let count = {
         let cache = &mut e.ext::<State>().cache;
@@ -128,7 +128,7 @@ fn sequence_for(e: &mut Engine, animation: u32, kf: u32) -> Option<u32> {
         cache.len()
     };
     crate::set_cached(e, count);
-    Some(sequence)
+    (sequence != 0).then_some(sequence)
 }
 
 /// The handler of the manager-made and torn-down seams: words `[animation]`. Forgets the
