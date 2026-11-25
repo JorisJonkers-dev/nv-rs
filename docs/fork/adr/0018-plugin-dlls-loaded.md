@@ -107,6 +107,7 @@ A faster route (translating plugin x86 to host code ahead of time or at load) is
 2. Built-in always wins: a DLL for an extender the engine has natively (xNVSE, JIP LN, JohnnyGuitar, ShowOff, ttw_nvse, and the other built-ins of `fork_plugins::BUILT_IN`) is not loaded; the verdict is "built in". Missing commands of a built-in are built natively. The host loads only plugins with no native build.
 3. A plugin that works by patching the original program's machine code (stability fixes, tweaks) cannot take effect in a native engine. Each is marked "engine already has the fix", "not needed here" or "feature missing"; only features the owner's mods use are rebuilt natively, each as its own ticket.
 4. The data comes from the engine (`plugin_host::verdicts`, written beside the log as `mod-support.json`); raul shows it on the Doctor page and through `raul plugins check`.
+5. The loader and the verdicts read one table (`plugin_host::verdicts::decide`). Not loaded: a plugin the engine carries, that is built in (kNVSE, EngineOptimizations and NVTF among them), has the fix as a row, or is not needed here. Loaded: every other DLL. The player decides per file, by name without case and comma separated: `NV_PLUGIN_PICK` loads a carried plugin's DLL anyway (its verdict then says what it was picked over and is judged by the run), and `NV_PLUGIN_SKIP` never loads a DLL (verdict `turned off by the player`; it wins over a pick). raul writes both from the Profile.
 
 What a patching plugin wrote into the game's code is kept as its patch-site table (`plugin_host::patch_sites`: address, bytes, whether the site is a function's entry the engine can wrap), reported once per plugin and dropped. A plugin that reads the original bytes before it patches (about eight of the fifty) refuses to patch when it reads zeros: the host reads the executable's code from an unpacked `FalloutNV.exe` the user supplies (`NV_PLUGIN_CODE`; the Steam file's code is encrypted and is refused).
 
@@ -119,7 +120,7 @@ When `NV_PLUGIN_VERDICTS` names a file, the host writes one verdict per plugin D
   "mapped": true, "queried": true, "loaded": true, "commands": 0, "patch_writes": 1, "missing_imports": 0}]}
 ```
 
-- `verdict` is one of: `built into the engine`, `loads`, `serves commands`, `engine already has the fix`, `not needed here`, `feature missing`, `not working`.
+- `verdict` is one of: `built into the engine`, `loads`, `serves commands`, `engine already has the fix`, `not needed here`, `feature missing`, `not working`, `turned off by the player`.
 - `reason` is plain text for the user, with what the host saw (the instruction it stopped at, the number of writes into the game's code it dropped).
 - `ticket` is the nv-rs issue that tracks the plugin (0 when none); a file the table does not know is judged by the run alone.
 - The booleans and counters are what the host observed: mapped, `NVSEPlugin_Query` and `NVSEPlugin_Load` answered yes, commands registered, writes into the game's code recorded, imports with no answer.
