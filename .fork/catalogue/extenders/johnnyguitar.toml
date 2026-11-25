@@ -127,3 +127,21 @@ id = "getthresholdedactorvalue"
 title = "GetThresholdedActorValue"
 status = "implemented"
 ref = ["johnnyguitar:getthresholdedactorvalue"]
+
+[[item]]
+id = "getbodyparttraitstring"
+title = "GetBodyPartTraitString"
+status = "implemented"
+ref = ["johnnyguitar:getbodyparttraitstring"]
+
+[[item]]
+id = "iscellvisited"
+title = "IsCellVisited"
+status = "implemented"
+ref = ["johnnyguitar:iscellvisited"]
+
+[[item]]
+id = "getsequenceanimgroup"
+title = "GetSequenceAnimGroup"
+status = "implemented"
+ref = ["johnnyguitar:getsequenceanimgroup"]

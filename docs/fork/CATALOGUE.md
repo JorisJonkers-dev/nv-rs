@@ -8,7 +8,7 @@ format is tally's [docs/FORMAT.md](https://github.com/JorisJonkers-dev/tally/blo
 
 | Area | Groups | Items | What "implemented" means | Evidence `tally check` compares |
 | --- | --- | ---: | --- | --- |
-| `extenders` | xNVSE, JIP LN, JohnnyGuitar, ShowOff, kNVSE, lStewieAl's Tweaks, TTW plugin | 2,468 | the built-in copy answers the command | `.fork/capabilities.json` |
+| `extenders` | xNVSE, JIP LN, JohnnyGuitar, ShowOff, kNVSE, lStewieAl's Tweaks, TTW plugin, AnhNVSE | 2,470 | the built-in copy answers the command | `.fork/capabilities.json` |
 | `d3d9` | device methods, render states | 222 | a method is carried to wgpu (partial: only answered); a state is mapped | `progress catalogue --evidence` |
 | `gfx` | the graphics plan (`docs/fork/graphics-features.tsv`) | 92 | a built-in setting declares it in `crates/fork-gfx/src/atlas.rs` | `progress catalogue --evidence` |
 | `engine` | every function of FalloutNV.exe in the ledger | 69,488 | translated, or run from the start-up and shut-down tables | the ledger (`scripts/ledger --tsv`) |

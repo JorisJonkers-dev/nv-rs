@@ -1,0 +1,18 @@
+This crate is an original implementation for nv-rs of two script commands of the NVSE plugin
+AnhNVSE (DLL file name AnhNVSE.dll). It contains no code of the plugin and no decompiled code,
+and none was read for it: it is written from public behaviour only.
+
+Sources used (2026-11-25):
+- what each command does, its parameters and its result: the GECK Wiki pages GetQuestCompletedAlt
+  and Sv_PadStart (Internet Archive copies; the pages state no licence of their own). No example
+  text of a page is copied;
+- the opcodes: the compiled scripts of the owner's installed Main And Pause Menus Overhaul.esm
+  (the opcode u16 in each SCDA whose SCTX calls the command, read only): GetQuestCompletedAlt
+  0x3604 (66 of 66 calls), Sv_PadStart 0x361b (all calls); the plugin's block starts at 0x3600;
+- the name the mods ask for: the same mod's script asks `IsPluginInstalled "AnhNVSE"`;
+- the engine's own data: a quest's flag byte (TESQuest +0x3C; completed 0x02 as the game's
+  GetQuestCompleted reads it, failed 0x40), and xNVSE's string variables.
+
+Not known, so not claimed: the plugin's other commands, their number and the version the
+plugin hands xNVSE. The built-in therefore does not answer "installed" (IsPluginInstalled
+"AnhNVSE" stays 0); only the two commands answer at their opcodes.

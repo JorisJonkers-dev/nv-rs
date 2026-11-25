@@ -57,6 +57,7 @@ crates/jg/
 crates/showoff/
 crates/knvse/
 crates/ttw-nvse/
+crates/anh-nvse/
 crates/plugin-host/
 # Fork-only files inside upstream's crates (scripts/fork/verify-sync.sh fails on one that is not listed).
 crates/d3d9-wgpu/src/bin/d3d9-precompile.rs

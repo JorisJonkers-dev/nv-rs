@@ -26,6 +26,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "anh-nvse"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "nvse",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -641,6 +649,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "release-files"
 version = "0.1.0"
 dependencies = [
+ "anh-nvse",
  "engine-core",
  "jg",
  "jip",
