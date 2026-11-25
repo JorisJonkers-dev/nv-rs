@@ -1797,7 +1797,7 @@
     },
     {
       "commands": {
-        "implemented": 11,
+        "implemented": 17,
         "implemented_names": [
           "GetQuestFailed",
           "IsDLLLoaded",
@@ -1809,7 +1809,13 @@
           "Sign",
           "EditorIDToFormID",
           "GetEditorID",
-          "GetFormOverrideIndex"
+          "GetFormOverrideIndex",
+          "GetBaseEffectAV",
+          "GetBaseEffectArchetype",
+          "GetInteriorLightingTraitNumeric",
+          "SetInteriorLightingTraitNumeric",
+          "GetWeaponVATSTraitNumeric",
+          "SetWeaponVATSTraitNumeric"
         ],
         "total": 412
       },
