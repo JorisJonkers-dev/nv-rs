@@ -1,0 +1,5 @@
+crates/engine-fallout-cell/src/units/fallout_shared/animation.rs  # ~Animation (0x48FB50) and the animation's set-up (0x48FFD0) ask kNVSE's seams after the controller manager is let go or stored, so its kept sequences are forgotten (nv-rs#865); assertions in three tests
+crates/engine-core/src/extend.rs  # the kNVSE seam rows 0x48FB50 and 0x48FFD0 (nv-rs#865)
+crates/host/Cargo.toml  # dependency on knvse (nv-rs#865)
+crates/host/src/lib.rs  # knvse::install after jg::install, off until kNVSE answers "installed" (nv-rs#865)
+Cargo.lock  # knvse's dependency on nvse

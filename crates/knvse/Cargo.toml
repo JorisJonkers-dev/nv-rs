@@ -1,13 +1,14 @@
 [package]
 name = "knvse"
 version = "0.1.0"
-description = "kNVSE built in: the animation-path override store and its seam in Animation::StartGroup; its commands follow, written from public documentation"
+description = "kNVSE built in: the animation-path override store, its seams in the animation code and SetActorAnimationPath; its other commands follow, written from public documentation"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
 engine-core = { path = "../engine-core" }
+nvse = { path = "../nvse" }
 
 [dev-dependencies]
 # The coverage catalogue's ids: tests say which commands they prove (docs/fork/CATALOGUE.md).
