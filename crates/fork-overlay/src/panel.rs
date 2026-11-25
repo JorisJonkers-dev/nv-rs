@@ -166,57 +166,68 @@ impl Panel {
                 let layer = &layers[self.layer];
                 ui.separator();
                 // One grid for every module, so the columns line up.
-                egui::Grid::new("settings")
-                    .num_columns(4)
-                    .spacing([12.0, 4.0])
+                // One row per setting: on a small frame the list scrolls instead of running off the
+                // bottom of the screen (the window still fits its content when it has room).
+                let room = (ui.ctx().content_rect().height() - 200.0).max(120.0);
+                egui::ScrollArea::vertical()
+                    .max_height(room)
+                    .min_scrolled_height(room)
                     .show(ui, |ui| {
-                        for spec in view.specs {
-                            let Some(m) = view.resolved.module(spec.id) else {
-                                continue;
-                            };
-                            ui.label(RichText::new(spec.label).strong())
-                                .on_hover_text(spec.help);
-                            ui.end_row();
-                            for (i, s) in spec.settings.iter().enumerate() {
-                                let now = m.values[i];
-                                ui.label(s.label).on_hover_text(s.help);
-                                if let Some(v) = setting_widget(ui, &s.kind, now, spec.id, s.key) {
-                                    changes.push(Change::Set {
-                                        layer: layer.clone(),
-                                        module: spec.id,
-                                        key: s.key,
-                                        value: v,
-                                    });
+                        egui::Grid::new("settings")
+                            .num_columns(4)
+                            .spacing([12.0, 4.0])
+                            .show(ui, |ui| {
+                                for spec in view.specs {
+                                    let Some(m) = view.resolved.module(spec.id) else {
+                                        continue;
+                                    };
+                                    ui.label(RichText::new(spec.label).strong())
+                                        .on_hover_text(spec.help);
+                                    ui.end_row();
+                                    for (i, s) in spec.settings.iter().enumerate() {
+                                        let now = m.values[i];
+                                        ui.label(s.label).on_hover_text(s.help);
+                                        if let Some(v) =
+                                            setting_widget(ui, &s.kind, now, spec.id, s.key)
+                                        {
+                                            changes.push(Change::Set {
+                                                layer: layer.clone(),
+                                                module: spec.id,
+                                                key: s.key,
+                                                value: v,
+                                            });
+                                        }
+                                        let mut note = source_label(&m.sources[i]);
+                                        let started = view
+                                            .started
+                                            .and_then(|r| r.module(spec.id))
+                                            .map(|sm| sm.values[i]);
+                                        if s.applies == Applies::NextStart
+                                            && started.is_some_and(|v| v != now)
+                                        {
+                                            note.push_str(", next start");
+                                        }
+                                        ui.label(RichText::new(note).color(Color32::GRAY));
+                                        let here =
+                                            view.file.and_then(|f| f.get(layer, spec.id, s.key));
+                                        if here.is_some()
+                                            && ui
+                                                .small_button("Reset")
+                                                .on_hover_text("Take the value out of this layer")
+                                                .clicked()
+                                        {
+                                            changes.push(Change::Reset {
+                                                layer: layer.clone(),
+                                                module: spec.id,
+                                                key: s.key,
+                                            });
+                                        } else if here.is_none() {
+                                            ui.label("");
+                                        }
+                                        ui.end_row();
+                                    }
                                 }
-                                let mut note = source_label(&m.sources[i]);
-                                let started = view
-                                    .started
-                                    .and_then(|r| r.module(spec.id))
-                                    .map(|sm| sm.values[i]);
-                                if s.applies == Applies::NextStart
-                                    && started.is_some_and(|v| v != now)
-                                {
-                                    note.push_str(", next start");
-                                }
-                                ui.label(RichText::new(note).color(Color32::GRAY));
-                                let here = view.file.and_then(|f| f.get(layer, spec.id, s.key));
-                                if here.is_some()
-                                    && ui
-                                        .small_button("Reset")
-                                        .on_hover_text("Take the value out of this layer")
-                                        .clicked()
-                                {
-                                    changes.push(Change::Reset {
-                                        layer: layer.clone(),
-                                        module: spec.id,
-                                        key: s.key,
-                                    });
-                                } else if here.is_none() {
-                                    ui.label("");
-                                }
-                                ui.end_row();
-                            }
-                        }
+                            });
                     });
                 if let Some(s) = &self.status {
                     ui.separator();

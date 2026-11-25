@@ -59,8 +59,20 @@ called to set up the case is left out. `tally check` fails when the function is 
 
 tally's states are missing, implemented, tagged, passing, and covered (a tagged test passed on Linux, Windows and
 macOS). An item that needs game data is gated, and n/a or deferred items are left out of the count. The
-pull-request check prints the report by group in the run summary. Reports, the covered state and the ratchet on
-`fork` come with the three-OS test results.
+pull-request check prints the report by group in the run summary.
+
+## Results
+
+Every component job (`.github/workflows/fork-build.yml`) and the macOS job keep their `cargo test` output as an
+artifact (`testlog-<os>-<job index>`; the macOS job's is `testlog-macos`). On a push to `fork`, the schedule and a manual run, when every component runs, the
+Pipeline job "Catalogue results" reads them all with `tally ingest --libtest` (the system comes from the file name)
+and runs `tally check` with those results and a ratchet: the covered and tagged counts may not drop below the
+report of the commit before. Pull requests run only the components a change reaches, so they keep the check without
+results. On a push the job renders `docs/fork/coverage/FEATURES.md`, `tally-report.json` (areas and groups) and
+`tally.svg`, and the job "Catalogue reports" commits those three files as raul-progress-bot. Nobody edits them.
+
+Covered needs a pass on macOS too. The macOS job runs only `fork-window`, `d3d9-wgpu` and `engine-platform` so far, so
+the tagged crates show passing, not covered, until their tests run there.
 
 ## Running it locally
 

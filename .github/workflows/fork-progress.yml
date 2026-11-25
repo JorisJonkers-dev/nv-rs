@@ -28,6 +28,12 @@ permissions:
 
 env:
   # The only files the bot may commit (scripts/fork/progress: OUTPUTS).
+  # The coverage catalogue's generated reports (fork-ci.yml, REPORT_FILES): the only files another bot commit may
+  # put between the counted commit and the branch head.
+  REPORT_FILES: >-
+    docs/fork/coverage/FEATURES.md
+    docs/fork/coverage/tally-report.json
+    docs/fork/coverage/tally.svg
   PROGRESS_FILES: >-
     docs/media/fork-progress.json
     docs/media/fork-progress-engine.svg
@@ -143,8 +149,17 @@ jobs:
           remote="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           head="$("${git[@]}" ls-remote "$remote" refs/heads/fork | cut -f1)"
           if [ "$head" != "$GITHUB_SHA" ]; then
-            echo "::notice title=Progress pictures::the fork branch moved on ($head); the newer run commits"
-            exit 0
+            # The coverage catalogue's bot commit (job "Catalogue reports" of fork-ci.yml) may land first: when only its
+            # report files lie between the counted commit and the head, this commit goes on top of the head instead.
+            "${git[@]}" fetch --quiet "$remote" refs/heads/fork
+            # shellcheck disable=SC2086
+            printf '%s\n' $REPORT_FILES >"$RUNNER_TEMP/other"
+            if [ "$("${git[@]}" rev-parse FETCH_HEAD)" != "$head" ] || ! "${git[@]}" merge-base --is-ancestor "$GITHUB_SHA" "$head" \
+              || "${git[@]}" diff --name-only "$GITHUB_SHA" "$head" | grep -vxF -f "$RUNNER_TEMP/other" | grep -q .; then
+              echo "::notice title=Progress pictures::the fork branch moved on ($head); the newer run commits"
+              exit 0
+            fi
+            "${git[@]}" rebase --quiet "$head"
           fi
           "${git[@]}" push --quiet "$remote" HEAD:refs/heads/fork
           echo "Pushed $(git rev-parse --short HEAD)." >>"$GITHUB_STEP_SUMMARY"

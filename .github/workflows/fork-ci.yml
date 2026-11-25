@@ -26,6 +26,17 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # The pinned tally release (https://github.com/JorisJonkers-dev/tally) and the SHA-256 of its Linux binary, from
+  # that release's SHA256SUMS.
+  TALLY_VERSION: v0.4.0
+  TALLY_SHA256: 82db1f5144f99f3796d9f981bf639161cd506dfc0876760d4cf88914ba339aa6
+  # The generated coverage-catalogue reports: the only files the `reports` job may commit on fork.
+  REPORT_FILES: >-
+    docs/fork/coverage/FEATURES.md
+    docs/fork/coverage/tally-report.json
+    docs/fork/coverage/tally.svg
+
 jobs:
   # Pull requests that only change documentation or the fork's own files skip the builds (see the diff step). The gate below still runs and still requires everything else.
   changes:
@@ -187,9 +198,20 @@ jobs:
       - name: fork-play
         if: ${{ !cancelled() }}
         run: cargo check --locked -p fork-play
+      # The log goes to the coverage catalogue's results (job "Catalogue results").
       - name: Tests that need no game
         if: ${{ !cancelled() }}
-        run: cargo test --locked --no-fail-fast -p fork-window -p d3d9-wgpu -p engine-platform
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/testlog"
+          cargo test --locked --no-fail-fast -p fork-window -p d3d9-wgpu -p engine-platform 2>&1 | tee "$RUNNER_TEMP/testlog/test-macos.log"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: testlog-macos
+          path: ${{ runner.temp }}/testlog/
+          if-no-files-found: warn
+          retention-days: 7
 
   # Coverage of the components the change reaches, and the changed-line coverage gate of the fork-owned crates
   # (fork-coverage.yml, docs/fork/COVERAGE.md). Pull requests only; the nightly baseline is that workflow's own schedule.
@@ -307,8 +329,6 @@ jobs:
       # read from the source here; whether the tagged tests pass on each OS comes from the test runs' results.
       - name: Catalogue (tally)
         env:
-          TALLY_VERSION: v0.3.0
-          TALLY_SHA256: 3b52c64e4b26015c3a18703446948e92b18d7e4a70f5600b3915549ef287dd82
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
@@ -320,12 +340,127 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/tally" "https://github.com/JorisJonkers-dev/tally/releases/download/$TALLY_VERSION/tally-x86_64-unknown-linux-gnu"
           echo "$TALLY_SHA256  $RUNNER_TEMP/tally" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/tally"
+          # Pull requests never carry the generated reports, so none can lower the bar the ratchet on fork measures against.
+          if git diff --name-only "$BASE" HEAD -- docs/fork/coverage | grep -q .; then
+            echo "::error title=Catalogue::docs/fork/coverage/ is generated on fork; leave it out of the pull request"; exit 1
+          fi
           "$RUNNER_TEMP/tally" check --catalogue .fork/catalogue --base "$BASE" | tee -a "$GITHUB_STEP_SUMMARY"
           "$RUNNER_TEMP/tally" report --catalogue .fork/catalogue --depth 2 --format md >>"$GITHUB_STEP_SUMMARY"
 
+  # The coverage catalogue with the test results (docs/fork/CATALOGUE.md, "Results"), on the fork branch, the schedule
+  # and a manual run, where every component runs: each component job's test log and the macOS job's are read with
+  # `tally ingest --libtest`. An item is covered when a tagged test passed on Linux, Windows and macOS. The ratchet
+  # holds: the covered (and tagged) count does not drop below the report of the commit before
+  # (docs/fork/coverage/tally-report.json). On a push the step also renders the reports for the `reports` job.
+  # Pull requests run only the components a change reaches, so their results would be partial: they keep the
+  # check without results in "Progress counts".
+  catalogue:
+    name: Catalogue results
+    needs: [changes, build, macos]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      reports: ${{ steps.catalogue.outputs.reports }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: testlog-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/testlog
+      - name: Catalogue (tally)
+        id: catalogue
+        env:
+          BASE: ${{ github.event.before }}
+          LOGS: ${{ runner.temp }}/testlog
+        run: |
+          set -euo pipefail
+          # The files the `reports` job commits must not be ignored, or its `git add` fails there.
+          # shellcheck disable=SC2086
+          if ignored="$(git check-ignore --no-index -v $REPORT_FILES)"; then
+            echo "::error title=Catalogue::report files are ignored by .gitignore: $ignored"; exit 1
+          fi
+          rustup toolchain install
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/progress-target"
+          cargo run --locked --quiet --release --manifest-path scripts/ledger/Cargo.toml -- --tsv "$RUNNER_TEMP/ledger.tsv" >/dev/null
+          git checkout -- docs/LEDGER.md
+          tool=(cargo run --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml --)
+          "${tool[@]}" fetch --sources "$RUNNER_TEMP/pins"
+          mkdir -p target/catalogue
+          cp "$RUNNER_TEMP/ledger.tsv" target/catalogue/ledger.tsv
+          "${tool[@]}" catalogue --check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" --evidence target/catalogue/evidence.tsv
+          curl -fsSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/tally" "https://github.com/JorisJonkers-dev/tally/releases/download/$TALLY_VERSION/tally-x86_64-unknown-linux-gnu"
+          echo "$TALLY_SHA256  $RUNNER_TEMP/tally" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/tally"
+          tally=("$RUNNER_TEMP/tally")
+          # Every component ran, so a system without a log is a lost upload or a job that did not finish: that must
+          # not switch the ratchet off.
+          logs=()
+          for os in linux windows macos; do
+            found=("$LOGS"/test-"$os"*.log)
+            if [ ! -f "${found[0]}" ]; then
+              echo "::error title=Catalogue::no test log from $os; the covered count needs all three systems"; exit 1
+            fi
+            for f in "${found[@]}"; do logs+=(--libtest "$f"); done
+          done
+          "${tally[@]}" ingest "${logs[@]}" --out "$RUNNER_TEMP/results.json"
+          args=(--catalogue .fork/catalogue --results "$RUNNER_TEMP/results.json")
+          # The ratchet measures against the report of the commit before this push; on the schedule and a manual run,
+          # against the report of the tested commit.
+          ratchet=()
+          if [ -n "${BASE:-}" ] && git show "${BASE}:docs/fork/coverage/tally-report.json" >"$RUNNER_TEMP/base-report.json" 2>/dev/null; then
+            ratchet=(--ratchet "$RUNNER_TEMP/base-report.json")
+          elif [ -f docs/fork/coverage/tally-report.json ]; then
+            ratchet=(--ratchet docs/fork/coverage/tally-report.json)
+          fi
+          "${tally[@]}" check "${args[@]}" "${ratchet[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          "${tally[@]}" report "${args[@]}" --depth 2 --format md >>"$GITHUB_STEP_SUMMARY"
+          [ "$GITHUB_EVENT_NAME" = push ] || exit 0
+          # Rendered in a clean worktree of the tested commit, so nothing the earlier steps left behind is picked up.
+          git worktree add --quiet --detach "$RUNNER_TEMP/render" HEAD
+          mkdir -p "$RUNNER_TEMP/render/target/catalogue"
+          cp target/catalogue/ledger.tsv target/catalogue/evidence.tsv "$RUNNER_TEMP/render/target/catalogue/"
+          cd "$RUNNER_TEMP/render"
+          mkdir -p docs/fork/coverage
+          {
+            echo "# Coverage catalogue"
+            echo
+            echo "Generated on fork by tally from \`.fork/catalogue\` (docs/fork/CATALOGUE.md). Do not edit."
+            echo
+            "${tally[@]}" report "${args[@]}" --depth 2 --format md
+          } >docs/fork/coverage/FEATURES.md
+          # Depth 2 (areas and groups): the items would add one row per engine function, about 15 MB per commit.
+          "${tally[@]}" report "${args[@]}" --depth 2 --format json --out docs/fork/coverage/tally-report.json
+          "${tally[@]}" report "${args[@]}" --depth 1 --format svg --out docs/fork/coverage/tally.svg
+          # Only the report files may change; anything else stops the run (target/ is ignored).
+          # shellcheck disable=SC2086
+          printf '%s\n' $REPORT_FILES >"$RUNNER_TEMP/allowed"
+          git status --porcelain --untracked-files=all | cut -c4- >"$RUNNER_TEMP/changed"
+          if [ ! -s "$RUNNER_TEMP/changed" ]; then
+            echo "The catalogue reports are up to date: nothing to commit." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          other="$(grep -vxF -f "$RUNNER_TEMP/allowed" "$RUNNER_TEMP/changed" || true)"
+          if [ -n "$other" ]; then
+            echo "::error title=Catalogue::files other than the reports changed: $other"; exit 1
+          fi
+          echo "reports=changed" >>"$GITHUB_OUTPUT"
+          { echo "Catalogue reports changed:"; sed 's/^/- /' "$RUNNER_TEMP/changed"; } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() && steps.catalogue.outputs.reports == 'changed' }}
+        with:
+          name: report-files
+          path: ${{ runner.temp }}/render/docs/fork/coverage/
+          retention-days: 3
+
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos]
+    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, catalogue]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -339,14 +474,14 @@ jobs:
           sparse-checkout: scripts/fork
 
       # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
-      # its override label is set), the build when only documentation or fork-owned files changed and the macOS job
+      # its override label is set), "Catalogue results" on a pull request (it runs on fork only), the build when only documentation or fork-owned files changed and the macOS job
       # when only documentation changed.
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.
@@ -355,3 +490,84 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/fork/pipeline_summary.py --run "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --exclude "Pipeline Complete" >>"$GITHUB_STEP_SUMMARY"
+
+  # On a push to fork, the coverage-catalogue reports rendered by "Catalogue results" go onto fork as one commit of those
+  # files only, marked with the skip-ci marker, when one changed and every job passed. This job runs no code of the
+  # repository: a fresh checkout, the rendered files copied in, a commit and a push with the token of raul-progress-bot
+  # (contents write, metadata read; the bypass actor of the ruleset "Fork line"; scripts/fork/setup-progress-bot.py).
+  # Git hooks are off for that commit and push. Without the App's variable and secret nothing is pushed.
+  reports:
+    name: Catalogue reports
+    needs: [catalogue, pipeline-complete]
+    # Explicit result checks: the implicit success() is false on a push, because the pull-request-only jobs upstream of
+    # Pipeline Complete are skipped there.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/fork' && needs.pipeline-complete.result == 'success' && needs.catalogue.outputs.reports == 'changed' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HAS_APP: ${{ vars.PROGRESS_APP_ID != '' && secrets.PROGRESS_APP_PRIVATE_KEY != '' }}
+      # The progress pictures' own bot commit (fork-progress.yml) may land first; only those files may lie between the
+      # tested commit and the branch head.
+      OTHER_BOT_FILES: >-
+        docs/media/fork-progress.json
+        docs/media/fork-progress-engine.svg
+        docs/media/fork-progress-native.svg
+        docs/media/fork-progress-d3d9.svg
+        docs/media/fork-progress-extenders.svg
+        docs/media/fork-progress-features.svg
+    steps:
+      - name: No App to push with
+        if: ${{ env.HAS_APP != 'true' }}
+        run: echo "::warning title=Catalogue reports::the reports changed, but PROGRESS_APP_ID or PROGRESS_APP_PRIVATE_KEY is not set; nothing pushed"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.HAS_APP == 'true' }}
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ env.HAS_APP == 'true' }}
+        with:
+          name: report-files
+          path: ${{ runner.temp }}/report-files
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        if: ${{ env.HAS_APP == 'true' }}
+        with:
+          app-id: ${{ vars.PROGRESS_APP_ID }}
+          private-key: ${{ secrets.PROGRESS_APP_PRIVATE_KEY }}
+          permission-contents: write
+      # The commit goes on the branch head when the head is the tested commit, or the tested commit plus only the progress
+      # pictures' bot commit. Any other commit on top has its own run, which commits.
+      - name: Commit and push
+        if: ${{ env.HAS_APP == 'true' }}
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git=(git -c core.hooksPath=/dev/null -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com")
+          remote="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          "${git[@]}" fetch --quiet "$remote" refs/heads/fork
+          head="$("${git[@]}" rev-parse FETCH_HEAD)"
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            # shellcheck disable=SC2086
+            printf '%s\n' $OTHER_BOT_FILES >"$RUNNER_TEMP/other"
+            if ! "${git[@]}" merge-base --is-ancestor "$GITHUB_SHA" "$head" \
+              || "${git[@]}" diff --name-only "$GITHUB_SHA" "$head" | grep -vxF -f "$RUNNER_TEMP/other" | grep -q .; then
+              echo "::notice title=Catalogue reports::fork moved on ($head); the newer run commits"
+              exit 0
+            fi
+            "${git[@]}" checkout --quiet --detach "$head"
+          fi
+          mkdir -p docs/fork/coverage
+          # upload-artifact stores the files relative to their folder, so docs/fork/coverage/tally.svg is tally.svg there.
+          for f in $REPORT_FILES; do
+            cp "$RUNNER_TEMP/report-files/${f#docs/fork/coverage/}" "$f"
+          done
+          # shellcheck disable=SC2086
+          "${git[@]}" add -- $REPORT_FILES
+          if "${git[@]}" diff --cached --quiet; then
+            echo "Nothing to commit." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          "${git[@]}" commit --quiet -m "chore(catalogue): update the generated reports [skip ci]"
+          "${git[@]}" push --quiet "$remote" "HEAD:refs/heads/fork"
+          echo "Pushed $(git rev-parse --short HEAD)." >>"$GITHUB_STEP_SUMMARY"

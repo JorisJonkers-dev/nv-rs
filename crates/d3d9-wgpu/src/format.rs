@@ -185,6 +185,25 @@ pub mod precise_targets {
     }
 }
 
+/// Whether the back buffers are made precise ([`precise`]) and shown through the dithered last
+/// step into 8 bits ([`crate::dither`]): the fork setting `textures.dither` (nv-rs#830), set by
+/// the host before the game makes its device, so it applies from the next start. Off by default.
+pub mod dither {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static ON: AtomicBool = AtomicBool::new(false);
+
+    /// Sets whether the back buffers made from now on are dithered.
+    pub fn set(on: bool) {
+        ON.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether they are.
+    pub fn on() -> bool {
+        ON.load(Ordering::Relaxed)
+    }
+}
+
 /// `f` as a precise render target (nv-rs#830, the fork setting `textures.precise_targets`): an
 /// 8-bit colour format (`A8R8G8B8`, `X8R8G8B8`) is kept in 16 bits per channel, unsigned
 /// normalised, so gradients drawn and blended in several passes keep their steps finer than

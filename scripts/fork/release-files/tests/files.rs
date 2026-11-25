@@ -3,7 +3,7 @@
 //! until `task capabilities` (or `release-files capabilities --out .fork/capabilities.json`) has
 //! rewritten the file.
 
-use release_files::{capabilities, manifest, to_text, ManifestInput};
+use release_files::{capabilities, commands_of_slots, manifest, to_text, ManifestInput};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -92,7 +92,56 @@ fn the_counts_come_from_the_tables() {
     );
     // JIP's listed handlers, plus the commands its identity and hooks register on their own.
     assert!(ext(1)["implemented"].as_u64().unwrap() >= jip::commands::built() as u64);
-    assert_eq!(ext(1)["total"].as_u64().unwrap(), 1118);
+    // 1,150 slots: 32 empty, and SetLinkedReference at two opcodes is one command.
+    assert_eq!(ext(1)["total"].as_u64().unwrap(), 1117);
+}
+
+/// Every extender names each implemented command once: a command a plugin registers at two
+/// opcodes is one command (JIP LN's `SetLinkedReference`, at `0x2281` and `0x2634`).
+#[test]
+fn every_extender_names_each_command_once() {
+    let c = capabilities();
+    for e in c["extenders"].as_array().unwrap() {
+        let names: Vec<&str> = e["commands"]["implemented_names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_str().unwrap())
+            .collect();
+        let distinct: std::collections::BTreeSet<&str> = names.iter().copied().collect();
+        assert_eq!(
+            names.len(),
+            distinct.len(),
+            "{} names a command twice",
+            e["id"]
+        );
+    }
+    let jip = &c["extenders"][1]["commands"];
+    let linked = jip["implemented_names"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| *n == "SetLinkedReference")
+        .count();
+    assert_eq!(linked, 1);
+}
+
+/// A name in two slots is one command, implemented when either slot is, named at its first slot.
+#[test]
+fn a_command_in_two_slots_counts_once() {
+    let (names, total) = commands_of_slots([
+        ("A", true),
+        ("B", false),
+        ("C", true),
+        ("B", true),
+        ("A", true),
+        ("D", false),
+    ]);
+    assert_eq!(names, ["A", "B", "C"]);
+    assert_eq!(total, 4);
+    let (names, total) = commands_of_slots([("X", false), ("X", false)]);
+    assert!(names.is_empty());
+    assert_eq!(total, 1);
 }
 
 /// JIP LN's entry carries the version a mod's check reads (`GetPluginVersion "JIP NVSE Plugin"`:
@@ -209,4 +258,18 @@ fn the_checked_in_capabilities_match_the_tables() {
         ".fork/capabilities.json disagrees with the command tables: regenerate it with \
          `cargo run --locked --manifest-path scripts/fork/release-files/Cargo.toml -- capabilities --out .fork/capabilities.json`"
     );
+}
+
+/// The folding by name is for the one command JIP LN registers twice: any other name in two of
+/// its slots is a slip in the slot table, which the folding would otherwise hide.
+#[test]
+fn only_set_linked_reference_sits_in_two_jip_slots() {
+    let mut seen = std::collections::BTreeMap::new();
+    for slot in jip::slots::SLOTS.iter() {
+        if slot.kind != jip::table::Kind::Empty {
+            *seen.entry(slot.name).or_insert(0) += 1;
+        }
+    }
+    let repeated: Vec<(&str, i32)> = seen.into_iter().filter(|(_, n)| *n > 1).collect();
+    assert_eq!(repeated, [("SetLinkedReference", 2)]);
 }

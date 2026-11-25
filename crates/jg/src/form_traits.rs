@@ -49,6 +49,7 @@ const fn cmd(offset: u32, name: &'static str, params: &'static [Param], execute:
         params,
         execute,
         eval: None,
+        needs_ref: false,
         returns: Returns::Default,
     }
 }
