@@ -105,6 +105,60 @@ status = "implemented"
 ref = ["showoff:savecachedinifile"]
 
 [[item]]
+id = "auxtimerstart"
+title = "AuxTimerStart"
+status = "implemented"
+ref = ["showoff:auxtimerstart"]
+
+[[item]]
+id = "auxtimerstop"
+title = "AuxTimerStop"
+status = "implemented"
+ref = ["showoff:auxtimerstop"]
+
+[[item]]
+id = "auxtimerpaused"
+title = "AuxTimerPaused"
+status = "implemented"
+ref = ["showoff:auxtimerpaused"]
+
+[[item]]
+id = "auxtimertimeelapsed"
+title = "AuxTimerTimeElapsed"
+status = "implemented"
+ref = ["showoff:auxtimertimeelapsed"]
+
+[[item]]
+id = "auxtimertimetocountdown"
+title = "AuxTimerTimeToCountdown"
+status = "implemented"
+ref = ["showoff:auxtimertimetocountdown"]
+
+[[item]]
+id = "auxtimertimeleft"
+title = "AuxTimerTimeLeft"
+status = "implemented"
+ref = ["showoff:auxtimertimeleft"]
+
+[[item]]
+id = "setonauxtimerstarthandler"
+title = "SetOnAuxTimerStartHandler"
+status = "implemented"
+ref = ["showoff:setonauxtimerstarthandler"]
+
+[[item]]
+id = "setonauxtimerstophandler"
+title = "SetOnAuxTimerStopHandler"
+status = "implemented"
+ref = ["showoff:setonauxtimerstophandler"]
+
+[[item]]
+id = "setonauxtimerupdatehandler"
+title = "SetOnAuxTimerUpdateHandler"
+status = "implemented"
+ref = ["showoff:setonauxtimerupdatehandler"]
+
+[[item]]
 id = "islimbcrippled"
 title = "IsLimbCrippled"
 status = "implemented"
