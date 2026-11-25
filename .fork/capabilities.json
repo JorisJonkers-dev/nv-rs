@@ -1830,7 +1830,7 @@
     },
     {
       "commands": {
-        "implemented": 30,
+        "implemented": 35,
         "implemented_names": [
           "GetActorHasBaseFlag",
           "ListAddList",
@@ -1861,7 +1861,12 @@
           "GetIngestibleConsumeSound",
           "IsAiming",
           "IsBlockingOrAiming",
-          "GetItemHotkeyIconPath"
+          "GetItemHotkeyIconPath",
+          "SetEnableParent",
+          "GetEquippedWeapon",
+          "GetEquippedItems",
+          "ApplyEasing",
+          "DisableAlt"
         ],
         "total": 215
       },
