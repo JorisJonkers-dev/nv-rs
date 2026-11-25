@@ -12295,7 +12295,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             e.3 += u64::from(t.width.max(t.height) >= 1024);
         }
         let mut rows: Vec<_> = by.into_iter().collect();
-        rows.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+        rows.sort_by_key(|r| std::cmp::Reverse(r.1 .1));
         let mut line = format!(
             "NV_D3D9 wgpu: memory by format at present {}:",
             self.presents

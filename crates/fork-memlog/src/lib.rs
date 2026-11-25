@@ -454,6 +454,12 @@ mod tests {
         assert_eq!(with, format!("{base} gpu_tex_bc=5 proc_vram=9"));
     }
 
+    /// The test process opens no card: its fdinfo files are read and none is a DRM client.
+    #[test]
+    fn a_process_without_a_card_has_no_card_memory_of_its_own() {
+        assert_eq!(proc_gpu_now(), None);
+    }
+
     #[test]
     fn drm_fdinfo_parses_client_vram_and_gtt() {
         let text = "pos:\t0\ndrm-driver:\tamdgpu\ndrm-client-id:\t2822\ndrm-total-vram:\t6863756 KiB\ndrm-memory-vram:\t6732684 KiB\ndrm-memory-gtt: \t363928 KiB\n";
