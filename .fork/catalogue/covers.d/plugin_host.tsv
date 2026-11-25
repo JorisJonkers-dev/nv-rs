@@ -15,3 +15,9 @@ crates/plugin-host/src/tests.rs::an_import_the_host_lacks_is_reported_and_stops_
 crates/plugin-host/src/tests.rs::a_command_that_never_ends_stops_after_its_budget_and_the_plugin_is_off	features.plugins.failure_contained
 crates/plugin-host/src/tests.rs::a_supplied_runtime_dll_is_mapped_and_answers_the_plugins_import_of_it	features.plugins.runtime_supplied
 crates/plugin-host/src/tests.rs::a_write_into_the_games_code_is_kept_as_a_site_and_a_read_gives_zero	features.plugins.patch_sites
+crates/plugin-host/src/interfaces_tests.rs::a_plugin_gets_every_interface_and_finds_its_command_by_name	features.plugins.nvse_interfaces
+crates/plugin-host/src/interfaces_tests.rs::the_command_table_finds_commands_and_their_plugins	features.plugins.nvse_interfaces
+crates/plugin-host/src/interfaces_tests.rs::string_variables_are_made_read_and_set	features.plugins.nvse_interfaces
+crates/plugin-host/src/interfaces_tests.rs::array_variables_are_made_read_and_changed	features.plugins.nvse_interfaces
+crates/plugin-host/src/interfaces_tests.rs::co_save_records_are_written_and_read_back	features.plugins.nvse_interfaces
+crates/plugin-host/src/interfaces_tests.rs::a_save_callback_set_in_load_is_called_by_the_save	features.plugins.nvse_interfaces
