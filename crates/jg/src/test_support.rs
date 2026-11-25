@@ -56,3 +56,36 @@ pub fn call(e: &mut Engine, opcode: u32, this_obj: u32, args: &[Vec<u8>]) -> (u3
         .eax;
     (ok & 0xff, e.mem.f64(RESULT))
 }
+
+/// Compiled arguments: an immediate integer (`n`), a reference of the script's list (`r` and its
+/// index).
+pub fn n(v: i32) -> Vec<u8> {
+    let mut b = vec![b'n'];
+    b.extend_from_slice(&v.to_le_bytes());
+    b
+}
+pub fn r(index: u16) -> Vec<u8> {
+    let mut b = vec![b'r'];
+    b.extend_from_slice(&index.to_le_bytes());
+    b
+}
+
+/// Makes `form` reference `index` (from 1) of the script's reference list.
+pub fn set_script_ref(e: &mut Engine, index: u16, form: u32) {
+    let i = u32::from(index);
+    let ref_var = 0x0300_a000 + i * 0x10;
+    e.mem.set_u32(ref_var + 8, form);
+    e.mem.set_u32(ref_var + 0xc, 0);
+    let mut node = SCRIPT + 0x44;
+    for at in 1..i {
+        let next = e.mem.u32(node + 4);
+        node = if next == 0 {
+            let made = 0x0300_b000 + (at + 1) * 8;
+            e.mem.set_u32(node + 4, made);
+            made
+        } else {
+            next
+        };
+    }
+    e.mem.set_u32(node, ref_var);
+}
