@@ -34,6 +34,11 @@ An engine is the program that runs a game: it draws the world and runs its rules
   Coming in the next release.</em>
 </p>
 
+<p align="center">
+  <img src="docs/fork/images/graphics-dither-dusk.jpg" alt="A sunset over the Mojave side by side, each with a contrast-stretched inset of the sky: hard steps on the left, a smooth fine grain on the right" width="100%">
+  <br><em>Sunsets and the night sky: 8-bit colour bands (left) and the smooth last step of <code>modern</code> (right).</em>
+</p>
+
 ## Progress
 
 These bars are counted from the code each time a change lands; nobody updates them by hand
