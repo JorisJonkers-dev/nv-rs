@@ -20,4 +20,7 @@ paths = [
 ]
 regexes = [
   '''EXAMPLE_[A-Z0-9_]+''',
+  # The placeholder key in the launcher's test crash-report DSN: only this exact value, in any form
+  # of the commit (upstream, replayed or squashed). Every other key is still reported.
+  '''^0123456789abcdef(0123456789abcdef)?$''',
 ]
