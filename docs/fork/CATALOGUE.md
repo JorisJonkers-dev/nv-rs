@@ -74,7 +74,9 @@ results. On a push the job renders `docs/fork/coverage/FEATURES.md`, `tally-repo
 Covered needs a pass on macOS too. On pull requests the macOS job tests only `fork-window`, `d3d9-wgpu` and
 `engine-platform`. On a push to `fork`, the schedule and a manual run it also tests the packages the catalogue tags
 (`nvse`, `jip`, `jg`, `showoff`, `ttw-nvse`, `fork-catalogue`, `fork-gfx`) into `test-macos-tagged.log` in the same
-artifact. "Catalogue results" fails when either macOS log is missing, so a lost upload cannot pass the ratchet.
+artifact. A macOS job of its own, "macOS (tagged engine tests)", runs on the same events the engine's test files that
+`covers.d/engine_typed.tsv` names, into `test-macos-engine.log`. "Catalogue results" fails when any of the three macOS
+logs is missing, so a lost upload cannot pass the ratchet.
 
 ## Running it locally
 
