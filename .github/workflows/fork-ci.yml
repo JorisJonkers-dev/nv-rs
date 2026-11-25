@@ -29,8 +29,8 @@ permissions:
 env:
   # The pinned tally release (https://github.com/JorisJonkers-dev/tally) and the SHA-256 of its Linux binary, from
   # that release's SHA256SUMS.
-  TALLY_VERSION: v0.6.0
-  TALLY_SHA256: 4869bf6028f3833c62d8c9fd40167bfa749dc753b1999c82b9cbea0b4ef45377
+  TALLY_VERSION: v0.7.0
+  TALLY_SHA256: 310010ca96590c7ef0c325be8cef4fb0bf099ec7cadcd4ccabc9d3a503d4c3b7
   # The generated coverage-catalogue reports: the only files the `reports` job may commit on fork.
   REPORT_FILES: >-
     docs/fork/coverage/FEATURES.md
