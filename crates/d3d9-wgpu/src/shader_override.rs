@@ -207,9 +207,10 @@ pub fn resolve(roots: &[PathBuf], specs: &[Spec]) -> (Vec<Override>, Vec<String>
 }
 
 /// The names (as the packages under `roots` give them, each once, sorted) of the pixel shaders
-/// whose name starts with `prefix` (any case) and whose constant table, in every package that has
-/// the name, names each of `constants`: a setting picks the shaders a patch fits by what they read,
-/// not by a list of names.
+/// whose name starts with `prefix` (any case) and whose constant table, in some package, names each
+/// of `constants`: a setting picks the shaders a patch fits by what they read, not by a list of
+/// names. A package's shader of such a name that does not name them all cannot take the program
+/// (its WGSL does not compile) and keeps the game's shader.
 pub fn names_naming(roots: &[PathBuf], prefix: &str, constants: &[&str]) -> Vec<String> {
     let (packages, _) = crate::precompile::find_packages(roots);
     let prefix = prefix.to_ascii_lowercase();
@@ -232,8 +233,8 @@ pub fn names_naming(roots: &[PathBuf], prefix: &str, constants: &[&str]) -> Vec<
                         .all(|c| p.constants.iter().any(|k| k.name == *c))
                 })
                 .unwrap_or(false);
-            let entry = fits.entry(key).or_insert_with(|| (s.name.clone(), true));
-            entry.1 &= names;
+            let entry = fits.entry(key).or_insert_with(|| (s.name.clone(), false));
+            entry.1 |= names;
         }
     }
     fits.into_values()
@@ -657,8 +658,8 @@ mod tests {
         t
     }
 
-    /// The shaders a patch fits are picked by the constants they name, by prefix in any case, and
-    /// only when every package's bytecode of the name names them all.
+    /// The shaders a patch fits are picked by the constants they name, by prefix in any case: a
+    /// name whose shader names them all in some package.
     #[test]
     fn names_are_picked_by_the_constants_every_package_s_shader_names() {
         let d = tmp("naming");
@@ -685,7 +686,10 @@ mod tests {
             "water",
             &["EyePos", "FogColor", "DepthMap"],
         );
-        assert_eq!(got, vec!["WATER000.pso".to_string()]);
+        assert_eq!(
+            got,
+            vec!["WATER000.pso".to_string(), "WATER003.pso".to_string()]
+        );
         assert!(names_naming(std::slice::from_ref(&d), "WATER", &["Missing"]).is_empty());
         let _ = std::fs::remove_dir_all(d);
     }
