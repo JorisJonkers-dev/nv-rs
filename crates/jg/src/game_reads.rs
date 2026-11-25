@@ -151,12 +151,12 @@ fn get_thresholded_actor_value_eval(e: &mut Engine, w: &[u32]) -> Ret {
 }
 
 /// `actor.GetActorValueAlt code`: the game's `GetActorValue` condition with the number for the
-/// name. The condition writes nothing for a reference that is not an actor, so the result stays 0.
+/// name. Only an actor is passed on (the condition checks too), so another reference stays 0.
 fn get_actor_value_alt(e: &mut Engine, w: &[u32]) -> Ret {
     let a = CommandArgs::new(w);
     a.set_result(e, 0.0);
     let read = Read::of(e, &a);
-    if !read.ok || a.this_obj == 0 {
+    if !read.ok || actor(e, a.this_obj) == 0 {
         return handled(true);
     }
     let code = read.int(0, u32::MAX);

@@ -156,14 +156,14 @@ fn the_actor_value_alt_is_the_games_actor_value_by_number() {
     assert_eq!(call(&mut e, AV_ALT, ACTOR, &[n(76)]), (1, 176.0));
 }
 
-/// Another reference keeps 0 (the game writes nothing); no reference, a negative number or one
-/// past the last answers 0 without asking the game.
+/// Another reference, no reference, a negative number or one past the last answers 0 without
+/// asking the game.
 #[test]
 fn an_actor_value_alt_of_a_non_actor_or_bad_code_is_zero() {
     covers(&[ids::extenders::johnnyguitar::GETACTORVALUEALT]);
     let mut e = setup();
-    assert_eq!(call(&mut e, AV_ALT, STATIC, &[n(16)]), (1, 0.0));
     e.mem.set_u32(SEEN + 8, 0xdead);
+    assert_eq!(call(&mut e, AV_ALT, STATIC, &[n(16)]), (1, 0.0));
     assert_eq!(call(&mut e, AV_ALT, 0, &[n(16)]), (1, 0.0));
     assert_eq!(call(&mut e, AV_ALT, ACTOR, &[n(77)]), (1, 0.0));
     assert_eq!(call(&mut e, AV_ALT, ACTOR, &[n(-1)]), (1, 0.0));
