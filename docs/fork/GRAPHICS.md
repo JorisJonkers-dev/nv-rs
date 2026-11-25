@@ -116,6 +116,17 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | `shade_fill` | how much more sky light reaches surfaces the sun or moon does not, 0 to 2; needs `sky_dome` | 0 | live |
 | `far_lights` | `false`, `true`: a far-view block's light-point shape (marked `FarLights`) drawn by night, faded over the sunset and sunrise; off, never drawn | `false` (`modern`: `true`) | live |
 
+`lamp_distance` 16 under `modern` (nv-rs#911): measured at Primm by night (the Beautiful set, 142 plugins), the game
+drops every point light past its fade distance (`ShadowSceneLight::TestFrustumCull`, `00b9e970`). With the game's default
+light fade (start 1000 units, dropped at 1500) and the earlier `modern` value 4, the fade ran from 4,000 to 6,000 units: lamps
+past 6,000 units were dropped, so only the nearest two or three lamps of a street lit its ground. At 16 the fade runs from
+16,000 to 24,000 units. With 5x5 loaded cells (`uGridsToLoad` 5) the loaded area ends 14,500 units from the middle cell's
+centre on the diagonal and at most about 17,400 units from the camera, so no lamp the game has loaded is dropped and only
+lamps in the far corners are dimmed a little. With the light fade slider or `uGridsToLoad` raised the same scale reaches
+further or falls short. Two limits stay, both the game's: a land quad (2048 units square) is drawn with at most three point
+lights (`AddLandscapePasses_2x`, `00bdf3e0`: the `LANDnO4` passes take the first three active lights of the quad;
+nv-rs#912), and a lamp in a cell that is not loaded has no light; only the far view's light points (`far_lights`) show it.
+
 `far_lights` (`engine::far_lights`, `bgsdistantobjectblock.rs`): a far-object block file may hold, as a direct child of its
 root node after the block mesh, a shape carrying an extra data object named `FarLights`: small unlit points where the
 world's lamps stand, written by a far-view tool. The block's prepare leaves that shape out of the far-building treatment
@@ -134,9 +145,9 @@ game's phase, fade and height, so a new moon gives no direct light and no moon s
 direction is the fill.
 
 `modern` takes `ambient_exterior` 0.7, `ambient_interior` 1, `ambient_night` 1, `sun` 0.65, `moon` 0.75,
-`moon_max_height` 45, `moon_specular` 2, `lamp_distance` 4, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
+`moon_max_height` 45, `moon_specular` 2, `lamp_distance` 16, `sky_dome` 1 and `shade_fill` 0.2. Over 30 views of a 312-mod profile at 2560x1440, against
 `original`: sunlit light 0.83 and shade 0.91 over the 22 day exteriors; moonlit light 0.82 and shade 0.96 over the 7 night
-views. 45 degrees is the lowest moon height tested that keeps the detail check below at the night Strip skyline.
+views (measured with `lamp_distance` 4). 45 degrees is the lowest moon height tested that keeps the detail check below at the night Strip skyline.
 
 The sky light costs the card under 0.1 ms a frame at 2560x1440 on a high-end AMD card (`modern` with and without
 `sky_dome` and `shade_fill`, 11 standard views, two runs: +0.03 and +0.08 ms), less than the difference between runs.

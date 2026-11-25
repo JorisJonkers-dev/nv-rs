@@ -20,7 +20,10 @@ sun = 0.65
 moon = 0.75
 moon_max_height = 45.0
 moon_specular = 2.0
-lamp_distance = 4.0
+# 16: at the game's default light fade (start 1000, dropped at 1500) a lamp fades from 16,000 units and is
+# dropped past 24,000; the 5x5 loaded cells end at most about 17,400 units from the camera, so no lamp the game
+# has loaded is dropped (nv-rs#911).
+lamp_distance = 16.0
 far_lights = true
 sky_dome = 1.0
 shade_fill = 0.2
