@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The plugin host (features/plugins.toml) proven by tests in crates/plugin-host and in the host's fork_plugins.rs, which
+# the scan does not read (docs/fork/CATALOGUE.md). A row names an item only when the test runs it and asserts its result.
+test	covers
+crates/plugin-host/src/tests.rs::off_by_default_loads_nothing	features.plugins.off_by_default
+crates/host/src/fork_plugins.rs::off_without_the_variable	features.plugins.off_by_default
+crates/plugin-host/src/tests.rs::the_loader_loads_only_what_the_engine_does_not_carry	features.plugins.loader_policy features.plugins.player_choice
+crates/host/src/fork_plugins.rs::a_dll_the_engine_carries_is_not_loaded_without_case	features.plugins.loader_policy
+crates/host/src/fork_plugins.rs::the_players_pick_loads_a_carried_dll_and_skip_keeps_any_out	features.plugins.player_choice
+crates/plugin-host/src/tests.rs::a_picked_or_skipped_dll_says_so_in_its_verdict	features.plugins.player_choice
+crates/plugin-host/src/tests.rs::the_verdicts_of_a_run_are_written_as_json	features.plugins.verdict_file
+crates/host/src/fork_plugins.rs::the_verdicts_are_written_with_the_loader_off	features.plugins.verdict_file
+crates/plugin-host/src/tests.rs::a_plugin_is_mapped_queried_loaded_and_its_command_runs	features.plugins.registered_command_runs
+crates/plugin-host/src/tests.rs::an_import_the_host_lacks_is_reported_and_stops_the_plugin_not_the_engine	features.plugins.failure_contained
+crates/plugin-host/src/tests.rs::a_command_that_never_ends_stops_after_its_budget_and_the_plugin_is_off	features.plugins.failure_contained
+crates/plugin-host/src/tests.rs::a_supplied_runtime_dll_is_mapped_and_answers_the_plugins_import_of_it	features.plugins.runtime_supplied
+crates/plugin-host/src/tests.rs::a_write_into_the_games_code_is_kept_as_a_site_and_a_read_gives_zero	features.plugins.patch_sites
