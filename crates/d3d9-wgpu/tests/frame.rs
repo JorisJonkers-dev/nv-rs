@@ -7462,3 +7462,58 @@ fn managed_levels_are_read_back_from_the_card_without_a_host_copy() {
     g.run(Cmd::Destroy { object: WIDE });
     assert_eq!(g.b.device().expect("the device").kept_for_tests(), (0, 0));
 }
+
+/// Texture uploads past `NV_GPU_UPLOAD_SUBMIT_MB` since the last submit are submitted, so a load
+/// that writes many textures in one frame does not hold every staging copy until the frame ends;
+/// the bytes still arrive.
+#[test]
+fn texture_uploads_are_submitted_in_parts_and_read_back_whole() {
+    let Some(mut g) = Gpu::with_env(2, 1, &[("NV_GPU_UPLOAD_SUBMIT_MB", "1")]) else {
+        return;
+    };
+    const TEXTURES: u32 = 0x4500;
+    // Five 512x512 A8R8G8B8 levels of 1 MB each, managed: one submit after each MB.
+    let given: Vec<Vec<u8>> = (0..5u8)
+        .map(|k| {
+            (0..(512 * 512 * 4))
+                .map(|i| (i as u8) ^ k.wrapping_mul(37))
+                .collect()
+        })
+        .collect();
+    for (k, bytes) in given.iter().enumerate() {
+        let texture = TEXTURES + 0x10 * k as u32;
+        let levels = words(&[texture + 1]);
+        g.run(Cmd::CreateTexture {
+            device: DEVICE,
+            texture,
+            levels: Data::Bytes(&levels),
+            width: 512,
+            height: 512,
+            usage: 0,
+            format: A8R8G8B8,
+            pool: 1,
+        });
+        g.run(Cmd::UploadSurface {
+            surface: texture + 1,
+            row: 2048,
+            rows: 512,
+            data: Data::Bytes(bytes),
+        });
+    }
+    assert_eq!(
+        g.b.device()
+            .expect("the device")
+            .staging_submits_for_tests(),
+        5
+    );
+    for (k, bytes) in given.iter().enumerate() {
+        let surface = TEXTURES + 0x10 * k as u32 + 1;
+        match g.run(Cmd::ReadSurface {
+            surface,
+            size: bytes.len() as u32,
+        }) {
+            Reply::Bytes(Some(b)) => assert!(b == *bytes, "level {k}"),
+            other => panic!("{other:?}"),
+        }
+    }
+}

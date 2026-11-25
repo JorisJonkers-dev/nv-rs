@@ -1466,6 +1466,12 @@ pub struct Device {
     host_copies: bool,
     /// `NV_GPU_ALLOC_WATCH=1`: the most the allocator's blocks held when last said.
     alloc_watch: Option<u64>,
+    /// Texture bytes written since the last submit ([`Device::bound_upload_staging`]), and how
+    /// many submits that made.
+    staged: u64,
+    staging_submits: u64,
+    /// [`STAGED_SUBMIT`], or `NV_GPU_UPLOAD_SUBMIT_MB` (0: off, for comparing).
+    staged_limit: u64,
     /// The occlusion query counting now (its `D3DISSUE_BEGIN` until its `END`) and its slot.
     counting: Option<(Handle, u32)>,
     pass_count: Option<CountSegment>,
@@ -1747,6 +1753,16 @@ impl SunBody {
                 .is_some_and(|b| !b.released.load(Ordering::Relaxed))
         })
     }
+}
+
+/// Texture bytes written between two submits at most ([`Device::bound_upload_staging`]).
+const STAGED_SUBMIT: u64 = 64 << 20;
+
+/// The bytes between two upload submits for `NV_GPU_UPLOAD_SUBMIT_MB`: MB, 0 for none, else
+/// [`STAGED_SUBMIT`].
+fn upload_submit_limit(env: Option<&str>) -> u64 {
+    env.and_then(|v| v.trim().parse::<u64>().ok())
+        .map_or(STAGED_SUBMIT, |mb| mb << 20)
 }
 
 /// The least number of bodies kept before those of buffers let go are looked for.
@@ -2308,6 +2324,11 @@ impl Device {
             managed: HashSet::default(),
             host_copies: std::env::var("NV_D3D9_HOST_COPIES").as_deref() == Ok("1"),
             alloc_watch: (std::env::var("NV_GPU_ALLOC_WATCH").as_deref() == Ok("1")).then_some(0),
+            staged: 0,
+            staging_submits: 0,
+            staged_limit: upload_submit_limit(
+                std::env::var("NV_GPU_UPLOAD_SUBMIT_MB").ok().as_deref(),
+            ),
             counting: None,
             pass_count: None,
             count_targets: Map::default(),
@@ -3184,6 +3205,7 @@ impl Device {
     /// [`Device::flush`]'s batch handed over (or submitted here).
     fn send_batch(&mut self) {
         self.end_pass();
+        self.staged = 0;
         let finishing = std::mem::take(&mut self.finishing);
         let encoder = self.encoder.take();
         let uses: Vec<u32> = finishing
@@ -3399,12 +3421,34 @@ impl Device {
             );
         };
         // After the batches handed to the queue thread, as when they were submitted here.
+        let len = bytes.len() as u64;
         if self.queue_idle() {
             write(&self.queue, &bytes);
         } else {
             let bytes = bytes.into_owned();
             self.on_queue(move |queue| write(queue, &bytes));
         }
+        self.bound_upload_staging(len);
+    }
+
+    /// Counts `len` bytes written to a texture since the last submit; past [`STAGED_SUBMIT`] the
+    /// writes are submitted (an empty submit: wgpu sends its pending writes first, after every
+    /// batch handed to the queue thread before them) and the work done is collected, so their
+    /// staging copies go. A game loading a place writes its
+    /// textures in one frame: without this every staging copy of the load waited for the
+    /// frame's submit, gigabytes of card and GTT memory for a moment.
+    fn bound_upload_staging(&mut self, len: u64) {
+        self.staged += len;
+        if self.staged_limit == 0 || self.staged < self.staged_limit {
+            return;
+        }
+        self.staged = 0;
+        self.staging_submits += 1;
+        // A submit also collects the work the card has finished, so the staging copies of earlier
+        // parts go then (no poll from the queue thread).
+        self.on_queue(|queue| {
+            queue.submit(std::iter::empty());
+        });
     }
 
     pub(crate) fn upload_buffer(
@@ -12257,6 +12301,12 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         )
     }
 
+    /// The submits made to bound the texture uploads' staging ([`Device::bound_upload_staging`])
+    /// (tests).
+    pub fn staging_submits_for_tests(&self) -> u64 {
+        self.staging_submits
+    }
+
     /// The layer's video-memory budget as it stands: live bytes and allocations refused (tests).
     pub fn gpu_budget_for_tests(&self) -> (u64, u64) {
         self.sync();
@@ -14439,6 +14489,14 @@ fn blocks_line(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn uploads_are_submitted_every_64_mb_unless_set() {
+        assert_eq!(super::upload_submit_limit(None), 64 << 20);
+        assert_eq!(super::upload_submit_limit(Some("16")), 16 << 20);
+        assert_eq!(super::upload_submit_limit(Some("0")), 0);
+        assert_eq!(super::upload_submit_limit(Some("x")), 64 << 20);
+    }
+
     #[test]
     fn the_small_allocator_blocks_are_the_default() {
         let blocks = |v| match super::memory_hints(v) {
