@@ -9,12 +9,17 @@
 //!   channels times every texel).
 //! - [`get_compressed_image`]: that image packed into pixel bytes
 //!   (`BSFaceGenImage::GetCompressedImage`, `0064ceb0`; every texel's channels clamped, floored
-//!   and scaled).
+//!   and scaled, the bytes looked up by the floor when the image's range allows a table).
 //!
 //! The translations make several calls by address per vertex or texel (the checked iterators'
 //! reads and steps, the strided array's read and write, the coordinates' row, `_ftol2`, the float
 //! floor); here the same reads and writes are plain loads and stores in one loop, and the texel
-//! sums run in host memory, written to the game's buffer once. Every call the translations make
+//! sums run in host memory, written to the game's buffer once. A morph's points go the same way
+//! (`morph_in_host`): its offsets read at once, the points morphed in host memory and written back,
+//! when no check can fail and nothing the morph writes is read again; else point by point as the
+//! exe's loops go (the race menu builds a head two or three times a click, about 13 morph calls
+//! of up to 80 morphs over every vertex; a 2026-11-24 profile of the menu put this function's own
+//! time first under its slider release). Every call the translations make
 //! outside those loops is made, in the same order, with the same words, and every byte they
 //! leave (scratch blocks included) is left the same.
 //!
@@ -134,7 +139,13 @@ fn pointer_get(e: &mut Engine, slot: u32) -> u32 {
 /// indefinite). The typed `crt::math::ftol2_sse` and `ftol2_x87` answer the same.
 #[inline]
 fn ftol(e: &Engine, value: f64) -> i32 {
-    if e.mem.u32(SSE2_AVAILABLE) != 0 {
+    ftol_body(e.mem.u32(SSE2_AVAILABLE) != 0, value)
+}
+
+/// [`ftol`] with the flag already read: `sse2` when `__sse2_available` is set.
+#[inline]
+fn ftol_body(sse2: bool, value: f64) -> i32 {
+    if sse2 {
         fistp_chop(value)
     } else {
         // The 64-bit store's indefinite (a NaN, or 2^63 and beyond) has a low word of 0.
@@ -420,10 +431,213 @@ fn apply_morph(
     let weight = x87_m32(weight);
     let base = e.mem.u32(iterator);
     let stride = e.mem.u32(iterator.wrapping_add(4));
-    let mut extra = first_extra;
     let offsets_block = e.mem.alloc(8);
     let mut offsets = Offsets::begin(e, morph.wrapping_add(4));
     let points_block = e.mem.alloc(0x40);
+    let layout = MorphLayout {
+        base,
+        stride,
+        first_extra,
+        extra_data,
+        count,
+    };
+    match morph_in_host(e, &offsets, weight, &layout, points_block) {
+        Some(end) => offsets.at = end,
+        None => morph_by_element(e, &mut offsets, weight, &layout, points_block),
+    }
+    e.mem.set_u32(offsets_block, offsets.proxy);
+    e.mem.set_u32(offsets_block.wrapping_add(4), offsets.at);
+    e.mem.free(points_block);
+    e.mem.free(offsets_block);
+}
+
+/// Where one morph of [`apply_coordinates`] reads and writes: the strided vertex array
+/// (`{base, stride}`), the additional vertices' array and its data (0 without), the vertex count.
+struct MorphLayout {
+    base: u32,
+    stride: u32,
+    first_extra: u32,
+    extra_data: u32,
+    count: u32,
+}
+
+/// Whether `[a, a + a_len)` and `[b, b + b_len)` share a byte (64-bit ends: no wrapping).
+fn overlaps(a: u64, a_len: u64, b: u64, b_len: u64) -> bool {
+    a_len != 0 && b_len != 0 && a < b + b_len && b < a + a_len
+}
+
+/// One morph of [`apply_coordinates`] in one pass: the offsets read at once, every point morphed
+/// in host memory and written back, the points block left as [`morph_by_element`] leaves it.
+/// Answers the offsets iterator's end position, or `None` when a step could take a check's
+/// failing side (no proxy, a position at or past the proxy's last element) or when what the loops
+/// write could change what they read later (overlapping arrays, a stride below a point, an address
+/// past 4 GB): then the element loops run, as the exe's do. Before a `None` nothing is written;
+/// at most the words the element loops read anyway are read (the additional vertices' count, the
+/// proxy's container and its end word).
+fn morph_in_host(
+    e: &mut Engine,
+    offsets: &Offsets,
+    weight: f64,
+    layout: &MorphLayout,
+    points_block: u32,
+) -> Option<u32> {
+    let MorphLayout {
+        base,
+        stride,
+        first_extra,
+        extra_data,
+        count,
+    } = *layout;
+    if offsets.proxy == 0 || stride < 12 {
+        return None;
+    }
+    // The additional vertices past the count: the extra loop's steps (it reads their total after
+    // the vertex loops; nothing they write may change it).
+    let total = if first_extra != 0 {
+        e.mem.u32(extra_data.wrapping_add(0x10))
+    } else {
+        0
+    };
+    let steps = u64::from(count) + u64::from(total.saturating_sub(count));
+    if steps == 0 {
+        // No point and no step: the element loops read nothing either.
+        return None;
+    }
+    let owner = e.mem.u32(offsets.proxy);
+    let end_word = owner.wrapping_add(0x10);
+    let last = e.mem.u32(end_word);
+    let first = u64::from(offsets.at);
+    // Every check is at `first + 6 k` for the steps `k` and passes while it is below `last`.
+    if first + 6 * (steps - 1) >= u64::from(last) {
+        return None;
+    }
+    let extras = u64::from(count.max(total));
+    let vertex_span = if count == 0 {
+        0
+    } else {
+        u64::from(stride) * (u64::from(count) - 1) + 12
+    };
+    let extra_span = if first_extra != 0 { 12 * extras } else { 0 };
+    let limit = 1u64 << 32;
+    if u64::from(base) + vertex_span > limit
+        || u64::from(first_extra) + extra_span > limit
+        || first + 6 * steps > limit
+    {
+        return None;
+    }
+    let (b, x) = (u64::from(base), u64::from(first_extra));
+    let read_only = [
+        (first, 6 * steps),
+        (u64::from(offsets.proxy), 4),
+        (u64::from(end_word), 4),
+        (
+            u64::from(extra_data.wrapping_add(0x10)),
+            if first_extra != 0 { 4 } else { 0 },
+        ),
+    ];
+    if overlaps(b, vertex_span, x, extra_span)
+        || read_only
+            .iter()
+            .any(|&(at, len)| overlaps(b, vertex_span, at, len) || overlaps(x, extra_span, at, len))
+    {
+        return None;
+    }
+    // Both below 4 GB (tested above).
+    let delta_bytes = u32::try_from(6 * steps).ok()?;
+    let extra_bytes = u32::try_from(12 * extras).ok()?;
+    let mut deltas = vec![0u8; delta_bytes as usize];
+    e.mem.read(offsets.at, &mut deltas);
+    let delta = |k: usize| i16::from_le_bytes([deltas[2 * k], deltas[2 * k + 1]]);
+    let n = count as usize;
+    // The points the vertex loops read: the additional vertices' first `count` when there are
+    // any, else the vertex array's.
+    let mut points = vec![0u32; 3 * n];
+    let mut bytes = vec![0u8; 12];
+    if first_extra != 0 {
+        let mut all = vec![0u8; extra_bytes as usize];
+        e.mem.read(first_extra, &mut all);
+        let mut tail: Vec<u32> = all
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        for (k, word) in tail.iter_mut().enumerate() {
+            *word = morphed(delta(k), weight, *word);
+        }
+        points.copy_from_slice(&tail[..3 * n]);
+        let mut out = vec![0u8; tail.len() * 4];
+        for (chunk, word) in out.chunks_exact_mut(4).zip(&tail) {
+            chunk.copy_from_slice(&word.to_le_bytes());
+        }
+        write_points(e, base, stride, &points, &mut bytes);
+        e.mem.write(first_extra, &out);
+    } else {
+        if stride == 12 {
+            let mut all = vec![0u8; 12 * n];
+            e.mem.read(base, &mut all);
+            for (word, w) in points.iter_mut().zip(all.chunks_exact(4)) {
+                *word = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+            }
+        } else {
+            for (v, point) in (0u32..).zip(points.chunks_exact_mut(3)) {
+                e.mem.read(vertex_at(base, stride, v), &mut bytes);
+                for (word, w) in point.iter_mut().zip(bytes.chunks_exact(4)) {
+                    *word = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
+                }
+            }
+        }
+        for (k, word) in points.iter_mut().enumerate() {
+            *word = morphed(delta(k), weight, *word);
+        }
+        write_points(e, base, stride, &points, &mut bytes);
+    }
+    // The points block as the element loops leave it: the last group of four, then the last
+    // single point over its first three words.
+    let groups = n / 4;
+    if groups != 0 {
+        write_words(e, points_block, &points[12 * (groups - 1)..12 * groups]);
+    }
+    if n % 4 != 0 {
+        write_words(e, points_block, &points[3 * (n - 1)..3 * n]);
+    }
+    Some(offsets.at.wrapping_add(delta_bytes))
+}
+
+/// The morphed points written to the strided vertex array: in one write when the points are packed
+/// (a stride of 12), else a point (12 bytes) at a time.
+fn write_points(e: &Engine, base: u32, stride: u32, points: &[u32], bytes: &mut [u8]) {
+    if stride == 12 {
+        let mut all = vec![0u8; 4 * points.len()];
+        for (chunk, word) in all.chunks_exact_mut(4).zip(points) {
+            chunk.copy_from_slice(&word.to_le_bytes());
+        }
+        e.mem.write(base, &all);
+        return;
+    }
+    for (v, point) in (0u32..).zip(points.chunks_exact(3)) {
+        for (chunk, word) in bytes.chunks_exact_mut(4).zip(point) {
+            chunk.copy_from_slice(&word.to_le_bytes());
+        }
+        e.mem.write(vertex_at(base, stride, v), bytes);
+    }
+}
+
+/// One morph of [`apply_coordinates`] as the exe's loops go: four points at a time, then one at a
+/// time, then the additional vertices, every offset read and step through the checked iterator.
+fn morph_by_element(
+    e: &mut Engine,
+    offsets: &mut Offsets,
+    weight: f64,
+    layout: &MorphLayout,
+    points_block: u32,
+) {
+    let MorphLayout {
+        base,
+        stride,
+        first_extra,
+        extra_data,
+        count,
+    } = *layout;
+    let mut extra = first_extra;
     // What the points block holds at the end: the last group of four, then the last single one
     // over its first three words.
     let mut last_four: Option<[u32; 12]> = None;
@@ -509,10 +723,6 @@ fn apply_morph(
     if let Some(point) = last_one {
         write_words(e, points_block, &point);
     }
-    e.mem.set_u32(offsets_block, offsets.proxy);
-    e.mem.set_u32(offsets_block.wrapping_add(4), offsets.at);
-    e.mem.free(points_block);
-    e.mem.free(offsets_block);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -893,9 +1103,10 @@ const TEXTURE_RESIZE: u32 = 0x00b6_bbd0;
 
 /// The float floor `00404040` of the float `value`: its `_ftol2` back as a float (through a
 /// `double`), one less when the value minus that is below 0.0 or unordered; as `ST0` holds it.
+/// `sse2` is `_ftol2`'s body ([`ftol_body`]).
 #[inline]
-fn float_floor(e: &Engine, value: f32) -> f64 {
-    let mut truncated = f32::from_bits(x87_store32(f64::from(ftol(e, f64::from(value)))));
+fn float_floor(sse2: bool, value: f32) -> f64 {
+    let mut truncated = f32::from_bits(x87_store32(f64::from(ftol_body(sse2, f64::from(value)))));
     let difference = f64::from(value) - f64::from(truncated);
     if !(difference >= 0.0) {
         truncated = f32::from_bits(x87_store32(f64::from(truncated) - 1.0));
@@ -905,9 +1116,9 @@ fn float_floor(e: &Engine, value: f32) -> f64 {
 
 /// One channel of a compressed pixel from the value's bits: clamped to `[min, max]` (below `min`
 /// or unordered gives `min`; above `max` gives `max`), floored, less `min`, times `scale`,
-/// truncated to an integer; its low byte.
+/// truncated to an integer; its low byte. `sse2` is `_ftol2`'s body ([`ftol_body`]).
 #[inline]
-fn compress_channel(e: &Engine, bits: u32, min: f32, max: f32, scale: f32) -> u8 {
+fn compress_channel(sse2: bool, bits: u32, min: f32, max: f32, scale: f32) -> u8 {
     let value = x87_quiet_bits(bits);
     let clamped = if !(x87_load32(min.to_bits()) <= x87_load32(value)) {
         x87_quiet_bits(min.to_bits())
@@ -916,11 +1127,123 @@ fn compress_channel(e: &Engine, bits: u32, min: f32, max: f32, scale: f32) -> u8
     } else {
         value
     };
-    let floor = float_floor(e, f32::from_bits(x87_quiet_bits(clamped)));
+    let floor = float_floor(sse2, f32::from_bits(x87_quiet_bits(clamped)));
     let shifted = x87_sub(floor, x87_m32(min.to_bits()));
     let scaled = x87_mul(shifted, x87_m32(scale.to_bits()));
     // The integer's low byte, as the exe stores it.
     fistp_chop(scaled).to_le_bytes()[0]
+}
+
+/// Below this size every float the clamp can give is truncated exactly by both `_ftol2` bodies
+/// and comes back from the integer exactly, so the float floor is the plain integer floor.
+const FLOOR_EXACT: f32 = 16_777_216.0;
+/// The most entries a [`FloorTable`] holds (a face tint's range, -255 to 255, needs 511).
+const FLOOR_TABLE_ENTRIES: i32 = 4096;
+
+/// The integer floor of the float with the bits `word`, below [`FLOOR_EXACT`] in size: the whole
+/// part of the magnitude, negated for a negative value and one less when that has a fraction
+/// (`-0.0` gives 0). Integer steps only.
+#[inline]
+fn floor_int(word: u32) -> i32 {
+    let negative = word >> 31 != 0;
+    let magnitude = word & 0x7fff_ffff;
+    // The biased exponent: below 127 the size is below 1; at most 150 below 2^24.
+    let exponent = magnitude >> 23;
+    if exponent < 127 {
+        return if negative && magnitude != 0 { -1 } else { 0 };
+    }
+    let shift = 150 - exponent;
+    let significand = (magnitude & 0x007f_ffff) | 0x0080_0000;
+    let whole = (significand >> shift) as i32;
+    let fraction = significand & ((1 << shift) - 1) != 0;
+    match (negative, fraction) {
+        (false, _) => whole,
+        (true, false) => -whole,
+        (true, true) => -whole - 1,
+    }
+}
+
+/// [`compress_channel`]'s bytes for one image's `min`, `max` and `scale`, by the floor of the
+/// clamped value. With `min` and `max` below [`FLOOR_EXACT`] in size (so finite) and `min <= max`,
+/// the clamped value lies between them, so the float floor is its integer floor k, from
+/// `floor(min)` to `floor(max)` (a `-0.0` floors to `+0.0`, which k = 0 gives too), and the byte
+/// depends on k alone. The entry for k is [`compress_channel`] of k itself: k clamps to `min` only
+/// when it is `floor(min)` below `min`, whose floor is k again. The same steps on the same thread
+/// under the same control word give the same byte, NaNs, infinities and the edges included.
+struct FloorTable {
+    min: f32,
+    max: f32,
+    /// `floor(min)`, the first entry's k.
+    lowest: i32,
+    bytes: Vec<u8>,
+}
+
+impl FloorTable {
+    /// The table, or `None` when a guard says the floor is not the integer floor or the range
+    /// needs more than [`FLOOR_TABLE_ENTRIES`] entries.
+    fn new(sse2: bool, min: f32, max: f32, scale: f32) -> Option<FloorTable> {
+        if !(min.abs() < FLOOR_EXACT && max.abs() < FLOOR_EXACT && min <= max) {
+            return None;
+        }
+        let floors = floor_int(min.to_bits())..=floor_int(max.to_bits());
+        if floors.end() - floors.start() >= FLOOR_TABLE_ENTRIES {
+            return None;
+        }
+        Some(FloorTable {
+            min,
+            max,
+            lowest: *floors.start(),
+            // Each k is below 2^24 in size: exact as a float.
+            bytes: floors
+                .map(|k| compress_channel(sse2, (k as f32).to_bits(), min, max, scale))
+                .collect(),
+        })
+    }
+
+    /// The byte of the value with the bits `bits`: clamped as [`compress_channel`] clamps (the
+    /// compares see a float as the x87 loads it, exactly), then its entry.
+    #[inline]
+    fn byte(&self, bits: u32) -> u8 {
+        let value = f32::from_bits(bits);
+        let clamped = if !(self.min <= value) {
+            self.min
+        } else if !(self.max >= value) {
+            self.max
+        } else {
+            value
+        };
+        self.bytes[self.index(floor_int(clamped.to_bits()))]
+    }
+
+    /// The entry of the floor `k`, at least the lowest.
+    #[inline]
+    fn index(&self, k: i32) -> usize {
+        (k - self.lowest) as usize
+    }
+}
+
+/// The one pass's bytes: `channels` bytes a value into `out` from the values in `floats` (four
+/// floats a value), from the image's [`FloorTable`] when its `(min, max, scale)` allows one, else
+/// channel by channel through [`compress_channel`]. Answers whether the table made them.
+fn pack_values(
+    sse2: bool,
+    floats: &[u8],
+    channels: usize,
+    (min, max, scale): (f32, f32, f32),
+    out: &mut [u8],
+) -> bool {
+    let table = FloorTable::new(sse2, min, max, scale);
+    for (value, pixel) in floats.chunks_exact(16).zip(out.chunks_exact_mut(channels)) {
+        for (channel, byte) in pixel.iter_mut().enumerate() {
+            let at = 4 * channel;
+            let bits = u32::from_le_bytes([value[at], value[at + 1], value[at + 2], value[at + 3]]);
+            *byte = match &table {
+                Some(table) => table.byte(bits),
+                None => compress_channel(sse2, bits, min, max, scale),
+            };
+        }
+    }
+    table.is_some()
 }
 
 // Typed from 0064ceb0
@@ -1035,7 +1358,10 @@ pub fn get_compressed_image(
 /// at the checked iterator `{proxy, position}` at `iterator` (four floats a value), the
 /// iterator stepped after each pixel with its previous words left in `scratch` (`0064dbf0`). In
 /// one pass with one write of the bytes when every value lies before the end of the proxy's container (as a
-/// face's do); otherwise value by value with the iterator's checks, as the exe reads them.
+/// face's do), each byte from the image's [`FloorTable`] when its range allows one
+/// ([`pack_values`]; a face tint's, -255 to 255 at a scale of 0.5, does: 511 entries made instead
+/// of a float floor for every channel of its 256 by 256 texels); otherwise value by value with the
+/// iterator's checks, as the exe reads them.
 #[allow(clippy::too_many_arguments)]
 fn compress_pixels(
     e: &mut Engine,
@@ -1064,17 +1390,15 @@ fn compress_pixels(
         let mut floats = vec![0u8; n * 16];
         e.mem.read(start, &mut floats);
         let mut out = vec![0u8; n * channels as usize];
-        for (value, pixel) in floats
-            .chunks_exact(16)
-            .zip(out.chunks_exact_mut(channels as usize))
-        {
-            for (channel, byte) in pixel.iter_mut().enumerate() {
-                let at = 4 * channel;
-                let bits =
-                    u32::from_le_bytes([value[at], value[at + 1], value[at + 2], value[at + 3]]);
-                *byte = compress_channel(e, bits, min, max, scale);
-            }
-        }
+        // No call between the channels here: `_ftol2`'s flag and the control word stay as read.
+        let sse2 = e.mem.u32(SSE2_AVAILABLE) != 0;
+        pack_values(
+            sse2,
+            &floats,
+            channels as usize,
+            (min, max, scale),
+            &mut out,
+        );
         e.mem.write(bytes, &out);
         let last = start.wrapping_add(16 * (pixels - 1));
         e.mem.set_u32(iterator + 4, last.wrapping_add(16));
@@ -1088,7 +1412,8 @@ fn compress_pixels(
             let (proxy, at) = (e.mem.u32(iterator), e.mem.u32(iterator + 4));
             check_iterator(e, proxy, at);
             let bits = e.mem.u32(at.wrapping_add(4 * channel));
-            let byte = compress_channel(e, bits, min, max, scale);
+            let sse2 = e.mem.u32(SSE2_AVAILABLE) != 0;
+            let byte = compress_channel(sse2, bits, min, max, scale);
             e.mem.set_u8(out.wrapping_add(channel), byte);
         }
         out = out.wrapping_add(channels);
@@ -1097,5 +1422,354 @@ fn compress_pixels(
         e.mem.set_u32(iterator + 4, at.wrapping_add(0x10));
         e.mem.set_u32(scratch, proxy);
         e.mem.set_u32(scratch + 4, at);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A morph of `vertices` packed points at `stride` with `total` additional vertices (none at
+    /// 0) and offsets for every step, each in a block of its own, every check passing: the
+    /// one-pass path's own case. Answers the engine-side words: the offsets iterator, the layout,
+    /// the points block.
+    fn morph(
+        e: &mut Engine,
+        vertices: u32,
+        stride: u32,
+        total: u32,
+    ) -> (Offsets, MorphLayout, u32) {
+        let base = e.mem.alloc(stride * vertices + 64);
+        for v in 0..vertices {
+            for k in 0..3 {
+                e.mem
+                    .set_f32(base + stride * v + 4 * k, (v * 3 + k) as f32 + 0.5);
+            }
+        }
+        let steps = vertices.max(total);
+        let data = e.mem.alloc(6 * steps + 8);
+        for k in 0..3 * steps {
+            e.mem
+                .set_i16(data + 2 * k, i16::try_from(k).unwrap() * 37 - 500);
+        }
+        // The offsets vector (its proxy at +0, first +0xc, last +0x10) and its proxy.
+        let vector = e.mem.alloc(0x18);
+        let proxy = e.mem.alloc(8);
+        e.mem.set_u32(proxy, vector);
+        e.mem.set_u32(vector, proxy);
+        e.mem.set_u32(vector + 0xc, data);
+        e.mem.set_u32(vector + 0x10, data + 6 * steps);
+        let (first_extra, extra_data) = if total == 0 {
+            (0, 0)
+        } else {
+            let extra = e.mem.alloc(12 * total + 8);
+            for k in 0..3 * total {
+                e.mem.set_f32(extra + 4 * k, k as f32 - 7.25);
+            }
+            let extra_data = e.mem.alloc(0x18);
+            e.mem.set_u32(extra_data + 0xc, extra);
+            e.mem.set_u32(extra_data + 0x10, total);
+            (extra, extra_data)
+        };
+        let offsets = Offsets { proxy, at: data };
+        let layout = MorphLayout {
+            base,
+            stride,
+            first_extra,
+            extra_data,
+            count: vertices,
+        };
+        (offsets, layout, e.mem.alloc(0x40))
+    }
+
+    /// The bytes of the points and the additional vertices, to see that a refused pass wrote
+    /// nothing.
+    fn written(e: &Engine, layout: &MorphLayout, total: u32) -> Vec<u8> {
+        let mut bytes = e.mem.bytes(layout.base, layout.stride * layout.count + 12);
+        if layout.first_extra != 0 {
+            bytes.extend(e.mem.bytes(layout.first_extra, 12 * total));
+        }
+        bytes
+    }
+
+    /// Runs the pass and answers whether it was taken; a refused one must leave the points.
+    fn taken(
+        e: &mut Engine,
+        offsets: &Offsets,
+        layout: &MorphLayout,
+        block: u32,
+        total: u32,
+    ) -> bool {
+        let before = written(e, layout, total);
+        let answer = morph_in_host(e, offsets, -0.25, layout, block);
+        if answer.is_none() {
+            assert_eq!(written(e, layout, total), before, "a refused pass wrote");
+        }
+        answer.is_some()
+    }
+
+    /// The integer floor from the bits is the float's floor below 2^24 in size (`-0.0` and `0.0`
+    /// alike): a spread over every exponent, sign and fraction.
+    #[test]
+    fn the_integer_floor_is_the_floats_floor() {
+        let mut seen = 0;
+        for high in 0..=u16::MAX {
+            let top = u32::from(high) << 16;
+            for word in [top, top | u32::from(high), top | 0xffff, top | 1] {
+                let value = f32::from_bits(word);
+                if value.abs() < FLOOR_EXACT {
+                    assert_eq!(floor_int(word) as f32, value.floor(), "{word:08x}");
+                    seen += 1;
+                }
+            }
+        }
+        assert!(seen > 100_000, "{seen}");
+    }
+
+    /// The bits a channel may hold that the floor table must answer as [`compress_channel`] does:
+    /// the special ones, a spread over every bit pattern, and each integer around `min` and `max`
+    /// with its neighbours and halves.
+    fn channel_values(min: f32, max: f32) -> Vec<u32> {
+        let mut out = vec![
+            0x0000_0000, // 0.0
+            0x8000_0000, // -0.0
+            0x7f80_0000, // infinity
+            0xff80_0000, // -infinity
+            0x7fc0_0000, // a quiet NaN
+            0xffc0_0000, // a negative quiet NaN
+            0x7f80_0001, // a signalling NaN
+            0xff80_0001, // a negative signalling NaN
+            0x0000_0001, // the smallest subnormal
+            0x8000_0001, // a negative subnormal
+            0x807f_ffff, // the largest negative subnormal
+            0x7f7f_ffff, // the largest float
+            0xff7f_ffff, // the lowest float
+            0x4b80_0000, // 2^24
+            0x4f00_0000, // 2^31
+            0xcf00_0000, // -2^31
+            0x4f80_0000, // 2^32
+            0x5f00_0000, // 2^63
+        ];
+        out.extend((0..=u16::MAX).map(|i| u32::from(i) * 0x0001_0001));
+        for k in floor_int(min.to_bits()) - 2..=floor_int(max.to_bits()) + 2 {
+            let integral = (k as f32).to_bits();
+            out.extend([integral.wrapping_sub(1), integral, integral + 1]);
+            out.extend([(k as f32 + 0.5).to_bits(), (k as f32 - 0.5).to_bits()]);
+        }
+        out.extend([min.to_bits(), max.to_bits()]);
+        out
+    }
+
+    /// The table's byte is [`compress_channel`]'s for every value, under both control words and
+    /// both `_ftol2` bodies, in the face tint's range (-255 to 255, scale 0.5) and ranges with
+    /// fractions at either end, a single value, signed zeros, the most entries near 2^24, scales of every sign, an infinite and a NaN scale.
+    #[test]
+    fn the_floor_table_gives_each_channel_the_float_steps_byte() {
+        let ranges: [(f32, f32, f32); 15] = [
+            // A face tint's (`ApplyCoordinateTexturingToMesh`, the one caller).
+            (-255.0, 255.0, 0.5),
+            (0.0, 255.0, 1.0),
+            (0.5, 255.0, 1.0),
+            (-0.25, 0.5, 256.0),
+            (-100.0, 255.0, -1.0),
+            (-100.0, 1.0, 0.25),
+            (-0.0, 0.0, 1.0),
+            (2.5, 2.5, 7.0),
+            (0.0, 255.0, f32::INFINITY),
+            (0.0, 255.0, f32::NAN),
+            (f32::from_bits(0x8000_0001), 255.0, 1.0),
+            (-16_777_215.0, -16_773_120.0, 1.0),
+            (16_773_120.0, 16_777_215.0, 3.0),
+            (0.0, 4095.5, 0.0625),
+            (-3.75, 300.25, 0.8),
+        ];
+        for word in [0x027fu16, 0x007f] {
+            engine_core::x87::set_control_word(word);
+            for sse2 in [true, false] {
+                for (min, max, scale) in ranges {
+                    let table = FloorTable::new(sse2, min, max, scale).expect("a table");
+                    for bits in channel_values(min, max) {
+                        assert_eq!(
+                            table.byte(bits),
+                            compress_channel(sse2, bits, min, max, scale),
+                            "{bits:08x} in {min} to {max}, scale {scale}, sse2 {sse2}, {word:04x}"
+                        );
+                    }
+                }
+            }
+        }
+        engine_core::x87::set_control_word(engine_core::x87::DEFAULT_CONTROL_WORD);
+    }
+
+    /// The table is made for a face's range and the edges the guards allow, and refused by each
+    /// guard alone.
+    #[test]
+    fn the_floor_table_is_made_for_a_face_and_refused_by_each_guard() {
+        let made = |min: f32, max: f32| FloorTable::new(true, min, max, 1.0).map(|t| t.bytes.len());
+        assert_eq!(made(-255.0, 255.0), Some(511), "a face tint's");
+        assert_eq!(made(0.0, 255.0), Some(256));
+        assert_eq!(made(-0.25, 0.5), Some(2));
+        assert_eq!(made(-0.0, 0.0), Some(1));
+        assert_eq!(made(2.5, 2.5), Some(1));
+        assert_eq!(made(0.0, 4095.5), Some(4096));
+        assert_eq!(made(-16_777_215.0, -16_773_120.0), Some(4096));
+        assert_eq!(made(16_773_120.0, 16_777_215.0), Some(4096));
+        assert_eq!(made(f32::NAN, 255.0), None, "min a NaN");
+        assert_eq!(made(0.0, f32::NAN), None, "max a NaN");
+        assert_eq!(made(f32::NEG_INFINITY, 255.0), None, "min infinite");
+        assert_eq!(made(0.0, f32::INFINITY), None, "max infinite");
+        assert_eq!(made(-16_777_216.0, -16_777_000.0), None, "min at 2^24");
+        assert_eq!(made(16_777_000.0, 16_777_216.0), None, "max at 2^24");
+        assert_eq!(made(1.0, 0.0), None, "min above max");
+        assert_eq!(made(0.0, 4096.0), None, "one entry past the most");
+        assert_eq!(made(-0.5, 4095.0), None, "one entry past the most, below 0");
+    }
+
+    /// A face tint's values take the table in the one pass (its range from the one caller,
+    /// `ApplyCoordinateTexturingToMesh`: -255 to 255, scale 0.5), with the float steps' bytes, three
+    /// and four channels a value, both `_ftol2` bodies; a range the table cannot hold goes channel by
+    /// channel and says so.
+    #[test]
+    fn a_face_tint_takes_the_floor_table() {
+        let (min, max, scale) = (-255.0f32, 255.0f32, 0.5f32);
+        let mut words = channel_values(min, max);
+        words.truncate(words.len() / 4 * 4);
+        let floats: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+        for channels in [3usize, 4] {
+            for sse2 in [true, false] {
+                let mut out = vec![0u8; words.len() / 4 * channels];
+                assert!(
+                    pack_values(sse2, &floats, channels, (min, max, scale), &mut out),
+                    "the table, {channels} channels"
+                );
+                for (value, pixel) in words.chunks_exact(4).zip(out.chunks_exact(channels)) {
+                    for (channel, byte) in pixel.iter().enumerate() {
+                        let word = value[channel];
+                        assert_eq!(
+                            *byte,
+                            compress_channel(sse2, word, min, max, scale),
+                            "{word:08x}"
+                        );
+                    }
+                }
+            }
+        }
+        let mut out = [0u8; 3];
+        assert!(!pack_values(
+            true,
+            &floats[..16],
+            3,
+            (0.0, 100_000.0, 1.0),
+            &mut out
+        ));
+    }
+
+    /// The one-pass path runs only when the element loops' result cannot differ: each guard that
+    /// sends a morph back to them, alone.
+    #[test]
+    fn the_one_pass_morph_steps_aside_for_each_guard() {
+        // The plain cases run it: with and without additional vertices, a multiple of four.
+        for (vertices, total) in [(8u32, 0u32), (8, 11), (9, 0)] {
+            let mut e = Engine::new();
+            let (offsets, layout, block) = morph(&mut e, vertices, 12, total);
+            assert!(
+                taken(&mut e, &offsets, &layout, block, total),
+                "{vertices} {total}"
+            );
+        }
+        // A stride below a point: the points overlap each other.
+        let mut e = Engine::new();
+        let (offsets, layout, block) = morph(&mut e, 8, 8, 0);
+        assert!(!taken(&mut e, &offsets, &layout, block, 0), "stride 8");
+        // No proxy; a last check at the proxy's last element.
+        let mut e = Engine::new();
+        let (mut offsets, layout, block) = morph(&mut e, 8, 12, 0);
+        let proxy = offsets.proxy;
+        offsets.proxy = 0;
+        assert!(!taken(&mut e, &offsets, &layout, block, 0), "no proxy");
+        offsets.proxy = proxy;
+        let vector = e.mem.u32(proxy);
+        let last = e.mem.u32(vector + 0x10);
+        e.mem.set_u32(vector + 0x10, last - 6);
+        assert!(
+            !taken(&mut e, &offsets, &layout, block, 0),
+            "a failing check"
+        );
+        // The offsets inside the written points (copied there, the vector's words moved).
+        let mut e = Engine::new();
+        let (mut offsets, layout, block) = morph(&mut e, 8, 12, 0);
+        let vector = e.mem.u32(offsets.proxy);
+        let bytes = e.mem.bytes(offsets.at, 48);
+        e.mem.write(layout.base + 12, &bytes);
+        offsets.at = layout.base + 12;
+        e.mem.set_u32(vector + 0xc, offsets.at);
+        e.mem.set_u32(vector + 0x10, offsets.at + 48);
+        assert!(
+            !taken(&mut e, &offsets, &layout, block, 0),
+            "offsets in the points"
+        );
+        // The proxy's word inside the written points.
+        let mut e = Engine::new();
+        let (mut offsets, layout, block) = morph(&mut e, 8, 12, 0);
+        let vector = e.mem.u32(offsets.proxy);
+        offsets.proxy = layout.base + 20;
+        e.mem.set_u32(offsets.proxy, vector);
+        assert!(
+            !taken(&mut e, &offsets, &layout, block, 0),
+            "the proxy in the points"
+        );
+        // The container's end word inside the written points (the container read through a
+        // proxy whose word points 0x10 before it).
+        let mut e = Engine::new();
+        let (offsets, layout, block) = morph(&mut e, 8, 12, 0);
+        let vector = e.mem.u32(offsets.proxy);
+        let last = e.mem.u32(vector + 0x10);
+        let owner = layout.base + 36 - 0x10;
+        e.mem.set_u32(offsets.proxy, owner);
+        e.mem.set_u32(owner + 0x10, last);
+        assert!(
+            !taken(&mut e, &offsets, &layout, block, 0),
+            "the end word in the points"
+        );
+        // The additional vertices' count inside the written points, and inside the additional
+        // vertices themselves.
+        for inside_extra in [false, true] {
+            let mut e = Engine::new();
+            let (offsets, mut layout, block) = morph(&mut e, 8, 12, 11);
+            let first = layout.first_extra;
+            let at = if inside_extra {
+                first + 24
+            } else {
+                layout.base + 48
+            };
+            layout.extra_data = at - 0x10;
+            e.mem.set_u32(at - 4, first);
+            e.mem.set_u32(at, 11);
+            assert!(
+                !taken(&mut e, &offsets, &layout, block, 11),
+                "the count {inside_extra}"
+            );
+        }
+        // The additional vertices overlapping the points, and the offsets inside them.
+        let mut e = Engine::new();
+        let (offsets, mut layout, block) = morph(&mut e, 8, 12, 11);
+        layout.first_extra = layout.base + 12;
+        assert!(
+            !taken(&mut e, &offsets, &layout, block, 11),
+            "the additional vertices in the points"
+        );
+        let mut e = Engine::new();
+        let (mut offsets, layout, block) = morph(&mut e, 8, 12, 11);
+        let vector = e.mem.u32(offsets.proxy);
+        let bytes = e.mem.bytes(offsets.at, 66);
+        let inside = layout.first_extra + 12;
+        e.mem.write(inside, &bytes);
+        offsets.at = inside;
+        e.mem.set_u32(vector + 0xc, inside);
+        e.mem.set_u32(vector + 0x10, inside + 66);
+        assert!(
+            !taken(&mut e, &offsets, &layout, block, 11),
+            "offsets in the additional vertices"
+        );
     }
 }

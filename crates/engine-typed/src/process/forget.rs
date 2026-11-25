@@ -7,13 +7,17 @@
 //! times over every actor: in the load window of 2026-11-10 they were 151 and 82 ms of one cell load
 //! (a profiled run; measure/stewie-eo/TARGETS.md, row 2).
 //!
+//! Here an object's extra data list (`005d43c0`: the object plus 0x44) and the word at +0x70
+//! (`004fd380`) are read in place, and the process array's tail and elements and the extra data
+//! getters (followers, head-track target, package data, package target, the lookup itself) are the
+//! process and dispatch families' Rust functions, and the actors' package and fight
+//! questions (the current package and its type, the package location, the flee test, the byte at
+//! +0x104, and the slots 0x22c, 0x128, 0x428 and 0x2c8 when they hold the typed bodies) the AI
+//! queries family's. Every other call (the virtual slots of the actors
+//! and their processes, the package and combat functions) is made in the exe's order with the exe's
+//! words.
 //! lStewieAl's Engine Optimizations (its Tweaks' `Inlines`, the process part) makes the same walks
-//! with the getters read in place. Here likewise: an object's extra data list (`005d43c0`: the object
-//! plus 0x44) and the word at +0x70 (`004fd380`) are read in place, the process array's tail and
-//! elements and the extra data getters (followers, head-track target, package data, package target,
-//! the lookup itself) are the process and dispatch families' Rust functions. Every other call (the
-//! virtual slots of the actors and their processes, the package and combat functions) is made in the
-//! exe's order with the exe's words. The plugin also skips `Actor::IsSpectator` before the created
+//! with the getters read in place. The plugin also skips `Actor::IsSpectator` before the created
 //! package's clean-up in `0096f600` (it jumps into the clean-up whatever the answer); that changes
 //! what runs, so it is not done here.
 //!
@@ -21,6 +25,7 @@
 //! process lock); no float maths.
 
 use super::{array, FAMILY};
+use crate::ai_queries::{self, queries};
 use crate::dispatch;
 use engine_core::ptr::Ptr;
 use engine_core::typed::leaf;
@@ -34,8 +39,6 @@ const OBSERVER: u32 = 0x011f_1958;
 const MOB_PROCESS_ARRAY: u32 = 0x04;
 const ALIVE_ACTOR_LIST: u32 = 0x80;
 const TEMP_SHOULD_MOVE_LIST: u32 = 0x78;
-/// The process type of a package (`0041ca90`).
-const PACKAGE_TYPE: u32 = 0x0041_ca90;
 /// A list's removal of the value a word points at (`00905330`).
 const LIST_REMOVE: u32 = 0x0090_5330;
 /// The extra data list's removal of a follower (`00422690`).
@@ -105,6 +108,60 @@ fn process_level(e: &mut Engine, process: u32) -> u32 {
     typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process))
 }
 
+/// `MobileObject::GetCurrentPackage` (`009344a0`).
+fn current_package(e: &mut Engine, high: u32) -> u32 {
+    typed_call!(
+        ai_queries::FAMILY,
+        0x0093_44a0,
+        queries::current_package(e, high)
+    )
+}
+
+/// A package's procedure type (`0041ca90`).
+fn package_type(e: &mut Engine, package: u32) -> i32 {
+    typed_call!(
+        ai_queries::FAMILY,
+        0x0041_ca90,
+        queries::package_type(e, package)
+    )
+}
+
+/// `Actor::IsFleeing(0)` (`008a6650`).
+fn is_fleeing(e: &mut Engine, high: u32) -> bool {
+    typed_call!(
+        ai_queries::FAMILY,
+        0x008a_6650,
+        queries::is_fleeing(e, high, 0)
+    )
+}
+
+/// The actor's byte at +0x104 (`00493bb0`).
+fn byte_at_104(e: &mut Engine, high: u32) -> u8 {
+    typed_call!(
+        ai_queries::FAMILY,
+        0x0049_3bb0,
+        queries::byte_at_104(e, high)
+    )
+}
+
+/// A package's location (`0055b980`: the word at +0x2c).
+fn location_of(e: &mut Engine, package: u32) -> u32 {
+    typed_call!(
+        ai_queries::FAMILY,
+        0x0055_b980,
+        queries::word_at_2c(e, package)
+    )
+}
+
+/// `PackageLocation::GetLocReference` (`0067f390`).
+fn location_reference(e: &mut Engine, location: u32) -> u32 {
+    typed_call!(
+        ai_queries::FAMILY,
+        0x0067_f390,
+        queries::location_reference(e, location)
+    )
+}
+
 /// Removes `value` from a list (`00905330` takes the address of a local holding it).
 fn list_remove_value(e: &mut Engine, list: u32, value: u32) {
     e.with_stack(4, |e, slot| {
@@ -134,10 +191,10 @@ fn clear_location_reference(e: &mut Engine, package: u32, target: u32) {
     if package == 0 {
         return;
     }
-    if e.call(0x0055_b980, &args![package]).u32() != 0 {
-        let location = e.call(0x0055_b980, &args![package]).u32();
-        if e.call(0x0067_f390, &args![location]).u32() == target {
-            let location = e.call(0x0055_b980, &args![package]).u32();
+    if location_of(e, package) != 0 {
+        let location = location_of(e, package);
+        if location_reference(e, location) == target {
+            let location = location_of(e, package);
             e.call(0x0067_f3c0, &args![location, 0u32]);
         }
     }
@@ -160,7 +217,7 @@ fn end_package_if_target(e: &mut Engine, high: u32, process: u32, target: u32) {
     if e.call(0x0093_36c0, &args![high]).bool() {
         e.vcall(high, 0x288, &[]);
     } else {
-        let package = e.call(0x0093_44a0, &args![high]).u32();
+        let package = current_package(e, high);
         if e.call(0x0067_4d40, &args![package]).bool() {
             e.call(0x0088_1680, &args![high, 0u32]);
         } else {
@@ -189,9 +246,9 @@ fn release_furniture(e: &mut Engine, high: u32, process: u32, target: u32) {
 /// The flee target: a package of type 0x16 whose target is `target` is told (`00994ef0`), then
 /// `Actor::RemoveFleeTarget`.
 fn forget_flee_target(e: &mut Engine, high: u32, target: u32) {
-    let package = e.call(0x0093_44a0, &args![high]).u32();
+    let package = current_package(e, high);
     let mut flee = 0u32;
-    if package != 0 && e.call(PACKAGE_TYPE, &args![package]).u32() == 0x16 {
+    if package != 0 && package_type(e, package) == 0x16 {
         flee = package;
     }
     if flee != 0 && e.call(0x005e_3fc0, &args![flee]).u32() == target {
@@ -295,7 +352,7 @@ fn forget_in_array_actor(e: &mut Engine, high: u32, list: u32, target: u32, flag
                     && typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, holder)) == target
                 {
                     e.call(0x0088_1680, &args![high, 0u32]);
-                } else if e.call(PACKAGE_TYPE, &args![package]).u32() == 0x1c
+                } else if package_type(e, package) == 0x1c
                     && e.call(0x008d_80e0, &args![package]).u32() == target
                 {
                     e.vcall(high, 0x288, &[]);
@@ -304,12 +361,12 @@ fn forget_in_array_actor(e: &mut Engine, high: u32, list: u32, target: u32, flag
         }
         e.vcall(process, 0x47c, &args![target]);
         clear_extra_record_reference(e, high, target);
-        if e.call(0x008a_6650, &args![high, 0u32]).bool() {
+        if is_fleeing(e, high) {
             forget_flee_target(e, high, target);
         } else if e.call(0x008a_6170, &args![high]).bool() && is_actor(e, target) {
-            let package = e.call(0x0093_44a0, &args![high]).u32();
+            let package = current_package(e, high);
             let mut created = 0u32;
-            if package != 0 && e.call(PACKAGE_TYPE, &args![package]).u32() == 0x18 {
+            if package != 0 && package_type(e, package) == 0x18 {
                 created = package;
             }
             if created != 0 {
@@ -346,19 +403,19 @@ fn forget_in_array_actor(e: &mut Engine, high: u32, list: u32, target: u32, flag
             e.call(0x0057_bd60, &args![high, 0u32]);
         }
         if flag != 0 {
-            let package = e.call(0x0093_44a0, &args![high]).u32();
+            let package = current_package(e, high);
             clear_location_reference(e, package, target);
-            let current = e.vcall(process, 0x22c, &[]).u32();
+            let current = queries::process_slot_22c(e, process);
             clear_location_reference(e, current, target);
         }
-        let controller = e.vcall(high, 0x428, &[]).u32();
+        let controller = queries::actor_slot_428(e, high);
         if controller != 0 {
             e.call(0x0097_f9c0, &args![controller, target]);
         }
-        if e.vcall(process, 0x128, &[]).u32() == target {
+        if queries::process_slot_128(e, process) == target {
             e.vcall(process, 0x12c, &args![0u32]);
         }
-        if e.vcall(high, 0x2c8, &[]).u32() == target {
+        if queries::actor_slot_2c8(e, high) == target {
             e.call(0x0088_1620, &args![high, 0u32]);
         }
         end_package_if_target(e, high, process, target);
@@ -384,7 +441,7 @@ fn forget_in_temp_actor(e: &mut Engine, high: u32, list: u32, target: u32, array
         }
         e.vcall(process, 0x47c, &args![target]);
         clear_extra_record_reference(e, high, target);
-        if e.call(0x008a_6650, &args![high, 0u32]).bool() {
+        if is_fleeing(e, high) {
             forget_flee_target(e, high, target);
         }
         if is_actor(e, target) && actor_process(e, high) != 0 {
@@ -401,18 +458,18 @@ fn forget_in_temp_actor(e: &mut Engine, high: u32, list: u32, target: u32, array
         if word_70(e, high) == target {
             e.call(0x0057_bd60, &args![high, 0u32]);
         }
-        let package = e.call(0x0093_44a0, &args![high]).u32();
+        let package = current_package(e, high);
         clear_location_reference(e, package, target);
-        let current = e.vcall(process, 0x22c, &[]).u32();
+        let current = queries::process_slot_22c(e, process);
         clear_location_reference(e, current, target);
-        let controller = e.vcall(high, 0x428, &[]).u32();
+        let controller = queries::actor_slot_428(e, high);
         if controller != 0 {
             e.call(0x0097_f9c0, &args![controller, target]);
         }
-        if e.vcall(process, 0x128, &[]).u32() == target {
+        if queries::process_slot_128(e, process) == target {
             e.vcall(process, 0x12c, &args![0u32]);
         }
-        if e.vcall(high, 0x2c8, &[]).u32() == target {
+        if queries::actor_slot_2c8(e, high) == target {
             e.call(0x0088_1620, &args![high, 0u32]);
         }
         end_package_if_target(e, high, process, target);
@@ -534,7 +591,7 @@ pub fn null_out_target_ref(e: &mut Engine, this: Ptr, target: u32, flag: u8) {
 fn clear_created_package_references(e: &mut Engine, package: u32, high: u32, target: u32) {
     if package == 0
         || !e.call(0x0067_4d40, &args![package]).bool()
-        || e.call(PACKAGE_TYPE, &args![package]).u32() == 0x12
+        || package_type(e, package) == 0x12
     {
         return;
     }
@@ -567,8 +624,8 @@ fn end_package_when_targeted(e: &mut Engine, high: u32, process: u32, target: u3
         e.vcall(high, 0x288, &[]);
         return;
     }
-    if e.call(0x0093_44a0, &args![high]).u32() != 0 {
-        let package = e.call(0x0093_44a0, &args![high]).u32();
+    if current_package(e, high) != 0 {
+        let package = current_package(e, high);
         if e.call(0x0067_4d40, &args![package]).bool() {
             e.call(0x0088_1680, &args![high, 0u32]);
             return;
@@ -584,20 +641,20 @@ fn forget_actor_tail(e: &mut Engine, high: u32, process: u32, target: u32) {
     if e.mem.u32(high + 0xc0) == target {
         e.mem.set_u32(high + 0xc0, 0);
     }
-    if e.call(0x008a_6650, &args![high, 0u32]).bool() {
+    if is_fleeing(e, high) {
         forget_flee_target(e, high, target);
     }
-    if e.call(0x0049_3bb0, &args![high]).bool() {
-        let controller = e.vcall(high, 0x428, &[]).u32();
+    if byte_at_104(e, high) != 0 {
+        let controller = queries::actor_slot_428(e, high);
         if controller != 0 {
             e.call(0x0097_f9c0, &args![controller, target]);
         }
     }
     e.call(EXTRA_REMOVE_FOLLOWER, &args![extra_list(high), target]);
-    if e.vcall(process, 0x128, &[]).u32() == target {
+    if queries::process_slot_128(e, process) == target {
         e.vcall(process, 0x12c, &args![0u32]);
     }
-    if e.vcall(high, 0x2c8, &[]).u32() == target {
+    if queries::actor_slot_2c8(e, high) == target {
         e.call(0x0088_1620, &args![high, 0u32]);
     }
 }

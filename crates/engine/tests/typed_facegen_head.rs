@@ -232,12 +232,14 @@ fn coordinates(e: &mut Engine, counts: [u32; 4], pattern: u32) -> u32 {
 // ------------------------------------------------------------------------------------------------
 
 /// The shapes: (vertices, morphs in each set, the offsets of the last morph of set 0 short by).
-const MESH_SHAPES: [(u32, [u32; 2], u32); 5] = [
+const MESH_SHAPES: [(u32, [u32; 2], u32); 6] = [
     (0, [1, 1], 0),
     (3, [2, 1], 0),
     (9, [3, 2], 0),
     (14, [2, 3], 5),
     (22, [4, 1], 0),
+    // A multiple of four: the points block's last group of four, with no single point after it.
+    (12, [3, 2], 0),
 ];
 
 /// The EGM data: two sets of morphs (0x1c bytes: the scale, then the offsets vector at +4) with
@@ -322,8 +324,10 @@ fn facegen_head_apply_coordinates() {
     .family(&leaf::LEAVES)
     .ignore_calls(&MESH_IGNORED)
     .inputs(&[
-        Input::Of(&[0, 1, 2, 3, 4]),
-        Input::Of(&[12, 16, 32]),
+        Input::Of(&[0, 1, 2, 3, 4, 5]),
+        // Strides: 12, 16 and 32 hold a point (12 first: the plain case and its variations take the
+        // one pass); 8 is below a point (the points overlap: the element loops).
+        Input::Of(&[12, 16, 32, 8]),
         Input::Of(&[0, 1]),
         Input::Of(&[0, 1, 2]),
         Input::Flag,
@@ -636,8 +640,11 @@ fn image_stand_ins(e: &mut Engine) {
 /// The shapes: (width, height, values short by).
 const IMAGE_SHAPES: [(u32, u32, u32); 4] = [(1, 1, 0), (3, 2, 0), (8, 4, 0), (2, 2, 4)];
 
-/// The range and scale arguments the cases try (float bits).
-const RANGES: [u32; 7] = [
+/// The range and scale arguments the cases try (float bits). With a `max`, the typed one-pass
+/// path's floor table is made for finite ends below 2^24 in size up to 4,096 floors apart, and
+/// refused for the others.
+const RANGES: [u32; 11] = [
+    0xc37f_0000, // -255.0: a face tint's (with 255.0 and a scale of 0.5), the plain case
     0,           // 0.0
     0x437f_0000, // 255.0
     0x3f80_0000, // 1.0
@@ -645,6 +652,9 @@ const RANGES: [u32; 7] = [
     0x7fc0_0000, // a NaN
     0x4f80_0000, // 2^32
     0x8000_0001, // a negative subnormal
+    0x3f00_0000, // 0.5
+    0xbe80_0000, // -0.25
+    0xc7c3_5000, // -100,000.0: more floors to 255.0 than the table holds
 ];
 
 #[test]
@@ -658,8 +668,19 @@ fn facegen_head_get_compressed_image() {
     .inputs(&[
         Input::Of(&[0, 1, 2, 3]),
         Input::Of(&RANGES),
-        Input::Of(&[0x437f_0000, 0x3f80_0000, 0, 0x7fc0_0000, 0x4f80_0000]),
+        // `max`: 255.0, 1.0, 0.0, a NaN, 2^32, 255.5, 100,000.0.
         Input::Of(&[
+            0x437f_0000,
+            0x3f80_0000,
+            0,
+            0x7fc0_0000,
+            0x4f80_0000,
+            0x437f_8000,
+            0x47c3_5000,
+        ]),
+        // `scale`: a face tint's 0.5 first; 1.0, 256.0, -1.0, infinity, 0.25.
+        Input::Of(&[
+            0x3f00_0000,
             0x3f80_0000,
             0x4380_0000,
             0xbf80_0000,
@@ -690,6 +711,9 @@ fn facegen_head_get_compressed_image() {
             for word in 0..4 {
                 let bits = match (k * 4 + word + pattern) % 5 {
                     0 => value(k, word, pattern),
+                    // A NaN in every image of two pixels or more with the third pattern, signalling
+                    // and quiet in turn: the clamp's unordered side, `min`'s byte.
+                    1 if pattern == 2 => [0x7fc0_0000, 0xff80_0001][(k % 2) as usize],
                     // Ordinary colour values around the range.
                     _ => (((k * 53 + word * 29 + pattern * 7) % 600) as f32 / 2.0 - 20.0).to_bits(),
                 };
@@ -709,7 +733,7 @@ fn facegen_head_get_compressed_image() {
         e.mem.set_u32(size + 4, case.word(4));
         vec![image, case.word(1), case.word(2), case.word(3), size]
     })
-    .max_cases(300)
+    .max_cases(400)
     .max_calls(100_000)
     .run()
     .assert_same();
@@ -738,6 +762,12 @@ fn count_invalid(e: &mut Engine) {
 /// the heap's top and free bytes, and every byte of memory beside the stack. Under both control
 /// words.
 fn both_ways(typed: (u32, AbiFn), setup: impl Fn(&mut Engine) -> Vec<u32>) {
+    both_ways_checking(typed, setup, true);
+}
+
+/// [`both_ways`], with `failing` false for a case whose checks all pass (no invalid-parameter
+/// call on either side).
+fn both_ways_checking(typed: (u32, AbiFn), setup: impl Fn(&mut Engine) -> Vec<u32>, failing: bool) {
     for word in [0x027fu16, 0x007f] {
         let mut sides = Vec::new();
         for typed_side in [false, true] {
@@ -759,9 +789,10 @@ fn both_ways(typed: (u32, AbiFn), setup: impl Fn(&mut Engine) -> Vec<u32>) {
             sides[0].1, sides[1].1,
             "the answer, control word {word:04x}"
         );
-        assert!(
+        assert_eq!(
             a.mem.u32(INVALID) > 0,
-            "no check failed: the case tests nothing"
+            failing,
+            "whether a check failed (a failing case that does not tests nothing)"
         );
         assert_eq!(
             a.mem.u32(INVALID),
@@ -838,6 +869,69 @@ fn facegen_head_failing_checks_of_the_morphs() {
     both_ways(typed(), |e| failing_mesh(e, 9, 10, 12, 3));
     // The set 0 coordinates have no coefficient: each morph's row read past the empty vector.
     both_ways(typed(), |e| failing_mesh(e, 6, 9, 0, 0));
+}
+
+/// A head part whose additional vertices lie one point into its own packed vertex array (no
+/// head's data does): each group of the loops reads points an earlier group wrote, so the one-pass
+/// path must step aside for the element loops, which then leave every byte as the translation's.
+/// The checks all pass. With the additional vertices one point past the array's end instead (no
+/// overlap), the one-pass path itself runs against the translation.
+fn shifted_mesh(e: &mut Engine, shift: u32) -> Vec<u32> {
+    constants(e, 1, 256.0, 0x3780_0000);
+    stand_ins(e);
+    mesh_stand_ins(e);
+    let (vertices, stride) = (9u32, 12u32);
+    let total = vertices + 3;
+    let points = vertices + total + 2;
+    // Plain finite points, morph scales and weights: a NaN or an infinity would spread to every
+    // point after a morph or two and hide in what order the points were written.
+    let array = e.mem.alloc(stride * points + 16);
+    for v in 0..points {
+        for k in 0..3 {
+            let point = (v * 3 + k) as f32 * 0.5 + 1.0;
+            e.mem.set_f32(array + stride * v + 4 * k, point);
+        }
+    }
+    e.mem.set_u32(ARRAY, array);
+    e.mem.set_u32(STRIDE, stride);
+    e.mem.set_u32(VERTICES, vertices);
+    e.mem.set_u32(HAS_DATA, 3);
+    let data = e.mem.alloc(0x18);
+    e.mem.set_u32(data + 0xc, array + stride * shift);
+    e.mem.set_u32(data + 0x10, total);
+    e.mem.set_u32(EXTRA_DATA, data);
+    let egm_data = egm(e, vertices, [3, 2], 0, 1);
+    for (set, n) in [(0u32, 3u32), (1, 2)] {
+        let block = e.mem.u32(egm_data + 4 + 0x18 * set + 0xc);
+        for i in 0..n {
+            e.mem.set_f32(block + 0x1c * i, 0.25);
+        }
+    }
+    // Pattern 1's weights: -0.0, -0.52 and -1.0.
+    let coords = coordinates(e, [3, 2, 0, 0], 1);
+    let mesh = e.mem.alloc(0x24);
+    e.mem.set_u32(mesh + 8, egm_data);
+    e.mem.set_u32(LOADED, 1);
+    let model = e.mem.alloc(0x10);
+    e.mem.set_u32(model + 8, mesh);
+    let geometry = e.mem.alloc(0xc0);
+    let geometry_data = e.mem.alloc(0x40);
+    e.mem.set_u32(geometry + 0xb8, geometry_data);
+    vec![model, coords, geometry, 1]
+}
+
+#[test]
+fn facegen_head_morphs_reading_their_own_writes() {
+    let typed = || {
+        entry!(
+            0x0065_a970,
+            head::apply_coordinates(Ptr<_>, u32, u32, u8) -> bool
+        )
+    };
+    // One point in: the additional vertices overlap the vertex array (the element loops).
+    both_ways_checking(typed(), |e| shifted_mesh(e, 1), false);
+    // Past the array's last vertex: apart (the one-pass path).
+    both_ways_checking(typed(), |e| shifted_mesh(e, 9), false);
 }
 
 /// A face tint for [`facegen_head_failing_checks_of_the_tint`]: 4 by 3 texels, three morphs; the
