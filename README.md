@@ -42,13 +42,16 @@ An engine is the program that runs a game: it draws the world and runs its rules
 ## Progress
 
 One bar per area of the [coverage catalogue](docs/fork/CATALOGUE.md): every Direct3D 9 method and render state, every
-engine function, every script extender command and every graphics feature. Each bar shows how many items are
+engine function, every script extender command, every graphics feature, and the engine features you know from the
+game (LOD drawing, the Pip-Boy map, V.A.T.S., save games) with the move to 64-bit, threads and Vulkan. Each bar shows how many items are
 **covered** (a tagged test passed on Linux, Windows and macOS), **passing** on at least one system, **tagged** by a
 test, **implemented**, and **missing**. The first row adds up every area except the engine functions, which keep their
-own row. The picture is redrawn by the project's bot after every change on `fork`; nobody edits it.
+own row. The engine features have two bars: how many are fully native code, and how much native code they hold
+on average. Their grey-blue part still works, through the game's own code
+([how they are counted](docs/fork/ENGINE-FEATURES.md)). The picture is redrawn by the project's bot after every change on `fork`; nobody edits it.
 
 <p align="center">
-  <img src="docs/fork/coverage/tally.svg" alt="Coverage catalogue of nv-rs: items, tagged, passing and covered per area" width="100%">
+  <img src="docs/fork/coverage/tally.svg" alt="Coverage catalogue of nv-rs: items, tagged, passing and covered per area, and the engine features' average native share" width="100%">
 </p>
 
 The older progress pictures (engine port, native code, Direct3D 9, extenders, graphics plan) are in

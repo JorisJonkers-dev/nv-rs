@@ -7,9 +7,8 @@ modern engine: 64-bit readiness, multi-threading, and the rendering backend on w
 
 ## Two bars
 
-The picture (`docs/fork/coverage/tally.svg`, made by tally) gives the area two bars. They need the tally release with
-the evidence keys `works` and `share_column` (tally pull request 21); until the pin moves to it, the area has its one
-ordinary bar, where every engine feature that is not fully native counts as missing.
+The picture (`docs/fork/coverage/tally.svg`, made by tally 0.7.0 or later, which reads the evidence keys `works` and
+`share_column`) gives the area two bars.
 
 1. **Features.** A feature counts as implemented only when it is **100% native**: every one of its functions runs as
    native typed code (`// Typed from <addr>`, docs/ENGINE_CRATE.md "Typed code"), in a family that is on by default.
