@@ -30,6 +30,11 @@
 //! as it was, unless something else wrote it in between (then that write stays). Bodies are drawn
 //! one step (16 ms) behind the game's clock, about 5 ms later on average than the original's.
 //!
+//! With the uncapped step on, the game's seconds come in fixed 1/60 s steps and frames between
+//! them only draw ([`crate::uncap`]). Those frames carry the fraction of the next step, and the
+//! body is drawn that much further from the last step towards the clock, so it does not stand
+//! still while the game does not advance.
+//!
 //! **Which bodies.** The ones `hktoNiTransform` set in this frame (`00c65a80` is registered as
 //! itself plus a note of the node, the body and the state it gave the node), whose node still holds that
 //! transform at the drawing and whose body ran the world's last step (a sleeping body is drawn
@@ -567,6 +572,17 @@ pub struct Written {
     bound_after: [u32; 4],
 }
 
+/// The time to draw a body at: one Havok step behind the game's clock, as before. When the
+/// uncapped step runs, a frame that only draws carries part of the fixed step, and the body is
+/// drawn that much further between the two Havok steps instead of standing still.
+fn draw_time(now: f32, carried: f32, step: f32, share: Option<f32>) -> f32 {
+    let behind = (f64::from(now) + f64::from(carried) - f64::from(step)) as f32;
+    match share {
+        None => behind,
+        Some(share) => (f64::from(behind) + f64::from(share) * f64::from(step)) as f32,
+    }
+}
+
 /// [`plan_blend`] and [`write_moves`] without the guard (tests).
 pub fn blend_for_drawing(e: &mut Engine) -> Vec<Written> {
     let moves = plan_blend(e);
@@ -615,7 +631,7 @@ fn plan_blend(e: &mut Engine) -> Vec<(u32, [u32; 12])> {
             continue;
         }
         let now = e.mem.f32(simulation + SIMULATION_TIME);
-        let at = ((f64::from(now) + f64::from(carried)) - f64::from(step)) as f32;
+        let at = draw_time(now, carried, step, crate::uncap::render_alpha());
         let step_end = e.mem.f32(world + WORLD_STEP_END);
         let step_start = step_end - step;
         let sweep = sweep(e, note.havok);
@@ -1354,5 +1370,24 @@ mod tests {
         crate::fixes::install(&mut e, &vanilla);
         assert!(!states().contains_key(&key(&e)));
         assert!(blend_for_drawing(&mut e).is_empty());
+    }
+
+    /// The fixed step's fraction moves the drawn body from one step behind the clock up to the
+    /// clock itself. Without the uncapped step the drawing time is the original's.
+    #[test]
+    fn the_fixed_step_moves_the_draw_time_between_steps() {
+        let (now, carried, step) = (10.0f32, 0.25f32, STEP);
+        assert_eq!(draw_time(now, carried, step, None), now + carried - step);
+        assert_eq!(
+            draw_time(now, carried, step, Some(0.0)),
+            now + carried - step
+        );
+        let middle = draw_time(now, carried, step, Some(0.5));
+        assert!(
+            (middle - (now + carried - step / 2.0)).abs() < 1e-6,
+            "{middle}"
+        );
+        let at_clock = draw_time(now, carried, step, Some(1.0));
+        assert!((at_clock - (now + carried)).abs() < 1e-6, "{at_clock}");
     }
 }
