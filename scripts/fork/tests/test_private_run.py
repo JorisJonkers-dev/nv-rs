@@ -5,10 +5,13 @@ Every input is made in a temporary directory: no game files, no backend and no c
 """
 import contextlib
 import io
+import os
+import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 FORK = HERE.parent
@@ -35,6 +38,39 @@ def make_tree(root, stored=None):
 def gate_line(kind, name="some::test", variable="NV_EXE"):
     suffix = "set" if kind == "executed" else "not set"
     return f'print("{kind}: {name} ({variable} {suffix})")'
+
+
+# Every file with a private-input test the private run drives. The test below derives the tree's set and
+# refuses a new one until it is added here or to UNCOVERED_DATA_FILES (with a reason in docs/fork/TESTING.md).
+COVERED_DATA_FILES = frozenset({
+    "crates/engine-core/src/exe.rs",
+    "crates/engine-core/src/units/crt/cvt.rs",
+    "crates/engine-core/src/units/crt/fdiv.rs",
+    "crates/engine-core/src/units/crt/math.rs",
+    "crates/engine-core/src/units/crt/printf.rs",
+    "crates/engine-core/src/units/crt/trig.rs",
+    "crates/engine-havok/src/units/havok_sdk/hkalookatiksolver.rs",
+    "crates/host/src/lib.rs",
+    "crates/host/src/native_inflate.rs",
+    "crates/engine/tests/havok_bodies.rs",
+    "crates/engine/tests/real_scda.rs",
+    "crates/engine/tests/typed_archives.rs",
+    "crates/engine/tests/typed_script_lines.rs",
+    "crates/engine/tests/typed_scripts.rs",
+    "crates/esm/tests/cell_offsets_real.rs",
+    "crates/host/tests/live_player_move.rs",
+    "crates/host/tests/static_initializers.rs",
+    "crates/nvse/src/decompile_tests.rs",
+})
+# Each value is the private input the workflow does not carry; it is recorded in docs/fork/TESTING.md.
+UNCOVERED_DATA_FILES = {
+    "crates/engine-platform/src/vorbisfile.rs": "NV_VORBIS_TEST_DIR",
+    "crates/engine/tests/jip_call_arity.rs": "NV_PROBE",
+    "crates/host/tests/live_movement_capture.rs": "NV_CAPTURE",
+    "crates/nvse/src/compiler_tests.rs": "NV_COMPILE_PLUGINS",
+    "crates/nvse/src/docs_tests.rs": "NV_XNVSE_DLL",
+    "crates/nvse/src/newlang/compile_tests.rs": "NV_XNVSE_NEW_COMPILER_TESTS",
+}
 
 
 class IntegrityTests(unittest.TestCase):
@@ -132,6 +168,20 @@ class RunTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("failed", err)
 
+    def test_github_tokens_are_not_passed_to_the_child(self):
+        with tempfile.TemporaryDirectory() as d:
+            marker = Path(d) / "env"
+            snippet = (
+                "from pathlib import Path; import os; "
+                f"Path({str(marker)!r}).write_text('clean' if not "
+                "(os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')) else 'leaked')"
+            )
+            command = ("env", [sys.executable, "-c", snippet])
+            with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "secret", "GH_TOKEN": "secret"}):
+                code = private_run.run([command], Path(d), False)
+            self.assertEqual(code, 0)
+            self.assertEqual(marker.read_text(), "clean")
+
 
 class WorkflowTests(unittest.TestCase):
     def test_the_private_workflow_cannot_run_for_a_pull_request(self):
@@ -154,6 +204,110 @@ class WorkflowTests(unittest.TestCase):
         text = (FORK.parent.parent / ".github/workflows/fork-private.yml").read_text()
         self.assertIn("private_integrity.py --check", text)
         self.assertIn("private_run.py --require", text)
+
+    def test_the_private_workflow_uses_the_runners_default_shell(self):
+        # A self-hosted Windows runner is not guaranteed a bash on PATH; the steps are plain python3 commands.
+        text = (FORK.parent.parent / ".github/workflows/fork-private.yml").read_text()
+        self.assertNotIn("shell:", text)
+
+
+class WiringTests(unittest.TestCase):
+    ROOT = FORK.parent.parent
+    DATA_READ = re.compile(r'require_data\(|\b(?:var|var_os)\s*\(\s*"NV_[A-Z_]+"\s*\)\s*\.expect\(')
+
+    def task(self, name):
+        lines = (self.ROOT / "Taskfile.yml").read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip() == f"{name}:")
+        block = []
+        for line in lines[start + 1:]:
+            if line and not line[0].isspace():
+                break
+            block.append(line)
+        return "\n".join(block)
+
+    def test_the_required_public_check_runs_the_integrity_check(self):
+        scripts = self.task("scripts")
+        self.assertIn("python3 -I scripts/fork/private_integrity.py --check", scripts)
+        ci = (self.ROOT / ".github/workflows/fork-ci.yml").read_text()
+        self.assertIn("run: mise exec -- task scripts", ci)
+
+    def test_the_hash_and_its_files_are_owner_reviewed(self):
+        owners = []
+        for line in (self.ROOT / ".github/CODEOWNERS").read_text().splitlines():
+            parts = line.split()
+            if parts and not parts[0].startswith("#"):
+                owners.append((parts[0], set(parts[1:])))
+        paths = [".fork/private-integrity.sha256"]
+        paths += [p for group in private_integrity.GROUPS.values() for p in group]
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertTrue(any(
+                    (pattern == path or (pattern.endswith("/") and path.startswith(pattern)))
+                    and "@slaterain" in who
+                    for pattern, who in owners
+                ), path)
+
+    def test_the_codeowners_divergence_is_recorded(self):
+        entry = self.ROOT / ".fork/allowed-divergence.d/codeowners-private-integrity"
+        self.assertIn(".github/CODEOWNERS", entry.read_text())
+        record = (self.ROOT / "docs/fork/divergence.d/codeowners-private-integrity.md").read_text()
+        self.assertTrue(record.startswith("### "))
+        for field in ("Files:", "Upstream approach:", "Fork approach:", "Decision:", "Reason:", "Evidence:"):
+            with self.subTest(field=field):
+                self.assertIn(f"- {field}", record)
+
+    def test_the_protected_groups_are_pinned(self):
+        self.assertEqual(set(private_integrity.GROUPS), {"judge", "thresholds", "controls", "ledger generator"})
+        self.assertEqual(private_integrity.GROUPS["judge"], ("crates/engine-core/src/typed/diff.rs",))
+        self.assertEqual(private_integrity.GROUPS["thresholds"],
+                         ("crates/engine-core/src/typed/mod.rs", "crates/engine-core/src/x87.rs"))
+        self.assertEqual(private_integrity.GROUPS["controls"], ("crates/engine/tests/diff_reference_peer.rs",))
+        self.assertEqual(private_integrity.GROUPS["ledger generator"], (
+            "scripts/ledger/Cargo.toml", "scripts/ledger/Cargo.lock",
+            "scripts/ledger/function_evidence.tsv", "scripts/ledger/fallout_crates.tsv",
+            "scripts/ledger/src/main.rs", "scripts/ledger/src/units.rs", "scripts/ledger/src/typed_marker.rs",
+        ))
+
+    def test_a_missing_protected_file_reports_no_environment_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            make_tree(root)
+            (root / private_integrity.GROUPS["judge"][0]).unlink()
+            ok, why = private_integrity.check(root)
+            self.assertFalse(ok)
+            self.assertNotIn(str(root), why)
+            self.assertIn("judge", why)
+
+    def test_every_private_input_test_is_covered_or_documented(self):
+        found = set()
+        for path in (self.ROOT / "crates").glob("**/*.rs"):
+            if self.DATA_READ.search(path.read_text(encoding="utf-8", errors="replace")):
+                found.add(path.relative_to(self.ROOT).as_posix())
+        self.assertEqual(found, COVERED_DATA_FILES | set(UNCOVERED_DATA_FILES),
+                         "a new private-input test needs a private-run command or a documented reason")
+        argv = " ".join(" ".join(cmd) for _, cmd in private_run.COMMANDS)
+        for rel in COVERED_DATA_FILES:
+            with self.subTest(file=rel):
+                if "/tests/" in rel:
+                    self.assertIn(Path(rel).stem, argv)
+                else:
+                    self.assertIn(f"-p {rel.split('/')[1]}", argv)
+        for substring in ("matches_the_recorded_results_on_the_exes_tables",
+                          "the_players_compiled_scripts_decompile_by_the_rules"):
+            self.assertIn(substring, argv)
+        for rel in COVERED_DATA_FILES:
+            if not rel.startswith("crates/engine-core/src/"):
+                continue
+            lines = (self.ROOT / rel).read_text().splitlines()
+            for i, line in enumerate(lines):
+                if '#[ignore = "needs NV_EXE' in line:
+                    name = next(l for l in lines[i + 1:i + 4] if l.strip().startswith("fn "))
+                    self.assertIn("matches_the_recorded_results_on_the_exes_tables", name, rel)
+        testing = (self.ROOT / "docs/fork/TESTING.md").read_text()
+        for rel, variable in UNCOVERED_DATA_FILES.items():
+            with self.subTest(file=rel):
+                self.assertIn(rel, testing)
+                self.assertIn(variable, testing)
 
 
 if __name__ == "__main__":

@@ -13,9 +13,9 @@ on:
 permissions:
   contents: read
 
-defaults:
-  run:
-    shell: bash
+# No `defaults.run.shell`: the two steps below are single `python3 -I ...` commands that the runner's own
+# default shell runs on Windows (pwsh or cmd) and on Linux/macOS (bash) alike. The job is self-hosted, so no
+# shell outside the runner's image is assumed (nv-rs#925).
 
 jobs:
   private:

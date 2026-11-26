@@ -24,19 +24,54 @@ import private_integrity  # noqa: E402
 
 REPO = FORK.parent.parent
 
-# The same commands are used by public CI and by the private run; only --require differs. Each one
-# must use `--nocapture` so the gate's executed/skipped lines reach gate_counts.py.
-COMMANDS = (
+# The gate commands run tests that call test_gate::require_data, which print the executed/skipped lines
+# gate_counts.py reads. The second command runs the five `#[ignore = "needs NV_EXE: ..."]` tests of
+# engine-core by their common name, so an ignored private-input test cannot hide behind the gate either.
+# Every one must use `--nocapture` (or `--show-output`) so those lines reach gate_counts.py.
+GATE_COMMANDS = (
     ("engine-core", ("cargo", "test", "-p", "engine-core", "--lib", "--", "--nocapture")),
+    (
+        "engine-core recorded tables",
+        ("cargo", "test", "-p", "engine-core", "--lib", "--", "--ignored",
+         "matches_the_recorded_results_on_the_exes_tables", "--nocapture"),
+    ),
     ("engine-havok", ("cargo", "test", "-p", "engine-havok", "--lib", "--", "--nocapture")),
     ("host", ("cargo", "test", "-p", "host", "--lib", "--", "--nocapture")),
     ("reference peer", ("cargo", "test", "-p", "engine", "--test", "diff_reference_peer", "--", "--nocapture")),
+)
+
+# Private-input integration tests the gate does not drive: each target is `#[ignore]`d and reads its variable
+# with `.expect(..)`, so it fails loudly when the input is missing rather than printing a gate `skipped:` line.
+# Run the ignored test of every such target so a private run actually exercises it; the workflow supplies
+# NV_EXE and NV_DATA. Targets that need another private input are listed in docs/fork/TESTING.md, with why.
+DATA_TARGETS = (
+    ("engine havok bodies", "engine", "havok_bodies"),
+    ("engine real scda", "engine", "real_scda"),
+    ("engine typed archives", "engine", "typed_archives"),
+    ("engine typed script lines", "engine", "typed_script_lines"),
+    ("engine typed scripts", "engine", "typed_scripts"),
+    ("esm cell offsets", "esm", "cell_offsets_real"),
+    ("host live player move", "host", "live_player_move"),
+    ("host static initializers", "host", "static_initializers"),
+)
+
+COMMANDS = GATE_COMMANDS + tuple(
+    (label, ("cargo", "test", "-p", crate, "--test", target, "--", "--ignored", "--nocapture"))
+    for label, crate, target in DATA_TARGETS
+) + (
+    # This nvse lib test needs only NV_DATA; the other ignored one needs NV_COMPILE_PLUGINS and is documented.
+    ("nvse decompile", ("cargo", "test", "-p", "nvse", "--lib", "--", "--ignored",
+                        "the_players_compiled_scripts_decompile_by_the_rules", "--nocapture")),
 )
 
 
 def run(commands, root, require, env=None) -> int:
     """Run each (label, argv) pair and count gate lines across all of them."""
     child_env = os.environ.copy() if env is None else dict(env)
+    # Keep the runner's PATH and toolchain variables (needed by cargo on every system) but do not hand a
+    # GitHub credential to a child process that only needs the private data paths.
+    for key in ("GITHUB_TOKEN", "GH_TOKEN"):
+        child_env.pop(key, None)
     child_env.pop("NV_ORACLE_REQUIRE", None)
     if require:
         child_env["NV_ORACLE_REQUIRE"] = "1"

@@ -54,7 +54,8 @@ def digest(root: Path) -> str:
 
 
 def check(root: Path) -> tuple[bool, str]:
-    """Compare the hash with the stored one. Never prints a path into a build log."""
+    """Compare the hash with the stored one. Only repo-relative paths are reported; values from the
+    private environment never are."""
     stored_file = root / ".fork" / STORED
     if not stored_file.is_file():
         return False, f"missing {stored_file.name}: the checker hash was never stored"
