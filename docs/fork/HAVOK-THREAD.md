@@ -10,25 +10,33 @@ The two changes here are the seam and the stepped-mode step:
   game's `bhkWorld::Update` calls the SDK's step.
 - With stepped threads, `bhk::step` posts the step to one `nv-havok` OS thread and joins it before
   returning. The poster keeps the step's place in the call order, its words, its x87 control word
-  and its virtual clock; no other game thread runs while the job is in flight. The helper uses its
-  own slot of `HELPER_AREA`, so it takes no guest heap block. With real threads, a per-call
-  diagnostic, a typed family running dual, or a helper already busy, the step stays on the calling
-  thread. Real threads are untouched: the game's own Havok workers still run there.
+  and its virtual clock; no other game thread runs while the job is in flight. A stop inside the
+  step is resumed at that join with the calls the helper unwound through put back on the poster's
+  call stack, so the stop names the same functions as an inline call. The `bhk_thread_stepped` test
+  compares the stop's text and call stack in both paths. The helper uses its own slot of
+  `HELPER_AREA`, so it takes no guest heap block. With real threads, a per-call diagnostic, a typed
+  family running dual, or a helper already busy, the step stays on the calling thread. Real threads
+  are untouched: the game's own Havok workers still run there.
 - `NV_HAVOK_THREAD=0` keeps the step inline for an A/B run. It is read once at start-up; the default
   is on. It is a diagnostic, not a preset switch, so it makes the run a test run.
 
 The census from nv-rs#943 (`docs/fork/COMPONENT-CENSUS.md`) names the Havok-owned fields. The
 `bhk_seam` test reads this repository's sources and fails if a function outside Havok and `bhk`
 uses `e.get`, `e.set`, `Ptr::at` or `Ptr::byte_add` on a Havok type. The `bhk_thread_stepped` test
-builds a stand-in step and checks that the helper's call has the same words, control word and
-virtual clock as an inline call, and that no job is left posted. Both tests use made-up inputs.
+builds a stand-in step and checks that the helper's call has the same words, a control word taken
+from the poster and the same virtual clock as an inline call, that no job is left posted, that a
+per-call diagnostic keeps the step inline, and that a stop in the step has the same text and call
+stack in both paths. Both tests use made-up inputs. There is one helper per process, for the run
+that first posts: a second run's post stops, as `post_draw`'s does.
 
 ## Gate left to the maintainer
 
 No game runs were available when this changed. Run two stepped recordings on the maintainer's
 machine, one with the helper and one with the inline control, and compare the streams byte for
-byte. `NV_REPEATABLE` forces stepped threads in both runs, so this is the same comparison the draw
-thread uses (`docs/PLAYTESTING.md`, "Running and pacing"):
+byte. `NV_REPEATABLE` forces stepped threads whatever `NV_THREADS` says, so this is the same
+comparison the draw thread uses (`docs/PLAYTESTING.md`, "Running and pacing"). The
+`NV_HAVOK_THREAD=0` run is the reference (the step inline on the game thread); the `=1` run is the
+candidate (the step on `nv-havok`):
 
 ```
 export NV_REPEATABLE=300 NV_SOUND=out

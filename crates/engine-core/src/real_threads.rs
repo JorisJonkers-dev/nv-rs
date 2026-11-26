@@ -3406,9 +3406,8 @@ fn run_helper(
 
 /// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the last one, past the pool's and
 /// the Havok helper's.
-const DRAW_SLOT: u32 = ((crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start)
-    / crate::mem::HELPER_SLOT
-    - 1) as u32;
+const DRAW_SLOT: u32 =
+    (crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start) / crate::mem::HELPER_SLOT - 1;
 // The area's last slot, and no pool slot: the drawing helper's TLS block and stack are nobody
 // else's, and nothing past the area (the extenders' code begins there).
 const _: () = assert!(
@@ -6041,13 +6040,18 @@ mod tests {
     }
 
     /// A pool fits the helper area beside the drawing helper's slot: one helper at least, and no
-    /// more than the slots before the last.
+    /// more than the slots before the last two (the Havok helper's and the drawing helper's).
     #[test]
     fn a_pool_fits_beside_the_drawing_helper() {
         assert!(pool_fits(1) && pool_fits(MOST_HELPERS));
         assert!(!pool_fits(0) && !pool_fits(MOST_HELPERS + 1));
         let draw =
             (crate::mem::HELPER_AREA.end - crate::mem::HELPER_SLOT)..crate::mem::HELPER_AREA.end;
+        assert_eq!(
+            DRAW_SLOT,
+            MOST_HELPERS as u32 + 1,
+            "the Havok helper has the slot before the drawing helper's"
+        );
         assert!(
             crate::mem::HELPER_AREA.start + MOST_HELPERS as u32 * crate::mem::HELPER_SLOT
                 <= draw.start,

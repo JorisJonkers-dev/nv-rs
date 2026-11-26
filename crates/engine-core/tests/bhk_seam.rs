@@ -37,12 +37,8 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// The statement around `at`, so a call split over lines is seen whole.
 fn statement(src: &str, at: usize) -> &str {
-    let start = src[..at]
-        .rfind(|c| c == ';' || c == '{' || c == '}')
-        .map_or(0, |i| i + 1);
-    let end = src[at..]
-        .find(|c| c == ';' || c == '}')
-        .map_or(src.len(), |i| at + i + 1);
+    let start = src[..at].rfind([';', '{', '}']).map_or(0, |i| i + 1);
+    let end = src[at..].find([';', '}']).map_or(src.len(), |i| at + i + 1);
     &src[start..end]
 }
 
