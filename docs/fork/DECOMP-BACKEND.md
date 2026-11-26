@@ -31,7 +31,7 @@ with the local C compiler. The library is `libfnv_decomp.so` on Linux,
 The library's linear memory is the guest reservation: `decomp_init` reserves 8 GiB
 with guard pages and makes the first 4 GiB readable and writable, or accepts a
 guest mapping supplied by the host. POSIX hosts use `mmap` and `mprotect`; Windows
-uses `VirtualAlloc` and `VirtualProtect`. The function table is host-owned, has
+reserves the range and commits its first half with `VirtualAlloc`. The function table is host-owned, has
 16,777,216 entries and is indexed by the original address; each compiled
 export is entered at the address recorded in `build/units.json`. Calls to
 imports go through `decomp_set_import_hook` to the engine's by-address
@@ -61,6 +61,8 @@ caller. `decomp_last_trap_code`, `decomp_last_trap_reason` and
 has a function behind it. Calling through an address with nothing behind it
 therefore returns to the caller with a `call_indirect` trap recorded, and
 `verify` reports the trap and its reason as a mismatch instead of stopping.
+The trap state and wasm2c's jump buffer are process-global: call the library
+from one thread at a time.
 
 `report.json` and `report.md` in the output folder list every compiled unit
 and every skipped unit with its reason. `manifest.json` lists the callable
@@ -90,24 +92,39 @@ host only decides the library name, the native link flags and how guest memory
 is reserved; the two layout flags, the i686 guest defines and the address table
 are the same on every host.
 
-`find_toolchain` looks for clang, wasm-ld and wasm2c on PATH, then in a per-user
-cache outside the repository, and fetches them once when they are missing. The
-cache is `<XDG_CACHE_HOME>/nv-rs/backend/toolchain` on Linux and macOS and
+`find_toolchain` looks for clang, wasm-ld, wasm2c, wasm2wat and wat2wasm on PATH,
+then in a per-user cache outside the repository, and fetches them once when they
+are missing. The cache is `<XDG_CACHE_HOME>/nv-rs/backend/toolchain` on Linux and
+macOS (`~/.cache/nv-rs/backend/toolchain` when `XDG_CACHE_HOME` is unset; macOS
+does not use `~/Library/Caches` here) and
 `<LOCALAPPDATA>\nv-rs\cache\backend\toolchain` on Windows; `NV_TOOLCHAIN_CACHE`
 replaces that location. It holds one stamped folder per host and toolchain
-version, so a second run does not fetch. `NV_TOOLCHAIN_URL` sets the base URL of
-the clang and wabt archives; the launcher supplies it on first run
-(rauls-trusty-toolbox#635). Explicit `NV_CLANG`, `NV_WASM_LD` and `NV_WASM2C`
-paths win over both PATH and the cache and need no fetch.
+version; the binaries and the wasm2c runtime files are checked on every use, so
+a second run does not fetch while a broken cache is fetched again. A cached host
+supplies the whole tool set: PATH tools are not mixed with a cached wabt.
+`NV_TOOLCHAIN_URL` sets the base URL of the clang and wabt archives; the
+launcher supplies it on first run (rauls-trusty-toolbox#635). No release is
+published at the default URL yet, so fetching needs both a published archive
+and SHA-256 pins in `NV_TOOLCHAIN_SHA256` (JSON with a `clang` and a `wabt`
+key, or the `NV_TOOLCHAIN_SHA256_CLANG` and `NV_TOOLCHAIN_SHA256_WABT`
+variables). An unpinned or mismatched archive is refused before it is unpacked,
+and archive members may not write outside the cache folder. Explicit
+`NV_CLANG`, `NV_WASM_LD`, `NV_WASM2C`, `NV_WABT_WASM_WAT` and
+`NV_WABT_WAT_WASM` paths win over both PATH and the cache and need no fetch.
 
-When a toolchain is neither present nor fetchable, `build` takes the native
-fallback: it compiles the same selected units for the host and gives them the
-same `decomp_init`, `decomp_memory_base` and `decomp_call_*` ABI, the same
-report and the same manifest as the wasm path. The engine supplies its
-Cranelift-backed compiler to that path; without one the tool uses the host C
-compiler. Units whose signature is not in `build/units.json` are skipped and
-stay on their translations. `--offline` blocks fetching and `--cranelift`
-forces this path; both are useful on machines without a network.
+When no toolchain is available, `build` stops with that reason: the native
+fallback is a different module and is never substituted silently. `--offline`
+blocks fetching. `--cranelift` takes the native fallback explicitly: it
+compiles the same selected units for the host with the host C compiler (a
+`compiler` can be injected by a caller; no Cranelift compiler is part of this
+tool); it keeps the `decomp_init`, `decomp_memory_base` and `decomp_call_*` ABI,
+the same report and the same manifest shape. Its `manifest.json` lists the
+decomp's symbol names and their addresses in `globals`/`global_values`, because
+native code binds symbols at link time and has no wasm GOT slots to fill. Units
+whose signature is not in `build/units.json` are skipped and stay on their
+translations. The fallback's exports are registered at their original
+addresses in its table, but it does not run the wasm module's address-indexed
+guest code, so it is for machines where that module cannot be built.
 
 Without a built backend nothing loads and the engine's differential harness
 runs without a reference peer, as before. `load_library` returns `None` for a
@@ -120,8 +137,9 @@ caller.
 It checks the two rewrites, the address rewrite, the GOT.func and trap
 accessors in the generated shim, the report, the layout comparison and hygiene
 without a toolchain. Fakes cover each supported host's library name and guest
-reservation, a toolchain fetched once and reused from the cache, and a blocked
-fetch that falls back to a working native module. Setting
+reservation, a toolchain fetched once and reused from the cache, a blocked
+fetch that reports why no wasm module was built, and an explicitly requested
+native fallback that produces a working module. Setting
 `NV_BACKEND_TOOLCHAIN_TEST=1` inside the nix shell adds a test that compiles a
 synthetic two-unit checkout into a library, calls its pure functions, takes a
 function address inside it, calls through the stored address and calls an
@@ -131,5 +149,6 @@ Clang, lld and wabt come from `nix shell nixpkgs#clang_19 nixpkgs#lld_19
 nixpkgs#wabt`. The tool finds mingw-w64 headers and libc++ through its standard
 nix store paths; `NV_MINGW_INCLUDE`, `NV_LIBCXX_INCLUDE`, `NV_CLANG`,
 `NV_WASM_LD`, `NV_WASM2C`, `NV_CC`, `NV_CXX`, `NV_WABT_SHARE`,
-`NV_WABT_WASM_WAT`, `NV_WABT_WAT_WASM`, `NV_TOOLCHAIN_CACHE` and
-`NV_TOOLCHAIN_URL` override the discovery and cache.
+`NV_WABT_WASM_WAT`, `NV_WABT_WAT_WASM`, `NV_TOOLCHAIN_CACHE`,
+`NV_TOOLCHAIN_TIMEOUT` and `NV_TOOLCHAIN_URL` override the discovery and cache;
+`NV_TOOLCHAIN_SHA256` supplies the archive pins a fetch requires.

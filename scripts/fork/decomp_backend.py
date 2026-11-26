@@ -22,18 +22,20 @@ artefacts that are visible to git in the repository tree.
 
 Linux and macOS on x86-64 and aarch64 and Windows are supported. clang and wabt are
 found on PATH or in a per-user cache; a missing toolchain is fetched once into that
-cache. When fetching fails, `build` compiles the same selected units through the
-native fallback, which keeps the library's ABI, report and manifest. `--offline`
-blocks fetching and `--cranelift` forces the fallback, for hosts without a network.
+cache when the archives are hash-pinned. When fetching fails, `build` reports why
+and stops; `--cranelift` explicitly takes the native fallback, which compiles the
+same units with the host C compiler and keeps the library's ABI, report and
+manifest but not the wasm address-indexed table. `--offline` blocks fetching.
 
 Nothing this tool writes is added to the repository: the default output directory
 is git-ignored. Stdlib only; Python 3.11 or newer.
 """
 import argparse
 import ctypes
+import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import re
 import shutil
@@ -41,6 +43,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import zipfile
 
 TABLE_ENTRIES = 0x01000000  # the guest's .text VAs all fit below 16 MiB
 GUEST_SIZE = 1 << 32
@@ -49,7 +52,24 @@ GENERATED_NAMES = {"mod.c", "mod.h", "wasm-rt-impl.c", "wasm-rt-mem-impl.c"}
 TOOLCHAIN_VERSION = "v1"
 TOOLCHAIN_URL = "https://github.com/JorisJonkers-dev/nv-rs-backend-toolchain/releases/download/v1"
 TOOLCHAIN_ASSETS = ("clang", "wabt")
-REQUIRED_TOOLS = ("clang", "wasm_ld", "wasm2c")
+REQUIRED_TOOLS = ("clang", "wasm_ld", "wasm2c", "wasm2wat", "wat2wasm")
+
+
+def toolchain_hashes():
+    """SHA-256 pins for the fetched archives.
+
+    No archive is unpacked without a pin: a release the launcher has not published
+    yet must not put an unverified archive into the build's compiler path.
+    """
+    raw = os.environ.get("NV_TOOLCHAIN_SHA256", "")
+    if raw:
+        try:
+            pins = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ToolchainUnavailable("NV_TOOLCHAIN_SHA256 is not JSON: %s" % exc) from exc
+        if isinstance(pins, dict):
+            return {asset: pins.get(asset) for asset in TOOLCHAIN_ASSETS}
+    return {asset: os.environ.get("NV_TOOLCHAIN_SHA256_" + asset.upper()) for asset in TOOLCHAIN_ASSETS}
 
 
 class ToolchainUnavailable(RuntimeError):
@@ -155,7 +175,7 @@ def detect_host(system=None, machine=None):
         "native_compiler": "clang" if system == "Windows" else "cc",
         "native_cxx": "clang++" if system == "Windows" else "c++",
         "native_flags": ["-O2", "-fPIC", "-dynamiclib" if system == "Darwin" else "-shared"]
-                        if system != "Windows" else ["-O2", "-shared"],
+                        if system != "Windows" else ["-O2", "-shared", "-fuse-ld=lld"],
         "native_libs": [] if system == "Windows" else ["-lm"],
     }
     return host
@@ -212,6 +232,8 @@ def toolchain_paths(cache, host):
         "clang": binary("clang"),
         "wasm_ld": binary("wasm-ld"),
         "wasm2c": binary("wasm2c"),
+        "wasm2wat": binary("wasm2wat"),
+        "wat2wasm": binary("wat2wasm"),
         "wabt_include": str(target / "include"),
         "wabt_runtime": str(target / "share" / "wabt" / "wasm2c"),
         "wabt_share": str(target),
@@ -230,21 +252,47 @@ def cached_toolchain(cache, host):
         return None
     if record.get("version") != TOOLCHAIN_VERSION or record.get("host") != host["slug"]:
         return None
+    return paths if toolchain_files_ready(paths) else None
+
+
+def toolchain_files_ready(paths):
+    """The binaries and wabt runtime are really on disk, not just named in a stamp."""
     needed = [paths[key] for key in REQUIRED_TOOLS] + [
         str(Path(paths["wabt_runtime"]) / name)
         for name in ("wasm-rt-impl.c", "wasm-rt-mem-impl.c")]
-    if not all(Path(path).is_file() for path in needed):
-        return None
-    return paths
+    binaries = [paths[key] for key in REQUIRED_TOOLS]
+    return (all(Path(path).is_file() for path in needed)
+            and all(path.endswith(".exe") or os.access(path, os.X_OK) for path in binaries))
 
 
 def download_archive(url, path):
-    with urllib.request.urlopen(url, timeout=30) as response, open(path, "wb") as archive:
-        shutil.copyfileobj(response, archive)
+    """Download with a configurable socket timeout and a few retries."""
+    timeout = float(os.environ.get("NV_TOOLCHAIN_TIMEOUT", "120"))
+    last = None
+    for _ in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as response, open(path, "wb") as archive:
+                shutil.copyfileobj(response, archive)
+            return
+        except (OSError, ValueError) as exc:
+            last = exc
+    raise ToolchainUnavailable("download failed after 3 attempts: %s" % last)
 
 
 def blocked_download(url, path):
     raise ToolchainUnavailable("toolchain fetching is disabled")
+
+
+def safe_unpack(archive, target):
+    """Unpack a toolchain zip, refusing names that would escape its folder."""
+    root = Path(target).resolve()
+    with zipfile.ZipFile(archive) as bundle:
+        for info in bundle.infolist():
+            name = info.filename.replace("\\", "/")
+            if (name.startswith("/") or re.match(r"^[A-Za-z]:", name)
+                    or ".." in PurePosixPath(name).parts):
+                raise ValueError("unsafe toolchain archive member: %s" % info.filename)
+        bundle.extractall(root)
 
 
 def fetch_toolchain(cache, host, download=None):
@@ -255,14 +303,21 @@ def fetch_toolchain(cache, host, download=None):
     target, paths = toolchain_paths(cache, host)
     target.mkdir(parents=True, exist_ok=True)
     fetch = download or download_archive
+    pins = toolchain_hashes()
     base = os.environ.get("NV_TOOLCHAIN_URL", TOOLCHAIN_URL)
     for asset in TOOLCHAIN_ASSETS:
+        if not pins.get(asset):
+            raise ToolchainUnavailable(
+                "no SHA-256 pin for %s; set NV_TOOLCHAIN_SHA256 before fetching" % asset)
         url = "%s/%s-%s.zip" % (base, asset, host["slug"])
         archive = Path(cache) / ("%s-%s.zip" % (asset, host["slug"]))
         try:
             fetch(url, archive)
-            shutil.unpack_archive(str(archive), str(target))
-        except (OSError, ValueError, shutil.ReadError) as exc:
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            if digest.lower() != pins[asset].lower():
+                raise ValueError("SHA-256 mismatch: %s" % digest)
+            safe_unpack(archive, target)
+        except (OSError, ValueError, shutil.ReadError, zipfile.BadZipFile) as exc:
             raise ToolchainUnavailable("could not fetch %s: %s" % (asset, exc)) from exc
         finally:
             archive.unlink(missing_ok=True)
@@ -270,10 +325,7 @@ def fetch_toolchain(cache, host, download=None):
         binary = Path(paths[key])
         if binary.is_file() and host["system"] != "Windows":
             binary.chmod(binary.stat().st_mode | 0o111)
-    needed = [paths[key] for key in REQUIRED_TOOLS] + [
-        str(Path(paths["wabt_runtime"]) / name)
-        for name in ("wasm-rt-impl.c", "wasm-rt-mem-impl.c")]
-    if not all(Path(path).is_file() for path in needed):
+    if not toolchain_files_ready(paths):
         raise ToolchainUnavailable("fetched toolchain is incomplete for %s" % host["slug"])
     (target / "stamp.json").write_text(json.dumps(
         {"version": TOOLCHAIN_VERSION, "host": host["slug"]}) + "\n")
@@ -289,29 +341,38 @@ def ensure_toolchain(cache, host, download=None):
 
 
 def find_toolchain(cache_dir=None, download=None, host=None):
-    """Find the toolchain: overrides, then the cache, then PATH, then a first fetch."""
+    """Find one consistent tool set: explicit overrides, then cache, then PATH."""
     host = host or detect_host()
     tools = {"host": host, "wabt_include": None, "wabt_runtime": None}
+    overrides = {}
     for key, env, name in (
         ("clang", "NV_CLANG", "clang"),
         ("wasm_ld", "NV_WASM_LD", "wasm-ld"),
         ("wasm2c", "NV_WASM2C", "wasm2c"),
+        ("wasm2wat", "NV_WABT_WASM_WAT", "wasm2wat"),
+        ("wat2wasm", "NV_WABT_WAT_WASM", "wat2wasm"),
         ("cc", "NV_CC", host["native_compiler"]),
         ("cxx", "NV_CXX", host["native_cxx"]),
         ("wabt_share", "NV_WABT_SHARE", None),
     ):
-        tools[key] = os.environ.get(env) or (shutil.which(name) if name else None)
-    if not all(tools[key] for key in REQUIRED_TOOLS):
-        cache = Path(cache_dir) if cache_dir is not None else toolchain_cache_dir()
-        cached = cached_toolchain(cache, host)
-        if cached is None:
-            try:
-                cached = fetch_toolchain(cache, host, download)
-            except ToolchainUnavailable as exc:
-                tools["toolchain_error"] = str(exc)
+        overrides[key] = os.environ.get(env)
+        tools[key] = overrides[key] or (shutil.which(name) if name else None)
+    cache = Path(cache_dir) if cache_dir is not None else toolchain_cache_dir()
+    cached = cached_toolchain(cache, host)
+    if cached:
+        # A cached host is one install: do not mix its wasm-ld with PATH's wabt.
+        for key in (*REQUIRED_TOOLS, "wabt_include", "wabt_runtime", "wabt_share"):
+            if not overrides.get(key):
+                tools[key] = cached[key]
+    elif not all(tools[key] for key in REQUIRED_TOOLS):
+        try:
+            cached = fetch_toolchain(cache, host, download)
+        except ToolchainUnavailable as exc:
+            tools["toolchain_error"] = str(exc)
         if cached:
             for key in (*REQUIRED_TOOLS, "wabt_include", "wabt_runtime", "wabt_share"):
-                tools[key] = tools[key] or cached[key]
+                if not overrides.get(key):
+                    tools[key] = cached[key]
     if tools["clang"]:
         try:
             tools["resource"] = run([tools["clang"], "-print-resource-dir"]).stdout.strip()
@@ -352,14 +413,31 @@ def run(command, **kwargs):
                           errors="replace", **kwargs)
 
 
+def check_out_path(decomp, out):
+    """Refuse an output folder inside the checkout or an unignored git work tree."""
+    decomp, out = Path(decomp).resolve(), Path(out).resolve()
+    if out == decomp or decomp in out.parents:
+        raise ValueError("--out must not be inside the decomp checkout")
+    parent = out if out.exists() else out.parent
+    top = run(["git", "-C", str(parent), "rev-parse", "--show-toplevel"])
+    if top.returncode:
+        return
+    root = Path(top.stdout.strip()).resolve()
+    if out == root:
+        raise ValueError("--out must not be the git work tree root")
+    if root in out.parents:
+        relative = out.relative_to(root).as_posix() + "/"
+        ignored = run(["git", "-C", str(root), "check-ignore", "--no-index", "-q", "--", relative])
+        if ignored.returncode:
+            raise ValueError("--out must be an ignored folder inside a git work tree")
+
+
 def wabt_tool(tools, name):
-    """Find a sibling of wasm2c in the same wabt install."""
-    override = os.environ.get("NV_WABT_" + name.upper().replace("2", "_").replace("-", "_"))
-    if override:
-        return override
-    wasm2c = tools.get("wasm2c")
-    sibling = Path(wasm2c).with_name(name) if wasm2c else None
-    return str(sibling) if sibling and sibling.is_file() else None
+    """Use the tool from the chosen set, then an override, then wasm2c's sibling."""
+    return (tools.get(name) or
+            os.environ.get("NV_WABT_" + name.upper().replace("2", "_").replace("-", "_")) or
+            (str(Path(tools["wasm2c"]).with_name(name))
+             if tools.get("wasm2c") and Path(tools["wasm2c"]).with_name(name).is_file() else None))
 
 
 def rewrite_addresses(wat, addresses):
@@ -375,7 +453,9 @@ def rewrite_addresses(wat, addresses):
     ``addresses`` maps an exported symbol name to its original address. Returns
     the rewritten WAT and the number of addresses bound.
     """
-    names = {func: name for name, func in WAT_EXPORT_RE.findall(wat)}
+    names = {func.lstrip("$"): func.lstrip("$")
+             for func in re.findall(r"\(func\s+\$([\w.]+)", wat)}
+    names.update({func.lstrip("$"): name for name, func in WAT_EXPORT_RE.findall(wat)})
     by_index = {}
     for _, offset, functions in ELEM_RE.findall(wat):
         if "__table_base" not in offset:
@@ -469,22 +549,65 @@ def parse_header(text):
     return imports, exports
 
 
-def export_manifest(exports, units):
-    """Attach each export's original address from the decomp's unit table."""
+def address_value(value):
+    """An address as a number, or None when it is not recorded."""
+    return None if value is None else (int(value, 0) if isinstance(value, str) else int(value))
+
+
+def address_literal(value):
+    """A 32-bit address literal that has the same value on every host's C compiler."""
+    return "0x%08xU" % ((address_value(value) or 0) & 0xffffffff)
+
+
+def collect_symbols(manifest, units):
+    """Every spelling of the decomp's symbols, from the manifest and the units."""
     symbols = {}
+    tables = [manifest.get("symbols", {})] + [unit.get("symbols", {}) for unit in units]
+    for table in tables:
+        for name, address in table.items():
+            for key in (name, name.lstrip("?_"), name.lstrip("?").split("@@", 1)[0]):
+                symbols.setdefault(key, address)
     for unit in units:
         for function in unit.get("functions", []):
-            symbol = function.get("symbol", "")
-            symbols.setdefault(symbol.lstrip("_"), function.get("address"))
-            symbols.setdefault(symbol, function.get("address"))
+            name, address = function.get("symbol", ""), function.get("address")
+            if not name or address is None:
+                continue
+            for key in (name, name.lstrip("?"), name.lstrip("_"), name.lstrip("_?")):
+                symbols.setdefault(key, address)
+    return symbols
+
+
+def symbol_address(symbols, name):
+    """Resolve an export or GOT name to a number, including its literal _name key."""
+    for key in (name, name.lstrip("?_"), name.lstrip("?"), "_" + name, name.upper()):
+        if key in symbols:
+            value = symbols[key]
+            return int(value, 0) if isinstance(value, str) else int(value)
+    return None
+
+
+def export_manifest(exports, units, symbols=None):
+    """Attach each export's original address from the decomp's symbol tables."""
+    symbols = symbols if symbols is not None else collect_symbols({}, units)
     result = []
     for index, entry in enumerate(exports):
-        va = symbols.get(entry["name"]) or symbols.get("_" + entry["name"])
+        va = symbol_address(symbols, entry["name"])
         arity = len(entry["params"])
         result.append({**entry, "address": va, "wrapper": "decomp_call_%d" % index,
                        "arity": arity if arity <= 5 and all(p in {"u32", "f32", "int", "unsigned int"}
                                                             for p in entry["params"]) else None})
     return result
+
+
+def got_values(globals_, func_globals, symbols):
+    """Bind every GOT.mem and GOT.func name, refusing a silent zero binding."""
+    mem = [symbol_address(symbols, name) for name in globals_]
+    funcs = {name: symbol_address(symbols, name) for name in func_globals}
+    unresolved = ([name for name, value in zip(globals_, mem) if value is None]
+                  + [name for name, value in funcs.items() if value is None])
+    if unresolved:
+        raise RuntimeError("unresolved GOT symbol(s): " + ", ".join(unresolved))
+    return mem, funcs
 
 
 def exports_from_units(units):
@@ -507,7 +630,7 @@ def exports_from_units(units):
                 continue
             exports.append({"source": unit.get("source", ""), "name": name, "cname": symbol,
                             "params": params, "result": function.get("result", "u32"),
-                            "address": function.get("address"), "arity": len(params)})
+                            "address": address_value(function.get("address")), "arity": len(params)})
     for index, entry in enumerate(exports):
         entry["wrapper"] = "decomp_call_%d" % index
     return exports, skipped
@@ -528,7 +651,8 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
              'struct w2c_GOT0x2Efunc { %s };' % " ".join("u32 f%d;" % i for i in range(len(func_globals))),
              'static struct w2c_env env; static w2c_mod inst; static struct w2c_GOT0x2Emem got;',
              'static struct w2c_GOT0x2Efunc fgot; static unsigned char* guest_base;',
-             'static uint32_t decomp_trap_code; static const char* decomp_trap_reason;', '']
+             'static uint32_t decomp_trap_code; static const char* decomp_trap_reason;',
+             "/* Trap state and wasm2c's jump buffer are process-global: one caller at a time. */", '']
     for index, name in enumerate(globals_):
         lines.append('u32* w2c_GOT0x2Emem_%s(struct w2c_GOT0x2Emem* g) { return &g->f%d; }'
                      % (name.replace(".", "_"), index))
@@ -538,7 +662,7 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
     lines += [
         'static uint32_t (*import_hook)(const char*, uint32_t*, uint32_t);',
         'void decomp_set_import_hook(uint32_t (*hook)(const char*, uint32_t*, uint32_t)) { import_hook = hook; }',
-        'static uint32_t decomp_import(const char* name, uint32_t* args, uint32_t n) {',
+        'static uint32_t decomp_call_import(const char* name, uint32_t* args, uint32_t n) {',
         '  return import_hook ? import_hook(name, args, n) : 0; }', '']
     for item in imports:
         if not item["function"]:
@@ -561,7 +685,7 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
             continue
         args = ", ".join("u32 a%d" % i for i in range(len(item["params"])))
         array = "{" + ", ".join("a%d" % i for i in range(len(item["params"]))) + "}" if item["params"] else "NULL"
-        lines.append('%s(struct w2c_env* e, %s) { (void)e; u32 a[] = %s; return decomp_import("%s", a, %d); }'
+        lines.append('%s(struct w2c_env* e, %s) { (void)e; u32 a[] = %s; return decomp_call_import("%s", a, %d); }'
                      % (item["decl"].split("(")[0].strip(), args, array, item["field"], len(item["params"])))
     lines += ['', 'int decomp_init(unsigned char* guest, uint64_t size, uint32_t entries,',
               '                 uint32_t* globals, uint32_t nglobals) {',
@@ -577,7 +701,7 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
         lines.append('  for (uint32_t i = 0; i < nglobals && i < %d && globals; i++) (&got.f0)[i] = globals[i];'
                      % len(globals_))
     for index, name in enumerate(func_globals):
-        lines.append('  fgot.f%d = %s;' % (index, func_values.get(name, "0")))
+        lines.append('  fgot.f%d = %s;' % (index, address_literal(func_values.get(name))))
     instantiate_args = "&inst"
     if len(instantiate.split(",")) >= 4:
         instantiate_args += ", &fgot, &got, &env"
@@ -589,9 +713,9 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
               '  w2c_mod_0x5F_wasm_apply_data_relocs(&inst);',
               '  w2c_mod_0x5F_wasm_call_ctors(&inst);']
     for entry in exports:
-        if entry["address"] and entry["arity"] is not None:
+        if entry["address"] is not None and entry["arity"] is not None:
             args = "WASM_RT_I32, " * (entry["arity"] + 1)
-            lines.append('  env.table.data[%s] = (wasm_rt_funcref_t){' % entry["address"])
+            lines.append('  env.table.data[%s] = (wasm_rt_funcref_t){' % address_literal(entry["address"]))
             lines.append('    wasm2c_mod_get_func_type(%d, 1, %s), (wasm_rt_function_ptr_t)%s, {NULL}, &inst };'
                          % (entry["arity"], args.rstrip(", "), entry["cname"]))
     lines += ['  return 0; }',
@@ -628,6 +752,34 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
 def fallback_shim(path, exports, host=None):
     """Write the host side of the native path with the same public ABI as the wasm one."""
     host = host or detect_host()
+    declarations, registrations, wrappers = [], [], []
+    for index, entry in enumerate(exports):
+        params = ", ".join("%s a%d" % (p, i) for i, p in enumerate(entry["params"]))
+        name, raw = entry["name"], entry.get("cname") or entry["name"]
+        if re.fullmatch(r"[A-Za-z_]\w*", name) and (
+                raw == name or re.fullmatch(r"_[A-Za-z_]\w*", raw)):
+            # Host C compilers emit undecorated C names on every supported host.
+            alias = name
+            declarations.append("%s %s(%s);" % (entry["result"], alias, params))
+        elif re.fullmatch(r"[A-Za-z_]\w*", raw):
+            alias = raw
+            declarations.append("%s %s(%s);" % (entry["result"], alias, params))
+        else:
+            # A decomp symbol such as ?f@@YAHH@Z must be declared exactly; the
+            # wrapper forwards to it rather than to a name the linker cannot find.
+            alias = "decomp_native_%d" % index
+            declarations.append('extern %s %s(%s) __asm__("%s");'
+                                % (entry["result"], alias, params, raw.replace('"', '\\"')))
+        if entry["address"] is not None:
+            registrations.append('  decomp_table_set(%s, (void*)%s, NULL, 0);'
+                                 % (address_literal(entry["address"]), alias))
+        values = ", ".join("((union {u32 u; f32 f;}){.u=a%d}).f" % i if p == "f32" else "a%d" % i
+                           for i, p in enumerate(entry["params"]))
+        call = "%s(%s)" % (alias, values)
+        body = ("%s; return 0;" % call if entry["result"] == "void" else
+                "return ((union {u32 u; f32 f;}){.f=(f32)(%s)}).u;" % call
+                if entry["result"] == "f32" else "return (u32)(%s);" % call)
+        wrappers.append('u32 %s(%s) { %s }' % (entry["wrapper"], params, body))
     lines = ['#include <stdint.h>', '#include <stdlib.h>', '#include <string.h>']
     lines += guest_memory_source(host).splitlines()
     lines += [
@@ -636,38 +788,35 @@ def fallback_shim(path, exports, host=None):
         'static void** table; static uint32_t table_size;',
         'static uint32_t (*import_hook)(const char*, u32*, u32);',
         'void decomp_set_import_hook(uint32_t (*hook)(const char*, u32*, u32)) { import_hook = hook; }',
-        'static uint32_t decomp_import(const char* name, u32* args, u32 n) {',
+        'static uint32_t decomp_call_import(const char* name, u32* args, u32 n) {',
         '  (void)name; (void)args; (void)n; return import_hook ? import_hook(name, args, n) : 0; }',
-        '',
+        'static uint32_t decomp_trap_code; static const char* decomp_trap_reason;',
+        "/* Trap state is process-global: call the library from one thread at a time. */",
+        'int decomp_table_set(uint32_t va, void* fn, void* instance, uint32_t params);',
+        '']
+    lines += declarations
+    lines += [
         'int decomp_init(unsigned char* guest, uint64_t size, uint32_t entries,',
         '                uint32_t* globals, uint32_t nglobals) {',
         '  (void)globals; (void)nglobals;',
         '  if (!guest) { int rc = decomp_reserve(&guest, size); if (rc) return rc; }',
         '  guest_base = guest;',
-        '  table = calloc(entries, sizeof(void*)); table_size = entries;',
+        '  table = calloc(entries, sizeof(void*)); table_size = entries;']
+    lines += registrations
+    lines += [
         '  return 0; }',
         'unsigned char* decomp_memory_base(void) { return guest_base; }',
         'int decomp_table_set(uint32_t va, void* fn, void* instance, uint32_t params) {',
         '  (void)instance; (void)params;',
         '  if (!table || va >= table_size) return -1;',
         '  table[va] = fn; return 0; }',
-        'static uint32_t decomp_trap_code; static const char* decomp_trap_reason;',
         'uint32_t decomp_last_trap_code(void) { return decomp_trap_code; }',
         'const char* decomp_last_trap_reason(void) { return decomp_trap_reason; }',
         'void decomp_clear_trap(void) { decomp_trap_code = 0; decomp_trap_reason = NULL; }',
         'int decomp_table_has(uint32_t va) {',
         '  return table && va < table_size && table[va] != NULL; }',
         '']
-    for entry in exports:
-        params = ", ".join("%s a%d" % (p, i) for i, p in enumerate(entry["params"]))
-        values = ", ".join("((union {u32 u; f32 f;}){.u=a%d}).f" % i if p == "f32" else "a%d" % i
-                           for i, p in enumerate(entry["params"]))
-        lines.append("%s %s(%s);" % (entry["result"], entry["name"], params))
-        call = "%s(%s)" % (entry["name"], values)
-        body = ("%s; return 0;" % call if entry["result"] == "void" else
-                "return ((union {u32 u; f32 f;}){.f=(f32)(%s)}).u;" % call
-                if entry["result"] == "f32" else "return (u32)(%s);" % call)
-        lines.append('u32 %s(%s) { %s }' % (entry["wrapper"], params, body))
+    lines += wrappers
     Path(path).write_text("\n".join(lines) + "\n")
 
 
@@ -703,15 +852,21 @@ def write_build_outputs(out, report, exports, globals_, global_values):
 
 
 def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
-          compiler=None, allow_fallback=True, force_fallback=False):
+          compiler=None, allow_fallback=False, force_fallback=False):
     """Build a native library and write report.json/report.md into the output folder."""
     decomp, out = Path(decomp), Path(out)
+    check_out_path(decomp, out)
     out.mkdir(parents=True, exist_ok=True)
     tools = toolchain if toolchain is not None else find_toolchain(download=download)
     host = tools.get("host") or detect_host()
     if force_fallback or (allow_fallback and not (toolchain_ready(tools) and wasm_runtime_ready(tools))):
         return build_cranelift(decomp, out, units, limit, host=host,
                                toolchain=tools, compiler=compiler)
+    if not (toolchain_ready(tools) and wasm_runtime_ready(tools)):
+        # The native fallback is a different module: it cannot be substituted
+        # silently, because it does not use the address-indexed guest table.
+        raise ToolchainUnavailable(tools.get("toolchain_error") or
+                                   "wasm toolchain is incomplete; use --cranelift for the native fallback")
     manifest = json.loads((decomp / "build" / "units.json").read_text())
     all_units = manifest.get("units", [])
     chosen = select_units(all_units, units, limit)
@@ -733,18 +888,13 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
                   "-o", wasm, *objects])
     if linked.returncode:
         raise RuntimeError("wasm-ld: " + linked.stderr.strip()[-500:])
-    generated = out / "mod.c"
-    converted = run([tools["wasm2c"], wasm, "-n", "mod", "-o", generated])
-    if converted.returncode:
-        raise RuntimeError("wasm2c: " + converted.stderr.strip()[-500:])
-    header = (out / "mod.h").read_text()
-    imports, exports = parse_header(header)
-    addresses = {}
+    symbols = collect_symbols(manifest, all_units)
+    addresses = dict(symbols)
     for unit in chosen:
         for function in unit.get("functions", []):
-            symbol = function.get("symbol", "").lstrip("_?")
-            if function.get("address"):
-                addresses[symbol] = function["address"]
+            symbol = function.get("symbol", "")
+            if symbol and function.get("address") is not None:
+                addresses.setdefault(symbol.lstrip("_?"), function["address"])
     wat2wat, wat2wasm = wabt_tool(tools, "wasm2wat"), wabt_tool(tools, "wat2wasm")
     if not wat2wat or not wat2wasm:
         raise RuntimeError("wabt needs wasm2wat and wat2wasm to bind function addresses")
@@ -759,6 +909,8 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
     converted = run([tools["wasm2c"], wasm, "-n", "mod", "-o", generated])
     if converted.returncode:
         raise RuntimeError("wasm2c: " + converted.stderr.strip()[-500:])
+    header = (out / "mod.h").read_text()
+    imports, exports = parse_header(header)
     globals_, func_globals = [], []
     for item in imports:
         match = re.search(r"w2c_GOT0x2E(mem|func)_(\w+)", item["name"])
@@ -766,15 +918,8 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
             globals_.append(match.group(2))
         elif item["module"] == "GOT.func" and match:
             func_globals.append(match.group(2))
-    exports = export_manifest(exports, chosen)
-    symbols = {}
-    for unit in all_units:
-        for name, address in unit.get("symbols", {}).items():
-            plain = name.lstrip("?_").split("@@", 1)[0]
-            symbols.setdefault(plain, address)
-            symbols.setdefault(name.lstrip("?"), address)
-    global_values = [symbols.get(name, symbols.get(name.upper(), "0x0")) for name in globals_]
-    func_values = {name: addresses.get(name, symbols.get(name, "0x0")) for name in func_globals}
+    exports = export_manifest(exports, chosen, symbols)
+    global_values, func_values = got_values(globals_, func_globals, symbols)
     shim = out / "shim.c"
     instantiate = re.search(r"void wasm2c_mod_instantiate\(([^;]+)\);", header).group(1)
     generate_shim(shim, imports, exports, globals_, instantiate, host=host,
@@ -799,13 +944,15 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
 
 
 def build_cranelift(decomp, out, units=None, limit=None, host=None, compiler=None, toolchain=None):
-    """Build the same module when clang and wasm2c are unavailable.
+    """Native fallback build, used only when explicitly asked for.
 
-    The engine supplies a Cranelift-backed compiler through `compiler`; the default
-    is the host C compiler. Both compile the same selected units and feed the shim
-    the same exports, ABI, report and manifest as the wasm path.
+    `compiler` can inject another compiler; the default is the host C compiler.
+    No Cranelift compiler is part of this tool. The native module keeps the
+    public ABI, exports, report and manifest, but it is not the wasm module with
+    its address-indexed table, so a build never swaps to it on its own.
     """
     decomp, out = Path(decomp), Path(out)
+    check_out_path(decomp, out)
     out.mkdir(parents=True, exist_ok=True)
     tools = toolchain or {}
     host = host or tools.get("host") or detect_host()
@@ -857,8 +1004,15 @@ def build_cranelift(decomp, out, units=None, limit=None, host=None, compiler=Non
     result = compile_([str(part) for part in link])
     if result.returncode or not library.is_file():
         raise RuntimeError("native compiler: " + result.stderr.strip()[-500:])
-    report = make_report(chosen, outcomes, library, exports, {}, rewrites)
-    write_build_outputs(out, report, exports, [], [])
+    # The native path has no wasm GOT slots: native code binds symbols at link
+    # time. The manifest still lists the symbol values so an engine reading
+    # `globals` sees the same addresses whichever path built the library.
+    symbols = collect_symbols(manifest, chosen)
+    globals_ = sorted(symbols)
+    global_values = [symbol_address(symbols, name) for name in globals_]
+    report = make_report(chosen, outcomes, library, exports,
+                         dict(zip(globals_, global_values)), rewrites)
+    write_build_outputs(out, report, exports, globals_, global_values)
     return report
 
 
@@ -901,10 +1055,10 @@ def parse_layout_dump(text):
                 key = (len(row.group(4)), field)
                 seen[key] = seen.get(key, 0) + 1
                 fields[(*key, seen[key])] = int(row.group(1))
-            found = re.search(r"sizeof=(\d+), (?:dsize=\d+, )?align=(\d+)", line)
-            if found:
-                size = (int(found.group(1)), int(found.group(2)))
-                break
+        # clang 19 closes the size line on the next one with nvsize/nvalign.
+        found = re.search(r"sizeof=(\d+),\s*(?:dsize=\d+,\s*)?align=(\d+)", "\n".join(lines[1:]))
+        if found:
+            size = (int(found.group(1)), int(found.group(2)))
         records.setdefault(name, {"fields": fields, "size": size})
     return records
 
@@ -1003,7 +1157,12 @@ def verify(library, manifest, vectors):
         return [{"reason": "backend is not built", "library": str(library)}]
     lib.decomp_init.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint32,
                                 ctypes.c_void_p, ctypes.c_uint32]
-    lib.decomp_init(None, GUEST_SIZE, data["table_entries"], None, 0)
+    values = [int(v, 0) if isinstance(v, str) else int(v)
+              for v in data.get("global_values", [])]
+    globals_array = (ctypes.c_uint32 * len(values))(*[v & 0xffffffff for v in values]) if values else None
+    status = lib.decomp_init(None, GUEST_SIZE, data["table_entries"], globals_array, len(values))
+    if status:
+        raise RuntimeError("decomp_init failed: %d" % status)
     exports = {e["name"]: e for e in data["exports"]}
     lib.decomp_memory_base.restype = ctypes.c_void_p
     base = lib.decomp_memory_base()
@@ -1076,6 +1235,9 @@ def main(argv=None):
         print("compared %d units, %d differences" % (len(report["compared"]), len(report["differences"])))
         for difference in report["differences"]:
             print(difference)
+        if not report["compared"]:
+            print("no unit was compared; the layout check did not run")
+            return 1
         return bool(report["differences"])
     elif args.command == "verify":
         mismatches = verify(args.library, args.manifest, args.vectors)
