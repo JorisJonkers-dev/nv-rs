@@ -254,6 +254,10 @@
      "name": "fork-hitch"
     },
     {
+     "kind": null,
+     "name": "libloading"
+    },
+    {
      "features": [],
      "kind": null,
      "name": "qos"

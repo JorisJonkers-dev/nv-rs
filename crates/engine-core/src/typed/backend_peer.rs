@@ -24,6 +24,9 @@ pub struct Export {
     pub float: bool,
 }
 
+/// The host side of the module's imports: an import's name and its guest words in, its result out.
+pub type ImportHook = Box<dyn Fn(&str, &[u32]) -> u32>;
+
 /// The part of the generated shim the peer uses. Kept separate from the loader so the routing, the
 /// trap and the return conversion can be tested without a built backend.
 pub trait Backend {
@@ -34,14 +37,14 @@ pub trait Backend {
     /// Clear the last trap, then report the trap the last call left, if any.
     fn trap(&self, clear: bool) -> Option<String>;
     /// Route the module's imports to the host.
-    fn set_import_hook(&self, hook: Box<dyn Fn(&str, &[u32]) -> u32>);
+    fn set_import_hook(&self, hook: ImportHook);
 }
 
 thread_local! {
     /// The engine an import call reaches while the backend runs. Set for one call only: the module's
     /// trap state is process-global too, so one call happens at a time.
     static ACTIVE_ENGINE: std::cell::Cell<*mut Engine> = const { std::cell::Cell::new(std::ptr::null_mut()) };
-    static IMPORT_HOOK: RefCell<Option<Box<dyn Fn(&str, &[u32]) -> u32>>> = const { RefCell::new(None) };
+    static IMPORT_HOOK: RefCell<Option<ImportHook>> = const { RefCell::new(None) };
     static LAST_TRAP: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
@@ -385,7 +388,7 @@ impl Backend for LibBackend {
         }
     }
 
-    fn set_import_hook(&self, hook: Box<dyn Fn(&str, &[u32]) -> u32>) {
+    fn set_import_hook(&self, hook: ImportHook) {
         IMPORT_HOOK.with(|h| *h.borrow_mut() = Some(hook));
         unsafe {
             if let Ok(f) = self.library.get::<unsafe extern "C" fn(
@@ -434,7 +437,7 @@ mod tests {
                 self.trap.borrow_mut().take()
             }
         }
-        fn set_import_hook(&self, _hook: Box<dyn Fn(&str, &[u32]) -> u32>) {}
+        fn set_import_hook(&self, _hook: ImportHook) {}
     }
 
     fn fake() -> BackendPeer<Fake> {
@@ -549,7 +552,7 @@ mod tests {
         fn trap(&self, _: bool) -> Option<String> {
             None
         }
-        fn set_import_hook(&self, _: Box<dyn Fn(&str, &[u32]) -> u32>) {}
+        fn set_import_hook(&self, _: ImportHook) {}
     }
 
     #[test]
