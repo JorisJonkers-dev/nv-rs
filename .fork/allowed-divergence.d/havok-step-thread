@@ -1,0 +1,1 @@
+crates/engine-havok/src/units/bshavok/bhkworld.rs  # the Havok step goes through the bhk seam and, in stepped runs, the nv-havok helper; the poster joins at once so recordings keep their byte order (nv-rs#944); drop when upstream provides the seam or its own component-thread step

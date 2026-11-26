@@ -52,6 +52,7 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::types::{NiAVObject, NiPoint3, NiTMap};
+use engine_core::bhk;
 
 // ---------------------------------------------------------------------
 // Constants of the exe's data read by the code (value in the exe).
@@ -1765,7 +1766,7 @@ pub fn fn_004b50f0(e: &mut Engine, this: Ptr<BhkSerializable>) -> Ptr<BhkSeriali
 pub fn fn_004b5120(e: &mut Engine, this: Ptr<BhkSerializable>) -> Ptr<BhkSerializable> {
     e.call(BHK_REF_OBJECT_CONSTRUCT, &args![this]);
     e.mem.set_u32(this.addr(), BHK_SERIALIZABLE_VTABLE);
-    e.set(this, BhkSerializable::pInfo, 0);
+    bhk::set(e, this, BhkSerializable::pInfo, 0);
     this
 }
 
@@ -5395,12 +5396,12 @@ mod tests {
     fn the_serializable_constructor_installs_its_vtable_and_clears_pinfo() {
         let mut e = bhk_engine();
         let this: Ptr<BhkSerializable> = e.new_object();
-        e.set(this, BhkSerializable::pInfo, 0x1234);
+        bhk::set(&mut e, this, BhkSerializable::pInfo, 0x1234);
         e.call_log = Some(vec![]);
         let r = e.call(0x004b_5120, &args![this]);
         assert_eq!(r.u32(), this.addr());
         assert_eq!(e.mem.u32(this.addr()), BHK_SERIALIZABLE_VTABLE);
-        assert_eq!(e.get(this, BhkSerializable::pInfo), 0);
+        assert_eq!(bhk::get(&e, this, BhkSerializable::pInfo), 0);
         assert_eq!(
             calls_to(&take_log(&mut e), BHK_REF_OBJECT_CONSTRUCT),
             vec![args![this]]

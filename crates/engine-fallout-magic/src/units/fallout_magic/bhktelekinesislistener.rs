@@ -3,6 +3,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_core::bhk;
 
 layout! {
     /// `bhkTelekinesisListener` (Xbox PDB), 0x1c bytes: three listener bases (vtables at
@@ -57,9 +58,9 @@ pub fn bhk_telekinesis_listener_finish(
     this: Ptr<BhkTelekinesisListener>,
     argument: u32,
 ) {
-    let reference = e.get(this, BhkTelekinesisListener::pRef);
+    let reference = bhk::get(&e, this, BhkTelekinesisListener::pRef);
     if reference != 0 {
-        let reference = e.get(this, BhkTelekinesisListener::pRef);
+        let reference = bhk::get(&e, this, BhkTelekinesisListener::pRef);
         let object = e.vcall(reference, 0x1d0, &[]).u32();
         let node = e
             .call(
@@ -71,8 +72,8 @@ pub fn bhk_telekinesis_listener_finish(
             e.call(BS_FADE_NODE_SET_LOD_MULT_TYPE, &args![node, 2u32]);
         }
     }
-    let filter = e.get(this, BhkTelekinesisListener::DefaultFilter);
-    let body = e.get(this, BhkTelekinesisListener::pBody);
+    let filter = bhk::get(&e, this, BhkTelekinesisListener::DefaultFilter);
+    let body = bhk::get(&e, this, BhkTelekinesisListener::pBody);
     e.call(BODY_SET_FILTER_00626CB0, &args![body, filter]);
     e.call(FINISH_HELPER_00807CB0, &args![this, argument]);
     if this.addr() != 0 {
@@ -178,9 +179,9 @@ mod tests {
         answer(e, 0x0300_000c, 0);
         let this: Ptr<BhkTelekinesisListener> = e.new_object();
         e.mem.set_u32(this.addr(), vtable);
-        e.set(this, BhkTelekinesisListener::pRef, reference);
-        e.set(this, BhkTelekinesisListener::pBody, 0x6000);
-        e.set(this, BhkTelekinesisListener::DefaultFilter, 0x0f0f);
+        bhk::set(e, this, BhkTelekinesisListener::pRef, reference);
+        bhk::set(e, this, BhkTelekinesisListener::pBody, 0x6000);
+        bhk::set(e, this, BhkTelekinesisListener::DefaultFilter, 0x0f0f);
         this
     }
 

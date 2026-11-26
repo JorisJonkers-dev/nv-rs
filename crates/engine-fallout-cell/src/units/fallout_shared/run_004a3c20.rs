@@ -16,6 +16,7 @@ use crate::prelude::*;
 use crate::units::fallout_shared::bgsdecalmanager::{
     BGSDecalEmitter, BGSDecalManager, DecalPlacement,
 };
+use engine_core::bhk;
 
 // ---------------------------------------------------------------------
 // Constants
@@ -182,8 +183,8 @@ pub fn fn_004a3f10(e: &mut Engine, this: Ptr, source: Ptr) {
 /// Initializes the collector output's scalars: `m_hitFraction` = 1.0 and
 /// `m_extraInfo` = -1.
 pub fn fn_004a3d60(e: &mut Engine, this: Ptr<HkpShapeRayCastCollectorOutput>) {
-    e.set(this, HkpShapeRayCastCollectorOutput::m_hitFraction, 1.0);
-    e.set(this, HkpShapeRayCastCollectorOutput::m_extraInfo, -1);
+    bhk::set(e, this, HkpShapeRayCastCollectorOutput::m_hitFraction, 1.0);
+    bhk::set(e, this, HkpShapeRayCastCollectorOutput::m_extraInfo, -1);
 }
 
 // Translated from 004a3d40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -202,15 +203,15 @@ pub fn fn_004a3d40(
 /// Initializes the shape ray cast output: `m_shapeKeyIndex` = 0 and the
 /// first shape key = -1.
 pub fn fn_004a3d80(e: &mut Engine, this: Ptr<HkpShapeRayCastOutput>) {
-    e.set(this, HkpShapeRayCastOutput::m_shapeKeyIndex, 0);
-    e.set(this, HkpShapeRayCastOutput::m_shapeKey_0, -1);
+    bhk::set(e, this, HkpShapeRayCastOutput::m_shapeKeyIndex, 0);
+    bhk::set(e, this, HkpShapeRayCastOutput::m_shapeKey_0, -1);
 }
 
 // Translated from 004a3d20 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `hkpShapeRayCastOutput` constructor: the collector output's
 /// constructor, then `fn_004a3d80`. Returns `this`.
 pub fn fn_004a3d20(e: &mut Engine, this: Ptr<HkpShapeRayCastOutput>) -> Ptr<HkpShapeRayCastOutput> {
-    fn_004a3d40(e, this.at(HkpShapeRayCastOutput::collector_output));
+    fn_004a3d40(e, bhk::at(this, HkpShapeRayCastOutput::collector_output));
     fn_004a3d80(e, this);
     this
 }
@@ -219,8 +220,8 @@ pub fn fn_004a3d20(e: &mut Engine, this: Ptr<HkpShapeRayCastOutput>) -> Ptr<HkpS
 /// `hkpWorldRayCastOutput` constructor: the shape output's constructor and
 /// a null `m_rootCollidable`. Returns `this`.
 pub fn fn_004a3d00(e: &mut Engine, this: Ptr<HkpWorldRayCastOutput>) -> Ptr<HkpWorldRayCastOutput> {
-    fn_004a3d20(e, this.at(HkpWorldRayCastOutput::shape_output));
-    e.set(this, HkpWorldRayCastOutput::m_rootCollidable, Ptr::NULL);
+    fn_004a3d20(e, bhk::at(this, HkpWorldRayCastOutput::shape_output));
+    bhk::set(e, this, HkpWorldRayCastOutput::m_rootCollidable, Ptr::NULL);
     this
 }
 
@@ -229,13 +230,16 @@ pub fn fn_004a3d00(e: &mut Engine, this: Ptr<HkpWorldRayCastOutput>) -> Ptr<HkpW
 /// the `hkBool` filter flag (false) and clears `m_filterInfo`. Returns
 /// `this`.
 pub fn fn_004a3cc0(e: &mut Engine, this: Ptr<HkpWorldRayCastInput>) -> Ptr<HkpWorldRayCastInput> {
-    let from = this.at(HkpWorldRayCastInput::m_from);
-    let to = this.at(HkpWorldRayCastInput::m_to);
-    let filter = this.byte_add(HkpWorldRayCastInput::m_enableShapeCollectionFilter.off);
+    let from = bhk::at(this, HkpWorldRayCastInput::m_from);
+    let to = bhk::at(this, HkpWorldRayCastInput::m_to);
+    let filter = bhk::byte_add(
+        this,
+        HkpWorldRayCastInput::m_enableShapeCollectionFilter.off,
+    );
     typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, from));
     typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, to));
     e.call(HK_BOOL_CONSTRUCT, &args![filter, 0u32]);
-    e.set(this, HkpWorldRayCastInput::m_filterInfo, 0);
+    bhk::set(e, this, HkpWorldRayCastInput::m_filterInfo, 0);
     this
 }
 
@@ -246,15 +250,15 @@ pub fn fn_004a3cc0(e: &mut Engine, this: Ptr<HkpWorldRayCastInput>) -> Ptr<HkpWo
 /// `hkLength` and clears the cache, both collectors and `bPickFailed`.
 /// Returns `this`.
 pub fn fn_004a3c20(e: &mut Engine, this: Ptr<BhkPickData>) -> Ptr<BhkPickData> {
-    fn_004a3cc0(e, this.at(BhkPickData::input));
-    fn_004a3d00(e, this.at(BhkPickData::output));
+    fn_004a3cc0(e, bhk::at(this, BhkPickData::input));
+    fn_004a3d00(e, bhk::at(this, BhkPickData::output));
     let default_length = e.call(DEFAULT_LENGTH_VECTOR, &args![]).ptr::<()>();
-    let length = this.at(BhkPickData::hkLength).cast();
+    let length = bhk::at(this, BhkPickData::hkLength).cast();
     fn_004a3c90(e, length, default_length);
-    e.set(this, BhkPickData::pCache, Ptr::NULL);
-    e.set(this, BhkPickData::pCloseCollector, Ptr::NULL);
-    e.set(this, BhkPickData::pAllCollector, Ptr::NULL);
-    e.set(this, BhkPickData::bPickFailed, false);
+    bhk::set(e, this, BhkPickData::pCache, Ptr::NULL);
+    bhk::set(e, this, BhkPickData::pCloseCollector, Ptr::NULL);
+    bhk::set(e, this, BhkPickData::pAllCollector, Ptr::NULL);
+    bhk::set(e, this, BhkPickData::bPickFailed, false);
     this
 }
 
@@ -297,7 +301,7 @@ pub fn fn_004a3da0(e: &mut Engine, this: Ptr, input: Ptr) {
 // Translated from 004a3f90 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bhkPickData`: copies the vector at `vector` to `hkLength`.
 pub fn fn_004a3f90(e: &mut Engine, this: Ptr<BhkPickData>, vector: Ptr) {
-    fn_004a3f10(e, this.at(BhkPickData::hkLength).cast(), vector);
+    fn_004a3f10(e, bhk::at(this, BhkPickData::hkLength).cast(), vector);
 }
 
 // Translated from 004a3f40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -306,7 +310,10 @@ pub fn fn_004a3f90(e: &mut Engine, this: Ptr<BhkPickData>, vector: Ptr) {
 pub fn fn_004a3f40(e: &mut Engine, this: Ptr<BhkPickData>, to: Ptr) {
     let default_length = e.call(DEFAULT_LENGTH_VECTOR, &args![]).ptr::<()>();
     fn_004a3f90(e, this, default_length);
-    let m_to = this.at(BhkPickData::input).at(HkpWorldRayCastInput::m_to);
+    let m_to = bhk::at(
+        bhk::at(this, BhkPickData::input),
+        HkpWorldRayCastInput::m_to,
+    );
     fn_004a3f10(e, m_to.cast(), to);
 }
 
@@ -329,15 +336,15 @@ pub fn fn_004a3f70(e: &mut Engine, this: Ptr<BhkPickData>, value: u32) {
         e.mem.set_u32(slot.addr(), value);
         typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, slot))
     });
-    let input = this.at(BhkPickData::input);
-    e.set(input, HkpWorldRayCastInput::m_filterInfo, loaded);
+    let input = bhk::at(this, BhkPickData::input);
+    bhk::set(e, input, HkpWorldRayCastInput::m_filterInfo, loaded);
 }
 
 // Translated from 004a3fb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `bhkPickData`: sets `pAllCollector` and clears `pCloseCollector`.
 pub fn fn_004a3fb0(e: &mut Engine, this: Ptr<BhkPickData>, collector: Ptr) {
-    e.set(this, BhkPickData::pAllCollector, collector);
-    e.set(this, BhkPickData::pCloseCollector, Ptr::NULL);
+    bhk::set(e, this, BhkPickData::pAllCollector, collector);
+    bhk::set(e, this, BhkPickData::pCloseCollector, Ptr::NULL);
 }
 
 // ---------------------------------------------------------------------
@@ -726,11 +733,11 @@ mod tests {
         let output: Ptr<HkpShapeRayCastCollectorOutput> = e.new_object();
         e.call(0x004a_3d60, &args![output]);
         assert_eq!(
-            e.get(output, HkpShapeRayCastCollectorOutput::m_hitFraction),
+            bhk::get(&e, output, HkpShapeRayCastCollectorOutput::m_hitFraction),
             1.0
         );
         assert_eq!(
-            e.get(output, HkpShapeRayCastCollectorOutput::m_extraInfo),
+            bhk::get(&e, output, HkpShapeRayCastCollectorOutput::m_extraInfo),
             -1
         );
     }
@@ -748,7 +755,7 @@ mod tests {
             vec![vec![output.addr()]]
         );
         assert_eq!(
-            e.get(output, HkpShapeRayCastCollectorOutput::m_hitFraction),
+            bhk::get(&e, output, HkpShapeRayCastCollectorOutput::m_hitFraction),
             1.0
         );
     }
@@ -757,24 +764,36 @@ mod tests {
     fn shape_output_initializer_sets_key_and_index() {
         let mut e = test_engine();
         let output: Ptr<HkpShapeRayCastOutput> = e.new_object();
-        e.set(output, HkpShapeRayCastOutput::m_shapeKeyIndex, 5);
+        bhk::set(&mut e, output, HkpShapeRayCastOutput::m_shapeKeyIndex, 5);
         e.call(0x004a_3d80, &args![output]);
-        assert_eq!(e.get(output, HkpShapeRayCastOutput::m_shapeKeyIndex), 0);
-        assert_eq!(e.get(output, HkpShapeRayCastOutput::m_shapeKey_0), -1);
+        assert_eq!(
+            bhk::get(&e, output, HkpShapeRayCastOutput::m_shapeKeyIndex),
+            0
+        );
+        assert_eq!(
+            bhk::get(&e, output, HkpShapeRayCastOutput::m_shapeKey_0),
+            -1
+        );
     }
 
     #[test]
     fn shape_output_constructor_runs_both_parts() {
         let mut e = test_engine();
         let output: Ptr<HkpShapeRayCastOutput> = e.new_object();
-        e.set(output, HkpShapeRayCastOutput::m_shapeKeyIndex, 5);
+        bhk::set(&mut e, output, HkpShapeRayCastOutput::m_shapeKeyIndex, 5);
         let back = e.call(0x004a_3d20, &args![output]).u32();
         assert_eq!(back, output.addr());
-        assert_eq!(e.get(output, HkpShapeRayCastOutput::m_shapeKeyIndex), 0);
-        assert_eq!(e.get(output, HkpShapeRayCastOutput::m_shapeKey_0), -1);
-        let collector = output.at(HkpShapeRayCastOutput::collector_output);
         assert_eq!(
-            e.get(collector, HkpShapeRayCastCollectorOutput::m_hitFraction),
+            bhk::get(&e, output, HkpShapeRayCastOutput::m_shapeKeyIndex),
+            0
+        );
+        assert_eq!(
+            bhk::get(&e, output, HkpShapeRayCastOutput::m_shapeKey_0),
+            -1
+        );
+        let collector = bhk::at(output, HkpShapeRayCastOutput::collector_output);
+        assert_eq!(
+            bhk::get(&e, collector, HkpShapeRayCastCollectorOutput::m_hitFraction),
             1.0
         );
     }
@@ -783,7 +802,8 @@ mod tests {
     fn world_output_constructor_clears_the_root_collidable() {
         let mut e = test_engine();
         let output: Ptr<HkpWorldRayCastOutput> = e.new_object();
-        e.set(
+        bhk::set(
+            &mut e,
             output,
             HkpWorldRayCastOutput::m_rootCollidable,
             Ptr::new(0x77),
@@ -793,16 +813,17 @@ mod tests {
         assert!(e
             .get(output, HkpWorldRayCastOutput::m_rootCollidable)
             .is_null());
-        let shape = output.at(HkpWorldRayCastOutput::shape_output);
-        assert_eq!(e.get(shape, HkpShapeRayCastOutput::m_shapeKey_0), -1);
+        let shape = bhk::at(output, HkpWorldRayCastOutput::shape_output);
+        assert_eq!(bhk::get(&e, shape, HkpShapeRayCastOutput::m_shapeKey_0), -1);
     }
 
     #[test]
     fn world_input_constructor_builds_both_vectors_and_clears_the_filter() {
         let mut e = test_engine();
         let input: Ptr<HkpWorldRayCastInput> = e.new_object();
-        e.set(input, HkpWorldRayCastInput::m_filterInfo, 9);
-        e.set(
+        bhk::set(&mut e, input, HkpWorldRayCastInput::m_filterInfo, 9);
+        bhk::set(
+            &mut e,
             input,
             HkpWorldRayCastInput::m_enableShapeCollectionFilter,
             1,
@@ -819,9 +840,13 @@ mod tests {
             calls(&e, &log, HK_BOOL_CONSTRUCT),
             vec![vec![input.addr() + 0x20, 0]]
         );
-        assert_eq!(e.get(input, HkpWorldRayCastInput::m_filterInfo), 0);
+        assert_eq!(bhk::get(&e, input, HkpWorldRayCastInput::m_filterInfo), 0);
         assert_eq!(
-            e.get(input, HkpWorldRayCastInput::m_enableShapeCollectionFilter),
+            bhk::get(
+                &e,
+                input,
+                HkpWorldRayCastInput::m_enableShapeCollectionFilter
+            ),
             0
         );
     }
@@ -831,17 +856,17 @@ mod tests {
         let mut e = test_engine();
         set_vector(&mut e, DEFAULT_VECTOR, [10.0, 20.0, 30.0, 40.0]);
         let pick: Ptr<BhkPickData> = e.new_object();
-        e.set(pick, BhkPickData::pCache, Ptr::new(1));
-        e.set(pick, BhkPickData::pCloseCollector, Ptr::new(2));
-        e.set(pick, BhkPickData::pAllCollector, Ptr::new(3));
-        e.set(pick, BhkPickData::bPickFailed, true);
+        bhk::set(&mut e, pick, BhkPickData::pCache, Ptr::new(1));
+        bhk::set(&mut e, pick, BhkPickData::pCloseCollector, Ptr::new(2));
+        bhk::set(&mut e, pick, BhkPickData::pAllCollector, Ptr::new(3));
+        bhk::set(&mut e, pick, BhkPickData::bPickFailed, true);
         let back = e.call(0x004a_3c20, &args![pick]).u32();
         assert_eq!(back, pick.addr());
         assert_eq!(vector(&e, pick.addr() + 0x90), [10.0, 20.0, 30.0, 40.0]);
-        assert!(e.get(pick, BhkPickData::pCache).is_null());
-        assert!(e.get(pick, BhkPickData::pCloseCollector).is_null());
-        assert!(e.get(pick, BhkPickData::pAllCollector).is_null());
-        assert!(!e.get(pick, BhkPickData::bPickFailed));
+        assert!(bhk::get(&e, pick, BhkPickData::pCache).is_null());
+        assert!(bhk::get(&e, pick, BhkPickData::pCloseCollector).is_null());
+        assert!(bhk::get(&e, pick, BhkPickData::pAllCollector).is_null());
+        assert!(!bhk::get(&e, pick, BhkPickData::bPickFailed));
         assert_eq!(e.mem.u32(pick.addr() + 0x70), 0);
         assert_eq!(e.mem.u32(pick.addr() + 0x50), 0xffff_ffff);
     }
@@ -931,10 +956,13 @@ mod tests {
     fn pick_all_collector_replaces_the_closest_collector() {
         let mut e = test_engine();
         let pick: Ptr<BhkPickData> = e.new_object();
-        e.set(pick, BhkPickData::pCloseCollector, Ptr::new(0x55));
+        bhk::set(&mut e, pick, BhkPickData::pCloseCollector, Ptr::new(0x55));
         e.call(0x004a_3fb0, &args![pick, 0x66u32]);
-        assert_eq!(e.get(pick, BhkPickData::pAllCollector), Ptr::new(0x66));
-        assert!(e.get(pick, BhkPickData::pCloseCollector).is_null());
+        assert_eq!(
+            bhk::get(&e, pick, BhkPickData::pAllCollector),
+            Ptr::new(0x66)
+        );
+        assert!(bhk::get(&e, pick, BhkPickData::pCloseCollector).is_null());
     }
 
     fn decal_engine() -> Engine {

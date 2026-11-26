@@ -3,6 +3,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_core::bhk;
 
 /// The `bhkWaterListener` vtable (RTTI `.?AVbhkWaterListener@@`, read
 /// through its complete object locator).
@@ -29,10 +30,10 @@ layout! {
 /// clears the entity list (+0x0C, +0x10) and `iFlag`, sets `bEnabled` and
 /// stores the `bhkWaterListener` vtable. Returns `this` (in `EAX`).
 pub fn fn_00cb75d0(e: &mut Engine, this: Ptr<BhkWaterListener>) -> Ptr<BhkWaterListener> {
-    e.set(this, BhkWaterListener::Entities_item, 0);
-    e.set(this, BhkWaterListener::Entities_next, 0);
-    e.set(this, BhkWaterListener::iFlag, 0);
-    e.set(this, BhkWaterListener::bEnabled, true);
+    bhk::set(e, this, BhkWaterListener::Entities_item, 0);
+    bhk::set(e, this, BhkWaterListener::Entities_next, 0);
+    bhk::set(e, this, BhkWaterListener::iFlag, 0);
+    bhk::set(e, this, BhkWaterListener::bEnabled, true);
     e.mem.set_u32(this.addr(), WATER_LISTENER_VTABLE);
     this
 }
@@ -59,10 +60,10 @@ mod tests {
         let back = e.call(0x00cb_75d0, &args![this]).u32();
         assert_eq!(back, this.addr());
         assert_eq!(e.mem.u32(this.addr()), WATER_LISTENER_VTABLE);
-        assert_eq!(e.get(this, BhkWaterListener::iFlag), 0);
+        assert_eq!(bhk::get(&e, this, BhkWaterListener::iFlag), 0);
         // Only the byte is written: the other three bytes of the word stay.
         assert_eq!(e.mem.u32(this.addr() + 8), 0xffff_ff01);
-        assert_eq!(e.get(this, BhkWaterListener::Entities_item), 0);
-        assert_eq!(e.get(this, BhkWaterListener::Entities_next), 0);
+        assert_eq!(bhk::get(&e, this, BhkWaterListener::Entities_item), 0);
+        assert_eq!(bhk::get(&e, this, BhkWaterListener::Entities_next), 0);
     }
 }

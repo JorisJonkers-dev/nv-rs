@@ -37,6 +37,7 @@
 use super::tesobjectrefr::*;
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_core::bhk;
 
 /// `this + 0x44`: the reference's embedded `ExtraDataList` (`005d43c0`).
 const GET_EXTRA_LIST: u32 = 0x005d_43c0;
@@ -1452,7 +1453,12 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         let cinfo = locals.alloc(e, BhkRigidBodyCinfo::SIZE);
         e.call(0x00c8_f510, &args![cinfo]);
         let cinfo_ptr = Ptr::<BhkRigidBodyCinfo>::new(cinfo);
-        e.set(cinfo_ptr, BhkRigidBodyCinfo::m_shape, Ptr::<()>::new(shape));
+        bhk::set(
+            e,
+            cinfo_ptr,
+            BhkRigidBodyCinfo::m_shape,
+            Ptr::<()>::new(shape),
+        );
         e.call(0x0056_d360, &args![cinfo, 5u32]);
         let position_vector = locals.alloc(e, 16);
         typed_call!(
@@ -1482,7 +1488,8 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         e.call(0x004a_3e00, &args![position_vector, position]);
         e.call(0x0056_d300, &args![cinfo, position_vector]);
         e.call(0x0056_d320, &args![cinfo, rotation]);
-        e.set(
+        bhk::set(
+            e,
             cinfo_ptr,
             BhkRigidBodyCinfo::m_collisionFilterInfo,
             WATER_COLLISION_FILTER_INFO,
@@ -1529,7 +1536,12 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         let cinfo = locals.alloc(e, BhkRigidBodyCinfo::SIZE);
         e.call(0x00c8_f510, &args![cinfo]);
         let cinfo_ptr = Ptr::<BhkRigidBodyCinfo>::new(cinfo);
-        e.set(cinfo_ptr, BhkRigidBodyCinfo::m_shape, Ptr::<()>::new(shape));
+        bhk::set(
+            e,
+            cinfo_ptr,
+            BhkRigidBodyCinfo::m_shape,
+            Ptr::<()>::new(shape),
+        );
         e.call(0x0056_d360, &args![cinfo, 5u32]);
         let position_vector = locals.alloc(e, 16);
         typed_call!(
@@ -1552,7 +1564,8 @@ pub fn tes_object_refr_init_havok_for_placeable_water(e: &mut Engine, this: Ptr<
         e.call(0x0056_1500, &args![rotation, local_rotation]);
         e.call(0x0056_d300, &args![cinfo, position_vector]);
         e.call(0x0056_d320, &args![cinfo, rotation]);
-        e.set(
+        bhk::set(
+            e,
             cinfo_ptr,
             BhkRigidBodyCinfo::m_collisionFilterInfo,
             WATER_COLLISION_FILTER_INFO,
