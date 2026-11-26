@@ -53,8 +53,11 @@ report in the tree differs from the generated one; a missing report fails too, w
 says it is missing. The command's output is the test seam: the tests in `src/main.rs` and
 `tests/cli.rs` build their own declarations and sources from scratch, and assert the generated
 rows, counts, example functions, skip counts and `--check` result. The fork's `task component-census`
-checks the report and `task check` includes it; `fork-ci.yml`'s "Repository checks" job runs
-`--check` on every pull request so the committed table cannot go stale.
+checks the report and `task check` includes it. In `fork-ci.yml`, "Repository checks" runs those tests
+on every pull request and push, and runs `--check` only on a pull request that changes this tool or
+the report: an engine-only change does not fail on a report generated from an older commit. On a push
+to `fork`, "Catalogue results" regenerates the report with the other generated reports, and
+"Catalogue reports" commits it with them. See [docs/fork/CI.md](../../docs/fork/CI.md), "Generated reports".
 
 The tool is a standalone crate with no dependencies, in the pattern of `scripts/ledger` and
 `research/families`. Its path is fork-owned (`.fork/overlay-paths`).

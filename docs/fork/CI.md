@@ -88,6 +88,26 @@ dependencies (the check says exactly which are missing). A crate in two componen
   jobs, because `engine` depends on nearly everything. So "affected only" helps the other 11 % and the small components; the slow
   path is shortened by the split, not by selection.
 
+## Generated reports
+
+The coverage catalogue reports under `docs/fork/coverage/` and the component census
+(`docs/fork/COMPONENT-CENSUS.md`, written by `research/component-census`) are generated, not edited by
+hand. The census reads field accesses in all of `crates/`, so an engine change makes its committed report
+stale before the change lands. The pipeline handles the two reports alike:
+
+- **On a pull request,** "Repository checks" runs the census tool's own tests. It runs `--check` only when
+  the pull request changes `research/component-census/` or the report itself: such a pull request fails
+  when its committed report does not match a fresh run. A pull request that changes only engine code does
+  not fail on a stale census.
+- **On a push to `fork`,** "Catalogue results" renders the census and the coverage reports in a clean
+  worktree of the tested commit and uploads them. After `Pipeline Complete` passes, "Catalogue reports"
+  commits the changed files as raul-progress-bot with
+  `chore(catalogue): update the generated reports [skip ci]`, so the commit does not start another run.
+  It commits only when the branch head is the tested commit (or the progress bot's own commit on top of it).
+- Pull requests do not carry generated files: "Progress counts" refuses changes under
+  `docs/fork/coverage/`. A pull request that changes the census tool may carry a regenerated report, but
+  it has to match the tool's output.
+
 ## What is measured and what is estimated
 
 Measured (read from logs and the API): upstream's single job, 147 minutes, of which 117 minutes are the engine
@@ -135,6 +155,7 @@ part of the pipeline.
 | the build workflow | `.github/workflows/fork-build.yml` |
 | the log, groups, annotations, timings | `scripts/fork/run-component.sh`, `libtest_summary.py`, `clippy_annotations.py` |
 | the run summary | `scripts/fork/pipeline_summary.py` |
+| the census tool and its generated report | `research/component-census/`, `docs/fork/COMPONENT-CENSUS.md` |
 | tests of all of the above (`task scripts`) | `scripts/fork/tests/` (a stored graph of the workspace: `fixtures/workspace-graph.json`) |
 
 Refresh the stored graph after upstream changes the workspace: `python3 -I scripts/fork/components.py fixture --write` (the live
