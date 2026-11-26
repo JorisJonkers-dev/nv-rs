@@ -226,17 +226,21 @@ mod tests {
         );
         let defaults = parse_switch(None, &families).unwrap();
         for (f, m) in families.iter().zip(&defaults) {
-            assert_eq!(*m == Mode::On, f.past_gate, "{}", f.name);
+            // Past its gate a family is on, in its stage-2 form when it moves by default (nv-rs#946).
+            assert_eq!(*m != Mode::Off, f.past_gate, "{}", f.name);
+            assert_eq!(*m, engine_core::typed::default_mode(f), "{}", f.name);
         }
+        let lockfree = families.iter().position(|f| f.name == "lockfree").unwrap();
+        assert_eq!(defaults[lockfree], Mode::Freed);
         let off = parse_switch(Some("off"), &families).unwrap();
         assert!(off.iter().all(|m| *m == Mode::Off));
         let one_off = parse_switch(Some("shader:off"), &families).unwrap();
         assert_eq!(one_off[3], Mode::Off);
-        assert!(one_off.iter().filter(|m| **m == Mode::On).count() == 26);
+        assert!(one_off.iter().filter(|m| **m != Mode::Off).count() == 26);
         // `NV_TYPED=geometry:off` still turns the geometry family (index 12) off, and only it.
         let geometry_off = parse_switch(Some("geometry:off"), &families).unwrap();
         assert_eq!(geometry_off[12], Mode::Off);
-        assert!(geometry_off.iter().filter(|m| **m == Mode::On).count() == 26);
+        assert!(geometry_off.iter().filter(|m| **m != Mode::Off).count() == 26);
     }
 
     /// No two of this crate's families (with the core's) hold the same address, past their gate or not:
