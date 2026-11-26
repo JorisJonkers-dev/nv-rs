@@ -3583,12 +3583,17 @@ pub fn bhk_world_update(e: &mut Engine, this: Ptr<BhkWorld>) -> bool {
                 let system = e.global::<u32>(GLOBAL_MULTITHREADED_SYSTEM);
                 let first = e.mem.u32(system + 0x14);
                 let second = e.mem.u32(system + 0x18);
-                e.call(
+                // Havok's step is the one piece of `bhkWorld::Update` that moves to the
+                // `nv-havok` helper in stepped runs (`engine_core::bhk`); the poster joins at
+                // once, so the calls around it keep their order and the recordings stay byte
+                // for byte the same.
+                engine_core::bhk::step(
+                    e,
                     WORLD_STEP_MULTITHREADED,
                     &args![world, first, second, delta],
                 );
             } else {
-                e.call(WORLD_STEP_DELTA_TIME, &args![world, delta]);
+                engine_core::bhk::step(e, WORLD_STEP_DELTA_TIME, &args![world, delta]);
             }
         }
         let length = e.global::<f32>(GLOBAL_STEP_LENGTH);
