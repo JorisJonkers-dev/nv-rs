@@ -55,6 +55,8 @@ pub const FAMILY: FamilyId = FamilyId::new(1);
 /// street at 2560x1440 8x AA 52.3 to 57.7 fps (+10.3%), the sky above it 117 to 134 fps (+14%). On unless
 /// `NV_TYPED` says otherwise (`NV_TYPED=off` or `lockfree:off`). Stage 2 (the pilot, `store.rs`): `lockfree:dual` mirrors
 /// the maps' body in the slab and compares every access; `lockfree:moved` (K1) and `lockfree:freed` (K2) move it there.
+/// Moved by default (nv-rs#946, `typed::MOVED_BY_DEFAULT`): with no switch the family is in K2. Rolled back by
+/// `NV_TYPED=lockfree` (stage 1), `lockfree:moved` (K1) or `lockfree:off` (the translation).
 pub static LOCKFREE: Family = Family {
     name: "lockfree",
     id: FAMILY,

@@ -208,13 +208,34 @@ pub enum Mode {
     Freed,
 }
 
-/// `NV_TYPED`'s answer for each of `families`. `None` or an empty text is the default: a family is
-/// on when it is past its gate. Otherwise a comma-separated list read left to right, each item
+/// The families whose default form is a stage-2 one (nv-rs#946): past the gates of the dual run, K1,
+/// the save check and K2, the family's objects live in host memory unless `NV_TYPED` says otherwise.
+/// The rollback is stage 1, `NV_TYPED=<family>` (on, objects in the game's heap), or `<family>:off`
+/// (the translation); `<family>:moved` is K1 and `<family>:dual` the dual run. Every name is a
+/// family with a stage-2 form ([`Family::stage2`]), which a test checks.
+pub const MOVED_BY_DEFAULT: &[(&str, Mode)] = &[("lockfree", Mode::Freed)];
+
+/// The form `family` has when `NV_TYPED` is silent about it: [`Mode::Off`] before its gate, its
+/// [`MOVED_BY_DEFAULT`] form when it has one, else [`Mode::On`].
+pub fn default_mode(family: &Family) -> Mode {
+    if !family.past_gate {
+        return Mode::Off;
+    }
+    MOVED_BY_DEFAULT
+        .iter()
+        .find(|(name, _)| *name == family.name)
+        .map_or(Mode::On, |&(_, mode)| mode)
+}
+
+/// `NV_TYPED`'s answer for each of `families`. `None` or an empty text is the default
+/// ([`default_mode`]): a family is on when it is past its gate, in its stage-2 form when it moves
+/// by default ([`MOVED_BY_DEFAULT`]). Otherwise a comma-separated list read left to right, each item
 /// changing what the items before it left:
 ///
 /// - `off`: every family off;
 /// - `all`: back to the default;
-/// - `<family>`: that family on, past its gate or not (how a family is tried before its gate);
+/// - `<family>`: that family on in stage 1 (its objects in the game's heap), past its gate or not
+///   (how a family is tried before its gate, and the rollback of a family that moves by default);
 /// - `<family>:dual`: on, with both forms live;
 /// - `<family>:moved`: on, its objects moved out of the game's heap, the heap kept as stage 1's
 ///   (K1, [`Mode::Moved`]);
@@ -224,12 +245,7 @@ pub enum Mode {
 /// An unknown family or mode is an error: a mistyped switch must not leave a comparison run on the
 /// wrong code without saying so.
 pub fn parse_switch(spec: Option<&str>, families: &[&Family]) -> Result<Vec<Mode>, String> {
-    let default = || -> Vec<Mode> {
-        families
-            .iter()
-            .map(|f| if f.past_gate { Mode::On } else { Mode::Off })
-            .collect()
-    };
+    let default = || -> Vec<Mode> { families.iter().map(|f| default_mode(f)).collect() };
     let mut modes = default();
     let items = spec
         .unwrap_or("")
@@ -1102,6 +1118,38 @@ mod tests {
             Ok(vec![Off, On])
         );
         assert_eq!(COMPARED_RUN_VARIABLES, ["NV_TRACE_OUT", "NV_TRACE_LIST"]);
+    }
+
+    /// A family that moves by default (nv-rs#946) is in its stage-2 form with no switch; `NV_TYPED`
+    /// names its other forms, and stage 1 is the rollback.
+    #[test]
+    fn a_family_that_moves_by_default_is_in_its_stage_2_form() {
+        use Mode::*;
+        static MOVER: Family = Family {
+            name: "lockfree",
+            id: FamilyId::new(5),
+            past_gate: true,
+            threads: Threads::Both,
+            stage2: true,
+            funcs: || vec![],
+        };
+        let table: &[&Family] = &[&MOVER, &PAST_GATE];
+        let parse = |s: Option<&str>| parse_switch(s, table);
+        assert_eq!(MOVED_BY_DEFAULT, [("lockfree", Freed)]);
+        assert_eq!(default_mode(&MOVER), Freed);
+        assert_eq!(default_mode(&PAST_GATE), On);
+        assert_eq!(default_mode(&STAND_IN), Off);
+        assert_eq!(parse(None), Ok(vec![Freed, On]));
+        assert_eq!(parse(Some("all")), Ok(vec![Freed, On]));
+        // Rolling back: stage 1, K1, the dual run, the translation.
+        assert_eq!(parse(Some("lockfree")), Ok(vec![On, On]));
+        assert_eq!(parse(Some("lockfree:moved")), Ok(vec![Moved, On]));
+        assert_eq!(parse(Some("lockfree:dual")), Ok(vec![Dual, On]));
+        assert_eq!(parse(Some("lockfree:off")), Ok(vec![Off, On]));
+        assert_eq!(parse(Some("off")), Ok(vec![Off, Off]));
+        // A run compared with the original's record has the family off, not moved.
+        assert_eq!(parse(switch_for(None, true)), Ok(vec![Off, Off]));
+        assert_eq!(parse(Some("off,lockfree:freed")), Ok(vec![Freed, Off]));
     }
 
     #[test]

@@ -759,10 +759,10 @@ is a comma-separated list, read left to right:
 
 | Item | Means |
 | --- | --- |
-| (unset or empty) | The default: a family is on when it is past its gate |
+| (unset or empty) | The default: a family is on when it is past its gate, in its stage-2 form (K2) when it moves by default (`typed::MOVED_BY_DEFAULT`: `lockfree`) |
 | `off` | Every family off: the game runs the translations |
-| `all` | Back to the default |
-| `<family>` | That family on, past its gate or not |
+| `all` | Back to the default (the stage-2 form for a family that moves by default) |
+| `<family>` | That family on in stage 1 (objects in the game's heap), past its gate or not; the rollback of a family that moves by default |
 | `<family>:dual` | On, with both forms live, for families that keep them (`Engine::typed_dual`): stage 2's dual run, below |
 | `<family>:moved` | On, its objects moved out of the game's heap, the heap kept as stage 1 leaves it (K1, below) |
 | `<family>:freed` | On, moved, the guest bytes freed (K2, below) |
@@ -1138,6 +1138,15 @@ objects), its record holding the node slots (+4), the buckets (+0xc), the delete
 interface manager (+0x14), its spare word +0x1c; the vtable, the bucket count, the count and the lock stay
 for the untyped wrappers. The queues share the interface manager's functions and keep theirs in the game's
 memory: an object is made in the store of its root, so a queue's manager stays guest.
+
+The lock-free maps move by default (nv-rs#946): with no `NV_TYPED` (or `all`) the family is in K2, its
+objects in host memory and the guest bytes freed; `typed::MOVED_BY_DEFAULT` lists such families and
+`typed::default_mode` gives each its form. The rollbacks are `NV_TYPED=lockfree` (stage 1, the heap as the game
+leaves it), `lockfree:moved` (K1), `lockfree:dual` (both forms live, every access compared) and
+`lockfree:off` (the translation). A recorded run (`NV_TRACE_OUT`, `NV_TRACE_LIST`) keeps every family off.
+Untyped code that reads a moved map's bytes sees what stage 1 leaves there (the save check in
+`typed_lockfree.rs`); what it cannot read is listed in ADR-0014. The race campaign for the family's real
+threads is in [`docs/fork/LOCKFREE-MOVED.md`](fork/LOCKFREE-MOVED.md); stepped mode stays the reference.
 
 ## Checking against the real exe
 
