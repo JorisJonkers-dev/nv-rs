@@ -3271,7 +3271,16 @@ pub fn fn_0086f670(e: &mut Engine, _this: Ptr) {
 // Translated from 0086f6a0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `Main::UpdateNonRenderSafeAITasks` (Xbox PDB): resets a dialog menu's timer when a dialog is
 /// open, then updates the process lists, the Pipboy and the task managers for the frame.
+///
+/// With `NV_LATE_AI=1` the body runs on a worker and joins before this call returns, so the frame
+/// tail's next call and the next frame see the same writes at the same place in the run. The switch
+/// is off in every preset (ADR-0015).
 pub fn main_update_non_render_safe_ai_tasks(e: &mut Engine, this: Ptr) {
+    engine_core::late_ai::update(e, this, update_non_render_safe_ai_tasks);
+}
+
+/// The body of the 0086f6a0 translation, in the original's call order.
+fn update_non_render_safe_ai_tasks(e: &mut Engine, this: Ptr) {
     if e.call(0x0070_50d0, &args![]).u8() != 0
         && e.call(0x0070_3d50, &args![]).u8() == 0
         && fn_0086f860(e) == 0
