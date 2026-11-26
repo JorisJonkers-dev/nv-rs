@@ -2,10 +2,12 @@
 
 Run: python3 -I -m unittest discover -s scripts/fork/tests -v        (no network, no cargo)
 """
+import argparse
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
@@ -76,6 +78,26 @@ class GateTests(unittest.TestCase):
         self.assertTrue(cr.render_gate(cfg, ["fork-log"], exact, result)[2])
         self.assertTrue(cr.render_gate(cfg, ["fork-log"], measured, result)[2])
 
+    def test_gate_fails_when_the_plan_artifact_is_missing(self):
+        d = tempfile.mkdtemp()
+        args = argparse.Namespace(dir=d, plan=str(Path(d) / "cov-plan" / "plan.json"),
+                                  base="HEAD", head="HEAD", out=None)
+        with patch.object(cr, "changed_ranges", return_value={}):
+            with self.assertRaises(SystemExit) as caught:
+                cr.gate(args)
+        self.assertNotEqual(caught.exception.code, 0)
+
+    def test_gate_fails_when_the_plan_artifact_is_unreadable(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "cov-plan").mkdir()
+        (d / "cov-plan" / "plan.json").write_text("not json")
+        args = argparse.Namespace(dir=str(d), plan=str(d / "cov-plan" / "plan.json"),
+                                  base="HEAD", head="HEAD", out=None)
+        with patch.object(cr, "changed_ranges", return_value={}):
+            with self.assertRaises(SystemExit) as caught:
+                cr.gate(args)
+        self.assertNotEqual(caught.exception.code, 0)
+
     def test_fork_owned_crates_are_derived(self):
         d = tempfile.mkdtemp()
         (Path(d) / ".fork").mkdir()
@@ -128,6 +150,14 @@ class PlanTests(unittest.TestCase):
         d = tempfile.mkdtemp()
         (Path(d) / "plan.json").write_text("not json")
         self.assertEqual(cr.load_plan(str(Path(d) / "plan.json"), d)["include"], [])
+
+    def test_a_required_plan_that_is_missing_or_broken_raises(self):
+        d = Path(tempfile.mkdtemp())
+        with self.assertRaises(FileNotFoundError):
+            cr.load_plan(str(d / "cov-plan" / "plan.json"), str(d), required=True)
+        (d / "plan.json").write_text("not json")
+        with self.assertRaises(FileNotFoundError):
+            cr.load_plan(str(d / "cov-plan" / "plan.json"), str(d), required=True)
 
 class PickRunTests(unittest.TestCase):
     RUNS = [

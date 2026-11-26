@@ -55,7 +55,7 @@ jobs:
           { echo "### Components to measure"; echo; echo "Reason: $(jq -r .reason plan.json)"; echo; jq -r '.include[] | "- \(.component): `\(.args)`"' plan.json; } >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-plan
+          name: cov-plan
           path: plan.json
           retention-days: 7
 
@@ -169,15 +169,15 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-          # Only this workflow's artifacts (coverage-plan, cov-<component>), not the build's of the same run.
-          pattern: 'cov*'
+          # Only cov-plan and cov-<component>; the comment artifact is uploaded by the report job and downloaded by name.
+          pattern: 'cov-*'
       - name: Render the comment
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
-          python3 -I scripts/fork/coverage_report.py report --dir artifacts --plan artifacts/coverage-plan/plan.json \
+          python3 -I scripts/fork/coverage_report.py report --dir artifacts --plan artifacts/cov-plan/plan.json \
             --base "$BASE" --head "$HEAD" --out comment.md --json summary.json >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -204,15 +204,15 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-          # Only this workflow's artifacts (coverage-plan, cov-<component>), not the build's of the same run.
-          pattern: 'cov*'
+          # Only cov-plan and cov-<component>; the comment artifact is uploaded by the report job and downloaded by name.
+          pattern: 'cov-*'
       - name: Gate the fork-owned crates
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
-          python3 -I scripts/fork/coverage_report.py gate --dir artifacts --plan artifacts/coverage-plan/plan.json \
+          python3 -I scripts/fork/coverage_report.py gate --dir artifacts --plan artifacts/cov-plan/plan.json \
             --base "$BASE" --head "$HEAD" --out gate.md | tee -a "$GITHUB_STEP_SUMMARY"
 
   comment:
