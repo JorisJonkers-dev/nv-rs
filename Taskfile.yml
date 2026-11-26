@@ -43,6 +43,10 @@ tasks:
     desc: Rewrite .fork/capabilities.json from the command tables (run it after a sync or a change to a command table; the release-files test fails until you do)
     cmd: cargo run --locked --quiet --manifest-path scripts/fork/release-files/Cargo.toml -- capabilities --out .fork/capabilities.json
 
+  component-census:
+    desc: Check that docs/fork/COMPONENT-CENSUS.md matches the census command's output (issue #943)
+    cmd: cargo run --locked --quiet --manifest-path research/component-census/Cargo.toml -- --check
+
   catalogue:
     desc: Rewrite the coverage catalogue's reference lists and pins (.fork/catalogue/ref, sources.toml) from the pinned sources, write the evidence files tally reads, and run `tally check` (needs tally on PATH; docs/fork/CATALOGUE.md)
     cmds:
@@ -63,4 +67,5 @@ tasks:
       - task: lint:actions
       - task: deny
       - task: scripts
+      - task: component-census
       - task: secrets
