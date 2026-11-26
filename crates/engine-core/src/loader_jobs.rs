@@ -9,7 +9,9 @@
 //!
 //! Real threads run the calls inline: ADR-0015 keeps a component's real threads off by default
 //! until its race campaign passes. `NV_LOADER_JOBS=1` turns the stepped helper on for an A/B run;
-//! the default is off, so recordings keep the reference path. The job body forwards the same words
+//! the default is off, so recordings keep the reference path. The variable is one of the host's
+//! test variables (`host::fixes::TEST_VARIABLES`), so a run that sets it is a test run: without an
+//! `NV_PRESET` it runs vanilla, and a launcher's play run that has it exported is taken as a test. The job body forwards the same words
 //! to the same translated function and adds no float arithmetic; typed code moved here later must
 //! keep ADR-0014's f64 locals rounded at each f32 store.
 

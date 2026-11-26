@@ -4,8 +4,8 @@
 //! x87 control word, virtual clock and stop stack; these frame calls use the same helper, one job
 //! at a time. Both producers share its `posted` flag, so a pending step leaves a loader call inline
 //! and a pending loader job leaves a step inline. There is no loader thread of its own: the helper
-//! area's three slots past the pool stay the scene helper's, the Havok helper's and the drawing
-//! helper's ([`super::MOST_HELPERS`]).
+//! area's slots past the pool stay the Havok helper's and the drawing helper's
+//! ([`super::MOST_HELPERS`]), so no slot is taken.
 //!
 //! The poster posts and joins at once, so the call keeps its place in the frame, the guest locks
 //! keep their owner and order, and the join ends the loader's uploads before the frame's draw.

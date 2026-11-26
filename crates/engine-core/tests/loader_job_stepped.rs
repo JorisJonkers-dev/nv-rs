@@ -10,7 +10,7 @@
 
 use engine_core::bhk;
 use engine_core::loader_jobs;
-use engine_core::real_threads::on_loader_helper;
+use engine_core::real_threads::{join_loader, on_loader_helper, post_loader};
 use engine_core::units::crt::{set_x87_control_word, x87_control_word};
 use engine_core::{args, Engine, Ret};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -133,6 +133,11 @@ fn the_loader_and_gc_jobs_keep_the_frame_order_locks_and_stores() {
     frame(&mut e);
     let threaded = log();
     let loader_thread = threaded[0].thread;
+    let poster_thread = std::thread::current().id();
+    assert!(
+        threaded.iter().all(|c| c.thread == loader_thread) && loader_thread != poster_thread,
+        "the frame calls did not run on one helper OS thread other than the poster's"
+    );
     let threaded_store = e.mem.u32(STORE.load(Ordering::Relaxed));
     assert!(!loader_jobs::loader_posted(), "a job was left posted");
     assert_eq!(
@@ -180,6 +185,35 @@ fn the_loader_and_gc_jobs_keep_the_frame_order_locks_and_stores() {
         [UPDATE_QUEUE, UPLOAD, DRAW]
     );
 
+    // The post/join order: a job already posted keeps the helper, so the next frame call stays on
+    // the poster and runs before the posted job, which runs only when its poster joins.
+    LOG.lock().unwrap().clear();
+    assert!(post_loader(
+        &mut e,
+        Box::new(|w| {
+            w.call(DRAW, &[]);
+        })
+    ));
+    assert!(loader_jobs::loader_posted());
+    loader_jobs::update_queue(&mut e, 0x1234_5678);
+    let busy = log();
+    assert_eq!(
+        busy.iter().map(|c| c.addr).collect::<Vec<_>>(),
+        [UPDATE_QUEUE, UPLOAD],
+        "the posted job ran before its join, or the busy helper took the call"
+    );
+    assert!(busy
+        .iter()
+        .all(|c| !c.on_helper && c.thread == poster_thread));
+    assert!(join_loader(&mut e));
+    let joined = log();
+    assert_eq!(joined.last().map(|c| c.addr), Some(DRAW));
+    assert!(joined
+        .last()
+        .is_some_and(|c| c.on_helper && c.thread == loader_thread));
+    assert!(!loader_jobs::loader_posted());
+    assert!(!join_loader(&mut e), "a second join found a job");
+
     // A per-call diagnostic refuses the post: the call stays on the poster and is recorded there.
     e.call_log = Some(Vec::new());
     LOG.lock().unwrap().clear();
@@ -224,7 +258,7 @@ fn the_loader_and_gc_jobs_keep_the_frame_order_locks_and_stores() {
     assert_eq!(inline_stack, [UPDATE_QUEUE, INNER]);
 
     // One stepped component helper serves the loader and Havok's step. A loader thread of its own
-    // would take the helper area's scene slot, which stays reserved for the scene jobs.
+    // would need a helper slot of its own.
     LOG.lock().unwrap().clear();
     bhk::step(&mut e, STEP, &[]);
     let step = log();

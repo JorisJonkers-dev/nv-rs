@@ -1409,6 +1409,7 @@ const TEST_VARIABLES: &[&str] = &[
     "NV_MOVE_BUDGET_FROM",
     "NV_SOUND_RECORD",
     "NV_REPEATABLE",
+    "NV_LOADER_JOBS",
     "NV_SHOT",
     "NV_FRAME_LOG",
     "NV_LOCK_STATS",
