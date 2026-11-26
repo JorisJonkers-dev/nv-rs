@@ -48,7 +48,7 @@ class Recording:
     """A stand-in for every external command; records what the loop asked for."""
 
     def __init__(self, queue=QUEUE, lab=PASSING, lab_code=0, review=0, pr=0,
-                 merge=0, queue_code=0, fail_worktree=None):
+                 merge=0, queue_code=0, fail_worktree=None, after_queue=None):
         self.calls = []
         self.queue = queue
         self.lab = lab
@@ -58,6 +58,7 @@ class Recording:
         self.merge = merge
         self.queue_code = queue_code
         self.fail_worktree = fail_worktree
+        self.after_queue = after_queue
 
     def __call__(self, argv, cwd=None, env=None, log=None):
         argv = [str(a) for a in argv]
@@ -76,6 +77,8 @@ class Recording:
         if "queue" in argv:
             if self.queue_code:
                 return self.queue_code, "ledger: queue unavailable"
+            if self.after_queue and "worktrees" in str(cwd):
+                return 0, self.after_queue
             return 0, self.queue
         if "family_lab.py" in joined:
             return self.lab_code, self.lab
@@ -241,7 +244,7 @@ class PortingLoop(unittest.TestCase):
             self.assertEqual(code, 0)
             commands = joined(recorder)
             ledger = [c for c in commands if "ledger/Cargo.toml" in c]
-            self.assertEqual(len(ledger), 1)
+            self.assertEqual(len(ledger), 3)  # the batch's queue, then one per accepted family's worktree
             self.assertIn("build_daemon.py", ledger[0])
             self.assertIn("queue", ledger[0])
             adds = [c for c in commands if "worktree add" in c and ("fade" in c or "lights" in c)]
@@ -455,23 +458,138 @@ class PortingLoop(unittest.TestCase):
             self.assertIn("_No shakedown has been recorded yet._",
                           (root / "docs" / "fork" / "PORTING-RULEBOOK.md").read_text(encoding="utf-8"))
 
-    def test_a_batch_records_deliveries_only_for_verified_addresses(self):
+    def test_a_batch_records_only_what_an_accepted_family_turned_verified(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = tree(tmp)
-            queue = QUEUE.replace("1\t00401000\topen", "1\t00401000\treference-verified")
-            recorder = Recording(queue=queue)
+            # 00402000 was verified before the batch; 00401000 becomes verified in fade's worktree.
+            before = QUEUE.replace("3\t00402000\topen", "3\t00402000\treference-verified")
+            after = before.replace("1\t00401000\topen", "1\t00401000\treference-verified")
+            recorder = Recording(queue=before, after_queue=after)
             with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
                 code = porting_loop.batch(
                     root=root, count=3, name="delivery-run", env=environment(root),
                     today=datetime.date(2026, 11, 26), call=recorder,
                 )
             self.assertEqual(code, 0)
-            log = root / porting_loop.DELIVERIES
-            self.assertTrue(log.is_file())
             records = porting_loop.deliveries(root)
             self.assertEqual([r["address"] for r in records], ["00401000"])
             self.assertEqual(records[0]["date"], "2026-11-26")
             self.assertTrue(any("git add" in c and "delivered.jsonl" in c for c in joined(recorder)))
+
+    def test_a_rejected_family_delivers_nothing_even_if_its_worktree_verifies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            after = QUEUE.replace("1\t00401000\topen", "1\t00401000\treference-verified")
+            recorder = Recording(after_queue=after, review=1)
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                porting_loop.batch(root=root, count=3, name="rej", env=environment(root),
+                                   today=datetime.date(2026, 11, 26), call=recorder)
+            self.assertEqual(porting_loop.deliveries(root), [])
+
+    def test_claims_in_a_shared_directory_exclude_separate_clones(self):
+        with tempfile.TemporaryDirectory() as one, tempfile.TemporaryDirectory() as two, \
+                tempfile.TemporaryDirectory() as shared:
+            self.assertIsNotNone(porting_loop.claim(one, "fade", "a"))
+            # without a shared directory two clones both win
+            self.assertIsNotNone(porting_loop.claim(two, "fade", "b"))
+            self.assertIsNotNone(porting_loop.claim(one, "crt", "a", directory=shared))
+            self.assertIsNone(porting_loop.claim(two, "crt", "b", directory=shared))
+            root = tree(one)
+            env = environment(root)
+            env["NV_PORT_CLAIM_DIR"] = shared
+            porting_loop.claim(two, "fade", "other", directory=shared)
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                porting_loop.batch(root=root, count=3, name="shared", env=env,
+                                   today=datetime.date(2026, 11, 26), call=Recording())
+            self.assertEqual(porting_loop.batch_record(root, "shared")["skipped"], ["fade"])
+
+    def test_a_stale_claim_is_not_reclaimed_while_another_batch_reclaims_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = datetime.datetime(2026, 11, 1, tzinfo=datetime.timezone.utc)
+            held = porting_loop.claim(root, "fade", "dead", now=old)
+            guard = held.with_name(held.name + ".reclaim")
+            guard.write_text("", encoding="utf-8")
+            self.assertIsNone(porting_loop.claim(root, "fade", "b", max_age=60))
+            guard.unlink()
+            self.assertIsNotNone(porting_loop.claim(root, "fade", "b", max_age=60))
+            self.assertFalse(guard.exists())
+
+    def test_the_checker_is_verified_before_the_diff_run_and_the_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording()
+            order = []
+
+            def check(path=None):
+                order.append("check")
+                return (True, "ok") if len(order) == 1 else (False, "tampered")
+
+            with mock.patch.object(porting_loop.private_integrity, "check", side_effect=check):
+                code = porting_loop.batch(root=root, count=3, name="early", env=environment(root),
+                                          today=datetime.date(2026, 11, 26), call=recorder)
+            self.assertEqual(code, 1)
+            commands = joined(recorder)
+            self.assertFalse(any("family_lab.py" in c for c in commands))
+            self.assertFalse(any("review-tool" in c for c in commands))
+
+    def test_the_shakedown_rulebook_branch_is_named_passed_to_close_and_pushed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording()
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                code = porting_loop.batch(root=root, count=3, name="shakedown", shakedown=True,
+                                          env=environment(root), today=datetime.date(2026, 11, 26),
+                                          call=recorder)
+            self.assertEqual(code, 0)
+            branch = porting_loop.batch_record(root, "shakedown")["rulebook_branch"]
+            self.assertTrue(branch.startswith("porting/shakedown/"))
+            self.assertIn(branch, out.getvalue())
+            commands = joined(recorder)
+            self.assertTrue(any(c.startswith("git push") and c.endswith(branch) for c in commands))
+            close = [c for c in commands if "close-tool" in c]
+            self.assertTrue(close and f"--branch {branch}" in close[0])
+
+    def test_diff_counts_use_only_the_family_binary(self):
+        text = "\n".join([
+            "Running tests/typed_fade.rs (target/debug/deps/typed_fade-1)",
+            "test result: ok. 3 passed; 0 failed; 0 ignored",
+            "Running tests/typed_other.rs (target/debug/deps/typed_other-2)",
+            "test result: FAILED. 1 passed; 4 failed; 0 ignored",
+            "Doc-tests x",
+            "test result: ok. 9 passed; 0 failed; 0 ignored",
+        ])
+        self.assertEqual(porting_loop.diff_counts(text, "fade"), {"passed": 3, "failed": 0})
+        self.assertEqual(porting_loop.diff_counts(PASSING, "fade"), {"passed": 3, "failed": 0})
+
+    def test_the_pr_body_classes_cover_accepted_addresses_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording(review=0)
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                # fade (real, float-only) is rejected by its lab run; lights is accepted
+                def call(argv, cwd=None, env=None, log=None):
+                    if "family_lab.py" in " ".join(map(str, argv)) and "fade" in str(cwd):
+                        return 101, FAILING
+                    return recorder(argv, cwd, env, log)
+                porting_loop.batch(root=root, count=3, name="acc", env=environment(root),
+                                   today=datetime.date(2026, 11, 26), call=call)
+            self.assertEqual(porting_loop.batch_record(root, "acc")["classes"], {})
+
+    def test_family_names_that_sanitise_alike_get_distinct_slugs(self):
+        self.assertNotEqual(porting_loop.slug("a/b"), porting_loop.slug("a_b"))
+        self.assertEqual(porting_loop.slug("fade"), "fade")
+
+    def test_a_missing_failure_class_column_is_reported_not_guessed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            (root / "scripts" / "ledger" / "function_evidence.tsv").write_text(
+                "address\tbackend\tkind\n00401000\t0\treal\n", encoding="utf-8")
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                self.assertEqual(porting_loop.failure_classes(root, {"00401000"}), {})
+            self.assertIn("failure_class", errors.getvalue())
 
     def test_the_weekly_report_counts_delivered_verified_functions_per_day(self):
         with tempfile.TemporaryDirectory() as tmp:

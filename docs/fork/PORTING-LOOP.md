@@ -21,7 +21,9 @@ python3 -I scripts/fork/porting_loop.py weekly --days 7 --out target/porting-loo
    family is never split across two batches.
 3. It takes an exclusive claim per family and creates one git worktree for it.
    Claims live in the clone's common git directory, so worktrees of the same
-   clone cannot take the same family. A claim records its owner, time and
+   clone cannot take the same family; separate clones need `NV_PORT_CLAIM_DIR`.
+   The worker's checker files are verified in its worktree right after the
+   worker, before the Diff run and the review. A claim records its owner, time and
    process; one older than `NV_PORT_CLAIM_AGE` seconds (3600 by default) is
    reclaimed. A family held by another worker is skipped, and both skipped and
    reclaimed families are listed in the report and the pull request body.
@@ -55,7 +57,8 @@ Both worker and reviewer must be commands; no service is built into the tool.
 | `NV_PORT_WORKER` | Command run in each family worktree. Required. |
 | `NV_PORT_REVIEW` | Independent review command, run after the worker. Required. |
 | `NV_PORT_PR` | Optional pull request command; it receives `--title`, `--body` and `--head`. The tool pushes the batch branch before calling it. Without it the body is written and printed. |
-| `NV_PORT_CLOSE` | Command required by `shakedown` to close the review unmerged; it receives `--batch` and `--reason`. |
+| `NV_PORT_CLOSE` | Command required by `shakedown` to close the review unmerged; it receives `--batch`, `--reason` and `--branch` (the rulebook branch). |
+| `NV_PORT_CLAIM_DIR` | One claim directory shared by every worker. Separate clones of one repository share no git directory, so set it to a path they all see to exclude them from each other too. |
 | `NV_PORT_CLAIM_AGE` | Seconds before a family claim is treated as stale and reclaimed (default 3600). |
 
 Each worker and reviewer receives `NV_PORT_FAMILY`, `NV_PORT_BATCH`,
@@ -72,13 +75,15 @@ it and never puts it in a report.
 requires `NV_PORT_CLOSE`. It writes a rule for each failure class and each
 rejection the batch actually showed into the shakedown section of
 `PORTING-RULEBOOK.md`, commits that update on a `porting/shakedown/<name>`
-branch, and leaves the branch unmerged. The standing rules are edited by hand
+branch, and leaves the branch unmerged. The branch name is printed, written to
+the batch record, passed to the close command as `--branch` and pushed when
+`NV_PORT_PR` is set. The standing rules are edited by hand
 from that evidence before scaling.
 
 The delivery log is `docs/fork/porting-batches/delivered.jsonl`, committed on
-each batch branch. An address is recorded only when the queue already shows it
-as `reference-verified`, so the date is the day verification was seen, not the
-day a failing function was offered. `weekly` reads the queue and that log and
+each batch branch. An address is recorded only when an accepted family's worktree
+shows it `reference-verified` and the queue at the start of the batch did not,
+so a function verified earlier is never re-dated by a later batch. `weekly` reads the queue and that log and
 prints a table of delivered verified functions per day for the last `--days`
 days ending today. A verified address with no log entry is credited to the day
 it is first seen; a log entry whose address is no longer in the queue is

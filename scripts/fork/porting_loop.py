@@ -24,6 +24,7 @@ Usage:
 """
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -66,8 +67,15 @@ def call(argv, cwd, env=None, log=None):
 
 
 def slug(family):
-    """A family name as one safe file and branch component."""
-    return UNSAFE.sub("_", family).strip("_") or "family"
+    """A family name as one safe file and branch component.
+
+    A name the substitution changed gets a short hash, so `a/b` and `a_b` cannot
+    share a claim file, a worktree or a branch.
+    """
+    safe = UNSAFE.sub("_", family).strip("_") or "family"
+    if safe != family:
+        safe += "-" + hashlib.sha1(family.encode("utf-8")).hexdigest()[:6]
+    return safe
 
 
 def paths(root, name, family=None):
@@ -77,13 +85,17 @@ def paths(root, name, family=None):
     return base / "worktrees" / name / slug(family)
 
 
-def claim_directory(root):
+def claim_directory(root, directory=None):
     """One claim directory for every worktree of a clone.
 
     Exclusive file creation is the lock on Windows, Linux and macOS. Keeping the
     files in the common git directory makes worktrees of the same clone agree;
     a checkout with no git metadata (a test tree) falls back to its target dir.
+    Separate clones of one repository share nothing: point every worker at one
+    directory with NV_PORT_CLAIM_DIR (a path on a shared disk) to exclude them too.
     """
+    if directory is not None:
+        return Path(directory)
     git = Path(root) / ".git"
     common = None
     if git.is_dir():
@@ -117,9 +129,13 @@ def as_utc(value):
     return value if value.tzinfo else value.replace(tzinfo=datetime.timezone.utc)
 
 
-def claim(root, family, owner, now=None, max_age=None):
-    """Take a family exclusively; reclaim a claim older than the configured age."""
-    directory = claim_directory(root)
+def claim(root, family, owner, now=None, max_age=None, directory=None):
+    """Take a family exclusively; reclaim a claim older than the configured age.
+
+    Reclaiming runs under a second exclusive file, so two batches that both saw
+    the same expired claim cannot each delete the other's fresh one.
+    """
+    directory = claim_directory(root, directory)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (slug(family) + ".claim")
     now = as_utc(now or datetime.datetime.now(datetime.timezone.utc))
@@ -137,11 +153,27 @@ def claim(root, family, owner, now=None, max_age=None):
                 taken = None
             if taken is not None and now - taken <= age:
                 return None
+            guard = path.with_name(path.name + ".reclaim")
             try:
-                path.unlink(missing_ok=True)
+                guard.open("x", encoding="utf-8").close()
             except OSError:
-                # A Windows process still holding the file keeps the claim.
-                return None
+                return None  # another batch is reclaiming it, or the guard is held
+            try:
+                fields = path.read_text(encoding="utf-8").strip().split("\t")
+                current = as_utc(datetime.datetime.fromisoformat(fields[1])) \
+                    if len(fields) >= 2 else None
+            except (OSError, ValueError):
+                current = None
+            try:
+                if current is not None and now - current <= age:
+                    return None  # it was renewed while this batch decided
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    # A Windows process still holding the file keeps the claim.
+                    return None
+            finally:
+                guard.unlink(missing_ok=True)
             continue
         with handle:
             handle.write(f"{owner}\t{now.isoformat()}\t{os.getpid()}\n")
@@ -149,9 +181,9 @@ def claim(root, family, owner, now=None, max_age=None):
     return None
 
 
-def claim_time(root, family):
+def claim_time(root, family, directory=None):
     """The timestamp an existing claim was taken, if it can be read."""
-    path = claim_directory(root) / (slug(family) + ".claim")
+    path = claim_directory(root, directory) / (slug(family) + ".claim")
     try:
         fields = path.read_text(encoding="utf-8").strip().split("\t")
         if len(fields) >= 2:
@@ -161,8 +193,8 @@ def claim_time(root, family):
     return None
 
 
-def release(root, family):
-    (claim_directory(root) / (slug(family) + ".claim")).unlink(missing_ok=True)
+def release(root, family, directory=None):
+    (claim_directory(root, directory) / (slug(family) + ".claim")).unlink(missing_ok=True)
 
 
 def parse_queue(text):
@@ -199,8 +231,26 @@ def queue(root, env, runner):
     return parse_queue(text)
 
 
-def diff_counts(text):
-    """Pass and failure counts from a family lab run."""
+def family_section(text, family):
+    """The output of the family's own test binary, `typed_<family>`, alone."""
+    if not family:
+        return text
+    lines, keep, found = text.splitlines(), False, False
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(("Running ", "Doc-tests ")):
+            keep = f"typed_{family}" in stripped and stripped.startswith("Running ")
+            found = found or keep
+            continue
+        if keep:
+            out.append(line)
+    return "\n".join(out) if found else text
+
+
+def diff_counts(text, family=None):
+    """Pass and failure counts from a family lab run, for that family's binary only."""
+    text = family_section(text, family)
     passed = failed = 0
     for pattern in (PASS, FAIL):
         for match in pattern.finditer(text):
@@ -226,7 +276,9 @@ def failure_classes(root, addresses):
     try:
         column = data[0].index("failure_class")
     except ValueError:
-        column = 2  # the ledger's current third column
+        print("warning: function_evidence.tsv has no failure_class column; "
+              "no failure classes are counted", file=sys.stderr)
+        return {}
     counts = {}
     for fields in data[1:]:
         if len(fields) > column and fields[0] in addresses and fields[column]:
@@ -387,12 +439,16 @@ def deliveries(root):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def record_verified_deliveries(root, name, date, families, verified):
-    """Record a delivery only for addresses the queue already shows as verified."""
+def record_verified_deliveries(root, name, date, families):
+    """Record the addresses an accepted family turned verified in its own worktree.
+
+    Rows that were already verified when the batch started are not this batch's
+    work, so they are never dated by it.
+    """
     known = {record["address"] for record in deliveries(root)}
     for family, addresses in families:
         for address in addresses:
-            if address in verified and address not in known:
+            if address not in known:
                 record_delivery(root, date.isoformat(), name, address, family)
                 known.add(address)
 
@@ -439,6 +495,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
 
     token = uuid.uuid4().hex[:8]
     batch_branch = f"porting/{slug(name)}-{token}"
+    claim_dir = env.get("NV_PORT_CLAIM_DIR", "").strip() or None
     accepted, created, owned = [], [], []
     skipped, stale, rejected = [], [], []
     success = False
@@ -449,7 +506,8 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             "functions": len(rows),
             "families": [{k: f[k] for k in ("family", "passed", "failed", "review")}
                          for f in accepted],
-            "classes": failure_classes(root, {r["address"] for r in rows}),
+            "classes": failure_classes(
+                root, {a for f in accepted for a in f["addresses"]}),
             "checker": checker_hash(root),
             "skipped": list(skipped), "stale": list(stale),
             "rejected": list(rejected), "branch": batch_branch,
@@ -462,8 +520,8 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
 
     try:
         for family, family_rows in selected.items():
-            previous = claim_time(root, family)
-            held = claim(root, family, name, max_age=age)
+            previous = claim_time(root, family, claim_dir)
+            held = claim(root, family, name, max_age=age, directory=claim_dir)
             if held is None:
                 skipped.append(family)
                 print(f"skip {family}: another worker holds the claim", file=sys.stderr)
@@ -495,13 +553,17 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             if code:
                 rejected.append(f"{family}: worker exited {code}")
                 continue
+            # The checker is verified before anything of the worker's is run or reviewed.
+            ok, why = private_integrity.check(worktree)
+            if not ok:
+                return fail(f"{family}: {why}")
             # family_lab.py sends its cargo arguments to the build daemon itself.
             lab_code, output = call(
                 [sys.executable, str(worktree / "scripts" / "fork" / "family_lab.py"),
                  "run", family],
                 cwd=worktree, env=child, log=logdir / (slug(family) + ".diff.log"),
             )
-            counts = diff_counts(output)
+            counts = diff_counts(output, family)
             if lab_code or counts["failed"]:
                 rejected.append(
                     f"{family}: Diff exited {lab_code} with {counts['failed']} failing cases"
@@ -510,11 +572,18 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             review_code, _ = call(reviewer, cwd=worktree, env=child,
                                   log=logdir / (slug(family) + ".review.log"))
             review = "accepted" if review_code == 0 else "rejected"
-            ok, why = private_integrity.check(worktree)
-            if not ok:
-                return fail(f"{family}: {why}")
             if review == "accepted":
+                delivered = []
+                try:
+                    after = queue(worktree, env, call)
+                except (RuntimeError, ValueError):
+                    after = []
+                delivered = [r["address"] for r in after
+                             if r["state"] == "reference-verified"
+                             and r["address"] not in verified
+                             and r["address"] in {x["address"] for x in family_rows}]
                 accepted.append({
+                    "delivered": delivered,
                     "family": family, "branch": branch, "worktree": worktree,
                     "addresses": [r["address"] for r in family_rows],
                     "passed": counts["passed"], "failed": counts["failed"],
@@ -543,8 +612,17 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                                 cwd=rule_wt, env=env)
             if code:
                 return fail(f"commit of the shakedown rulebook: {output.strip()}")
+            report["rulebook_branch"] = rule_branch
+            write_json(root, name, report)
+            print(f"rulebook branch: {rule_branch}")
+            if env.get("NV_PORT_PR", "").strip():
+                code, output = call(["git", "push", "-u", "origin", rule_branch],
+                                    cwd=root, env=env)
+                if code:
+                    return fail(f"push of {rule_branch}: {output.strip()}")
             code, output = call(close + [
                 "--batch", name, "--reason", "shakedown closed unmerged; rulebook updated",
+                "--branch", rule_branch,
             ], cwd=root, env=env)
             if code:
                 return fail(f"shakedown close command exited {code}: {output.strip()}")
@@ -589,7 +667,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                 print(f"pull request body: {body}")
             record_verified_deliveries(
                 root, name, today,
-                [(f["family"], f["addresses"]) for f in accepted], verified,
+                [(f["family"], f["delivered"]) for f in accepted],
             )
             delivery = delivery_path(root)
             if delivery.is_file():
