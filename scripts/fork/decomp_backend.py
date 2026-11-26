@@ -37,7 +37,15 @@ import tempfile
 TABLE_ENTRIES = 0x01000000  # the guest's .text VAs all fit below 16 MiB
 GUEST_SIZE = 1 << 32
 BANNED_SUFFIXES = {".so", ".a", ".lib", ".o", ".obj", ".dylib", ".dll", ".exe", ".pdb", ".wasm", ".cwasm"}
-GENERATED_NAMES = {"mod.c", "mod.h", "wasm-rt-impl.c", "wasm-rt-mem-impl.c"}
+GENERATED_NAMES = {"mod.c", "mod.h", "shim.c", "wasm-rt-impl.c", "wasm-rt-mem-impl.c",
+                   "report.json", "report.md", "manifest.json", "layout.json"}
+
+def wasm2c_module_name(module):
+    """wasm2c's mangling of an import module name (GOT.mem -> GOT0x2Emem)."""
+    return "".join(c if c.isalnum() or c == "_" else "0x%02X" % ord(c) for c in module)
+
+
+GOT_MODULE = wasm2c_module_name("GOT.mem")
 
 SIZE_T_OPS = re.compile(r"(operator\s+(?:new|delete)(?:\[\])?\s*\((?:[^(),]*, ?)?)unsigned int")
 NAMED_ENUM = re.compile(r"\benum(\s+)(?!class\b|struct\b)([A-Za-z_]\w*)(\s*)([;{])")
@@ -46,7 +54,7 @@ EXPORT_RE = re.compile(r"/\* export: '([^']+)' \*/\s*\n\s*([^\n;]+);")
 
 
 def rewrite_source(text):
-    """Apply the two build-copy-only rewrites: CRT size_t spelling and MSVC enum width."""
+    """Apply the build-copy-only rewrites: size_t/operator new width and MSVC enum width."""
     text = SIZE_T_OPS.sub(lambda m: m.group(1) + "__SIZE_TYPE__", text)
     text = text.replace("typedef unsigned int size_t;", "typedef __SIZE_TYPE__ size_t;")
     return NAMED_ENUM.sub(r"enum\1\2 : int\3\4", text)
@@ -146,6 +154,30 @@ def run(command, **kwargs):
                           errors="replace", **kwargs)
 
 
+def check_out_path(decomp, out):
+    """Refuse an output folder inside the checkout or an unignored git work tree."""
+    decomp, out = Path(decomp).resolve(), Path(out).resolve()
+    if out == decomp or decomp in out.parents:
+        raise ValueError("--out must not be inside the decomp checkout")
+    parent = out if out.exists() else out.parent
+    top = run(["git", "-C", str(parent), "rev-parse", "--show-toplevel"])
+    if top.returncode:
+        return
+    root = Path(top.stdout.strip()).resolve()
+    if out == root:
+        raise ValueError("--out must not be the git work tree root")
+    if root in out.parents:
+        relative = out.relative_to(root).as_posix() + "/"
+        ignored = run(["git", "-C", str(root), "check-ignore", "--no-index", "-q", "--", relative])
+        if ignored.returncode:
+            raise ValueError("--out must be an ignored folder inside a git work tree")
+
+
+def wasm_type(spelling):
+    """Use the runtime's function-type constant for a wasm2c parameter spelling."""
+    return "WASM_RT_F32" if spelling.strip() == "f32" else "WASM_RT_I32"
+
+
 def wasm_flags(copy, standins, tools, cxx=False):
     flags = ["--target=wasm32-unknown-unknown", "-mms-bitfields", "-fshort-wchar",
              "-fms-extensions", "-fms-compatibility", "-fms-compatibility-version=19",
@@ -217,6 +249,11 @@ def export_manifest(exports, units):
     result = []
     for index, entry in enumerate(exports):
         va = symbols.get(entry["name"]) or symbols.get("_" + entry["name"])
+        if isinstance(va, str):
+            va = int(va, 0)
+        if va is not None and not 0 <= va < TABLE_ENTRIES:
+            raise ValueError("export %s: address %#x is outside the %#x-entry table"
+                             % (entry["name"], va, TABLE_ENTRIES))
         arity = len(entry["params"])
         result.append({**entry, "address": va, "wrapper": "decomp_call_%d" % index,
                        "arity": arity if arity <= 5 and all(p in {"u32", "f32", "int", "unsigned int"}
@@ -230,12 +267,13 @@ def generate_shim(path, imports, exports, globals_, instantiate):
              '#include <sys/mman.h>', '#include "mod.h"', '',
              'struct w2c_env { wasm_rt_memory_t mem; wasm_rt_funcref_table_t table;',
              '  u32 sp, membase, tablebase; };',
-             'struct w2c_GOT0x2Emem { %s };' % " ".join("u32 f%d;" % i for i in range(len(globals_))),
-             'static struct w2c_env env; static w2c_mod inst; static struct w2c_GOT0x2Emem got;',
+             'struct w2c_%s { %s };' % (GOT_MODULE,
+                                        " ".join("u32 f%d;" % i for i in range(len(globals_)))),
+             'static struct w2c_env env; static w2c_mod inst; static struct w2c_%s got;' % GOT_MODULE,
              'static unsigned char* guest_base;', '']
     for index, name in enumerate(globals_):
-        lines.append('u32* w2c_GOT0x2Emem_%s(struct w2c_GOT0x2Emem* g) { return &g->f%d; }'
-                     % (name.replace(".", "_"), index))
+        lines.append('u32* w2c_%s_%s(struct w2c_%s* g) { return &g->f%d; }'
+                     % (GOT_MODULE, name.replace(".", "_"), GOT_MODULE, index))
     lines += [
         'static uint32_t (*import_hook)(const char*, uint32_t*, uint32_t);',
         'void decomp_set_import_hook(uint32_t (*hook)(const char*, uint32_t*, uint32_t)) { import_hook = hook; }',
@@ -256,9 +294,11 @@ def generate_shim(path, imports, exports, globals_, instantiate):
                 target = "&e->table"
             else:
                 target = "&e->mem"
-            ret = "wasm_rt_funcref_table_t*" if "indirect_function_table" in name else (
-                "wasm_rt_memory_t*" if target == "&e->mem" else "u32*")
-            lines.append('%s %s(struct w2c_env* e) { return %s; }' % (ret, name, target))
+            # Use the type from mod.h's declaration, so the stub can never
+            # disagree with the prototype the generated module calls through.
+            ret = item["decl"].replace(name, "", 1).strip() or "u32*"
+            lines.append('%s %s(struct w2c_env* e) { return (%s)%s; }'
+                         % (ret, name, ret, target))
             continue
         args = ", ".join("u32 a%d" % i for i in range(len(item["params"])))
         array = "{" + ", ".join("a%d" % i for i in range(len(item["params"]))) + "}" if item["params"] else "NULL"
@@ -268,6 +308,7 @@ def generate_shim(path, imports, exports, globals_, instantiate):
               '                 uint32_t* globals, uint32_t nglobals) {',
               '  wasm_rt_init();',
               '  if (!guest) {',
+              '    /* Reserve the guest range plus an unmapped guard half. */',
               '    guest = mmap(NULL, (size_t)size * 2, PROT_NONE,',
               '                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);',
               '    if (guest == MAP_FAILED) return -1;',
@@ -291,11 +332,11 @@ def generate_shim(path, imports, exports, globals_, instantiate):
               '  w2c_mod_0x5F_wasm_apply_data_relocs(&inst);',
               '  w2c_mod_0x5F_wasm_call_ctors(&inst);']
     for entry in exports:
-        if entry["address"] and entry["arity"] is not None:
-            args = "WASM_RT_I32, " * (entry["arity"] + 1)
-            lines.append('  env.table.data[%s] = (wasm_rt_funcref_t){' % entry["address"])
+        if entry["address"] is not None and entry["arity"] is not None:
+            types = ", ".join(wasm_type(p) for p in entry["params"] + [entry["result"]])
+            lines.append('  env.table.data[%d] = (wasm_rt_funcref_t){' % entry["address"])
             lines.append('    wasm2c_mod_get_func_type(%d, 1, %s), (wasm_rt_function_ptr_t)%s, {NULL}, &inst };'
-                         % (entry["arity"], args.rstrip(", "), entry["cname"]))
+                         % (entry["arity"], types, entry["cname"]))
     lines += ['  return 0; }',
               'unsigned char* decomp_memory_base(void) { return guest_base; }',
               'int decomp_table_set(uint32_t va, void* fn, void* instance, uint32_t params) {',
@@ -306,9 +347,13 @@ def generate_shim(path, imports, exports, globals_, instantiate):
     for index, entry in enumerate(exports):
         if entry["arity"] is None:
             continue
-        cast = lambda p: "((union {u32 u; f32 f;}){.u=%s}).f" % p if p == "f32" else p
-        args = ", ".join("%s a%d" % (p, i) for i, p in enumerate(entry["params"]))
-        values = ", ".join(cast("a%d" % i) for i in range(len(entry["params"])))
+        def cast(value, spelling):
+            return "((union {u32 u; f32 f;}){.u=%s}).f" % value if spelling == "f32" else value
+
+        # The ABI hands the host raw 32-bit values; cast f32 arguments inside
+        # the wrapper rather than declaring a float parameter to ctypes.
+        args = ", ".join("u32 a%d" % i for i in range(len(entry["params"])))
+        values = ", ".join(cast("a%d" % i, p) for i, p in enumerate(entry["params"]))
         call = "%s(&inst%s%s)" % (entry["cname"], ", " if values else "", values)
         body = (call + "; return 0;") if entry["result"] == "void" else (
             "return ((union {u32 u; f32 f;}){.f=(f32)(%s)}).u;" % call if entry["result"] == "f32"
@@ -320,6 +365,9 @@ def generate_shim(path, imports, exports, globals_, instantiate):
 def select_units(units, sources=None, limit=None):
     if sources:
         wanted = set(sources)
+        missing = sorted(wanted - {u.get("source") for u in units})
+        if missing:
+            raise ValueError("unit(s) not found in units.json: " + ", ".join(missing))
         return [u for u in units if u.get("source") in wanted]
     if limit is None:
         return units
@@ -339,9 +387,38 @@ def make_report(units, outcomes, library, exports=None, globals_=None, rewrites=
             "exports": exports or [], "globals": globals_ or [], "rewritten_files": rewrites}
 
 
+def link_wasm(tools, objects, wasm):
+    """Link the compiled wasm objects into one shared module."""
+    return run([tools["wasm_ld"], "--experimental-pic", "-shared", "--unresolved-symbols=import-dynamic",
+                "--export-all", "--import-memory", "--max-memory=%d" % GUEST_SIZE, "--lto-O2",
+                "-o", wasm, *objects])
+
+
+def isolate_link_failures(tools, out, objects, outcomes, indices, linked):
+    """Drop an object solely responsible for a link failure and skip its unit."""
+    wasm, probe = out / "mod.wasm", out / "link-probe.wasm"
+    if linked.returncode == 0:
+        return objects, linked
+    while linked.returncode and len(objects) > 1:
+        failure = linked.stderr.strip()
+        for position, candidate in enumerate(objects):
+            trial = [o for o in objects if o != candidate]
+            if link_wasm(tools, trial, probe).returncode == 0:
+                outcomes[indices[position]] = {
+                    "ok": False, "reason": "wasm-ld: " + failure[-240:], "object": candidate.name}
+                objects = trial
+                indices = indices[:position] + indices[position + 1:]
+                linked = link_wasm(tools, objects, wasm)
+                break
+        else:
+            break
+    return objects, linked
+
+
 def build(decomp, out, units=None, limit=None, toolchain=None):
     """Build a native library and write report.json/report.md into the output folder."""
     decomp, out = Path(decomp), Path(out)
+    check_out_path(decomp, out)
     out.mkdir(parents=True, exist_ok=True)
     tools = toolchain or find_toolchain()
     manifest = json.loads((decomp / "build" / "units.json").read_text())
@@ -349,7 +426,7 @@ def build(decomp, out, units=None, limit=None, toolchain=None):
     chosen = select_units(all_units, units, limit)
     rewrites = prepare_build_copy(decomp, out)
     standins = make_standins(out, tools)
-    objects, outcomes = [], []
+    objects, outcomes, indices = [], [], []
     for index, unit in enumerate(chosen):
         obj = out / ("unit_%04d.o" % index)
         ok, reason = compile_unit(tools, out / "copy", standins, unit["source"], obj,
@@ -357,16 +434,15 @@ def build(decomp, out, units=None, limit=None, toolchain=None):
         outcomes.append({"ok": ok, "reason": reason, "object": obj.name})
         if ok:
             objects.append(obj)
+            indices.append(index)
     if not objects:
         raise RuntimeError("no unit compiled; nothing to link")
-    wasm = out / "mod.wasm"
-    linked = run([tools["wasm_ld"], "--experimental-pic", "-shared", "--unresolved-symbols=import-dynamic",
-                  "--export-all", "--import-memory", "--max-memory=%d" % GUEST_SIZE, "--lto-O2",
-                  "-o", wasm, *objects])
+    linked = link_wasm(tools, objects, out / "mod.wasm")
+    objects, linked = isolate_link_failures(tools, out, objects, outcomes, indices, linked)
     if linked.returncode:
         raise RuntimeError("wasm-ld: " + linked.stderr.strip()[-500:])
     generated = out / "mod.c"
-    converted = run([tools["wasm2c"], wasm, "-n", "mod", "-o", generated])
+    converted = run([tools["wasm2c"], out / "mod.wasm", "-n", "mod", "-o", generated])
     if converted.returncode:
         raise RuntimeError("wasm2c: " + converted.stderr.strip()[-500:])
     header = (out / "mod.h").read_text()
@@ -374,17 +450,27 @@ def build(decomp, out, units=None, limit=None, toolchain=None):
     globals_ = []
     for item in imports:
         if item["module"] == "GOT.mem":
-            match = re.search(r"w2c_GOT0x2Emem_(\w+)", item["name"])
+            match = re.search(r"w2c_%s_(\w+)" % GOT_MODULE, item["name"])
             if match:
                 globals_.append(match.group(1))
     exports = export_manifest(exports, chosen)
     symbols = {}
-    for unit in all_units:
-        for name, address in unit.get("symbols", {}).items():
+    for table in [manifest.get("symbols", {})] + [u.get("symbols", {}) for u in all_units]:
+        for name, address in table.items():
             plain = name.lstrip("?_").split("@@", 1)[0]
             symbols.setdefault(plain, address)
             symbols.setdefault(name.lstrip("?"), address)
-    global_values = [symbols.get(name, symbols.get(name.upper(), "0x0")) for name in globals_]
+    def address_of(name):
+        for key in (name, name.lstrip("?_"), name.upper()):
+            if key in symbols:
+                value = symbols[key]
+                return int(value, 0) if isinstance(value, str) else int(value)
+        return None
+
+    global_values = [address_of(name) for name in globals_]
+    unresolved = [name for name, value in zip(globals_, global_values) if value is None]
+    if unresolved:
+        raise RuntimeError("unresolved GOT.mem symbol(s): " + ", ".join(unresolved))
     shim = out / "shim.c"
     instantiate = re.search(r"void wasm2c_mod_instantiate\(([^;]+)\);", header).group(1)
     generate_shim(shim, imports, exports, globals_, instantiate)
@@ -473,6 +559,7 @@ def compare_layouts(i686, wasm):
 def layout(decomp, out, units=None, limit=None, tools=None):
     """Dump both targets for every unit and fail when a shared record differs."""
     decomp, out = Path(decomp), Path(out)
+    check_out_path(decomp, out)
     out.mkdir(parents=True, exist_ok=True)
     tools = tools or find_toolchain()
     manifest = json.loads((decomp / "build" / "units.json").read_text())
@@ -522,10 +609,19 @@ def built_artefacts(paths):
 
 def hygiene(root="."):
     root = Path(root)
-    result = run(["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard", "-z"])
-    paths = [p for p in result.stdout.split("\0") if p]
+    # Include ignored files and files in untracked folders: a built artefact is
+    # still in the tree when git was told not to show it.
+    paths = []
+    for extra in ([], ["--ignored"]):
+        result = run(["git", "-C", str(root), "ls-files", "--cached", "--others", *extra,
+                      "--exclude-standard", "-z"])
+        paths += [p for p in result.stdout.split("\0") if p]
+    # .decomp-backend is the sanctioned output folder and target/ is the
+    # workspace's own build folder; neither is a stray artefact from this tool.
+    sanctioned = {".git", ".decomp-backend", "target"}
+    paths = [p for p in dict.fromkeys(paths) if Path(p).parts[0] not in sanctioned]
     offenders = built_artefacts(paths)
-    ignored = run(["git", "-C", str(root), "check-ignore", ".decomp-backend"])
+    ignored = run(["git", "-C", str(root), "check-ignore", "--no-index", "-q", "--", ".decomp-backend/"])
     if ignored.returncode == 0:
         return offenders
     return offenders + [".decomp-backend is not git-ignored"]
@@ -536,8 +632,12 @@ def verify(library, manifest, vectors):
     data = json.loads(Path(manifest).read_text())
     lib = ctypes.CDLL(str(library))
     lib.decomp_init.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint32,
-                                ctypes.c_void_p, ctypes.c_uint32]
-    lib.decomp_init(None, GUEST_SIZE, data["table_entries"], None, 0)
+                                ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32]
+    values = [int(v, 0) if isinstance(v, str) else int(v) for v in data.get("global_values", [])]
+    globals_array = (ctypes.c_uint32 * len(values))(*[v & 0xffffffff for v in values]) if values else None
+    status = lib.decomp_init(None, GUEST_SIZE, data["table_entries"], globals_array, len(values))
+    if status:
+        raise RuntimeError("decomp_init failed: %d" % status)
     exports = {e["name"]: e for e in data["exports"]}
     lib.decomp_memory_base.restype = ctypes.c_void_p
     base = lib.decomp_memory_base()
@@ -591,6 +691,9 @@ def main(argv=None):
         print("compared %d units, %d differences" % (len(report["compared"]), len(report["differences"])))
         for difference in report["differences"]:
             print(difference)
+        if not report["compared"]:
+            print("no unit was compared; the layout check did not run")
+            return 1
         return bool(report["differences"])
     elif args.command == "verify":
         mismatches = verify(args.library, args.manifest, args.vectors)
