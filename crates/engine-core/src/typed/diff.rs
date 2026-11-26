@@ -23,7 +23,8 @@
 //! The engines hold the translations only ([`Engine::new_untyped`]): whatever `NV_TYPED` says, the
 //! function differs, and with [`Diff::family`] the families named, and everything else is the same.
 //!
-//! Three runs per case:
+//! Three runs per case (two under `--release`, where run 3 is skipped), and a fourth when a
+//! reference peer is registered ([`Diff::reference_peer`]):
 //!
 //! 1. The translation.
 //! 2. The typed version with every `typed_call!` by address, against the translation.
@@ -34,6 +35,9 @@
 //!    hasn't run at all, so [`Report::assert_same`] fails on it unless the test says so with
 //!    [`Diff::goes_by_address`]. [`Report::direct_calls`] says how many went direct. This run needs
 //!    debug assertions: under `--release` it is skipped and [`Report::direct_runs`] says 0.
+//! 4. The reference peer, against the typed version of run 2. It is given the same guest memory,
+//!    setup and words, and its outgoing calls and written memory are recorded the same way. Without
+//!    a peer this run does not happen and [`Report::reference_runs`] says 0.
 //!
 //! Compared, bit for bit:
 //!
@@ -44,7 +48,8 @@
 //! - a word pointing into the stack for locals, as its offset in its frame, the frame's size and the
 //!   bytes behind it ([`Diff::stack_bytes`]), not by value; or, for a word [`Diff::local_at`] names,
 //!   as which local it is and that local's own bytes;
-//! - memory after the call, every mapped page, and which pages are mapped;
+//! - memory after the call, every mapped page, and which pages are mapped: bytes outside the stack
+//!   for locals are compared byte by byte, and a difference names its first address and both bytes;
 //! - whether and how the run stopped: a run where both stop alike fails unless the test says that
 //!   input stops ([`Diff::expect_stops`]), since it compared nothing past the stop;
 //! - the heap's top and free bytes, the control word and the clock after the call.
@@ -397,6 +402,20 @@ type Setup = Box<dyn Fn(&mut Engine, &Case) -> Vec<u32>>;
 /// The inputs a test says stop ([`Diff::expect_stops`]).
 type StopCases = Box<dyn Fn(&Case) -> bool>;
 
+/// A reference implementation [`Diff`] can run as a fourth peer.
+///
+/// The harness gives it an engine set up exactly like the other runs: the case's words, the same
+/// setup, and the translations at their addresses. Its outgoing calls are logged with the same
+/// words and pre-call memory as the other runs', and the memory it leaves is compared byte by byte
+/// after the call outside the running thread's stack for locals, which includes the callee's frame.
+/// Calls the peer does not implement can reach the
+/// translations through [`Engine::call`]. A test registers one with [`Diff::reference_peer`];
+/// without one the harness makes only its usual runs.
+pub trait ReferencePeer {
+    /// Runs the function at `addr` with `args` on `engine`'s guest memory, and returns its result.
+    fn run(&self, engine: &mut Engine, addr: u32, args: &[u32]) -> Ret;
+}
+
 /// Whether `NV_DIFF_ALL_WORDS` is set ([`Diff::all_words`]), read once.
 fn all_words_from_env() -> bool {
     static ALL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -428,6 +447,7 @@ pub struct Diff {
     float_sweep: usize,
     float_ulps: Option<u32>,
     float_abs: Option<f32>,
+    reference_peer: Option<Box<dyn ReferencePeer>>,
 }
 
 impl Diff {
@@ -455,6 +475,7 @@ impl Diff {
             float_sweep: 0,
             float_ulps: None,
             float_abs: None,
+            reference_peer: None,
         }
     }
 
@@ -469,6 +490,15 @@ impl Diff {
             "the translation given is the typed version: the test would compare it with itself"
         );
         self.translation = Some(f);
+        self
+    }
+
+    /// A reference implementation to run after the three built-in runs ([`ReferencePeer`]). Its
+    /// run is compared with the typed version's by-address run: return value, outgoing calls and
+    /// memory written outside the stack for locals (the callee's frame included), byte by byte.
+    /// Without one, [`Diff::run`] makes only its usual runs and [`Report::reference_runs`] says 0.
+    pub fn reference_peer(mut self, peer: impl ReferencePeer + 'static) -> Diff {
+        self.reference_peer = Some(Box::new(peer));
         self
     }
 
@@ -790,6 +820,7 @@ impl Diff {
                 Found::WordChanged { translation, typed },
             );
         }
+        let mut touched = translation.touched || typed.touched;
         // Each `typed_call!`'s direct branch, against the same function by address. Only where debug
         // assertions make the macro note its calls, so the logs can match.
         if cfg!(debug_assertions) {
@@ -812,9 +843,32 @@ impl Diff {
                 Branch::Direct,
                 report,
             );
-            return translation.touched || typed.touched || direct.touched;
+            touched |= direct.touched;
         }
-        translation.touched || typed.touched
+        // The reference peer runs last, against the typed version's by-address run. Its engine has
+        // the same setup as the translation's, so what it wrote compares byte by byte with the bytes
+        // the typed version left outside the stack for locals.
+        if self.reference_peer.is_some() {
+            report.reference_runs += 1;
+            let reference = self.side(case, word, Branch::Reference);
+            assert_eq!(
+                translation.words, reference.words,
+                "the setup gave the reference peer different call words: it must do the same on both"
+            );
+            same_registered(&translation, &reference);
+            self.compare(
+                &reference,
+                &typed,
+                &[],
+                &[],
+                case,
+                word,
+                Branch::Reference,
+                report,
+            );
+            touched |= reference.touched;
+        }
+        touched
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -922,7 +976,7 @@ impl Diff {
             registered.push((*addr, now));
         }
         match branch {
-            Branch::Translation => {
+            Branch::Translation | Branch::Reference => {
                 if let Some(f) = self.translation {
                     e.register(self.addr, f);
                 }
@@ -965,7 +1019,14 @@ impl Diff {
         x87::set_control_word(word);
         // Loads from here on are the code under test's own.
         x87::watch::reset_writes();
-        let result = catch_unwind(AssertUnwindSafe(|| e.call(self.addr, &words)));
+        let result = catch_unwind(AssertUnwindSafe(|| match branch {
+            Branch::Reference => self
+                .reference_peer
+                .as_ref()
+                .expect("a reference run needs a reference peer")
+                .run(&mut e, self.addr, &words),
+            _ => e.call(self.addr, &words),
+        }));
         let touched = x87::watch::touched();
         let control_word = x87::control_word();
         x87::set_control_word(x87::DEFAULT_CONTROL_WORD);
@@ -1072,6 +1133,8 @@ pub enum Branch {
     ByAddress,
     /// The typed version, every `typed_call!` direct, against its by-address run.
     Direct,
+    /// A reference peer, against the typed version's by-address run.
+    Reference,
 }
 
 /// A word of an outgoing call as it compares.
@@ -1905,7 +1968,8 @@ fn compare_page_words(
 }
 
 /// One thing two runs did differently. In a [`Branch::Direct`] difference, `translation` is the
-/// typed version's by-address run and `typed` its direct run.
+/// typed version's by-address run and `typed` its direct run. In a [`Branch::Reference`] difference,
+/// `translation` is the reference peer's run and `typed` the typed version's by-address run.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Found {
     /// One stopped and the other didn't, or they stopped with different messages.
@@ -1975,10 +2039,10 @@ impl fmt::Display for Difference {
             "case {:?}, control word {:04x}{}: ",
             self.case.0,
             self.control_word,
-            if self.branch == Branch::Direct {
-                ", direct branch against by address"
-            } else {
-                ""
+            match self.branch {
+                Branch::Direct => ", direct branch against by address",
+                Branch::Reference => ", reference peer against by address",
+                _ => "",
             }
         )?;
         match &self.what {
@@ -2080,6 +2144,8 @@ pub struct Report {
     /// The `typed_call!`s that went direct on those runs. 0 for a function with one means no family
     /// named holds its address, and the direct branch has run nowhere.
     pub direct_calls: usize,
+    /// Of those, the runs that also ran a reference peer ([`Diff::reference_peer`]).
+    pub reference_runs: usize,
     /// The addresses of `typed_call!`s on those runs that no named family holds and
     /// [`Diff::goes_by_address`] doesn't list: the functions they name ran nowhere, so
     /// [`Report::assert_same`] fails.
@@ -2103,27 +2169,29 @@ pub struct Report {
 
 impl Report {
     /// The counters a run adds to.
-    fn tally(&self) -> [usize; 6] {
+    fn tally(&self) -> [usize; 7] {
         [
             self.runs,
             self.stopped,
             self.direct_runs,
             self.direct_calls,
+            self.reference_runs,
             self.tolerated,
             self.abs_tolerated,
         ]
     }
 
     /// Adds what the run since `before` counted, `times` more times.
-    fn repeat(&mut self, before: [usize; 6], times: usize) {
+    fn repeat(&mut self, before: [usize; 7], times: usize) {
         let now = self.tally();
         let add = |i: usize| (now[i] - before[i]) * times;
         self.runs += add(0);
         self.stopped += add(1);
         self.direct_runs += add(2);
         self.direct_calls += add(3);
-        self.tolerated += add(4);
-        self.abs_tolerated += add(5);
+        self.reference_runs += add(4);
+        self.tolerated += add(5);
+        self.abs_tolerated += add(6);
     }
 
     fn note(&mut self, case: &Case, word: u16, branch: Branch, what: Found) {
