@@ -2797,7 +2797,15 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
             leaf::word_at_0(e, SCENE_GRAPH_HOLDER)
         );
         let seconds = timer_seconds(e);
-        e.vcall(scene, 0x104, &args![seconds]);
+        // On a refused post the caller does the work: stepped frames keep this order (nv-rs#950).
+        if !engine_core::real_threads::post_scene(
+            e,
+            Box::new(move |e| {
+                e.vcall(scene, 0x104, &args![seconds]);
+            }),
+        ) {
+            e.vcall(scene, 0x104, &args![seconds]);
+        }
         let seconds = timer_seconds(e);
         e.call(0x0086_7a40, &args![CALENDAR, seconds]);
         if processor_count(e) == 1 {
@@ -2842,6 +2850,8 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
     e.call(0x0049_fff0, &args![object]);
     let scene_data = e.call(SCENE_DATA_GETTER, &args![]).u32();
     e.call(0x0071_2e60, &args![scene_data, 0x011a_d840u32]);
+    // Camera and visibility read the scene helper's writes: join before them (nv-rs#950).
+    engine_core::real_threads::join_scene(e);
     if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, MODE_OBJECT)) != 4 {
         let player = e.global::<u32>(PLAYER_OBJECT);
         let field_of_view = e.call(0x0071_0ab0, &args![player]).f32();
@@ -2876,6 +2886,7 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
             e.call(0x008c_a070, &args![0x011e_0fe0u32]);
         }
     }
+    // The animation update stays on this thread: the AI workers started above step actors beside it.
     fn_0086fc60(e, this);
     if processor_count(e) > 1 && !render_world {
         fn_0086fd70(e, this);
@@ -3990,6 +4001,39 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::rc::Rc;
+
+    /// The scene job is joined before anything reads what it writes (the camera, the culling and the
+    /// visibility passes) and before the AI workers start; moving the join after one of them fails here.
+    #[test]
+    fn the_scene_job_is_joined_before_its_readers_and_the_workers() {
+        let src = include_str!("main.rs");
+        let start = src.find("pub fn fn_0086e650").expect("the frame function");
+        let body = &src[start..];
+        let end = body[1..].find("\nfn ").map_or(body.len(), |i| i + 1);
+        let body = &body[..end];
+        let post = body.find("post_scene(").expect("the scene post");
+        let join = body.find("join_scene(").expect("the scene join");
+        assert!(post < join, "the job is posted before it is joined");
+        assert_eq!(
+            body.matches("join_scene(").count(),
+            1,
+            "one join, before every reader"
+        );
+        for reader in [
+            "0x00c5_2020",
+            "0x0066_29f0",
+            "0x0045_bc80",
+            "0x00b5_ac90",
+            "0x0045_b070",
+            "0x008c_80e0",
+            "0x008c_78c0",
+        ] {
+            let at = body
+                .find(reader)
+                .unwrap_or_else(|| panic!("{reader} is called"));
+            assert!(join < at, "the join comes before {reader}");
+        }
+    }
 
     /// Every callee of this file's functions that lives elsewhere (each is a no-op returning 0
     /// until a test replaces it).

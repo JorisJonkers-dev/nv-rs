@@ -1,0 +1,2 @@
+crates/engine-core/src/real_threads.rs  # scene helper for the scene graph update, with its own helper-area slot (nv-rs#950)
+crates/engine-fallout-misc/src/units/fallout_misc/main.rs  # post and join of the scene graph update under NV_SCENE_JOBS (nv-rs#950)
