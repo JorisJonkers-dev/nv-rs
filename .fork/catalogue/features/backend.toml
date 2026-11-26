@@ -12,13 +12,6 @@ status = "implemented"
 evidence = ["crates/d3d9-wgpu/src/sm/wgsl.rs"]
 
 [[item]]
-id = "shader_overrides"
-title = "A named game pixel shader drawn with the fork's own WGSL that reads the scene depth"
-status = "implemented"
-notes = "nv-rs #897; docs/fork/SHADER-OVERRIDES.md"
-evidence = ["crates/d3d9-wgpu/src/shader_override.rs"]
-
-[[item]]
 id = "linux_window_surface"
 title = "Window, Vulkan surface and input on X11 and Wayland"
 status = "implemented"
