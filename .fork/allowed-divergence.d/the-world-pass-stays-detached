@@ -1,3 +1,4 @@
 crates/engine-fallout-unplaced-a/src/units/unplaced/run_006426a0.rs  # the sun's occlusion query no longer joins the posted world draw inside the world pass (nv-rs#938)
 docs/FIXES.md  # the drawing thread's early-join list and overlap note describe the world pass staying detached (nv-rs#938)
 crates/engine-fallout-misc/src/units/fallout_misc/main_p2.rs  # a test that the world pass joins nothing before OnIdle (nv-rs#938)
+crates/engine-core/tests/draw_thread_stepped.rs  # the overlap-counter check names a join point that still exists (nv-rs#938)
