@@ -127,8 +127,11 @@ crates/host/tests/thread_races_stepped.rs
 crates/host/tests/thread_races_vanilla.rs
 crates/engine-core/src/bhk.rs
 crates/engine-core/src/real_threads/havok.rs
+crates/engine-core/src/late_ai.rs
 crates/engine-core/tests/bhk_seam.rs
 crates/engine-core/tests/bhk_thread_stepped.rs
+crates/engine-core/tests/late_ai_real.rs
+crates/engine-core/tests/late_ai_stepped.rs
 crates/mcm/
 crates/stewie/
 docs/

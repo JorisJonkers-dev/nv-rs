@@ -3140,6 +3140,18 @@ pub fn fork_join_first(e: &mut Engine, helpers: usize, job: HelperJob<'_>) -> bo
     fork(e, helpers, job, false)
 }
 
+/// Whether the helper pool has been made (by any caller). A caller that needs only a few helpers
+/// uses this to avoid being the one that fixes the pool's size at its own small count.
+pub fn pool_made() -> bool {
+    POOL.get().is_some()
+}
+
+/// Whether a [`fork_join`] is in flight now. A caller that would otherwise stop with the
+/// one-caller-at-a-time panic asks first and does its work itself instead.
+pub fn pool_busy() -> bool {
+    POOL.get().is_some_and(|p| p.busy.load(Ordering::SeqCst))
+}
+
 /// [`fork_join`] (`every`: each helper runs the job) or [`fork_join_first`].
 fn fork(e: &mut Engine, helpers: usize, job: HelperJob<'_>, every: bool) -> bool {
     if !pool_fits(helpers) || HELPER.with(Cell::get) {
