@@ -8425,6 +8425,7 @@ pub(crate) mod tests {
         {
             let _half = DeviceHalf::begin(&e);
             assert!(geometry_half_open());
+            assert!(direct_holds(), "the geometry shares the world draw's hold");
             assert_eq!(device_vcall(&mut e, dev, 4 * 57, &[7, 3]).u32(), D3D_OK);
             assert_eq!(device_vcall(&mut e, dev, 4 * 57, &[8, 4]).u32(), D3D_OK);
         }

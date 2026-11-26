@@ -378,7 +378,13 @@ impl State {
 /// command has.
 fn register_bytes(data: &d3d9_stream::Data<'_>, i: usize, size: usize, into: &mut [u8; 16]) {
     let at = i * size;
-    let n = (data.len() as usize - at).min(size);
+    // Both callers bound the register count by the command's bytes, so `at` is inside them; keep
+    // that requirement here rather than relying on them to agree.
+    debug_assert!(
+        at <= data.len() as usize,
+        "a register the command does not carry"
+    );
+    let n = (data.len() as usize).saturating_sub(at).min(size);
     data.copy_to(at as u32, &mut into[..n]);
 }
 
@@ -4092,8 +4098,9 @@ impl Device {
     /// `Set*ShaderConstant*` (`kind`: vertex float, int, bool, then the same for the pixel stage)
     /// of `count` registers from `start`, from the command's bytes. Float registers are copied
     /// as bytes (a draw's block carries them so); registers past the file's end are not kept. A set
-    /// that leaves every register as it was makes no block due: the device sends the same registers
-    /// it sent before to the same shader.
+    /// that leaves every register as it was makes no block due: the blocks are written from this
+    /// register file, so an unchanged file sends the same registers to the same shader; a shader,
+    /// viewport or other header change makes the block due through its own setter.
     pub(crate) fn set_constants(
         &mut self,
         kind: u8,

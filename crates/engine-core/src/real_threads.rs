@@ -6344,8 +6344,10 @@ impl Drop for DirectHalf {
 }
 
 /// One geometry's device calls, inside the world draw's half. The half's hold of the device lock is
-/// kept for the whole geometry: the calls in between do not probe it or take the hold up again. With
-/// stepped threads, or outside a half, nothing changes and each call takes the lock as it did.
+/// kept for the whole geometry: the calls in between do not probe it or take the hold up again. A
+/// guest call that waits still leaves guest code through [`release_direct`], which gives the hold
+/// back as it did before; the later device calls then lock per call. With stepped threads, or
+/// outside a half, nothing changes and each call takes the lock as it did.
 pub struct DeviceHalf(bool);
 
 impl DeviceHalf {
@@ -6360,7 +6362,12 @@ impl DeviceHalf {
         }
         // The hold the calls of this geometry share is taken here, at the first of them. From now
         // until the guard drops, `device_call_lock` only takes the call's own re-entrant hold.
-        direct_hold(e, r.world);
+        // A geometry drawn inside another has no hold of its own to take: re-probing here could run
+        // `direct_hold`'s waiter arm and surrender the outer geometry's hold between two of its
+        // calls. It shares that hold until the outer guard drops, so do not probe again.
+        if GEOMETRY_HALF.with(Cell::get) == 0 {
+            direct_hold(e, r.world);
+        }
         GEOMETRY_HALF.with(|g| g.set(g.get() + 1));
         DeviceHalf(true)
     }
@@ -6972,6 +6979,37 @@ mod direct_tests {
         device_call_here(&e, world);
         assert!(direct_holds(), "the next half takes it again");
         direct_end();
+        assert!(!device_lock_held(&e));
+    }
+
+    /// A geometry drawn inside another does not give up the outer geometry's hold, even when a
+    /// thread waits for the device lock at the nested begin: the nested guard shares the hold and
+    /// its calls keep the same order and the same re-entrant depth.
+    #[test]
+    fn a_nested_geometry_half_never_gives_up_the_outer_hold() {
+        let (e, world, _) = real_engine();
+        assert!(direct_begin(&e));
+        let outer = DeviceHalf::begin(&e);
+        device_call_here(&e, world);
+        assert!(direct_holds(), "the outer geometry took the hold");
+
+        let (_got, taker) = device_taker(world);
+        let waiting = until_waiting(world);
+        {
+            let inner = DeviceHalf::begin(&e);
+            assert!(geometry_half_open(), "both geometries are in their half");
+            assert!(direct_holds(), "the nested begin kept the outer hold");
+            // The call still runs on the outer hold (depth 2), not per call (depth 1).
+            device_call_here(&e, world);
+            assert!(direct_holds(), "the hold outlives the nested geometry");
+            drop(inner);
+        }
+        drop(outer);
+        let held_after = direct_holds();
+        direct_end();
+        taker.join().expect("the other thread");
+        assert!(waiting, "the other thread waits for the device lock");
+        assert!(held_after, "the outer geometry kept its hold throughout");
         assert!(!device_lock_held(&e));
     }
 

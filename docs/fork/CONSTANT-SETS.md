@@ -5,8 +5,10 @@ Fork-only. A `Set*ShaderConstant*` whose registers already hold the command's wo
 wgpu device's register file alone and does not make the stage's uniform block due; the device writes
 that block only when a register changed or the shader, viewport or other header state changed.
 The draw capture path keeps its image copies in a thread-local pool, copies matrix bytes into a
-caller's buffer, and a constant attribute's thirteen-word call uses a stack array instead of the
-word list's heap spill. The order of the game's calls and the recorded stream are unchanged.
+caller's buffer, and a constant attribute's thirteen-word call passes its stack words as a slice
+like the other short calls. The image pool holds at most eight finished copies; an image nested
+deeper than eight open images takes a fresh vector. The order of the game's calls and the recorded
+stream are unchanged.
 
 `a_float_constant_set_copies_only_the_registers_that_changed`,
 `an_integer_or_boolean_constant_set_copies_only_the_words_that_changed` and

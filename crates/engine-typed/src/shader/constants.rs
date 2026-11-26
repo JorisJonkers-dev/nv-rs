@@ -121,8 +121,8 @@ pub fn set_shader_constants(
                 _ => e.vcall(base, 0x90, &args![program, entry, word_10]).u32(),
             },
             KIND_ATTRIBUTE => {
-                // Thirteen words: more than the call's inline word buffer holds. A stack array keeps
-                // the call from allocating for each attribute entry.
+                // Thirteen words fit the call's inline word buffer. Pass the slice directly rather
+                // than binding it with `args!` first: both are stack words, so nothing allocates.
                 e.vcall(
                     base,
                     0x94,

@@ -112,7 +112,7 @@ pub fn draw_shape(e: &mut Engine, this: Ptr, geometry: Ptr) {
     let skinned: bool = typed_call!(
         crate::render::FAMILY,
         0x00e7_2c20,
-        crate::render::draw::skinned_of(e, this, geometry, 0u32)
+        crate::render::draw::is_skinned(e, this, geometry, 0u32)
     );
     let render_data = e.mem.u32(packet::model_data(e, g).wrapping_add(0x34));
     let shader = e.mem.u32(g.wrapping_add(0xc0));

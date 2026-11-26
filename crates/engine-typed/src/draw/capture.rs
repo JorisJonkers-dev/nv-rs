@@ -1450,9 +1450,10 @@ pub fn own_bytes(e: &Engine, addr: u32, len: u32) -> Vec<u8> {
 
 /// Fills `into` with the own state's bytes `[addr, addr + into.len())` as the draw reads them. The
 /// same answer as [`own_bytes`] for a caller that already has a buffer, so a constant set-up need
-/// not take a fresh one for each matrix it copies.
+/// not take a fresh one for each matrix it copies. An address in no own block is not a packet miss:
+/// it is read from guest memory, as [`own_bytes`] has always done.
 pub fn own_bytes_into(e: &Engine, addr: u32, into: &mut [u8]) {
-    let len = into.len() as u32;
+    let len = u32::try_from(into.len()).unwrap_or(u32::MAX);
     if let Some(v) = served(&e.own_view) {
         if let Some(at) = v.own_at(addr, len) {
             into.copy_from_slice(&v.own_bytes[at..at + into.len()]);
@@ -1892,6 +1893,20 @@ mod tests {
             IMAGE_BUFFERS_BUILT.with(Cell::get),
             before + 1,
             "a nested image takes its own copy"
+        );
+        // More finished images than the pool holds must not make it grow: the pool is capped at
+        // eight, and an image nested deeper than that takes a fresh vector.
+        for _ in 0..16 {
+            image(&mut e, at, 0, 16, |_, _| ());
+        }
+        assert_eq!(
+            IMAGE_BUFFERS_BUILT.with(Cell::get),
+            before + 1,
+            "the extra images reused the pool"
+        );
+        assert!(
+            IMAGE_SCRATCH.with(|p| p.borrow().len()) <= 8,
+            "the pool is capped"
         );
         end(&mut e);
         set_thread_mode(None);

@@ -12,6 +12,7 @@ use engine_core::ptr::Ptr;
 use engine_core::x87::x87_quiet_bits;
 use engine_core::{args, typed_call, Engine};
 use std::cell::RefCell;
+use std::hash::{Hash, Hasher};
 
 /// The renderer's fields the draw reads and writes: the byte that skips drawing (+0x6fc), the device
 /// (+0x288), the copy of the drawn object's bound (centre at +0x664, radius at +0x670), and for the
@@ -34,14 +35,9 @@ pub fn pass_is_set(e: &mut Engine, _this: u32) -> u32 {
     u32::from(capture::own_at::<u32>(e, CURRENT_PASS) != 0)
 }
 
-// Typed from 00e72c20
-/// Unnamed in the engine map: `thiscall`, two words (a geometry and an object or 0). False when the
-/// geometry's data (+0xb8) has a word at +0x34; true when the chain +0xbc, +0xc, +0xc ends in an
-/// object with a word at +0x28 (false when the chain breaks), or when the renderer's virtual +0xa0
-/// answers bit 1. Then with the object (or the geometry's +0xc0): true when the word at +0x6f0 is
-/// above `0xfffe0000` and its virtual +0xd4 answers true, or when the byte at +0x5d5 is set and its
-/// virtual +0xbc answers an object whose virtual +0xa8 answers true; else false.
-pub fn is_skinned(e: &mut Engine, this: Ptr, geometry: Ptr, object: u32) -> bool {
+/// The skinned test's probe, without the memo. The registered `is_skinned` below asks it once per
+/// renderer, target and set of words the answer depends on.
+fn probe_skinned(e: &mut Engine, this: Ptr, geometry: Ptr, object: u32) -> bool {
     let t = this.addr();
     let g = geometry.addr();
     let data = e.mem.u32(g.wrapping_add(0xb8));
@@ -86,13 +82,21 @@ pub fn is_skinned(e: &mut Engine, this: Ptr, geometry: Ptr, object: u32) -> bool
 }
 
 /// A skinned-draw answer kept per renderer and target. The words the probe reads before asking the
-/// renderer's and the target's virtuals are part of the key, so a changed shader or renderer is asked
-/// again. The engine's number keeps an answer from another engine's run out of this one.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// renderer's and the target's virtuals are part of the key, as are the vtable pointers and the
+/// virtuals' slots they are dispatched through: a changed shader, renderer or vtable is asked again.
+/// The engine's number keeps an answer from another engine's run out of this one. The virtuals'
+/// answers are assumed stable for the life of the objects; the words and pointers that select them
+/// are all in the key.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct ProbeKey {
     engine: u64,
     renderer: u32,
     target: u32,
+    renderer_vtable: u32,
+    target_vtable: u32,
+    renderer_a0: u32,
+    target_d4: u32,
+    target_bc: u32,
     word: u32,
     byte: u8,
     data: u32,
@@ -116,6 +120,11 @@ impl Probe {
                 engine: 0,
                 renderer: 0,
                 target: 0,
+                renderer_vtable: 0,
+                target_vtable: 0,
+                renderer_a0: 0,
+                target_d4: 0,
+                target_bc: 0,
                 word: 0,
                 byte: 0,
                 data: 0,
@@ -133,19 +142,12 @@ impl Probe {
 const PROBE_SLOTS: usize = 64;
 
 fn probe_slot(key: &ProbeKey) -> usize {
-    let engine = usize::try_from(key.engine).unwrap_or(0);
-    let h = engine
-        ^ (key.renderer as usize).rotate_left(7)
-        ^ (key.target as usize).rotate_left(13)
-        ^ (key.word as usize).rotate_left(3)
-        ^ usize::from(key.byte)
-        ^ (key.data as usize).rotate_left(11)
-        ^ (key.data_word as usize).rotate_left(5)
-        ^ (key.skin as usize).rotate_left(17)
-        ^ (key.second as usize).rotate_left(9)
-        ^ (key.third as usize).rotate_left(19)
-        ^ (key.buffer as usize).rotate_left(23);
-    h & (PROBE_SLOTS - 1)
+    // Hash every field. Rotations of guest addresses leave their high bits out of the six-bit
+    // index, so several different keys landed in one slot; the standard hasher mixes them all.
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut h);
+    let mask = (PROBE_SLOTS - 1) as u64;
+    usize::try_from(h.finish() & mask).unwrap_or(0)
 }
 
 thread_local! {
@@ -154,10 +156,18 @@ thread_local! {
         const { RefCell::new([Probe::empty(); PROBE_SLOTS]) };
 }
 
-/// The skinned test's answer, asked once for a renderer and target and kept for the draws that ask
-/// the same question. The first asking probes the virtuals in the original's order; a cache hit
-/// saves repeating them. Device calls, and their order, are unaffected.
-pub fn skinned_of(e: &mut Engine, this: Ptr, geometry: Ptr, object: u32) -> bool {
+// Typed from 00e72c20
+/// Unnamed in the engine map: `thiscall`, two words (a geometry and an object or 0). False when the
+/// geometry's data (+0xb8) has a word at +0x34; true when the chain +0xbc, +0xc, +0xc ends in an
+/// object with a word at +0x28 (false when the chain breaks), or when the renderer's virtual +0xa0
+/// answers bit 1. Then with the object (or the geometry's +0xc0): true when the word at +0x6f0 is
+/// above `0xfffe0000` and its virtual +0xd4 answers true, or when the byte at +0x5d5 is set and its
+/// virtual +0xbc answers an object whose virtual +0xa8 answers true; else false.
+///
+/// The answer is asked once for a renderer, target and set of words it depends on, then kept for
+/// the draws that ask the same question. The first asking calls the probe in the original's order;
+/// a cache hit saves repeating the virtuals. Device calls, and their order, are unaffected.
+pub fn is_skinned(e: &mut Engine, this: Ptr, geometry: Ptr, object: u32) -> bool {
     let t = this.addr();
     let g = geometry.addr();
     let target = if object == 0 {
@@ -179,10 +189,29 @@ pub fn skinned_of(e: &mut Engine, this: Ptr, geometry: Ptr, object: u32) -> bool
     } else {
         0
     };
+    // The virtuals are dispatched through these two pointers and their slots. Any of them can be
+    // changed in place without touching the object's address, so they are part of the answer's key.
+    let renderer_vtable = e.mem.u32(t);
+    let renderer_a0 = e.mem.u32(renderer_vtable.wrapping_add(0xa0));
+    let (target_vtable, target_d4, target_bc) = if target != 0 {
+        let vtable = e.mem.u32(target);
+        (
+            vtable,
+            e.mem.u32(vtable.wrapping_add(0xd4)),
+            e.mem.u32(vtable.wrapping_add(0xbc)),
+        )
+    } else {
+        (0, 0, 0)
+    };
     let key = ProbeKey {
         engine: e.engine_id,
         renderer: t,
         target,
+        renderer_vtable,
+        target_vtable,
+        renderer_a0,
+        target_d4,
+        target_bc,
         word: e.mem.u32(t.wrapping_add(0x6f0)),
         byte: e.mem.u8(t.wrapping_add(0x5d5)),
         data,
@@ -207,7 +236,7 @@ pub fn skinned_of(e: &mut Engine, this: Ptr, geometry: Ptr, object: u32) -> bool
     }) {
         return answer;
     }
-    let answer = is_skinned(e, this, geometry, object);
+    let answer = probe_skinned(e, this, geometry, object);
     PROBES.with(|p| {
         let slot = probe_slot(&key);
         p.borrow_mut()[slot] = Probe { key, answer };
@@ -254,7 +283,7 @@ pub fn draw_packed(e: &mut Engine, this: Ptr, geometry: Ptr) {
     let center_z = e.mem.u32(bound.wrapping_add(8));
     let center_x = e.mem.u32(bound);
     let radius = e.mem.u32(bound.wrapping_add(0xc));
-    let skinned = skinned_of(e, this, geometry, 0);
+    let skinned = is_skinned(e, this, geometry, 0);
     let render_data = e
         .mem
         .u32(e.mem.u32(g.wrapping_add(0xb8)).wrapping_add(0x34));
@@ -340,6 +369,8 @@ mod tests {
 
     const D4: u32 = 0x0400_5000;
     const A0: u32 = 0x0400_5004;
+    const A0_SKINNED: u32 = 0x0400_5010;
+    const D4_PLAIN: u32 = 0x0400_5014;
 
     thread_local! {
         static PROBED: Cell<u32> = const { Cell::new(0) };
@@ -358,7 +389,15 @@ mod tests {
                 ..Ret::default()
             }
         });
+        e.register(D4_PLAIN, |_, _| {
+            PROBED.with(|p| p.set(p.get() + 1));
+            Ret::default()
+        });
         e.register(A0, |_, _| Ret::default());
+        e.register(A0_SKINNED, |_, _| Ret {
+            eax: 2,
+            ..Ret::default()
+        });
         let renderer = e.mem.alloc(0x1000);
         let vtable = e.mem.alloc(0x200);
         e.mem.set_u32(renderer, vtable);
@@ -381,9 +420,9 @@ mod tests {
 
         let this = Ptr::new(renderer);
         let g = Ptr::new(geometry);
-        assert!(skinned_of(&mut e, this, g, 0));
+        assert!(is_skinned(&mut e, this, g, 0));
         assert_eq!(PROBED.with(Cell::get), 1);
-        assert!(skinned_of(&mut e, this, g, 0));
+        assert!(is_skinned(&mut e, this, g, 0));
         assert_eq!(
             PROBED.with(Cell::get),
             1,
@@ -391,11 +430,76 @@ mod tests {
         );
         // The same renderer and target, but the word that decides the probe changed.
         e.mem.set_u32(renderer + 0x6f0, 0);
-        assert!(!skinned_of(&mut e, this, g, 0));
+        assert!(!is_skinned(&mut e, this, g, 0));
         assert_eq!(
             PROBED.with(Cell::get),
             1,
             "the changed word needs no target probe"
         );
+
+        // The renderer's address is unchanged, but a new vtable answers +0xa0 differently: the
+        // cached false answer must not be kept, so the answer's key includes that vtable pointer.
+        let skinned_vtable = e.mem.alloc(0x200);
+        e.mem.set_u32(skinned_vtable + 0xa0, A0_SKINNED);
+        e.mem.set_u32(renderer, skinned_vtable);
+        assert!(is_skinned(&mut e, this, g, 0));
+        assert_eq!(
+            PROBED.with(Cell::get),
+            1,
+            "no target probe with the word zero"
+        );
+
+        // Back at the word that first answered true, a new target vtable with a plain +0xd4 must
+        // be asked again: the key includes the target's vtable pointer too.
+        e.mem.set_u32(renderer, vtable);
+        e.mem.set_u32(renderer + 0x6f0, 0xffff_0000);
+        assert!(is_skinned(&mut e, this, g, 0));
+        let plain_vtable = e.mem.alloc(0x200);
+        e.mem.set_u32(plain_vtable + 0xd4, D4_PLAIN);
+        e.mem.set_u32(shader, plain_vtable);
+        let before = PROBED.with(Cell::get);
+        assert!(!is_skinned(&mut e, this, g, 0));
+        assert_eq!(
+            PROBED.with(Cell::get) - before,
+            1,
+            "the new target vtable was asked"
+        );
+
+        // The vtable pointer stays, but one of its slots now holds another function: the key
+        // includes the slot, so the cached plain answer is not kept.
+        e.mem.set_u32(plain_vtable + 0xd4, D4);
+        let before = PROBED.with(Cell::get);
+        assert!(is_skinned(&mut e, this, g, 0));
+        assert_eq!(
+            PROBED.with(Cell::get) - before,
+            1,
+            "the changed slot was asked"
+        );
+        e.mem.set_u32(plain_vtable + 0xd4, D4_PLAIN);
+
+        // Two different renderers land in different slots: a cache that collapsed all keys into
+        // one slot could keep only one of their answers.
+        let mut key1 = Probe::empty().key;
+        key1.engine = e.engine_id;
+        key1.renderer = renderer;
+        key1.renderer_vtable = vtable;
+        key1.target = shader;
+        key1.target_vtable = plain_vtable;
+        key1.word = 0xffff_0000;
+        // A renderer address with a high bit set (outside the guest allocations here) must land in
+        // another slot: a hash that collapsed every key into one slot would keep only one answer.
+        let key2 = ProbeKey {
+            renderer: key1.renderer ^ 0x0200_0000,
+            ..key1
+        };
+        assert_ne!(probe_slot(&key1), probe_slot(&key2));
+
+        // A second, real renderer with a plain target gets its own false answer.
+        let renderer2 = e.mem.alloc(0x1000);
+        let vtable2 = e.mem.alloc(0x200);
+        e.mem.set_u32(renderer2, vtable2);
+        e.mem.set_u32(vtable2 + 0xa0, A0);
+        e.mem.set_u32(renderer2 + 0x6f0, 0xffff_0000);
+        assert!(!is_skinned(&mut e, Ptr::new(renderer2), g, 0));
     }
 }

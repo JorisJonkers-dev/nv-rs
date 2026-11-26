@@ -480,7 +480,7 @@ pub fn render_pass(
     let skinned: bool = typed_call!(
         crate::render::FAMILY,
         0x00e7_2c20,
-        crate::render::draw::skinned_of(e, Ptr::new(renderer), Ptr::new(geometry.addr()), 0u32)
+        crate::render::draw::is_skinned(e, Ptr::new(renderer), Ptr::new(geometry.addr()), 0u32)
     );
     if skinned {
         typed_call!(
