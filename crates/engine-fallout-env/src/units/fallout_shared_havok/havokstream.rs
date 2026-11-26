@@ -24,6 +24,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_core::bhk;
 
 /// `00cb1fb0` (unnamed in the engine map): the base body the wrapper forwards to;
 /// `thiscall`, `this` plus one stack word (`RET 4`).
@@ -328,7 +329,7 @@ pub fn fn_00624d70(e: &mut Engine, this: Ptr<HavokError>, path: Ptr) {
     }
     if found != 0 {
         let length = found.wrapping_sub(path.addr());
-        let root = this.byte_add(HavokError::pRootDir.off);
+        let root = bhk::byte_add(this, HavokError::pRootDir.off);
         e.call(COPY_BYTES, &args![root, path, length]);
         e.mem
             .set_u8(this.addr().wrapping_add(length).wrapping_add(0x20), 0);
@@ -406,7 +407,7 @@ pub fn havok_error_havok_error(e: &mut Engine, this: Ptr<HavokError>) -> Ptr<Hav
     fn_00625f10(e, this.cast());
     e.mem.set_u32(this.addr(), VTABLE_ERROR);
     e.call(ARRAY_CONSTRUCT, &args![this.byte_add(0x08)]);
-    fn_00626450(e, this.byte_add(HavokError::m_disabledAssertIds.off));
+    fn_00626450(e, bhk::byte_add(this, HavokError::m_disabledAssertIds.off));
     for id in INITIALLY_DISABLED_IDS {
         let disabled = hk_bool_word(e, false);
         havok_error_set_enabled(e, this, id, disabled);
@@ -414,7 +415,7 @@ pub fn havok_error_havok_error(e: &mut Engine, this: Ptr<HavokError>) -> Ptr<Hav
     for line in INITIALLY_DISABLED_LINES {
         havok_error_disable_report(e, this, Ptr::new(VISUAL_DEBUGGER_FILE), line);
     }
-    e.set(this, HavokError::pRootDir, 0);
+    bhk::set(e, this, HavokError::pRootDir, 0);
     this
 }
 
@@ -423,7 +424,7 @@ pub fn havok_error_havok_error(e: &mut Engine, this: Ptr<HavokError>) -> Ptr<Hav
 /// Enabling an id removes it from the disabled map, disabling it stores it
 /// there with the value 1.
 pub fn havok_error_set_enabled(e: &mut Engine, this: Ptr<HavokError>, id: u32, enabled: u32) {
-    let map = this.byte_add(HavokError::m_disabledAssertIds.off);
+    let map = bhk::byte_add(this, HavokError::m_disabledAssertIds.off);
     let on = e.with_stack(4, |e, temp| {
         e.mem.set_u32(temp.addr(), enabled);
         e.call(HK_BOOL_GET, &args![temp]).bool()
@@ -440,7 +441,7 @@ pub fn havok_error_set_enabled(e: &mut Engine, this: Ptr<HavokError>, id: u32, e
 /// whether the id is absent from the disabled map (default 0), and returns
 /// `result`.
 pub fn havok_error_is_enabled(e: &mut Engine, this: Ptr<HavokError>, result: Ptr, id: u32) -> Ptr {
-    let map = this.byte_add(HavokError::m_disabledAssertIds.off);
+    let map = bhk::byte_add(this, HavokError::m_disabledAssertIds.off);
     let value = fn_00626490(e, map, id, 0);
     e.call(HK_BOOL_CONSTRUCT, &args![result, (value == 0) as u32]);
     result
@@ -449,7 +450,7 @@ pub fn havok_error_is_enabled(e: &mut Engine, this: Ptr<HavokError>, result: Ptr
 // Translated from 00625650 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `HavokError::enableAll` (engine map): clears the disabled-id map.
 pub fn havok_error_enable_all(e: &mut Engine, this: Ptr<HavokError>) {
-    fn_006264d0(e, this.byte_add(HavokError::m_disabledAssertIds.off));
+    fn_006264d0(e, bhk::byte_add(this, HavokError::m_disabledAssertIds.off));
 }
 
 // Translated from 00625670 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -524,9 +525,9 @@ pub fn havok_error_assert_message(
             e.call(STR_CAT, &args![buffer, 0x400u32, TEXT_SEPARATOR]);
             e.call(STR_CAT, &args![buffer, 0x400u32, text]);
         }
-        let root = this.byte_add(HavokError::pRootDir.off);
+        let root = bhk::byte_add(this, HavokError::pRootDir.off);
         let mut shown = 0;
-        if e.get(this, HavokError::pRootDir) != 0 {
+        if bhk::get(&e, this, HavokError::pRootDir) != 0 {
             let mut found = e.call(STRSTR, &args![file, TES4_UPPER]).u32();
             if found == 0 {
                 found = e.call(STRSTR, &args![file, TES4_LOWER]).u32();
@@ -654,9 +655,9 @@ pub fn havok_error_scalar_deleting_destructor(
 // Translation incomplete: 00625b40 - the FS:[0] exception-unwinding frame is not modeled.
 pub fn fn_00625b40(e: &mut Engine, this: Ptr<HavokError>) {
     e.mem.set_u32(this.addr(), VTABLE_ERROR);
-    let reports = this.byte_add(HavokError::m_disabledReports.off);
+    let reports = bhk::byte_add(this, HavokError::m_disabledReports.off);
     fn_00625bf0(e, this.cast(), reports);
-    fn_00625bd0(e, this.byte_add(HavokError::m_disabledAssertIds.off));
+    fn_00625bd0(e, bhk::byte_add(this, HavokError::m_disabledAssertIds.off));
     e.call(ARRAY_DESTRUCT, &args![reports]);
     e.call(REFERENCED_OBJECT_DESTRUCT, &args![this]);
 }
@@ -680,7 +681,7 @@ pub fn fn_00625bf0(e: &mut Engine, _this: Ptr, array: Ptr) {
         let element = e
             .call(ARRAY_ELEMENT, &args![array, index])
             .ptr::<HkFileLine>();
-        let file = e.get(element, HkFileLine::m_file);
+        let file = bhk::get(&e, element, HkFileLine::m_file);
         fn_00626760(e, file);
         index += 1;
     }
@@ -697,7 +698,7 @@ pub fn havok_error_is_report_enabled(
     file: Ptr,
     line: u32,
 ) -> bool {
-    let reports = this.byte_add(HavokError::m_disabledReports.off);
+    let reports = bhk::byte_add(this, HavokError::m_disabledReports.off);
     if typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, reports)) == 0 {
         return true;
     }
@@ -713,8 +714,8 @@ pub fn havok_error_is_report_enabled(
             let element = e
                 .call(ARRAY_ELEMENT, &args![reports, index])
                 .ptr::<HkFileLine>();
-            let report_file = e.get(element, HkFileLine::m_file);
-            let report_line = e.get(element, HkFileLine::m_line);
+            let report_file = bhk::get(&e, element, HkFileLine::m_file);
+            let report_line = bhk::get(&e, element, HkFileLine::m_line);
             let same_file = e.call(STR_CASECMP, &args![name, report_file]).i32() == 0;
             if same_file && line == report_line as u32 {
                 return false;
@@ -730,7 +731,7 @@ pub fn havok_error_is_report_enabled(
 /// this file's base name and line, frees its file name and removes it.
 // Translation incomplete: 00625d60 - the /GS cookie check (00ec408c) is not modeled.
 pub fn havok_error_enable_report(e: &mut Engine, this: Ptr<HavokError>, file: Ptr, line: u32) {
-    let reports = this.byte_add(HavokError::m_disabledReports.off);
+    let reports = bhk::byte_add(this, HavokError::m_disabledReports.off);
     e.with_stack(0xa0, |e, locals| {
         let name = locals.addr();
         base_name_with_extension(e, file, name, name + 0x80);
@@ -743,8 +744,8 @@ pub fn havok_error_enable_report(e: &mut Engine, this: Ptr<HavokError>, file: Pt
             let element = e
                 .call(ARRAY_ELEMENT, &args![reports, index])
                 .ptr::<HkFileLine>();
-            let report_file = e.get(element, HkFileLine::m_file);
-            let report_line = e.get(element, HkFileLine::m_line);
+            let report_file = bhk::get(&e, element, HkFileLine::m_file);
+            let report_line = bhk::get(&e, element, HkFileLine::m_line);
             let same_file = e.call(STR_CASECMP, &args![name, report_file]).i32() == 0;
             if same_file && line == report_line as u32 {
                 fn_00626760(e, report_file);
@@ -761,14 +762,14 @@ pub fn havok_error_enable_report(e: &mut Engine, this: Ptr<HavokError>, file: Pt
 /// base name with extension, `line`) to the disabled list.
 // Translation incomplete: 00625e70 - the /GS cookie check (00ec408c) is not modeled.
 pub fn havok_error_disable_report(e: &mut Engine, this: Ptr<HavokError>, file: Ptr, line: u32) {
-    let reports = this.byte_add(HavokError::m_disabledReports.off);
+    let reports = bhk::byte_add(this, HavokError::m_disabledReports.off);
     e.with_stack(0xa0 + 8, |e, locals| {
         let name = locals.addr();
         base_name_with_extension(e, file, name, name + 0x80);
         let copy = e.call(STR_DUP, &args![name]).u32();
         let entry = locals.byte_add(0xa0).cast::<HkFileLine>();
-        e.set(entry, HkFileLine::m_file, copy);
-        e.set(entry, HkFileLine::m_line, line as i32);
+        bhk::set(e, entry, HkFileLine::m_file, copy);
+        bhk::set(e, entry, HkFileLine::m_line, line as i32);
         fn_00626420(e, reports, entry.addr());
     });
 }

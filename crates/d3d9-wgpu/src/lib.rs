@@ -21,8 +21,6 @@
 //!   own opaque draws, shown by a full-screen step.
 //! - `bright`: the HDR watch (a diagnostic, read only): the game's float targets checked for
 //!   pixels that are not finite, lone bright dots and jumps of the luminance targets.
-//! - `shader_override`: shader overrides (port-added, none unless a setting asks): a named game
-//!   pixel shader drawn with a WGSL program of the fork's own that can read the scene's depth.
 //! - `ramp`: the game's brightness (its gamma ramp) on the frames shown in the window (port-added:
 //!   Direct3D 9 shows a ramp only in exclusive full screen).
 
@@ -54,7 +52,6 @@ mod prepare;
 pub mod ramp;
 pub mod scene_light;
 pub mod shader_cache;
-pub mod shader_override;
 pub mod shot;
 pub mod sm;
 pub mod state;

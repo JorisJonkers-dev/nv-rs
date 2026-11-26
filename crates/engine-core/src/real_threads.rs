@@ -86,6 +86,11 @@ use std::time::Duration;
 mod sync;
 pub(crate) use sync::{handle_closed, sync_object, take_all_sync};
 
+mod havok;
+pub use havok::{
+    havok_post_ready, havok_posted, join_havok, on_havok_helper, post_havok, HavokJob,
+};
+
 /// The kept pages over the limit that make the host hand them back at a frame's end (64 MB): a
 /// barrier is a few hundred microseconds, so not every frame.
 pub(crate) const HAND_BACK_AT: usize = 16384;
@@ -3037,11 +3042,11 @@ const HELPER_ID_BASE: u32 = 0x0001_0000;
 /// thread's (the thread list holds a few dozen), so `SuspendThread` of a game thread never finds it.
 const HELPER_INDEX_BASE: usize = 1000;
 
-/// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last, the
-/// drawing helper's ([`DRAW_SLOT`]).
+/// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last two,
+/// the drawing helper's ([`DRAW_SLOT`]) and the Havok helper's.
 pub const MOST_HELPERS: usize = ((crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start)
     / crate::mem::HELPER_SLOT) as usize
-    - 1;
+    - 2;
 
 /// Whether a pool of `helpers` fits the helper area beside the drawing helper's slot (one helper
 /// at least).
@@ -3399,8 +3404,10 @@ fn run_helper(
 // stack for locals are the last slot of `HELPER_AREA` ([`DRAW_SLOT`]), which the pool never takes.
 // ---------------------------------------------------------------------------------------------
 
-/// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the one past the pool's.
-const DRAW_SLOT: u32 = MOST_HELPERS as u32;
+/// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the last one, past the pool's and
+/// the Havok helper's.
+const DRAW_SLOT: u32 =
+    (crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start) / crate::mem::HELPER_SLOT - 1;
 // The area's last slot, and no pool slot: the drawing helper's TLS block and stack are nobody
 // else's, and nothing past the area (the extenders' code begins there).
 const _: () = assert!(
@@ -6033,13 +6040,18 @@ mod tests {
     }
 
     /// A pool fits the helper area beside the drawing helper's slot: one helper at least, and no
-    /// more than the slots before the last.
+    /// more than the slots before the last two (the Havok helper's and the drawing helper's).
     #[test]
     fn a_pool_fits_beside_the_drawing_helper() {
         assert!(pool_fits(1) && pool_fits(MOST_HELPERS));
         assert!(!pool_fits(0) && !pool_fits(MOST_HELPERS + 1));
         let draw =
             (crate::mem::HELPER_AREA.end - crate::mem::HELPER_SLOT)..crate::mem::HELPER_AREA.end;
+        assert_eq!(
+            DRAW_SLOT,
+            MOST_HELPERS as u32 + 1,
+            "the Havok helper has the slot before the drawing helper's"
+        );
         assert!(
             crate::mem::HELPER_AREA.start + MOST_HELPERS as u32 * crate::mem::HELPER_SLOT
                 <= draw.start,

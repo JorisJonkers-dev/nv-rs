@@ -26,6 +26,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_core::bhk;
 
 /// Deallocator (cdecl `(block)`).
 const FREE: u32 = 0x0040_1030;
@@ -144,7 +145,8 @@ pub fn hk_hinge_constraint_cinfo_construct(
     this: Ptr<HkConstraintCinfo>,
 ) -> Ptr<HkConstraintCinfo> {
     hk_constraint_cinfo_construct(e, this);
-    e.set(
+    bhk::set(
+        e,
         this,
         HkConstraintCinfo::vfptr,
         HINGE_CONSTRAINT_CINFO_VTABLE,
@@ -165,11 +167,11 @@ pub fn hk_constraint_cinfo_construct(
         0x0068_15c0,
         leaf::same_word(e, this.addr() + 4)
     );
-    e.set(this, HkConstraintCinfo::vfptr, CONSTRAINT_CINFO_VTABLE);
-    e.set(this, HkConstraintCinfo::pData, Ptr::new(0));
-    e.set(this, HkConstraintCinfo::ePriority, 1);
-    e.set(this, HkConstraintCinfo::pEntityA, Ptr::new(0));
-    e.set(this, HkConstraintCinfo::pEntityB, Ptr::new(0));
+    bhk::set(e, this, HkConstraintCinfo::vfptr, CONSTRAINT_CINFO_VTABLE);
+    bhk::set(e, this, HkConstraintCinfo::pData, Ptr::new(0));
+    bhk::set(e, this, HkConstraintCinfo::ePriority, 1);
+    bhk::set(e, this, HkConstraintCinfo::pEntityA, Ptr::new(0));
+    bhk::set(e, this, HkConstraintCinfo::pEntityB, Ptr::new(0));
     this
 }
 
@@ -193,7 +195,7 @@ pub fn hk_constraint_cinfo_scalar_deleting_destructor(
 /// `hkConstraintCinfo` destructor body: restores the base vtable and clears
 /// the constraint data (`00c89ac0(this, 0)`).
 pub fn hk_constraint_cinfo_destruct(e: &mut Engine, this: Ptr<HkConstraintCinfo>) {
-    e.set(this, HkConstraintCinfo::vfptr, CONSTRAINT_CINFO_VTABLE);
+    bhk::set(e, this, HkConstraintCinfo::vfptr, CONSTRAINT_CINFO_VTABLE);
     e.call(CONSTRAINT_SET_DATA, &args![this, 0u32]);
 }
 
@@ -739,11 +741,11 @@ mod tests {
 
     fn cinfo(e: &mut Engine) -> Ptr<HkConstraintCinfo> {
         let cinfo = e.new_object::<HkConstraintCinfo>();
-        e.set(cinfo, HkConstraintCinfo::vfptr, 0xdead_0001);
-        e.set(cinfo, HkConstraintCinfo::pData, Ptr::new(0xdead_0002));
-        e.set(cinfo, HkConstraintCinfo::ePriority, 0xdead_0003);
-        e.set(cinfo, HkConstraintCinfo::pEntityA, Ptr::new(0xdead_0004));
-        e.set(cinfo, HkConstraintCinfo::pEntityB, Ptr::new(0xdead_0005));
+        bhk::set(e, cinfo, HkConstraintCinfo::vfptr, 0xdead_0001);
+        bhk::set(e, cinfo, HkConstraintCinfo::pData, Ptr::new(0xdead_0002));
+        bhk::set(e, cinfo, HkConstraintCinfo::ePriority, 0xdead_0003);
+        bhk::set(e, cinfo, HkConstraintCinfo::pEntityA, Ptr::new(0xdead_0004));
+        bhk::set(e, cinfo, HkConstraintCinfo::pEntityB, Ptr::new(0xdead_0005));
         cinfo
     }
 
@@ -753,11 +755,11 @@ mod tests {
         let c = cinfo(&mut e);
         assert_eq!(e.call(0x009b_a570, &args![c]).u32(), c.addr());
         assert_eq!(calls_to(&e, SELF_GETTER), vec![vec![c.addr() + 4]]);
-        assert_eq!(e.get(c, HkConstraintCinfo::vfptr), 0x0108_ffb4);
-        assert_eq!(e.get(c, HkConstraintCinfo::pData).addr(), 0);
-        assert_eq!(e.get(c, HkConstraintCinfo::ePriority), 1);
-        assert_eq!(e.get(c, HkConstraintCinfo::pEntityA).addr(), 0);
-        assert_eq!(e.get(c, HkConstraintCinfo::pEntityB).addr(), 0);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::vfptr), 0x0108_ffb4);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::pData).addr(), 0);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::ePriority), 1);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::pEntityA).addr(), 0);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::pEntityB).addr(), 0);
     }
 
     #[test]
@@ -765,9 +767,9 @@ mod tests {
         let mut e = engine();
         let c = cinfo(&mut e);
         assert_eq!(e.call(0x009b_a550, &args![c]).u32(), c.addr());
-        assert_eq!(e.get(c, HkConstraintCinfo::vfptr), 0x0108_ff98);
-        assert_eq!(e.get(c, HkConstraintCinfo::ePriority), 1);
-        assert_eq!(e.get(c, HkConstraintCinfo::pEntityB).addr(), 0);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::vfptr), 0x0108_ff98);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::ePriority), 1);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::pEntityB).addr(), 0);
     }
 
     #[test]
@@ -775,7 +777,7 @@ mod tests {
         let mut e = engine();
         let c = cinfo(&mut e);
         e.call(0x009b_a5f0, &args![c]);
-        assert_eq!(e.get(c, HkConstraintCinfo::vfptr), 0x0108_ffb4);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::vfptr), 0x0108_ffb4);
         assert_eq!(calls_to(&e, CONSTRAINT_SET_DATA), vec![vec![c.addr(), 0]]);
     }
 
@@ -784,7 +786,7 @@ mod tests {
         let mut e = engine();
         let c = cinfo(&mut e);
         e.call(0x009b_a610, &args![c]);
-        assert_eq!(e.get(c, HkConstraintCinfo::vfptr), 0x0108_ffb4);
+        assert_eq!(bhk::get(&e, c, HkConstraintCinfo::vfptr), 0x0108_ffb4);
         assert_eq!(calls_to(&e, CONSTRAINT_SET_DATA), vec![vec![c.addr(), 0]]);
     }
 

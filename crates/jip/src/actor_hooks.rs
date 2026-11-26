@@ -17,6 +17,7 @@ use crate::game::{
     ActorHitData, Animation, BSFadeNode, BhkRagdollController, JipActorFlags, JipFormFlags,
     MiddleHighProcess, NiAVObject, TESForm, TESObjectREFR,
 };
+use engine_core::bhk;
 use engine_core::extend::{Hook, Owner, SiteSlot};
 use engine_core::prelude::*;
 use nvse::commands::Read;
@@ -624,7 +625,8 @@ fn projectile_impact_site(e: &mut Engine, a: &[u32]) -> Option<u32> {
 /// its Bip01 node's parent is a fade node with a reference, the ragdoll scripts are called on
 /// that reference.
 fn ragdoll_site(e: &mut Engine, a: &[u32]) -> Option<u32> {
-    let bip01 = e.get(
+    let bip01 = bhk::get(
+        &e,
         Ptr::<BhkRagdollController>::new(a[0]),
         BhkRagdollController::bip01Node,
     );
