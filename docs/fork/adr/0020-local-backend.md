@@ -1,6 +1,6 @@
 # ADR-0020: The local decomp backend
 
-> A fork decision record kept under docs/fork/adr/ because docs/adr/ is upstream-owned; it takes the next free number after ADR-0019.
+> A fork decision record kept under docs/fork/adr/ with the other fork ADRs; docs/ is a fork-only path. It takes the next free number after ADR-0019.
 
 **Status:** Accepted (maintainer decision recorded in nv-rs#916, 2026-11-26)
 **Date:** 2026-11-26
@@ -10,10 +10,10 @@
 
 nv-rs runs the game as a 64-bit program whose engine still lives in a modelled 32-bit
 address space. About 47,800 functions are address-level translations that read and write
-guest memory at the game's original addresses; about 1,100 are typed native Rust. Every
-typed function has a `Diff` test against its translation. A mistake in the translation is
-therefore inherited by the typed version: nothing in public CI compares either with the
-original code (nv-rs#916).
+guest memory at the game's original addresses (ADR-0014); about 1,100 are typed native Rust
+(both counts from nv-rs#916). Every typed function has a `Diff` test against its translation.
+A mistake in the translation is therefore inherited by the typed version: nothing in public
+CI compares either with the original code (nv-rs#916).
 
 The community's matching C++ reconstruction (`momusdigital/fnv_decomp`, ADR-0009) gives a
 second execution of the same functions, but it may not become part of a distributed build.
@@ -27,8 +27,8 @@ aarch64. Globals at their original addresses and calls through a table indexed b
 address worked, an empty address trapped cleanly, and the results matched the reference
 values. The measured cost was about 1.4x that of equivalent Rust, so the module is a
 reference, not a speed path. In 120 sampled units, 63% compiled to wasm32 after two
-mechanical source rewrites; 76% compiled with clang as MSVC i686. Units that do not
-compile stay as Rust translations.
+mechanical source rewrites; 76% compiled with clang as MSVC i686. These are the prototype
+results recorded in nv-rs#916. Units that do not compile stay as Rust translations.
 
 ## Decision
 
