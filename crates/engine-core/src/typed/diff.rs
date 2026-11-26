@@ -82,6 +82,12 @@
 
 pub use super::{MAIN_THREAD, OTHER_THREADS};
 
+use super::backend_peer;
+
+/// The backend peer the private run configured, for a control that must fail against it too.
+pub fn backend_peer() -> Option<Box<dyn ReferencePeer>> {
+    backend_peer::from_env()
+}
 use super::{apply_families, Family, Threads};
 use crate::abi::{AbiFn, Ret};
 use crate::cxx_exception::Thrown;
@@ -416,6 +422,12 @@ pub trait ReferencePeer {
     fn run(&self, engine: &mut Engine, addr: u32, args: &[u32]) -> Ret;
 }
 
+impl ReferencePeer for Box<dyn ReferencePeer> {
+    fn run(&self, engine: &mut Engine, addr: u32, args: &[u32]) -> Ret {
+        (**self).run(engine, addr, args)
+    }
+}
+
 /// Whether `NV_DIFF_ALL_WORDS` is set ([`Diff::all_words`]), read once.
 fn all_words_from_env() -> bool {
     static ALL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -475,7 +487,9 @@ impl Diff {
             float_sweep: 0,
             float_ulps: None,
             float_abs: None,
-            reference_peer: None,
+            // In the private run every typed case also runs against the local backend. A test that
+            // names its own peer overrides this one with `Diff::reference_peer`.
+            reference_peer: backend_peer::from_env(),
         }
     }
 
@@ -499,6 +513,13 @@ impl Diff {
     /// Without one, [`Diff::run`] makes only its usual runs and [`Report::reference_runs`] says 0.
     pub fn reference_peer(mut self, peer: impl ReferencePeer + 'static) -> Diff {
         self.reference_peer = Some(Box::new(peer));
+        self
+    }
+
+    /// Run no reference peer even when the private run's backend is present. For a control that
+    /// checks the harness's own three runs.
+    pub fn no_reference_peer(mut self) -> Diff {
+        self.reference_peer = None;
         self
     }
 
@@ -764,6 +785,7 @@ impl Diff {
                 }
             }
         }
+        backend_peer::report(self.addr, &report);
         report
     }
 
@@ -867,6 +889,9 @@ impl Diff {
                 report,
             );
             touched |= reference.touched;
+            if let Some(fault) = backend_peer::last_trap() {
+                report.backend_fault = Some(fault);
+            }
         }
         touched
     }
@@ -2146,6 +2171,10 @@ pub struct Report {
     pub direct_calls: usize,
     /// Of [`Report::runs`], the runs that also ran a reference peer ([`Diff::reference_peer`]).
     pub reference_runs: usize,
+    /// The reference runs that differed: the count behind the backend's failure class.
+    pub reference_found: usize,
+    /// A trap the backend reported in one of its runs.
+    pub backend_fault: Option<String>,
     /// The addresses of `typed_call!`s on those runs that no named family holds and
     /// [`Diff::goes_by_address`] doesn't list: the functions they name ran nowhere, so
     /// [`Report::assert_same`] fails.
@@ -2169,7 +2198,7 @@ pub struct Report {
 
 impl Report {
     /// The counters a run adds to.
-    fn tally(&self) -> [usize; 7] {
+    fn tally(&self) -> [usize; 8] {
         [
             self.runs,
             self.stopped,
@@ -2178,11 +2207,12 @@ impl Report {
             self.reference_runs,
             self.tolerated,
             self.abs_tolerated,
+            self.reference_found,
         ]
     }
 
     /// Adds what the run since `before` counted, `times` more times.
-    fn repeat(&mut self, before: [usize; 7], times: usize) {
+    fn repeat(&mut self, before: [usize; 8], times: usize) {
         let now = self.tally();
         let add = |i: usize| (now[i] - before[i]) * times;
         self.runs += add(0);
@@ -2192,10 +2222,14 @@ impl Report {
         self.reference_runs += add(4);
         self.tolerated += add(5);
         self.abs_tolerated += add(6);
+        self.reference_found += add(7);
     }
 
     fn note(&mut self, case: &Case, word: u16, branch: Branch, what: Found) {
         self.found += 1;
+        if branch == Branch::Reference {
+            self.reference_found += 1;
+        }
         if self.first.len() < KEEP_FOUND {
             self.first.push(Difference {
                 case: case.clone(),

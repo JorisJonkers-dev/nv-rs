@@ -56,6 +56,16 @@ endings do not affect the hash.
 
 ### What the private run executes
 
+The private run also drives every typed family's `Diff` cases against the local backend. It derives the suite names
+from `.fork/components.toml`, sets `NV_BACKEND_LIBRARY` for those commands, and requires the built library and its
+sibling `exports.tsv` (both made by `scripts/fork/decomp_backend.py` under `.decomp-backend/`). `Diff` attaches the
+peer to every case in that process; public CI, without the variable, runs as before. The harness prints one
+`backend-pass:` or `backend-fail:` line per function, and `scripts/fork/backend_evidence.py` writes them into
+`scripts/ledger/function_evidence.tsv`: a pass raises the function's `reference_level` to "translation and backend",
+a mismatch records one of `real`, `float-only`, `uninitialised read`, `hang` or `fault`. The planted-bug control in
+`diff_reference_peer.rs` also runs against the backend. `scripts/fork/tests/test_backend_evidence.py` and
+`scripts/fork/tests/test_private_run.py` check the wiring without a backend.
+
 The commands of `scripts/fork/private_run.py` cover every test that uses the data gate: the `require_data` tests in
 `engine-core`, `engine-havok`, `host` and `diff_reference_peer.rs`, including the five `#[ignore]` recorded-table
 tests of `engine-core` (selected by their shared name with `--ignored`). They also run the ignored private-input

@@ -696,6 +696,7 @@ name = "engine-core"
 version = "0.1.0"
 dependencies = [
  "fork-hitch",
+ "libloading",
  "qos",
  "windows 0.58.0",
 ]

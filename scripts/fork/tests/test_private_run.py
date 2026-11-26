@@ -44,6 +44,7 @@ def gate_line(kind, name="some::test", variable="NV_EXE"):
 # refuses a new one until it is added here or to UNCOVERED_DATA_FILES (with a reason in docs/fork/TESTING.md).
 COVERED_DATA_FILES = frozenset({
     "crates/engine-core/src/exe.rs",
+    "crates/engine-core/src/typed/backend_peer.rs",
     "crates/engine-core/src/units/crt/cvt.rs",
     "crates/engine-core/src/units/crt/fdiv.rs",
     "crates/engine-core/src/units/crt/math.rs",
@@ -52,6 +53,7 @@ COVERED_DATA_FILES = frozenset({
     "crates/engine-havok/src/units/havok_sdk/hkalookatiksolver.rs",
     "crates/host/src/lib.rs",
     "crates/host/src/native_inflate.rs",
+    "crates/engine/tests/diff_reference_peer.rs",
     "crates/engine/tests/havok_bodies.rs",
     "crates/engine/tests/real_scda.rs",
     "crates/engine/tests/typed_archives.rs",
@@ -277,6 +279,18 @@ class WiringTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertNotIn(str(root), why)
             self.assertIn("judge", why)
+
+    def test_every_typed_family_suite_runs_with_the_backend(self):
+        commands = private_run.backend_commands(self.ROOT)
+        self.assertEqual(len(commands), 2, "ordinary and data-gated typed suites")
+        argv = commands[0][1]
+        targets = {argv[i + 1] for i, word in enumerate(argv) if word == "--test"}
+        components = (self.ROOT / ".fork" / "components.toml").read_text()
+        expected = set(re.findall(r"--test (typed_[a-z_]+)", components))
+        self.assertEqual(targets, expected)
+        self.assertIn("NV_BACKEND_LIBRARY", commands[0][2])
+        gated = {commands[1][1][i + 1] for i, word in enumerate(commands[1][1]) if word == "--test"}
+        self.assertEqual(gated, {"typed_archives", "typed_script_lines", "typed_scripts"})
 
     def test_every_private_input_test_is_covered_or_documented(self):
         found = set()
