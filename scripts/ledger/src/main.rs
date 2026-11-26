@@ -56,14 +56,15 @@
 //! `queue` writes the untyped functions as a resumable list in frame call-graph
 //! order (callees before callers), with the members of a family template kept
 //! together. A row is done when its typed marker and a registered `Diff` case
-//! both exist.
+//! both exist; an explicit engine gap keeps the row `partial`.
 //!
 //! Writes `docs/LEDGER.md`. `--check` writes nothing and fails if the file
 //! is out of date. `--tsv <file>` also writes the per-function ledger
 //! (address, size, name, subsystem, unit, status, Rust locations, state,
 //! reference level, failure class).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -408,14 +409,27 @@ impl Func {
         }
     }
 
+    /// The state a worker sees in the queue: an engine gap stays visible even
+    /// when a typed marker is present.
+    fn queue_state(&self) -> &'static str {
+        if self.partial_in_engine() {
+            "partial"
+        } else {
+            self.state().as_str()
+        }
+    }
+
     fn reference_level(&self) -> ReferenceLevel {
         match self.state() {
             State::ReferenceVerified => ReferenceLevel::TranslationAndBackend,
             State::Typed | State::Moved | State::Retired => {
                 if self.evidence.backend {
                     ReferenceLevel::TranslationAndBackend
-                } else {
+                } else if self.translated_in_engine() || self.evidence.translation_deleted {
+                    // A deleted translation is evidence that the peer was passed.
                     ReferenceLevel::Translation
+                } else {
+                    ReferenceLevel::None
                 }
             }
             _ => ReferenceLevel::None,
@@ -522,21 +536,102 @@ fn registered_addresses(text: &str) -> Vec<u32> {
     out
 }
 
-/// The addresses a file's `Diff::new(entry!(...))` cases name. A case reaches
-/// `.assert_same()` in the hygiene test; here its registration is what makes a
-/// queue row done, so a marker on its own is never enough.
+/// Code with line comments, block comments and string literals blanked out,
+/// keeping their positions and newlines. A `Diff::new` inside a doc example or
+/// a test fixture's string is not a registered case.
+fn code_only(text: &str) -> String {
+    let b = text.as_bytes();
+    let mut out = vec![b' '; b.len()];
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'/' if b.get(i + 1) == Some(&b'/') => {
+                while i < b.len() && b[i] != b'\n' {
+                    out[i] = b' ';
+                    i += 1;
+                }
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                out[i] = b' ';
+                out[i + 1] = b' ';
+                i += 2;
+                while i < b.len() {
+                    if b[i] == b'*' && b.get(i + 1) == Some(&b'/') {
+                        out[i] = b' ';
+                        out[i + 1] = b' ';
+                        i += 2;
+                        break;
+                    }
+                    if b[i] != b'\n' {
+                        out[i] = b' ';
+                    }
+                    i += 1;
+                }
+            }
+            b'"' => {
+                out[i] = b' ';
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'\\' {
+                        out[i] = b' ';
+                        i += 1;
+                        if i < b.len() {
+                            if b[i] != b'\n' {
+                                out[i] = b' ';
+                            }
+                            i += 1;
+                        }
+                        continue;
+                    }
+                    if b[i] == b'"' {
+                        out[i] = b' ';
+                        i += 1;
+                        break;
+                    }
+                    if b[i] != b'\n' {
+                        out[i] = b' ';
+                    }
+                    i += 1;
+                }
+            }
+            _ => {
+                out[i] = b[i];
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// The addresses a file's registered `Diff::new` cases name. Both forms the
+/// harness uses count: `entry!(0x...)` and `(0x..., f as AbiFn)`. A case is a
+/// registration only when its result is run and asserted; a marker on its own
+/// is never enough to make a queue row done.
 fn diff_addresses(text: &str) -> BTreeSet<u32> {
+    let code = code_only(text);
     let mut out = BTreeSet::new();
     let mut from = 0;
-    while let Some(k) = text[from..].find("Diff::new(") {
+    while let Some(k) = code[from..].find("Diff::new(") {
         let start = from + k + "Diff::new(".len();
-        let end = text[start..]
-            .find(';')
+        let next = code[start..]
+            .find("Diff::new(")
             .map(|n| start + n)
-            .unwrap_or(text.len());
-        let case = &text[start..end.min(start + 2048)];
-        if let Some(i) = case.find("entry!(") {
-            out.extend(entry_address(&case[i + "entry!(".len()..]));
+            .unwrap_or(code.len());
+        let end = next.min(start + 4096);
+        let case = &code[start..end];
+        let arg = case.trim_start();
+        let addr = if let Some(rest) = arg.strip_prefix('(') {
+            entry_address(rest)
+        } else {
+            arg.find("entry!(")
+                .and_then(|i| entry_address(&arg[i + "entry!(".len()..]))
+        };
+        if let Some(a) = addr {
+            let ran = case.contains(".run()");
+            let asserted = case.contains(".assert_same()") || case.contains("assert!");
+            if ran && asserted {
+                out.insert(a);
+            }
         }
         from = start;
     }
@@ -1207,10 +1302,9 @@ fn render(funcs: &[Func], header: &[String], unmapped: usize, cites: usize) -> S
 }
 
 /// One call site of the frame tree (`research/engine-map/frame.tsv`). `call`
-/// is the site's position in its caller's call list; `seq` is the depth-first
-/// row number and is the key the parent is found by.
+/// is the site's position in its caller's call list; rows follow the table's
+/// depth-first order.
 struct FrameRow {
-    seq: usize,
     depth: usize,
     call: usize,
     addr: u32,
@@ -1238,7 +1332,6 @@ fn load_frame(path: &Path) -> Result<Vec<FrameRow>, String> {
                 .unwrap_or("")
         };
         out.push(FrameRow {
-            seq: get("seq").parse().map_err(|e| format!("{line}: {e}"))?,
             depth: get("depth").parse().map_err(|e| format!("{line}: {e}"))?,
             call: get("call").parse().map_err(|e| format!("{line}: {e}"))?,
             addr: u32::from_str_radix(get("address"), 16).map_err(|e| format!("{line}: {e}"))?,
@@ -1352,40 +1445,51 @@ struct QueueEntry<'a> {
     family: String,
 }
 
-/// Frame functions in callee-before-caller order. The table is a tree of call
-/// sites: `seq` follows the calls depth first, so the caller of a row at depth
-/// `d` is the latest row at depth `d - 1`. Edges are kept per address, not per
-/// site: the tree holds repeated calls and a function can be a callee at one
-/// site and a caller at another. A post-order walk of that address graph puts
-/// every callee before its caller, and follows call order within a level.
-fn frame_post_order(rows: &[FrameRow]) -> Vec<u32> {
-    let mut children: BTreeMap<u32, Vec<(usize, u32)>> = BTreeMap::new();
-    let mut stack: Vec<(usize, u32)> = Vec::new();
-    let mut roots = Vec::new();
+/// Direct caller -> callee edges of the frame address graph, with the call
+/// number that orders siblings. The table is a tree of call sites: `seq`
+/// follows the calls depth first, so the caller of a row at depth `d` is the
+/// latest row at depth `d - 1`. Edges are kept per address, not per site: the
+/// tree holds repeated calls and a function can be a callee at one site and a
+/// caller at another.
+fn frame_edges(rows: &[FrameRow]) -> Vec<(u32, u32, usize)> {
+    let mut edges = Vec::new();
+    let mut stack: Vec<u32> = Vec::new();
+    let mut seen = BTreeSet::new();
     for r in rows {
         if r.depth == 0 {
             stack.clear();
-            stack.push((r.seq, r.addr));
-            if !roots.contains(&r.addr) {
-                roots.push(r.addr);
-            }
+            stack.push(r.addr);
             continue;
         }
         while stack.len() <= r.depth {
-            stack.push((0, 0));
+            stack.push(0);
         }
-        let parent = stack[r.depth - 1].1;
-        if parent != r.addr {
-            let kids = children.entry(parent).or_default();
-            if !kids.iter().any(|&(_, a)| a == r.addr) {
-                kids.push((r.call, r.addr));
-            }
+        let parent = stack[r.depth - 1];
+        if parent != r.addr && seen.insert((parent, r.addr)) {
+            edges.push((parent, r.addr, r.call));
         }
         stack.truncate(r.depth);
-        stack.push((r.seq, r.addr));
+        stack.push(r.addr);
+    }
+    edges
+}
+
+/// Frame functions in callee-before-caller order. A post-order walk of the
+/// address graph puts every callee before its caller, and follows call order
+/// within a level.
+fn frame_post_order(rows: &[FrameRow]) -> Vec<u32> {
+    let mut children: BTreeMap<u32, Vec<(usize, u32)>> = BTreeMap::new();
+    for (parent, child, call) in frame_edges(rows) {
+        children.entry(parent).or_default().push((call, child));
     }
     for kids in children.values_mut() {
         kids.sort_unstable();
+    }
+    let mut roots = Vec::new();
+    for r in rows {
+        if r.depth == 0 && !roots.contains(&r.addr) {
+            roots.push(r.addr);
+        }
     }
     fn visit(
         addr: u32,
@@ -1415,9 +1519,11 @@ fn frame_post_order(rows: &[FrameRow]) -> Vec<u32> {
 }
 
 /// Functions still in the typing pipeline, in frame-call-graph order, with
-/// family-template siblings together. A row is done when its typed marker and
-/// `Diff` case both exist, so a worker can resume at the first `no`. Functions
-/// outside the frame follow it, in address order.
+/// family-template siblings together. A family block follows every block that
+/// holds a callee of one of its members, so grouping never puts a caller first.
+/// A row is done when its typed marker and `Diff` case both exist and no engine
+/// gap is left, so a worker can resume at the first `no`. Functions outside the
+/// frame follow it, in address order.
 fn queue_rows<'a>(
     funcs: &'a [Func],
     families: &BTreeMap<u32, String>,
@@ -1445,7 +1551,9 @@ fn queue_rows<'a>(
 
     let mut groups: BTreeMap<String, Vec<(usize, &'a Func)>> = BTreeMap::new();
     for f in funcs {
-        if f.base() != "open" || f.evidence.family_moved {
+        // A retired function is no longer work; a moved one with its
+        // translation still present can need typing and stays in the queue.
+        if f.base() != "open" || f.state() == State::Retired {
             continue;
         }
         let family = families
@@ -1458,14 +1566,64 @@ fn queue_rows<'a>(
     for (_, members) in &mut groups {
         members.sort_by_key(|(r, _)| *r);
     }
-    groups.sort_by(|a, b| a.1[0].0.cmp(&b.1[0].0).then(a.0.cmp(&b.0)));
+    // Every frame edge is a hard constraint between family blocks: the block
+    // with a callee comes before the block with its caller, even when another
+    // member of the caller's family ranks earlier. Ready blocks are taken in
+    // frame order so the result is stable.
+    let mut group_of = BTreeMap::new();
+    for (i, (_, members)) in groups.iter().enumerate() {
+        for &(_, f) in members {
+            group_of.insert(f.addr, i);
+        }
+    }
+    let mut prerequisites: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); groups.len()];
+    for (parent, child, _) in frame_edges(frame) {
+        if let (Some(&p), Some(&c)) = (group_of.get(&parent), group_of.get(&child)) {
+            if p != c {
+                prerequisites[p].insert(c);
+            }
+        }
+    }
+    let mut waiting: Vec<usize> = vec![0; groups.len()];
+    let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); groups.len()];
+    for (p, need) in prerequisites.iter().enumerate() {
+        waiting[p] = need.len();
+        for &c in need {
+            dependents[c].push(p);
+        }
+    }
+    let key = |i: usize| groups[i].1[0].0;
+    let mut ready = BinaryHeap::new();
+    for i in 0..groups.len() {
+        if waiting[i] == 0 {
+            ready.push(Reverse((key(i), i)));
+        }
+    }
+    let mut order = Vec::with_capacity(groups.len());
+    while let Some(Reverse((_, i))) = ready.pop() {
+        order.push(i);
+        for &p in &dependents[i] {
+            waiting[p] -= 1;
+            if waiting[p] == 0 {
+                ready.push(Reverse((key(p), p)));
+            }
+        }
+    }
+    if order.len() != groups.len() {
+        // A call cycle joining two families cannot both keep siblings together
+        // and put every callee first: keep the remaining blocks in frame order.
+        let mut stuck: Vec<usize> = (0..groups.len()).filter(|&i| waiting[i] > 0).collect();
+        stuck.sort_unstable_by_key(|&i| key(i));
+        order.extend(stuck);
+    }
     let mut out = Vec::new();
-    for (family, members) in groups {
-        for (r, f) in members {
+    for i in order {
+        let (family, members) = &groups[i];
+        for &(r, f) in members {
             out.push(QueueEntry {
                 f,
                 rank: r,
-                done: f.typed_in_engine() && diffed.contains(&f.addr),
+                done: !f.partial_in_engine() && f.typed_in_engine() && diffed.contains(&f.addr),
                 family: family.clone(),
             });
         }
@@ -1685,8 +1843,9 @@ fn main() {
 
 /// `queue`: one resumable work list of the untyped functions. `queue <unit>`
 /// restricts it to a unit; two hex arguments restrict it to `[lo, hi)` inside
-/// that unit. A row is done when its typed marker and `Diff` case exist, so a
-/// worker resumes at the first row still marked `no`.
+/// that unit. A row is done when its typed marker and `Diff` case exist and no
+/// engine gap is left, so a worker resumes at the first row still marked `no`.
+/// A known engine gap is shown as `partial` even when a typed marker exists.
 fn queue(root: &Path, funcs: &[Func], args: &[String], diffed: &BTreeSet<u32>) {
     let families = load_families(&root.join(FAMILIES));
     let frame = match load_frame(&root.join("research/engine-map/frame.tsv")) {
@@ -1712,7 +1871,7 @@ fn queue(root: &Path, funcs: &[Func], args: &[String], diffed: &BTreeSet<u32>) {
             "{}\t{:08x}\t{}\t{}\t{}\t{}",
             e.rank + 1,
             e.f.addr,
-            e.f.state().as_str(),
+            e.f.queue_state(),
             if e.done { "yes" } else { "no" },
             e.family,
             e.f.name
@@ -1943,9 +2102,8 @@ mod tests {
         }
     }
 
-    fn frame_row(seq: usize, depth: usize, call: usize, addr: u32) -> FrameRow {
+    fn frame_row(depth: usize, call: usize, addr: u32) -> FrameRow {
         FrameRow {
-            seq,
             depth,
             call,
             addr,
@@ -1975,21 +2133,38 @@ mod tests {
         // and nothing reaches it by address any more.
         f.evidence.family_moved = true;
         assert_eq!(f.state(), State::Moved);
+        assert_eq!(f.reference_level(), ReferenceLevel::TranslationAndBackend);
         f.evidence.by_address_callers = 1;
         f.evidence.translation_deleted = true;
         assert_eq!(f.state(), State::Moved, "a by-address caller remains");
+        assert_eq!(f.reference_level(), ReferenceLevel::TranslationAndBackend);
         f.evidence.by_address_callers = 0;
         assert_eq!(f.state(), State::Retired);
+        assert_eq!(f.reference_level(), ReferenceLevel::TranslationAndBackend);
         let mut still_translated = func(0x00c9_0000, "havok");
         still_translated.evidence = f.evidence.clone();
         still_translated.evidence.translation_deleted = false;
         assert_eq!(still_translated.state(), State::Moved);
+        assert_eq!(
+            still_translated.reference_level(),
+            ReferenceLevel::TranslationAndBackend
+        );
 
         let mut no_move = func(0x00c9_0010, "havok");
         no_move.evidence.translation_deleted = true;
         no_move.evidence.backend = true;
         assert_eq!(no_move.state(), State::Open, "no translation and no move");
         assert_eq!(no_move.reference_level(), ReferenceLevel::None);
+
+        // A move alone claims no peer it has no evidence for. A recorded
+        // deletion is evidence that a translation was once passed.
+        let mut moved = func(0x00c9_0020, "havok");
+        moved.evidence.family_moved = true;
+        assert_eq!(moved.state(), State::Moved);
+        assert_eq!(moved.reference_level(), ReferenceLevel::None);
+        moved.evidence.translation_deleted = true;
+        assert_eq!(moved.state(), State::Retired);
+        assert_eq!(moved.reference_level(), ReferenceLevel::Translation);
     }
 
     #[test]
@@ -2005,7 +2180,15 @@ mod tests {
         assert!(rows[&0x00c9_0010].family_moved);
         assert!(rows[&0x00c9_0010].translation_deleted);
         assert_eq!(rows[&0x00c9_0010].by_address_callers, 0);
-        assert!(parse_evidence("address\tbackend\tfailure_class\tfamily_moved\ttranslation_deleted\tby_address_callers\n00c90000\t0\twrong\t0\t0\t0\n").is_err());
+        let cols = "address\tbackend\tfailure_class\tfamily_moved\ttranslation_deleted\tby_address_callers\n";
+        // Errors name the file's real line, after the comments.
+        let bad = format!("# a\n# b\n{cols}00c90000\t0\twrong\t0\t0\t0\n");
+        let err = parse_evidence(&bad).err().unwrap();
+        assert!(err.contains("function_evidence.tsv:4"), "{err}");
+        // Retirement needs a recorded caller count: an empty one is an error,
+        // never the default zero.
+        assert!(parse_evidence(&format!("{cols}00c90020\t0\t\t1\t1\t\t\n")).is_err());
+        assert!(parse_evidence(&format!("{cols}00c90000\t0\twrong\t0\t0\t0\n")).is_err());
     }
 
     #[test]
@@ -2013,9 +2196,37 @@ mod tests {
         let text =
             "#[test] fn t() { Diff::new(entry!(0x00c9_0e60, f(u32))).run().assert_same(); }\n";
         assert_eq!(diff_addresses(text), [0x00c9_0e60].into_iter().collect());
+        assert_eq!(
+            diff_addresses(
+                "#[test] fn t() { Diff::new((0x005a_ccb0, f as AbiFn)).run().assert_same(); }\n"
+            ),
+            [0x005a_ccb0].into_iter().collect()
+        );
         assert!(diff_addresses("Diff::new(0x00c9_0e60, f)\n").is_empty());
+        assert!(diff_addresses("Diff::new(entry!(0x00c9_0e60, f))\n// no run\n").is_empty());
+        // A doc example, a string in a fixture and a case whose result is never
+        // looked at are not registered cases.
         assert!(
-            diff_addresses("Diff::new(entry!(0x00c9_0e60, f))\n// no run\n").contains(&0x00c9_0e60)
+            diff_addresses("//! Diff::new(entry!(0x00c9_0e60, f)).run().assert_same();\n")
+                .is_empty()
+        );
+        assert!(diff_addresses(
+            "let s = \"Diff::new(entry!(0x00c9_0e60, f)).run().assert_same();\";\n"
+        )
+        .is_empty());
+        assert!(
+            diff_addresses("/* Diff::new(entry!(0x00c9_0e60, f)).run().assert_same(); */\n")
+                .is_empty()
+        );
+        assert!(diff_addresses(
+            "Diff::new(entry!(0x00c9_0e60, f))\n    .setup(|e, _| vec![])\n    .run();\n"
+        )
+        .is_empty());
+        assert_eq!(
+            diff_addresses(
+                "let report = Diff::new(entry!(0x00c9_0e60, f)).run();\nreport.assert_same();\n"
+            ),
+            [0x00c9_0e60].into_iter().collect()
         );
     }
 
@@ -2028,7 +2239,10 @@ mod tests {
         assert_eq!(families[&0x0040_12a0], "s1");
         assert_eq!(families[&0x0040_12c0], "s1");
         assert_eq!(families[&0x0040_12d0], "s1");
-        assert!(families.is_empty() == false);
+        assert!(
+            !families.contains_key(&0x0040_1234),
+            "an unmapped address has no family"
+        );
     }
 
     #[test]
@@ -2036,12 +2250,12 @@ mod tests {
         // The frame tree: root -> A -> B, root -> C -> (D, E). B and E share a
         // family template. A has a typed marker and a Diff case, so it is done.
         let rows = vec![
-            frame_row(1, 0, 0, 0x0086e650),
-            frame_row(2, 1, 1, 0x00a00000),
-            frame_row(3, 2, 1, 0x00b00000),
-            frame_row(4, 1, 2, 0x00c00000),
-            frame_row(5, 2, 1, 0x00d00000),
-            frame_row(6, 2, 2, 0x00e00000),
+            frame_row(0, 0, 0x0086e650),
+            frame_row(1, 1, 0x00a00000),
+            frame_row(2, 1, 0x00b00000),
+            frame_row(1, 2, 0x00c00000),
+            frame_row(2, 1, 0x00d00000),
+            frame_row(2, 2, 0x00e00000),
         ];
         let mut funcs: Vec<Func> = [
             0x0086e650, 0x00a00000, 0x00b00000, 0x00c00000, 0x00d00000, 0x00e00000, 0x00900000,
@@ -2093,6 +2307,67 @@ mod tests {
             !order[1].done,
             "a sibling still needs its own marker and Diff case"
         );
+    }
+
+    #[test]
+    fn a_grouped_sibling_never_puts_a_caller_before_its_callee() {
+        // root -> E (family s1), root -> A -> B (family s1) -> X. E ranks
+        // before X, so a block placed at its first member would put B before
+        // its own callee X.
+        let rows = vec![
+            frame_row(0, 0, 0x0086e650),
+            frame_row(1, 1, 0x00e00000),
+            frame_row(1, 2, 0x00a00000),
+            frame_row(2, 1, 0x00b00000),
+            frame_row(3, 1, 0x00d00000),
+        ];
+        let funcs: Vec<Func> = [0x0086e650, 0x00e00000, 0x00a00000, 0x00b00000, 0x00d00000]
+            .into_iter()
+            .map(|a| func(a, "fallout/ai"))
+            .collect();
+        let families: BTreeMap<u32, String> = [(0x00e00000, "s1"), (0x00b00000, "s1")]
+            .into_iter()
+            .map(|(a, f)| (a, f.to_string()))
+            .collect();
+        let order = queue_rows(&funcs, &families, &rows, &BTreeSet::new());
+        let addrs: Vec<u32> = order.iter().map(|e| e.f.addr).collect();
+        assert_eq!(
+            addrs,
+            [0x00d00000, 0x00e00000, 0x00b00000, 0x00a00000, 0x0086e650]
+        );
+        assert_eq!(order[1].family, "s1");
+        assert_eq!(order[2].family, "s1");
+    }
+
+    #[test]
+    fn queue_keeps_moved_work_and_marks_engine_gaps_partial() {
+        let rows = vec![frame_row(0, 0, 0x0086e650)];
+        let mut funcs = vec![
+            func(0x0086e650, "fallout/ai"),
+            func(0x00a00000, "fallout/ai"),
+            func(0x00b00000, "fallout/ai"),
+            func(0x00c00000, "fallout/ai"),
+        ];
+        funcs[1].evidence.family_moved = true;
+        funcs[2].evidence.family_moved = true;
+        funcs[2].evidence.translation_deleted = true;
+        funcs[3]
+            .typed
+            .insert("crates/engine-typed/src/x.rs:1".into());
+        funcs[3]
+            .incomplete
+            .insert("crates/engine/src/x.rs:2".into());
+        let diffed: BTreeSet<u32> = [0x00b00000, 0x00c00000].into_iter().collect();
+        let order = queue_rows(&funcs, &BTreeMap::new(), &rows, &diffed);
+        let addrs: Vec<u32> = order.iter().map(|e| e.f.addr).collect();
+        // A retired function is no longer work; a moved one still is.
+        assert_eq!(addrs, [0x0086e650, 0x00a00000, 0x00c00000]);
+        assert_eq!(order[1].f.queue_state(), "moved");
+        assert!(!order[1].done);
+        // A typed marker and a Diff case do not close an engine gap.
+        assert_eq!(order[2].f.state(), State::Typed);
+        assert_eq!(order[2].f.queue_state(), "partial");
+        assert!(!order[2].done);
     }
 
     #[test]
