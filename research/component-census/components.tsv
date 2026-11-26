@@ -1,0 +1,10 @@
+# component	label	thread	region	crates	types	source
+# One row per component. `crates` holds path prefixes under crates/ (the longest match owns the
+# reader); `types` holds prefixes of the typed field's class (the first match owns the field).
+audio	Audio	audio thread	guest/audio	ds-mix|engine-fallout-misc|engine-bs/src/units/bsaudio/	BSAudio|BSThread|FamThread|IoRequest	docs/adr/0015; docs/fork/CI.md
+renderer	Renderer	render thread	guest/renderer	d3d9-wgpu|d3d9-stream|d3dx-shader|engine-typed|engine-bs/src/units/bsshader/	BSShader|NiDX9|NiD3D|NiRenderer|NiRenderTargetGroup|NiAlphaAccumulator|NiAccumulator|ShadowSceneNode|RendererData|TextureStage|ExtraSpecialRenderFlags|TextureTransform|VertexDistMapItem|NiDitherProperty|NiProperty	docs/adr/0007; docs/fork/REPLAY.md
+interface	Interface	main	guest/interface	engine-fallout-interface|engine-fallout-script|engine-bs/src/units/bsmenu/	ScriptRunner|ScriptRunManager|Menu|ContainerMenu|ListBoxLayout	docs/fork/CI.md
+ai	AI	main (task threads)	guest/ai	engine-fallout-ai|engine-fallout-pathfinding	HighProcess|LowProcess|PlayerCharacter|CharacterContext|CharacterInput|CharacterProxy|BipedAnim|Animation|FollowerBarkEntry	docs/adr/0015; issue #916
+forms	Forms	main	guest/forms	engine-fallout-forms|engine-fallout-cell|engine-fallout-env|engine-fallout-facegen	TES|BGS|ScriptLocals|SCRIPT_HEADER|LOADED_REF_DATA|BaseExtraList|LoadedReferenceMap|GameSettingCollection|ChangesMap|Save	docs/ENGINE_CRATE.md; docs/adr/0010
+havok	Havok	havok thread (16 ms step)	guest/havok	engine-havok	Hk|Hkp|Bhk|Ahkp|hkp|HavokError	docs/adr/0014; docs/adr/0015
+scene	Gamebryo scene graph	main	guest/scene	engine-gamebryo|engine-speedtree|engine-bs	Ni|BS|C|SpeedTree|SIdv|CLeaf|CFrond|CBillboard|CVec|GeometryData|TriStripsShape|SLodGeometry|STreeInstanceData	docs/adr/0010; docs/fork/CI.md

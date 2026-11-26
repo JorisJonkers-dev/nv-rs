@@ -130,6 +130,7 @@ crates/mcm/
 crates/stewie/
 docs/
 research/families/
+research/component-census/
 research/ghidra/
 research/initgen/
 research/nv-oracle/
