@@ -1,0 +1,2 @@
+crates/host/src/uncap.rs  # NV_UNCAP reports fixed 1/60 s steps from an exact wall-time accumulator and publishes the carried draw fraction (nv-rs#933)
+crates/host/src/phys_blend.rs  # the drawn body moves with the uncapped step's carried fraction instead of standing still on drawing-only frames (nv-rs#933)
