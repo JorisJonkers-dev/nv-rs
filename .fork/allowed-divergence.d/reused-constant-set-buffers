@@ -1,0 +1,5 @@
+crates/d3d9-wgpu/src/device.rs  # constant sets compare registers before copying and only make a stage's block due when one changed (nv-rs#934); drop when upstream skips unchanged constants
+crates/engine-typed/src/draw/capture.rs  # a pool of finished image copies and a caller-owned buffer for matrix copies (nv-rs#934); drop when upstream reuses those buffers
+crates/engine-typed/src/draw/defined.rs  # the renderer's matrix copy fills a stack buffer (nv-rs#934); drop when upstream does the same
+crates/engine-typed/src/shader/constants.rs  # a constant attribute's thirteen words are passed as a stack slice (nv-rs#934); drop when upstream does the same
+crates/engine-typed/src/shader/geometry.rs  # the object-to-cube and shadow-clip matrix copies fill stack buffers (nv-rs#934); drop when upstream does the same

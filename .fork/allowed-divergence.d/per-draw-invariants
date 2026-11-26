@@ -1,0 +1,6 @@
+crates/engine-core/src/engine.rs  # a number per engine keeps a thread-local draw probe's answer from another run out of this one (nv-rs#935); drop when upstream has its own engine-scoped draw cache
+crates/engine-core/src/real_threads.rs  # one geometry's device calls share the world draw's half of the device lock, with probes counted for the tests (nv-rs#935); drop when upstream keeps the half itself
+crates/engine-platform/src/d3d9device.rs  # device test for the geometry half's hold, call order and probe count (nv-rs#935); drop with the half
+crates/engine-typed/src/render/draw.rs  # strip-loop invariants read once and the skinned test's answer kept per renderer, target and vtables (nv-rs#935); drop when upstream does the same per-draw work
+crates/engine-typed/src/draw/packed.rs  # strip-loop invariants read once and one geometry's device calls in a half (nv-rs#935); drop when upstream does the same per-draw work
+crates/engine-typed/src/shader/batch.rs  # a render pass reaches the skinned answer through the same memoised function; drop with the memo
