@@ -1,0 +1,35 @@
+# Fork-only. The private porting run (nv-rs#916, stories 24, 29, 30 and 58): check the one hash over
+# the judge, its thresholds, its controls and the ledger generator, then require every gated test to
+# execute. Never triggered by a pull request or a push: private material is never read for a public
+# check. The job runs on the maintainer's machine; builds do not leave it. Gate lines carry counts
+# only, never a path from the environment.
+name: Private porting run
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '43 4 * * *'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  private:
+    name: Private run
+    runs-on: self-hosted
+    steps:
+      - name: Check out the branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify the checker
+        run: python3 -I scripts/fork/private_integrity.py --check
+      - name: Require every private-input test to execute
+        env:
+          NV_EXE: ${{ secrets.NV_EXE }}
+          NV_DATA: ${{ secrets.NV_DATA }}
+        run: python3 -I scripts/fork/private_run.py --require

@@ -36,6 +36,28 @@ unset. Any other read (`let Ok(p) = std::env::var("NV_EXE") else { return }`, `.
 
   `--require` exits 1 when a gated test skipped or none executed.
 
+## The private run
+
+[`scripts/fork/private_run.py`](../../scripts/fork/private_run.py) is the entry point for the private run. It runs
+the same test commands as public CI, sets `NV_ORACLE_REQUIRE=1` and calls `gate_counts.py --require`, so a single
+`skipped:` line, including one printed outside the gate, fails the run. Public CI runs without the flag: the gate
+prints `skipped:` and the job stays green.
+The workflow [`.github/workflows/fork-private.yml`](../../.github/workflows/fork-private.yml) has only
+`workflow_dispatch` and `schedule` triggers, so no pull request reads private material, and it runs on the
+maintainer's machine. The paths come from secrets and are never printed.
+
+Before running any test, the private run calls [`scripts/fork/private_integrity.py`](../../scripts/fork/private_integrity.py).
+It computes one SHA-256 over the judge (`typed/diff.rs`), its thresholds (the typed module and the x87 control word),
+the planted-bug and byte-matching controls (`diff_reference_peer.rs`) and the ledger generator (`scripts/ledger/`), and
+compares it with [`.fork/private-integrity.sha256`](../../.fork/private-integrity.sha256). A change to any of those
+files without a matching hash update fails the private run. To update it, print the new hash with
+`python3 -I scripts/fork/private_integrity.py --print` and store it; `--check` verifies it without writing. Line
+endings do not affect the hash.
+
+`scripts/fork/tests/test_private_run.py` builds a small tree from scratch to prove that each group is covered, that a
+stored mismatch stops the run before any command, and that `--require` fails on a skip. It needs no game files and
+runs in public CI.
+
 ## Recorded results that need no data
 
 The recorded real-game math results (`crates/nvse/src/commands/math.rs`) are split: the cases that do not use `tan` or `tanh`
