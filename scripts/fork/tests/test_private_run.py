@@ -243,7 +243,7 @@ class WiringTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(any(
                     (pattern == path or (pattern.endswith("/") and path.startswith(pattern)))
-                    and "@slaterain" in who
+                    and "@ExtraToast" in who
                     for pattern, who in owners
                 ), path)
 
