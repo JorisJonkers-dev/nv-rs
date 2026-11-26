@@ -2797,7 +2797,15 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
             leaf::word_at_0(e, SCENE_GRAPH_HOLDER)
         );
         let seconds = timer_seconds(e);
-        e.vcall(scene, 0x104, &args![seconds]);
+        // On a refused post the caller does the work: stepped frames keep this order (nv-rs#950).
+        if !engine_core::real_threads::post_scene(
+            e,
+            Box::new(move |e| {
+                e.vcall(scene, 0x104, &args![seconds]);
+            }),
+        ) {
+            e.vcall(scene, 0x104, &args![seconds]);
+        }
         let seconds = timer_seconds(e);
         e.call(0x0086_7a40, &args![CALENDAR, seconds]);
         if processor_count(e) == 1 {
@@ -2842,6 +2850,8 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
     e.call(0x0049_fff0, &args![object]);
     let scene_data = e.call(SCENE_DATA_GETTER, &args![]).u32();
     e.call(0x0071_2e60, &args![scene_data, 0x011a_d840u32]);
+    // Camera and visibility read the scene helper's writes: join before them (nv-rs#950).
+    engine_core::real_threads::join_scene(e);
     if typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, MODE_OBJECT)) != 4 {
         let player = e.global::<u32>(PLAYER_OBJECT);
         let field_of_view = e.call(0x0071_0ab0, &args![player]).f32();
@@ -2876,7 +2886,10 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
             e.call(0x008c_a070, &args![0x011e_0fe0u32]);
         }
     }
-    fn_0086fc60(e, this);
+    // The animation update also goes to the helper; its writes land before the draw (nv-rs#950).
+    if !engine_core::real_threads::post_scene(e, Box::new(move |e| fn_0086fc60(e, this))) {
+        fn_0086fc60(e, this);
+    }
     if processor_count(e) > 1 && !render_world {
         fn_0086fd70(e, this);
         if e.call(IS_IN_MENU_MODE, &args![]).u8() != 0 {
@@ -2914,6 +2927,8 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
     let player = e.global::<u32>(PLAYER_OBJECT);
     let karma = e.vcall(player + 0xa4, 8, &args![KARMA_ACTOR_VALUE]).i32();
     e.call(0x0047_e040, &args![karma as f32]);
+    // The animation update's writes must be in place before the frame is drawn (nv-rs#950).
+    engine_core::real_threads::join_scene(e);
     engine_core::stage_time::point(engine_core::stage_time::Point::SwapIn);
     fn_0086ff70(e, this);
     engine_core::stage_time::point(engine_core::stage_time::Point::SwapOut);
