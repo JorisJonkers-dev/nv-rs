@@ -2886,10 +2886,8 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
             e.call(0x008c_a070, &args![0x011e_0fe0u32]);
         }
     }
-    // The animation update also goes to the helper; its writes land before the draw (nv-rs#950).
-    if !engine_core::real_threads::post_scene(e, Box::new(move |e| fn_0086fc60(e, this))) {
-        fn_0086fc60(e, this);
-    }
+    // The animation update stays on this thread: the AI workers started above step actors beside it.
+    fn_0086fc60(e, this);
     if processor_count(e) > 1 && !render_world {
         fn_0086fd70(e, this);
         if e.call(IS_IN_MENU_MODE, &args![]).u8() != 0 {
@@ -2927,8 +2925,6 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
     let player = e.global::<u32>(PLAYER_OBJECT);
     let karma = e.vcall(player + 0xa4, 8, &args![KARMA_ACTOR_VALUE]).i32();
     e.call(0x0047_e040, &args![karma as f32]);
-    // The animation update's writes must be in place before the frame is drawn (nv-rs#950).
-    engine_core::real_threads::join_scene(e);
     engine_core::stage_time::point(engine_core::stage_time::Point::SwapIn);
     fn_0086ff70(e, this);
     engine_core::stage_time::point(engine_core::stage_time::Point::SwapOut);
@@ -3996,6 +3992,39 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::rc::Rc;
+
+    /// The scene job is joined before anything reads what it writes (the camera, the culling and the
+    /// visibility passes) and before the AI workers start; moving the join after one of them fails here.
+    #[test]
+    fn the_scene_job_is_joined_before_its_readers_and_the_workers() {
+        let src = include_str!("main.rs");
+        let start = src.find("pub fn fn_0086e650").expect("the frame function");
+        let body = &src[start..];
+        let end = body[1..].find("\nfn ").map_or(body.len(), |i| i + 1);
+        let body = &body[..end];
+        let post = body.find("post_scene(").expect("the scene post");
+        let join = body.find("join_scene(").expect("the scene join");
+        assert!(post < join, "the job is posted before it is joined");
+        assert_eq!(
+            body.matches("join_scene(").count(),
+            1,
+            "one join, before every reader"
+        );
+        for reader in [
+            "0x00c5_2020",
+            "0x0066_29f0",
+            "0x0045_bc80",
+            "0x00b5_ac90",
+            "0x0045_b070",
+            "0x008c_80e0",
+            "0x008c_78c0",
+        ] {
+            let at = body
+                .find(reader)
+                .unwrap_or_else(|| panic!("{reader} is called"));
+            assert!(join < at, "the join comes before {reader}");
+        }
+    }
 
     /// Every callee of this file's functions that lives elsewhere (each is a no-op returning 0
     /// until a test replaces it).

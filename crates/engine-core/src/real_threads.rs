@@ -1463,6 +1463,10 @@ pub fn start(e: &mut Engine) -> Result<(), String> {
             start_thread(e, i);
         }
     }
+    // The scene helper's thread and area are made here, not at the first post inside a frame.
+    if scene_switch_on() {
+        SCENE.get_or_init(|| make_scene_helper(e, world));
+    }
     Ok(())
 }
 
@@ -3806,7 +3810,7 @@ fn draw_stopped(world: &'static World, e: &Engine, payload: &(dyn std::any::Any 
 }
 
 // ---------------------------------------------------------------------------------------------
-// The scene helper (nv-rs#950): the scene-graph and animation updates main ran inline are posted here and joined
+// The scene helper (nv-rs#950): the scene-graph update main ran inline are posted here and joined
 // before main fixes the camera and visibility and before the draw. Off by default, real threads only: stepped frames
 // keep the game's order and their recordings byte-identical (ADR-0015). A job forwards the game's calls; the typed
 // families they reach are `Threads::Both` and follow ADR-0014's float rule (f64, rounded at each float store).
@@ -3876,12 +3880,19 @@ fn read_scene_switch() -> u8 {
         SCENE_OFF
     };
     if m == SCENE_ON {
-        println!(
-            "NV_SCENE_JOBS=1: scene and animation updates on the nv-scene helper with real threads"
-        );
+        println!("NV_SCENE_JOBS=1: the scene update on the nv-scene helper with real threads");
     }
     SCENE_JOBS.store(m, Ordering::Relaxed);
     m
+}
+
+/// Whether the scene-job switch is on (read once from the environment, here at start-up).
+fn scene_switch_on() -> bool {
+    let mode = match SCENE_JOBS.load(Ordering::Relaxed) {
+        0 => read_scene_switch(),
+        m => m,
+    };
+    mode == SCENE_ON
 }
 
 /// Sets the switch for tests that cannot set the environment before its first read.
@@ -6355,14 +6366,14 @@ mod tests {
             (crate::mem::HELPER_AREA.end - crate::mem::HELPER_SLOT)..crate::mem::HELPER_AREA.end;
         assert_eq!(
             DRAW_SLOT,
-            MOST_HELPERS as u32 + 1,
-            "the Havok helper has the slot before the drawing helper's"
+            MOST_HELPERS as u32 + 2,
+            "the scene and Havok helpers have the two slots before the drawing helper's"
         );
         assert!(
             crate::mem::HELPER_AREA.start + MOST_HELPERS as u32 * crate::mem::HELPER_SLOT == scene,
             "the pool's highest slot is the scene helper's"
         );
-        assert_eq!(scene + crate::mem::HELPER_SLOT, draw.start);
+        assert_eq!(scene + 2 * crate::mem::HELPER_SLOT, draw.start);
     }
 
     /// The drawing helper (one per process, so one test makes it), with real threads: a posted job
