@@ -225,6 +225,9 @@ const DIAG_CALL_COUNT: u8 = 64;
 /// The game's memory plus every translated function, by exe address.
 pub struct Engine {
     pub mem: Mem,
+    /// This engine's number, assigned as it is made. A cache that outlives one engine (a thread-local
+    /// one, for instance) uses it to keep an answer from another engine's run out of its own.
+    pub engine_id: u64,
     funcs: AddrMap<u32, Callable>,
     /// A two-way set-associative cache in front of `funcs` for plain functions (doubles never
     /// enter it): (address, function) in the [`cache_set`] of the address, [`Cached::empty`]
@@ -493,8 +496,10 @@ impl Engine {
         // keeps that value for the whole run (nonzero: no report).
         mem.map(CRT_MATHERR_SKIP, 4);
         mem.write(CRT_MATHERR_SKIP, &CRT_MATHERR_SKIP_IMAGE.to_le_bytes());
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let mut engine = Engine {
             mem,
+            engine_id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             funcs,
             call_cache: empty_call_cache(),
             diag: 0,
@@ -920,6 +925,7 @@ impl Engine {
     fn context_for(&self, real: Option<Box<crate::real_threads::Ctx>>) -> Engine {
         let mut e = Engine {
             mem: self.mem.view(),
+            engine_id: self.engine_id,
             funcs: self
                 .funcs
                 .iter()

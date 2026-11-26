@@ -373,6 +373,99 @@ impl State {
     }
 }
 
+/// The bytes of register `i` of `size` bytes from a constant set, zero past the command's end (as
+/// its last partial word is padded) into a 16-byte scratch. The caller only asks for registers the
+/// command has.
+fn register_bytes(data: &d3d9_stream::Data<'_>, i: usize, size: usize, into: &mut [u8; 16]) {
+    let at = i * size;
+    // Both callers bound the register count by the command's bytes, so `at` is inside them; keep
+    // that requirement here rather than relying on them to agree.
+    debug_assert!(
+        at <= data.len() as usize,
+        "a register the command does not carry"
+    );
+    let n = (data.len() as usize).saturating_sub(at).min(size);
+    data.copy_to(at as u32, &mut into[..n]);
+}
+
+/// Copies the float registers `start..start + count` from a constant set, only when their 16 bytes
+/// differ. Answers whether any changed, so a stage's block is written again only then. Registers
+/// past the file's end, or past the command's bytes, are not kept.
+fn set_float_registers(
+    regs: &mut [u8; 4096],
+    start: u32,
+    count: u32,
+    data: &d3d9_stream::Data<'_>,
+) -> bool {
+    let n = (count as usize)
+        .min(data.len() as usize / 16)
+        .min(256usize.saturating_sub(start as usize));
+    let mut changed = false;
+    for i in 0..n {
+        let mut bytes = [0u8; 16];
+        register_bytes(data, i, 16, &mut bytes);
+        let at = 16 * (start as usize + i);
+        if regs[at..at + 16] != bytes[..] {
+            regs[at..at + 16].copy_from_slice(&bytes);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Copies the words of `count` registers of `words` words each (4 for integers, 1 for booleans)
+/// from a constant set, only when they differ. Answers whether any changed. A register the command
+/// does not carry whole words for is left alone; a partial last word is zero padded.
+fn set_words(
+    regs: &mut [u32],
+    start: usize,
+    count: u32,
+    words: usize,
+    data: &d3d9_stream::Data<'_>,
+) -> bool {
+    let available = (data.len() as usize).div_ceil(4) / words;
+    let end = regs.len() / words;
+    let n = (count as usize)
+        .min(available)
+        .min(end.saturating_sub(start));
+    let mut changed = false;
+    for i in 0..n {
+        let mut bytes = [0u8; 16];
+        register_bytes(data, i, 4 * words, &mut bytes);
+        let at = words * (start + i);
+        for (w, word) in regs[at..at + words].iter_mut().enumerate() {
+            let new = u32::from_le_bytes(bytes[4 * w..4 * w + 4].try_into().unwrap());
+            if *word != new {
+                *word = new;
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// [`set_words`] for a stage's integer registers (four words each).
+fn set_int_registers(
+    regs: &mut [[u32; 4]; 16],
+    start: u32,
+    count: u32,
+    data: &d3d9_stream::Data<'_>,
+) -> bool {
+    // SAFETY: every `[u32; 4]` is four initialised, contiguous words with no padding.
+    let flat = unsafe { std::slice::from_raw_parts_mut(regs.as_mut_ptr().cast(), 4 * regs.len()) };
+    set_words(flat, start as usize, count, 4, data)
+}
+
+/// [`set_words`] for a stage's boolean registers (one word each).
+fn set_bool_registers(
+    regs: &mut [u32; 16],
+    start: u32,
+    count: u32,
+    data: &d3d9_stream::Data<'_>,
+) -> bool {
+    set_words(regs, start as usize, count, 1, data)
+}
+
 /// What a render pass draws into.
 #[derive(Clone, PartialEq, Eq)]
 struct Targets {
@@ -4004,7 +4097,10 @@ impl Device {
 
     /// `Set*ShaderConstant*` (`kind`: vertex float, int, bool, then the same for the pixel stage)
     /// of `count` registers from `start`, from the command's bytes. Float registers are copied
-    /// as bytes (a draw's block carries them so); registers past the file's end are not kept.
+    /// as bytes (a draw's block carries them so); registers past the file's end are not kept. A set
+    /// that leaves every register as it was makes no block due: the blocks are written from this
+    /// register file, so an unchanged file sends the same registers to the same shader; a shader,
+    /// viewport or other header change makes the block due through its own setter.
     pub(crate) fn set_constants(
         &mut self,
         kind: u8,
@@ -4013,39 +4109,28 @@ impl Device {
         data: &d3d9_stream::Data<'_>,
     ) {
         let st = &mut self.st;
-        let s = start as usize;
         let stage = usize::from(kind >= 3);
-        if kind == 0 || kind == 3 {
-            let regs = if kind == 0 { &mut st.vsf } else { &mut st.psf };
-            let n = (count as usize)
-                .min(data.len() as usize / 16)
-                .min(256usize.saturating_sub(s));
-            if n > 0 {
-                data.copy_to(0, &mut regs[16 * s..16 * (s + n)]);
+        let changed = match kind {
+            0 | 3 => {
+                let regs = if kind == 0 { &mut st.vsf } else { &mut st.psf };
+                set_float_registers(regs, start, count, data)
             }
-            st.dirty[stage] = true;
-            return;
-        }
-        let words = data.to_words();
-        match kind {
             1 | 4 => {
                 let regs = if kind == 1 { &mut st.vsi } else { &mut st.psi };
-                for (k, r) in words.chunks_exact(4).take(count as usize).enumerate() {
-                    if let Some(slot) = regs.get_mut(s + k) {
-                        slot.copy_from_slice(r);
-                    }
-                }
+                set_int_registers(regs, start, count, data)
             }
             _ => {
                 let regs = if kind == 2 { &mut st.vsb } else { &mut st.psb };
-                for (k, &v) in words.iter().take(count as usize).enumerate() {
-                    if let Some(slot) = regs.get_mut(s + k) {
-                        *slot = v;
-                    }
-                }
+                set_bool_registers(regs, start, count, data)
+            }
+        };
+        if changed {
+            if matches!(kind, 1 | 2 | 4 | 5) {
+                st.touch(stage);
+            } else {
+                st.dirty[stage] = true;
             }
         }
-        st.touch(stage);
     }
 
     pub(crate) fn set_stream(&mut self, stream: u32, buffer: Handle, offset: u32, stride: u32) {
@@ -14548,6 +14633,104 @@ mod tests {
 
     use super::*;
     use wgpu::TextureFormat as F;
+
+    /// A float set copies only the registers whose bytes changed; a set that holds the same bytes
+    /// leaves the register file alone, so the stage's block need not be written again.
+    #[test]
+    fn a_float_constant_set_copies_only_the_registers_that_changed() {
+        use d3d9_stream::Data;
+
+        let mut regs = [0u8; 4096];
+        let first = [0x3f80_0000u32, 1, 2, 3];
+        let twice = [
+            first[0], first[1], first[2], first[3], first[0], first[1], first[2], first[3],
+        ];
+        let data = Data::from_words(&twice);
+        assert!(set_float_registers(&mut regs, 0, 2, &data));
+        let expected: Vec<u8> = first.iter().flat_map(|&w| w.to_le_bytes()).collect();
+        assert_eq!(&regs[..16], &expected[..]);
+        assert_eq!(&regs[16..32], &expected[..]);
+        let held = regs;
+        assert!(!set_float_registers(&mut regs, 0, 2, &data));
+        assert_eq!(regs, held, "a repeat does not write the register file");
+
+        let both = [5u32, 6, 7, 8, first[0], first[1], first[2], first[3]];
+        let data = Data::from_words(&both);
+        assert!(set_float_registers(&mut regs, 0, 2, &data));
+        assert_eq!(
+            &regs[16..32],
+            &held[16..32],
+            "the register already holding the words is not written"
+        );
+        assert_eq!(
+            &regs[..16],
+            &both[..4]
+                .iter()
+                .flat_map(|&w| w.to_le_bytes())
+                .collect::<Vec<_>>()[..]
+        );
+
+        // Out of range, no data, and a read-at-the-call payload.
+        assert!(!set_float_registers(&mut regs, 256, 1, &data));
+        assert!(!set_float_registers(&mut regs, 0, 0, &data));
+        let read = Data::Read {
+            len: 16,
+            read: &|at, into| {
+                let words = [5u32, 6, 7, 8];
+                let bytes: Vec<u8> = words.iter().flat_map(|&w| w.to_le_bytes()).collect();
+                into.copy_from_slice(&bytes[at as usize..at as usize + into.len()]);
+            },
+        };
+        assert!(!set_float_registers(&mut regs, 0, 1, &read));
+        let changed = Data::Read {
+            len: 16,
+            read: &|at, into| {
+                let words = [9u32, 9, 9, 9];
+                let bytes: Vec<u8> = words.iter().flat_map(|&w| w.to_le_bytes()).collect();
+                into.copy_from_slice(&bytes[at as usize..at as usize + into.len()]);
+            },
+        };
+        assert!(set_float_registers(&mut regs, 1, 1, &changed));
+        assert_eq!(
+            &regs[16..32],
+            &[9u8, 0, 0, 0, 9, 0, 0, 0, 9, 0, 0, 0, 9, 0, 0, 0]
+        );
+    }
+
+    /// Integer and boolean sets do the same word by word; a partial word is zero padded, as the
+    /// command's words are, and registers past the file's end are not kept.
+    #[test]
+    fn an_integer_or_boolean_constant_set_copies_only_the_words_that_changed() {
+        use d3d9_stream::Data;
+
+        let words = [1u32, 2, 3, 4, 5, 6, 7, 8];
+        let data = Data::from_words(&words);
+        let mut ints = [[0u32; 4]; 16];
+        assert!(set_int_registers(&mut ints, 0, 2, &data));
+        assert_eq!(ints[0], [1, 2, 3, 4]);
+        assert_eq!(ints[1], [5, 6, 7, 8]);
+        assert!(!set_int_registers(&mut ints, 0, 2, &data));
+        assert!(
+            set_int_registers(&mut ints, 15, 2, &data),
+            "the register in range is copied"
+        );
+        assert_eq!(ints[15], [1, 2, 3, 4]);
+        assert!(!set_int_registers(&mut ints, 16, 2, &data));
+
+        let bools_words = [1u32, 0, 1];
+        let data = Data::from_words(&bools_words);
+        let mut bools = [0u32; 16];
+        assert!(set_bool_registers(&mut bools, 0, 3, &data));
+        assert_eq!(bools[..3], [1, 0, 1]);
+        assert!(!set_bool_registers(&mut bools, 0, 3, &data));
+        assert!(set_bool_registers(
+            &mut bools,
+            2,
+            1,
+            &Data::Bytes(&[0, 0, 0, 2])
+        ));
+        assert_eq!(bools[2], 0x0200_0000, "a partial word is padded with zeros");
+    }
 
     /// Depth stand-ins idle for more than [`DEPTH_PART_IDLE`] presents go, those used within it
     /// stay (a stand-in used at the present before is kept, one used exactly the limit ago too).
