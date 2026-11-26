@@ -22,6 +22,7 @@ use crate::culling::layout::{NiMatrix3, NiPoint3, NiTransform};
 use crate::draw::{capture, packet};
 use engine_core::ptr::Ptr;
 use engine_core::{args, typed_call, Engine};
+use std::cell::RefCell;
 
 /// The thread block's word with the thread's index (`+0x2bc`).
 const TLS_THREAD_INDEX: u32 = 0x2bc;
@@ -647,6 +648,83 @@ fn set_vertex_constants(e: &mut Engine, register: u32, data: u32, count: u32) {
     });
 }
 
+/// A transform and the renderer's view as the world-view product's key. The view is the drawing side's
+/// own state; its words are part of the key so a changed frame misses without a frame counter.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ViewKey {
+    engine: u64,
+    renderer: u32,
+    transform: u32,
+    /// The transform's thirteen words, then the view matrix's sixteen.
+    words: [u32; 29],
+}
+
+impl ViewKey {
+    fn of(e: &Engine, renderer: u32, transform: u32) -> Self {
+        let mut words = [0u32; 29];
+        for (index, word) in words.iter_mut().enumerate().take(13) {
+            *word = e
+                .mem
+                .u32(transform.wrapping_add(4 * u32::try_from(index).unwrap_or(0)));
+        }
+        for (index, word) in words.iter_mut().enumerate().skip(13) {
+            *word = capture::own_at::<u32>(
+                e,
+                renderer
+                    .wrapping_add(NiDX9Renderer::m_kView.off)
+                    .wrapping_add(4 * u32::try_from(index - 13).unwrap_or(0)),
+            );
+        }
+        ViewKey {
+            engine: e.engine_id,
+            renderer,
+            transform,
+            words,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CachedProduct {
+    key: ViewKey,
+    words: [u32; 16],
+}
+
+const PRODUCT_SLOTS: usize = 64;
+
+fn product_slot(key: &ViewKey) -> usize {
+    let engine = usize::try_from(key.engine).unwrap_or(0);
+    let mut hash =
+        engine ^ (key.renderer as usize).rotate_left(7) ^ (key.transform as usize).rotate_left(13);
+    for (index, word) in key.words.iter().enumerate() {
+        hash ^= (usize::try_from(*word).unwrap_or(0))
+            .rotate_left(u32::try_from((index * 5) % 32).unwrap_or(0));
+    }
+    hash & (PRODUCT_SLOTS - 1)
+}
+
+thread_local! {
+    /// Direct-mapped: an older product is overwritten, never kept for a different engine or view.
+    static PRODUCTS: RefCell<[Option<CachedProduct>; PRODUCT_SLOTS]> =
+        const { RefCell::new([None; PRODUCT_SLOTS]) };
+}
+
+fn cached_product(e: &Engine, key: &ViewKey) -> Option<[u32; 16]> {
+    if key.engine != e.engine_id {
+        return None;
+    }
+    let slot = product_slot(key);
+    PRODUCTS.with(|products| {
+        products.borrow()[slot].and_then(|cached| (cached.key == *key).then_some(cached.words))
+    })
+}
+
+fn remember_product(e: &Engine, key: ViewKey, words: [u32; 16]) {
+    debug_assert_eq!(key.engine, e.engine_id);
+    let slot = product_slot(&key);
+    PRODUCTS.with(|products| products.borrow_mut()[slot] = Some(CachedProduct { key, words }));
+}
+
 // Typed from 00b7c750
 /// `thiscall(shader, unused, transform)`: the renderer (+0x18 of the shader) takes the transform
 /// ([`set_world_transform`], not sent); its world times view, transposed, goes to vertex constants 0
@@ -659,25 +737,44 @@ pub fn set_world_view_constants(e: &mut Engine, this: u32, _unused: u32, transfo
         set_world_transform(e, renderer, Ptr::new(transform), 0u8)
     );
     let renderer = e.global::<u32>(this.wrapping_add(0x18));
+    let key = ViewKey::of(e, renderer, transform);
+    let cached = cached_product(e, &key);
     e.with_stack(0x40, |e, matrix| {
-        // The renderer's matrices are the drawing side's own (`draw::statics::RENDERER_BLOCKS`): read through an
-        // image from the world matrix to the view-projection's end.
-        let world = NiDX9Renderer::m_kWorld.off;
-        let view = NiDX9Renderer::m_kView.off;
-        capture::own_image_read(
-            e,
-            renderer.wrapping_add(world),
-            view + 0x40 - world,
-            |e, at| {
-                crate::draw::thunks::call_matrix_multiply_transpose(
-                    e,
-                    matrix,
-                    at,
-                    at.wrapping_add(view - world),
+        let out = matrix.addr();
+        if let Some(words) = cached {
+            for (index, word) in words.iter().enumerate() {
+                e.mem.set_u32(
+                    out.wrapping_add(4 * u32::try_from(index).unwrap_or(0)),
+                    *word,
                 );
-            },
-        );
-        set_vertex_constants(e, 0, matrix.addr(), 4);
+            }
+        } else {
+            // The renderer's matrices are the drawing side's own (`draw::statics::RENDERER_BLOCKS`): read through an
+            // image from the world matrix to the view-projection's end.
+            let world = NiDX9Renderer::m_kWorld.off;
+            let view = NiDX9Renderer::m_kView.off;
+            capture::own_image_read(
+                e,
+                renderer.wrapping_add(world),
+                view + 0x40 - world,
+                |e, at| {
+                    crate::draw::thunks::call_matrix_multiply_transpose(
+                        e,
+                        matrix,
+                        at,
+                        at.wrapping_add(view - world),
+                    );
+                },
+            );
+            let mut words = [0u32; 16];
+            for (index, word) in words.iter_mut().enumerate() {
+                *word = e
+                    .mem
+                    .u32(out.wrapping_add(4 * u32::try_from(index).unwrap_or(0)));
+            }
+            remember_product(e, key, words);
+        }
+        set_vertex_constants(e, 0, out, 4);
     });
 }
 
@@ -935,5 +1032,39 @@ pub fn restore_states(e: &mut Engine, _this: u32, block: u32) {
         let count = capture::own_at::<u32>(e, LOCK_COUNTER_COLOR_MASK).wrapping_sub(1);
         capture::set_own_at(e, LOCK_COUNTER_COLOR_MASK, count);
         typed_call!(FAMILY, 0x00b9_8380, state::set_color_write(e, 7u32, 0u32));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A second draw with the same transform and view reads the product from the cache; a changed
+    /// transform word misses. Nothing here is read from a game file: the words are made here.
+    #[test]
+    fn the_world_view_product_is_kept_for_the_next_draw() {
+        let mut e = Engine::new();
+        let renderer = e.mem.alloc(0xa40);
+        let transform = e.mem.alloc(0x40);
+        for index in 0..13u32 {
+            e.mem.set_u32(transform + 4 * index, index + 3);
+        }
+        for index in 0..16u32 {
+            capture::set_own_at(
+                &mut e,
+                renderer + NiDX9Renderer::m_kView.off + 4 * index,
+                index + 7,
+            );
+        }
+        let first = ViewKey::of(&e, renderer, transform);
+        assert!(cached_product(&e, &first).is_none());
+        let product = [0x1234_5678u32; 16];
+        remember_product(&e, first, product);
+        assert_eq!(
+            cached_product(&e, &ViewKey::of(&e, renderer, transform)),
+            Some(product)
+        );
+        e.mem.set_u32(transform + 4, 99);
+        assert!(cached_product(&e, &ViewKey::of(&e, renderer, transform)).is_none());
     }
 }
