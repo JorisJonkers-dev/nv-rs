@@ -206,6 +206,17 @@ class FamilyLab(unittest.TestCase):
             ],
         )
 
+    def test_a_run_goes_through_the_daemon_client(self):
+        with mock.patch.object(family_lab, "daemon_command", return_value=["client"]), \
+                mock.patch.object(family_lab, "suite", return_value=Path("typed_fade.rs")), \
+                mock.patch.object(family_lab, "generate", return_value=Path("out/Cargo.toml")), \
+                mock.patch.object(family_lab.subprocess, "call", return_value=7) as call:
+            self.assertEqual(family_lab.run(["fade", "--", "--exact", "x"]), 7)
+        call.assert_called_once_with([
+            "client", "test", "--manifest-path", "out/Cargo.toml", "--test", "typed_fade",
+            "--", "--exact", "x",
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()

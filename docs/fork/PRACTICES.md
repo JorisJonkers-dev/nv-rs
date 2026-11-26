@@ -18,6 +18,7 @@
 | Windows and Linux release builds | `.github/workflows/fork-release-build.yml` | Artefacts; publishes a release only for a release-please tag with `publish`, Linux and Windows independently (RELEASE-FILES.md). Packaging stays local (needs the player's `FalloutNV.exe`) |
 | Release files | `scripts/fork/release-files/`, `.fork/schemas/`, `.fork/capabilities.json`, `.github/workflows/fork-release-build.yml`, [`RELEASE-FILES.md`](RELEASE-FILES.md) | `capabilities.json` (built-in extender coverage, from the command tables) and `release-manifest.json` (version, upstream base, executable section hashes, play-patch entry), validated against checked-in schemas and attached to the release artefacts with `SHA256SUMS` and a build attestation |
 | Local build-and-test loop | `scripts/fork/local/nv-rs-dev`, [`LOCAL.md`](LOCAL.md) | `build`, `run`, `smoke`, `test`, `check` with the `play` profile, a shared target dir under `~/.cache/nv-rs` and a memory cap. Workers iterate with it instead of CI Release Builds; CI stays the merge gate. One cargo process, no whole-workspace build |
+| Build daemon | `scripts/fork/build_daemon.py`, [`FAMILY-LAB.md`](FAMILY-LAB.md) | Parallel workers queue builds and test runs through one process that owns cargo, under configured job and memory limits with one target dir and sccache; the one-family lab uses its client command |
 | Local setup | `mise.toml`, `Taskfile.yml`, `scripts/fork/install-hooks.sh` | `mise install`, then `task check` |
 
 Not adopted on purpose: Dependabot (the estate uses Renovate), and a changed Rust toolchain

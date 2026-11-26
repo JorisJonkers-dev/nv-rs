@@ -16,10 +16,12 @@ Usage:
     python3 scripts/fork/family_lab.py families
     python3 scripts/fork/family_lab.py generate <family> <out-dir>
 
-`run` is the portable entry point: plain `cargo` on Windows, Linux and macOS. On a
-shared development machine an optional cargo wrapper and lock can be given through
-NV_FAMILY_LAB_CARGO and NV_FAMILY_LAB_LOCK (see docs/fork/FAMILY-LAB.md); nothing
-about one machine is built into this tool.
+`run` is the portable entry point. It sends the cargo arguments to the build
+daemon's client command (scripts/fork/build_daemon.py), which starts the daemon if
+needed and owns cargo under the shared limits. The limits are configuration, so
+nothing about one machine is built into this tool. Set NV_FAMILY_LAB_DIRECT=1 to
+run plain cargo with the optional NV_FAMILY_LAB_CARGO wrapper and NV_FAMILY_LAB_LOCK
+instead (see docs/fork/FAMILY-LAB.md).
 """
 import os
 import re
@@ -303,6 +305,11 @@ def parse_run_args(argv):
     return family, rest
 
 
+def daemon_command():
+    """The build daemon's client command, with -- before the cargo arguments."""
+    return [sys.executable, str(FORK / "build_daemon.py"), "run", "--"]
+
+
 def cargo_command():
     """The optional shared-machine wrapper, from the environment, or plain cargo.
 
@@ -355,13 +362,15 @@ def run(argv):
     out = REPO / "target" / "family-lab" / family
     manifest_path = generate(path, out)
     print(f"# family lab: {manifest_path}", flush=True)
-    command = cargo_command() + [
+    command = [
         "test", "--manifest-path", str(manifest_path), "--test", f"typed_{family}"
     ]
     if filters:
         command += ["--"] + filters
-    with cargo_lock():
-        return subprocess.call(command)
+    if os.environ.get("NV_FAMILY_LAB_DIRECT") == "1":
+        with cargo_lock():
+            return subprocess.call(cargo_command() + command)
+    return subprocess.call(daemon_command() + command)
 
 
 def main(argv):

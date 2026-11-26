@@ -26,22 +26,42 @@ target named `typed_<family>`, so the run log holds only that family's cases. Th
 script generates `target/family-lab/<family>/` (git-ignored) from
 `crates/engine/tests/typed_<family>.rs`.
 
-## The shared-machine cargo wrapper is optional
+## One build daemon owns cargo
 
-By default the tool runs plain `cargo test`, so it needs only Python and cargo on
-Windows, Linux and macOS. On a shared development machine the cargo wrapper and the
-lock can be supplied through the environment; no path is built into the tool:
+`run` sends the cargo arguments to the client command of the build daemon
+(`scripts/fork/build_daemon.py`), which needs only Python and cargo on Windows,
+Linux and macOS. The first call starts one long-lived daemon; it keeps a FIFO queue
+and one worker thread, so two workers asking at once are served in order and never
+start two cargo processes. The daemon sets the limits when it starts, from
+configuration rather than paths built into the tool:
 
 ```sh
-export NV_FAMILY_LAB_CARGO='flock ~/.cache/nv-workers/cargo.lock ~/.local/bin/capped 10G env CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=$HOME/.cache/cargo-targets/nv-rs-gw cargo'
+export NV_BUILD_JOBS=2
+export NV_BUILD_MEM=10G
+export NV_BUILD_LOCK=~/.cache/nv-workers/cargo.lock
+export NV_BUILD_TARGET_DIR=~/.cache/cargo-targets/nv-rs-gw
+```
+
+`NV_BUILD_CAPPED` and `NV_BUILD_FLOCK` name the wrapper executables (found on PATH
+by default, absent on Windows for `flock`). `NV_BUILD_WRAPPER` is the rustc wrapper,
+`sccache` by default when installed, or an explicit path; `NV_BUILD_SCCACHE_DIR`
+sets its cache. Every worker uses the same target directory, so a repeat of a
+family's test target is incremental and the warm compiler work comes from sccache.
+`python3 scripts/fork/build_daemon.py status` shows the queue figures and limits;
+`stop` ends the daemon after its current build.
+
+Set `NV_FAMILY_LAB_DIRECT=1` to use plain cargo instead. The optional wrapper and
+lock below then apply; with neither set there is no lock and no memory cap, which
+is the normal portable case:
+
+```sh
+export NV_FAMILY_LAB_CARGO='flock ~/.cache/nv-workers/cargo.lock ~/.local/bin/capped 10G cargo'
 ```
 
 `NV_FAMILY_LAB_CARGO` is a command prefix (parsed as shell words, with `~` and
-environment variables expanded). An alternative to a `flock` prefix is
-`NV_FAMILY_LAB_LOCK`, a lock file held by the tool for the whole cargo run; its
-parent directory is created if needed. Use one of the two locks, not both. With
-neither variable set there is no lock and no memory cap; that is the normal
-cross-platform case.
+environment variables expanded). `NV_FAMILY_LAB_LOCK` is an alternative to a
+`flock` prefix: a lock file held for the whole cargo run, whose parent directory
+is created if needed. Use one of the two locks, not both.
 
 ## How the part crates are chosen
 
