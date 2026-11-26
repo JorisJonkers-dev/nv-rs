@@ -328,8 +328,9 @@ mod tests {
     }
 
     /// A thread's own clock against the wall, where the system tells it: a busy stretch is (nearly) all on the
-    /// processor and never more, a sleeping one nearly none, so the two clocks are in one unit (a loaded machine may
-    /// take some of a busy stretch away: the best of five tries counts).
+    /// processor and never more, a sleeping one nearly none, so the two clocks are in one unit. A busy stretch is cut
+    /// into short slices so a scheduler preemption costs at most one slice: an uninterrupted slice still tells the
+    /// rates apart on a loaded machine (the best slice of each of five stretches counts).
     #[test]
     fn a_thread_s_own_clock_tells_working_from_sleeping() {
         if own_clock().is_none() {
@@ -342,19 +343,38 @@ mod tests {
             }
             return;
         }
+        // The best share of a 2 ms busy slice in a 40 ms stretch, or the share of one 40 ms sleep. A short slice
+        // keeps a preemption from making the whole stretch look idle: the clocks still have to agree on an
+        // uninterrupted slice, and the processor clock must never pass the wall clock.
         let share = |work: bool| {
-            let (cpu0, wall0) = own_clock().expect("told");
-            let t = std::time::Instant::now();
-            if work {
-                let mut x = 0u64;
-                while t.elapsed() < std::time::Duration::from_millis(40) {
-                    x = std::hint::black_box(x.wrapping_add(1));
+            let (mut cpu0, mut wall0) = own_clock().expect("told");
+            let mut best = 0.0f64;
+            let start = std::time::Instant::now();
+            let mut slice = start;
+            loop {
+                if work {
+                    let mut x = 0u64;
+                    while slice.elapsed() < std::time::Duration::from_millis(2) {
+                        x = std::hint::black_box(x.wrapping_add(1));
+                    }
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(40));
                 }
-            } else {
-                std::thread::sleep(std::time::Duration::from_millis(40));
+                let (cpu1, wall1) = own_clock().expect("still told");
+                let slice_share = (cpu1 - cpu0) as f64 / (wall1 - wall0) as f64;
+                best = if work {
+                    best.max(slice_share)
+                } else {
+                    slice_share
+                };
+                if !work || start.elapsed() >= std::time::Duration::from_millis(40) {
+                    break;
+                }
+                cpu0 = cpu1;
+                wall0 = wall1;
+                slice = std::time::Instant::now();
             }
-            let (cpu1, wall1) = own_clock().expect("still told");
-            (cpu1 - cpu0) as f64 / (wall1 - wall0) as f64
+            best
         };
         let busy: Vec<f64> = (0..5).map(|_| share(true)).collect();
         assert!(
