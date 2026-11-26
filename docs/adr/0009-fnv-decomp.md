@@ -2,6 +2,7 @@
 
 - **Status:** Accepted by the maintainer, 2026-11-02.
 - **Date:** 2026-11-02
+- **Amended:** 2026-11-26, for the CC0 licence of 2026-11-19.
 - **Extends:** [ADR-0003](0003-decompiled-code-in-the-project.md) (decompiled logic may be
   translated, marked with its address).
 
@@ -23,7 +24,22 @@ say.
 Check a name against the Xbox prototype symbols ([ADR-0002](0002-xbox-prototype-symbols.md))
 before marking it `(Xbox PDB)`.
 
-Its repository grants no licence.
+At the time of the decision its repository granted no licence. Its authors wrote to the
+maintainer on 2026-11-02 (spelling corrected):
+
+> You are fine to use everything however you please, you don't have to credit us, that's why
+> we chose to send it out with no license.
+
+The maintainer keeps the original message.
+
+Since 2026-11-19 the repository has dedicated its contributors' own work under CC0 1.0
+Universal in its own [`LICENSE` file](https://github.com/momusdigital/fnv_decomp/blob/main/LICENSE),
+added in commit `42baf49a` and merged in [pull request 45](https://github.com/momusdigital/fnv_decomp/pull/45)
+on that date. Its [`README.md`](https://github.com/momusdigital/fnv_decomp/blob/main/README.md)
+says the dedication covers the reconstructed source as written by the contributors, their
+names, comments and documentation, the build recipe and the tools; contributions come in on
+the same terms. The dedication does not cover the game, the libraries linked into it or any
+trademark, and `third_party/` (zlib) keeps its own licence.
 
 ## Decision
 
@@ -47,8 +63,9 @@ Its repository grants no licence.
 
   - a name, type or layout taken from it gets `(fnv_decomp)` where it first appears in a file;
     `(Xbox PDB)` instead when the name is the Xbox prototype's.
-- Scope: only the fnvdecomp contributors' own work is used, not `third_party/` (zlib,
-  under its own licence). Nothing from it gives rights in the game or in the
+- Scope: both the 2026-11-02 permission and the 2026-11-19 CC0 dedication cover only the
+  fnvdecomp contributors' own work, not `third_party/` (zlib, under its own licence).
+  Nothing from it gives rights in the game or in the
   libraries linked into it (Gamebryo, Havok, SpeedTree, FaceGen, the C runtime). Material from
   it is treated like ADR-0003 material: nv-rs's GPL covers only original work, as
   [LEGAL.md](../../LEGAL.md) says.
