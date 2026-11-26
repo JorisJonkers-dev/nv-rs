@@ -7,13 +7,16 @@
 //! this module makes no peer at all, so public CI runs as before. The private run reads the
 //! `backend-pass:` and `backend-fail:` lines this module prints when it writes its ledger evidence.
 
+#[cfg(any(test, feature = "test-support"))]
 use super::diff::{Branch, Difference, Found, ReferencePeer, Report};
 use crate::{Engine, Ret};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::OnceLock;
 
 /// One callable export: its original address, the shim's wrapper and the result's spelling.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,13 +131,12 @@ impl<B: Backend> BackendPeer<B> {
     }
 }
 
-impl<B: Backend> ReferencePeer for BackendPeer<B> {
-    fn run(&self, e: &mut Engine, addr: u32, args: &[u32]) -> Ret {
+impl<B: Backend> BackendPeer<B> {
+    /// The export's result for `args` on `e`'s guest memory, or `None` when the module has no
+    /// function at `addr`. The trap the call left is kept for [`last_trap`].
+    pub(crate) fn run_export(&self, e: &mut Engine, addr: u32, args: &[u32]) -> Option<Ret> {
         self.init(e);
-        let Some(export) = self.exports.iter().find(|x| x.address == addr) else {
-            // A unit the build could not compile stays on its Rust translation.
-            return e.call(addr, args);
-        };
+        let export = self.exports.iter().find(|x| x.address == addr)?;
         self.backend.trap(true);
         ACTIVE_ENGINE.with(|cell| cell.set(e as *mut Engine));
         let bits = self.backend.call(&export.wrapper, args);
@@ -149,15 +151,31 @@ impl<B: Backend> ReferencePeer for BackendPeer<B> {
         if export.float {
             ret.st0 = f32::from_bits(bits) as f64;
         }
-        ret
+        Some(ret)
+    }
+
+    /// Whether the module has a function at `addr`.
+    pub(crate) fn has_export(&self, addr: u32) -> bool {
+        self.exports.iter().any(|x| x.address == addr)
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
+impl<B: Backend> ReferencePeer for BackendPeer<B> {
+    fn run(&self, e: &mut Engine, addr: u32, args: &[u32]) -> Ret {
+        // A unit the build could not compile stays on its Rust translation.
+        self.run_export(e, addr, args)
+            .unwrap_or_else(|| e.call(addr, args))
+    }
+}
+
+#[cfg_attr(not(any(test, feature = "test-support")), allow(dead_code))]
 /// The trap the last backend call left, for the harness to record on the report.
 pub fn last_trap() -> Option<String> {
     LAST_TRAP.with(|t| t.borrow().clone())
 }
 
+#[cfg(any(test, feature = "test-support"))]
 /// The class a backend mismatch is recorded under in the ledger, empty when the peer passed.
 pub fn classify(report: &Report) -> &'static str {
     if report.reference_found == 0 {
@@ -208,6 +226,7 @@ pub fn classify(report: &Report) -> &'static str {
     "real"
 }
 
+#[cfg(any(test, feature = "test-support"))]
 /// Print one machine-readable line per function, read by `backend_evidence.py` after the private
 /// run. Without a backend nothing is printed, so public CI's test output is unchanged.
 pub fn report(addr: u32, report: &Report) {
@@ -222,6 +241,7 @@ pub fn report(addr: u32, report: &Report) {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn active() -> bool {
     static ACTIVE: OnceLock<bool> = OnceLock::new();
     *ACTIVE.get_or_init(|| std::env::var_os("NV_BACKEND_LIBRARY").is_some_and(|v| !v.is_empty()))
@@ -270,25 +290,25 @@ pub fn parse_exports(text: &str) -> (Vec<Export>, Vec<u32>, HashMap<String, u32>
     (exports, globals, imports)
 }
 
+/// The backend loaded from `library` and the `.tsv` beside it, or `None` when either is missing.
+pub(crate) fn load(library: &std::path::Path) -> Option<BackendPeer<LibBackend>> {
+    let text = std::fs::read_to_string(library.with_extension("tsv")).ok()?;
+    let (exports, globals, imports) = parse_exports(&text);
+    LibBackend::open(library)
+        .ok()
+        .map(|backend| BackendPeer::new(backend, exports, globals, imports))
+}
+
 /// The peer from the private run's inputs, or `None` in public CI. One gate line per process says
 /// whether the backend was present.
+#[cfg(any(test, feature = "test-support"))]
 pub fn from_env() -> Option<Box<dyn ReferencePeer>> {
     static PEER: OnceLock<Option<BackendPeer<LibBackend>>> = OnceLock::new();
-    let peer = PEER.get_or_init(|| {
-        let library = gate::require_data("NV_BACKEND_LIBRARY")?;
-        let exports = library.with_extension("tsv");
-        let Ok(text) = std::fs::read_to_string(&exports) else {
-            return None;
-        };
-        let (exports, globals, imports) = parse_exports(&text);
-        LibBackend::open(&library)
-            .ok()
-            .map(|backend| BackendPeer::new(backend, exports, globals, imports))
-    });
+    let peer = PEER.get_or_init(|| load(&gate::require_data("NV_BACKEND_LIBRARY")?));
     peer.clone().map(|p| Box::new(p) as Box<dyn ReferencePeer>)
 }
 
-struct LibBackend {
+pub(crate) struct LibBackend {
     library: Arc<libloading::Library>,
 }
 
@@ -401,8 +421,9 @@ impl Backend for LibBackend {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 #[allow(dead_code)]
-mod gate {
+pub(super) mod gate {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../scripts/fork/test_gate.rs"

@@ -155,3 +155,20 @@ nix store paths; `NV_MINGW_INCLUDE`, `NV_LIBCXX_INCLUDE`, `NV_CLANG`,
 `NV_WABT_WASM_WAT`, `NV_WABT_WAT_WASM`, `NV_TOOLCHAIN_CACHE`,
 `NV_TOOLCHAIN_TIMEOUT` and `NV_TOOLCHAIN_URL` override the discovery and cache;
 `NV_TOOLCHAIN_SHA256` supplies the archive pins a fetch requires.
+
+## Real gaps (nv-rs#930)
+
+About 5,860 `// Translation incomplete:` markers exist; about 5,790 say only that the C++ exception
+frame (`FS:[0]`, SEH, a funclet or filter) or the `/GS` cookie check is not translated. The other
+67 leave real behaviour out (x87 status words, uninitialised stack reads, register-only entries,
+writes past a frame). `python3 -I scripts/fork/real_gaps.py --root .` writes them to
+`crates/engine-core/src/typed/real_gaps.txt` (`--check` fails when that list is stale); the
+exception-only markers are counted and not listed.
+
+With `NV_BACKEND_LIBRARY` set to the built library and `NV_BACKEND_GAPS=1`, `Engine::new` registers
+the backend's function at each of those addresses it has, after the typed families are applied.
+Without both variables, or without a built backend, nothing is registered and the engine behaves
+as before. The switch is separate from the `Diff` peer on purpose: the differential cases keep
+comparing the translation with the backend. In the private run
+`cargo test -p engine-core --lib typed::backend_gaps` prints `backend-gaps: N of M real gaps
+registered`.
