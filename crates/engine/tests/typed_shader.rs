@@ -8903,10 +8903,14 @@ fn tall_grass_shadow_setup() {
         engine_typed::draw::tall_grass::shadow_setup(Ptr<_>, u32, u32)
     ))
     .draw_common_at(0x00ba_a850)
+    .ignore_calls(&[MATRIX_MULTIPLY_IMPORT])
     .main_thread(0)
     .inputs(GRASS_LIGHTS)
     .setup(|e, c| {
         let words = grass_point_words(e, c);
+        // This path reaches the typed multiply, so the translation's import stands the measured
+        // product in place of the light stand-ins' word mix; only that call moves.
+        matrix_multiply_stand_in(e);
         let transform = e.mem.alloc(0x34);
         for k in 0..13u32 {
             set(e, transform + 4 * k, play(0x3f00_0000 + 0x4_0000 * k));
@@ -17695,6 +17699,23 @@ fn the_pair_textures_are_read_through_the_packet() {
 
 use engine_typed::draw::camera;
 
+/// The import slot `D3DXMatrixMultiply` jumps through. The translation calls it; the typed helper
+/// works the product out in place, so the case ignores that call and compares the words it writes.
+const MATRIX_MULTIPLY_IMPORT: u32 = 0x00fd_f424;
+
+/// The measured multiply at its import slot, so the translation writes the product the typed helper
+/// writes. Both sides' setup is the same; only the call differs, and the case ignores it.
+fn matrix_multiply_stand_in(e: &mut Engine) {
+    e.register(MATRIX_MULTIPLY_IMPORT, |e, a| {
+        ret(engine_platform::d3dx::matrix_multiply(
+            e,
+            Ptr::new(a[0]),
+            Ptr::new(a[1]),
+            Ptr::new(a[2]),
+        ))
+    });
+}
+
 /// A page mapped when the test world has not mapped it, then `words` written from `at`.
 fn constant_words(e: &mut Engine, at: u32, words: &[u32]) {
     let page = at & !0xfff;
@@ -17713,6 +17734,7 @@ fn set_camera_data() {
         camera::set_camera_data(Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>)
     ))
     .draw_common_at(0x00e6_c780)
+    .ignore_calls(&[MATRIX_MULTIPLY_IMPORT])
     .inputs(&[
         // The skip byte, the clip plane's flag, the eye's flag, an orthographic frustum, a flipped render state.
         Input::Of(TWO_WAYS),
@@ -17763,14 +17785,7 @@ fn set_camera_data() {
             }
             ret(a[0])
         });
-        e.register(0x00fd_f424, |e, a| {
-            let (m, n) = (words_at(e, a[1], 16), words_at(e, a[2], 16));
-            for k in 0..16u32 {
-                let word = m[k as usize] ^ (n[((5 * k + 3) % 16) as usize] & 0xff);
-                e.mem.set_u32(a[0] + 4 * k, word);
-            }
-            ret(a[0])
-        });
+        matrix_multiply_stand_in(e);
         set(e, RETS + 0x4c, c.word(4));
         set(e, RETS + 0x8c, c.word(5));
         set(e, RETS + 0x90, 720);
@@ -17842,6 +17857,7 @@ fn set_defined_constant() {
         ) -> u32
     ))
     .draw_common_at(0x00e8_3db0)
+    .ignore_calls(&[MATRIX_MULTIPLY_IMPORT])
     .inputs(&[
         // The renderer's constants (every matrix case), the inverse view's rows, the property state's floats, no data,
         // the identity, the skinning array, an unknown constant.
@@ -17919,16 +17935,17 @@ fn set_defined_constant() {
             }
             ret(a[0])
         });
-        for addr in [0x00fd_f424u32, 0x00fd_f410] {
-            e.register(addr, |e, a| {
-                let (m, n) = (words_at(e, a[1], 16), words_at(e, a[2], 16));
-                for k in 0..16u32 {
-                    let word = m[k as usize] ^ (n[((5 * k + 3) % 16) as usize] & 0xff);
-                    e.mem.set_u32(a[0] + 4 * k, word);
-                }
-                ret(a[0])
-            });
-        }
+        // Multiply-transpose keeps its mixing stand-in; plain multiply is the measured product the
+        // typed helper writes, so the translation's product is the same.
+        e.register(0x00fd_f410, |e, a| {
+            let (m, n) = (words_at(e, a[1], 16), words_at(e, a[2], 16));
+            for k in 0..16u32 {
+                let word = m[k as usize] ^ (n[((5 * k + 3) % 16) as usize] & 0xff);
+                e.mem.set_u32(a[0] + 4 * k, word);
+            }
+            ret(a[0])
+        });
+        matrix_multiply_stand_in(e);
         vec![
             map, program, entry, 0, fourth, fifth, 0, properties, 0, 0, 0, 0,
         ]
