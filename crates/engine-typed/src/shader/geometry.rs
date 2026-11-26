@@ -21,6 +21,7 @@ use super::{div_d, mul_d, sub_d};
 use crate::anim_keys::narrow;
 use crate::draw::{capture, packet};
 use engine_core::prelude::*;
+use std::cell::RefCell;
 
 /// The rendering object and its pass type (`011f91e0`, `011f91e4`), the current pass (`0126f74c`) and
 /// the position used without a geometry bound (`011f4288`).
@@ -695,7 +696,8 @@ pub fn obj_to_cube(
         let product = frame + 0x80;
         if direct {
             let renderer = e.global::<u32>(this.addr() + 0x18); // own: main's object read in place (value packet B, piece 4)
-            let bytes = capture::own_bytes(e, renderer + 0x940, 0x40); // the renderer's matrix (its own state) into a local
+            let mut bytes = [0u8; 0x40];
+            capture::own_bytes_into(e, renderer + 0x940, &mut bytes); // the renderer's matrix (its own state) into a local
             e.mem.write(product, &bytes); // own: a local
             capture::own_image(e, OBJECT_TO_CUBE, 0x40, |e, at| {
                 crate::draw::thunks::call_matrix_transpose(e, at, product);
@@ -727,7 +729,8 @@ pub fn obj_to_cube(
         capture::image(e, light, 0x10, 0x50, |e, base| {
             crate::draw::thunks::call_matrix_multiply(e, product, first, base + 0x10);
         });
-        let bytes = e.mem.bytes(product, 0x40); // own: a local
+        let mut bytes = [0u8; 0x40];
+        e.mem.read(product, &mut bytes); // own: a local
         e.mem.write(second, &bytes); // own: a local
         crate::draw::thunks::call_matrix_transpose(e, second, second);
         capture::own_image(e, OBJECT_TO_CUBE, 0x40, |e, at| {
@@ -790,7 +793,8 @@ pub fn simple_shadow_clip_planes(e: &mut Engine, this: Ptr, pass_type: u32) {
         let planes = frame + 0xc0;
         let plane = frame + 0x120;
         let moved = frame + 0x130;
-        let bytes = capture::own_bytes(e, renderer + 0x980, 0x40); // the renderer's matrix (its own state) into a local
+        let mut bytes = [0u8; 0x40];
+        capture::own_bytes_into(e, renderer + 0x980, &mut bytes); // the renderer's matrix (its own state) into a local
         e.mem.write(view, &bytes); // own: a local
         let m = |e: &Engine, index: u32| float_at(e, view + 4 * index);
         let x = capture::own_at::<f32>(e, CAMERA); // the camera eye: own state
@@ -805,7 +809,8 @@ pub fn simple_shadow_clip_planes(e: &mut Engine, this: Ptr, pass_type: u32) {
         let third = y * m(e, 6) + x * m(e, 2);
         let third = third + z * m(e, 10);
         capture::set_own_at::<f32>(e, view + 0x38, -third);
-        let bytes = capture::own_bytes(e, renderer + 0x9c0, 0x40); // the renderer's matrix (its own state) into a local
+        let mut bytes = [0u8; 0x40];
+        capture::own_bytes_into(e, renderer + 0x9c0, &mut bytes); // the renderer's matrix (its own state) into a local
         e.mem.write(moved, &bytes); // own: a local
         crate::draw::thunks::call_matrix_multiply(e, product, view, moved);
         crate::draw::thunks::call_matrix_inverse(e, inverse, 0u32, product);
@@ -1263,6 +1268,78 @@ const PASS_SETUP_SPECIAL: u32 = 0x00b7_ce90;
 const SLOT_SET_SHADER_CONSTANTS: u32 = 0x78;
 const SET_SHADER_CONSTANTS: u32 = 0x00e8_26d0;
 
+/// A transform and the camera it is used with, as the inverse's key. The camera is the drawing side's
+/// own state, so its three words are part of the key: a changed frame misses without a frame counter.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TransformKey {
+    engine: u64,
+    transform: u32,
+    skin: u32,
+    /// The transform's thirteen words, then the camera's three.
+    words: [u32; 16],
+}
+
+impl TransformKey {
+    fn of(e: &Engine, transform: u32, skin: u32) -> Self {
+        let mut words = [0u32; 16];
+        for (index, word) in words.iter_mut().enumerate().take(13) {
+            *word = e
+                .mem
+                .u32(transform.wrapping_add(4 * u32::try_from(index).unwrap_or(0)));
+        }
+        for (index, word) in words.iter_mut().enumerate().skip(13) {
+            *word = capture::own_at::<u32>(e, CAMERA + 4 * u32::try_from(index - 13).unwrap_or(0));
+        }
+        TransformKey {
+            engine: e.engine_id,
+            transform,
+            skin,
+            words,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CachedInverse {
+    key: TransformKey,
+    words: [u32; 16],
+}
+
+const INVERSE_SLOTS: usize = 64;
+
+fn inverse_slot(key: &TransformKey) -> usize {
+    let engine = usize::try_from(key.engine).unwrap_or(0);
+    let mut hash =
+        engine ^ (key.transform as usize).rotate_left(7) ^ (key.skin as usize).rotate_left(13);
+    for (index, word) in key.words.iter().enumerate() {
+        hash ^= (usize::try_from(*word).unwrap_or(0))
+            .rotate_left(u32::try_from((index * 5) % 32).unwrap_or(0));
+    }
+    hash & (INVERSE_SLOTS - 1)
+}
+
+thread_local! {
+    /// Direct-mapped: an older answer is overwritten, never kept for a different engine or transform.
+    static INVERSES: RefCell<[Option<CachedInverse>; INVERSE_SLOTS]> =
+        const { RefCell::new([None; INVERSE_SLOTS]) };
+}
+
+fn cached_inverse(e: &Engine, key: &TransformKey) -> Option<[u32; 16]> {
+    if key.engine != e.engine_id {
+        return None;
+    }
+    let slot = inverse_slot(key);
+    INVERSES.with(|inverses| {
+        inverses.borrow()[slot].and_then(|cached| (cached.key == *key).then_some(cached.words))
+    })
+}
+
+fn remember_inverse(e: &Engine, key: TransformKey, words: [u32; 16]) {
+    debug_assert_eq!(key.engine, e.engine_id);
+    let slot = inverse_slot(&key);
+    INVERSES.with(|inverses| inverses.borrow_mut()[slot] = Some(CachedInverse { key, words }));
+}
+
 // Typed from 00b7dab0
 /// `ShadowLightShader::SetupGeometryConstants` (engine map), `thiscall` with one stack word, the
 /// block (its first word a property, +8 a word, +0xc the shader property, +0x10 another
@@ -1311,11 +1388,20 @@ fn geometry_constants_with(e: &mut Engine, this: Ptr, block: Ptr, transform: u32
     }
     e.with_stack(0x40, |e, matrix| {
         let matrix_addr = matrix.addr();
-        typed_call!(
-            crate::dispatch::FAMILY,
-            0x00c4_c2d0,
-            crate::dispatch::math::inverse_4x4(e, Ptr::new(transform), skin, Ptr::new(matrix_addr))
-        );
+        let key = TransformKey::of(e, transform, skin);
+        let cached = cached_inverse(e, &key);
+        if cached.is_none() {
+            typed_call!(
+                crate::dispatch::FAMILY,
+                0x00c4_c2d0,
+                crate::dispatch::math::inverse_4x4(
+                    e,
+                    Ptr::new(transform),
+                    skin,
+                    Ptr::new(matrix_addr)
+                )
+            );
+        }
         if skin == 0 {
             typed_call!(
                 FAMILY,
@@ -1323,10 +1409,17 @@ fn geometry_constants_with(e: &mut Engine, this: Ptr, block: Ptr, transform: u32
                 accumulator::set_world_view_constants(e, base, geometry, transform)
             );
         }
-        let mut words = [0u32; 16];
-        for (index, word) in words.iter_mut().enumerate() {
-            *word = capture::own_at::<u32>(e, matrix_addr + 4 * idx(index));
-        }
+        let words = match cached {
+            Some(words) => words,
+            None => {
+                let mut words = [0u32; 16];
+                for (index, word) in words.iter_mut().enumerate() {
+                    *word = capture::own_at::<u32>(e, matrix_addr + 4 * idx(index));
+                }
+                remember_inverse(e, key, words);
+                words
+            }
+        };
         if pass_type == 0x250 || pass_type == 0x251 {
             e.call(
                 PASS_SETUP_SPECIAL,
@@ -1419,5 +1512,35 @@ fn geometry_constants_with(e: &mut Engine, this: Ptr, block: Ptr, transform: u32
         // own: main's object read in place (value packet B, piece 4)
         let object = e.global::<u32>(base + 0x1c); // own: main's object read in place (value packet B, piece 4)
         e.vcall(object, 0x24, &args![other]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A second draw with the same transform and camera reads the inverse from the cache; a changed
+    /// transform word misses. Nothing here is read from a game file: the words are made here.
+    #[test]
+    fn the_inverse_is_kept_for_the_next_draw_with_the_same_transform() {
+        let mut e = Engine::new();
+        e.map(CAMERA & !0xfff, 0x1000);
+        let transform = e.mem.alloc(0x40);
+        for index in 0..13u32 {
+            e.mem.set_u32(transform + 4 * index, index + 3);
+        }
+        for index in 0..3u32 {
+            capture::set_own_at(&mut e, CAMERA + 4 * index, 0x40 + index);
+        }
+        let first = TransformKey::of(&e, transform, 0);
+        assert!(cached_inverse(&e, &first).is_none());
+        let words = [0x1234_5678u32; 16];
+        remember_inverse(&e, first, words);
+        assert_eq!(
+            cached_inverse(&e, &TransformKey::of(&e, transform, 0)),
+            Some(words)
+        );
+        e.mem.set_u32(transform + 4, 99);
+        assert!(cached_inverse(&e, &TransformKey::of(&e, transform, 0)).is_none());
     }
 }

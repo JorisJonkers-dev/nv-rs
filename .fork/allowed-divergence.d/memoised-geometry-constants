@@ -1,0 +1,2 @@
+crates/engine-typed/src/shader/geometry.rs  # inverse words and camera words are kept per transform and camera across draws (nv-rs#937)
+crates/engine-typed/src/shader/accumulator.rs  # the world-view product is kept per transform and view across draws (nv-rs#937)
