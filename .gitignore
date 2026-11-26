@@ -1,5 +1,7 @@
 # Build output, and the removed viewer's saves and reports (old checkouts)
 target/
+# Local decomp backend build copy and native library (scripts/fork/decomp_backend.py)
+/.decomp-backend/
 dist/
 userdata/
 reports/
