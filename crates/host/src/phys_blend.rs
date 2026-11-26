@@ -169,7 +169,7 @@ fn draw_frame_entry(e: &mut Engine, a: &[u32]) -> Ret {
 /// goes back after the drawing, and also when the writing or the drawing unwinds (a stop, or a
 /// C++ exception the game catches further out), which then goes on unwinding.
 fn draw_blended(e: &mut Engine, draw: impl FnOnce(&mut Engine)) {
-    let moves = plan_blend(e);
+    let moves = plan_blend(e, crate::uncap::render_alpha());
     let mut written = Vec::new();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         write_moves(e, &moves, &mut written);
@@ -572,20 +572,39 @@ pub struct Written {
     bound_after: [u32; 4],
 }
 
-/// The time to draw a body at: one Havok step behind the game's clock, as before. When the
-/// uncapped step runs, a frame that only draws carries part of the fixed step, and the body is
-/// drawn that much further between the two Havok steps instead of standing still.
-fn draw_time(now: f32, carried: f32, step: f32, share: Option<f32>) -> f32 {
+/// The game seconds one fixed step of the uncapped switch reports.
+const FIXED_TICK: f32 = 1.0 / 60.0;
+
+/// The time to draw a body at: one Havok step behind the game's clock, as before. The clock
+/// (`now + carried`) moves only on a frame that reports a fixed step; the frames between them
+/// only draw, and `share` is how much of the next fixed step has passed on one. The body is
+/// drawn that far later (`share * tick`, in the game's seconds, `tick` being a fixed step times
+/// the time multiplier), so it moves on with the real time and meets the next step's time where
+/// it will be drawn from then on. It is never drawn at or past the end of the last Havok step
+/// (`last`), where there is nothing to blend towards: that time is capped just under it.
+fn draw_time(now: f32, carried: f32, step: f32, tick: f32, share: Option<f32>, last: f32) -> f32 {
     let behind = (f64::from(now) + f64::from(carried) - f64::from(step)) as f32;
     match share {
         None => behind,
-        Some(share) => (f64::from(behind) + f64::from(share) * f64::from(step)) as f32,
+        Some(share) => {
+            let later = (f64::from(behind) + f64::from(share) * f64::from(tick)) as f32;
+            if later >= last {
+                last.next_down()
+            } else {
+                later
+            }
+        }
     }
 }
 
 /// [`plan_blend`] and [`write_moves`] without the guard (tests).
 pub fn blend_for_drawing(e: &mut Engine) -> Vec<Written> {
-    let moves = plan_blend(e);
+    blend_for_drawing_with(e, crate::uncap::render_alpha())
+}
+
+/// [`blend_for_drawing`] with the published fraction of the fixed step given.
+fn blend_for_drawing_with(e: &mut Engine, share: Option<f32>) -> Vec<Written> {
+    let moves = plan_blend(e, share);
     let mut written = Vec::new();
     write_moves(e, &moves, &mut written);
     written
@@ -596,7 +615,7 @@ pub fn blend_for_drawing(e: &mut Engine) -> Vec<Written> {
 /// object in this frame's scene update, so it was a live object of the scene in this frame. (An
 /// older note could name memory freed and used again by an object of the same class, which the
 /// pointer and vtable checks below can't tell.)
-fn plan_blend(e: &mut Engine) -> Vec<(u32, [u32; 12])> {
+fn plan_blend(e: &mut Engine, share: Option<f32>) -> Vec<(u32, [u32; 12])> {
     let mut states = states();
     let Some(state) = states.get_mut(&key(e)) else {
         return Vec::new();
@@ -604,7 +623,9 @@ fn plan_blend(e: &mut Engine) -> Vec<(u32, [u32; 12])> {
     state.drawings += 1;
     let drawings = state.drawings;
     let carried = e.mem.f32(CARRIED_TIME);
-    let step = e.mem.f32(MAX_TIME) * e.mem.f32(TIME_MULTIPLIER);
+    let multiplier = e.mem.f32(TIME_MULTIPLIER);
+    let step = e.mem.f32(MAX_TIME) * multiplier;
+    let tick = FIXED_TICK * multiplier;
     let scale = e.mem.f32(HAVOK_TO_GAME);
     let mut collisions: Vec<u32> = state.notes.keys().copied().collect();
     collisions.sort_unstable();
@@ -631,14 +652,22 @@ fn plan_blend(e: &mut Engine) -> Vec<(u32, [u32; 12])> {
             continue;
         }
         let now = e.mem.f32(simulation + SIMULATION_TIME);
-        let at = draw_time(now, carried, step, crate::uncap::render_alpha());
         let step_end = e.mem.f32(world + WORLD_STEP_END);
+        let at = draw_time(now, carried, step, tick, share, step_end);
         let step_start = step_end - step;
         let sweep = sweep(e, note.havok);
         let body = state.bodies.entry(note.havok).or_default();
         body.used = drawings;
         let ran = take_step(body, &sweep, (step_start, step_end));
-        let drawn = if ran {
+        // A body that did not move over the last step has nothing to blend: drawn as the game
+        // left it, not recomposed (and rounded) from two equal states on every drawing frame.
+        let resting = share.is_some()
+            && body.samples.len() >= 2
+            && same_state(
+                &body.samples[body.samples.len() - 2],
+                &body.samples[body.samples.len() - 1],
+            );
+        let drawn = if ran && !resting {
             drawn_at(&body.samples, at, sweep.centre_local)
         } else {
             Drawn::AsIs
@@ -1372,22 +1401,75 @@ mod tests {
         assert!(blend_for_drawing(&mut e).is_empty());
     }
 
-    /// The fixed step's fraction moves the drawn body from one step behind the clock up to the
-    /// clock itself. Without the uncapped step the drawing time is the original's.
+    /// The fixed step's fraction moves the drawn body on from one step behind the clock, in the
+    /// game's seconds, and never to or past the last Havok step's end. Without the uncapped
+    /// step the drawing time is the original's.
     #[test]
     fn the_fixed_step_moves_the_draw_time_between_steps() {
-        let (now, carried, step) = (10.0f32, 0.25f32, STEP);
-        assert_eq!(draw_time(now, carried, step, None), now + carried - step);
-        assert_eq!(
-            draw_time(now, carried, step, Some(0.0)),
-            now + carried - step
-        );
-        let middle = draw_time(now, carried, step, Some(0.5));
+        let (now, step) = (10.0f32, STEP);
+        let carried = 0.25 * step;
+        let tick = 1.0 / 60.0;
+        let last = now;
+        let behind = now + carried - step;
+        assert_eq!(draw_time(now, carried, step, tick, None, last), behind);
+        assert_eq!(draw_time(now, carried, step, tick, Some(0.0), last), behind);
+        // Later with the share, by the fixed tick (not by Havok's step: they differ).
+        let middle = draw_time(now, carried, step, tick, Some(0.5), last);
+        assert!((middle - (behind + tick / 2.0)).abs() < 1e-5, "{middle}");
+        assert!(middle > behind);
+        // Where the clock's reading would pass the last step, the time stays inside it.
+        let capped = draw_time(now, 0.9 * step, step, tick, Some(1.0), last);
+        assert!(capped < last && last - capped < 1e-4, "{capped}");
+    }
+
+    /// The drawn position, through the scene: a larger fraction puts the body further along its
+    /// motion (never back), by the share of the fixed tick, and the node is put back afterwards.
+    /// A sign error in the draw time fails here: it would move the body the other way.
+    #[test]
+    fn the_published_step_fraction_moves_the_drawn_body_forward() {
+        let mut s = Scene::new();
+        let root = s.node(0, true, 0.0);
+        let item = s.node(root, false, 0.0);
+        let (collision, havok) = s.body(item, 0.0);
+        s.step(collision, havok, 1.0, 0.0, 1.0);
+        s.step(collision, havok, 1.0 + STEP, 1.0, 2.0);
+        // The accumulator holds a quarter of a step.
+        s.e.mem.set_f32(CARRIED_TIME, 0.25 * STEP);
+        let before = world_of(&s.e, item);
+        let mut xs = Vec::new();
+        for share in [None, Some(0.0), Some(0.5)] {
+            s.step(collision, havok, 1.0 + STEP, 1.0, 2.0);
+            let written = blend_for_drawing_with(&mut s.e, share);
+            xs.push(s.e.mem.f32(item + NODE_WORLD + 0x24));
+            put_back(&mut s.e, &written);
+            assert_eq!(world_of(&s.e, item), before);
+        }
+        // `None` and a zero share draw the same; half a fixed tick draws later along the motion.
+        assert!((xs[0] - xs[1]).abs() < 1e-6, "{xs:?}");
+        // The node's x is 7 game units to a body unit (the fixture's scale).
+        let moved = (xs[2] - xs[1]) / 7.0;
+        let expected = (0.5 / 60.0) / STEP;
+        assert!(moved > 0.0, "the body ran backwards: {xs:?}");
         assert!(
-            (middle - (now + carried - step / 2.0)).abs() < 1e-6,
-            "{middle}"
+            (moved - expected).abs() < 1e-2,
+            "{moved} against {expected}"
         );
-        let at_clock = draw_time(now, carried, step, Some(1.0));
-        assert!((at_clock - (now + carried)).abs() < 1e-6, "{at_clock}");
+    }
+
+    /// A body that did not move over the last Havok step is drawn as the game left it, with a
+    /// fraction published or not: the node is not rewritten.
+    #[test]
+    fn a_resting_body_is_drawn_as_it_is() {
+        let mut s = Scene::new();
+        let root = s.node(0, true, 0.0);
+        let item = s.node(root, false, 0.0);
+        let (collision, havok) = s.body(item, 0.0);
+        s.step(collision, havok, 1.0, 3.0, 3.0);
+        s.step(collision, havok, 1.0 + STEP, 3.0, 3.0);
+        s.e.mem.set_f32(CARRIED_TIME, 0.25 * STEP);
+        let before = world_of(&s.e, item);
+        let written = blend_for_drawing_with(&mut s.e, Some(0.5));
+        assert!(written.is_empty(), "{written:?}");
+        assert_eq!(world_of(&s.e, item), before);
     }
 }
