@@ -133,6 +133,10 @@ crates/engine-core/src/bhk.rs
 crates/engine-core/src/real_threads/havok.rs
 crates/engine-core/tests/bhk_seam.rs
 crates/engine-core/tests/bhk_thread_stepped.rs
+# The loader and garbage collector jobs (JorisJonkers-dev/nv-rs#941).
+crates/engine-core/src/loader_jobs.rs
+crates/engine-core/src/real_threads/loader.rs
+crates/engine-core/tests/loader_job_stepped.rs
 crates/mcm/
 crates/stewie/
 docs/

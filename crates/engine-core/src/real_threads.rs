@@ -91,6 +91,11 @@ pub use havok::{
     havok_post_ready, havok_posted, join_havok, on_havok_helper, post_havok, HavokJob,
 };
 
+mod loader;
+pub use loader::{
+    join_loader, loader_post_ready, loader_posted, on_loader_helper, post_loader, LoaderJob,
+};
+
 /// The kept pages over the limit that make the host hand them back at a frame's end (64 MB): a
 /// barrier is a few hundred microseconds, so not every frame.
 pub(crate) const HAND_BACK_AT: usize = 16384;
@@ -3042,11 +3047,11 @@ const HELPER_ID_BASE: u32 = 0x0001_0000;
 /// thread's (the thread list holds a few dozen), so `SuspendThread` of a game thread never finds it.
 const HELPER_INDEX_BASE: usize = 1000;
 
-/// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last two,
-/// the drawing helper's ([`DRAW_SLOT`]) and the Havok helper's.
+/// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last three,
+/// the drawing helper's ([`DRAW_SLOT`]), the Havok helper's and the loader helper's.
 pub const MOST_HELPERS: usize = ((crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start)
     / crate::mem::HELPER_SLOT) as usize
-    - 2;
+    - 3;
 
 /// Whether a pool of `helpers` fits the helper area beside the drawing helper's slot (one helper
 /// at least).
@@ -3405,7 +3410,7 @@ fn run_helper(
 // ---------------------------------------------------------------------------------------------
 
 /// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the last one, past the pool's and
-/// the Havok helper's.
+/// the Havok and loader helpers'.
 const DRAW_SLOT: u32 =
     (crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start) / crate::mem::HELPER_SLOT - 1;
 // The area's last slot, and no pool slot: the drawing helper's TLS block and stack are nobody

@@ -1,0 +1,3 @@
+crates/engine-core/src/lib.rs  # `pub mod loader_jobs;` exposes the loader and garbage collector job seam to the translated main loop (nv-rs#941); drop when upstream provides its own loader job seam
+crates/engine-core/src/real_threads.rs  # a third helper slot for the loader beside the drawing and Havok helpers, and its post/join re-exports (nv-rs#941); drop when upstream provides its own component-thread step
+crates/engine-fallout-misc/src/units/fallout_misc/main.rs  # the frame's IOManager::UpdateQueue and two garbage collector calls go through the job seam (nv-rs#941); drop when upstream moves those calls to jobs itself
