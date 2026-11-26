@@ -1,2 +1,3 @@
-crates/engine-typed/src/shader/geometry.rs  # inverse words and camera words are kept per transform and camera across draws (nv-rs#937)
+crates/engine-core/src/engine.rs  # each engine has a number so a thread-local geometry cache cannot answer for another run (nv-rs#937)
+crates/engine-typed/src/shader/geometry.rs  # camera, fog and eye words and inverse words are kept per frame and transform across draws (nv-rs#937)
 crates/engine-typed/src/shader/accumulator.rs  # the world-view product is kept per transform and view across draws (nv-rs#937)
