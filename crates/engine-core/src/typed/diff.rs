@@ -859,8 +859,8 @@ impl Diff {
             self.compare(
                 &reference,
                 &typed,
-                &[],
-                &[],
+                &self.ignored_calls,
+                &self.plain_callees,
                 case,
                 word,
                 Branch::Reference,
@@ -2144,7 +2144,7 @@ pub struct Report {
     /// The `typed_call!`s that went direct on those runs. 0 for a function with one means no family
     /// named holds its address, and the direct branch has run nowhere.
     pub direct_calls: usize,
-    /// Of those, the runs that also ran a reference peer ([`Diff::reference_peer`]).
+    /// Of [`Report::runs`], the runs that also ran a reference peer ([`Diff::reference_peer`]).
     pub reference_runs: usize,
     /// The addresses of `typed_call!`s on those runs that no named family holds and
     /// [`Diff::goes_by_address`] doesn't list: the functions they name ran nowhere, so
@@ -2230,8 +2230,8 @@ impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "{} difference(s) in {} run(s), {} of them stopped alike, under control words {:04x?}:",
-            self.found, self.runs, self.stopped, self.control_words
+            "{} difference(s) in {} run(s) ({} with a reference peer), {} of them stopped alike, under control words {:04x?}:",
+            self.found, self.runs, self.reference_runs, self.stopped, self.control_words
         )?;
         for d in &self.first {
             writeln!(f, "  {d}")?;
@@ -2988,7 +2988,7 @@ mod tests {
         assert_eq!(report.first.len(), KEEP_FOUND);
         let text = report.to_string();
         assert!(
-            text.starts_with("18 difference(s) in 18 run(s), 0 of them stopped alike, under control words [027f, 007f]:\n"),
+            text.starts_with("18 difference(s) in 18 run(s) (0 with a reference peer), 0 of them stopped alike, under control words [027f, 007f]:\n"),
             "{text}"
         );
         assert!(
