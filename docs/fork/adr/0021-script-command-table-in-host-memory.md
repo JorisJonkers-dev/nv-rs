@@ -1,9 +1,9 @@
-# ADR-0016 amendment (Proposed): the script command table and the built-ins' block in host memory
+# ADR-0021: The script command table and built-ins' block in host memory (Proposed amendment to ADR-0016)
 
-> A fork decision record kept under `docs/fork/adr/` because `docs/adr/` is upstream-owned
-> (ADR-0017). It amends sections 2 and 4 of
-> [ADR-0016](../../adr/0016-script-extenders-built-in.md); the accepted record stands until this
-> amendment is accepted.
+> A fork decision record kept under `docs/fork/adr/`, following ADR-0017. It amends sections 2 and
+> 4 of [ADR-0016](../../adr/0016-script-extenders-built-in.md); the accepted record stands until
+> this amendment is accepted. Fork records take the next free number: ADR-0020 is the local backend
+> record of issue #947, so this record follows it once that one lands.
 
 **Status:** Proposed (2026-11-26). Not accepted. Deletion of the guest memory waits on it
 (issue #916, track D, user stories 53 and 54).
@@ -27,7 +27,8 @@ local decomp backend once no family needs them. User story 53 requires opcode ba
 to stay unchanged throughout; user story 54 requires deletion only when the ledger shows no caller
 by address left. The table and the reserved block are such callers today: their records hold guest
 code addresses and the descriptor holds a guest data address. Deleting the guest memory before they
-move would break every mod that calls a built-in command and every co-save a built-in plugin carries.
+move would break the extenders' command registration and their co-save callbacks; the co-save bytes
+themselves are storage-independent (section 1).
 
 The numbers and paths below are checked against `crates/nvse/src/table.rs` (`TABLE_AT`,
 `TABLE_ROOM`, `DATA_AT`, `Record`), `crates/nvse/src/names.rs`, `crates/jip/src/table.rs`, the
@@ -39,16 +40,16 @@ built-in plugins' `identity.rs`, `crates/engine-core/src/extend.rs` (`ScriptTabl
 ### 1. How opcode bases and co-save ids stay stable
 
 **Opcode bases are numbers, not addresses, and do not change.** A compiled script calls a command
-by its opcode; the host table is indexed by that same opcode with the same arithmetic
-`record(opcode) = start + (opcode - 0x1000) * 0x28`, where `start` is the first record of a host
-vector instead of a guest address. The bounds stay as they are today:
+by its opcode; the host table is a `Vec<Record>` indexed by that same opcode, so a record is
+`records[(opcode - 0x1000) as usize]`. The opcode-to-index arithmetic and the bounds stay as they
+are today:
 
 | Owner | Opcode block | Table bound after install |
 | --- | --- | --- |
 | Exe | `0x1000..0x127f` (0x280 records of 0x28 bytes, from `0x01190910`) | `max_opcode = 0x1280` |
 | xNVSE | padding `0x1280..0x13ff`, then 654 commands from `0x1400` | `0x1400 + 654` |
 | JIP LN NVSE | former lutana block `0x2200..0x233a` (299 commands), JIP's own `0x2600..0x2942` (819 commands; 16 empty slots in each block) | `0x2943` |
-| Built-in plugins | Tweaks `0x2132`, MCM `0x21c0`, JohnnyGuitar `0x3100`, Tale of Two Wastelands `0x3800`, ShowOff `0x3c93` | unchanged by the move |
+| Built-in plugins | Tweaks `0x2132`, MCM `0x21c0`, JohnnyGuitar `0x3100`, AnhNVSE `0x3600`, Tale of Two Wastelands `0x3800`, kNVSE `0x3920`, ShowOff `0x3c93` | unchanged by the move |
 
 An empty slot stays empty and a command not built yet keeps its name with no handler, so a call
 fails at the same opcode and names the command in the log as it does today. `IsPluginInstalled` and
@@ -59,7 +60,8 @@ built-in plugin's co-save section header is its opcode base: `0x1400` for xNVSE'
 `0x2200` for JIP, `0x3100` for JohnnyGuitar, `0x3c93` for ShowOff, `0x2132` for Tweaks. The chunk
 type tags and their versions stay as written: xNVSE's `MODS`, `ARVS`, `ARVR`, `ARVE`, `STVS`,
 `STVR` and `STVE`, JIP's `VSPJ`, `VAPJ`, `MRPJ`, `DEPJ`, `RLPJ`, `FGPJ`, `UAPJ` and `PNPJ`, and
-JohnnyGuitar's `NVXS`. String and array variable ids are already host-side numbers keyed by the ids
+JohnnyGuitar's `NVXS`. AnhNVSE and kNVSE register no co-save callbacks, so they have no section id
+in that list. String and array variable ids are already host-side numbers keyed by the ids
 scripts hold in their locals; they stay `u32` and keep their values. None of these is a pointer into
 the reserved block, so moving where the records live leaves the co-save bytes unchanged and a
 co-save written before the move still loads after it.
@@ -69,10 +71,10 @@ co-save written before the move still loads after it.
 - **The built-in script command table.** Every record the extenders write into `BUILTIN_DATA`: the
   0x280 vanilla records copied from `0x01190910`, xNVSE's padding records for `0x1280..0x13ff`, the
   654 xNVSE commands from `0x1400`, JIP's records in both of its blocks (including the empty
-  slots), and the records of the built-in plugins (Tweaks, MCM, JohnnyGuitar, Tale of Two Wastelands
-  and ShowOff). Each record's fields move with it: long name, short name, opcode, help text,
-  needs-a-reference word, parameter count, parameters pointer, execute word, parse word, eval word
-  and flags. Return types are already host-side, by opcode, and do not move.
+  slots), and the records of the built-in plugins (Tweaks, MCM, JohnnyGuitar, AnhNVSE, Tale of Two
+  Wastelands, kNVSE and ShowOff). Each record's fields move with it: long name, short name, opcode,
+  help text, needs-a-reference word, parameter count, parameters pointer, execute word, parse word,
+  eval word and flags. Return types are already host-side, by opcode, and do not move.
 - **The strings and parameter lists the records point at**, allocated above the records from
   `DATA_AT`: command long and short names, help texts, `ParamInfo` lists (name pointer, type id,
   optional byte), the `string_var` and `array_var` keyword aliases, built-in statistic names, JIP's
@@ -92,21 +94,23 @@ co-save written before the move still loads after it.
 
 ### 3. How the move is made
 
-- The table becomes a host vector of records indexed by opcode, with the 0x28 field layout held as a
-  Rust struct rather than as guest bytes. Record reads and writes become host operations, and the
-  strings and parameter lists become host data; nothing allocates from `DATA_AT` any more.
-- `ScriptTables` stops supplying a guest address: `max_opcode` and the opcode arithmetic stay, while
-  `start` and `end` become positions in the host vector. The reads at the 19 immediates then resolve
-  records from that vector. With nothing installed they still resolve to the exe's records, so
-  vanilla behaviour is unchanged.
+- The table becomes a host `Vec<Record>` indexed by opcode, with the 0x28 field layout held as a
+  Rust struct rather than as guest bytes. A record is `records[(opcode - 0x1000) as usize]`; record
+  reads and writes become host operations, and the strings and parameter lists become host data;
+  nothing allocates from `DATA_AT` any more.
+- `ScriptTables` stops supplying a guest address: `max_opcode` and the subtraction of `0x1000` stay,
+  while the `0x28` byte step goes away and `start` and `end` become indices into the host vector
+  (`start = 0`, `end = records.len()`). The reads at the 19 immediates then resolve records from
+  that vector. With nothing installed they still resolve to the exe's records, so vanilla behaviour
+  is unchanged.
 - Name lookup, `GetFunctionDef`, the `GetFunction` and `HelpFunction` seams and the `help` listing
   read the host table by opcode and by name; no lookup depends on a guest pointer.
 - Handler, eval and parse words become host function references registered through the existing
   wrap and seam tables. Commands still run on the main game thread, and an event raised on another
   thread is still queued for the tick.
 - The reserved ranges are no longer mapped: `mem::EXTENDER_CODE` and `mem::BUILTIN_DATA` leave the
-  guest memory layout, with the `profile::kind_of` names for them, and no heap range takes their
-  place.
+  guest memory layout. The profiler's "built-in extender command" and "built-in extender routine"
+  kinds for the extender code range go with them; no heap range takes their place.
 - The gate is the table and co-save tests: opcode bases and bounds, co-save section ids, chunk tags
   and versions, and co-save round trips compared byte for byte. A command at a moved opcode must
   answer its name and handler from the host table, and a command not built yet must still fail at
@@ -117,13 +121,22 @@ co-save written before the move still loads after it.
 Until this amendment is accepted, ADR-0016 §2 and §4 remain in force and every test that pins the
 table's and the block's guest addresses stays. The amendment is accepted when no family or extender
 reads the guest table or the reserved block and the gates above pass. Only then may the guest
-memory, the translations and the backend be deleted (issue #916, user story 54): no plugin DLL is
-loaded after that, and built-in extenders still answer every opcode they own.
+memory, the translations and the backend be deleted (issue #916, user story 54).
+
+Deletion does not depend on keeping a plugin DLL path alive. [ADR-0018](0018-plugin-dlls-loaded.md)
+was the earlier proposal to map 32-bit plugin DLLs into the guest address space and run their x86
+code against guest memory; that path needs the memory this amendment removes. The maintainer has
+since decided (issue #916, Implementation Decisions and Non-goals) that after the guest memory is
+removed plugin DLLs are not loaded, the features players use are rebuilt natively, and built-in
+extenders always win. This record supersedes ADR-0018 on that point; ADR-0018's built-in-first rules
+stand. Built-in extenders still answer every opcode they own.
 
 ## Consequences
 
 - Mods' compiled scripts keep calling the same opcodes, and their co-saves keep loading, with
   nothing installed; a mod that needs a plugin nv-rs does not have still fails at that call.
+- Once the guest memory is gone, no plugin DLL loads: the features players use are rebuilt natively
+  and built-in extenders win (issue #916), superseding ADR-0018's guest-memory DLL path.
 - The built-in extenders no longer reserve a guest range, so nothing in the game's memory layout
   depends on `EXTENDER_CODE` or `BUILTIN_DATA` and the guest reservation can go.
 - The descriptor reads, the wrap chain and the seams stay as the interface to the extenders; the
