@@ -9582,6 +9582,48 @@ mod tests_second {
         draw_thread::turn_off(&mut r.e);
     }
 
+    /// A job still posted when a world pass starts (a second draw sequence in the frame) is joined by the first half's call
+    /// (`00873200` as the join point), before it draws and exactly once; the job the pass then posts stays
+    /// posted to the pass's end and is joined at OnIdle. Fails if the entry's join is missing or comes after the first
+    /// half, or the pass joins anything else.
+    #[test]
+    fn world_pass_joins_a_job_posted_before_it_at_its_entry_only() {
+        use engine_core::draw_thread::{self, testing};
+        use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+        static JOINS: AtomicU32 = AtomicU32::new(0);
+        static JOINS_AT_FIRST_HALF: AtomicU32 = AtomicU32::new(u32::MAX);
+        fn count_join(_: &mut Engine) {
+            JOINS.fetch_add(1, SeqCst);
+        }
+        JOINS.store(0, SeqCst);
+        let (mut r, this) = scene_rig();
+        r.e.register_double(0x00b6_ba20, |e, _| {
+            JOINS_AT_FIRST_HALF.store(JOINS.load(SeqCst), SeqCst);
+            testing::mark_posted(e);
+            Ret::default()
+        });
+        draw_thread::turn_on(&r.e, testing::hooks_finishing_with(count_join));
+        testing::mark_posted(&r.e);
+        r.run(0x0087_3200, &args![this, 0u32, 0u32, 0u32, 0u32]);
+        assert_eq!(
+            JOINS_AT_FIRST_HALF.load(SeqCst),
+            1,
+            "joined before the first half"
+        );
+        assert_eq!(JOINS.load(SeqCst), 1, "no other join in the pass");
+        assert!(
+            draw_thread::posted(&r.e),
+            "the pass's own job is still posted"
+        );
+        draw_thread::idle(&mut r.e);
+        assert_eq!(JOINS.load(SeqCst), 2, "the pass's job joined at OnIdle");
+        assert_eq!(
+            draw_thread::joins_by_point(&r.e),
+            [(draw_thread::WORLD_PASS, 1), (draw_thread::ON_IDLE, 1)]
+        );
+        draw_thread::turn_off(&mut r.e);
+    }
+
     /// With the drawing thread on for the run, the world pass goes through its seam (counted), and a frame the
     /// seam keeps on main (here: the call log is a per-call diagnostic, and the overlay) makes the same calls with
     /// the same words as with it off, the interface between the halves.
