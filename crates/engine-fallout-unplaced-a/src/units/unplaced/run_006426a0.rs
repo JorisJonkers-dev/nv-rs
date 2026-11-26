@@ -38,7 +38,6 @@ pub fn fn_006427a0(e: &mut Engine, this: Ptr, value: f32) {
 /// multiplied back by 25 after it (each result stored as a float through `fn_006427a0`).
 // Translation incomplete: 006426a0 - SEH exception unwinding is unsupported.
 pub fn fn_006426a0(e: &mut Engine, this: Ptr, first: u32, accumulator: Ptr, third: u32) {
-    engine_core::draw_thread::finish_at(e, 0x0064_26a0);
     e.with_stack(4, |e, timer| {
         e.call(
             TIMER_SCOPE_CONSTRUCT,
@@ -148,23 +147,29 @@ mod tests {
     }
 }
 
-/// The drawing thread (`engine_core::draw_thread`): the sun's occlusion query on the world accumulator (006426a0) join a posted world draw before anything else they do.
+/// The drawing thread (`engine_core::draw_thread`): the sun's occlusion query on the world accumulator
+/// (`006426a0`) does not join a posted world draw. The world pass posts its draw at the first half and stays on the
+/// helper through the whole pass, so this entry may run while that draw is still posted.
 #[cfg(test)]
 mod draw_thread_joins {
+    use super::*;
+
     #[test]
-    fn these_entries_join_the_drawing_thread_first() {
+    fn the_sun_query_keeps_the_world_draw_posted() {
         let mut e = engine_core::Engine::new();
         let mut funcs = Vec::new();
         crate::units::funcs(&mut funcs);
         for (addr, f) in funcs {
             e.register(addr, f);
         }
-        {
-            let addr = 0x0064_26a0u32;
-            assert!(
-                engine_core::draw_thread::testing::joins_first(&mut e, addr, &[0; 16]),
-                "{addr:08x} does not join first"
-            );
+        // Stubs for the query's other callees: with no sun object it only runs the scope timer.
+        for addr in [TIMER_SCOPE_CONSTRUCT, TIMER_SCOPE_DESTROY, OBJECT_006FA820] {
+            e.register(addr, |_, _| Ret::default());
         }
+        let addr = 0x0064_26a0u32;
+        assert!(
+            !engine_core::draw_thread::testing::joins_first(&mut e, addr, &[0; 16]),
+            "{addr:08x} joins the posted world draw"
+        );
     }
 }

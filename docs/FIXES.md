@@ -2140,7 +2140,7 @@ or 1, like every row): the thread with the value packet's POISON check, for test
   both halves are posted to the `nv-draw` helper (`engine::real_threads::post_draw`). Main goes on with the rest of
   the frame and joins the job at the next `Main::OnIdle` (`0086e650`), before the controls are read; the device then
   replays the drawing side's commands at the cut, in the serial order.
-- **Early joins**, at the entries of: `008746d0`, `00874920`, `00b63a90`, `00875e40`, `006426a0`, `00875110` (the
+- **Early joins**, at the entries of: `008746d0`, `00874920`, `00b63a90`, `00875e40`, `00875110` (the
   world accumulator's later users; `00875110`'s screens and overlay accumulate into it, and indoors with no sky, no
   water and no refraction step no earlier join comes before them); a save (`008503b0`) and a load (`00847df0`); `MemoryLevelManager::FreeReleasedObjects`
   (`00878250`: `PurgeCellBuffers` from a script or the console, fast travel, cell clearing), `00453dc0`,
@@ -2177,9 +2177,20 @@ or 1, like every row): the thread with the value packet's POISON check, for test
   turns it on, and `poison` with real threads is on without the scribble.
 - **What it could gain as built: little.** The same draw sequence uses the world accumulator after the world draw
   (the sun's occlusion query `006426a0` in every exterior with a sky, the scope pass, shadows, the water redraw) and
-  resets it at its end, so the join is never later than the end of the draw sequence and, outdoors, falls inside the
-  world pass: about nothing outdoors, up to `00875110`'s entry indoors. Every 600 posts the log prints the posts,
-  the joins by join point and the joins inside the same world pass, then a line with main's waits at each join
-  point, the jobs' own run times and the packet's close at the joins (count, total and longest, in ms; a job counts
-  only when it drew to its end). The corrected plan (the rest of the draw
+  resets it at its end, so the join is never later than the end of the draw sequence. The query no longer joins at
+  its entry: the draw posted at the world pass's first half stays on the helper through the whole pass, and the
+  first join after it is at the accumulator's later users (`008746d0` in an exterior with water, otherwise up to
+  `00875110`'s entry indoors). Every 600 posts the log prints the posts, the joins by join point and the joins
+  inside the same world pass (zero when no join returns the pass to main), then a line with main's waits at each
+  join point, the jobs' own run times and the packet's close at the joins (count, total and longest, in ms; a job
+  counts only when it drew to its end). The corrected plan (the rest of the draw
   sequence on the drawing side) is `measure/draw-thread/PLAN-B.md`.
+- **Why the sun query needs no join** (nv-rs#938). It is main's tail work of the kind the extra passes are, and
+  touches only what each side keeps its own: the accumulator's sun query slots (+0x40, +0x48 to +0x84), which the draw
+  never reads or writes (only the accumulator's camera at +8 is the draw's own); the sun object's float at +0x98 (the
+  geometry's world scale, which the query lowers and restores around its work), which the draw reads from the packet's
+  copy of the geometry (`capture::word`), a read that misses the packet being counted by POISON; the shader statics, the current
+  pass and the renderer's per-draw words, which are the draw's own blocks, where main's writes after the cut win at
+  the join (`capture::end`: serially the query comes after the draw); and the device, whose commands after the cut
+  replay after the draw's. It does not accumulate into or empty the accumulator's lists, which is why the later users
+  above keep their joins.

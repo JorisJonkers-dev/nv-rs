@@ -9582,6 +9582,57 @@ mod tests_second {
         draw_thread::turn_off(&mut r.e);
     }
 
+    /// The world pass keeps a posted world draw posted to its end (nv-rs#938): nothing in it joins, the sun's occlusion
+    /// query (`006426a0`) included, and it comes after both halves and the two extra passes, as in the serial order. The
+    /// first half's stand-in marks a job posted; the query's stand-in notes whether the job is still posted and how
+    /// many joins had happened. The first join is OnIdle's, after the pass.
+    #[test]
+    fn world_pass_keeps_a_posted_draw_posted_through_the_sun_query() {
+        use engine_core::draw_thread::{self, testing};
+        use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+        static JOINS: AtomicU32 = AtomicU32::new(0);
+        static JOINS_AT_QUERY: AtomicU32 = AtomicU32::new(u32::MAX);
+        static POSTED_AT_QUERY: AtomicU32 = AtomicU32::new(0);
+        fn count_join(_: &mut Engine) {
+            JOINS.fetch_add(1, SeqCst);
+        }
+        JOINS.store(0, SeqCst);
+        let (mut r, this) = scene_rig();
+        r.e.register_double(0x00b6_ba20, |e, _| {
+            testing::mark_posted(e);
+            Ret::default()
+        });
+        r.e.register_double(0x0064_26a0, |e, _| {
+            JOINS_AT_QUERY.store(JOINS.load(SeqCst), SeqCst);
+            POSTED_AT_QUERY.store(u32::from(draw_thread::posted(e)), SeqCst);
+            Ret::default()
+        });
+        draw_thread::turn_on(&r.e, testing::hooks_finishing_with(count_join));
+        let (_, log) = r.run(0x0087_3200, &args![this, 0x9100u32, 0u32, 0u32, 0u32]);
+        assert_eq!(
+            only(&log, &[0x00b6_ba20, 0x00b6_b930, 0x00b6_c0d0, 0x0064_26a0]),
+            [
+                0x00b6_ba20,
+                0x00b6_b930,
+                0x00b6_c0d0,
+                0x00b6_c0d0,
+                0x0064_26a0
+            ],
+            "the pass's draw order"
+        );
+        assert_eq!(POSTED_AT_QUERY.load(SeqCst), 1, "posted at the query");
+        assert_eq!(JOINS_AT_QUERY.load(SeqCst), 0, "no join before the query");
+        assert_eq!(JOINS.load(SeqCst), 0, "no join in the whole pass");
+        assert!(draw_thread::posted(&r.e), "still posted at the pass's end");
+        draw_thread::idle(&mut r.e);
+        assert_eq!(JOINS.load(SeqCst), 1, "joined at OnIdle");
+        assert_eq!(
+            draw_thread::joins_by_point(&r.e),
+            [(draw_thread::ON_IDLE, 1)]
+        );
+        draw_thread::turn_off(&mut r.e);
+    }
+
     /// With the drawing thread on for the run, the world pass goes through its seam (counted), and a frame the
     /// seam keeps on main (here: the call log is a per-call diagnostic, and the overlay) makes the same calls with
     /// the same words as with it off, the interface between the halves.

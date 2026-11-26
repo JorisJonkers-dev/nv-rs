@@ -293,7 +293,7 @@ fn the_world_draw_runs_after_the_tail_from_the_packet_cut_before_it() {
     let before = draw_thread::counts(&e);
     draw_thread::first_half(&mut e, 0x6000, 0x8800, 1, 0);
     draw_thread::second_half(&mut e, 0x6000, 0x8800, 1);
-    draw_thread::finish_at(&mut e, 0x0064_26a0);
+    draw_thread::finish_at(&mut e, 0x0087_46d0);
     draw_thread::world_pass_end(&mut e);
     draw_thread::first_half(&mut e, 0x6000, 0x8800, 1, 0);
     draw_thread::second_half(&mut e, 0x6000, 0x8800, 1);
@@ -307,7 +307,7 @@ fn the_world_draw_runs_after_the_tail_from_the_packet_cut_before_it() {
         "only the join inside the pass"
     );
     let by = draw_thread::joins_by_point(&e);
-    assert!(by.contains(&(0x0064_26a0, 1)), "{by:x?}");
+    assert!(by.contains(&(0x0087_46d0, 1)), "{by:x?}");
     assert!(by.iter().any(|&(a, _)| a == draw_thread::ON_IDLE));
     take_drawn();
     take_joined();
