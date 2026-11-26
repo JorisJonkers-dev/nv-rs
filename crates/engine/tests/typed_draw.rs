@@ -2210,10 +2210,11 @@ fn multiply_world(e: &mut Engine, c: &Case) -> Vec<u32> {
         e.mem
             .set_u32(m2.wrapping_add(4 * i as u32), matrix_word(c, i, 1));
     }
-    let out = if c.word(2) == 0 {
-        m1
-    } else {
-        e.mem.alloc(0x40)
+    // The output may be either input: both are read before a word of the output is written.
+    let out = match c.word(2) {
+        0 => m1,
+        1 => e.mem.alloc(0x40),
+        _ => m2,
     };
     vec![out, m1, m2]
 }
@@ -2226,7 +2227,7 @@ fn matrix_multiply_thunk() {
     ))
     .common()
     .ignore_calls(&[MATRIX_MULTIPLY_IMPORT])
-    .inputs(&[Input::F32, Input::F32, Input::Of(&[0, 1])])
+    .inputs(&[Input::F32, Input::F32, Input::Of(&[0, 1, 2])])
     .float_sweep(24)
     .setup(multiply_world)
     .run()
