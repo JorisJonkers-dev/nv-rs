@@ -91,6 +91,11 @@ pub use havok::{
     havok_post_ready, havok_posted, join_havok, on_havok_helper, post_havok, HavokJob,
 };
 
+mod loader;
+pub use loader::{
+    join_loader, loader_post_ready, loader_posted, on_loader_helper, post_loader, LoaderJob,
+};
+
 /// The kept pages over the limit that make the host hand them back at a frame's end (64 MB): a
 /// barrier is a few hundred microseconds, so not every frame.
 pub(crate) const HAND_BACK_AT: usize = 16384;
