@@ -4,6 +4,7 @@ Run: python3 -I -m unittest discover -s scripts/fork/tests -v
 """
 import contextlib
 import io
+import posixpath
 import re
 import textwrap
 import unittest
@@ -11,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW = (ROOT / ".github/workflows/fork-ci.yml").read_text(encoding="utf-8")
+PROGRESS = (ROOT / ".github/workflows/fork-progress.yml").read_text(encoding="utf-8")
 
 
 def job(name):
@@ -23,6 +25,23 @@ def step(name):
     """The lines of the step with this name, up to the next step."""
     found = re.search(r"^      - name: " + re.escape(name) + r"\n(?P<body>(?:^        .*\n|^\s*\n)*)", WORKFLOW, re.M)
     return found.group("body") if found else ""
+
+
+def report_files(text=WORKFLOW):
+    """The paths in a workflow's REPORT_FILES list."""
+    block = text.split("REPORT_FILES: >-", 1)[1].split("\njobs:", 1)[0]
+    return [line.strip() for line in block.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def upload_paths():
+    """The paths of the report-files upload in the catalogue job (single value or a block)."""
+    body = re.search(r"^      - uses: actions/upload-artifact@[^\n]*\n(?P<body>(?:^        .*\n|^\s*\n)*)",
+                     job("catalogue"), re.M).group("body")
+    single = re.search(r"^          path: (\S.*)$", body, re.M)
+    if single and single.group(1) not in ("|", ">-"):
+        return [single.group(1)]
+    block = re.search(r"^          path: \|\n(?P<paths>(?:^            .*\n)+)", body, re.M)
+    return [line.strip() for line in block.group("paths").splitlines()]
 
 
 class CensusWorkflowTests(unittest.TestCase):
@@ -75,6 +94,30 @@ class CensusWorkflowTests(unittest.TestCase):
         self.assertIn("chore(catalogue): update the generated reports [skip ci]", WORKFLOW)
         reports = job("reports")
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/fork'", reports)
+
+    def test_the_artifact_publishes_every_report_at_the_path_the_reports_job_copies(self):
+        # Model upload-artifact: files are stored relative to the common root of the upload paths.
+        reports = job("reports")
+        uploads = [p.replace("${{ runner.temp }}", "/runner") for p in upload_paths()]
+        root = posixpath.commonpath(uploads)
+        render = "/runner/render"
+        prefix = re.search(r'cp "\$RUNNER_TEMP/report-files/\$\{f#([^}]*)\}"', reports).group(1)
+        self.assertIn("for f in $REPORT_FILES; do", reports)
+        self.assertIn('test -s "$f"', reports)
+        self.assertIn('"${git[@]}" add -- $REPORT_FILES', reports)
+        for f in report_files():
+            in_artifact = posixpath.relpath(posixpath.join(render, f), root)
+            published = any(
+                in_artifact.startswith(posixpath.relpath(p, root) + "/") if p.endswith("/")
+                else in_artifact == posixpath.relpath(p, root)
+                for p in uploads
+            )
+            self.assertTrue(published, f"{f} is missing from the artifact (as {in_artifact})")
+            self.assertEqual(f.removeprefix(prefix), in_artifact, f"the copy of {f} has the wrong artifact path")
+
+    def test_the_progress_bot_accepts_the_reports_between_its_commit_and_the_head(self):
+        # A reports commit replayed under a progress commit is not a reason to skip the latter.
+        self.assertTrue(set(report_files()).issubset(set(report_files(PROGRESS))))
 
 
 if __name__ == "__main__":
