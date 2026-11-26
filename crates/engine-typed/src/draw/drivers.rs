@@ -125,6 +125,11 @@ pub fn world_draw_second(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulat
 /// they hold the accumulator's own ([`accumulator_finish`] answers nothing: 0, as its translation's
 /// uniform form does).
 pub fn scene_draw(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulator>) -> u32 {
+    // Join a posted world draw first (nv-rs#990): these passes begin the same shader objects the world draw does
+    // (`select_pass` sets their counted pointers +0x28, +0x30, +0x34 live in guest memory, in no packet or own
+    // block), so run beside it they would assign one counted pointer from two threads, and with stepped threads the
+    // draw would run after them and leave the pointers the serial order does not.
+    engine_core::draw_thread::finish_at(e, 0x00b6_c0d0);
     let base = acc.addr();
     if start(e, camera, base) {
         if crate::slot_target(e, base, SLOT_DRAW) == 0x00b6_6520 {
@@ -660,5 +665,25 @@ mod tests {
         assert!(!capture::is_open(&e), "main closed it");
         assert_eq!(e.mem.u32(block), 0x66, "the draw's own word at the join");
         e.call_stack.clear();
+    }
+
+    /// A world draw posted when the secondary scenes' draw (`00b6c0d0`, the extra passes) starts is joined before
+    /// anything else it does (nv-rs#990). Fails if the join is missing, comes later, or is counted under another
+    /// join point.
+    #[test]
+    fn scene_draw_joins_a_posted_world_draw_first() {
+        let mut e = Engine::new();
+        for (addr, f) in super::super::funcs() {
+            e.register(addr, f);
+        }
+        let (acc, _) = world(&mut e);
+        assert!(
+            engine_core::draw_thread::testing::joins_first(
+                &mut e,
+                0x00b6_c0d0,
+                &[0x500, acc.addr()]
+            ),
+            "00b6c0d0 does not join first"
+        );
     }
 }
