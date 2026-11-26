@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! The model loader's per-frame work and the garbage collection pass as jobs (nv-rs#941): the main
 //! loop's three calls go through here. With stepped threads and the switch on, each is posted to
-//! `nv-loader` and joined before the next game call, so the call order, the guest locks (the
-//! garbage collector's critical section and the model loader's lock), the x87 control word and the
-//! virtual clock are the same as in an inline call. No game thread runs between a post and its
-//! join: the join ends the load's uploads before the draw that needs them.
+//! the stepped component helper (the one Havok's step uses) and joined before the next game call,
+//! so the call order, the guest locks (the garbage collector's critical section and the model
+//! loader's lock), the x87 control word and the virtual clock are the same as in an inline call. No
+//! game thread runs between a post and its join: the join ends the load's uploads before the draw
+//! that needs them.
 //!
 //! Real threads run the calls inline: ADR-0015 keeps a component's real threads off by default
 //! until its race campaign passes. `NV_LOADER_JOBS=1` turns the stepped helper on for an A/B run;
@@ -46,13 +47,14 @@ pub fn set_jobs_on_for_test(on: bool) {
     JOBS_ON.store(on, Ordering::Relaxed);
 }
 
-/// Whether a job is posted to `nv-loader` and not joined yet.
+/// Whether a job is posted to the component helper and not joined yet.
 pub fn loader_posted() -> bool {
     real_threads::loader_posted()
 }
 
-/// Runs one of the frame calls, on `nv-loader` when the run allows it. The poster joins before
-/// returning: no other game thread can run between the post and the call's place in the call order.
+/// Runs one of the frame calls, on the component helper when the run allows it. The poster joins
+/// before returning: no other game thread can run between the post and the call's place in the call
+/// order.
 /// A helper that refuses the job leaves the call on the poster.
 fn run(e: &mut Engine, addr: u32, words: &[u32]) {
     if !jobs_on() || e.real.is_some() || !real_threads::loader_post_ready(e) {

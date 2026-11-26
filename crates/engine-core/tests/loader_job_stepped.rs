@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The model loader's per-frame work and the garbage collection pass on their own OS thread with
-//! stepped threads (nv-rs#941): each is posted to `nv-loader` and its poster joins before the next
-//! game call, so the calls, their words, the guest locks and the uploads they finish keep their
-//! place in the run. A stop in a job unwinds at the join with the same call stack, and a per-call
+//! The model loader's per-frame work and the garbage collection pass as jobs with stepped threads
+//! (nv-rs#941): each is posted to the stepped component helper (the one Havok's step uses) and its
+//! poster joins before the next game call, so the calls, their words, the guest locks and the
+//! uploads they finish keep their place in the run. A stop in a job unwinds at the join with the
+//! same call stack, and a per-call
 //! diagnostic keeps the call on the poster. The inputs are made here: stand-ins for the three
 //! frame calls and scratch memory from the test engine, not game files or a recording. One helper
 //! per process, so this binary holds one run in one test.
 
+use engine_core::bhk;
 use engine_core::loader_jobs;
 use engine_core::real_threads::on_loader_helper;
 use engine_core::units::crt::{set_x87_control_word, x87_control_word};
@@ -23,6 +25,7 @@ const GC_CLEAR: u32 = 0x0086_8d10;
 const UPLOAD: u32 = 0x00c9_1001;
 const DRAW: u32 = 0x00c9_1002;
 const INNER: u32 = 0x00c9_1003;
+const STEP: u32 = 0x00c9_1004;
 
 static STOP_IN_JOB: AtomicBool = AtomicBool::new(false);
 static STORE: AtomicU32 = AtomicU32::new(0);
@@ -33,6 +36,7 @@ struct Call {
     words: Vec<u32>,
     on_helper: bool,
     control_word: u16,
+    thread: std::thread::ThreadId,
 }
 
 static LOG: Mutex<Vec<Call>> = Mutex::new(Vec::new());
@@ -43,6 +47,7 @@ fn record(e: &mut Engine, addr: u32, a: &[u32]) {
         words: a.to_vec(),
         on_helper: on_loader_helper(),
         control_word: x87_control_word(e),
+        thread: std::thread::current().id(),
     });
 }
 
@@ -76,6 +81,11 @@ fn gc_clear_stand_in(e: &mut Engine, a: &[u32]) -> Ret {
 
 fn draw_stand_in(e: &mut Engine, a: &[u32]) -> Ret {
     record(e, DRAW, a);
+    Ret::default()
+}
+
+fn step_stand_in(e: &mut Engine, a: &[u32]) -> Ret {
+    record(e, STEP, a);
     Ret::default()
 }
 
@@ -113,14 +123,16 @@ fn the_loader_and_gc_jobs_keep_the_frame_order_locks_and_stores() {
     e.register(GC_UPDATE, gc_update_stand_in);
     e.register(GC_CLEAR, gc_clear_stand_in);
     e.register(DRAW, draw_stand_in);
+    e.register(STEP, step_stand_in);
     e.register(INNER, stop_inner);
 
-    // Stepped jobs: the three calls and the upload they finish run on nv-loader, in the frame's
+    // Stepped jobs: the three calls and the upload they finish run on the helper, in the frame's
     // order, with the poster's control word and a f64 local rounded at its f32 store.
     loader_jobs::set_jobs_on_for_test(true);
     LOG.lock().unwrap().clear();
     frame(&mut e);
     let threaded = log();
+    let loader_thread = threaded[0].thread;
     let threaded_store = e.mem.u32(STORE.load(Ordering::Relaxed));
     assert!(!loader_jobs::loader_posted(), "a job was left posted");
     assert_eq!(
@@ -129,7 +141,7 @@ fn the_loader_and_gc_jobs_keep_the_frame_order_locks_and_stores() {
     );
     assert!(
         threaded.iter().all(|c| c.on_helper),
-        "a frame call did not run on nv-loader"
+        "a frame call did not run on the component helper"
     );
     assert!(threaded.iter().all(|c| c.control_word == word));
     assert_eq!(threaded[0].words, [0x1234_5678u32]);
@@ -142,7 +154,7 @@ fn the_loader_and_gc_jobs_keep_the_frame_order_locks_and_stores() {
     assert!(!loader_jobs::loader_posted(), "a job was left posted");
     assert!(
         inline.iter().all(|c| !c.on_helper),
-        "an inline call ran on nv-loader"
+        "an inline call ran on the component helper"
     );
     let without_thread = |calls: &[Call]| {
         calls
@@ -210,4 +222,16 @@ fn the_loader_and_gc_jobs_keep_the_frame_order_locks_and_stores() {
     );
     assert_eq!(threaded_stack, inline_stack);
     assert_eq!(inline_stack, [UPDATE_QUEUE, INNER]);
+
+    // One stepped component helper serves the loader and Havok's step. A loader thread of its own
+    // would take the helper area's scene slot, which stays reserved for the scene jobs.
+    LOG.lock().unwrap().clear();
+    bhk::step(&mut e, STEP, &[]);
+    let step = log();
+    assert_eq!(step.iter().map(|c| c.addr).collect::<Vec<_>>(), [STEP]);
+    assert!(step[0].on_helper, "the Havok step did not run on a helper");
+    assert_eq!(
+        step[0].thread, loader_thread,
+        "the loader and Havok steps ran on different helper threads"
+    );
 }

@@ -6,13 +6,15 @@ the model loader's queued references and finishes queued loads), `GarbageCollect
 (`00868850`) and `GarbageCollector::ClearTempEffects` (`00868d10`) — go through
 `engine_core::loader_jobs`.
 
-With stepped threads and `NV_LOADER_JOBS=1`, each call is posted to one `nv-loader` OS thread and its
-poster joins before the next game call. The job runs on a view of the same guest memory with the
-poster's thread id, TLS values, x87 control word and virtual clock, so the garbage collector's
-critical section and the model loader's lock keep the same owner and order as in an inline call.
-The join is the poster's: no game thread runs between a post and its place in the call order, and
-the uploads the loader finished are done before the frame's draw. A stop in a job unwinds at the
-join with the helper's stopped calls put back on the poster's stack.
+With stepped threads and `NV_LOADER_JOBS=1`, each call is posted to the stepped component helper (the
+one Havok's step uses) and its poster joins before the next game call. The job runs on a view of the
+same guest memory with the poster's thread id, TLS values, x87 control word and virtual clock, so the
+garbage collector's critical section and the model loader's lock keep the same owner and order as in
+an inline call. The join is the poster's: no game thread runs between a post and its place in the
+call order, and the uploads the loader finished are done before the frame's draw. A stop in a job
+unwinds at the join with the helper's stopped calls put back on the poster's stack. The helper area's
+three slots past the pool stay the scene helper's, the Havok helper's and the drawing helper's; the
+loader and Havok jobs share the one helper, so no fourth slot is taken.
 
 `NV_LOADER_JOBS` is read once at start-up. The default is off, so `vanilla` and `fixes` keep their
 reference path. With real threads, a per-call diagnostic, a typed family running dual, a busy
@@ -80,7 +82,18 @@ nv-rs-dev runs --json
 nv-rs-dev hitches /path/to/run.jsonl
 ```
 
-Keep the run summaries' `hitches.loads` and `by_cause` and the worst `cell.change` frames from each
-run. A gain outside the run-to-run spread is evidence; one inside it is not. The catalogue rows
+Record each ABBA pair (A and A' are `=0`, B and B' are `=1`):
+
+| Run | `NV_LOADER_JOBS` | `hitches.loads` | worst `cell.change` frame | `by_cause` note |
+| --- | --- | --- | --- | --- |
+| A (before) | 0 | | | |
+| B (after) | 1 | | | |
+| B' (after) | 1 | | | |
+| A' (before) | 0 | | | |
+
+No game runs were available for this change, so the cells stay blank until the maintainer fills
+them from `nv-rs-dev hitches`. Keep the run summaries' `hitches.loads` and `by_cause` and the worst
+`cell.change` frames from each run. A gain outside the run-to-run spread is evidence; one inside it
+is not. The catalogue rows
 `real_threads_default`, `stage5_gates` and `race_soak_linux`
 (`.fork/catalogue/features/threading.toml`) are updated by the lead when the campaign has evidence.

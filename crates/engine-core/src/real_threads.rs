@@ -3048,7 +3048,7 @@ const HELPER_ID_BASE: u32 = 0x0001_0000;
 const HELPER_INDEX_BASE: usize = 1000;
 
 /// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last three,
-/// the drawing helper's ([`DRAW_SLOT`]), the Havok helper's and the loader helper's.
+/// the scene helper's, the Havok helper's and the drawing helper's ([`DRAW_SLOT`]).
 pub const MOST_HELPERS: usize = ((crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start)
     / crate::mem::HELPER_SLOT) as usize
     - 3;
@@ -3410,7 +3410,7 @@ fn run_helper(
 // ---------------------------------------------------------------------------------------------
 
 /// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the last one, past the pool's and
-/// the Havok and loader helpers'.
+/// the scene and Havok helpers'.
 const DRAW_SLOT: u32 =
     (crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start) / crate::mem::HELPER_SLOT - 1;
 // The area's last slot, and no pool slot: the drawing helper's TLS block and stack are nobody
@@ -6044,23 +6044,29 @@ mod tests {
         world.leave_guest();
     }
 
-    /// A pool fits the helper area beside the drawing helper's slot: one helper at least, and no
-    /// more than the slots before the last two (the Havok helper's and the drawing helper's).
+    /// A pool fits the helper area beside the three reserved slots: the scene helper's, the Havok
+    /// helper's and the drawing helper's. One helper at least, no more than the slots before them.
     #[test]
-    fn a_pool_fits_beside_the_drawing_helper() {
+    fn a_pool_fits_beside_the_scene_havok_and_drawing_helpers() {
         assert!(pool_fits(1) && pool_fits(MOST_HELPERS));
         assert!(!pool_fits(0) && !pool_fits(MOST_HELPERS + 1));
-        let draw =
-            (crate::mem::HELPER_AREA.end - crate::mem::HELPER_SLOT)..crate::mem::HELPER_AREA.end;
         assert_eq!(
             DRAW_SLOT,
-            MOST_HELPERS as u32 + 1,
-            "the Havok helper has the slot before the drawing helper's"
+            MOST_HELPERS as u32 + 2,
+            "the scene, Havok and drawing helpers own the three slots past the pool"
         );
-        assert!(
-            crate::mem::HELPER_AREA.start + MOST_HELPERS as u32 * crate::mem::HELPER_SLOT
-                <= draw.start,
-            "the pool's highest slot ends below the drawing helper's"
+        let area = crate::mem::HELPER_AREA.start;
+        let slot = crate::mem::HELPER_SLOT;
+        let scene = area + MOST_HELPERS as u32 * slot;
+        assert_eq!(
+            scene + slot,
+            area + (DRAW_SLOT - 1) * slot,
+            "the Havok helper owns the slot after the scene helper's"
+        );
+        assert_eq!(
+            scene + 2 * slot,
+            area + DRAW_SLOT * slot,
+            "the drawing helper owns the slot after the Havok helper's"
         );
     }
 
