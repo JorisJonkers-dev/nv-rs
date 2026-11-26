@@ -2202,5 +2202,13 @@ or 1, like every row): the thread with the value packet's POISON check, for test
     through the packet's copy).
   The shader objects' counted pointers are why the join stays; moving them into the packet (or running the query on
   the drawing side after the second half, which needs a third segment in the device's cut) is what would let it go.
-  The extra passes (`00b6c0d0`) run the same pass begins on main while the draw runs; whether they share this state
-  is not checked here. Until then the counter's `same_pass` is non-zero in an exterior with a sky.
+  The extra passes (`00b6c0d0`) share this state (nv-rs#990). They run the same pass begins (`select_pass`, through
+  the batch renderer) on the shader objects the shader table holds once per class, so a world draw posted while they
+  run and an extra pass can begin one shader object with different pass types: both set its +0x28 (and decrement and
+  increment the counts of +0x30 and +0x34) live in guest memory, in no packet or own block. Run beside each other
+  that loses a count; with stepped threads (the reference) the posted draw runs at the join, after the extra
+  passes, so the shader keeps the draw's pointers where the serial order leaves the extra pass's. So `00b6c0d0`
+  joins a posted world draw first (`draw::drivers::scene_draw`, join point `00b6c0d0`, and the translation's own
+  entry), pinned by `scene_draw_joins_a_posted_world_draw_first`. The cost: the frame's secondary scenes no longer
+  overlap the draw; the join goes when the counted pointers are in the packet (with the sun query's, #938).
+  Until then the counter's `same_pass` is non-zero in an exterior with a sky.
