@@ -2202,6 +2202,25 @@ or 1, like every row): the thread with the value packet's POISON check, for test
     through the packet's copy).
   The shader objects' counted pointers are why the join stays; moving them into the packet (or running the query on
   the drawing side after the second half, which needs a third segment in the device's cut) is what would let it go.
+  They are not the only shared state, and neither way alone removes the join (read for nv-rs#938, 2026-11-27):
+  - *The constant entries' enabled bytes.* The draw's pass begin switches the 22 vertex (`011febd8`) and 22 pixel
+    (`011fec30`) constant entries on or off by pass type (`draw::setups::enable_entries`, +8 of each entry, live in
+    guest memory), and the sun query's set-up reaches the same bytes through `00b7a870` to `00c02ce0` and `00c02f70`
+    (the tables' objects, byte +8, from the pass's enable words). The table holds pointers, the entries are heap
+    objects outside the own blocks. Run beside each other the query turns entries off or on that the draw's current
+    pass reads back (`entry_is_enabled`, the fog and colour set-ups) and uploads.
+  - *The pass objects.* `00b7a870(9, 0)` writes the state block (+0x30) and the 0xa8 state of the pass object the pass
+    table holds for pass type 9 and gives its stages' texture objects a state (`00e7de90`); the draw's pass begins
+    write the stage textures (+8) and the switch words (+0x20) of the same table's objects.
+  - *The extra passes (`00b6c0d0`) share all of it*, since they run the same pass begins; the join before them stays
+    for the same reason.
+  So option A is not the shader objects' +0x28 to +0x38 alone: the entries' bytes, the stage and switch words and the
+  pass objects' state blocks all go into the packet as own blocks, with own-aware accessors in every typed pass begin
+  (the own accessors in `draw::own` already take the draw's writes; main's untyped writers `00c02ce0`, `00c02f70`,
+  `00b71a10`, `00e7de90`, `00a5f860` and `00c663d0` would each need to say what they wrote, as `capture::note_write`
+  does, so that the join keeps main's value where main wrote after the cut). Option B (the query after the world
+  segment in a third device segment) leaves the extra passes' join in place, so the join counter would still show it.
+  Neither is done; the work is nv-rs#992.
   The extra passes (`00b6c0d0`) share this state (nv-rs#990). They run the same pass begins (`select_pass`, through
   the batch renderer) on the shader objects the shader table holds once per class, so a world draw posted while they
   run and an extra pass can begin one shader object with different pass types: both set its +0x28 (and decrement and
