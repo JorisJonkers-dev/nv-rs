@@ -126,6 +126,7 @@ pub use ds_mix::speakers;
 pub mod time;
 pub mod vorbisfile;
 pub mod window;
+pub mod winsock;
 pub mod xinput;
 pub mod zone;
 
@@ -429,6 +430,68 @@ fn layer_imports() -> Vec<(&'static str, &'static str, AbiFn)> {
             "XINPUT1_3.dll",
             "#3",
             entry!(0, xinput::xinput_set_state(u32, Ptr) -> u32).1,
+        ),
+        // The game imports Winsock by ordinal, for Havok's Visual Debugger only: the answers of a
+        // PC without a network (`winsock`).
+        (
+            "WSOCK32.dll",
+            "#115",
+            entry!(0, winsock::wsa_startup(u32, Ptr) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#111",
+            entry!(0, winsock::wsa_get_last_error() -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#23",
+            entry!(0, winsock::socket(u32, u32, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#1",
+            entry!(0, winsock::accept(u32, Ptr, Ptr) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#3",
+            entry!(0, winsock::close_socket(u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#21",
+            entry!(0, winsock::set_socket_option(u32, u32, u32, Ptr, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#2",
+            entry!(0, winsock::bind(u32, Ptr, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#13",
+            entry!(0, winsock::listen(u32, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#57",
+            entry!(0, winsock::get_host_name(Ptr, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#18",
+            entry!(0, winsock::select(u32, Ptr, Ptr, Ptr, Ptr) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#9",
+            entry!(0, winsock::host_to_net_short(u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#15",
+            entry!(0, winsock::net_to_host_short(u32) -> u32).1,
         ),
         (
             "USER32.dll",
@@ -1081,7 +1144,8 @@ mod tests {
         // six of the player's d3dx9_38.dll, the fork's four (`d3dxshader::imports`): 201 as well.
         // Plus the 11 GalaxyWrp.dll wrapper imports of the GOG executable (same answers as
         // steam_api.dll): 212.
-        assert_eq!(table.len(), 212);
+        // Plus the twelve `WSOCK32.dll` ordinals of the Visual Debugger's server (`winsock`): 224.
+        assert_eq!(table.len(), 224);
     }
 
     /// The owned GOG executable's actual wrapper imports all resolve. No
