@@ -17,7 +17,7 @@ use engine_core::prelude::*;
 use engine_core::typed::diff::{Case, Diff, Input, F32_VALUES};
 use engine_core::typed::{leaf, MAIN_THREAD, OTHER_THREADS};
 use engine_core::{entry, Engine};
-use engine_typed::draw::{self, lists, own, packed, packing, shapes, skin, thunks};
+use engine_typed::draw::{self, defined, lists, own, packed, packing, shapes, skin, thunks};
 use engine_typed::draw_f;
 use engine_typed::render::{self, stream};
 use engine_typed::{crt, culling, dispatch, pathing, shader};
@@ -2170,6 +2170,54 @@ fn matrix_inverse_thunk() {
     .assert_same();
 }
 
+/// The import slot `D3DXMatrixMultiply` jumps through. The translation calls it; the typed helper
+/// does its work in place, so the test ignores that call and compares the words it writes.
+const MATRIX_MULTIPLY_IMPORT: u32 = 0x00fd_f424;
+
+/// A word of a matrix built from scratch: the case's floats, unit and zero words, and NaN payloads
+/// whose order of addition the measured DLL distinguishes (the row three products are reversed).
+fn matrix_word(c: &Case, index: usize, other: usize) -> u32 {
+    const NANS: &[u32] = &[0x7fc0_0001, 0xffc0_0002, 0x7fc0_0003];
+    match index % 8 {
+        0 => c.f32(other).to_bits(),
+        1 => ONE,
+        2 => c.f32(1 - other).to_bits(),
+        3 => 0,
+        4 => NANS[index / 8 % NANS.len()],
+        5 => 0x7f80_0000,
+        6 => 0x0000_0001,
+        _ => 0x3f80_0001,
+    }
+}
+
+/// The matrices, the output and the alias choice, all built from scratch. The platform's measured
+/// `D3DXMatrixMultiply` stands in at the import slot for the translation's thunk.
+fn multiply_world(e: &mut Engine, c: &Case) -> Vec<u32> {
+    stand_ins(e);
+    e.register(MATRIX_MULTIPLY_IMPORT, |e, a| {
+        ret(engine_platform::d3dx::matrix_multiply(
+            e,
+            Ptr::new(a[0]),
+            Ptr::new(a[1]),
+            Ptr::new(a[2]),
+        ))
+    });
+    let m1 = e.mem.alloc(0x40);
+    let m2 = e.mem.alloc(0x40);
+    for i in 0..16usize {
+        e.mem
+            .set_u32(m1.wrapping_add(4 * i as u32), matrix_word(c, i, 0));
+        e.mem
+            .set_u32(m2.wrapping_add(4 * i as u32), matrix_word(c, i, 1));
+    }
+    let out = if c.word(2) == 0 {
+        m1
+    } else {
+        e.mem.alloc(0x40)
+    };
+    vec![out, m1, m2]
+}
+
 #[test]
 fn matrix_multiply_thunk() {
     Diff::new(entry!(
@@ -2177,12 +2225,52 @@ fn matrix_multiply_thunk() {
         thunks::matrix_multiply(Ptr<()>, Ptr<()>, Ptr<()>) -> Ptr<()>
     ))
     .common()
+    .ignore_calls(&[MATRIX_MULTIPLY_IMPORT])
+    .inputs(&[Input::F32, Input::F32, Input::Of(&[0, 1])])
+    .float_sweep(24)
+    .setup(multiply_world)
+    .run()
+    .assert_same();
+}
+
+/// The constant map's texture-transform setter, in place of the draw family's by-address call.
+#[test]
+fn setup_texture_transform_matrix() {
+    Diff::new(entry!(
+        0x00e8_3550,
+        defined::setup_texture_transform_matrix(Ptr<()>, Ptr<()>, u8, u8, u32)
+    ))
+    .common()
     .inputs(&[
-        Input::Of(THUNK_WORDS),
-        Input::Of(THUNK_WORDS),
-        Input::Of(THUNK_WORDS),
+        Input::Of(&[0, 1]),
+        Input::Of(&[0, 1]),
+        Input::Of(&[0, 1]),
+        Input::Of(&[0, 2, 3, 4, 5]),
     ])
-    .setup(|e, c| thunk_world(e, c, 3))
+    .setup(|e, c| {
+        stand_ins(e);
+        // The two calls at the end go through their import slots on both sides; stand in there.
+        for at in [0x00fd_f428, 0x00fd_f42c] {
+            e.register(at, |e, a| {
+                mark(e, a);
+                ret(a[0])
+            });
+        }
+        let out = e.mem.alloc(0x40);
+        let matrix = if c.word(0) == 0 {
+            0
+        } else {
+            let m = e.mem.alloc(0x40);
+            for i in 0..16u32 {
+                e.mem.set_u32(
+                    m.wrapping_add(4 * i),
+                    c.word(1) ^ i.wrapping_mul(0x9e37_79b9),
+                );
+            }
+            m
+        };
+        vec![out, matrix, c.word(2), c.word(2), c.word(3)]
+    })
     .run()
     .assert_same();
 }

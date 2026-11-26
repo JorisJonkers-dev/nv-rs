@@ -4,13 +4,13 @@
 //! (the world pass's extra passes) set theirs while the drawing side draws. Each side keeps its own; main's writes are
 //! noted for the join.
 
-use super::capture;
+use super::{capture, FAMILY};
 use engine_core::ptr::Ptr;
 use engine_core::x87::{
     fistp_chop64, x87_add, x87_div, x87_load32, x87_load64, x87_m32, x87_mul, x87_quiet_bits,
     x87_store32, x87_sub,
 };
-use engine_core::{args, Engine};
+use engine_core::{args, typed_call, Engine};
 
 /// The byte that makes the renderer skip its frame's drawing (+0x6fc).
 const SKIP: u32 = 0x6fc;
@@ -347,13 +347,15 @@ pub fn set_camera_data(
     });
     // View, projection and view-projection are one run of the renderer's words: one image for the product.
     capture::own_image(e, t.wrapping_add(VIEW), 0xc0, |e, view| {
-        e.call(
+        let _: Ptr = typed_call!(
+            FAMILY,
             MATRIX_MULTIPLY,
-            &args![
-                view + (VIEW_PROJECTION - VIEW),
-                view,
-                view + (PROJECTION - VIEW)
-            ],
+            super::thunks::matrix_multiply(
+                e,
+                Ptr::new(view + (VIEW_PROJECTION - VIEW)),
+                Ptr::new(view),
+                Ptr::new(view + (PROJECTION - VIEW))
+            )
         );
     });
     let object = e.global::<u32>(t.wrapping_add(RENDER_STATE));
