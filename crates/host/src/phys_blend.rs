@@ -659,7 +659,15 @@ fn plan_blend(e: &mut Engine, share: Option<f32>) -> Vec<(u32, [u32; 12])> {
         let body = state.bodies.entry(note.havok).or_default();
         body.used = drawings;
         let ran = take_step(body, &sweep, (step_start, step_end));
-        let drawn = if ran {
+        // A body that did not move over the last step has nothing to blend: drawn as the game
+        // left it, not recomposed (and rounded) from two equal states on every drawing frame.
+        let resting = share.is_some()
+            && body.samples.len() >= 2
+            && same_state(
+                &body.samples[body.samples.len() - 2],
+                &body.samples[body.samples.len() - 1],
+            );
+        let drawn = if ran && !resting {
             drawn_at(&body.samples, at, sweep.centre_local)
         } else {
             Drawn::AsIs
@@ -1438,6 +1446,7 @@ mod tests {
         }
         // `None` and a zero share draw the same; half a fixed tick draws later along the motion.
         assert!((xs[0] - xs[1]).abs() < 1e-6, "{xs:?}");
+        // The node's x is 7 game units to a body unit (the fixture's scale).
         let moved = (xs[2] - xs[1]) / 7.0;
         let expected = (0.5 / 60.0) / STEP;
         assert!(moved > 0.0, "the body ran backwards: {xs:?}");
@@ -1445,5 +1454,22 @@ mod tests {
             (moved - expected).abs() < 1e-2,
             "{moved} against {expected}"
         );
+    }
+
+    /// A body that did not move over the last Havok step is drawn as the game left it, with a
+    /// fraction published or not: the node is not rewritten.
+    #[test]
+    fn a_resting_body_is_drawn_as_it_is() {
+        let mut s = Scene::new();
+        let root = s.node(0, true, 0.0);
+        let item = s.node(root, false, 0.0);
+        let (collision, havok) = s.body(item, 0.0);
+        s.step(collision, havok, 1.0, 3.0, 3.0);
+        s.step(collision, havok, 1.0 + STEP, 3.0, 3.0);
+        s.e.mem.set_f32(CARRIED_TIME, 0.25 * STEP);
+        let before = world_of(&s.e, item);
+        let written = blend_for_drawing_with(&mut s.e, Some(0.5));
+        assert!(written.is_empty(), "{written:?}");
+        assert_eq!(world_of(&s.e, item), before);
     }
 }
