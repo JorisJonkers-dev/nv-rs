@@ -31,7 +31,7 @@ tasks:
 
   family-lab:
     desc: Build and run one typed family's Diff cases in a generated crate (docs/fork/FAMILY-LAB.md); task family-lab -- fade culling_fade_on_visible
-    cmd: scripts/fork/family-lab.sh {{.CLI_ARGS}}
+    cmd: python3 -I scripts/fork/family_lab.py run {{.CLI_ARGS}}
 
   components:
     desc: Check the component map against the workspace (every crate in one component, every test file in a job) and print the job matrix of a full run

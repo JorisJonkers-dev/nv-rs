@@ -5,18 +5,28 @@
 The typed cases live in crates/engine/tests, where `use engine as _;` assembles every
 translation in the workspace. That table costs minutes to build even for one case.
 This tool copies one suite into a throwaway crate under target/family-lab and
-assembles only the part crates that hold the translations the suite names; cargo then
-builds engine-core, engine-typed and those parts, not the engine facade. The copy is
-generated from the suite, so the case list is the suite's own and stays in step with
-the hygiene rule (scripts/fork/tests/test_family_lab.py checks both).
+assembles only the part crates that hold the translations the suite's cases actually
+call; cargo then builds engine-core, engine-typed and those parts, not the engine
+facade. The copy is generated from the suite, so the case list is the suite's own and
+stays in step with the hygiene rule (scripts/fork/tests/test_family_lab.py checks
+both).
 
 Usage:
-    python3 scripts/fork/family_lab.py generate <family> <out-dir>
+    python3 scripts/fork/family_lab.py run <family> [libtest filter ...]
     python3 scripts/fork/family_lab.py families
+    python3 scripts/fork/family_lab.py generate <family> <out-dir>
+
+`run` is the portable entry point: plain `cargo` on Windows, Linux and macOS. On a
+shared development machine an optional cargo wrapper and lock can be given through
+NV_FAMILY_LAB_CARGO and NV_FAMILY_LAB_LOCK (see docs/fork/FAMILY-LAB.md); nothing
+about one machine is built into this tool.
 """
 import os
 import re
+import shlex
+import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 FORK = Path(__file__).resolve().parent
@@ -24,11 +34,24 @@ REPO = FORK.parent.parent
 TESTS = REPO / "crates" / "engine" / "tests"
 PARTS = REPO / "crates"
 MARKER = re.compile(r"// Translated from ([0-9a-fA-F]{8})")
+TYPED_MARKER = re.compile(r"// Typed from ([0-9a-fA-F]{8})")
 ENTRY = re.compile(r"entry!\s*\(\s*0x([0-9a-fA-F_]+)")
-HEX = re.compile(r"0x([0-9a-fA-F][0-9a-fA-F_]{7,})")
+CALL = re.compile(r"\.call\(\s*([A-Za-z_][A-Za-z0-9_]*|0x[0-9a-fA-F_]+)")
+TYPED_CALL = re.compile(r"typed_call!\(\s*[A-Za-z_][A-Za-z0-9_:]*\s*,\s*(0x[0-9a-fA-F_]+)")
+CONST = re.compile(r"const\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*u32\s*=\s*0x([0-9a-fA-F_]+)")
+FN = re.compile(r"^\s*(?:pub\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
+FN_NAME = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+INCLUDE = re.compile(r'include!\(\s*"([^"]+)"')
 CRATE = re.compile(r"crates/(engine-[^/]+)/")
+SOURCE_CACHE = {}
 
 
+def normal(address):
+    """An exe address as eight lower-case hex digits, without separators."""
+    return address.replace("_", "").lower()
+
+
+@lru_cache(maxsize=1)
 def translation_crates():
     """Exe address to (part crate, source file), from the translations' own markers."""
     by_address = {}
@@ -41,15 +64,70 @@ def translation_crates():
     return by_address
 
 
+@lru_cache(maxsize=1)
 def typed_files():
     """Exe address to the typed source file that owns it."""
     by_address = {}
     for source in (REPO / "crates" / "engine-typed" / "src").rglob("*.rs"):
-        for address in re.findall(
-            r"// Typed from ([0-9a-fA-F]{8})", source.read_text(encoding="utf-8")
-        ):
+        for address in TYPED_MARKER.findall(source.read_text(encoding="utf-8")):
             by_address.setdefault(address.lower(), source)
     return by_address
+
+
+def source_info(path):
+    """A source file's text, its u32 constants and its top-level functions.
+
+    Kept small and local: the lab needs the call graph of the functions under test,
+    not a parse of Rust. A function ends where the next one starts, which is enough
+    to keep calls from unrelated functions in the same file out of the assembly.
+    """
+    if path not in SOURCE_CACHE:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        functions = [(m.group(1), m.start(), m.end()) for m in FN.finditer(text)]
+        constants = {name: normal(value) for name, value in CONST.findall(text)}
+        SOURCE_CACHE[path] = (text, functions, constants)
+    return SOURCE_CACHE[path]
+
+
+@lru_cache(maxsize=None)
+def callees_of(path, address):
+    """Addresses a marked function calls, including the helpers beside it.
+
+    A translation reaches other translations with `e.call(ADDRESS_OR_CONSTANT, ...)`;
+    typed code reaches them with `typed_call!(FAMILY, ADDRESS, ...)`. Data addresses
+    and float bit patterns are not calls, so they never drag in another crate. Local
+    Rust calls stay in the same file and are followed only to collect their calls.
+    """
+    text, functions, constants = source_info(path)
+    marks = [m for m in MARKER.finditer(text) if m.group(1).lower() == address]
+    marks += [m for m in TYPED_MARKER.finditer(text) if m.group(1).lower() == address]
+    if not marks:
+        return set()
+    after = min(m.end() for m in marks)
+    start = min((s for name, s, _ in functions if s >= after), default=None)
+    if start is None:
+        return set()
+    by_name = {name: (s, e) for name, s, e in functions}
+    positions = sorted((s, name) for name, s, _ in functions)
+    pending = [min((s, name) for s, name in positions if s >= start)[1]]
+    seen = set()
+    addresses = set()
+    while pending:
+        name = pending.pop()
+        if name in seen or name not in by_name:
+            continue
+        seen.add(name)
+        begin, end = by_name[name]
+        body_end = min((s for s, _ in positions if s > begin), default=len(text))
+        body = text[end:body_end]
+        for call in CALL.findall(body) + TYPED_CALL.findall(body):
+            value = call[2:] if call.startswith("0x") else constants.get(call)
+            if value:
+                addresses.add(normal(value))
+        for name2 in FN_NAME.findall(body):
+            if name2 in by_name and name2 not in seen:
+                pending.append(name2)
+    return addresses
 
 
 def suite(family):
@@ -61,29 +139,29 @@ def suite(family):
 
 
 def assembly_for(path):
-    """Part crates the suite's cases need, in a stable order.
+    """Part crates the suite's cases reach, in a stable order.
 
-    A case's translation reaches callees by address from its own unit; the typed
-    version makes `typed_call!`s from the file holding its marker, including helpers
-    beside the marked function. Reading those two files, and the suite itself, finds
-    the addresses the lab must register: a missing one stops one side at an open
-    function while the other runs on.
+    Start at every `entry!` address in the suite, then add the addresses the marked
+    translation and typed function at each one calls (`e.call` and `typed_call!`).
+    Those are the translations the two sides can reach at run time; following their
+    callees as well would pull in most of the engine through call chains the cases
+    double, ignore or never take. A case that does reach a deeper callee names its
+    crate in NV_FAMILY_LAB_PARTS.
     """
     text = path.read_text(encoding="utf-8")
     by_address = translation_crates()
     typed = typed_files()
-    addresses = set(HEX.findall(text))
-    for case in ENTRY.findall(text):
-        address = case.replace("_", "").lower()
+    addresses = {normal(a) for a in ENTRY.findall(text)}
+    for address in list(addresses):
         found = by_address.get(address)
         if found:
-            addresses.update(HEX.findall(found[1].read_text(encoding="utf-8")))
+            addresses.update(callees_of(found[1], address))
         source = typed.get(address)
         if source:
-            addresses.update(HEX.findall(source.read_text(encoding="utf-8")))
+            addresses.update(callees_of(source, address))
     crates = set()
     for address in addresses:
-        found = by_address.get(address.replace("_", "").lower())
+        found = by_address.get(address)
         if found and found[0] != "engine-core":
             crates.add(found[0])
     if "engine::dead_lights::install" in text:
@@ -106,22 +184,48 @@ def with_guard_helper(text):
     if "engine::dead_lights::install" not in text:
         return text
     hook = (REPO / "crates" / "engine" / "src" / "dead_lights.rs").read_text(encoding="utf-8")
-    hook = hook.replace(
-        "use crate::units::bsshader::run_00bb4520::fn_00bb4740;",
-        "use engine_bs::units::bsshader::run_00bb4520::fn_00bb4740;",
-    ).replace(
-        "use crate::units::unplaced::run_00c048b0::fn_00c058f0;",
-        "use engine_fallout_unplaced_b::units::unplaced::run_00c048b0::fn_00c058f0;",
+    replacements = (
+        (
+            "use crate::units::bsshader::run_00bb4520::fn_00bb4740;",
+            "use engine_bs::units::bsshader::run_00bb4520::fn_00bb4740;",
+        ),
+        (
+            "use crate::units::unplaced::run_00c048b0::fn_00c058f0;",
+            "use engine_fallout_unplaced_b::units::unplaced::run_00c048b0::fn_00c058f0;",
+        ),
     )
+    for old, new in replacements:
+        if old not in hook:
+            raise ValueError(f"dead_lights.rs no longer says {old!r}; update the lab's inliner")
+        hook = hook.replace(old, new)
     module = "mod engine {\n    pub mod dead_lights {\n"
     module += "\n".join("        " + line for line in hook.splitlines()) + "\n"
     module += "    }\n}\n\n"
-    return module + text
+    # Inner docs (`//!`) may only lead a file; they come before the local module.
+    # The suite calls the hook from inside its own modules, so use a crate-root path.
+    lines = text.splitlines(keepends=True)
+    first = 0
+    while first < len(lines) and (
+        lines[first].lstrip().startswith("//!") or not lines[first].strip()
+    ):
+        first += 1
+    text = "".join(lines[first:]).replace(
+        "engine::dead_lights::install", "crate::engine::dead_lights::install"
+    )
+    return "".join(lines[:first]) + module + text
 
 
 def rewrite_source(text, parts):
-    """Assemble only this family's parts in place of the facade's whole table."""
-    functions = ", ".join(f"{crate.replace('-', '_')}::units::funcs" for crate in parts)
+    """Assemble only this family's parts in place of the facade's whole table.
+
+    `engine_typed::units::funcs` registers the typed families with the core: without
+    it `Engine::new()` applies no family, and a Diff case that calls a typed function
+    by address silently runs the translation instead. It costs no part crate.
+    """
+    functions = ", ".join(
+        ["engine_typed::units::funcs"]
+        + [f"{crate.replace('-', '_')}::units::funcs" for crate in parts]
+    )
     assemble = f"engine_core::assemble!({functions});"
     if text.count("use engine as _;") != 1:
         raise ValueError("the suite does not link the engine facade in the expected way")
@@ -148,7 +252,7 @@ def manifest(family, parts, out):
         ("engine-typed", "")
     ] + [(crate, "") for crate in parts]
     for name, options in deps:
-        path = os.path.relpath(REPO / "crates" / name, out)
+        path = Path(os.path.relpath(REPO / "crates" / name, out)).as_posix()
         lines.append(f'{name} = {{ path = "{path}"{", " + options if options else ""} }}')
     lines += [
         "",
@@ -170,12 +274,94 @@ def generate(path, out):
     (out / "tests").mkdir(parents=True, exist_ok=True)
     target = out / "tests" / path.name
     manifest_path = out / "Cargo.toml"
-    files = ((target, text), (manifest_path, manifest(family, parts, out)))
+    files = [(target, text), (manifest_path, manifest(family, parts, out))]
+    # A suite can include a table beside it; the generated crate needs the same file.
+    for name in INCLUDE.findall(text):
+        included = path.parent / name
+        if not included.is_file():
+            raise ValueError(f"{path.name} includes {name!r}, which is not beside it")
+        dest = out / "tests" / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        files.append((dest, included.read_text(encoding="utf-8", errors="replace")))
     for file, content in files:
         # Leave the timestamp alone when nothing changed, so a warm run does not rebuild.
         if not file.exists() or file.read_text(encoding="utf-8") != content:
             file.write_text(content, encoding="utf-8")
     return manifest_path
+
+
+def parse_run_args(argv):
+    """The family and the libtest arguments, with go-task's literal `--` removed."""
+    args = list(argv)
+    if args and args[0] == "--":
+        args.pop(0)
+    if not args:
+        raise ValueError("a typed family name is required")
+    family, *rest = args
+    if rest and rest[0] == "--":
+        rest.pop(0)
+    return family, rest
+
+
+def cargo_command():
+    """The optional shared-machine wrapper, from the environment, or plain cargo.
+
+    The value is a command prefix, not a fixed path: on one Linux machine it may be
+    `flock ~/.cache/nv-workers/cargo.lock ~/.local/bin/capped 10G env ... cargo`.
+    Without the variable the tool works anywhere cargo and Python are installed.
+    """
+    value = os.environ.get("NV_FAMILY_LAB_CARGO", "cargo")
+    return [os.path.expandvars(os.path.expanduser(part))
+            for part in shlex.split(value, posix=os.name != "nt")]
+
+
+class _NoLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+def cargo_lock():
+    """Hold the optional shared lock for the whole cargo run, on POSIX and Windows."""
+    name = os.environ.get("NV_FAMILY_LAB_LOCK")
+    if not name:
+        return _NoLock()
+    path = Path(os.path.expandvars(os.path.expanduser(name)))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            if handle.seek(0, os.SEEK_END) == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    except Exception:
+        handle.close()
+        raise
+    return handle
+
+
+def run(argv):
+    """Generate one family's lab crate and run its Diff cases in one cargo process."""
+    family, filters = parse_run_args(argv)
+    path = suite(family)
+    out = REPO / "target" / "family-lab" / family
+    manifest_path = generate(path, out)
+    print(f"# family lab: {manifest_path}", flush=True)
+    command = cargo_command() + [
+        "test", "--manifest-path", str(manifest_path), "--test", f"typed_{family}"
+    ]
+    if filters:
+        command += ["--"] + filters
+    with cargo_lock():
+        return subprocess.call(command)
 
 
 def main(argv):
@@ -187,6 +373,12 @@ def main(argv):
         path = suite(argv[2])
         print(generate(path, Path(argv[3])))
         return 0
+    if len(argv) == 2 and argv[1] == "--list":
+        return main(["family_lab.py", "families"])
+    if len(argv) >= 2 and argv[1] == "run":
+        if len(argv) == 3 and argv[2] == "--list":
+            return main(["family_lab.py", "families"])
+        return run(argv[2:])
     print(__doc__.strip(), file=sys.stderr)
     return 2
 
