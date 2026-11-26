@@ -52,7 +52,7 @@ fn with_real_threads_the_scene_update_runs_beside_main_and_joins() {
         ),
         "one job at a time"
     );
-    assert!(real_threads::join_scene(&e), "the job joined");
+    assert!(real_threads::join_scene(&mut e), "the job joined");
     assert_eq!(RAN.load(SeqCst), 1, "only the posted job ran");
     assert_eq!(e.global::<u32>(VALUE), 1, "the helper wrote the guest word");
     assert!(!real_threads::scene_posted(), "the join cleared the job");
@@ -62,7 +62,7 @@ fn with_real_threads_the_scene_update_runs_beside_main_and_joins() {
         &mut e,
         Box::new(|_| panic!("the scene stopped"))
     ));
-    let panic = catch_unwind(AssertUnwindSafe(|| real_threads::join_scene(&e)));
+    let panic = catch_unwind(AssertUnwindSafe(|| real_threads::join_scene(&mut e)));
     assert!(panic.is_err(), "the job's panic was resumed at the join");
     assert!(!real_threads::scene_posted());
     assert!(real_threads::post_scene(
@@ -71,6 +71,6 @@ fn with_real_threads_the_scene_update_runs_beside_main_and_joins() {
             RAN.fetch_add(1, SeqCst);
         })
     ));
-    assert!(real_threads::join_scene(&e));
+    assert!(real_threads::join_scene(&mut e));
     assert_eq!(RAN.load(SeqCst), 2);
 }

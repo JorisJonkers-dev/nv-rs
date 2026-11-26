@@ -4,7 +4,7 @@
 
 - With real threads (`NV_THREADS=real`, the play default) the helper starts as soon as a job is posted. Main goes on with its own work and joins before it fixes the camera and multibound visibility (`00c52020`, `0045bc80`, `00b5ac90`, `0045b070`), and again before `Main::Swap` draws the frame. Those passes stay on main, in the game's order, and see the scene update's writes.
 - With stepped threads, diagnostics, a typed family in dual mode, or when a job is still pending, the post is refused and the caller runs the update itself. `NV_REPEATABLE` forces stepped threads, so a stepped recording takes the inline path and stays byte-identical.
-- One job at a time: a second post before the join is refused, and the caller does that work inline. A stop in a job comes back at the join. The helper has its own TLS and stack outside the game's heap, so allocations keep their addresses; it takes the poster's x87 control word.
+- One job at a time: a second post before the join is refused, and the caller does that work inline. A stop in a job is recorded for main and comes back at the join with the job's calls on the poster's stack. The helper has its own TLS and stack outside the game's heap, so allocations keep their addresses; it takes the poster's x87 control word. Its helper-area slot is the first past the pool's, before the Havok helper's and the drawing helper's (`crates/engine-core/src/real_threads.rs`).
 - The seam writes no float arithmetic. The typed families reached by the moved calls run on main and helpers alike (`Threads::Both`) and follow ADR-0014's float rule: `f64` locals, rounded at each `float` store.
 
 Real threads for this change stay off by default until the race campaign below passes (ADR-0015). Stepped mode remains the reference for tests, recordings and traces.
@@ -15,6 +15,10 @@ Real threads for this change stay off by default until the race campaign below p
 flock ~/.cache/nv-workers/cargo.lock ~/.local/bin/capped 10G env CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=$HOME/.cache/cargo-targets/nv-rs-gw cargo test -p engine-core --test scene_jobs_stepped
 flock ~/.cache/nv-workers/cargo.lock ~/.local/bin/capped 10G env CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=$HOME/.cache/cargo-targets/nv-rs-gw cargo test -p engine-core --test scene_jobs_real
 ```
+
+The typed families the moved calls reach keep their `Diff::new` cases in the engine crate's `typed_dispatch`
+(scene, under the other threads' control word), `typed_animation`, `typed_particles`, `typed_crt` and `typed_leaves`
+binaries; run those too when the seam changes.
 
 ## Gate left to the maintainer
 
@@ -28,6 +32,16 @@ cmp /tmp/scene-on.stream /tmp/scene-off.stream
 ```
 
 Both ends must be byte-identical. Compare `NV_SOUND_RECORD` the same way when the sound device is unchanged. A difference stops the change: check the helper's x87 word and the join point before continuing.
+
+The stepped scene tool's pictures must match too (`NV_REPEATABLE` is set by its runner):
+
+```
+nv-rs-dev scene run --places docs/fork/scenes/camera-seam.toml --out /tmp/scene-jobs-off --env NV_SCENE_JOBS=0 --game-lock "$GAME" --label scene-jobs-off
+nv-rs-dev scene run --places docs/fork/scenes/camera-seam.toml --out /tmp/scene-jobs-on --env NV_SCENE_JOBS=1 --game-lock "$GAME" --label scene-jobs-on
+nv-rs-scene compare /tmp/scene-jobs-off/pictures /tmp/scene-jobs-on/pictures
+```
+
+The comparison must show no changed pixels. `nv-rs-scene compare --diff-out <dir>` writes a difference picture when it does not.
 
 For the speed gate, use `NV_PERF=1` and ABBA runs of at least one bench scene (`nv-rs-dev bench list` names them), each with the same preset, resolution and threads, alternating the switch. Take the main-thread stage times from the perf timeline and `bench report` for the run directories; the candidate must lower main-thread time on at least one scene and stay within noise on every other.
 

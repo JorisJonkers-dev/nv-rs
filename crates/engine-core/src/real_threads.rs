@@ -3839,6 +3839,8 @@ struct SceneState {
     finished: bool,
     control_word: u16,
     panic: Option<Box<dyn std::any::Any + Send>>,
+    /// The stopped job's calls, innermost last, for the join to report as the poster's own.
+    stop_stack: Vec<u32>,
 }
 
 impl SceneHelper {
@@ -3902,6 +3904,7 @@ pub fn post_scene(e: &mut Engine, job: SceneJob) -> bool {
         || HELPER.with(Cell::get)
         || on_draw_helper()
         || on_scene_helper()
+        || on_havok_helper()
         || e.typed_any_dual()
         || diagnostic_on(e).is_some()
     {
@@ -3934,6 +3937,7 @@ pub fn post_scene(e: &mut Engine, job: SceneJob) -> bool {
         state.posted = true;
         state.finished = false;
         state.panic = None;
+        state.stop_stack.clear();
         state.control_word = control_word;
         state.job = Some(job);
     }
@@ -3980,17 +3984,20 @@ pub fn wait_scene(e: &Engine) -> bool {
 
 /// [`wait_scene`], then the job is joined (another may be posted) and its panic resumed here.
 /// False when none was posted.
-pub fn join_scene(e: &Engine) -> bool {
+pub fn join_scene(e: &mut Engine) -> bool {
     if !wait_scene(e) {
         return false;
     }
     let s = SCENE.get().expect("a job was posted");
-    let panic = {
+    let (panic, stop_stack) = {
         let mut state = guard(&s.state);
         state.posted = false;
-        state.panic.take()
+        (state.panic.take(), std::mem::take(&mut state.stop_stack))
     };
     if let Some(payload) = panic {
+        // The helper's stack starts at the posted call: appending it reports the same innermost
+        // calls an inline update would have left on the poster's stack.
+        e.call_stack.extend(stop_stack);
         std::panic::resume_unwind(payload);
     }
     true
@@ -4032,26 +4039,72 @@ fn run_scene_helper(engine: SendEngine, world: &'static World, s: &'static Scene
             }
             (state.job.take().expect("checked above"), state.control_word)
         };
-        sync_registered(&mut e);
-        crate::units::crt::set_x87_control_word(&mut e, control_word);
-        world.enter_guest();
         let mark = e.guest_stack_mark();
-        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&mut e)));
-        world.leave_guest();
-        if out.is_err() {
-            e.guest_stack_restore(mark);
-            e.call_stack.clear();
-            e.stack_frames.clear();
+        let mut entered = false;
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sync_registered(&mut e);
+            crate::units::crt::set_x87_control_word(&mut e, control_word);
+            world.enter_guest();
+            entered = true;
+            job(&mut e)
+        }));
+        if entered {
+            world.leave_guest();
         }
+        let stop_stack = if out.is_err() {
+            if let Err(payload) = &out {
+                scene_stopped(world, &e, &**payload);
+            }
+            let stack = std::mem::take(&mut e.call_stack);
+            e.guest_stack_restore(mark);
+            e.stack_frames.clear();
+            stack
+        } else {
+            Vec::new()
+        };
         {
             let mut state = guard(&s.state);
             if let Err(payload) = out {
                 state.panic = Some(payload);
+                state.stop_stack = stop_stack;
             }
             state.finished = true;
         }
         s.done.notify_all();
     }
+}
+
+/// A stop in the scene job (real threads) is the run's, as a game thread's and the drawing helper's
+/// are: named with `nv-scene` and the job's innermost functions, recorded for main and given to
+/// every waiter, so a thread waiting on a lock the job held stops instead of waiting for ever.
+fn scene_stopped(world: &'static World, e: &Engine, payload: &(dyn std::any::Any + Send)) {
+    let text = payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let first = text.lines().next().unwrap_or("");
+    let path: Vec<String> = e
+        .call_stack
+        .iter()
+        .rev()
+        .take(6)
+        .map(|a| format!("{a:08x}"))
+        .collect();
+    let line = if path.is_empty() {
+        format!("{first} (in the scene helper nv-scene)")
+    } else {
+        format!(
+            "{first} (in {}, in the scene helper nv-scene)",
+            path.join(" < ")
+        )
+    };
+    eprintln!("real threads: {line}");
+    world.kernel.lock(world);
+    guard(&world.stopped).get_or_insert(line);
+    world.any_stop.store(true, Ordering::SeqCst);
+    world.wake_all_waiters();
+    world.kernel.unlock();
 }
 
 #[cfg(test)]

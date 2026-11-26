@@ -46,7 +46,7 @@ fn with_stepped_threads_the_scene_update_stays_on_the_caller() {
     assert_eq!(e.global::<u32>(VALUE), 1, "one update on the caller");
     assert_eq!(RUNS.load(SeqCst), 1);
     assert!(!real_threads::scene_posted(), "nothing was posted");
-    assert!(!real_threads::join_scene(&e), "nothing to join");
+    assert!(!real_threads::join_scene(&mut e), "nothing to join");
 
     // The switch alone does not move work: stepped threads are the reference for recordings.
     real_threads::scene_jobs_set_for_tests(true);
