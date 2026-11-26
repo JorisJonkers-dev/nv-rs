@@ -67,15 +67,14 @@ fn geometry_slot_word(e: &mut Engine, geometry: u32, slot: u32) -> u32 {
     }
 }
 
-/// One strip's primitive count: its length less 2 from the lengths array (+0x4c), or the count at
-/// +0x40 without one.
+/// One strip's primitive count from the words the loop read before it began: its length less 2
+/// from the lengths array (+0x4c), or the count at +0x40 without one.
 #[inline(always)]
-fn strip_length(e: &Engine, data: u32, strip: u32) -> u32 {
-    let lengths = e.mem.u32(data.wrapping_add(0x4c));
+fn strip_length_from(e: &Engine, lengths: u32, fallback: u32, strip: u32) -> u32 {
     if lengths != 0 {
         u32::from(e.mem.u16(lengths.wrapping_add(strip.wrapping_mul(2)))).wrapping_sub(2)
     } else {
-        e.mem.u32(data.wrapping_add(0x40))
+        fallback
     }
 }
 
@@ -118,6 +117,8 @@ pub fn draw_shape(e: &mut Engine, this: Ptr, geometry: Ptr) {
     let render_data = e.mem.u32(packet::model_data(e, g).wrapping_add(0x34));
     let shader = e.mem.u32(g.wrapping_add(0xc0));
     ask_pass_is_set(e, shader);
+    // One half's hold of the device lock spans every device call of this geometry.
+    let _half = engine_core::real_threads::DeviceHalf::begin(e);
     if skinned {
         let instance = e.mem.u32(skin.wrapping_add(0xc));
         let mut remaining = e.mem.u32(instance.wrapping_add(8));
@@ -127,21 +128,25 @@ pub fn draw_shape(e: &mut Engine, this: Ptr, geometry: Ptr) {
             let mut at = partitions.wrapping_add(0x1c);
             loop {
                 let part_data = e.mem.u32(at.wrapping_add(0xc));
+                // Read once: no strip of this partition changes these words.
+                let strips = e.mem.u32(part_data.wrapping_add(0x48));
+                let lengths = e.mem.u32(part_data.wrapping_add(0x4c));
+                let fallback = e.mem.u32(part_data.wrapping_add(0x40));
+                let vertices = u32::from(e.mem.u16(at));
+                let base = e.mem.u32(part_data.wrapping_add(0x38));
                 let mut strip = 0u32;
                 let mut start = 0u32;
-                while strip < e.mem.u32(part_data.wrapping_add(0x48)) {
-                    let count = if e.mem.u32(part_data.wrapping_add(0x4c)) != 0 {
-                        strip_length(e, part_data, strip)
+                while strip < strips {
+                    let count = if lengths != 0 {
+                        strip_length_from(e, lengths, fallback, strip)
                     } else {
-                        let mut count = e.mem.u32(part_data.wrapping_add(0x40));
+                        let mut count = fallback;
                         if geometry_slot_word(e, g, SLOT_PARTIAL_SKIN) != 0 {
                             let partial = geometry_slot_word(e, g, SLOT_PARTIAL_SKIN);
                             count = e.mem.u32(partial.wrapping_add(0xc4));
                         }
                         count
                     };
-                    let vertices = u32::from(e.mem.u16(at));
-                    let base = e.mem.u32(part_data.wrapping_add(0x38));
                     draw_indexed(e, t, [kind, base, 0, vertices, start, count]);
                     strip += 1;
                     start = start.wrapping_add(count).wrapping_add(2);
@@ -154,14 +159,17 @@ pub fn draw_shape(e: &mut Engine, this: Ptr, geometry: Ptr) {
             }
         }
     } else if e.mem.u32(render_data.wrapping_add(0x34)) != 0 {
+        let strips = e.mem.u32(render_data.wrapping_add(0x48));
+        let lengths = e.mem.u32(render_data.wrapping_add(0x4c));
+        let fallback = e.mem.u32(render_data.wrapping_add(0x40));
+        let vertices = e.mem.u32(render_data.wrapping_add(0x18));
+        let base = e.mem.u32(render_data.wrapping_add(0x38));
+        let kind = e.mem.u32(render_data.wrapping_add(0x3c));
         let mut start = 0u32;
         let mut strip = 0u32;
-        while strip < e.mem.u32(render_data.wrapping_add(0x48)) {
-            let count = strip_length(e, render_data, strip);
+        while strip < strips {
+            let count = strip_length_from(e, lengths, fallback, strip);
             if geometry_slot_word(e, g, SLOT_PARTIAL_RECORDS) == 0 {
-                let vertices = e.mem.u32(render_data.wrapping_add(0x18));
-                let base = e.mem.u32(render_data.wrapping_add(0x38));
-                let kind = e.mem.u32(render_data.wrapping_add(0x3c));
                 draw_indexed(e, t, [kind, base, 0, vertices, start, count]);
             } else {
                 let draw = geometry_slot_word(e, g, SLOT_PARTIAL_RECORDS);
@@ -181,9 +189,6 @@ pub fn draw_shape(e: &mut Engine, this: Ptr, geometry: Ptr) {
                         } else {
                             (e.mem.u32(record), e.mem.u32(record.wrapping_add(0xc)))
                         };
-                        let vertices = e.mem.u32(render_data.wrapping_add(0x18));
-                        let base = e.mem.u32(render_data.wrapping_add(0x38));
-                        let kind = e.mem.u32(render_data.wrapping_add(0x3c));
                         draw_indexed(e, t, [kind, base, 0, vertices, part_start, part_count]);
                     }
                     offset = offset.wrapping_add(0x14);
@@ -214,21 +219,25 @@ pub fn draw_partition(e: &mut Engine, this: Ptr, partition: u32, object: u32, _u
     if e.mem.u32(partition.wrapping_add(0x48)) == 0 {
         return;
     }
+    let strips = e.mem.u32(partition.wrapping_add(0x48));
+    let lengths = e.mem.u32(partition.wrapping_add(0x4c));
+    let fallback = e.mem.u32(partition.wrapping_add(0x40));
+    let kind = if e.mem.u16(object.wrapping_add(0x22)) != 0 {
+        5
+    } else {
+        4
+    };
+    let vertices = u32::from(e.mem.u16(object.wrapping_add(0x1c)));
+    let base = e.mem.u32(partition.wrapping_add(0x38));
+    let _half = engine_core::real_threads::DeviceHalf::begin(e);
     let mut start = 0u32;
     let mut strip = 0u32;
     loop {
-        let count = strip_length(e, partition, strip);
-        let kind = if e.mem.u16(object.wrapping_add(0x22)) != 0 {
-            5
-        } else {
-            4
-        };
-        let vertices = u32::from(e.mem.u16(object.wrapping_add(0x1c)));
-        let base = e.mem.u32(partition.wrapping_add(0x38));
+        let count = strip_length_from(e, lengths, fallback, strip);
         draw_indexed(e, t, [kind, base, 0, vertices, start, count]);
         strip += 1;
         start = start.wrapping_add(count).wrapping_add(2);
-        if strip >= e.mem.u32(partition.wrapping_add(0x48)) {
+        if strip >= strips {
             break;
         }
     }

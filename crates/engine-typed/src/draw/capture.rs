@@ -1448,6 +1448,35 @@ pub fn own_bytes(e: &Engine, addr: u32, len: u32) -> Vec<u8> {
     e.mem.bytes(addr, len)
 }
 
+/// Fills `into` with the own state's bytes `[addr, addr + into.len())` as the draw reads them. The
+/// same answer as [`own_bytes`] for a caller that already has a buffer, so a constant set-up need
+/// not take a fresh one for each matrix it copies. An address in no own block is not a packet miss:
+/// it is read from guest memory, as [`own_bytes`] has always done.
+pub fn own_bytes_into(e: &Engine, addr: u32, into: &mut [u8]) {
+    let len = u32::try_from(into.len()).unwrap_or(u32::MAX);
+    if let Some(v) = served(&e.own_view) {
+        if let Some(at) = v.own_at(addr, len) {
+            into.copy_from_slice(&v.own_bytes[at..at + into.len()]);
+            return;
+        }
+    } else if held() {
+        let read = PACKET.with(|p| {
+            let p = p.borrow();
+            let p = p.as_ref()?;
+            if !p.serves(e) {
+                return None;
+            }
+            let at = p.own_at(addr, len)?;
+            into.copy_from_slice(&p.own_bytes[at..at + into.len()]);
+            Some(())
+        });
+        if read.is_some() {
+            return;
+        }
+    }
+    e.mem.read(addr, into);
+}
+
 /// A field of the draw's own state through a typed pointer, as [`own_at`].
 #[inline(always)]
 pub fn own_get<S, T: OwnValue>(e: &Engine, p: Ptr<S>, f: Field<S, T>) -> T {
@@ -1560,6 +1589,40 @@ impl Span {
     }
 }
 
+thread_local! {
+    /// Copies taken for [`image`], kept for the next call: a constant set-up takes an image for each of its
+    /// operands, and nested images each need their own bytes while both are open.
+    static IMAGE_SCRATCH: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
+    #[cfg(test)]
+    static IMAGE_BUFFERS_BUILT: Cell<usize> = const { Cell::new(0) };
+}
+
+/// A zeroed buffer of `len` bytes, reused from a finished image when one is free.
+fn image_bytes(len: usize) -> Vec<u8> {
+    IMAGE_SCRATCH.with(|pool| match pool.borrow_mut().pop() {
+        Some(mut bytes) => {
+            bytes.resize(len, 0);
+            bytes
+        }
+        None => {
+            #[cfg(test)]
+            IMAGE_BUFFERS_BUILT.with(|n| n.set(n.get() + 1));
+            vec![0; len]
+        }
+    })
+}
+
+/// Gives an image's bytes back for the next call.
+fn image_bytes_back(mut bytes: Vec<u8>) {
+    IMAGE_SCRATCH.with(|pool| {
+        let mut pool = pool.borrow_mut();
+        if pool.len() < 8 {
+            bytes.clear();
+            pool.push(bytes);
+        }
+    });
+}
+
 /// Runs `f` with an address that stands for `object` over its offsets `[from, to)`: while the packet holds
 /// that range, a guest-stack image of it (`f`'s address plus an offset in the range points into the image),
 /// else `object` itself. For a helper that takes a pointer into a copied object.
@@ -1574,10 +1637,11 @@ pub fn image<R>(
         return f(e, object);
     }
     let held = if let Some(v) = served(&e.own_view) {
-        let mut bytes = vec![0u8; (to - from) as usize];
+        let mut bytes = image_bytes((to - from) as usize);
         if v.read_into(object, from, &mut bytes) {
             Some(bytes)
         } else {
+            image_bytes_back(bytes);
             missed(object, from, v.poison);
             None
         }
@@ -1590,11 +1654,13 @@ pub fn image<R>(
         return f(e, object);
     };
     let size = (to - from + 3) & !3;
-    e.with_stack(size, |e, block| {
+    let r = e.with_stack(size, |e, block| {
         let block = block.addr();
         e.mem.write(block, &bytes);
         f(e, block.wrapping_sub(from))
-    })
+    });
+    image_bytes_back(bytes);
+    r
 }
 
 /// [`image`]'s copy from this thread's packet.
@@ -1605,8 +1671,13 @@ fn image_copy(e: &Engine, object: u32, from: u32, to: u32) -> Option<Vec<u8>> {
         if !p.serves(e) {
             return None;
         }
-        let mut bytes = vec![0u8; (to - from) as usize];
-        p.read_or_miss(object, from, &mut bytes).then_some(bytes)
+        let mut bytes = image_bytes((to - from) as usize);
+        if p.read_or_miss(object, from, &mut bytes) {
+            Some(bytes)
+        } else {
+            image_bytes_back(bytes);
+            None
+        }
     })
 }
 
@@ -1788,6 +1859,57 @@ mod tests {
             e.mem.set_u32(at + 4 * i, i + 1);
         }
         at
+    }
+
+    /// An image's copy is kept for the next image: a constant set-up can take several images, and
+    /// none of them needs a fresh buffer once the first has taken one. Nested images take separate
+    /// buffers, so neither sees the other's bytes.
+    #[test]
+    fn images_reuse_their_scratch_copy() {
+        set_thread_mode(Some(Mode::On));
+        let mut e = Engine::new();
+        let at = block(&mut e, 8);
+        assert!(begin(&e));
+        take(&e, at, 0, 32);
+        image(&mut e, at, 0, 16, |_, _| ());
+        let before = IMAGE_BUFFERS_BUILT.with(Cell::get);
+        for _ in 0..8 {
+            let seen = image(&mut e, at, 0, 16, |e, base| e.mem.u32(base));
+            assert_eq!(seen, 1);
+        }
+        assert_eq!(
+            IMAGE_BUFFERS_BUILT.with(Cell::get),
+            before,
+            "the copy was reused"
+        );
+        image(&mut e, at, 0, 16, |e, first| {
+            image(e, at, 8, 24, |e, second| {
+                assert_ne!(first, second);
+                assert_eq!(e.mem.u32(first), 1);
+                assert_eq!(e.mem.u32(second + 8), 3);
+            });
+        });
+        assert_eq!(
+            IMAGE_BUFFERS_BUILT.with(Cell::get),
+            before + 1,
+            "a nested image takes its own copy"
+        );
+        // More finished images than the pool holds must not make it grow: the pool is capped at
+        // eight, and an image nested deeper than that takes a fresh vector.
+        for _ in 0..16 {
+            image(&mut e, at, 0, 16, |_, _| ());
+        }
+        assert_eq!(
+            IMAGE_BUFFERS_BUILT.with(Cell::get),
+            before + 1,
+            "the extra images reused the pool"
+        );
+        assert!(
+            IMAGE_SCRATCH.with(|p| p.borrow().len()) <= 8,
+            "the pool is capped"
+        );
+        end(&mut e);
+        set_thread_mode(None);
     }
 
     /// nv-rs#789: an engine dropped with its packet handed over, then a new engine (whose kernel the allocator may put
@@ -2030,6 +2152,13 @@ mod tests {
             );
             assert!(owns(&e, at, 8) && !owns(&e, at + 4, 8));
             assert_eq!(own_bytes(&e, at, 4), vec![0x55, 0, 0, 0]);
+            let mut into = [0u8; 4];
+            own_bytes_into(&e, at, &mut into);
+            assert_eq!(
+                into,
+                [0x55, 0, 0, 0],
+                "a caller's buffer gets the same bytes"
+            );
             // A helper writing through a pointer to the own state writes the view.
             own_image(&mut e, at + 4, 4, |e, p| e.mem.set_u32(p, 0x1234_5678));
             assert_eq!(own_word(&e, at, 4), 0x1234_5678);
