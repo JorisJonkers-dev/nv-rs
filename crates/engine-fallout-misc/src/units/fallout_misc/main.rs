@@ -2762,7 +2762,7 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
     fn_0086f260(e, this);
     main_on_idle_poll_controls(e, this);
     let input = e.global::<u32>(0x0120_2d98);
-    e.call(0x00c3_dbf0, &args![input]);
+    engine_core::loader_jobs::update_queue(e, input);
     if fn_0086efa0(e) == 0 {
         if e.call(0x0070_edf0, &args![]).u8() != 0 {
             e.call(0x0078_cfc0, &args![]);
@@ -2836,8 +2836,8 @@ pub fn fn_0086e650(e: &mut Engine, this: Ptr) {
     if fn_0086ef60(e) != 0 {
         e.call(0x00a6_1cd0, &args![]);
     }
-    e.call(0x0086_8850, &args![]);
-    e.call(0x0086_8d10, &args![]);
+    engine_core::loader_jobs::garbage_collector_update(e);
+    engine_core::loader_jobs::garbage_collector_clear_temp_effects(e);
     let paused = byte_flag(e, IN_MENU_FLAG) || main_flag(e, this, MAIN_FREEZE_TIME);
     let scene_data = e.call(SCENE_DATA_GETTER, &args![]).u32();
     e.call(0x0066_52e0, &args![scene_data, paused as u32]);
