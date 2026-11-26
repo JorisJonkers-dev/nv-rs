@@ -169,7 +169,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-          # Only this workflow's artifacts (cov-plan, cov-<component>), not the comment's or the build's of the same run.
+          # Only cov-plan and cov-<component>; the comment artifact is uploaded by the report job and downloaded by name.
           pattern: 'cov-*'
       - name: Render the comment
         env:
@@ -204,7 +204,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-          # Only this workflow's artifacts (cov-plan, cov-<component>), not the comment's or the build's of the same run.
+          # Only cov-plan and cov-<component>; the comment artifact is uploaded by the report job and downloaded by name.
           pattern: 'cov-*'
       - name: Gate the fork-owned crates
         env:

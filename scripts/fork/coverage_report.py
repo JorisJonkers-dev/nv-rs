@@ -146,8 +146,12 @@ def spans(lines):
     return ",".join(str(a) if a == b else f"{a}-{b}" for a, b in out)
 
 
-def load_plan(path, directory):
-    """The plan artifact, wherever the download put it; an absent or unreadable plan means nothing to measure."""
+def load_plan(path, directory, required=False):
+    """The plan artifact, wherever the download put it; an absent or unreadable plan means nothing to measure.
+
+    The gate passes `required=True`: a plan that cannot be read is an error there, not an empty plan that would
+    let the gate pass silently (docs/fork/COVERAGE.md).
+    """
     for candidate in (path, os.path.join(directory, "plan.json")):
         try:
             with open(candidate, encoding="utf-8") as fh:
@@ -156,6 +160,8 @@ def load_plan(path, directory):
             return doc
         except (OSError, ValueError, AttributeError):
             continue
+    if required:
+        raise FileNotFoundError(f"no readable plan artifact at {path} or {os.path.join(directory, 'plan.json')}")
     return {"include": [], "reason": "no plan was recorded for this run, so nothing was measured"}
 
 
@@ -282,7 +288,10 @@ def merge_dir(directory, plan_doc, ranges):
 
 
 def gate(args):
-    plan_doc = load_plan(args.plan, args.dir)
+    try:
+        plan_doc = load_plan(args.plan, args.dir, required=True)
+    except FileNotFoundError as exc:
+        sys.exit(f"coverage-gate: {exc}")
     ranges = changed_ranges(args.base, args.head)
     _, merged_pr, _, _, baselines = merge_dir(args.dir, plan_doc, ranges)
     cfg, crates = load_gate_config(), fork_owned_crates()
