@@ -1,0 +1,8 @@
+# Evidence that cannot be read from a source marker, one row per function.
+# Empty until a comparison, a move or a rejection is recorded: the ledger never
+# claims a peer or a state it has no evidence for.
+# address: the exe entry point; backend: 1 when a Diff case passed against the backend peer;
+# failure_class: one of real, float-only, uninitialised read, hang, fault (empty when accepted);
+# family_moved / translation_deleted: 0 or 1;
+# by_address_callers: number of callers that still reach the function by address.
+address	backend	failure_class	family_moved	translation_deleted	by_address_callers

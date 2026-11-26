@@ -138,6 +138,13 @@ jobs:
       - name: Script self-tests
         if: ${{ !cancelled() }}
         run: mise exec -- task scripts
+      # The component census table is generated, not edited by hand: fail a pull request whose
+      # committed report is stale or missing (issue #943, task component-census).
+      - name: Component census
+        if: ${{ !cancelled() }}
+        run: |
+          rustup toolchain install
+          cargo run --locked --quiet --manifest-path research/component-census/Cargo.toml -- --check
       - name: Secrets
         if: ${{ !cancelled() }}
         run: mise exec -- task secrets

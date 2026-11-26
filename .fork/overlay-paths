@@ -120,6 +120,8 @@ crates/engine-core/src/extend/stewie/
 crates/engine/tests/save_changes_map.rs
 crates/engine/tests/stewie_fixes.rs
 crates/engine/tests/stewie_fixes/
+# The reference-peer controls of the differential harness (JorisJonkers-dev/nv-rs#924).
+crates/engine/tests/diff_reference_peer.rs
 crates/fos/
 crates/host/src/thread_races.rs
 crates/host/tests/support/
@@ -130,6 +132,7 @@ crates/mcm/
 crates/stewie/
 docs/
 research/families/
+research/component-census/
 research/ghidra/
 research/initgen/
 research/nv-oracle/

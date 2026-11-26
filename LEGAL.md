@@ -51,7 +51,9 @@ required.
 Since 2026-11-02 the project may also use
 [fnv_decomp](https://github.com/momusdigital/fnv_decomp), the fnvdecomp
 community's C++ reconstruction of the same program
-([ADR-0009](docs/adr/0009-fnv-decomp.md)). Its repository grants no licence.
+([ADR-0009](docs/adr/0009-fnv-decomp.md)). At the 2026-11-02 decision its repository
+granted no licence; since 2026-11-19 its own `LICENSE` has dedicated its contributors'
+own work under CC0 1.0 Universal.
 Only its contributors' own work is used, not its `third_party/` folder (zlib,
 under its own licence), and nothing from it gives rights in the game or in the
 libraries linked into it. Rust

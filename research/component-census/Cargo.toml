@@ -1,0 +1,10 @@
+[package]
+name = "component-census"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Generated table of component owners and cross-component typed field accesses (nv-rs#943)"
+
+# Standalone research tool, not part of the root workspace. No dependencies.
+[workspace]
