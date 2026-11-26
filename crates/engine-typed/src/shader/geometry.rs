@@ -695,7 +695,8 @@ pub fn obj_to_cube(
         let product = frame + 0x80;
         if direct {
             let renderer = e.global::<u32>(this.addr() + 0x18); // own: main's object read in place (value packet B, piece 4)
-            let bytes = capture::own_bytes(e, renderer + 0x940, 0x40); // the renderer's matrix (its own state) into a local
+            let mut bytes = [0u8; 0x40];
+            capture::own_bytes_into(e, renderer + 0x940, &mut bytes); // the renderer's matrix (its own state) into a local
             e.mem.write(product, &bytes); // own: a local
             capture::own_image(e, OBJECT_TO_CUBE, 0x40, |e, at| {
                 crate::draw::thunks::call_matrix_transpose(e, at, product);
@@ -727,7 +728,8 @@ pub fn obj_to_cube(
         capture::image(e, light, 0x10, 0x50, |e, base| {
             crate::draw::thunks::call_matrix_multiply(e, product, first, base + 0x10);
         });
-        let bytes = e.mem.bytes(product, 0x40); // own: a local
+        let mut bytes = [0u8; 0x40];
+        e.mem.read(product, &mut bytes); // own: a local
         e.mem.write(second, &bytes); // own: a local
         crate::draw::thunks::call_matrix_transpose(e, second, second);
         capture::own_image(e, OBJECT_TO_CUBE, 0x40, |e, at| {
@@ -790,7 +792,8 @@ pub fn simple_shadow_clip_planes(e: &mut Engine, this: Ptr, pass_type: u32) {
         let planes = frame + 0xc0;
         let plane = frame + 0x120;
         let moved = frame + 0x130;
-        let bytes = capture::own_bytes(e, renderer + 0x980, 0x40); // the renderer's matrix (its own state) into a local
+        let mut bytes = [0u8; 0x40];
+        capture::own_bytes_into(e, renderer + 0x980, &mut bytes); // the renderer's matrix (its own state) into a local
         e.mem.write(view, &bytes); // own: a local
         let m = |e: &Engine, index: u32| float_at(e, view + 4 * index);
         let x = capture::own_at::<f32>(e, CAMERA); // the camera eye: own state
@@ -805,7 +808,8 @@ pub fn simple_shadow_clip_planes(e: &mut Engine, this: Ptr, pass_type: u32) {
         let third = y * m(e, 6) + x * m(e, 2);
         let third = third + z * m(e, 10);
         capture::set_own_at::<f32>(e, view + 0x38, -third);
-        let bytes = capture::own_bytes(e, renderer + 0x9c0, 0x40); // the renderer's matrix (its own state) into a local
+        let mut bytes = [0u8; 0x40];
+        capture::own_bytes_into(e, renderer + 0x9c0, &mut bytes); // the renderer's matrix (its own state) into a local
         e.mem.write(moved, &bytes); // own: a local
         crate::draw::thunks::call_matrix_multiply(e, product, view, moved);
         crate::draw::thunks::call_matrix_inverse(e, inverse, 0u32, product);

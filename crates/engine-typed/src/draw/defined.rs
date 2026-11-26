@@ -57,7 +57,8 @@ fn copy_float(e: &Engine, at: u32) -> u32 {
 fn copy_renderer_matrix(e: &mut Engine, renderer: u32, offset: u32, to: u32) {
     let from = renderer.wrapping_add(offset);
     if capture::active() {
-        let bytes = capture::own_bytes(e, from, MATRIX_BYTES);
+        let mut bytes = [0u8; MATRIX_BYTES as usize];
+        capture::own_bytes_into(e, from, &mut bytes);
         e.mem.write(to, &bytes);
     } else {
         let mut bytes = [0u8; 0x40];

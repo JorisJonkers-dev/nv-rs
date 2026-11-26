@@ -1,0 +1,7 @@
+### Reused constant set buffers
+- Files: `crates/d3d9-wgpu/src/device.rs` (`set_float_registers`, `set_int_registers`, `set_bool_registers`, `set_constants`), `crates/engine-typed/src/draw/capture.rs` (`image_bytes`, `image_bytes_back`, `image`, `image_copy`, `own_bytes_into`), `crates/engine-typed/src/shader/constants.rs` (the attribute entries' call), `crates/engine-typed/src/draw/defined.rs` (`copy_renderer_matrix`), `crates/engine-typed/src/shader/geometry.rs` (`obj_to_cube`, `simple_shadow_clip_planes`)
+- Upstream approach: every constant set copies the whole range into the register file and makes the stage's block due; a constant attribute's thirteen-word call moves its words to the heap, each packet image takes a fresh byte vector, and matrix copies take a fresh vector; checked at the base
+- Fork approach: registers are compared before they are copied and a block is written only when one changed, the attribute words and matrix copies stay on the stack, and finished image copies are kept in a thread-local pool for the next call
+- Decision: keep; offer upstream
+- Reason: the draw path sets constants thousands of times a frame, and none of that work changes what is drawn when the values are the same (nv-rs#934)
+- Evidence: `a_float_constant_set_copies_only_the_registers_that_changed`, `an_integer_or_boolean_constant_set_copies_only_the_words_that_changed`, `images_reuse_their_scratch_copy`, the shader family's `Diff::new` case `set_shader_constants`

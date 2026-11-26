@@ -6248,6 +6248,11 @@ thread_local! {
     static DIRECT_WORLD: Cell<Option<&'static World>> = const { Cell::new(None) };
     /// The calls this thread made directly (tests).
     static DIRECT_CALLS: Cell<u64> = const { Cell::new(0) };
+    /// The device-lock probes a direct call made before the geometry hold was taken (tests).
+    static DIRECT_PROBES: Cell<u64> = const { Cell::new(0) };
+    /// How many geometries' device calls this thread has inside a half (0 outside one). The
+    /// world draw's own hold outlives each of them.
+    static GEOMETRY_HALF: Cell<u32> = const { Cell::new(0) };
 }
 
 /// `NV_DRAW_DIRECT`: on unless `0`.
@@ -6269,6 +6274,19 @@ pub fn force_direct_for_tests() {
 #[doc(hidden)]
 pub fn direct_calls() -> u64 {
     DIRECT_CALLS.with(Cell::get)
+}
+
+/// How many times a direct call has probed the half's device lock (tests). A draw that keeps the
+/// half for a whole geometry probes once, however many device calls it makes.
+#[doc(hidden)]
+pub fn direct_probes() -> u64 {
+    DIRECT_PROBES.with(Cell::get)
+}
+
+/// Whether this thread is inside a geometry's device calls (tests).
+#[doc(hidden)]
+pub fn geometry_half_open() -> bool {
+    GEOMETRY_HALF.with(Cell::get) != 0
 }
 
 /// Whether this thread has direct calls on and holds the device lock for them (tests).
@@ -6321,6 +6339,37 @@ impl Drop for DirectHalf {
     }
 }
 
+/// One geometry's device calls, inside the world draw's half. The half's hold of the device lock is
+/// kept for the whole geometry: the calls in between do not probe it or take the hold up again. With
+/// stepped threads, or outside a half, nothing changes and each call takes the lock as it did.
+pub struct DeviceHalf(bool);
+
+impl DeviceHalf {
+    /// Marks the device calls that follow as one geometry's. Nests: a geometry drawn inside another
+    /// (a reflection, a first-person pass) leaves the outer one's hold in place.
+    pub fn begin(e: &Engine) -> DeviceHalf {
+        let Some(r) = e.real.as_ref() else {
+            return DeviceHalf(false);
+        };
+        if DIRECT.with(Cell::get) == 0 {
+            return DeviceHalf(false);
+        }
+        // The hold the calls of this geometry share is taken here, at the first of them. From now
+        // until the guard drops, `device_call_lock` only takes the call's own re-entrant hold.
+        direct_hold(e, r.world);
+        GEOMETRY_HALF.with(|g| g.set(g.get() + 1));
+        DeviceHalf(true)
+    }
+}
+
+impl Drop for DeviceHalf {
+    fn drop(&mut self) {
+        if self.0 {
+            GEOMETRY_HALF.with(|g| g.set(g.get() - 1));
+        }
+    }
+}
+
 /// The direct calls' hold given back (this thread is about to wait, or gives the kernel lock up
 /// for pure work): only when it is the only hold of the device lock on this thread. Every device
 /// call takes the lock again on top of the hold ([`device_call_lock`]), so depth 1 means no device
@@ -6341,7 +6390,8 @@ fn release_direct(w: &World) {
 /// it), so a nested call never finds depth 1 inside a device function.
 #[inline]
 fn device_call_lock(e: &Engine, world: &'static World) -> DeviceGuard {
-    if DIRECT.with(Cell::get) != 0 {
+    if GEOMETRY_HALF.with(Cell::get) == 0 && DIRECT.with(Cell::get) != 0 {
+        DIRECT_PROBES.with(|p| p.set(p.get() + 1));
         direct_hold(e, world);
     }
     if !world.device.held_here() {
