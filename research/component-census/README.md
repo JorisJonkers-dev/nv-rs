@@ -8,22 +8,38 @@ memory. The table is written by the command, never by hand.
 
 - `components.tsv`: the declarations. One row per component, with its owner thread, its owning
   region, the path prefixes whose code the component owns and the type prefixes whose fields it
-  owns. Paths are matched by longest prefix, types by first prefix; a mixed crate can therefore be
-  split by unit folder. The `source` column names the document behind each declaration.
+  owns. Paths are matched by longest prefix, so a mixed crate can be split by unit folder or by
+  naming its files in a longer rule. Types are matched by **first prefix in file order**, so a
+  specific prefix must appear before a broad one; reordering the rows changes ownership and the
+  report. The `source` column names the document behind each declaration. The `thread` column is
+  the *owner's* thread: a row whose reader runs on another thread is the cross-component access
+  the table exists to find. In stepped mode the owner's work runs on main ([ADR-0015](../../docs/adr/0015-hand-typing-to-the-end-with-real-threads.md)).
+- `# ownerless:` in `components.tsv`: type prefixes no component owns — the shared layouts in
+  `engine-core`'s `types` module and the platform's own threads and requests. Their accesses are
+  skipped rather than attributed to a broad `Ni`/`BS` prefix.
 - `crates/`: the Rust sources. The command counts typed field accesses of the form
   `Type::m_field`, for example `e.get(node, NiNode::m_usSize)` and
-  `e.set(node, NiNode::m_usSize)`. A `set` call is a write; every other access is a read. Accesses
-  within one component, and accesses to types with no declared owner, are not cross-component and
-  are reported as skipped.
+  `e.set(node, NiNode::m_usSize, 4)`. An access in the field slot of `set` is a write; the same
+  token passed as a value argument is a read. Accesses within one component, and accesses to types
+  with no declared owner, are not cross-component and are reported as skipped, with a per-reader
+  count. Comments, string and character literals are not code and are never counted.
 
 Only typed field accesses are counted. They are source sites, not runtime frequencies: the count
 is how many places in the source touch the field, including the test code beside a translation in
-the same file. The runtime touch census (`NV_TOUCH`, `docs/ENGINE_CRATE.md`) is a separate, private
-measurement of accesses while the game runs.
+the same file. Fields without the `m_` prefix and other access spellings are outside this census.
+The runtime touch census (`NV_TOUCH`, `docs/ENGINE_CRATE.md`) is a separate, private measurement of
+accesses while the game runs.
 
 ## Run
 
-From the repository root, through the shared build queue:
+From the repository root:
+
+```sh
+cargo run --manifest-path research/component-census/Cargo.toml
+```
+
+Through the shared build queue on a busy maintainer machine, the same command wrapped in the
+queue's lock and memory cap:
 
 ```sh
 flock ~/.cache/nv-workers/cargo.lock ~/.local/bin/capped 10G \
@@ -33,9 +49,12 @@ flock ~/.cache/nv-workers/cargo.lock ~/.local/bin/capped 10G \
 
 The command writes `docs/fork/COMPONENT-CENSUS.md`. `--out <file>` writes elsewhere and
 `--root <dir>` scans another tree; both are for tests. `--check` writes nothing and fails when the
-report in the tree differs from the generated one. The command's output is the test seam: the
-tests in `src/main.rs` and `tests/cli.rs` build their own declarations and sources from scratch,
-and assert the generated rows, counts, example functions and `--check` result.
+report in the tree differs from the generated one; a missing report fails too, with a message that
+says it is missing. The command's output is the test seam: the tests in `src/main.rs` and
+`tests/cli.rs` build their own declarations and sources from scratch, and assert the generated
+rows, counts, example functions, skip counts and `--check` result. The fork's `task component-census`
+checks the report and `task check` includes it; `fork-ci.yml`'s "Repository checks" job runs
+`--check` on every pull request so the committed table cannot go stale.
 
 The tool is a standalone crate with no dependencies, in the pattern of `scripts/ledger` and
 `research/families`. Its path is fork-owned (`.fork/overlay-paths`).

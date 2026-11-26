@@ -115,3 +115,46 @@ fn the_command_writes_a_generated_table_and_checks_it() {
         "{stale:?}"
     );
 }
+
+#[test]
+fn the_command_skips_comments_and_reads_multiline_signatures() {
+    let dir = TempDir::new();
+    dir.write(
+        "components.tsv",
+        "component\tlabel\tthread\tregion\tcrates\ttypes\tsource\n\
+         scene\tGamebryo scene graph\tmain\tguest/scene\tengine-gamebryo\tNi\tdocs/adr/0010\n\
+         interface\tInterface\tmain\tguest/interface\tengine-fallout-interface\tMenu\tdocs/fork/CI.md\n",
+    );
+    dir.write(
+        "crates/engine-fallout-interface/src/typed.rs",
+        "/* NiNode::m_usSize */\n\
+         pub fn\n\
+             reader(\n\
+                 x: u32,\n\
+             ) {\n\
+                 // NiNode::m_usSize\n\
+                 let s = \"NiNode::m_usSize\";\n\
+                 let _ = e.get(node, NiNode::m_usSize);\n\
+             }\n",
+    );
+    let root = dir.path().to_str().unwrap();
+    let declarations = dir
+        .path()
+        .join("components.tsv")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let out = dir.path().join("census.md").to_str().unwrap().to_string();
+
+    let generated = census(&["--root", root, "--components", &declarations, "--out", &out]);
+    assert!(generated.status.success(), "{generated:?}");
+    let table = fs::read_to_string(&out).unwrap();
+    assert!(
+        table.contains("| interface | scene | NiNode::m_usSize | 1 | 0 |"),
+        "{table}"
+    );
+    assert!(
+        table.contains("`reader` at crates/engine-fallout-interface/src/typed.rs:8"),
+        "{table}"
+    );
+}

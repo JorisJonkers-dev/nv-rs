@@ -1,10 +1,16 @@
 # component	label	thread	region	crates	types	source
 # One row per component. `crates` holds path prefixes under crates/ (the longest match owns the
-# reader); `types` holds prefixes of the typed field's class (the first match owns the field).
-audio	Audio	audio thread	guest/audio	ds-mix|engine-fallout-misc|engine-bs/src/units/bsaudio/	BSAudio|BSThread|FamThread|IoRequest	docs/adr/0015; docs/fork/CI.md
+# reader); `types` holds prefixes of the typed field's class (the first match in file order owns
+# the field, so put a specific prefix before a broad one). A mixed crate is split by giving its unit
+# files their own, longer rule.
+# `# ownerless:` names type prefixes no component owns: the shared layouts in engine-core's `types`
+# module and the platform's own threads and requests. Their accesses are skipped, not attributed to
+# a broad `Ni`/`BS` prefix.
+# ownerless: NiRefObject|NiTArray|BSSimpleArray|BSSimpleList|BSStringT|NiFixedString|NiTPointerList|NiTListItem|NiTPointerMap|NiTMap|BSThread|IoRequest
+audio	Audio	audio thread	guest/audio	ds-mix|engine-fallout-misc|engine-bs/src/units/bsaudio/	BSAudio|FamThread	docs/adr/0015; docs/fork/CI.md
 renderer	Renderer	render thread	guest/renderer	d3d9-wgpu|d3d9-stream|d3dx-shader|engine-typed|engine-bs/src/units/bsshader/	BSShader|NiDX9|NiD3D|NiRenderer|NiRenderTargetGroup|NiAlphaAccumulator|NiAccumulator|ShadowSceneNode|RendererData|TextureStage|ExtraSpecialRenderFlags|TextureTransform|VertexDistMapItem|NiDitherProperty|NiProperty	docs/adr/0007; docs/fork/REPLAY.md
 interface	Interface	main	guest/interface	engine-fallout-interface|engine-fallout-script|engine-bs/src/units/bsmenu/	ScriptRunner|ScriptRunManager|Menu|ContainerMenu|ListBoxLayout	docs/fork/CI.md
-ai	AI	main (task threads)	guest/ai	engine-fallout-ai|engine-fallout-pathfinding	HighProcess|LowProcess|PlayerCharacter|CharacterContext|CharacterInput|CharacterProxy|BipedAnim|Animation|FollowerBarkEntry	docs/adr/0015; issue #916
+ai	AI	per-actor AI threads (main in stepped mode)	guest/ai	engine-fallout-ai|engine-fallout-pathfinding|engine-fallout-cell/src/units/fallout_shared/animation.rs|engine-fallout-cell/src/units/fallout_shared/bipedanim.rs	HighProcess|LowProcess|PlayerCharacter|CharacterContext|CharacterInput|CharacterProxy|BipedAnim|Animation|FollowerBarkEntry	docs/adr/0015; issue #916
 forms	Forms	main	guest/forms	engine-fallout-forms|engine-fallout-cell|engine-fallout-env|engine-fallout-facegen	TES|BGS|ScriptLocals|SCRIPT_HEADER|LOADED_REF_DATA|BaseExtraList|LoadedReferenceMap|GameSettingCollection|ChangesMap|Save	docs/ENGINE_CRATE.md; docs/adr/0010
-havok	Havok	havok thread (16 ms step)	guest/havok	engine-havok	Hk|Hkp|Bhk|Ahkp|hkp|HavokError	docs/adr/0014; docs/adr/0015
+havok	Havok	Havok threads (16 ms step; main in stepped mode)	guest/havok	engine-havok	Hk|Hkp|Bhk|Ahkp|hkp|HavokError	docs/adr/0014; docs/adr/0015
 scene	Gamebryo scene graph	main	guest/scene	engine-gamebryo|engine-speedtree|engine-bs	Ni|BS|C|SpeedTree|SIdv|CLeaf|CFrond|CBillboard|CVec|GeometryData|TriStripsShape|SLodGeometry|STreeInstanceData	docs/adr/0010; docs/fork/CI.md

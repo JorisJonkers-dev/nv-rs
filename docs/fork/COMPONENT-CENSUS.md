@@ -7,19 +7,22 @@ cargo run --manifest-path research/component-census/Cargo.toml
 ```
 
 The declarations in `research/component-census/components.tsv` say which thread and which
-region each component owns. The access rows count typed field-access sites in `crates/`,
-grouped by the component whose code reads or writes the field and the component that owns
-it. Counts include the field accesses in test code beside the translation in the same file.
-Runtime access counts from `NV_TOUCH` are a separate, private measurement.
+region each component owns. The thread column names the owner's thread; a row whose reader
+runs on another thread is exactly the cross-component access this table exists to find.
+The access rows count typed field-access sites in `crates/`, grouped by the component whose
+code reads or writes the field and the component that owns it. Only `Type::m_field` sites
+are counted: fields without the `m_` prefix, and mentions in comments or literals, are not
+accesses. Counts include the field accesses in test code beside the translation in the same
+file. Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 
 ## Components
 
 | Component | Owner thread | Region | Source |
 | --- | --- | --- | --- |
-| AI | main (task threads) | guest/ai | docs/adr/0015; issue #916 |
+| AI | per-actor AI threads (main in stepped mode) | guest/ai | docs/adr/0015; issue #916 |
 | Audio | audio thread | guest/audio | docs/adr/0015; docs/fork/CI.md |
 | Forms | main | guest/forms | docs/ENGINE_CRATE.md; docs/adr/0010 |
-| Havok | havok thread (16 ms step) | guest/havok | docs/adr/0014; docs/adr/0015 |
+| Havok | Havok threads (16 ms step; main in stepped mode) | guest/havok | docs/adr/0014; docs/adr/0015 |
 | Interface | main | guest/interface | docs/fork/CI.md |
 | Renderer | render thread | guest/renderer | docs/adr/0007; docs/fork/REPLAY.md |
 | Gamebryo scene graph | main | guest/scene | docs/adr/0010; docs/fork/CI.md |
@@ -28,45 +31,18 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 
 | Reader | Owner | Field | Reads | Writes | Example functions |
 | --- | --- | --- | ---: | ---: | --- |
-| ai | scene | BSPlayerDistanceCheckController::m_pkTarget | 6 | 0 | `bs_player_distance_check_controller_update` at crates/engine-fallout-ai/src/units/fallout_ai/bsplayerdistancecheckcontroller.rs:132; `bs_player_distance_check_controller_target_is_required_type` at crates/engine-fallout-ai/src/units/fallout_ai/bsplayerdistancecheckcontroller.rs:162 |
-| ai | scene | BSSimpleList::m_pkNext | 8 | 1 | `bs_simple_list_obstacle_data_remove` at crates/engine-fallout-pathfinding/src/units/fallout_shared_pathfinding/navmeshobstaclemanager.rs:1015; `fn_006c6400` at crates/engine-fallout-pathfinding/src/units/fallout_shared_pathfinding/navmeshobstaclemanager.rs:4770 |
-| ai | scene | NiTArray::m_pBase | 5 | 5 | `fn_00993cf0` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:119; `fn_00993880` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:152 |
-| ai | scene | NiTArray::m_usESize | 8 | 7 | `fn_00993cf0` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:112; `fn_009938b0` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:143 |
-| ai | scene | NiTArray::m_usGrowBy | 1 | 1 | `fn_00993cf0` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:110; `array_constructors_set_counts_and_allocate_only_when_sized` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:1726 |
-| ai | scene | NiTArray::m_usMaxSize | 2 | 1 | `fn_00993cf0` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:109; `array_constructors_set_counts_and_allocate_only_when_sized` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:1725 |
-| ai | scene | NiTArray::m_usSize | 8 | 5 | `fn_00993cf0` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:111; `fn_009938d0` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:837 |
-| ai | scene | NiTMap::m_ppkHashTable | 10 | 6 | `fn_009a5d80` at crates/engine-fallout-ai/src/units/fallout_ai/combatthreatmap.rs:1250; `fn_009a5e50` at crates/engine-fallout-ai/src/units/fallout_ai/combatthreatmap.rs:1273 |
-| ai | scene | NiTMap::m_uiCount | 2 | 6 | `fn_009a5d80` at crates/engine-fallout-ai/src/units/fallout_ai/combatthreatmap.rs:1247; `construct_map_base` at crates/engine-fallout-ai/src/units/fallout_ai/run_008443f0.rs:87 |
-| ai | scene | NiTMap::m_uiHashSize | 9 | 5 | `fn_009a5d80` at crates/engine-fallout-ai/src/units/fallout_ai/combatthreatmap.rs:1246; `construct_map_base` at crates/engine-fallout-ai/src/units/fallout_ai/run_008443f0.rs:86 |
-| ai | scene | NiTMapItem::m_key | 2 | 2 | `ni_tmap_base_set_value` at crates/engine-fallout-ai/src/units/fallout_ai/playercharacter.rs:551; `ni_tmap_base_set_value_stores_the_key_and_value_in_the_item` at crates/engine-fallout-ai/src/units/fallout_ai/playercharacter.rs:12347 |
-| ai | scene | NiTMapItem::m_pkNext | 2 | 0 | `ni_tmap_base_set_value_stores_the_key_and_value_in_the_item` at crates/engine-fallout-ai/src/units/fallout_ai/playercharacter.rs:12349; `ni_tmap_base_reference_obstacle_array_get_next` at crates/engine-fallout-pathfinding/src/units/fallout_shared_pathfinding/navmeshobstaclemanager.rs:977 |
-| ai | scene | NiTMapItem::m_val | 4 | 1 | `ni_tmap_base_set_value` at crates/engine-fallout-ai/src/units/fallout_ai/playercharacter.rs:552; `ni_tmap_base_set_value_stores_the_key_and_value_in_the_item` at crates/engine-fallout-ai/src/units/fallout_ai/playercharacter.rs:12348 |
-| ai | scene | NiTPointerMap::m_ppkHashTable | 16 | 3 | `ni_t_map_base_actor_int64_set_at` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:670; `fn_00993a00` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:701 |
-| ai | scene | NiTPointerMap::m_uiCount | 7 | 4 | `ni_t_map_base_actor_int64_set_at` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:690; `fn_006918c0` at crates/engine-fallout-pathfinding/src/units/fallout_shared_pathfinding/navmesh.rs:2199 |
-| ai | scene | NiTPointerMap::m_uiHashSize | 6 | 4 | `ni_t_map_base_actor_int64_get_next` at crates/engine-fallout-ai/src/units/fallout_ai/combatmanager.rs:744; `ni_t_map_base_key_to_hash_index` at crates/engine-fallout-pathfinding/src/units/fallout_shared_pathfinding/navmesh.rs:534 |
-| audio | scene | BSSimpleList::m_item | 0 | 1 | `fn_00ae83e0` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:4420 |
-| audio | scene | BSSimpleList::m_pkNext | 1 | 1 | `fn_00ae83e0` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:4410 |
-| audio | scene | NiRefObject::m_uiRefCount | 1 | 0 | `fn_00ae9290` at crates/engine-bs/src/units/bsaudio/run_00ae91f0.rs:62 |
-| audio | scene | NiTArray::m_pBase | 8 | 4 | `ni_t_array_ni_pointer_bs_temp_effect_remove_all` at crates/engine-fallout-misc/src/units/fallout_misc/garbagecollector.rs:232; `fn_008691d0` at crates/engine-fallout-misc/src/units/fallout_misc/garbagecollector.rs:837 |
-| audio | scene | NiTArray::m_usESize | 7 | 11 | `ni_t_array_ni_pointer_bs_temp_effect_remove_all` at crates/engine-fallout-misc/src/units/fallout_misc/garbagecollector.rs:242; `fn_008691d0` at crates/engine-fallout-misc/src/units/fallout_misc/garbagecollector.rs:843 |
-| audio | scene | NiTArray::m_usGrowBy | 3 | 1 | `fn_00877e10` at crates/engine-fallout-misc/src/units/fallout_misc/main_p2.rs:4840; `fn_00869640` at crates/engine-fallout-misc/src/units/fallout_misc/run_00869600.rs:174 |
-| audio | scene | NiTArray::m_usMaxSize | 8 | 2 | `fn_00877e10` at crates/engine-fallout-misc/src/units/fallout_misc/main_p2.rs:4838; `fn_00869640` at crates/engine-fallout-misc/src/units/fallout_misc/run_00869600.rs:172 |
-| audio | scene | NiTArray::m_usSize | 12 | 7 | `ni_t_array_ni_pointer_bs_temp_effect_remove_all` at crates/engine-fallout-misc/src/units/fallout_misc/garbagecollector.rs:230; `fn_008691d0` at crates/engine-fallout-misc/src/units/fallout_misc/garbagecollector.rs:832 |
-| audio | scene | NiTPointerList::m_pkHead | 3 | 3 | `fn_00ad90e0` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:940; `fn_00ae8370` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:4391 |
-| audio | scene | NiTPointerList::m_pkTail | 2 | 3 | `fn_00ad90e0` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:945; `fn_00ae8370` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:4400 |
-| audio | scene | NiTPointerList::m_uiCount | 2 | 3 | `fn_00ad90e0` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:935; `fn_00ae8370` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:4398 |
-| audio | scene | NiTPointerMap::m_ppkHashTable | 17 | 6 | `map_first_item` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:801; `map_constructor` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:4175 |
-| audio | scene | NiTPointerMap::m_uiCount | 8 | 9 | `bs_audio_manager_synch_voice_states` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:1331; `map_constructor` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:4172 |
-| audio | scene | NiTPointerMap::m_uiHashSize | 9 | 7 | `map_first_item` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:800; `map_constructor` at crates/engine-bs/src/units/bsaudio/bsaudiomanager.rs:4171 |
-| forms | ai | Animation::m_fAttackSpeed | 3 | 1 | `animation_animation` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1612; `animation_update` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2872 |
-| forms | ai | Animation::m_fEquipModifier | 2 | 1 | `animation_animation` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1615; `animation_update` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2870 |
-| forms | ai | Animation::m_fGlobalTimeMultiplier | 4 | 3 | `animation_animation` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1613; `animation_update` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2741 |
-| forms | ai | Animation::m_fLooking | 1 | 1 | `animation_animation` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1585; `animation_constructor_sets_every_member` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:9778 |
-| forms | ai | Animation::m_fMoveSpeed | 4 | 4 | `animation_animation` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1611; `scaled_group_movement` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2497 |
-| forms | ai | Animation::m_fReloadModifier | 2 | 1 | `animation_animation` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1614; `animation_update` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2874 |
-| forms | ai | Animation::m_uFlags | 5 | 2 | `fn_0048fb20` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1626; `animation_constructor_sets_every_member` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:9764 |
-| forms | ai | BipedAnim::m_pRequester | 14 | 21 | `biped_anim_biped_anim` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:864; `fn_004ab250` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1121 |
-| forms | havok | BhkRigidBodyCinfo::m_collisionFilterInfo | 2 | 0 | `tes_object_refr_init_havok_for_placeable_water` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectrefr_p3.rs:1487 |
+| ai | scene | BSPlayerDistanceCheckController::m_pkTarget | 2 | 4 | `bs_player_distance_check_controller_update` at crates/engine-fallout-ai/src/units/fallout_ai/bsplayerdistancecheckcontroller.rs:132; `bs_player_distance_check_controller_target_is_required_type` at crates/engine-fallout-ai/src/units/fallout_ai/bsplayerdistancecheckcontroller.rs:162 |
+| ai | scene | NiCloningProcess::m_cAppendChar | 1 | 1 | `fn_004ad0c0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1988; `a_cloning_process_builds_its_two_maps` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5904 |
+| ai | scene | NiCloningProcess::m_eCopyType | 1 | 1 | `fn_004ad0c0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1986; `a_cloning_process_builds_its_two_maps` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5903 |
+| ai | scene | NiCloningProcess::m_fScale_x | 1 | 1 | `fn_004ad240` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2023; `the_scaled_cloning_process_sets_the_scale_vector` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5927 |
+| ai | scene | NiCloningProcess::m_fScale_y | 2 | 1 | `fn_004ad240` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2022; `the_scaled_cloning_process_sets_the_scale_vector` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5928 |
+| ai | scene | NiCloningProcess::m_fScale_z | 1 | 1 | `fn_004ad240` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2021; `the_scaled_cloning_process_sets_the_scale_vector` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5929 |
+| ai | scene | NiCloningProcess::m_pkCloneMap | 3 | 3 | `fn_004ad0c0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1977; `fn_004ad1d0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2008 |
+| ai | scene | NiCloningProcess::m_pkProcessMap | 3 | 3 | `fn_004ad0c0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1984; `fn_004ad1d0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2012 |
+| ai | scene | NiControllerManager::m_bCumulative | 1 | 0 | `ni_controller_manager_get_accum_root` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2256 |
+| ai | scene | NiControllerManager::m_kActiveSequences | 1 | 0 | `ni_controller_manager_deactivate_all` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1763 |
+| ai | scene | NiControllerManager::m_kSequenceArray | 3 | 0 | `ni_controller_manager_get_accum_root` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2257; `fn_00495d00` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:4847 |
+| forms | havok | BhkRigidBodyCinfo::m_collisionFilterInfo | 0 | 2 | `tes_object_refr_init_havok_for_placeable_water` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectrefr_p3.rs:1487 |
 | forms | havok | BhkRigidBodyCinfo::m_shape | 0 | 2 | `tes_object_refr_init_havok_for_placeable_water` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectrefr_p3.rs:1455 |
 | forms | havok | HavokError::m_disabledAssertIds | 5 | 0 | `havok_error_havok_error` at crates/engine-fallout-env/src/units/fallout_shared_havok/havokstream.rs:409; `havok_error_set_enabled` at crates/engine-fallout-env/src/units/fallout_shared_havok/havokstream.rs:426 |
 | forms | havok | HavokError::m_disabledReports | 4 | 0 | `fn_00625b40` at crates/engine-fallout-env/src/units/fallout_shared_havok/havokstream.rs:657; `havok_error_is_report_enabled` at crates/engine-fallout-env/src/units/fallout_shared_havok/havokstream.rs:700 |
@@ -76,12 +52,12 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | forms | havok | HkpShapeRayCastCollectorOutput::m_hitFraction | 3 | 1 | `fn_004a3d60` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:185; `collector_output_scalars_start_at_one_and_minus_one` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:729 |
 | forms | havok | HkpShapeRayCastOutput::m_shapeKeyIndex | 2 | 3 | `fn_004a3d80` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:205; `shape_output_initializer_sets_key_and_index` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:760 |
 | forms | havok | HkpShapeRayCastOutput::m_shapeKey_0 | 3 | 1 | `fn_004a3d80` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:206; `shape_output_initializer_sets_key_and_index` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:763 |
-| forms | havok | HkpWorldRayCastInput::m_enableShapeCollectionFilter | 3 | 0 | `fn_004a3cc0` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:234; `world_input_constructor_builds_both_vectors_and_clears_the_filter` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:807 |
+| forms | havok | HkpWorldRayCastInput::m_enableShapeCollectionFilter | 2 | 1 | `fn_004a3cc0` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:234; `world_input_constructor_builds_both_vectors_and_clears_the_filter` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:807 |
 | forms | havok | HkpWorldRayCastInput::m_filterInfo | 1 | 3 | `fn_004a3cc0` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:238; `fn_004a3f70` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:333 |
 | forms | havok | HkpWorldRayCastInput::m_from | 1 | 0 | `fn_004a3cc0` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:232 |
 | forms | havok | HkpWorldRayCastInput::m_to | 2 | 0 | `fn_004a3cc0` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:233; `fn_004a3f40` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:309 |
-| forms | havok | HkpWorldRayCastOutput::m_rootCollidable | 2 | 1 | `fn_004a3d00` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:223; `world_output_constructor_clears_the_root_collidable` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:788 |
-| forms | renderer | ExtraSpecialRenderFlags::m_fNodeMaxFadeDistance | 4 | 0 | `extra_special_render_flags_compare` at crates/engine-fallout-cell/src/units/fallout_shared/extradataobjects_p3.rs:142; `extra_special_render_flags_copy` at crates/engine-fallout-cell/src/units/fallout_shared/extradataobjects_p3.rs:161 |
+| forms | havok | HkpWorldRayCastOutput::m_rootCollidable | 1 | 2 | `fn_004a3d00` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:223; `world_output_constructor_clears_the_root_collidable` at crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs:788 |
+| forms | renderer | ExtraSpecialRenderFlags::m_fNodeMaxFadeDistance | 3 | 1 | `extra_special_render_flags_compare` at crates/engine-fallout-cell/src/units/fallout_shared/extradataobjects_p3.rs:142; `extra_special_render_flags_copy` at crates/engine-fallout-cell/src/units/fallout_shared/extradataobjects_p3.rs:161 |
 | forms | renderer | VertexDistMapItem::m_key | 3 | 1 | `fn_004b9a20` at crates/engine-fallout-forms/src/units/fallout_shared/globalfunc.rs:3592; `fn_004b9b20` at crates/engine-fallout-forms/src/units/fallout_shared/globalfunc.rs:3627 |
 | forms | renderer | VertexDistMapItem::m_pkNext | 3 | 1 | `fn_004b9a20` at crates/engine-fallout-forms/src/units/fallout_shared/globalfunc.rs:3599; `fn_004b9b20` at crates/engine-fallout-forms/src/units/fallout_shared/globalfunc.rs:3639 |
 | forms | renderer | VertexDistMapItem::m_val_word_0 | 2 | 2 | `fn_004b9a20` at crates/engine-fallout-forms/src/units/fallout_shared/globalfunc.rs:3594; `fn_004b9b20` at crates/engine-fallout-forms/src/units/fallout_shared/globalfunc.rs:3630 |
@@ -93,41 +69,11 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | forms | scene | BSTreeManager::m_bForceFullLOD | 4 | 0 | `bs_tree_manager_bs_tree_manager` at crates/engine-fallout-env/src/units/unplaced/run_00664440.rs:128; `constructor_builds_the_properties_and_the_map` at crates/engine-fallout-env/src/units/unplaced/run_00664440.rs:420 |
 | forms | scene | CExpression::m_ExpressionError | 15 | 6 | `expression_construct` at crates/engine-fallout-forms/src/units/fallout_shared/expression.rs:21; `expression_set_error` at crates/engine-fallout-forms/src/units/fallout_shared/expression.rs:143 |
 | forms | scene | NiAVObject::m_kWorldBound | 1 | 0 | `fn_004b2960` at crates/engine-fallout-forms/src/units/fallout_shared/globalfunc.rs:1048 |
-| forms | scene | NiCloningProcess::m_cAppendChar | 1 | 1 | `fn_004ad0c0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1988; `a_cloning_process_builds_its_two_maps` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5904 |
-| forms | scene | NiCloningProcess::m_eCopyType | 1 | 1 | `fn_004ad0c0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1986; `a_cloning_process_builds_its_two_maps` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5903 |
-| forms | scene | NiCloningProcess::m_fScale_x | 1 | 1 | `fn_004ad240` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2023; `the_scaled_cloning_process_sets_the_scale_vector` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5927 |
-| forms | scene | NiCloningProcess::m_fScale_y | 2 | 1 | `fn_004ad240` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2022; `the_scaled_cloning_process_sets_the_scale_vector` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5928 |
-| forms | scene | NiCloningProcess::m_fScale_z | 1 | 1 | `fn_004ad240` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2021; `the_scaled_cloning_process_sets_the_scale_vector` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:5929 |
-| forms | scene | NiCloningProcess::m_pkCloneMap | 3 | 3 | `fn_004ad0c0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1977; `fn_004ad1d0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2008 |
-| forms | scene | NiCloningProcess::m_pkProcessMap | 4 | 2 | `fn_004ad0c0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:1984; `fn_004ad1d0` at crates/engine-fallout-cell/src/units/fallout_shared/bipedanim.rs:2012 |
-| forms | scene | NiControllerManager::m_bCumulative | 1 | 0 | `ni_controller_manager_get_accum_root` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2256 |
-| forms | scene | NiControllerManager::m_kActiveSequences | 1 | 0 | `ni_controller_manager_deactivate_all` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:1763 |
-| forms | scene | NiControllerManager::m_kSequenceArray | 3 | 0 | `ni_controller_manager_get_accum_root` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:2257; `fn_00495d00` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:4847 |
-| forms | scene | NiFixedString::m_kHandle | 2 | 1 | `fn_0043ba10` at crates/engine-fallout-cell/src/units/fallout_shared/modelloader.rs:1290 |
-| forms | scene | NiTArray::m_pBase | 18 | 17 | `fn_00559460` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:403; `fn_00559ad0` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:686 |
-| forms | scene | NiTArray::m_usESize | 7 | 11 | `fn_00559ad0` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:682; `fn_0057cb70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectrefr_p6.rs:92 |
-| forms | scene | NiTArray::m_usGrowBy | 8 | 8 | `fn_00559ad0` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:680; `fn_0057cb70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectrefr_p6.rs:90 |
-| forms | scene | NiTArray::m_usMaxSize | 13 | 9 | `fn_00559ad0` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:679; `fn_0057cb70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectrefr_p6.rs:89 |
-| forms | scene | NiTArray::m_usSize | 9 | 14 | `fn_00559ad0` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:681; `fn_0057cb70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectrefr_p6.rs:91 |
 | forms | scene | NiTLargePrimitiveArray::m_pBase | 3 | 2 | `fn_00863d60` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:1813; `fn_00863db0` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:1832 |
 | forms | scene | NiTLargePrimitiveArray::m_uiESize | 2 | 4 | `fn_00863db0` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:1839; `construct_large_array` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:2021 |
 | forms | scene | NiTLargePrimitiveArray::m_uiGrowBy | 2 | 1 | `construct_large_array` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:2019; `the_array_constructors_allocate_unless_the_size_is_zero` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:4277 |
 | forms | scene | NiTLargePrimitiveArray::m_uiMaxSize | 2 | 1 | `construct_large_array` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:2018; `the_array_constructors_allocate_unless_the_size_is_zero` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:4276 |
 | forms | scene | NiTLargePrimitiveArray::m_uiSize | 4 | 5 | `fn_00863d90` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:1823; `fn_00863db0` at crates/engine-fallout-forms/src/units/fallout_shared/tessaveloadgame_p2.rs:1834 |
-| forms | scene | NiTListItem::m_element | 2 | 1 | `fn_00559c90` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:750; `fn_004a49e0` at crates/engine-fallout-forms/src/units/fallout_shared/run_004a4810.rs:143 |
-| forms | scene | NiTListItem::m_pkNext | 2 | 2 | `fn_00559a70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:648; `fn_004ede90` at crates/engine-fallout-forms/src/units/fallout_shared/run_004eddb0.rs:106 |
-| forms | scene | NiTListItem::m_pkPrev | 3 | 3 | `fn_00559a70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:650; `fn_004a4860` at crates/engine-fallout-forms/src/units/fallout_shared/run_004a4810.rs:87 |
-| forms | scene | NiTMap::m_ppkHashTable | 13 | 5 | `construct_map_base` at crates/engine-fallout-forms/src/units/fallout_shared/bgssceneinfo.rs:363; `destroy_map_base` at crates/engine-fallout-forms/src/units/fallout_shared/bgssceneinfo.rs:376 |
-| forms | scene | NiTMap::m_uiCount | 3 | 5 | `construct_map_base` at crates/engine-fallout-forms/src/units/fallout_shared/bgssceneinfo.rs:361; `check_map_constructor` at crates/engine-fallout-forms/src/units/fallout_shared/bgssceneinfo.rs:2878 |
-| forms | scene | NiTMap::m_uiHashSize | 7 | 3 | `construct_map_base` at crates/engine-fallout-forms/src/units/fallout_shared/bgssceneinfo.rs:360; `check_map_constructor` at crates/engine-fallout-forms/src/units/fallout_shared/bgssceneinfo.rs:2882 |
-| forms | scene | NiTPointerList::m_pkHead | 7 | 8 | `fn_00559a70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:652; `fn_00559c30` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:734 |
-| forms | scene | NiTPointerList::m_pkTail | 6 | 7 | `fn_00559a70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:649; `fn_00559c30` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:742 |
-| forms | scene | NiTPointerList::m_uiCount | 10 | 8 | `fn_00559a70` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:657; `fn_00559c30` at crates/engine-fallout-cell/src/units/fallout_shared/tesobjectcell_p4.rs:740 |
-| forms | scene | NiTPointerMap::m_ppkHashTable | 34 | 13 | `fn_0049c100` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:8520; `fn_0049c170` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:8533 |
-| forms | scene | NiTPointerMap::m_uiCount | 8 | 16 | `fn_0049c100` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:8517; `fn_0049c170` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:8552 |
-| forms | scene | NiTPointerMap::m_uiHashSize | 19 | 10 | `fn_0049c100` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:8516; `fn_0049c410` at crates/engine-fallout-cell/src/units/fallout_shared/animation.rs:8601 |
-| havok | scene | BSSimpleList::m_item | 13 | 1 | `bhk_rigid_body_register_streamables` at crates/engine-havok/src/units/bshavok/bhkrigidbody.rs:494; `fn_00c8d0d0` at crates/engine-havok/src/units/bshavok/bhkrigidbody.rs:514 |
-| havok | scene | BSSimpleList::m_pkNext | 10 | 1 | `bhk_rigid_body_register_streamables` at crates/engine-havok/src/units/bshavok/bhkrigidbody.rs:499; `fn_00c8d0d0` at crates/engine-havok/src/units/bshavok/bhkrigidbody.rs:515 |
 | havok | scene | Ctl::m_currentState | 3 | 3 | `bhk_character_controller_update_state` at crates/engine-havok/src/units/bshavok/bhkcharactercontroller.rs:680; `update_character_state` at crates/engine-havok/src/units/bshavok/bhkcharactercontroller.rs:4988 |
 | havok | scene | Ctl::m_stateManager | 1 | 1 | `update_character_state` at crates/engine-havok/src/units/bshavok/bhkcharactercontroller.rs:4989; `move_in_state_four_sets_the_position` at crates/engine-havok/src/units/bshavok/bhkcharactercontroller.rs:8455 |
 | havok | scene | Ctl::m_supportedState | 3 | 0 | `check_support` at crates/engine-havok/src/units/bshavok/bhkcharactercontroller.rs:5456; `move_on_unchanged_ground_keeps_still` at crates/engine-havok/src/units/bshavok/bhkcharactercontroller.rs:8552 |
@@ -137,7 +83,6 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | havok | scene | NiTLargeArray::m_uiGrowBy | 1 | 1 | `fn_00c9b1a0` at crates/engine-havok/src/units/bshavok/bhkblendcontroller.rs:788; `fill_array` at crates/engine-havok/src/units/bshavok/bhkblendcontroller.rs:1661 |
 | havok | scene | NiTLargeArray::m_uiMaxSize | 8 | 2 | `blend_key_array_set_size` at crates/engine-havok/src/units/bshavok/bhkblendcontroller.rs:494; `fn_00c9b1a0` at crates/engine-havok/src/units/bshavok/bhkblendcontroller.rs:787 |
 | havok | scene | NiTLargeArray::m_uiSize | 14 | 5 | `blend_key_array_remove_all` at crates/engine-havok/src/units/bshavok/bhkblendcontroller.rs:207; `set_at_in_frame` at crates/engine-havok/src/units/bshavok/bhkblendcontroller.rs:246 |
-| havok | scene | NiTPointerMap::m_ppkHashTable | 1 | 0 | `fn_00c74990` at crates/engine-havok/src/units/bshavok/run_00c74990.rs:23 |
 | havok | scene | TriStripsShape::m_entries | 2 | 1 | `fn_00ca4780` at crates/engine-havok/src/units/bshavok/run_00ca45b0.rs:44; `fn_00ca45b0` at crates/engine-havok/src/units/bshavok/run_00ca45b0.rs:64 |
 | havok | scene | TriStripsShape::m_radius | 1 | 1 | `fn_00ca45b0` at crates/engine-havok/src/units/bshavok/run_00ca45b0.rs:100; `setup` at crates/engine-havok/src/units/bshavok/run_00ca45b0.rs:160 |
 | havok | scene | TriStripsShape::m_scale_w | 1 | 1 | `fn_00ca45b0` at crates/engine-havok/src/units/bshavok/run_00ca45b0.rs:112; `setup` at crates/engine-havok/src/units/bshavok/run_00ca45b0.rs:159 |
@@ -147,35 +92,19 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | interface | forms | ScriptLocals::m_pActionList | 19 | 3 | `fn_005a8c00` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:715; `fn_005a8d20` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:730 |
 | interface | forms | ScriptLocals::m_pLocalList | 11 | 4 | `fn_005a8c90` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:721; `fn_005a94f0` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:1050 |
 | interface | forms | ScriptLocals::m_pMasterScript | 6 | 13 | `script_locals_construct` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:694; `script_locals_set_variable` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:945 |
-| interface | forms | ScriptLocals::m_pScriptEffectData | 15 | 9 | `script_locals_construct` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:695; `fn_005a8bc0` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:706 |
+| interface | forms | ScriptLocals::m_pScriptEffectData | 11 | 13 | `script_locals_construct` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:695; `fn_005a8bc0` at crates/engine-fallout-script/src/units/fallout_shared/tesscript.rs:706 |
 | interface | forms | TESQuestStageItem::m_bHasLogEntry | 1 | 3 | `fn_0060d490` at crates/engine-fallout-script/src/units/fallout_shared/tesquest.rs:607; `fn_0060f520` at crates/engine-fallout-script/src/units/fallout_shared/tesquest.rs:798 |
 | interface | forms | TESQuestStageItem::m_fileOffset | 1 | 2 | `fn_0060f520` at crates/engine-fallout-script/src/units/fallout_shared/tesquest.rs:794; `tes_quest_stage_item_load` at crates/engine-fallout-script/src/units/fallout_shared/tesqueststage.rs:249 |
 | interface | forms | TESQuestStageItem::m_pLogDate | 6 | 6 | `fn_0060f5f0` at crates/engine-fallout-script/src/units/fallout_shared/run_0060f5f0.rs:35; `run` at crates/engine-fallout-script/src/units/fallout_shared/run_0060f5f0.rs:65 |
 | interface | forms | TESQuestStageItem::m_pNextQuest | 5 | 3 | `fn_0060f520` at crates/engine-fallout-script/src/units/fallout_shared/tesquest.rs:789; `tes_quest_stage_item_load` at crates/engine-fallout-script/src/units/fallout_shared/tesqueststage.rs:262 |
 | interface | forms | TESQuestStageItem::m_pOwner | 7 | 3 | `fn_0060f520` at crates/engine-fallout-script/src/units/fallout_shared/tesquest.rs:796; `fn_0060fa10` at crates/engine-fallout-script/src/units/fallout_shared/tesqueststage.rs:310 |
 | interface | forms | TESQuestTarget::m_pTargetRef | 8 | 5 | `fn_0060ff70` at crates/engine-fallout-script/src/units/fallout_shared/run_0060ff70.rs:23; `target_constructor_builds_members_and_clears_fields` at crates/engine-fallout-script/src/units/fallout_shared/run_0060ff70.rs:75 |
-| interface | scene | BSSimpleList::m_item | 3 | 4 | `bs_simple_list_fade_control_add_head` at crates/engine-bs/src/units/bsmenu/tile.rs:6878; `bs_simple_list_fade_control_remove` at crates/engine-bs/src/units/bsmenu/tile.rs:7085 |
-| interface | scene | BSSimpleList::m_pkNext | 4 | 2 | `bs_simple_list_fade_control_add_head` at crates/engine-bs/src/units/bsmenu/tile.rs:6887; `bs_simple_list_fade_control_remove` at crates/engine-bs/src/units/bsmenu/tile.rs:7085 |
-| interface | scene | NiTArray::m_pBase | 30 | 17 | `fn_00a1e1a0` at crates/engine-bs/src/units/bsmenu/menu.rs:1261; `fn_00a1e450` at crates/engine-bs/src/units/bsmenu/menu.rs:1386 |
-| interface | scene | NiTArray::m_usESize | 15 | 12 | `fn_00a1e450` at crates/engine-bs/src/units/bsmenu/menu.rs:1383; `fn_00a1e520` at crates/engine-bs/src/units/bsmenu/menu.rs:1423 |
-| interface | scene | NiTArray::m_usGrowBy | 6 | 3 | `fn_00a1e450` at crates/engine-bs/src/units/bsmenu/menu.rs:1381; `fn_00a1e4d0` at crates/engine-bs/src/units/bsmenu/menu.rs:1400 |
-| interface | scene | NiTArray::m_usMaxSize | 20 | 6 | `fn_00a1e450` at crates/engine-bs/src/units/bsmenu/menu.rs:1380; `fn_00a1e4d0` at crates/engine-bs/src/units/bsmenu/menu.rs:1399 |
-| interface | scene | NiTArray::m_usSize | 19 | 10 | `fn_00a1e450` at crates/engine-bs/src/units/bsmenu/menu.rs:1382; `fn_00a1e520` at crates/engine-bs/src/units/bsmenu/menu.rs:1417 |
-| interface | scene | NiTListItem::m_element | 0 | 1 | `ni_tpointer_list_base_add_tail` at crates/engine-bs/src/units/bsmenu/font.rs:1476 |
-| interface | scene | NiTListItem::m_pkNext | 2 | 1 | `fn_00a1c270` at crates/engine-bs/src/units/bsmenu/font.rs:5009; `add_node_head_links_the_node_in_front` at crates/engine-bs/src/units/bsmenu/font.rs:7792 |
-| interface | scene | NiTListItem::m_pkPrev | 2 | 3 | `fn_00a1c270` at crates/engine-bs/src/units/bsmenu/font.rs:5007; `add_node_head_links_the_node_in_front` at crates/engine-bs/src/units/bsmenu/font.rs:7787 |
-| interface | scene | NiTPointerList::m_pkHead | 43 | 15 | `fn_00a0db40` at crates/engine-bs/src/units/bsmenu/debugtext.rs:581; `debug_text_destructor` at crates/engine-bs/src/units/bsmenu/debugtext.rs:617 |
-| interface | scene | NiTPointerList::m_pkTail | 11 | 13 | `fn_00a0db40` at crates/engine-bs/src/units/bsmenu/debugtext.rs:582; `nitpointerlist_remove_all` at crates/engine-bs/src/units/bsmenu/debugtext.rs:2272 |
-| interface | scene | NiTPointerList::m_uiCount | 24 | 13 | `fn_00a0db40` at crates/engine-bs/src/units/bsmenu/debugtext.rs:580; `nitpointerlist_remove_all` at crates/engine-bs/src/units/bsmenu/debugtext.rs:2270 |
-| interface | scene | NiTPointerMap::m_ppkHashTable | 7 | 0 | `bucket_chain` at crates/engine-bs/src/units/bsmenu/tile.rs:16112; `map_iteration_walks_chains_then_buckets` at crates/engine-bs/src/units/bsmenu/tile.rs:16169 |
-| interface | scene | NiTPointerMap::m_uiCount | 4 | 0 | `map_set_inserts_at_the_bucket_head_or_updates` at crates/engine-bs/src/units/bsmenu/tile.rs:16132; `map_set_with_key_copy_flag_keeps_or_replaces_the_key` at crates/engine-bs/src/units/bsmenu/tile.rs:16150 |
 | renderer | scene | BSFadeNode::m_kChildren_pBase | 1 | 1 | `fn_00b4ea20` at crates/engine-bs/src/units/bsshader/bsfadenode.rs:726; `update_selected_pass_records_the_time_without_fading` at crates/engine-bs/src/units/bsshader/bsfadenode.rs:1609 |
 | renderer | scene | BSFadeNode::m_kChildren_usSize | 1 | 1 | `fn_00b4ea20` at crates/engine-bs/src/units/bsshader/bsfadenode.rs:724; `update_selected_pass_records_the_time_without_fading` at crates/engine-bs/src/units/bsshader/bsfadenode.rs:1610 |
 | renderer | scene | BSFadeNode::m_kWorldBound | 3 | 1 | `bs_fade_node_on_visible` at crates/engine-bs/src/units/bsshader/bsfadenode.rs:669; `bs_fade_node_check_fade_radius` at crates/engine-bs/src/units/bsshader/bsfadenode.rs:808 |
 | renderer | scene | BSFadeNode::m_uFlags | 24 | 17 | `bs_fade_node_construct` at crates/engine-bs/src/units/bsshader/bsfadenode.rs:336; `bs_fade_node_create_clone` at crates/engine-bs/src/units/bsshader/bsfadenode.rs:464 |
 | renderer | scene | BSFogProperty::m_fDepth | 1 | 1 | `bs_fog_property_bs_fog_property` at crates/engine-bs/src/units/bsshader/bsfogproperty.rs:60; `constructor_sets_the_vtables_colour_plane_and_distances` at crates/engine-bs/src/units/bsshader/bsfogproperty.rs:162 |
 | renderer | scene | BSFogProperty::m_uFlags | 1 | 1 | `bs_fog_property_bs_fog_property` at crates/engine-bs/src/units/bsshader/bsfogproperty.rs:59; `constructor_sets_the_vtables_colour_plane_and_distances` at crates/engine-bs/src/units/bsshader/bsfogproperty.rs:161 |
-| renderer | scene | BSSimpleList::m_pkNext | 3 | 1 | `fn_00b64ec0` at crates/engine-bs/src/units/bsshader/run_00b64ec0.rs:19 |
 | renderer | scene | GeometryData::m_bSaveVertexData | 2 | 0 | `reads_bytes` at crates/engine-typed/src/geometry/lifecycle.rs:161; `save_binary` at crates/engine-typed/src/geometry/lifecycle.rs:357 |
 | renderer | scene | GeometryData::m_pkBuffData | 1 | 0 | `pack_untransformed` at crates/engine-typed/src/geometry/pack.rs:767 |
 | renderer | scene | GeometryData::m_pkColor | 8 | 4 | `replace` at crates/engine-typed/src/geometry/data.rs:65; `set_data` at crates/engine-typed/src/geometry/data.rs:150 |
@@ -183,7 +112,7 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | renderer | scene | GeometryData::m_pkTexture | 7 | 4 | `replace` at crates/engine-typed/src/geometry/data.rs:66; `set_data` at crates/engine-typed/src/geometry/data.rs:149 |
 | renderer | scene | GeometryData::m_pkVertex | 10 | 4 | `replace` at crates/engine-typed/src/geometry/data.rs:63; `set_data` at crates/engine-typed/src/geometry/data.rs:132 |
 | renderer | scene | GeometryData::m_spAdditionalGeomData | 4 | 1 | `save_binary` at crates/engine-typed/src/geometry/lifecycle.rs:407; `destruct` at crates/engine-typed/src/geometry/lifecycle.rs:434 |
-| renderer | scene | GeometryData::m_usDataFlags | 19 | 3 | `replace` at crates/engine-typed/src/geometry/data.rs:104; `set_data` at crates/engine-typed/src/geometry/data.rs:148 |
+| renderer | scene | GeometryData::m_usDataFlags | 15 | 7 | `replace` at crates/engine-typed/src/geometry/data.rs:104; `set_data` at crates/engine-typed/src/geometry/data.rs:148 |
 | renderer | scene | GeometryData::m_usDirtyFlags | 1 | 0 | `save_binary` at crates/engine-typed/src/geometry/lifecycle.rs:405 |
 | renderer | scene | GeometryData::m_usVertices | 20 | 3 | `replace` at crates/engine-typed/src/geometry/data.rs:84; `set_data` at crates/engine-typed/src/geometry/data.rs:131 |
 | renderer | scene | NiAVObject::m_kLocal | 2 | 0 | `update_world_transform` at crates/engine-typed/src/culling/update.rs:51 |
@@ -193,12 +122,12 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | renderer | scene | NiAVObject::m_pkParent | 1 | 0 | `update_world_transform` at crates/engine-typed/src/culling/update.rs:49 |
 | renderer | scene | NiAVObject::m_spCollisionObject | 1 | 0 | `update_world_data` at crates/engine-typed/src/culling/update.rs:75 |
 | renderer | scene | NiAVObject::m_uFlags | 13 | 3 | `bs_process` at crates/engine-typed/src/culling/process.rs:213; `fade_culler_process` at crates/engine-typed/src/culling/process.rs:395 |
-| renderer | scene | NiAdditionalGeometryData::m_pkDataStreamEntries | 1 | 0 | `ni_additional_geometry_data_ni_additional_geometry_data_ov2` at crates/engine-bs/src/units/bsshader/particleshader.rs:332 |
+| renderer | scene | NiAdditionalGeometryData::m_pkDataStreamEntries | 0 | 1 | `ni_additional_geometry_data_ni_additional_geometry_data_ov2` at crates/engine-bs/src/units/bsshader/particleshader.rs:332 |
 | renderer | scene | NiAdditionalGeometryData::m_uiD3DStream | 0 | 1 | `ni_additional_geometry_data_ni_additional_geometry_data_ov2` at crates/engine-bs/src/units/bsshader/particleshader.rs:343 |
-| renderer | scene | NiAdditionalGeometryData::m_uiDataStreamCount | 1 | 0 | `ni_additional_geometry_data_ni_additional_geometry_data_ov2` at crates/engine-bs/src/units/bsshader/particleshader.rs:317 |
+| renderer | scene | NiAdditionalGeometryData::m_uiDataStreamCount | 0 | 1 | `ni_additional_geometry_data_ni_additional_geometry_data_ov2` at crates/engine-bs/src/units/bsshader/particleshader.rs:317 |
 | renderer | scene | NiAdditionalGeometryData::m_uiRevID | 0 | 1 | `ni_additional_geometry_data_ni_additional_geometry_data_ov2` at crates/engine-bs/src/units/bsshader/particleshader.rs:314 |
-| renderer | scene | NiAdditionalGeometryData::m_usVertexCount | 1 | 0 | `ni_additional_geometry_data_ni_additional_geometry_data_ov2` at crates/engine-bs/src/units/bsshader/particleshader.rs:311 |
-| renderer | scene | NiBound::m_fRadius | 21 | 5 | `which_side` at crates/engine-typed/src/culling/bound.rs:39; `merge` at crates/engine-typed/src/culling/bound.rs:70 |
+| renderer | scene | NiAdditionalGeometryData::m_usVertexCount | 0 | 1 | `ni_additional_geometry_data_ni_additional_geometry_data_ov2` at crates/engine-bs/src/units/bsshader/particleshader.rs:311 |
+| renderer | scene | NiBound::m_fRadius | 20 | 6 | `which_side` at crates/engine-typed/src/culling/bound.rs:39; `merge` at crates/engine-typed/src/culling/bound.rs:70 |
 | renderer | scene | NiBound::m_kCenter | 15 | 0 | `which_side` at crates/engine-typed/src/culling/bound.rs:37; `merge` at crates/engine-typed/src/culling/bound.rs:64 |
 | renderer | scene | NiCullingProcess::m_kFrustum | 1 | 0 | `set_frustum` at crates/engine-typed/src/culling/process.rs:299 |
 | renderer | scene | NiCullingProcess::m_kPlanes | 6 | 0 | `cull` at crates/engine-typed/src/culling/compact.rs:379; `planes` at crates/engine-typed/src/culling/par.rs:632 |
@@ -214,7 +143,7 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | renderer | scene | NiFrustumPlanes::m_uiActivePlanes | 14 | 7 | `cull` at crates/engine-typed/src/culling/compact.rs:382; `active_state` at crates/engine-typed/src/culling/compound.rs:72 |
 | renderer | scene | NiGeometry::m_PropertyState | 6 | 0 | `register_object` at crates/engine-typed/src/shader/accumulator.rs:363; `render_pass` at crates/engine-typed/src/shader/batch.rs:467 |
 | renderer | scene | NiGeometry::m_kWorld | 1 | 0 | `render_skinned` at crates/engine-typed/src/shader/batch.rs:695 |
-| renderer | scene | NiGeometry::m_kWorldBound | 2 | 0 | `register_by_kind` at crates/engine-typed/src/shader/accumulator.rs:292; `depth` at crates/engine-typed/src/shader/batch.rs:891 |
+| renderer | scene | NiGeometry::m_kWorldBound | 2 | 0 | `register_by_kind` at crates/engine-typed/src/shader/accumulator.rs:292; crates/engine-typed/src/shader/batch.rs:891 |
 | renderer | scene | NiGeometry::m_spModelData | 4 | 0 | `geometry_update_world_bound` at crates/engine-typed/src/culling/update.rs:232; `render_standard` at crates/engine-typed/src/shader/batch.rs:569 |
 | renderer | scene | NiGeometry::m_spShader | 4 | 0 | `register_object` at crates/engine-typed/src/shader/accumulator.rs:351; `render_pass` at crates/engine-typed/src/shader/batch.rs:454 |
 | renderer | scene | NiGeometry::m_spSkinInstance | 3 | 0 | `geometry_update_world_bound` at crates/engine-typed/src/culling/update.rs:220; `register_object` at crates/engine-typed/src/shader/accumulator.rs:344 |
@@ -230,10 +159,10 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | renderer | scene | NiNode::m_usSize | 5 | 0 | `object_begins` at crates/engine-typed/src/culling/probe.rs:365; `node_update_world_bound` at crates/engine-typed/src/culling/update.rs:303 |
 | renderer | scene | NiPSysAgeDeathModifier::m_bSpawnOnDeath | 1 | 0 | `age_death_in` at crates/engine-typed/src/particles/modifiers.rs:405 |
 | renderer | scene | NiPSysAgeDeathModifier::m_pkSpawnModifier | 2 | 0 | `age_death_in` at crates/engine-typed/src/particles/modifiers.rs:406 |
-| renderer | scene | NiPSysBombModifier::m_eDecayType | 1 | 0 | `bomb_particle` at crates/engine-typed/src/particles/modifiers.rs:238 |
-| renderer | scene | NiPSysBombModifier::m_eSymmType | 1 | 0 | `bomb_particle` at crates/engine-typed/src/particles/modifiers.rs:249 |
-| renderer | scene | NiPSysBombModifier::m_fDecay | 2 | 0 | `bomb_particle` at crates/engine-typed/src/particles/modifiers.rs:240 |
-| renderer | scene | NiPSysBombModifier::m_fDeltaV | 1 | 0 | `bomb_particle` at crates/engine-typed/src/particles/modifiers.rs:309 |
+| renderer | scene | NiPSysBombModifier::m_eDecayType | 1 | 0 | crates/engine-typed/src/particles/modifiers.rs:238 |
+| renderer | scene | NiPSysBombModifier::m_eSymmType | 1 | 0 | crates/engine-typed/src/particles/modifiers.rs:249 |
+| renderer | scene | NiPSysBombModifier::m_fDecay | 2 | 0 | crates/engine-typed/src/particles/modifiers.rs:240; crates/engine-typed/src/particles/modifiers.rs:299 |
+| renderer | scene | NiPSysBombModifier::m_fDeltaV | 1 | 0 | crates/engine-typed/src/particles/modifiers.rs:309 |
 | renderer | scene | NiPSysBombModifier::m_kBombAxis | 1 | 0 | `bomb` at crates/engine-typed/src/particles/modifiers.rs:132 |
 | renderer | scene | NiPSysBombModifier::m_pkBombObj | 1 | 0 | `bomb` at crates/engine-typed/src/particles/modifiers.rs:135 |
 | renderer | scene | NiPSysBoundUpdateModifier::m_pkSkipBounds | 6 | 1 | `clear_bound` at crates/engine-typed/src/particles/modifiers.rs:623; `set_update_skip` at crates/engine-typed/src/particles/modifiers.rs:635 |
@@ -245,8 +174,8 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | renderer | scene | NiPSysData::m_pfRotationSpeeds | 2 | 0 | `remove_particle` at crates/engine-typed/src/particles/modifiers.rs:461; `rotation_in` at crates/engine-typed/src/particles/modifiers.rs:495 |
 | renderer | scene | NiPSysData::m_pfSizes | 3 | 0 | `grow_fade_in` at crates/engine-typed/src/particles/modifiers.rs:612; `bound_update_in` at crates/engine-typed/src/particles/modifiers.rs:717 |
 | renderer | scene | NiPSysData::m_pkColor | 1 | 0 | `simple_color_in` at crates/engine-typed/src/particles/modifiers.rs:857 |
-| renderer | scene | NiPSysData::m_pkParticleInfo | 7 | 0 | `bomb_particle` at crates/engine-typed/src/particles/modifiers.rs:224; `position` at crates/engine-typed/src/particles/modifiers.rs:342 |
-| renderer | scene | NiPSysData::m_pkVertex | 3 | 0 | `bomb_particle` at crates/engine-typed/src/particles/modifiers.rs:231; `position` at crates/engine-typed/src/particles/modifiers.rs:350 |
+| renderer | scene | NiPSysData::m_pkParticleInfo | 7 | 0 | crates/engine-typed/src/particles/modifiers.rs:224; `position` at crates/engine-typed/src/particles/modifiers.rs:342 |
+| renderer | scene | NiPSysData::m_pkVertex | 3 | 0 | crates/engine-typed/src/particles/modifiers.rs:231; `position` at crates/engine-typed/src/particles/modifiers.rs:350 |
 | renderer | scene | NiPSysData::m_usActive | 13 | 0 | `bomb` at crates/engine-typed/src/particles/modifiers.rs:136; `position` at crates/engine-typed/src/particles/modifiers.rs:344 |
 | renderer | scene | NiPSysData::m_usVertices | 1 | 0 | `bound_update_in` at crates/engine-typed/src/particles/modifiers.rs:704 |
 | renderer | scene | NiPSysGrowFadeModifier::m_fBaseScale | 2 | 0 | `grow_fade_in` at crates/engine-typed/src/particles/modifiers.rs:568 |
@@ -267,20 +196,6 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | renderer | scene | NiSkinInstance::m_spSkinPartition | 2 | 0 | `render_skinned` at crates/engine-typed/src/shader/batch.rs:666; `add_object_to_group` at crates/engine-typed/src/shader/state.rs:824 |
 | renderer | scene | NiSkinPartition::m_pkPartitions | 2 | 0 | `render_skinned` at crates/engine-typed/src/shader/batch.rs:671; `add_object_to_group` at crates/engine-typed/src/shader/state.rs:827 |
 | renderer | scene | NiSkinPartition::m_uiPartitions | 2 | 0 | `render_skinned` at crates/engine-typed/src/shader/batch.rs:673; `add_object_to_group` at crates/engine-typed/src/shader/state.rs:831 |
-| renderer | scene | NiTArray::m_pBase | 17 | 4 | `ni_t_array_render_pass_ni_t_array` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:353; `ni_t_array_render_pass_set_size` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:508 |
-| renderer | scene | NiTArray::m_usESize | 8 | 6 | `ni_t_array_render_pass_ni_t_array` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:351; `ni_t_array_render_pass_set_size` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:512 |
-| renderer | scene | NiTArray::m_usGrowBy | 7 | 1 | `ni_t_array_render_pass_ni_t_array` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:347; `bs_shader_property_render_pass_array_add` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:1412 |
-| renderer | scene | NiTArray::m_usMaxSize | 10 | 2 | `ni_t_array_render_pass_ni_t_array` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:349; `ni_t_array_render_pass_set_size` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:499 |
-| renderer | scene | NiTArray::m_usSize | 15 | 4 | `ni_t_array_render_pass_ni_t_array` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:350; `ni_t_array_render_pass_set_size` at crates/engine-bs/src/units/bsshader/bsshaderproperty.rs:503 |
-| renderer | scene | NiTListItem::m_element | 11 | 5 | `fn_00b65f60` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:2961; `fn_00b58570` at crates/engine-bs/src/units/bsshader/run_00b57e70.rs:24 |
-| renderer | scene | NiTListItem::m_pkNext | 22 | 9 | `fn_00b65f60` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:2962; `fn_00b58570` at crates/engine-bs/src/units/bsshader/run_00b57e70.rs:25 |
-| renderer | scene | NiTListItem::m_pkPrev | 15 | 8 | `fn_00b65f60` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:2996; `fn_00b58570` at crates/engine-bs/src/units/bsshader/run_00b57e70.rs:27 |
-| renderer | scene | NiTPointerList::m_pkHead | 12 | 15 | `fn_00b998e0` at crates/engine-bs/src/units/bsshader/bsbatchrenderer.rs:254; `bs_shader_accumulator_bs_shader_accumulator` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:189 |
-| renderer | scene | NiTPointerList::m_pkTail | 11 | 17 | `fn_00b998e0` at crates/engine-bs/src/units/bsshader/bsbatchrenderer.rs:255; `bs_shader_accumulator_bs_shader_accumulator` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:190 |
-| renderer | scene | NiTPointerList::m_uiCount | 14 | 16 | `fn_00b998e0` at crates/engine-bs/src/units/bsshader/bsbatchrenderer.rs:253; `bs_shader_accumulator_bs_shader_accumulator` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:188 |
-| renderer | scene | NiTPointerMap::m_ppkHashTable | 5 | 1 | `bs_shader_accumulator_bs_shader_accumulator` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:222; `fn_00b57f20` at crates/engine-bs/src/units/bsshader/run_00b57e70.rs:126 |
-| renderer | scene | NiTPointerMap::m_uiCount | 1 | 2 | `bs_shader_accumulator_bs_shader_accumulator` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:219; `fn_00b582b0` at crates/engine-bs/src/units/bsshader/run_00b57e70.rs:237 |
-| renderer | scene | NiTPointerMap::m_uiHashSize | 2 | 1 | `bs_shader_accumulator_bs_shader_accumulator` at crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs:218; `fn_00b57f20` at crates/engine-bs/src/units/bsshader/run_00b57e70.rs:124 |
 | renderer | scene | NiTimeController::m_fHiKeyTime | 0 | 2 | `update_ctlr` at crates/engine-typed/src/particles/system.rs:73 |
 | renderer | scene | NiTimeController::m_fLastTime | 2 | 1 | `update_ctlr` at crates/engine-typed/src/particles/system.rs:97 |
 | renderer | scene | NiTimeController::m_fLoKeyTime | 0 | 2 | `update_ctlr` at crates/engine-typed/src/particles/system.rs:71 |
@@ -289,18 +204,8 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | renderer | scene | NiTimeController::m_spNext | 1 | 0 | `update_ctlr` at crates/engine-typed/src/particles/system.rs:93 |
 | renderer | scene | NiTimeController::m_uFlags | 1 | 1 | `update_ctlr` at crates/engine-typed/src/particles/system.rs:74 |
 | renderer | scene | NiTransform::m_Rotate | 4 | 0 | `frustum_planes_set` at crates/engine-typed/src/culling/planes.rs:91; `bound_update` at crates/engine-typed/src/culling/update.rs:143 |
-| renderer | scene | NiTransform::m_Translate | 3 | 0 | `frustum_planes_set` at crates/engine-typed/src/culling/planes.rs:97; `scale_and_translate` at crates/engine-typed/src/culling/update.rs:115 |
-| renderer | scene | NiTransform::m_fScale | 10 | 2 | `scale_and_translate` at crates/engine-typed/src/culling/update.rs:113; `bound_update` at crates/engine-typed/src/culling/update.rs:156 |
-| scene | audio | BSThread::m_ParentHandle | 2 | 2 | `bs_thread_bs_thread` at crates/engine-bs/src/units/bscore/bsthread_xenon.rs:75; `bs_thread_initialize` at crates/engine-bs/src/units/bscore/bsthread_xenon.rs:110 |
-| scene | audio | BSThread::m_ParentID | 2 | 2 | `bs_thread_bs_thread` at crates/engine-bs/src/units/bscore/bsthread_xenon.rs:77; `bs_thread_initialize` at crates/engine-bs/src/units/bscore/bsthread_xenon.rs:112 |
-| scene | audio | BSThread::m_ThreadHandle | 8 | 6 | `bs_thread_bs_thread` at crates/engine-bs/src/units/bscore/bsthread_xenon.rs:74; `bs_thread_initialize` at crates/engine-bs/src/units/bscore/bsthread_xenon.rs:106 |
-| scene | audio | BSThread::m_ThreadID | 3 | 1 | `bs_thread_bs_thread` at crates/engine-bs/src/units/bscore/bsthread_xenon.rs:76; `bs_thread_initialize` at crates/engine-bs/src/units/bscore/bsthread_xenon.rs:118 |
-| scene | audio | IoRequest::m_eType | 1 | 5 | `fn_00aa81d0` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:332; `oei_io_io_thread_thread_proc` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:412 |
-| scene | audio | IoRequest::m_eWhence | 1 | 2 | `oei_io_io_thread_thread_proc` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:414; `run_request` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:469 |
-| scene | audio | IoRequest::m_pFile | 3 | 4 | `fn_00aa81d0` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:331; `oei_io_io_thread_thread_proc` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:416 |
-| scene | audio | IoRequest::m_pMemory | 2 | 4 | `fn_00aa81d0` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:333; `oei_io_io_thread_thread_proc` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:423 |
-| scene | audio | IoRequest::m_uiSize | 3 | 2 | `oei_io_io_thread_thread_proc` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:415; `run_request` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:474 |
-| scene | audio | IoRequest::m_wait_handle | 5 | 3 | `fn_00aa81d0` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:334; `oei_io_io_thread_thread_proc` at crates/engine-bs/src/units/bscore/oei_io_thread.rs:442 |
+| renderer | scene | NiTransform::m_Translate | 3 | 0 | `frustum_planes_set` at crates/engine-typed/src/culling/planes.rs:97; crates/engine-typed/src/culling/update.rs:115 |
+| renderer | scene | NiTransform::m_fScale | 10 | 2 | crates/engine-typed/src/culling/update.rs:113; `bound_update` at crates/engine-typed/src/culling/update.rs:156 |
 | scene | renderer | NiD3DPass::m_bRendererOwned | 1 | 1 | `fn_00e80190` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:114; `fn_00e800f0` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:467 |
 | scene | renderer | NiD3DPass::m_bSoftwareVP | 1 | 3 | `fn_00e80190` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:135; `fn_00e800f0` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:466 |
 | scene | renderer | NiD3DPass::m_kStages_m_pBase | 6 | 3 | `ni_d3d_pass_set_stage` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:208; `fn_00e7fea0` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:680 |
@@ -310,12 +215,16 @@ Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 | scene | renderer | NiD3DPass::m_uiCurrentStage | 4 | 6 | `fn_00e80190` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:132; `ni_d3d_pass_set_stage` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:194 |
 | scene | renderer | NiD3DPass::m_uiStageCount | 5 | 6 | `fn_00e80190` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:133; `ni_d3d_pass_set_stage` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:198 |
 | scene | renderer | NiD3DPass::m_uiTexturesPerPass | 2 | 5 | `fn_00e80190` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:134; `ni_d3d_pass_set_stage` at crates/engine-gamebryo/src/units/nixenonrenderer/nid3dpass.rs:201 |
-| scene | renderer | NiD3DShaderProgramCreator::m_uiShaderCreationFlags | 2 | 0 | `ni_d3d_shader_program_creator_hlsl_get_shader_creation_flags` at crates/engine-gamebryo/src/units/nixenonrenderer/nixenonrenderersdm.rs:70; `ni_d3d_shader_program_creator_hlsl_get_shader_creation_flags_reads_the_flags` at crates/engine-gamebryo/src/units/nixenonrenderer/nixenonrenderersdm.rs:207 |
-| scene | renderer | NiD3DShaderProgramCreatorObj::m_pvConstantBuffer | 2 | 0 | `ni_d3d_shader_program_creator_obj_scalar_deleting_destructor` at crates/engine-gamebryo/src/units/nixenonrenderer/nixenonrenderersdm.rs:98; `ni_d3d_shader_program_creator_obj_scalar_deleting_destructor_frees_the_buffer` at crates/engine-gamebryo/src/units/nixenonrenderer/nixenonrenderersdm.rs:234 |
+| scene | renderer | NiD3DShaderProgramCreator::m_uiShaderCreationFlags | 1 | 1 | `ni_d3d_shader_program_creator_hlsl_get_shader_creation_flags` at crates/engine-gamebryo/src/units/nixenonrenderer/nixenonrenderersdm.rs:70; `ni_d3d_shader_program_creator_hlsl_get_shader_creation_flags_reads_the_flags` at crates/engine-gamebryo/src/units/nixenonrenderer/nixenonrenderersdm.rs:207 |
+| scene | renderer | NiD3DShaderProgramCreatorObj::m_pvConstantBuffer | 1 | 1 | `ni_d3d_shader_program_creator_obj_scalar_deleting_destructor` at crates/engine-gamebryo/src/units/nixenonrenderer/nixenonrenderersdm.rs:98; `ni_d3d_shader_program_creator_obj_scalar_deleting_destructor_frees_the_buffer` at crates/engine-gamebryo/src/units/nixenonrenderer/nixenonrenderersdm.rs:234 |
 | scene | renderer | NiRenderTargetGroup::m_pkRendererData | 2 | 1 | `ni_render_target_group_set_renderer_data` at crates/engine-gamebryo/src/units/nimain/nirendertargetgroup.rs:116; `fn_00ee8560` at crates/engine-gamebryo/src/units/nimain/nirendertargetgroup.rs:183 |
 | scene | renderer | NiRenderTargetGroup::m_spDepthStencilBuffer | 5 | 0 | `fn_00ee8560` at crates/engine-gamebryo/src/units/nimain/nirendertargetgroup.rs:188; `ni_render_target_group_get_depth_stencil_buffer_renderer_data` at crates/engine-gamebryo/src/units/nimain/nirendertargetgroup.rs:274 |
 | scene | renderer | NiRenderTargetGroup::m_uiNumBuffers | 1 | 2 | `ni_render_target_group_attach_buffer` at crates/engine-gamebryo/src/units/nimain/nirendertargetgroup.rs:227; `fn_00ee8710` at crates/engine-gamebryo/src/units/nimain/nirendertargetgroup.rs:303 |
 | scene | renderer | TextureTransform::m_bMatrixDirty | 0 | 3 | `fn_00a88cd0` at crates/engine-gamebryo/src/units/nimain/run_00a88c60.rs:156; `fn_00a88f00` at crates/engine-gamebryo/src/units/nimain/run_00a88c60.rs:225 |
 | scene | renderer | TextureTransform::m_eMethod | 3 | 2 | `fn_00a88cd0` at crates/engine-gamebryo/src/units/nimain/run_00a88c60.rs:86; `fn_00a88eb0` at crates/engine-gamebryo/src/units/nimain/run_00a88c60.rs:192 |
 
-12726 accesses skipped: not cross-component, or their type has no owner.
+14009 accesses skipped: not cross-component, or their type has no owner.
+
+Scanned 5251 Rust source files under `crates/` (1705 with no declared reader).
+
+Skipped accesses by reader: ai: 263, audio: 154, forms: 961, havok: 1916, interface: 465, renderer: 347, scene: 9903.
