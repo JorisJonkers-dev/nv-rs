@@ -23,6 +23,10 @@ tasks:
     cmds:
       - python3 -I scripts/fork/test_wif.py
       - python3 -I scripts/fork/check_data_gates.py
+      # Public and safe: this hashes public files only. It runs in the required "Pipeline Complete" check, so a
+      # pull request that weakens the judge, thresholds, controls or ledger generator must re-pin the hash here
+      # (the hash file is owner-reviewed) or fail before it merges (nv-rs#925).
+      - python3 -I scripts/fork/private_integrity.py --check
       - python3 -I scripts/fork/public_text.py
       - python3 -I scripts/fork/public_text.py --selftest
       - python3 -I scripts/fork/setup-anthropic-wif.py --selftest
