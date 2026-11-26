@@ -28,12 +28,14 @@ permissions:
 
 env:
   # The only files the bot may commit (scripts/fork/progress: OUTPUTS).
-  # The coverage catalogue's generated reports (fork-ci.yml, REPORT_FILES): the only files another bot commit may
-  # put between the counted commit and the branch head.
+  # The generated reports (fork-ci.yml, REPORT_FILES): the only files another bot commit may put between
+  # the counted commit and the branch head. The census is regenerated and committed with the coverage
+  # reports, so a progress commit replayed on top of that commit must not mistake it for a newer change.
   REPORT_FILES: >-
     docs/fork/coverage/FEATURES.md
     docs/fork/coverage/tally-report.json
     docs/fork/coverage/tally.svg
+    docs/fork/COMPONENT-CENSUS.md
   PROGRESS_FILES: >-
     docs/media/fork-progress.json
     docs/media/fork-progress-engine.svg

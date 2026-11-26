@@ -552,7 +552,12 @@ jobs:
         if: ${{ !cancelled() && steps.catalogue.outputs.reports == 'changed' }}
         with:
           name: report-files
-          path: ${{ runner.temp }}/render/docs/fork/coverage/
+          # Both paths are relative to their common root (docs/fork/) in the artifact: the coverage
+          # files keep their `coverage/` prefix and the census sits beside that folder. The reports
+          # job strips `docs/fork/` when copying the files back (see `${f#docs/fork/}` below).
+          path: |
+            ${{ runner.temp }}/render/docs/fork/coverage/
+            ${{ runner.temp }}/render/docs/fork/COMPONENT-CENSUS.md
           retention-days: 3
 
   pipeline-complete:
@@ -672,9 +677,12 @@ jobs:
             "${git[@]}" checkout --quiet --detach "$head"
           fi
           mkdir -p docs/fork/coverage
-          # upload-artifact stores the files relative to their folder, so docs/fork/coverage/tally.svg is tally.svg there.
+          # upload-artifact stored both paths relative to docs/fork/, so ${f#docs/fork/} names every
+          # file in the artifact, including COMPONENT-CENSUS.md. Refuse an empty file rather than
+          # committing a report that would blank the one already on fork.
           for f in $REPORT_FILES; do
-            cp "$RUNNER_TEMP/report-files/${f#docs/fork/coverage/}" "$f"
+            cp "$RUNNER_TEMP/report-files/${f#docs/fork/}" "$f"
+            test -s "$f" || { echo "::error title=Catalogue::empty report $f"; exit 1; }
           done
           # shellcheck disable=SC2086
           "${git[@]}" add -- $REPORT_FILES

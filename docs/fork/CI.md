@@ -104,9 +104,16 @@ stale before the change lands. The pipeline handles the two reports alike:
   commits the changed files as raul-progress-bot with
   `chore(catalogue): update the generated reports [skip ci]`, so the commit does not start another run.
   It commits only when the branch head is the tested commit (or the progress bot's own commit on top of it).
+  The copy into that commit covers every file in `REPORT_FILES`, including the census; an empty report
+  stops the push instead of blanking the copy on `fork`. The progress bot knows the same list, so a
+  progress commit replayed on top of a reports commit is not confused by the census file.
+- Between a merge and that bot commit, `fork` can still hold the previous report. The merge push
+  regenerates the census rather than checking the committed copy, so a stale report fixes itself on
+  that push instead of blocking merges. A pull request that changes `research/component-census/` is
+  still checked and fails unless its committed report matches the tool.
 - Pull requests do not carry generated files: "Progress counts" refuses changes under
-  `docs/fork/coverage/`. A pull request that changes the census tool may carry a regenerated report, but
-  it has to match the tool's output.
+  `docs/fork/coverage/`. A pull request that changes `research/component-census/` must carry a
+  regenerated `docs/fork/COMPONENT-CENSUS.md`; `--check` fails when it does not match the tool's output.
 
 ## What is measured and what is estimated
 
