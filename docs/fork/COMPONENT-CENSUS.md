@@ -225,6 +225,6 @@ file. Runtime access counts from `NV_TOUCH` are a separate, private measurement.
 
 14009 accesses skipped: not cross-component, or their type has no owner.
 
-Scanned 5251 Rust source files under `crates/` (1705 with no declared reader).
+Scanned 5252 Rust source files under `crates/` (1706 with no declared reader).
 
 Skipped accesses by reader: ai: 263, audio: 154, forms: 961, havok: 1916, interface: 465, renderer: 347, scene: 9903.
