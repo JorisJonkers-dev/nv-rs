@@ -6,9 +6,11 @@
 //!
 //! The step goes through [`step`]. With stepped threads it runs on the `nv-havok` OS thread beside
 //! the game thread that asked for it; the poster waits at once, so the step keeps its place in the
-//! run, its words, its x87 control word and its virtual clock. With real threads, diagnostics or a
-//! refused post it runs on the calling thread, as before (the race campaign for Havok's own real
-//! threads is in `docs/fork/HAVOK-THREAD.md`).
+//! run, its words, its x87 control word and its virtual clock. A stop inside the step unwinds at
+//! that join, with the helper's stopped calls put back on the poster's stack so the report is the
+//! same as for an inline call. With real threads, diagnostics or a refused post it runs on the
+//! calling thread, as before (the race campaign for Havok's own real threads is in
+//! `docs/fork/HAVOK-THREAD.md`).
 
 use crate::{real_threads, Engine, Field, Inline, Ptr, Scalar};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -91,7 +93,9 @@ pub fn thread_on() -> bool {
     THREAD_ON.load(Ordering::Relaxed)
 }
 
-/// Selects the path for a test run (one run per test binary).
+/// Selects the path for a test run (one run per test binary). Test-only: it changes a process-wide
+/// flag and races with a run already in progress; never call it from game code.
+#[doc(hidden)]
 pub fn set_thread_on_for_test(on: bool) {
     THREAD_READ.call_once(|| {});
     THREAD_ON.store(on, Ordering::Relaxed);

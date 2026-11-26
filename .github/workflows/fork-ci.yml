@@ -36,11 +36,13 @@ env:
   # that release's SHA256SUMS.
   TALLY_VERSION: v0.8.0
   TALLY_SHA256: 5dc487d3f84248e5a80a06f989acb31b3040ee77342656971437f76493e925e6
-  # The generated coverage-catalogue reports: the only files the `reports` job may commit on fork.
+  # The generated reports: the only files the `reports` job may commit on fork. The census reads crates/ and
+  # becomes stale on any engine change, so it is regenerated here rather than checked on every pull request.
   REPORT_FILES: >-
     docs/fork/coverage/FEATURES.md
     docs/fork/coverage/tally-report.json
     docs/fork/coverage/tally.svg
+    docs/fork/COMPONENT-CENSUS.md
 
 jobs:
   # Pull requests that only change documentation or the fork's own files skip the builds (see the diff step). The gate below still runs and still requires everything else.
@@ -51,6 +53,7 @@ jobs:
     outputs:
       code: ${{ steps.diff.outputs.code }}
       native: ${{ steps.diff.outputs.native }}
+      census: ${{ steps.diff.outputs.census }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,7 +68,7 @@ jobs:
           set -euo pipefail
           # A push to the fork branch always runs the builds: it verifies the result and fills the caches.
           if [ "$EVENT" = push ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
-            { echo "code=true"; echo "native=true"; } >>"$GITHUB_OUTPUT"; echo "building (push, or no base to compare with)"; exit 0
+            { echo "code=true"; echo "native=true"; echo "census=false"; } >>"$GITHUB_OUTPUT"; echo "building (push, or no base to compare with)"; exit 0
           fi
           # On a pull request the Rust builds verify UPSTREAM's code. A change that only touches documentation or the fork's own
           # files (.fork/overlay-paths) cannot change that, so the builds are skipped. Files that steer the builds still count.
@@ -89,6 +92,11 @@ jobs:
           # The macOS job also checks fork-owned crates (fork-window, the facade): it runs unless only documentation changed.
           native = [f for f in diff("ACDMRT") if not docs.match(f)]
           print("native=" + ("true" if native else "false"))
+          # A pull request that changes the census tool or its declarations must carry a matching report.
+          # Other changes are regenerated on fork, so they do not fail on a stale generated file.
+          census_files = ("research/component-census/", "docs/fork/COMPONENT-CENSUS.md")
+          census = [f for f in diff("ACDMRT") if f.startswith(census_files[0]) or f == census_files[1]]
+          print("census=" + ("true" if census else "false"))
           ' >>"$GITHUB_OUTPUT"
 
   hygiene:
@@ -115,6 +123,7 @@ jobs:
   # the others.
   lint:
     name: Repository checks
+    needs: changes
     if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -141,13 +150,17 @@ jobs:
       - name: Extender move inventory
         if: ${{ !cancelled() }}
         run: python3 -I scripts/fork/extender_move_inventory.py --check
-      # The component census table is generated, not edited by hand: fail a pull request whose
-      # committed report is stale or missing (issue #943, task component-census).
-      - name: Component census
+      # The census tool's own tests run on every pull request and push. The report it writes is generated on
+      # fork by "Catalogue results" and committed by "Catalogue reports"; checking it on every pull request
+      # failed unrelated engine changes (#965), so the check is limited to the tool and its declarations.
+      - name: Census tool tests
         if: ${{ !cancelled() }}
         run: |
           rustup toolchain install
-          cargo run --locked --quiet --manifest-path research/component-census/Cargo.toml -- --check
+          cargo test --locked --manifest-path research/component-census/Cargo.toml
+      - name: Component census
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.census == 'true' }}
+        run: cargo run --locked --quiet --manifest-path research/component-census/Cargo.toml -- --check
       - name: Secrets
         if: ${{ !cancelled() }}
         run: mise exec -- task secrets
@@ -422,7 +435,8 @@ jobs:
   # holds: the covered (and tagged) count does not drop below the report of the commit before
   # (docs/fork/coverage/tally-report.json). On a push the step also renders the reports for the `reports` job.
   # Pull requests run only the components a change reaches, so their results would be partial: they keep the
-  # check without results in "Progress counts".
+  # check without results in "Progress counts". On a push the step also regenerates the component census from the
+  # tested commit, so an engine change cannot leave the generated report stale on fork.
   catalogue:
     name: Catalogue results
     needs: [changes, build, macos, linux-engine]
@@ -513,6 +527,13 @@ jobs:
           # Depth 2 (areas and groups): the items would add one row per engine function, about 15 MB per commit.
           "${tally[@]}" report "${args[@]}" --depth 2 --format json --out docs/fork/coverage/tally-report.json
           "${tally[@]}" report "${args[@]}" --depth 1 --format svg --out docs/fork/coverage/tally.svg
+          # Regenerate the census from this worktree's crates/ and declarations. The paths are explicit because
+          # CARGO_MANIFEST_DIR is baked into a cached binary; CARGO_TARGET_DIR is outside the worktree, so the
+          # only tracked change is the report the `reports` job commits with the others.
+          cargo run --locked --quiet --manifest-path research/component-census/Cargo.toml -- \
+            --root "$RUNNER_TEMP/render" \
+            --components "$RUNNER_TEMP/render/research/component-census/components.tsv" \
+            --out "$RUNNER_TEMP/render/docs/fork/COMPONENT-CENSUS.md"
           # Only the report files may change; anything else stops the run (target/ is ignored).
           # shellcheck disable=SC2086
           printf '%s\n' $REPORT_FILES >"$RUNNER_TEMP/allowed"
@@ -531,7 +552,12 @@ jobs:
         if: ${{ !cancelled() && steps.catalogue.outputs.reports == 'changed' }}
         with:
           name: report-files
-          path: ${{ runner.temp }}/render/docs/fork/coverage/
+          # Both paths are relative to their common root (docs/fork/) in the artifact: the coverage
+          # files keep their `coverage/` prefix and the census sits beside that folder. The reports
+          # job strips `docs/fork/` when copying the files back (see `${f#docs/fork/}` below).
+          path: |
+            ${{ runner.temp }}/render/docs/fork/coverage/
+            ${{ runner.temp }}/render/docs/fork/COMPONENT-CENSUS.md
           retention-days: 3
 
   pipeline-complete:
@@ -583,9 +609,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/fork/pipeline_summary.py --run "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --exclude "Pipeline Complete" >>"$GITHUB_STEP_SUMMARY"
 
-  # On a push to fork, the coverage-catalogue reports rendered by "Catalogue results" go onto fork as one commit of those
-  # files only, marked with the skip-ci marker, when one changed and every job passed. This job runs no code of the
-  # repository: a fresh checkout, the rendered files copied in, a commit and a push with the token of raul-progress-bot
+  # On a push to fork, the coverage-catalogue reports and the component census rendered by "Catalogue results" go onto
+  # fork as one commit of generated files only, marked with the skip-ci marker, when one changed and every job passed.
+  # This job runs no repository code: a fresh checkout, the rendered files copied in, a commit and a push with the
+  # token of raul-progress-bot
   # (contents write, metadata read; the bypass actor of the ruleset "Fork line"; scripts/fork/setup-progress-bot.py).
   # Git hooks are off for that commit and push. Without the App's variable and secret nothing is pushed.
   reports:
@@ -650,9 +677,12 @@ jobs:
             "${git[@]}" checkout --quiet --detach "$head"
           fi
           mkdir -p docs/fork/coverage
-          # upload-artifact stores the files relative to their folder, so docs/fork/coverage/tally.svg is tally.svg there.
+          # upload-artifact stored both paths relative to docs/fork/, so ${f#docs/fork/} names every
+          # file in the artifact, including COMPONENT-CENSUS.md. Refuse an empty file rather than
+          # committing a report that would blank the one already on fork.
           for f in $REPORT_FILES; do
-            cp "$RUNNER_TEMP/report-files/${f#docs/fork/coverage/}" "$f"
+            cp "$RUNNER_TEMP/report-files/${f#docs/fork/}" "$f"
+            test -s "$f" || { echo "::error title=Catalogue::empty report $f"; exit 1; }
           done
           # shellcheck disable=SC2086
           "${git[@]}" add -- $REPORT_FILES

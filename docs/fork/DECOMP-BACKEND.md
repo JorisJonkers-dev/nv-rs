@@ -2,7 +2,7 @@
 
 `scripts/fork/decomp_backend.py` builds the public `momusdigital/fnv_decomp`
 checkout into a native library on the machine that runs the engine (nv-rs#926,
-ADR-0020). Nothing it reads from the decomp or writes as output enters the
+nv-rs#929, ADR-0020). Nothing it reads from the decomp or writes as output enters the
 repository, a test fixture, a package or a release. The output folder
 `.decomp-backend/` is git-ignored, and `hygiene` refuses built artefacts that
 are visible to git.
@@ -10,7 +10,7 @@ are visible to git.
 ## Commands
 
 ```sh
-nix shell nixpkgs#clang_19 nixpkgs#lld_19 nixpkgs#wabt nixpkgs#stdenv.cc -c \
+nix shell nixpkgs#clang_19 nixpkgs#lld_19 nixpkgs#wabt -c \
   python3 scripts/fork/decomp_backend.py build \
     --decomp ~/Projects/momusdigital/fnv_decomp \
     --unit third_party/zlib-1.2.1/adler32.c \
@@ -25,27 +25,44 @@ spellings become `__SIZE_TYPE__`, and every named enum is given `: int`. It
 then compiles each selected unit for wasm32 with `-mms-bitfields -fshort-wchar`,
 `-fPIC` and `-flto`, links with `wasm-ld` using imported memory and table and a
 4 GiB maximum, converts the module with `wasm2c`, and compiles the generated C
-with the local C compiler into `libfnv_decomp.so`.
+with the local C compiler. The library is `libfnv_decomp.so` on Linux,
+`libfnv_decomp.dylib` on macOS and `fnv_decomp.dll` on Windows.
 
-The library's linear memory is the guest reservation: `decomp_init` reserves
-twice the guest size as `PROT_NONE` and makes the first half readable and
-writable, leaving the second half as an unmapped guard region, or accepts a
-guest mapping supplied by the host. The function table is host-owned, has
+The library's linear memory is the guest reservation: `decomp_init` reserves 8 GiB
+with guard pages and makes the first 4 GiB readable and writable, or accepts a
+guest mapping supplied by the host. POSIX hosts use `mmap` and `mprotect`; Windows
+reserves the range and commits its first half with `VirtualAlloc`. The function table is host-owned, has
 16,777,216 entries and is indexed by the original address; each compiled
-export is entered at the address recorded in `build/units.json`, and an address
-outside the table is an error. Calls to imports go through
-`decomp_set_import_hook` to the engine's by-address dispatch. GOT.mem globals
-are filled in the order listed in `manifest.json` from the original addresses
-in the unit symbol tables; an unresolved symbol is reported and stops the
-build rather than binding the global to zero. Units that fail to compile are
-reported with the compiler's error and are not linked; a unit whose object
-alone breaks the link is reported the same way. They stay on their Rust
-translations. `--out` must be an ignored folder: the tool refuses to write
-into the decomp checkout or an unignored git work tree.
+export is entered at the address recorded in `build/units.json`. Calls to
+imports go through `decomp_set_import_hook` to the engine's by-address
+dispatch. GOT.mem globals are filled in the order listed in `manifest.json`
+from the original addresses in the unit symbol tables. Units that fail to
+compile are reported with the compiler's error and are not linked; they stay
+on their Rust translations.
 
-The native build and the memory mapping are Linux x86-64 only, as scoped by
-nv-rs#926; the record-layout check runs under clang's i686-MSVC target on any
-host that has the toolchain.
+## Function addresses taken in the module
+
+A callback or vtable slot filled in the decomp holds a function pointer. With
+position-independent wasm that pointer is an index into the element table
+(`__table_base + i`), not the game's address. Before `wasm2c` runs, `build`
+converts the module to WAT with `wasm2wat` and rewrites each address-of
+expression to the function's original address from `build/units.json`. The
+rewritten module is assembled again with `wat2wasm`. The value a guest vtable
+or stored callback holds is then the original address, which indexes the
+host-owned table directly; no second mapping is needed when it is called.
+`GOT.func` imports, used when the address is of a function outside the module,
+get their original addresses through the same symbol table. The number of
+addresses bound is written to `report.json` as `bound_function_addresses`, and
+the GOT.func values as `got_func_values`.
+
+`decomp_call_*` wrappers catch a trap instead of letting it unwind into the
+caller. `decomp_last_trap_code`, `decomp_last_trap_reason` and
+`decomp_clear_trap` report the trap; `decomp_table_has` says whether an address
+has a function behind it. Calling through an address with nothing behind it
+therefore returns to the caller with a `call_indirect` trap recorded, and
+`verify` reports the trap and its reason as a mismatch instead of stopping.
+The trap state and wasm2c's jump buffer are process-global: call the library
+from one thread at a time.
 
 `report.json` and `report.md` in the output folder list every compiled unit
 and every skipped unit with its reason. `manifest.json` lists the callable
@@ -61,28 +78,77 @@ python3 scripts/fork/decomp_backend.py layout \
 wasm32 with the same two flags, normalises the vtable and anonymous-member
 spellings, and compares every record both targets lay out, including its
 offsets, size and alignment. It writes `layout.json` and exits 1 on any
-difference or when no unit could be compared. Units that compile on only one
-target are listed as skipped.
+difference. Units that compile on only one target are listed as skipped.
 
 `verify --library ... --manifest ... --vectors ...` calls exports through the
 library and compares their return values with results produced by the
 translations; the vectors may be a JSON array or JSON lines. `hygiene --root .`
 lists built artefacts visible to git and exits 1 when there are any.
 
+## Hosts and the toolchain cache
+
+The build runs on Linux and macOS on x86-64 and aarch64, and on Windows. The
+host only decides the library name, the native link flags and how guest memory
+is reserved; the two layout flags, the i686 guest defines and the address table
+are the same on every host.
+
+`find_toolchain` looks for clang, wasm-ld, wasm2c, wasm2wat and wat2wasm on PATH,
+then in a per-user cache outside the repository, and fetches them once when they
+are missing. The cache is `<XDG_CACHE_HOME>/nv-rs/backend/toolchain` on Linux and
+macOS (`~/.cache/nv-rs/backend/toolchain` when `XDG_CACHE_HOME` is unset; macOS
+does not use `~/Library/Caches` here) and
+`<LOCALAPPDATA>\nv-rs\cache\backend\toolchain` on Windows; `NV_TOOLCHAIN_CACHE`
+replaces that location. It holds one stamped folder per host and toolchain
+version; the binaries and the wasm2c runtime files are checked on every use, so
+a second run does not fetch while a broken cache is fetched again. A cached host
+supplies the whole tool set: PATH tools are not mixed with a cached wabt.
+`NV_TOOLCHAIN_URL` sets the base URL of the clang and wabt archives; the
+launcher supplies it on first run (rauls-trusty-toolbox#635). No release is
+published at the default URL yet, so fetching needs both a published archive
+and SHA-256 pins in `NV_TOOLCHAIN_SHA256` (JSON with a `clang` and a `wabt`
+key, or the `NV_TOOLCHAIN_SHA256_CLANG` and `NV_TOOLCHAIN_SHA256_WABT`
+variables). An unpinned or mismatched archive is refused before it is unpacked,
+and archive members may not write outside the cache folder. Explicit
+`NV_CLANG`, `NV_WASM_LD`, `NV_WASM2C`, `NV_WABT_WASM_WAT` and
+`NV_WABT_WAT_WASM` paths win over both PATH and the cache and need no fetch.
+
+When no toolchain is available, `build` stops with that reason: the native
+fallback is a different module and is never substituted silently. `--offline`
+blocks fetching. `--cranelift` takes the native fallback explicitly: it
+compiles the same selected units for the host with the host C compiler (a
+`compiler` can be injected by a caller; no Cranelift compiler is part of this
+tool); it keeps the `decomp_init`, `decomp_memory_base` and `decomp_call_*` ABI,
+the same report and the same manifest shape. Its `manifest.json` lists the
+decomp's symbol names and their addresses in `globals`/`global_values`, because
+native code binds symbols at link time and has no wasm GOT slots to fill. Units
+whose signature is not in `build/units.json` are skipped and stay on their
+translations. The fallback's exports are registered at their original
+addresses in its table, but it does not run the wasm module's address-indexed
+guest code, so it is for machines where that module cannot be built.
+
+Without a built backend nothing loads and the engine's differential harness
+runs without a reference peer, as before. `load_library` returns `None` for a
+missing library and `verify` reports the missing backend instead of failing the
+caller.
+
 ## Tests
 
 `scripts/fork/tests/test_decomp_backend.py` builds every input from scratch.
-It checks the two rewrites, the report, the layout comparison and hygiene
-without a toolchain. Setting `NV_BACKEND_TOOLCHAIN_TEST=1` inside the nix shell
-adds a test that compiles a synthetic two-unit checkout into a library and
-calls its pure functions through an import hook, an `f32` argument and a
-GOT.mem global bound to its original address.
+It checks the two rewrites, the address rewrite, the GOT.func and trap
+accessors in the generated shim, the report, the layout comparison and hygiene
+without a toolchain. Fakes cover each supported host's library name and guest
+reservation, a toolchain fetched once and reused from the cache, a blocked
+fetch that reports why no wasm module was built, and an explicitly requested
+native fallback that produces a working module. Setting
+`NV_BACKEND_TOOLCHAIN_TEST=1` inside the nix shell adds a test that compiles a
+synthetic two-unit checkout into a library, calls its pure functions, takes a
+function address inside it, calls through the stored address and calls an
+empty address to check that the trap is reported.
 
-Clang, lld, wabt and the C compiler come from `nix shell nixpkgs#clang_19
-nixpkgs#lld_19 nixpkgs#wabt nixpkgs#stdenv.cc`. The tool finds mingw-w64 headers
-and libc++ through its standard nix store paths; `NV_MINGW_INCLUDE`,
-`NV_LIBCXX_INCLUDE`, `NV_CLANG`, `NV_WASM_LD`, `NV_WASM2C`, `NV_CC`, `NV_CXX`
-and `NV_WABT_SHARE` override the discovery. Set `NV_WASM2C` when `wasm2c` is
-not on PATH: `find_toolchain()` otherwise falls back to the bare name and
-fails at conversion time, and the first nix store include path it globs is not
-necessarily wabt's.
+Clang, lld and wabt come from `nix shell nixpkgs#clang_19 nixpkgs#lld_19
+nixpkgs#wabt`. The tool finds mingw-w64 headers and libc++ through its standard
+nix store paths; `NV_MINGW_INCLUDE`, `NV_LIBCXX_INCLUDE`, `NV_CLANG`,
+`NV_WASM_LD`, `NV_WASM2C`, `NV_CC`, `NV_CXX`, `NV_WABT_SHARE`,
+`NV_WABT_WASM_WAT`, `NV_WABT_WAT_WASM`, `NV_TOOLCHAIN_CACHE`,
+`NV_TOOLCHAIN_TIMEOUT` and `NV_TOOLCHAIN_URL` override the discovery and cache;
+`NV_TOOLCHAIN_SHA256` supplies the archive pins a fetch requires.

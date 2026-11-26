@@ -639,8 +639,6 @@ struct Gen<'a> {
     /// The variant is a character's own lit draw (its vertex shader skinned): the characters'
     /// layers allow it more ([`crate::sun_shadow::SKIN_RECEIVER_BIAS`]).
     skinned: bool,
-    /// A shader override's WGSL ([`convert_replaced`]): its `nv_main()` in place of the body.
-    replace: Option<&'a str>,
 }
 
 /// The register of the sun's light colour in a lit pixel shader of the game: `PSLightColor`'s first
@@ -729,7 +727,7 @@ pub fn convert_with_sun(
     } else {
         None
     };
-    convert_inner(p, link, Some(sun), blank, skinned, None)
+    convert_inner(p, link, Some(sun), blank, skinned)
 }
 
 /// The sampler of the game's own projected actor shadows in a lit pixel shader (`ShadowMap`, s6 in
@@ -747,20 +745,7 @@ pub fn game_shadow_sampler(p: &Program) -> Option<u32> {
 
 /// Converts a shader to WGSL, linked as `link` says.
 pub fn convert(p: &Program, link: &Link) -> Result<String, Error> {
-    convert_inner(p, link, None, None, false, None)
-}
-
-/// A pixel shader's module with a shader override's WGSL (`crate::shader_override`) in place of
-/// its converted body: the same bindings, inputs, outputs and steps after the body, with
-/// `nv_frag` (the pixel's position), `nv_c(n)` (the float constant `c<n>`), the override's
-/// declarations (`crate::shader_override::DECLARATIONS`: bind group 3) and then `source`, whose
-/// `fn nv_main()` the module calls in place of the body. None of the shader's instructions are
-/// converted. An error for a vertex shader.
-pub fn convert_replaced(p: &Program, link: &Link, source: &str) -> Result<String, Error> {
-    if p.stage != Stage::Pixel {
-        return Err(Error::Unsupported("a vertex shader override".into()));
-    }
-    convert_inner(p, link, None, None, false, Some(source))
+    convert_inner(p, link, None, None, false)
 }
 
 fn convert_inner(
@@ -769,7 +754,6 @@ fn convert_inner(
     sun: Option<u32>,
     blank: Option<u32>,
     skinned: bool,
-    replace: Option<&str>,
 ) -> Result<String, Error> {
     if p.stage == Stage::Pixel && p.major < 2 {
         return Err(Error::Unsupported(format!("{} pixel shaders", p.profile())));
@@ -831,7 +815,6 @@ fn convert_inner(
         in_highlight: false,
         blank,
         skinned,
-        replace,
     };
     for ins in &p.ins {
         match ins.op {
@@ -1018,57 +1001,6 @@ impl Gen<'_> {
                 "fn cr(i: i32) -> vec4<f32> {{\n    if (i < 0 || i > 255) {{ return vec4<f32>(0.0); }}\n    return {};\n}}\n",
                 const_read(self.link, "i")
             );
-        }
-        // A shader override: its own program in place of the body (none of the instructions).
-        if let Some(source) = self.replace {
-            let _ = write!(
-                self.out,
-                "var<private> nv_frag: vec4<f32>;\nvar<private> nv_texcoord: array<vec4<f32>, 8>;\nvar<private> nv_color: array<vec4<f32>, 2>;\nfn nv_c(i: i32) -> vec4<f32> {{\n    if (i < 0 || i > 255) {{ return vec4<f32>(0.0); }}\n    return {};\n}}\n",
-                const_read(self.link, "i")
-            );
-            // The shader's constant table by name: each float constant's first register, each
-            // 2D sampler it declares sampled as its own texld would be (the fill mode and the
-            // sampler's bias from the uniform block).
-            for c in &self.p.constants {
-                if c.name.is_empty()
-                    || !c
-                        .name
-                        .chars()
-                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-                {
-                    continue;
-                }
-                let n = u32::from(c.index);
-                match c.set {
-                    2 => {
-                        let _ = writeln!(
-                            self.out,
-                            "fn nv_const_{}() -> vec4<f32> {{ return nv_c({n}); }}",
-                            c.name
-                        );
-                    }
-                    3 if self
-                        .sig
-                        .samplers
-                        .iter()
-                        .any(|&(s, d)| s == n && d == Dim::D2) =>
-                    {
-                        let bias = format!("{}[{}]", regs_read(self.link, "bias", n / 4), n % 4);
-                        let fix = format!("{}[{}]", regs_read(self.link, "fix", n / 4), n % 4);
-                        let _ = writeln!(
-                            self.out,
-                            "fn nv_sample_{}(uv: vec2<f32>) -> vec4<f32> {{ return fixup(textureSampleBias(t{n}, s{n}, uv, {bias}), {fix}); }}",
-                            c.name
-                        );
-                    }
-                    _ => {}
-                }
-            }
-            self.out.push_str(crate::shader_override::DECLARATIONS);
-            self.out.push_str(source);
-            self.out.push_str("\nfn body() {\n    nv_main();\n}\n");
-            self.pixel_entry();
-            return Ok(());
         }
         // The body: the main program, then each subroutine.
         let ins = &self.p.ins;
@@ -1305,18 +1237,6 @@ impl Gen<'_> {
         }
         if self.sig.face {
             s.push_str("    vface = vec4<f32>(select(-1.0, 1.0, input.front));\n");
-        }
-        if self.replace.is_some() {
-            s.push_str("    nv_frag = input.frag;\n");
-            // The override's inputs by meaning (whatever registers the shader put them in).
-            for (l, v) in self.link.varyings.iter().enumerate() {
-                let slot = match v.usage {
-                    usage::TEXCOORD if v.index < 8 => "nv_texcoord",
-                    usage::COLOR if v.index < 2 => "nv_color",
-                    _ => continue,
-                };
-                let _ = writeln!(s, "    {slot}[{}] = input.l{l};", v.index);
-            }
         }
         // The sun shadows' variant: the sun's visibility at this pixel, before the body reads
         // the sun's light colour (in uniform control flow: the lookup takes derivatives).
