@@ -330,7 +330,7 @@ mod tests {
     /// A thread's own clock against the wall, where the system tells it: a busy stretch is (nearly) all on the
     /// processor and never more, a sleeping one nearly none, so the two clocks are in one unit. A busy stretch is cut
     /// into short slices so a scheduler preemption costs at most one slice: an uninterrupted slice still tells the
-    /// rates apart on a loaded machine (the best of five stretches counts).
+    /// rates apart on a loaded machine (the best slice of each of five stretches counts).
     #[test]
     fn a_thread_s_own_clock_tells_working_from_sleeping() {
         if own_clock().is_none() {
