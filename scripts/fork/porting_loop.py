@@ -6,8 +6,9 @@ The loop takes no hand-written work list. It reads the queue command of the ledg
 (scripts/ledger), gives each family its own git worktree, runs a configured worker
 there, runs that family's Diff cases through the build daemon's family lab, asks a
 configured reviewer, and prepares one pull request per batch. A shakedown batch is
-thrown away unmerged and records what it showed in the rulebook. A weekly report
-counts delivered verified functions per day from the queue and the delivery log.
+thrown away unmerged and commits what it showed to the rulebook. A weekly report
+counts delivered verified functions per day from the queue and the committed
+delivery log.
 
 Workers and reviewers are commands from NV_PORT_WORKER and NV_PORT_REVIEW: no
 service is built into this tool. Both must be set, so a batch cannot pass without
@@ -29,12 +30,17 @@ import re
 import shlex
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
+# REPO is resolved from this script's location: a copy of the script outside the
+# checkout would read the wrong queue, rulebook and delivery log. Run it in place.
 FORK = Path(__file__).resolve().parent
 REPO = FORK.parent.parent
 LEDGER = FORK.parent / "ledger" / "Cargo.toml"
-RULEBOOK = REPO / "docs" / "fork" / "PORTING-RULEBOOK.md"
+DELIVERIES = Path("docs") / "fork" / "porting-batches" / "delivered.jsonl"
+BASE = "fork"  # every worktree starts at the protected branch, never the caller's HEAD
+CLAIM_AGE = 3600  # seconds; override with NV_PORT_CLAIM_AGE
 START = "<!-- shakedown:start -->"
 END = "<!-- shakedown:end -->"
 PASS = re.compile(r"test result: ok\. (\d+) passed; (\d+) failed")
@@ -71,23 +77,92 @@ def paths(root, name, family=None):
     return base / "worktrees" / name / slug(family)
 
 
-def claim(root, family, owner):
-    """Take a family exclusively; a second claimant gets None, on every system."""
-    directory = Path(root) / "target" / "porting-loop" / "claims"
+def claim_directory(root):
+    """One claim directory for every worktree of a clone.
+
+    Exclusive file creation is the lock on Windows, Linux and macOS. Keeping the
+    files in the common git directory makes worktrees of the same clone agree;
+    a checkout with no git metadata (a test tree) falls back to its target dir.
+    """
+    git = Path(root) / ".git"
+    common = None
+    if git.is_dir():
+        common = git
+    elif git.is_file():
+        try:
+            line = git.read_text(encoding="utf-8").strip()
+        except OSError:
+            line = ""
+        found = re.match(r"gitdir:\s*(.+)", line)
+        if found:
+            gitdir = Path(found.group(1).strip())
+            if not gitdir.is_absolute():
+                gitdir = (Path(root) / gitdir).resolve()
+            marker = gitdir / "commondir"
+            if marker.is_file():
+                try:
+                    common = (gitdir / marker.read_text(encoding="utf-8").strip()).resolve()
+                except OSError:
+                    common = None
+            else:
+                common = gitdir
+    if common is None:
+        return Path(root) / "target" / "porting-loop" / "claims"
+    return common / "porting-claims"
+
+
+def as_utc(value):
+    if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+        value = datetime.datetime.combine(value, datetime.time())
+    return value if value.tzinfo else value.replace(tzinfo=datetime.timezone.utc)
+
+
+def claim(root, family, owner, now=None, max_age=None):
+    """Take a family exclusively; reclaim a claim older than the configured age."""
+    directory = claim_directory(root)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (slug(family) + ".claim")
+    now = as_utc(now or datetime.datetime.now(datetime.timezone.utc))
+    age = datetime.timedelta(seconds=CLAIM_AGE if max_age is None else max_age)
+    for _ in range(2):
+        try:
+            handle = path.open("x", encoding="utf-8")
+        except FileExistsError:
+            taken = None
+            try:
+                fields = path.read_text(encoding="utf-8").strip().split("\t")
+                if len(fields) >= 2:
+                    taken = as_utc(datetime.datetime.fromisoformat(fields[1]))
+            except (OSError, ValueError):
+                taken = None
+            if taken is not None and now - taken <= age:
+                return None
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                # A Windows process still holding the file keeps the claim.
+                return None
+            continue
+        with handle:
+            handle.write(f"{owner}\t{now.isoformat()}\t{os.getpid()}\n")
+        return path
+    return None
+
+
+def claim_time(root, family):
+    """The timestamp an existing claim was taken, if it can be read."""
+    path = claim_directory(root) / (slug(family) + ".claim")
     try:
-        handle = path.open("x", encoding="utf-8")
-    except FileExistsError:
+        fields = path.read_text(encoding="utf-8").strip().split("\t")
+        if len(fields) >= 2:
+            return as_utc(datetime.datetime.fromisoformat(fields[1]))
+    except (OSError, ValueError):
         return None
-    with handle:
-        handle.write(owner + "\n")
-    return path
+    return None
 
 
 def release(root, family):
-    path = Path(root) / "target" / "porting-loop" / "claims" / (slug(family) + ".claim")
-    path.unlink(missing_ok=True)
+    (claim_directory(root) / (slug(family) + ".claim")).unlink(missing_ok=True)
 
 
 def parse_queue(text):
@@ -135,17 +210,28 @@ def diff_counts(text):
 
 
 def failure_classes(root, addresses):
-    """The ledger's recorded classes for these functions, counted by kind."""
+    """The ledger's recorded classes for these functions, counted by kind.
+
+    The column is taken from the evidence file's own header, so a change to the
+    ledger's format cannot silently turn failure classes into backend numbers.
+    """
     path = Path(root) / "scripts" / "ledger" / "function_evidence.tsv"
-    counts = {}
     if not path.is_file():
-        return counts
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        fields = line.split("\t")
-        if len(fields) >= 3 and fields[0] in addresses and fields[2]:
-            counts[fields[2]] = counts.get(fields[2], 0) + 1
+        return {}
+    lines = path.read_text(encoding="utf-8").splitlines()
+    data = [line.split("\t") for line in lines
+            if line.strip() and not line.lstrip().startswith("#")]
+    if not data:
+        return {}
+    try:
+        column = data[0].index("failure_class")
+    except ValueError:
+        column = 2  # the ledger's current third column
+    counts = {}
+    for fields in data[1:]:
+        if len(fields) > column and fields[0] in addresses and fields[column]:
+            kind = fields[column]
+            counts[kind] = counts.get(kind, 0) + 1
     return counts
 
 
@@ -169,8 +255,18 @@ def configured(env, key):
     return shlex.split(value, posix=os.name != "nt")
 
 
+def claim_age(env):
+    try:
+        seconds = int(env.get("NV_PORT_CLAIM_AGE", str(CLAIM_AGE)))
+    except ValueError as exc:
+        raise ValueError("NV_PORT_CLAIM_AGE must be a number of seconds") from exc
+    if seconds <= 0:
+        raise ValueError("NV_PORT_CLAIM_AGE must be a positive number of seconds")
+    return seconds
+
+
 def pr_body(name, report):
-    """One pull request's evidence: totals, per-family counts and failure classes."""
+    """One pull request's evidence: totals, counts, classes and skipped families."""
     totals = {"passed": 0, "failed": 0}
     for family in report["families"]:
         totals["passed"] += family["passed"]
@@ -186,6 +282,12 @@ def pr_body(name, report):
     lines += [f"- {kind}: {count}" for kind, count in sorted(report["classes"].items())]
     if not report["classes"]:
         lines.append("- none recorded")
+    for title, key in (("Rejected families", "rejected"), ("Skipped families", "skipped")):
+        if report.get(key):
+            lines += ["", f"## {title}", ""]
+            lines += [f"- {item}" for item in report[key]]
+    if report.get("stale"):
+        lines += ["", "- Claims reclaimed after expiry: " + ", ".join(report["stale"])]
     lines += ["", "The checker hash and the review result are recorded in the batch report.", ""]
     return "\n".join(lines)
 
@@ -201,6 +303,36 @@ def report_text(name, report):
         "",
         pr_body(name, report),
     ]
+    return "\n".join(lines)
+
+
+def shakedown_section(name, report):
+    """Rules written from this batch's evidence, not generic prose."""
+    lines = [
+        f"### Shakedown {name} ({report['status']})", "",
+        f"- Functions offered: {report['functions']}",
+        f"- Families accepted: {len(report['families'])}",
+        f"- Diff cases passed: {sum(f['passed'] for f in report['families'])}",
+        f"- Diff cases failed: {sum(f['failed'] for f in report['families'])}",
+        "- Failure classes: " + (", ".join(
+            f"{kind} {count}" for kind, count in sorted(report["classes"].items())
+        ) or "none recorded"),
+    ]
+    for kind, count in sorted(report["classes"].items()):
+        lines.append(f"- Rule: triage {kind} in later batches; this shakedown showed {count}.")
+    failed = sum(f["failed"] for f in report["families"])
+    if failed:
+        lines.append(
+            f"- Rule: a family with failing Diff cases is not accepted until the {failed} "
+            "failures seen here are triaged."
+        )
+    if report.get("rejected"):
+        lines.append(
+            f"- Rule: a family needs a passing worker, lab and review before it is accepted; "
+            f"{len(report['rejected'])} were rejected here."
+        )
+    lines.append("- Rule: a batch is accepted only with a passing review and an unchanged checker.")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -234,8 +366,13 @@ def batch_record(root, name):
     return json.loads((paths(root, name) / (name + ".json")).read_text(encoding="utf-8"))
 
 
+def delivery_path(root):
+    """The delivery log is a repository artefact, not a file under ignored target/."""
+    return Path(root) / DELIVERIES
+
+
 def record_delivery(root, date, name, address, family):
-    path = Path(root) / "target" / "porting-loop" / "delivered.jsonl"
+    path = delivery_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({
@@ -244,10 +381,20 @@ def record_delivery(root, date, name, address, family):
 
 
 def deliveries(root):
-    path = Path(root) / "target" / "porting-loop" / "delivered.jsonl"
+    path = delivery_path(root)
     if not path.is_file():
         return []
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def record_verified_deliveries(root, name, date, families, verified):
+    """Record a delivery only for addresses the queue already shows as verified."""
+    known = {record["address"] for record in deliveries(root)}
+    for family, addresses in families:
+        for address in addresses:
+            if address in verified and address not in known:
+                record_delivery(root, date.isoformat(), name, address, family)
+                known.add(address)
 
 
 def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
@@ -260,6 +407,10 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
     try:
         worker = configured(env, "NV_PORT_WORKER")
         reviewer = configured(env, "NV_PORT_REVIEW")
+        age = claim_age(env)
+        if shakedown and not env.get("NV_PORT_CLOSE", "").strip():
+            raise ValueError("NV_PORT_CLOSE must name a command to close a shakedown")
+        close = configured(env, "NV_PORT_CLOSE") if shakedown else None
     except ValueError as exc:
         print(f"failed: {exc}", file=sys.stderr)
         return 2
@@ -268,25 +419,61 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
         print(f"failed: {why}", file=sys.stderr)
         return 1
     try:
-        rows = [r for r in queue(root, env, call)
-                if r["done"] == "no" and r["state"] != "retired"][:count]
+        all_rows = queue(root, env, call)
     except (RuntimeError, ValueError) as exc:
         print(f"failed: {exc}", file=sys.stderr)
         return 1
+    verified = {r["address"] for r in all_rows if r["state"] == "reference-verified"}
     groups = {}
-    for row in rows:
-        groups.setdefault(row["family"], []).append(row)
+    for row in all_rows:
+        if row["done"] == "no" and row["state"] != "retired":
+            groups.setdefault(row["family"], []).append(row)
+    # A batch takes whole families: the queue keeps siblings together on purpose.
+    selected, offered = {}, 0
+    for family, family_rows in groups.items():
+        if offered >= count:
+            break
+        selected[family] = family_rows
+        offered += len(family_rows)
+    rows = [row for family_rows in selected.values() for row in family_rows]
 
+    token = uuid.uuid4().hex[:8]
+    batch_branch = f"porting/{slug(name)}-{token}"
     accepted, created, owned = [], [], []
+    skipped, stale, rejected = [], [], []
+    success = False
+
+    def make_report(status):
+        return {
+            "status": status,
+            "functions": len(rows),
+            "families": [{k: f[k] for k in ("family", "passed", "failed", "review")}
+                         for f in accepted],
+            "classes": failure_classes(root, {r["address"] for r in rows}),
+            "checker": checker_hash(root),
+            "skipped": list(skipped), "stale": list(stale),
+            "rejected": list(rejected), "branch": batch_branch,
+        }
+
+    def fail(message):
+        write_json(root, name, make_report("failed"))
+        print(f"failed: {message}", file=sys.stderr)
+        return 1
+
     try:
-        for family, family_rows in groups.items():
-            held = claim(root, family, name)
+        for family, family_rows in selected.items():
+            previous = claim_time(root, family)
+            held = claim(root, family, name, max_age=age)
             if held is None:
+                skipped.append(family)
                 print(f"skip {family}: another worker holds the claim", file=sys.stderr)
                 continue
             owned.append(held)
+            now = as_utc(datetime.datetime.now(datetime.timezone.utc))
+            if previous is not None and (now - previous).total_seconds() > age:
+                stale.append(family)
             worktree = paths(root, name, family)
-            branch = f"porting/{slug(name)}-{slug(family)}"
+            branch = f"porting/{slug(name)}-{token}-{slug(family)}"
             logdir = paths(root, name) / "logs"
             queue_file = paths(root, name) / (slug(family) + ".tsv")
             queue_file.parent.mkdir(parents=True, exist_ok=True)
@@ -298,134 +485,168 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                 encoding="utf-8",
             )
             child = family_env(env, family_rows, name, worktree, queue_file, shakedown)
-            code, _ = call(["git", "worktree", "add", "-b", branch, str(worktree), "HEAD"],
-                           cwd=root, env=env)
+            code, output = call(["git", "worktree", "add", "-b", branch, str(worktree), BASE],
+                                cwd=root, env=env)
             if code:
-                continue
+                return fail(f"worktree add for {family}: {output.strip()}")
             created.append((worktree, branch))
             code, _ = call(worker, cwd=worktree, env=child,
                            log=logdir / (slug(family) + ".worker.log"))
             if code:
-                print(f"failed: worker for {family} exited {code}", file=sys.stderr)
+                rejected.append(f"{family}: worker exited {code}")
                 continue
             # family_lab.py sends its cargo arguments to the build daemon itself.
-            code, output = call(
+            lab_code, output = call(
                 [sys.executable, str(worktree / "scripts" / "fork" / "family_lab.py"),
                  "run", family],
                 cwd=worktree, env=child, log=logdir / (slug(family) + ".diff.log"),
             )
             counts = diff_counts(output)
-            code, _ = call(reviewer, cwd=worktree, env=child,
-                           log=logdir / (slug(family) + ".review.log"))
-            review = "accepted" if code == 0 else "rejected"
+            if lab_code or counts["failed"]:
+                rejected.append(
+                    f"{family}: Diff exited {lab_code} with {counts['failed']} failing cases"
+                )
+                continue
+            review_code, _ = call(reviewer, cwd=worktree, env=child,
+                                  log=logdir / (slug(family) + ".review.log"))
+            review = "accepted" if review_code == 0 else "rejected"
             ok, why = private_integrity.check(worktree)
             if not ok:
-                print(f"failed: {family}: {why}", file=sys.stderr)
-                return 1
+                return fail(f"{family}: {why}")
             if review == "accepted":
                 accepted.append({
                     "family": family, "branch": branch, "worktree": worktree,
                     "addresses": [r["address"] for r in family_rows],
-                    **counts, "review": review,
+                    "passed": counts["passed"], "failed": counts["failed"],
+                    "lab_exit": lab_code, "review": review,
                 })
+            else:
+                rejected.append(f"{family}: review exited {review_code}")
 
-        report = {
-            "status": "closed unmerged" if shakedown else "open",
-            "functions": len(rows),
-            "families": [{k: f[k] for k in ("family", "passed", "failed", "review")} for f in accepted],
-            "classes": failure_classes(root, {r["address"] for r in rows}),
-            "checker": checker_hash(root),
-        }
+        report = make_report("closed unmerged" if shakedown else "open")
         write_json(root, name, report)
 
         if shakedown:
-            lines = [
-                f"### Shakedown {name} (closed unmerged)", "",
-                f"- Functions offered: {report['functions']}",
-                f"- Families accepted: {len(accepted)}",
-                f"- Diff cases passed: {sum(f['passed'] for f in accepted)}",
-                f"- Diff cases failed: {sum(f['failed'] for f in accepted)}",
-                "- Failure classes: " + (", ".join(
-                    f"{kind} {count}" for kind, count in sorted(report["classes"].items())
-                ) or "none recorded"),
-                "- Rule: every class seen here is a required triage class in later batches.",
-                "- Rule: a batch is accepted only with a passing review and an unchanged checker.",
-                "",
-            ]
-            rulebook = RULEBOOK if root == REPO else root / "docs" / "fork" / "PORTING-RULEBOOK.md"
-            update_rulebook(rulebook, "\n".join(lines))
-            close = env.get("NV_PORT_CLOSE", "").strip()
-            if close:
-                code, _ = call(shlex.split(close, posix=os.name != "nt") + [
-                    "--batch", name, "--reason", "shakedown closed unmerged; rulebook updated",
-                ], cwd=root, env=env)
-                if code:
-                    print(f"failed: shakedown close command exited {code}", file=sys.stderr)
-                    return 1
+            rule_wt = paths(root, name) / "rulebook"
+            rule_branch = f"porting/shakedown/{slug(name)}-{token}"
+            code, output = call(["git", "worktree", "add", "-b", rule_branch,
+                                 str(rule_wt), BASE], cwd=root, env=env)
+            if code:
+                return fail(f"shakedown worktree add: {output.strip()}")
+            created.append((rule_wt, rule_branch))
+            rulebook = rule_wt / "docs" / "fork" / "PORTING-RULEBOOK.md"
+            update_rulebook(rulebook, shakedown_section(name, report))
+            call(["git", "add", "--", str(rulebook.relative_to(rule_wt))],
+                 cwd=rule_wt, env=env)
+            code, output = call(["git", "commit", "-m",
+                                 f"docs(fork): rules learned from shakedown {name}"],
+                                cwd=rule_wt, env=env)
+            if code:
+                return fail(f"commit of the shakedown rulebook: {output.strip()}")
+            code, output = call(close + [
+                "--batch", name, "--reason", "shakedown closed unmerged; rulebook updated",
+            ], cwd=root, env=env)
+            if code:
+                return fail(f"shakedown close command exited {code}: {output.strip()}")
         elif accepted:
             batch_wt = paths(root, name) / "branch"
-            code, _ = call(["git", "worktree", "add", "-b", f"porting/{slug(name)}",
-                            str(batch_wt), "HEAD"], cwd=root, env=env)
+            code, output = call(["git", "worktree", "add", "-b", batch_branch,
+                                 str(batch_wt), BASE], cwd=root, env=env)
             if code:
-                return 1
+                return fail(f"batch worktree add: {output.strip()}")
+            created.append((batch_wt, batch_branch))
             report_path = batch_wt / "docs" / "fork" / "PORTING-BATCHES" / f"{slug(name)}.md"
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.write_text(report_text(name, report), encoding="utf-8")
-            call(["git", "add", "--", str(report_path.relative_to(batch_wt))], cwd=batch_wt, env=env)
-            code, _ = call(["git", "commit", "-m", f"test(fork): porting batch {name} report"],
-                           cwd=batch_wt, env=env)
+            call(["git", "add", "--", str(report_path.relative_to(batch_wt))],
+                 cwd=batch_wt, env=env)
+            code, output = call(["git", "commit", "-m", f"test(fork): porting batch {name} report"],
+                                cwd=batch_wt, env=env)
             if code:
-                print(f"failed: commit of the batch report", file=sys.stderr)
-                return 1
+                return fail(f"commit of the batch report: {output.strip()}")
             for family in accepted:
-                code, _ = call(["git", "merge", "--no-ff", "-m",
-                                f"chore(fork): merge {family['family']} into batch {name}",
-                                family["branch"]], cwd=batch_wt, env=env)
+                code, output = call(["git", "merge", "--no-ff", "-m",
+                                     f"chore(fork): merge {family['family']} into batch {name}",
+                                     family["branch"]], cwd=batch_wt, env=env)
                 if code:
-                    print(f"failed: merge of {family['family']}", file=sys.stderr)
-                    return 1
+                    return fail(f"merge of {family['family']}: {output.strip()}")
             body = paths(root, name) / f"{slug(name)}.pr.md"
             body.parent.mkdir(parents=True, exist_ok=True)
             body.write_text(pr_body(name, report), encoding="utf-8")
             pr = env.get("NV_PORT_PR", "").strip()
             if pr:
-                code, _ = call(shlex.split(pr, posix=os.name != "nt") + [
+                code, output = call(["git", "push", "-u", "origin", batch_branch],
+                                    cwd=root, env=env)
+                if code:
+                    return fail(f"push of {batch_branch}: {output.strip()}")
+                code, output = call(shlex.split(pr, posix=os.name != "nt") + [
                     "--title", f"feat(engine): porting batch {name}", "--body", str(body),
-                    "--head", f"porting/{slug(name)}",
+                    "--head", batch_branch,
                 ], cwd=root, env=env)
                 if code:
-                    print(f"failed: pull request command exited {code}", file=sys.stderr)
-                    return 1
+                    return fail(f"pull request command exited {code}: {output.strip()}")
             else:
                 print(f"pull request body: {body}")
-            for family in accepted:
-                for address in family["addresses"]:
-                    record_delivery(root, today.isoformat(), name, address, family["family"])
+            record_verified_deliveries(
+                root, name, today,
+                [(f["family"], f["addresses"]) for f in accepted], verified,
+            )
+            delivery = delivery_path(root)
+            if delivery.is_file():
+                copy = batch_wt / DELIVERIES
+                copy.parent.mkdir(parents=True, exist_ok=True)
+                copy.write_text(delivery.read_text(encoding="utf-8"), encoding="utf-8")
+                call(["git", "add", "--", str(DELIVERIES)], cwd=batch_wt, env=env)
+                code, output = call(["git", "commit", "-m",
+                                     f"chore(fork): delivery log for batch {name}"],
+                                    cwd=batch_wt, env=env)
+                if code:
+                    return fail(f"commit of the delivery log: {output.strip()}")
+        success = True
         return 0
     finally:
-        for worktree, branch in created:
+        for worktree, _ in created:
             call(["git", "worktree", "remove", "--force", str(worktree)], cwd=root, env=env)
-            call(["git", "branch", "-D", branch], cwd=root, env=env)
+        if success:
+            # A failed batch keeps every accepted branch: earlier work is not lost.
+            for family in accepted:
+                call(["git", "branch", "-D", family["branch"]], cwd=root, env=env)
         for held in owned:
             Path(held).unlink(missing_ok=True)
 
 
 def weekly(root=REPO, days=7, env=None, today=None, out=None, call=call):
-    """Delivered verified functions per day, from the queue and the delivery log."""
+    """Delivered verified functions per day, from the queue and the committed log."""
     root = Path(root)
     today = today or datetime.date.today()
     env = dict(os.environ if env is None else env)
-    rows = queue(root, env, call)
+    try:
+        rows = queue(root, env, call)
+    except (RuntimeError, ValueError) as exc:
+        print(f"failed: {exc}", file=sys.stderr)
+        return 1
     verified = {r["address"] for r in rows if r["state"] == "reference-verified"}
-    first = today - datetime.timedelta(days=days)
+    first = today - datetime.timedelta(days=days - 1)
     counts = {}
-    for record in deliveries(root):
+    records = deliveries(root)
+    dropped = 0
+    for record in records:
+        address = record.get("address")
+        if address not in verified:
+            dropped += 1
+            continue
         try:
             date = datetime.date.fromisoformat(record["date"])
         except (KeyError, ValueError):
             continue
-        if record.get("address") in verified and first < date <= today:
+        if first <= date <= today:
             counts[date.isoformat()] = counts.get(date.isoformat(), 0) + 1
+    # A function first seen as verified now is credited to today. The count is
+    # derived from the queue, so a clean checkout still gets the same table.
+    known = {record.get("address") for record in records}
+    for address in verified - known:
+        key = today.isoformat()
+        counts[key] = counts.get(key, 0) + 1
     lines = [
         "<!-- SPDX-License-Identifier: GPL-3.0-only -->",
         "# Weekly porting rate", "",
@@ -434,7 +655,8 @@ def weekly(root=REPO, days=7, env=None, today=None, out=None, call=call):
     ]
     lines += [f"| {date} | {counts[date]} |" for date in sorted(counts)]
     lines += ["", f"- Window: {first.isoformat()} to {today.isoformat()}",
-              f"- Total: {sum(counts.values())}", ""]
+              f"- Total: {sum(counts.values())}",
+              f"- Delivery records without a queue row: {dropped}", ""]
     text = "\n".join(lines)
     if out is not None:
         out = Path(out)

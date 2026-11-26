@@ -17,22 +17,34 @@ python3 -I scripts/fork/porting_loop.py weekly --days 7 --out target/porting-loo
 1. It checks the checker hash (`private_integrity.py`) before doing any work.
 2. It reads work only from `ledger queue`, through the build daemon's client
    command. Rows already marked `done`, and retired functions, are not work.
+   A batch takes whole families: the queue keeps siblings together, so a
+   family is never split across two batches.
 3. It takes an exclusive claim per family and creates one git worktree for it.
-   A family held by another worker is skipped; claims are released when the
-   batch ends.
-4. It runs the configured worker command in that worktree, then runs the
+   Claims live in the clone's common git directory, so worktrees of the same
+   clone cannot take the same family. A claim records its owner, time and
+   process; one older than `NV_PORT_CLAIM_AGE` seconds (3600 by default) is
+   reclaimed. A family held by another worker is skipped, and both skipped and
+   reclaimed families are listed in the report and the pull request body.
+   A failed batch keeps the branches it already accepted.
+4. Every worktree starts at the protected `fork` branch, never at the caller's
+   checked-out commit. Branch names carry a fresh per-run token, so a rerun
+   with the same `--name` does not collide with an earlier batch.
+5. It runs the configured worker command in that worktree, then runs the
    family's `Diff` cases with `family_lab.py`, which sends cargo to the build
-   daemon. It saves both command outputs beside the batch record.
-5. It runs the configured review command, then checks the integrity hash in
-   the worktree. A changed checker rejects the batch; a failed review keeps
+   daemon. A non-zero lab exit status or a failing `Diff` case keeps that
+   family out of the batch. It saves both command outputs beside the batch
+   record.
+6. It runs the configured review command, then checks the integrity hash in
+   the worktree. A changed checker fails the batch; a failed review keeps
    that family out of it.
-6. It commits a batch report on a batch branch, merges the accepted family
+7. It commits a batch report on a batch branch, merges the accepted family
    branches into it, writes a pull request body with pass counts and failure
-   classes, and calls the configured pull request command if one is set.
+   classes, pushes the batch branch and calls the configured pull request
+   command if one is set.
 
-The batch report, the pull request body, the saved command outputs and the
-delivery log live under `target/porting-loop/`, which is ignored by git. The
-batch branch carries the report and the accepted work.
+The pull request body, the JSON record and the saved command outputs live
+under `target/porting-loop/`, which is ignored by git. The batch branch carries
+the report and the delivery log, which are repository artefacts.
 
 ## Configuration
 
@@ -42,8 +54,9 @@ Both worker and reviewer must be commands; no service is built into the tool.
 | --- | --- |
 | `NV_PORT_WORKER` | Command run in each family worktree. Required. |
 | `NV_PORT_REVIEW` | Independent review command, run after the worker. Required. |
-| `NV_PORT_PR` | Optional pull request command; it receives `--title`, `--body` and `--head`. Without it the body is written and printed. |
-| `NV_PORT_CLOSE` | Optional command to close a shakedown review unmerged; it receives `--batch` and `--reason`. |
+| `NV_PORT_PR` | Optional pull request command; it receives `--title`, `--body` and `--head`. The tool pushes the batch branch before calling it. Without it the body is written and printed. |
+| `NV_PORT_CLOSE` | Command required by `shakedown` to close the review unmerged; it receives `--batch` and `--reason`. |
+| `NV_PORT_CLAIM_AGE` | Seconds before a family claim is treated as stale and reclaimed (default 3600). |
 
 Each worker and reviewer receives `NV_PORT_FAMILY`, `NV_PORT_BATCH`,
 `NV_PORT_WORKTREE`, `NV_PORT_QUEUE_FILE` (that family's queue rows),
@@ -56,12 +69,18 @@ it and never puts it in a report.
 
 `shakedown` runs the first batch with `NV_PORT_SHAKEDOWN=1`, records it as
 `closed unmerged`, opens no pull request and merges no worker branch. It
-rewrites only the shakedown section of `PORTING-RULEBOOK.md` with the counts and
-failure classes it observed, so the standing rules can be fixed from evidence
-before scaling.
+requires `NV_PORT_CLOSE`. It writes a rule for each failure class and each
+rejection the batch actually showed into the shakedown section of
+`PORTING-RULEBOOK.md`, commits that update on a `porting/shakedown/<name>`
+branch, and leaves the branch unmerged. The standing rules are edited by hand
+from that evidence before scaling.
 
-Each accepted function is appended to the delivery log with its date.
-`weekly` reads the queue to decide which addresses are verified, joins them to
-that log, and prints a table of delivered verified functions per day for the
-last `--days` days. Functions delivered on an earlier date, or not shown as
-verified by the ledger, are not counted.
+The delivery log is `docs/fork/porting-batches/delivered.jsonl`, committed on
+each batch branch. An address is recorded only when the queue already shows it
+as `reference-verified`, so the date is the day verification was seen, not the
+day a failing function was offered. `weekly` reads the queue and that log and
+prints a table of delivered verified functions per day for the last `--days`
+days ending today. A verified address with no log entry is credited to the day
+it is first seen; a log entry whose address is no longer in the queue is
+reported as a dropped record. A clean checkout or a fresh clone keeps the
+committed log and the same report.
