@@ -2,3 +2,4 @@ crates/engine-core/src/typed/mod.rs  # families that move by default, NV_TYPED d
 crates/engine-typed/src/lockfree/mod.rs  # the family's doc comment names its default form (nv-rs#946)
 docs/ENGINE_CRATE.md  # the switch table and the moved-by-default paragraph (nv-rs#946)
 docs/adr/0014-typed-migration-in-two-stages.md  # the lockfree family has moved by default (nv-rs#946)
+crates/engine/tests/typed_lockfree.rs  # the default form, the save check and K2 under real threads (nv-rs#946)
