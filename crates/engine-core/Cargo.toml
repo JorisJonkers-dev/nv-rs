@@ -11,6 +11,8 @@ description = "The core of the engine crates: the game's memory model, Engine, t
 fork-hitch = { path = "../fork-hitch" }
 # The threads it starts tell Windows they are not background work when NV_NOT_BACKGROUND=1 (crates/qos).
 qos = { path = "../qos" }
+# The local decomp backend's native library, loaded only by differential tests (nv-rs#928).
+libloading = "0.8"
 
 [features]
 # Test support that other engine crates' unit tests use (the form-constructor

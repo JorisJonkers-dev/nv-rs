@@ -66,7 +66,10 @@ from one thread at a time.
 
 `report.json` and `report.md` in the output folder list every compiled unit
 and every skipped unit with its reason. `manifest.json` lists the callable
-exports, their original addresses and the global order.
+exports, their original addresses and the global order. `exports.tsv` is the
+plain-text form the Rust peer reads: `export <va> <wrapper> <arity> [f32]`,
+`import <field> <va>` and `global <va>` lines. It holds addresses already bound
+in the shim, no compiled output.
 
 ```sh
 python3 scripts/fork/decomp_backend.py layout \

@@ -39,6 +39,8 @@ use std::ffi::OsString;
 use std::sync::{Mutex, OnceLock};
 
 #[cfg(any(test, feature = "test-support"))]
+mod backend_peer;
+#[cfg(any(test, feature = "test-support"))]
 pub mod diff;
 pub mod leaf;
 pub mod moved;

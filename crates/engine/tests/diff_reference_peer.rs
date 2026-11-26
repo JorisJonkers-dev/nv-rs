@@ -4,9 +4,18 @@
 //! fail with its address and both bytes named. No game data or exe bytes are used.
 
 use engine_core::prelude::*;
+use engine_core::typed::diff;
 use engine_core::typed::diff::{Branch, Case, Diff, Found, Input, ReferencePeer};
 
 engine_core::assemble!();
+
+#[allow(dead_code)]
+mod gate {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../scripts/fork/test_gate.rs"
+    ));
+}
 
 const BLOCK: u32 = 0x0200_1000;
 
@@ -78,10 +87,36 @@ fn a_planted_one_token_bug_fails_and_names_the_bytes() {
     assert_eq!(&typed[..], &[0x48]);
 }
 
+/// The planted bug must still fail when the private run's backend is the peer, not a translation.
+#[test]
+fn a_planted_one_token_bug_fails_against_the_backend() {
+    if gate::require_data("NV_BACKEND_LIBRARY").is_none() {
+        return;
+    }
+    let Some(peer) = diff::backend_peer() else {
+        panic!("the backend library did not load");
+    };
+    let report = Diff::new(entry!(0x00ef_1000, stores_a_wrong_byte(u32, u32)))
+        .translation(entry!(0x00ef_1000, stores(u32, u32)).1)
+        .reference_peer(peer)
+        .inputs(&[Input::Of(&[0x1234])])
+        .setup(setup)
+        .run();
+    assert!(!report.is_same(), "{report}");
+    assert!(
+        report
+            .first
+            .iter()
+            .any(|d| d.branch == Branch::Reference && matches!(d.what, Found::Memory { .. })),
+        "the backend run did not name the written bytes: {report}"
+    );
+}
+
 #[test]
 fn without_a_peer_the_harness_runs_as_before() {
     let report = Diff::new(entry!(0x00ef_1000, stores_again(u32, u32)))
         .translation(entry!(0x00ef_1000, stores(u32, u32)).1)
+        .no_reference_peer()
         .inputs(&[Input::Of(&[0x1234])])
         .setup(setup)
         .run();

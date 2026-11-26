@@ -119,6 +119,8 @@ crates/engine/tests/stewie_fixes.rs
 crates/engine/tests/stewie_fixes/
 # The reference-peer controls of the differential harness (JorisJonkers-dev/nv-rs#924).
 crates/engine/tests/diff_reference_peer.rs
+# The local backend as the fourth reference peer (JorisJonkers-dev/nv-rs#928).
+crates/engine-core/src/typed/backend_peer.rs
 crates/fos/
 crates/host/src/thread_races.rs
 crates/host/tests/support/

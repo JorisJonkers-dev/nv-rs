@@ -2270,6 +2270,12 @@ impl Mem {
     /// mapped pages), so a load through it can start before the page's byte is known; it may be
     /// used only once that byte says the page is mapped.
     #[inline(always)]
+    /// The host address of guest address 0, for the backend's linear memory (ADR-0020).
+    #[allow(dead_code)] // Used only by differential-test support.
+    pub(crate) fn guest_base(&self) -> *mut u8 {
+        self.space.base
+    }
+
     fn host_at(&self, a: u32) -> *mut u8 {
         self.space.base.wrapping_add(a as usize)
     }

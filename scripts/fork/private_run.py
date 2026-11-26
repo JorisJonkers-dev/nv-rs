@@ -11,6 +11,7 @@ Run: python3 -I scripts/fork/private_run.py [--require]
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,7 @@ from pathlib import Path
 FORK = Path(__file__).resolve().parent
 sys.path.insert(0, str(FORK))
 
+import backend_evidence  # noqa: E402
 import gate_counts  # noqa: E402
 import private_integrity  # noqa: E402
 
@@ -65,8 +67,34 @@ COMMANDS = GATE_COMMANDS + tuple(
 )
 
 
-def run(commands, root, require, env=None) -> int:
-    """Run each (label, argv) pair and count gate lines across all of them."""
+def backend_commands(root=REPO):
+    """Every typed family's suite, with the backend peer enabled (nv-rs#928).
+
+    The targets come from the component jobs, so a new family's suite joins the private run without
+    a second list to keep in step. The data-gated typed suites run again with `--ignored`, because
+    `--ignored` alone would leave their ordinary cases out.
+    """
+    text = (root / ".fork" / "components.toml").read_text(encoding="utf-8")
+    targets = sorted(set(re.findall(r"--test (typed_[a-z_]+)", text)))
+    if not targets:
+        raise RuntimeError("no typed family suites in .fork/components.toml")
+    extra = {"NV_BACKEND_LIBRARY": os.environ.get("NV_BACKEND_LIBRARY", "")}
+    ordinary = ("cargo", "test", "-p", "engine")
+    for target in targets:
+        ordinary += ("--test", target)
+    commands = [("typed families against the backend", ordinary + ("--", "--nocapture"), extra)]
+    gated = [target for _, crate, target in DATA_TARGETS if crate == "engine" and target in targets]
+    if gated:
+        argv = ("cargo", "test", "-p", "engine")
+        for target in gated:
+            argv += ("--test", target)
+        commands.append(("gated typed families against the backend",
+                         argv + ("--", "--ignored", "--nocapture"), extra))
+    return commands
+
+
+def run(commands, root, require, env=None, evidence=None) -> int:
+    """Run each (label, argv[, extra_env]) triple and count gate lines across all of them."""
     child_env = os.environ.copy() if env is None else dict(env)
     # Keep the runner's PATH and toolchain variables (needed by cargo on every system) but do not hand a
     # GitHub credential to a child process that only needs the private data paths.
@@ -76,9 +104,13 @@ def run(commands, root, require, env=None) -> int:
     if require:
         child_env["NV_ORACLE_REQUIRE"] = "1"
     lines, failed = [], False
-    for label, argv in commands:
+    for command in commands:
+        label, argv = command[:2]
+        child = dict(child_env)
+        if len(command) > 2:
+            child.update(command[2])
         result = subprocess.run(
-            argv, cwd=root, env=child_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            argv, cwd=root, env=child, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, errors="replace", check=False,
         )
         lines.extend(result.stdout.splitlines())
@@ -98,12 +130,19 @@ def run(commands, root, require, env=None) -> int:
         gate_args = ["--require"] if require else []
         if gate_counts.main([name, *gate_args]):
             failed = True
+        if evidence is not None:
+            args = ["--lines", name, "--evidence", str(evidence)]
+            if require:
+                args.append("--require")
+            if backend_evidence.main(args):
+                print("failed: backend evidence was not written", file=sys.stderr)
+                failed = True
     finally:
         Path(name).unlink()
     return int(failed)
 
 
-def main(argv=None, commands=COMMANDS) -> int:
+def main(argv=None, commands=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", type=Path, default=REPO, help=argparse.SUPPRESS)
     parser.add_argument("--require", action="store_true", help="fail on an unset private-input variable or any skip")
@@ -113,7 +152,10 @@ def main(argv=None, commands=COMMANDS) -> int:
         print(f"failed: {why}", file=sys.stderr)
         return 1
     print(why)
-    return run(commands, args.root, args.require)
+    if commands is None:
+        commands = COMMANDS + backend_commands(args.root)
+    return run(commands, args.root, args.require,
+               evidence=args.root / "scripts" / "ledger" / "function_evidence.tsv")
 
 
 if __name__ == "__main__":
