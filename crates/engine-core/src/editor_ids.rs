@@ -423,8 +423,11 @@ pub fn form_gone(e: &mut crate::Engine, form: u32) {
 
 // ---- JohnnyGuitar's setter (`TESFormEx::hk_SetFormEditorID`), shared with JIP's light names ----
 
-/// A form's flags (+8: 0x4000 temporary), id (+0xC), source files (+0x10 on PC: `TESForm::pSourceFiles`,
-/// a list of `TESFile *`; its name at +0x20); the game's form type name (`00440e30`, `thiscall`).
+/// A form's flags (+8: 0x4000 temporary), id (+0xC), files (+0x10, a `tList` of `ModInfo`, its
+/// name at +0x20); the game's form type name (`00440e30`, `thiscall`). The files are at +0x10 in
+/// the game (`TESForm::TESForm`, `00483370`, makes the list there; JG's `kFiles` follows the id
+/// in its game build, the editor's `EditorData` before it only in the GECK's). +0x18 is a
+/// subclass's first field: a script's unused-variable and reference counts at +0x18 and +0x1C.
 const FORM_FLAGS: u32 = 0x08;
 const FORM_ID: u32 = 0x0c;
 const FORM_FILES: u32 = 0x10;
