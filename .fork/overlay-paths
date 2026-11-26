@@ -67,6 +67,8 @@ crates/d3d9-wgpu/src/precompile.rs
 crates/d3d9-wgpu/src/shader_cache.rs
 crates/d3dx-tex/src/fork_modern_dds.rs
 crates/d3dx-tex/tests/fork_abgr.rs
+crates/engine-core/tests/scene_jobs_real.rs
+crates/engine-core/tests/scene_jobs_stepped.rs
 crates/engine-platform/examples/linux_tables.rs
 crates/engine-platform/src/d3dxshader.rs
 crates/engine-platform/src/fork_d3d9rec.rs
@@ -127,12 +129,15 @@ crates/host/tests/thread_races_stepped.rs
 crates/host/tests/thread_races_vanilla.rs
 crates/engine-core/src/bhk.rs
 crates/engine-core/src/real_threads/havok.rs
+crates/engine-core/src/late_ai.rs
 crates/engine-core/tests/bhk_seam.rs
 crates/engine-core/tests/bhk_thread_stepped.rs
 # The loader and garbage collector jobs (JorisJonkers-dev/nv-rs#941).
 crates/engine-core/src/loader_jobs.rs
 crates/engine-core/src/real_threads/loader.rs
 crates/engine-core/tests/loader_job_stepped.rs
+crates/engine-core/tests/late_ai_real.rs
+crates/engine-core/tests/late_ai_stepped.rs
 crates/mcm/
 crates/stewie/
 docs/

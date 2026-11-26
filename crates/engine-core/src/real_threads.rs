@@ -78,7 +78,7 @@ use crate::ptr::Ptr;
 use crate::thread_host::{RunState, Signalled, ThreadHost, MAIN_THREAD_ID};
 use crate::Engine;
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -1467,6 +1467,10 @@ pub fn start(e: &mut Engine) -> Result<(), String> {
         if e.kernel.threads.list[i].suspend_count == 0 {
             start_thread(e, i);
         }
+    }
+    // The scene helper's thread and area are made here, not at the first post inside a frame.
+    if scene_switch_on() {
+        SCENE.get_or_init(|| make_scene_helper(e, world));
     }
     Ok(())
 }
@@ -3047,11 +3051,11 @@ const HELPER_ID_BASE: u32 = 0x0001_0000;
 /// thread's (the thread list holds a few dozen), so `SuspendThread` of a game thread never finds it.
 const HELPER_INDEX_BASE: usize = 1000;
 
-/// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last two,
-/// the drawing helper's ([`DRAW_SLOT`]) and the Havok helper's.
+/// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last three,
+/// the scene helper's ([`SCENE_SLOT`]), the Havok helper's and the drawing helper's ([`DRAW_SLOT`]).
 pub const MOST_HELPERS: usize = ((crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start)
     / crate::mem::HELPER_SLOT) as usize
-    - 2;
+    - 3;
 
 /// Whether a pool of `helpers` fits the helper area beside the drawing helper's slot (one helper
 /// at least).
@@ -3143,6 +3147,18 @@ pub fn fork_join(e: &mut Engine, helpers: usize, job: HelperJob<'_>) -> bool {
 /// fewer than `helpers` helpers, or on none.
 pub fn fork_join_first(e: &mut Engine, helpers: usize, job: HelperJob<'_>) -> bool {
     fork(e, helpers, job, false)
+}
+
+/// Whether the helper pool has been made (by any caller). A caller that needs only a few helpers
+/// uses this to avoid being the one that fixes the pool's size at its own small count.
+pub fn pool_made() -> bool {
+    POOL.get().is_some()
+}
+
+/// Whether a [`fork_join`] is in flight now. A caller that would otherwise stop with the
+/// one-caller-at-a-time panic asks first and does its work itself instead.
+pub fn pool_busy() -> bool {
+    POOL.get().is_some_and(|p| p.busy.load(Ordering::SeqCst))
 }
 
 /// [`fork_join`] (`every`: each helper runs the job) or [`fork_join_first`].
@@ -3409,16 +3425,19 @@ fn run_helper(
 // stack for locals are the last slot of `HELPER_AREA` ([`DRAW_SLOT`]), which the pool never takes.
 // ---------------------------------------------------------------------------------------------
 
-/// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the last one, past the pool's and
-/// the Havok helper's.
+/// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the last one, past the pool's, the
+/// scene helper's and the Havok helper's.
 const DRAW_SLOT: u32 =
     (crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start) / crate::mem::HELPER_SLOT - 1;
 // The area's last slot, and no pool slot: the drawing helper's TLS block and stack are nobody
 // else's, and nothing past the area (the extenders' code begins there).
+/// The scene helper's slot: the one past the pool's, before the Havok helper's and the drawing
+/// helper's.
+const SCENE_SLOT: u32 = DRAW_SLOT - 2;
 const _: () = assert!(
     crate::mem::HELPER_AREA.start + (DRAW_SLOT + 1) * crate::mem::HELPER_SLOT
         == crate::mem::HELPER_AREA.end
-        && MOST_HELPERS as u32 <= DRAW_SLOT
+        && MOST_HELPERS as u32 == SCENE_SLOT
 );
 /// The id the drawing helper answers `GetCurrentThreadId` with, and its thread index: past the
 /// pool's.
@@ -3796,6 +3815,315 @@ fn draw_stopped(world: &'static World, e: &Engine, payload: &(dyn std::any::Any 
     } else {
         format!(
             "{first} (in {}, in the drawing helper nv-draw)",
+            path.join(" < ")
+        )
+    };
+    eprintln!("real threads: {line}");
+    world.kernel.lock(world);
+    guard(&world.stopped).get_or_insert(line);
+    world.any_stop.store(true, Ordering::SeqCst);
+    world.wake_all_waiters();
+    world.kernel.unlock();
+}
+
+// ---------------------------------------------------------------------------------------------
+// The scene helper (nv-rs#950): the scene-graph update main ran inline are posted here and joined
+// before main fixes the camera and visibility and before the draw. Off by default, real threads only: stepped frames
+// keep the game's order and their recordings byte-identical (ADR-0015). A job forwards the game's calls; the typed
+// families they reach are `Threads::Both` and follow ADR-0014's float rule (f64, rounded at each float store).
+// ---------------------------------------------------------------------------------------------
+
+/// `NV_SCENE_JOBS`, read once: 0 unset, 1 off, 2 on.
+static SCENE_JOBS: AtomicU8 = AtomicU8::new(0);
+const SCENE_OFF: u8 = 1;
+const SCENE_ON: u8 = 2;
+/// The id and thread index the scene helper answers `GetCurrentThreadId` with, past the pool's and
+/// the drawing helper's.
+const SCENE_ID: u32 = DRAW_ID + 1;
+const SCENE_INDEX: usize = DRAW_INDEX + 1;
+
+/// A job for [`post_scene`]: run once on the scene helper's engine.
+pub type SceneJob = Box<dyn FnOnce(&mut Engine) + Send>;
+
+struct SceneHelper {
+    state: Mutex<SceneState>,
+    start: Condvar,
+    done: Condvar,
+    kernel: usize,
+    world: Option<usize>,
+}
+
+#[derive(Default)]
+struct SceneState {
+    posted: bool,
+    job: Option<SceneJob>,
+    finished: bool,
+    control_word: u16,
+    panic: Option<Box<dyn std::any::Any + Send>>,
+    /// The stopped job's calls, innermost last, for the join to report as the poster's own.
+    stop_stack: Vec<u32>,
+}
+
+impl SceneHelper {
+    fn assert_same_run(&self, kernel: usize, world: Option<usize>) {
+        assert!(
+            self.kernel == kernel && self.world == world,
+            "post_scene: the scene helper belongs to another run; one run per process may post"
+        );
+    }
+}
+
+static SCENE: std::sync::OnceLock<&'static SceneHelper> = std::sync::OnceLock::new();
+
+thread_local! {
+    /// This OS thread is the scene helper.
+    static SCENE_HELPER: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether this OS thread is the scene helper.
+pub fn on_scene_helper() -> bool {
+    SCENE_HELPER.with(Cell::get)
+}
+
+#[cold]
+fn read_scene_switch() -> u8 {
+    let value = std::env::var("NV_SCENE_JOBS").unwrap_or_default();
+    let m = if value
+        .split(',')
+        .any(|p| p.trim() == "1" || p.trim() == "on")
+    {
+        SCENE_ON
+    } else {
+        SCENE_OFF
+    };
+    if m == SCENE_ON {
+        println!("NV_SCENE_JOBS=1: the scene update on the nv-scene helper with real threads");
+    }
+    SCENE_JOBS.store(m, Ordering::Relaxed);
+    m
+}
+
+/// Whether the scene-job switch is on (read once from the environment, here at start-up).
+fn scene_switch_on() -> bool {
+    let mode = match SCENE_JOBS.load(Ordering::Relaxed) {
+        0 => read_scene_switch(),
+        m => m,
+    };
+    mode == SCENE_ON
+}
+
+/// Sets the switch for tests that cannot set the environment before its first read.
+#[doc(hidden)]
+pub fn scene_jobs_set_for_tests(on: bool) {
+    SCENE_JOBS.store(if on { SCENE_ON } else { SCENE_OFF }, Ordering::Relaxed);
+}
+
+/// Posts `job` to the scene helper and answers whether it was taken. With real threads it starts at once; main goes on
+/// and joins it before the camera and visibility passes and before the draw ([`join_scene`]). Answers false, and the
+/// caller does the work itself, when the switch is off, with stepped threads, on a helper, while a typed family runs
+/// dual, while a per-call diagnostic is on or while an earlier job is not joined yet. One helper per process.
+pub fn post_scene(e: &mut Engine, job: SceneJob) -> bool {
+    let mode = match SCENE_JOBS.load(Ordering::Relaxed) {
+        0 => read_scene_switch(),
+        m => m,
+    };
+    if mode != SCENE_ON
+        || e.real.is_none()
+        || HELPER.with(Cell::get)
+        || on_draw_helper()
+        || on_scene_helper()
+        || on_havok_helper()
+        || e.typed_any_dual()
+        || diagnostic_on(e).is_some()
+    {
+        return false;
+    }
+    let world = e.real.as_ref().expect("real threads checked above").world;
+    let world_id = Some(world as *const World as usize);
+    if let Some(s) = SCENE.get() {
+        s.assert_same_run(e.kernel.id(), world_id);
+        if guard(&s.state).posted {
+            return false;
+        }
+    }
+    if !e.mem.is_shared() {
+        if !e.mem.can_share() {
+            return false;
+        }
+        e.kernel.leak();
+        e.device.leak();
+        e.mem.start_sharing();
+    }
+    let control_word = crate::units::crt::x87_control_word(e);
+    let s = *SCENE.get_or_init(|| make_scene_helper(e, world));
+    s.assert_same_run(e.kernel.id(), world_id);
+    {
+        let mut state = guard(&s.state);
+        if state.posted {
+            return false;
+        }
+        state.posted = true;
+        state.finished = false;
+        state.panic = None;
+        state.stop_stack.clear();
+        state.control_word = control_word;
+        state.job = Some(job);
+    }
+    s.start.notify_all();
+    true
+}
+
+/// Whether a job is posted to the scene helper and not joined yet.
+pub fn scene_posted() -> bool {
+    SCENE.get().is_some_and(|s| guard(&s.state).posted)
+}
+
+/// Returns once the posted job has finished. The caller does not count as running game code while it waits and gives
+/// back the kernel and device locks the job's calls take, as a wait on an object gives back the kernel lock.
+pub fn wait_scene(e: &Engine) -> bool {
+    let Some(s) = SCENE.get() else { return false };
+    {
+        let state = guard(&s.state);
+        if !state.posted {
+            return false;
+        }
+        if state.finished {
+            return true;
+        }
+    }
+    let world = e.real.as_ref().map(|r| r.world);
+    let held = world.map(|w| (w.kernel.release_all(), w.device.release_all()));
+    let counted = world.is_some_and(World::leave_guest);
+    let mut state = guard(&s.state);
+    while !state.finished {
+        state = wait(&s.done, state);
+    }
+    drop(state);
+    if let Some(world) = world {
+        if counted {
+            world.enter_guest();
+        }
+        let (kernel, device) = held.unwrap_or_default();
+        world.device.take_again(world, device);
+        world.kernel.take_again(world, kernel);
+    }
+    true
+}
+
+/// [`wait_scene`], then the job is joined (another may be posted) and its panic resumed here.
+/// False when none was posted.
+pub fn join_scene(e: &mut Engine) -> bool {
+    if !wait_scene(e) {
+        return false;
+    }
+    let s = SCENE.get().expect("a job was posted");
+    let (panic, stop_stack) = {
+        let mut state = guard(&s.state);
+        state.posted = false;
+        (state.panic.take(), std::mem::take(&mut state.stop_stack))
+    };
+    if let Some(payload) = panic {
+        // The helper's stack starts at the posted call: appending it reports the same innermost
+        // calls an inline update would have left on the poster's stack.
+        e.call_stack.extend(stop_stack);
+        std::panic::resume_unwind(payload);
+    }
+    true
+}
+
+/// The scene helper and its OS thread, with an engine made on this thread.
+fn make_scene_helper(e: &mut Engine, world: &'static World) -> &'static SceneHelper {
+    let s: &'static SceneHelper = Box::leak(Box::new(SceneHelper {
+        state: Mutex::new(SceneState::default()),
+        start: Condvar::new(),
+        done: Condvar::new(),
+        kernel: e.kernel.id(),
+        world: Some(world as *const World as usize),
+    }));
+    let mut helper = world.context(SCENE_ID, SCENE_INDEX);
+    let area = crate::mem::HELPER_AREA.start + SCENE_SLOT * crate::mem::HELPER_SLOT;
+    helper.place_thread_memory(area, crate::mem::HELPER_SLOT);
+    let engine = SendEngine(Box::new(helper));
+    std::thread::Builder::new()
+        .name("nv-scene".into())
+        .stack_size(THREAD_STACK)
+        .spawn(move || {
+            qos::thread_started();
+            run_scene_helper(engine, world, s)
+        })
+        .expect("the scene helper's thread");
+    s
+}
+
+/// The scene helper's body: waits for each job, runs it on its engine, marks it finished.
+fn run_scene_helper(engine: SendEngine, world: &'static World, s: &'static SceneHelper) {
+    SCENE_HELPER.with(|h| h.set(true));
+    let mut e = engine.0;
+    loop {
+        let (job, control_word) = {
+            let mut state = guard(&s.state);
+            while state.job.is_none() {
+                state = wait(&s.start, state);
+            }
+            (state.job.take().expect("checked above"), state.control_word)
+        };
+        let mark = e.guest_stack_mark();
+        let mut entered = false;
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sync_registered(&mut e);
+            crate::units::crt::set_x87_control_word(&mut e, control_word);
+            world.enter_guest();
+            entered = true;
+            job(&mut e)
+        }));
+        if entered {
+            world.leave_guest();
+        }
+        let stop_stack = if out.is_err() {
+            if let Err(payload) = &out {
+                scene_stopped(world, &e, &**payload);
+            }
+            let stack = std::mem::take(&mut e.call_stack);
+            e.guest_stack_restore(mark);
+            e.stack_frames.clear();
+            stack
+        } else {
+            Vec::new()
+        };
+        {
+            let mut state = guard(&s.state);
+            if let Err(payload) = out {
+                state.panic = Some(payload);
+                state.stop_stack = stop_stack;
+            }
+            state.finished = true;
+        }
+        s.done.notify_all();
+    }
+}
+
+/// A stop in the scene job (real threads) is the run's, as a game thread's and the drawing helper's
+/// are: named with `nv-scene` and the job's innermost functions, recorded for main and given to
+/// every waiter, so a thread waiting on a lock the job held stops instead of waiting for ever.
+fn scene_stopped(world: &'static World, e: &Engine, payload: &(dyn std::any::Any + Send)) {
+    let text = payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let first = text.lines().next().unwrap_or("");
+    let path: Vec<String> = e
+        .call_stack
+        .iter()
+        .rev()
+        .take(6)
+        .map(|a| format!("{a:08x}"))
+        .collect();
+    let line = if path.is_empty() {
+        format!("{first} (in the scene helper nv-scene)")
+    } else {
+        format!(
+            "{first} (in {}, in the scene helper nv-scene)",
             path.join(" < ")
         )
     };
@@ -6044,24 +6372,25 @@ mod tests {
         world.leave_guest();
     }
 
-    /// A pool fits the helper area beside the drawing helper's slot: one helper at least, and no
-    /// more than the slots before the last two (the Havok helper's and the drawing helper's).
+    /// A pool fits the helper area beside the scene helper's, the Havok helper's and the drawing
+    /// helper's slots: one helper at least, and no more than the slots before those three.
     #[test]
-    fn a_pool_fits_beside_the_drawing_helper() {
+    fn a_pool_fits_beside_the_scene_and_drawing_helpers() {
         assert!(pool_fits(1) && pool_fits(MOST_HELPERS));
         assert!(!pool_fits(0) && !pool_fits(MOST_HELPERS + 1));
+        let scene = crate::mem::HELPER_AREA.start + SCENE_SLOT * crate::mem::HELPER_SLOT;
         let draw =
             (crate::mem::HELPER_AREA.end - crate::mem::HELPER_SLOT)..crate::mem::HELPER_AREA.end;
         assert_eq!(
             DRAW_SLOT,
-            MOST_HELPERS as u32 + 1,
-            "the Havok helper has the slot before the drawing helper's"
+            MOST_HELPERS as u32 + 2,
+            "the scene and Havok helpers have the two slots before the drawing helper's"
         );
         assert!(
-            crate::mem::HELPER_AREA.start + MOST_HELPERS as u32 * crate::mem::HELPER_SLOT
-                <= draw.start,
-            "the pool's highest slot ends below the drawing helper's"
+            crate::mem::HELPER_AREA.start + MOST_HELPERS as u32 * crate::mem::HELPER_SLOT == scene,
+            "the pool's highest slot is the scene helper's"
         );
+        assert_eq!(scene + 2 * crate::mem::HELPER_SLOT, draw.start);
     }
 
     /// The drawing helper (one per process, so one test makes it), with real threads: a posted job

@@ -13,8 +13,8 @@ garbage collector's critical section and the model loader's lock keep the same o
 an inline call. The join is the poster's: no game thread runs between a post and its place in the
 call order, and the uploads the loader finished are done before the frame's draw. A stop in a job
 unwinds at the join with the helper's stopped calls put back on the poster's stack. The helper area's
-slots past the pool stay the Havok helper's and the drawing helper's; the loader and Havok jobs
-share the one helper, so no slot is taken.
+layout (pool, scene helper, Havok helper, drawing helper) is unchanged: the loader and Havok jobs
+share the Havok helper and never the scene helper's slot, so no slot is taken.
 
 `NV_LOADER_JOBS` is read once at start-up. The default is off, so `vanilla` and `fixes` keep their
 reference path. The variable is a test variable (`host::fixes::TEST_VARIABLES`, mirrored in

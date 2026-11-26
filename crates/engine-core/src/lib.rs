@@ -75,6 +75,7 @@ pub mod exe;
 pub mod extend;
 pub mod hitch;
 pub mod loader_jobs;
+pub mod late_ai;
 pub mod mem;
 pub mod mod_files;
 pub mod own_view;

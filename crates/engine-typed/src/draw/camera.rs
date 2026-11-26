@@ -4,13 +4,13 @@
 //! (the world pass's extra passes) set theirs while the drawing side draws. Each side keeps its own; main's writes are
 //! noted for the join.
 
-use super::capture;
+use super::{capture, FAMILY};
 use engine_core::ptr::Ptr;
 use engine_core::x87::{
     fistp_chop64, x87_add, x87_div, x87_load32, x87_load64, x87_m32, x87_mul, x87_quiet_bits,
     x87_store32, x87_sub,
 };
-use engine_core::{args, Engine};
+use engine_core::{args, typed_call, Engine};
 
 /// The byte that makes the renderer skip its frame's drawing (+0x6fc).
 const SKIP: u32 = 0x6fc;
@@ -48,7 +48,6 @@ const TWO_TO_32: u32 = 0x0109_9378;
 const VEC4_TRANSFORM: u32 = 0x00ee_6e34;
 const VEC3_NORMALIZE: u32 = 0x00ee_6dec;
 const VEC3_TRANSFORM_COORD: u32 = 0x00ee_6df8;
-const MATRIX_MULTIPLY: u32 = 0x00ee_6de0;
 /// `IDirect3DDevice9::SetTransform` and `SetViewport`.
 const SET_TRANSFORM: u32 = 0xb0;
 const SET_VIEWPORT: u32 = 0xbc;
@@ -347,13 +346,15 @@ pub fn set_camera_data(
     });
     // View, projection and view-projection are one run of the renderer's words: one image for the product.
     capture::own_image(e, t.wrapping_add(VIEW), 0xc0, |e, view| {
-        e.call(
-            MATRIX_MULTIPLY,
-            &args![
-                view + (VIEW_PROJECTION - VIEW),
-                view,
-                view + (PROJECTION - VIEW)
-            ],
+        let _: Ptr = typed_call!(
+            FAMILY,
+            0x00ee_6de0,
+            super::thunks::matrix_multiply(
+                e,
+                Ptr::new(view + (VIEW_PROJECTION - VIEW)),
+                Ptr::new(view),
+                Ptr::new(view + (PROJECTION - VIEW))
+            )
         );
     });
     let object = e.global::<u32>(t.wrapping_add(RENDER_STATE));
