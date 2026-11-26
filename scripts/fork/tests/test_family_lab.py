@@ -206,6 +206,23 @@ class FamilyLab(unittest.TestCase):
             ],
         )
 
+    def test_a_run_goes_through_the_daemon_client(self):
+        with mock.patch.object(family_lab, "daemon_command", return_value=["client"]), \
+                mock.patch.object(family_lab, "suite", return_value=Path("typed_fade.rs")), \
+                mock.patch.object(family_lab, "generate", return_value=Path("out/Cargo.toml")), \
+                mock.patch.object(family_lab.subprocess, "call", return_value=7) as call:
+            self.assertEqual(family_lab.run(["fade", "--", "--exact", "x"]), 7)
+        call.assert_called_once_with([
+            "client", "test", "--manifest-path", "out/Cargo.toml", "--test", "typed_fade",
+            "--", "--exact", "x",
+        ])
+
+    def test_the_client_command_is_the_real_build_daemon_entry_point(self):
+        command = family_lab.daemon_command()
+        self.assertEqual(command[-2:], ["run", "--"])
+        self.assertEqual(Path(command[1]).name, "build_daemon.py")
+        self.assertTrue(Path(command[1]).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
