@@ -25,6 +25,7 @@ struct Call {
     on_caller: bool,
     words: Vec<u32>,
     control_word: u16,
+    in_flight: bool,
 }
 
 static CALLS: Mutex<Vec<Call>> = Mutex::new(Vec::new());
@@ -39,6 +40,7 @@ fn task(e: &mut Engine, a: &[u32]) -> Ret {
         thread,
         words: a.to_vec(),
         control_word: x87_control_word(e),
+        in_flight: late_ai::posted(),
     });
     e.mem.set_u32(VALUE, a[0]);
     Ret::default()
@@ -74,6 +76,9 @@ fn the_job_runs_on_a_helper_with_real_threads_and_keeps_its_words() {
     let word = x87_control_word(&mut e);
     real_threads::start(&mut e).expect("real threads on");
 
+    // The default is read from the environment, so the test starts from a clean one.
+    std::env::remove_var("NV_LATE_AI");
+    std::env::remove_var("NV_PAR_BONES");
     assert!(!late_ai::on(), "NV_LATE_AI turned the worker on by default");
     let inline = run(&mut e);
     assert!(inline[0].on_caller, "{:?}", inline[0]);
@@ -86,9 +91,47 @@ fn the_job_runs_on_a_helper_with_real_threads_and_keeps_its_words() {
         "{:?}",
         threaded[0]
     );
+    assert!(
+        threaded[0].in_flight,
+        "the job was not counted while it ran"
+    );
+    assert!(!inline[0].in_flight);
     assert_eq!(threaded[0].words, inline[0].words);
     assert_eq!(threaded[0].control_word, word, "the x87 word drifted");
     assert_eq!(e.mem.u32(VALUE), OWNER.addr());
+
+    // The seam made the pool with three helpers, not one: a later fork for three (the parallel
+    // culling, the bones pass) still gets all of them.
+    let seen = Mutex::new(Vec::new());
+    assert!(
+        real_threads::fork_join(&mut e, 3, &|_: &mut Engine, n: usize| {
+            seen.lock().unwrap().push(n);
+        }),
+        "a fork for three helpers was refused after the late AI forked"
+    );
+    let mut seen = seen.into_inner().unwrap();
+    seen.sort_unstable();
+    assert_eq!(seen, [0, 1, 2, 3]);
+
+    // A fork in flight (this call made from inside a job) is not a panic: the body runs inline.
+    let nested = Mutex::new(None);
+    assert!(real_threads::fork_join(
+        &mut e,
+        1,
+        &|w: &mut Engine, n: usize| {
+            if n == 0 {
+                *nested.lock().unwrap() = Some(run(w));
+            }
+        }
+    ));
+    let nested = nested.into_inner().unwrap().expect("the nested call ran");
+    assert!(nested[0].on_caller, "{:?}", nested[0]);
+
+    // With the parallel bones pass on, the body stays on main.
+    late_ai::set_bones_parallel_for_test(true);
+    let bones = run(&mut e);
+    assert!(bones[0].on_caller, "{:?}", bones[0]);
+    late_ai::set_bones_parallel_for_test(false);
 
     // A per-call diagnostic keeps the body on the caller, as it does with stepped threads.
     e.call_log = Some(Vec::new());

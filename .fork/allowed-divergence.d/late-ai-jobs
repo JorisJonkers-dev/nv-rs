@@ -1,2 +1,3 @@
 crates/engine-core/src/lib.rs  # `pub mod late_ai;` exposes the late AI worker seam (nv-rs#940); drop when upstream provides the seam
 crates/engine-fallout-misc/src/units/fallout_misc/main.rs  # `Main::UpdateNonRenderSafeAITasks` calls the seam with its original body in the original order (nv-rs#940); drop when upstream posts the body itself
+crates/engine-core/src/real_threads.rs  # `pool_made` and `pool_busy` queries so the late AI seam neither pins the pool size nor trips the one-caller assert (nv-rs#940); drop when upstream provides the seam

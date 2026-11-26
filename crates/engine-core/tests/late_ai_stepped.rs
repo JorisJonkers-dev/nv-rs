@@ -107,12 +107,18 @@ fn the_job_keeps_the_call_order_words_clock_bytes_and_stop_of_the_inline_body() 
     CALLS.lock().unwrap().clear();
     e.call_log = Some(Vec::new());
     late_ai::set_on_for_test(true);
+    let refused_before = late_ai::refused();
     late_ai::update(&mut e, OWNER, body as LateAiBody);
     let logged = e
         .call_log
         .take()
         .is_some_and(|log| log.iter().any(|(addr, _)| *addr == FIRST));
     assert!(!late_ai::posted());
+    assert_eq!(
+        late_ai::refused(),
+        refused_before + 1,
+        "the post was not attempted and refused"
+    );
     assert!(logged, "the refused body was not recorded on the poster");
     let calls = CALLS.lock().unwrap();
     assert_eq!(calls.len(), 1);
@@ -121,6 +127,24 @@ fn the_job_keeps_the_call_order_words_clock_bytes_and_stop_of_the_inline_body() 
         "a diagnostic did not keep the body inline"
     );
     drop(calls);
+
+    // A join that finds no job, with the body not run, runs it here; one whose body ran does not
+    // run it twice.
+    CALLS.lock().unwrap().clear();
+    late_ai::finish_stepped_for_test(&mut e, OWNER, body as LateAiBody, false, false);
+    assert_eq!(
+        CALLS.lock().unwrap().len(),
+        1,
+        "a lost job was not run inline"
+    );
+    assert!(!CALLS.lock().unwrap()[0].on_helper);
+    late_ai::finish_stepped_for_test(&mut e, OWNER, body as LateAiBody, false, true);
+    late_ai::finish_stepped_for_test(&mut e, OWNER, body as LateAiBody, true, true);
+    assert_eq!(
+        CALLS.lock().unwrap().len(),
+        1,
+        "a job that ran was run again"
+    );
 
     // A stop inside the body is reported at the join with the calls the helper unwound through,
     // exactly as an inline call reports them.
