@@ -9582,53 +9582,44 @@ mod tests_second {
         draw_thread::turn_off(&mut r.e);
     }
 
-    /// The world pass keeps a posted world draw posted to its end (nv-rs#938): nothing in it joins, the sun's occlusion
-    /// query (`006426a0`) included, and it comes after both halves and the two extra passes, as in the serial order. The
-    /// first half's stand-in marks a job posted; the query's stand-in notes whether the job is still posted and how
-    /// many joins had happened. The first join is OnIdle's, after the pass.
+    /// A job still posted when a world pass starts (a second draw sequence in the frame) is joined by the first half's call
+    /// (`00873200` as the join point), before it draws and exactly once; the job the pass then posts stays
+    /// posted to the pass's end and is joined at OnIdle. Fails if the entry's join is missing or comes after the first
+    /// half, or the pass joins anything else.
     #[test]
-    fn world_pass_keeps_a_posted_draw_posted_through_the_sun_query() {
+    fn world_pass_joins_a_job_posted_before_it_at_its_entry_only() {
         use engine_core::draw_thread::{self, testing};
         use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
         static JOINS: AtomicU32 = AtomicU32::new(0);
-        static JOINS_AT_QUERY: AtomicU32 = AtomicU32::new(u32::MAX);
-        static POSTED_AT_QUERY: AtomicU32 = AtomicU32::new(0);
+        static JOINS_AT_FIRST_HALF: AtomicU32 = AtomicU32::new(u32::MAX);
         fn count_join(_: &mut Engine) {
             JOINS.fetch_add(1, SeqCst);
         }
         JOINS.store(0, SeqCst);
         let (mut r, this) = scene_rig();
         r.e.register_double(0x00b6_ba20, |e, _| {
+            JOINS_AT_FIRST_HALF.store(JOINS.load(SeqCst), SeqCst);
             testing::mark_posted(e);
             Ret::default()
         });
-        r.e.register_double(0x0064_26a0, |e, _| {
-            JOINS_AT_QUERY.store(JOINS.load(SeqCst), SeqCst);
-            POSTED_AT_QUERY.store(u32::from(draw_thread::posted(e)), SeqCst);
-            Ret::default()
-        });
         draw_thread::turn_on(&r.e, testing::hooks_finishing_with(count_join));
-        let (_, log) = r.run(0x0087_3200, &args![this, 0x9100u32, 0u32, 0u32, 0u32]);
+        testing::mark_posted(&r.e);
+        r.run(0x0087_3200, &args![this, 0u32, 0u32, 0u32, 0u32]);
         assert_eq!(
-            only(&log, &[0x00b6_ba20, 0x00b6_b930, 0x00b6_c0d0, 0x0064_26a0]),
-            [
-                0x00b6_ba20,
-                0x00b6_b930,
-                0x00b6_c0d0,
-                0x00b6_c0d0,
-                0x0064_26a0
-            ],
-            "the pass's draw order"
+            JOINS_AT_FIRST_HALF.load(SeqCst),
+            1,
+            "joined before the first half"
         );
-        assert_eq!(POSTED_AT_QUERY.load(SeqCst), 1, "posted at the query");
-        assert_eq!(JOINS_AT_QUERY.load(SeqCst), 0, "no join before the query");
-        assert_eq!(JOINS.load(SeqCst), 0, "no join in the whole pass");
-        assert!(draw_thread::posted(&r.e), "still posted at the pass's end");
+        assert_eq!(JOINS.load(SeqCst), 1, "no other join in the pass");
+        assert!(
+            draw_thread::posted(&r.e),
+            "the pass's own job is still posted"
+        );
         draw_thread::idle(&mut r.e);
-        assert_eq!(JOINS.load(SeqCst), 1, "joined at OnIdle");
+        assert_eq!(JOINS.load(SeqCst), 2, "the pass's job joined at OnIdle");
         assert_eq!(
             draw_thread::joins_by_point(&r.e),
-            [(draw_thread::ON_IDLE, 1)]
+            [(draw_thread::WORLD_PASS, 1), (draw_thread::ON_IDLE, 1)]
         );
         draw_thread::turn_off(&mut r.e);
     }
