@@ -48,7 +48,6 @@ const TWO_TO_32: u32 = 0x0109_9378;
 const VEC4_TRANSFORM: u32 = 0x00ee_6e34;
 const VEC3_NORMALIZE: u32 = 0x00ee_6dec;
 const VEC3_TRANSFORM_COORD: u32 = 0x00ee_6df8;
-const MATRIX_MULTIPLY: u32 = 0x00ee_6de0;
 /// `IDirect3DDevice9::SetTransform` and `SetViewport`.
 const SET_TRANSFORM: u32 = 0xb0;
 const SET_VIEWPORT: u32 = 0xbc;
@@ -349,7 +348,7 @@ pub fn set_camera_data(
     capture::own_image(e, t.wrapping_add(VIEW), 0xc0, |e, view| {
         let _: Ptr = typed_call!(
             FAMILY,
-            MATRIX_MULTIPLY,
+            0x00ee_6de0,
             super::thunks::matrix_multiply(
                 e,
                 Ptr::new(view + (VIEW_PROJECTION - VIEW)),

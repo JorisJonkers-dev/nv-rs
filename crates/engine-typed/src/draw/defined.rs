@@ -12,11 +12,9 @@ use engine_core::{args, typed_call, Engine};
 /// multiply-and-transpose `00ee6dfe`.
 const MATRIX_INVERSE: u32 = 0x00ee_6dda;
 const MATRIX_TRANSPOSE: u32 = 0x00ee_6dd4;
-const MATRIX_MULTIPLY: u32 = 0x00ee_6de0;
 const MATRIX_PRODUCT: u32 = 0x00ee_6dfe;
 /// `SetupTextureTransformMatrix` (`00e83550`), a texture transform's `UpdateMatrix` (`00bc5c20`), the texturing
 /// property's map for an index (`00a463e0`).
-const SETUP_TEXTURE_TRANSFORM: u32 = 0x00e8_3550;
 const UPDATE_MATRIX: u32 = 0x00bc_5c20;
 const MAP_AT: u32 = 0x00a4_63e0;
 /// The extra data's name handle (`011bf65c`), `NiFixedString`'s constructor and destructor, `GetExtraData`.
@@ -177,7 +175,7 @@ pub fn set_defined_constant(
             copy_renderer_matrix(e, r, right.0, right.1);
             let _: Ptr = typed_call!(
                 FAMILY,
-                MATRIX_MULTIPLY,
+                0x00ee_6de0,
                 super::thunks::matrix_multiply(
                     e,
                     Ptr::new(first_matrix),
@@ -200,7 +198,7 @@ pub fn set_defined_constant(
             }
             typed_call!(
                 FAMILY,
-                SETUP_TEXTURE_TRANSFORM,
+                0x00e8_3550,
                 setup_texture_transform_matrix(
                     e,
                     Ptr::new(second_matrix),
