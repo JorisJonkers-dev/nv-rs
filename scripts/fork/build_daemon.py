@@ -34,10 +34,25 @@ import time
 from pathlib import Path
 
 STATE = "build-daemon.json"
-PASS_ENV = {
-    "PATH", "HOME", "USERPROFILE", "LOCALAPPDATA", "SYSTEMROOT", "COMSPEC",
-    "TEMP", "TMP", "TMPDIR", "XDG_RUNTIME_DIR",
-}
+# The exact environment cargo, rustc, this project's build scripts and the typed
+# test targets read. A worker's other variables (including NV_* secrets) never
+# reach a build.
+PASS_ENV = frozenset({
+    "PATH", "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "SYSTEMROOT",
+    "COMSPEC", "TEMP", "TMP", "TMPDIR", "XDG_RUNTIME_DIR",
+    "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN",
+    "RUSTC", "RUSTDOC", "RUSTFLAGS", "RUSTDOCFLAGS", "RUST_BACKTRACE",
+    "CC", "CXX", "AR", "LIBCLANG_PATH", "PKG_CONFIG_PATH", "OPENSSL_DIR",
+    "SSL_CERT_FILE", "SSL_CERT_DIR",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+    "NV_CALL_RESERVE_MB",  # read by research/nv-oracle/nv-call-engine/build.rs
+    # Read by the typed test targets the daemon runs (crates/engine/tests/typed_*).
+    "NV_DATA", "NV_SCRIPTS", "NV_EXPRESSIONS",
+    "NV_ACCEPTANCE_FRAME", "NV_ACCEPTANCE_KEPT", "NV_ACCEPTANCE_OBJECTS",
+    "NV_ACCEPTANCE_OUT", "NV_ACCEPTANCE_REPORT", "NV_ACCEPTANCE_SET",
+    "NV_ACCEPTANCE_WHO",
+})
 
 
 def expand(value):
@@ -135,6 +150,7 @@ class Config:
                                  or default_path(env, "cargo-targets/nv-rs-gw"))
         self.lock = expand(env.get("NV_BUILD_LOCK")
                            or default_path(env, "nv-workers/cargo.lock"))
+        Path(self.lock).parent.mkdir(parents=True, exist_ok=True)
         self.wrapper = env.get("NV_BUILD_WRAPPER", "sccache")
         self.wrapper_set = "NV_BUILD_WRAPPER" in env
         self.sccache_dir = expand(env["NV_BUILD_SCCACHE_DIR"]) if env.get("NV_BUILD_SCCACHE_DIR") else ""
@@ -145,6 +161,12 @@ class Config:
         self.capped = prefix(env["NV_BUILD_CAPPED"]) if env.get("NV_BUILD_CAPPED") else (
             prefix("capped") if shutil.which("capped") else []
         )
+        self.warnings = []
+        if not self.capped:
+            self.warnings.append(
+                "build daemon: warning: no memory-cap wrapper found; "
+                "set NV_BUILD_CAPPED to its path to cap build memory"
+            )
 
     def rustc_wrapper(self):
         """sccache when installed, an explicit override always, nothing when disabled."""
@@ -164,9 +186,9 @@ class Config:
         return command + self.cargo + [str(arg) for arg in argv]
 
     def build_env(self, base, passed):
-        env = dict(base)
+        env = {key: value for key, value in base.items() if key in PASS_ENV}
         for key, value in passed.items():
-            if key.startswith("NV_") or key in PASS_ENV:
+            if key in PASS_ENV:
                 env[key] = value
         env["CARGO_BUILD_JOBS"] = self.jobs
         env["CARGO_TARGET_DIR"] = self.target_dir
@@ -183,12 +205,12 @@ class Config:
             "lock": self.lock, "wrapper": self.rustc_wrapper(),
             "sccache_dir": self.sccache_dir, "cargo": self.cargo,
             "flock": bool(self.flock), "capped": bool(self.capped),
+            "warnings": list(self.warnings),
         }
 
 
 def pass_env(env):
-    return {key: value for key, value in env.items()
-            if key.startswith("NV_") or key in PASS_ENV}
+    return {key: value for key, value in env.items() if key in PASS_ENV}
 
 
 def handle(stream, req, config, stats, stop):
@@ -206,6 +228,8 @@ def handle(stream, req, config, stats, stop):
     stats["served"] = stats["served"][-99:] + [label]
     stats["active"] += 1
     stats["max_active"] = max(stats["max_active"], stats["active"])
+    for warning in config.warnings:
+        send_frame(stream, {"kind": "out", "data": warning + "\n"})
     code = 2
     try:
         argv = req.get("argv") or []
@@ -324,7 +348,8 @@ def ensure_daemon(env=None):
             spawn["stderr"] = subprocess.STDOUT
             process = subprocess.Popen(
                 [sys.executable, str(Path(__file__).resolve()), "serve"], **spawn)
-            # The state file, not this handle, owns the detached daemon's lifetime.
+            # The state file owns the detached daemon's lifetime. Mark the local
+            # handle as finished so CPython does not warn about an unreaped child.
             process.returncode = 0
         for _ in range(200):
             time.sleep(0.05)

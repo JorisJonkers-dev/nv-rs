@@ -4,11 +4,13 @@
 Run: python3 -I -m unittest discover -s scripts/fork/tests -v
 No cargo, no network outside loopback, no files outside temporary directories.
 """
+import io
 import os
 import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -28,15 +30,20 @@ def prefix(program):
     return shlex.join(program)
 
 
-def stub(path, program):
-    """Write a Python stub, invoked through the interpreter in the command prefix."""
-    path.write_text(program, encoding="utf-8")
+def stub(path, program, log):
+    """Write a Python stub, invoked through the interpreter in the command prefix.
+
+    The log path is baked into the stub: the daemon forwards only the variables
+    cargo needs, so a test-only NV_* variable cannot reach the build.
+    """
+    path.write_text(program.replace("@LOG@", repr(str(log))), encoding="utf-8")
     return path
 
 
 CARGO_ORDER = """
 import os, sys, time
-with open(os.environ["NV_TEST_LOG"], "a", encoding="utf-8") as log:
+LOG = @LOG@
+with open(LOG, "a", encoding="utf-8") as log:
     log.write("start " + sys.argv[-1] + "\\n"); log.flush()
     time.sleep(0.2)
     log.write("end " + sys.argv[-1] + "\\n")
@@ -44,7 +51,8 @@ with open(os.environ["NV_TEST_LOG"], "a", encoding="utf-8") as log:
 
 CARGO_LIMITS = """
 import os, sys
-with open(os.environ["NV_TEST_LOG"], "a", encoding="utf-8") as log:
+LOG = @LOG@
+with open(LOG, "a", encoding="utf-8") as log:
     log.write("jobs=" + os.environ.get("CARGO_BUILD_JOBS", "") + "\\n")
     log.write("target=" + os.environ.get("CARGO_TARGET_DIR", "") + "\\n")
     log.write("wrapper=" + os.environ.get("RUSTC_WRAPPER", "") + "\\n")
@@ -53,9 +61,10 @@ with open(os.environ["NV_TEST_LOG"], "a", encoding="utf-8") as log:
 
 CARGO_CACHE = """
 import os, sys
+LOG = @LOG@
 os.makedirs(os.environ["CARGO_TARGET_DIR"], exist_ok=True)
 marker = os.path.join(os.environ["CARGO_TARGET_DIR"], "typed_fade.marker")
-with open(os.environ["NV_TEST_LOG"], "a", encoding="utf-8") as log:
+with open(LOG, "a", encoding="utf-8") as log:
     log.write("wrapper=" + os.environ.get("RUSTC_WRAPPER", "") + "\\n")
     if os.path.exists(marker):
         log.write("cache hit: typed_fade\\n")
@@ -66,7 +75,8 @@ with open(os.environ["NV_TEST_LOG"], "a", encoding="utf-8") as log:
 
 WRAPPER_STUB = """
 import os, subprocess, sys
-with open(os.environ["NV_TEST_LOG"], "a", encoding="utf-8") as log:
+LOG = @LOG@
+with open(LOG, "a", encoding="utf-8") as log:
     log.write(os.path.basename(sys.argv[0]) + " " + sys.argv[1] + "\\n")
 raise SystemExit(subprocess.call(sys.argv[2:]))
 """
@@ -78,9 +88,9 @@ class BuildDaemon(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.log = root / "log.txt"
-        self.cargo = stub(root / "cargo", CARGO_ORDER)
-        self.capped = stub(root / "capped", WRAPPER_STUB)
-        self.flock = stub(root / "flock", WRAPPER_STUB)
+        self.cargo = stub(root / "cargo", CARGO_ORDER, self.log)
+        self.capped = stub(root / "capped", WRAPPER_STUB, self.log)
+        self.flock = stub(root / "flock", WRAPPER_STUB, self.log)
         self.env = os.environ.copy()
         self.env.update({
             "NV_BUILD_DAEMON_DIR": str(root / "daemon"),
@@ -90,7 +100,6 @@ class BuildDaemon(unittest.TestCase):
             "NV_BUILD_LOCK": str(root / "cargo.lock"),
             "NV_BUILD_TARGET_DIR": str(root / "target"),
             "NV_BUILD_WRAPPER": "sccache-stub",
-            "NV_TEST_LOG": str(self.log),
         })
         self.state = daemon.ensure_daemon(self.env)
         self.addCleanup(self._stop)
@@ -127,7 +136,7 @@ class BuildDaemon(unittest.TestCase):
         self.assertEqual(status["served"][-2:], ["A", "B"])
 
     def test_the_daemon_enforces_the_job_and_memory_limits(self):
-        self.cargo.write_text(CARGO_LIMITS, encoding="utf-8")
+        stub(self.cargo, CARGO_LIMITS, self.log)
         code = daemon.submit(["check", "--verbose"], cwd=str(Path(self.tmp.name)),
                              label="limits", env=self.env)
         self.assertEqual(code, 0)
@@ -140,7 +149,7 @@ class BuildDaemon(unittest.TestCase):
         self.assertIn("argv=check --verbose", lines)
 
     def test_a_warm_rebuild_of_a_family_target_hits_the_cache(self):
-        self.cargo.write_text("#!/usr/bin/env python3\n" + CARGO_CACHE, encoding="utf-8")
+        stub(self.cargo, "#!/usr/bin/env python3\n" + CARGO_CACHE, self.log)
         self.cargo.chmod(0o755)
         argv = ["test", "--test", "typed_fade"]
         self.assertEqual(daemon.submit(argv, cwd=str(Path(self.tmp.name)), env=self.env), 0)
@@ -161,6 +170,44 @@ class BuildDaemon(unittest.TestCase):
         self.assertEqual(other.jobs, "3")
         self.assertEqual(other.mem, "8G")
         self.assertEqual(other.wrapper, "other-wrapper")
+
+    def test_the_lock_parent_directory_is_created(self):
+        base = Path(self.tmp.name) / "cache"
+        with mock.patch.object(daemon, "default_path",
+                               side_effect=lambda env, leaf: str(base / leaf)):
+            config = daemon.Config({})
+        self.assertTrue(Path(config.lock).parent.is_dir())
+
+    def test_a_missing_memory_cap_is_reported_to_the_client(self):
+        with mock.patch.object(daemon.shutil, "which", return_value=None):
+            config = daemon.Config({})
+        self.assertEqual(config.capped, [])
+        self.assertIn("NV_BUILD_CAPPED", " ".join(config.warnings))
+        self.assertEqual(config.warnings, config.describe()["warnings"])
+        stream = io.StringIO()
+        stats = {"active": 0, "max_active": 0, "completed": 0, "failed": 0,
+                 "served": []}
+        proc = mock.Mock(stdout=io.StringIO(""), wait=lambda: 0)
+        with mock.patch.object(daemon.subprocess, "Popen", return_value=proc):
+            daemon.handle(stream, {"kind": "build", "argv": [],
+                                   "cwd": str(self.tmp.name)},
+                          config, stats, threading.Event())
+        self.assertIn("warning", stream.getvalue().lower())
+        self.assertIn("NV_BUILD_CAPPED", stream.getvalue())
+
+    def test_only_the_variables_cargo_needs_reach_the_build(self):
+        passed = {"NV_SECRET": "hunter2", "NV_BUILD_JOBS": "9",
+                  "PATH": os.defpath}
+        forwarded = daemon.pass_env(passed)
+        self.assertIn("PATH", forwarded)
+        self.assertNotIn("NV_SECRET", forwarded)
+        self.assertNotIn("NV_BUILD_JOBS", forwarded)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            env = daemon.Config({}).build_env({}, passed)
+        self.assertNotIn("NV_SECRET", env)
+        self.assertNotIn("NV_BUILD_JOBS", env)
+        self.assertEqual(env["CARGO_BUILD_JOBS"], "2")
+        self.assertEqual(env["PATH"], os.defpath)
 
 
 if __name__ == "__main__":

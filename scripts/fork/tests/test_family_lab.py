@@ -217,6 +217,12 @@ class FamilyLab(unittest.TestCase):
             "--", "--exact", "x",
         ])
 
+    def test_the_client_command_is_the_real_build_daemon_entry_point(self):
+        command = family_lab.daemon_command()
+        self.assertEqual(command[-2:], ["run", "--"])
+        self.assertEqual(Path(command[1]).name, "build_daemon.py")
+        self.assertTrue(Path(command[1]).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

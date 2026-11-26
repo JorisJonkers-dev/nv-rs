@@ -43,12 +43,20 @@ export NV_BUILD_TARGET_DIR=~/.cache/cargo-targets/nv-rs-gw
 ```
 
 `NV_BUILD_CAPPED` and `NV_BUILD_FLOCK` name the wrapper executables (found on PATH
-by default, absent on Windows for `flock`). `NV_BUILD_WRAPPER` is the rustc wrapper,
-`sccache` by default when installed, or an explicit path; `NV_BUILD_SCCACHE_DIR`
-sets its cache. Every worker uses the same target directory, so a repeat of a
-family's test target is incremental and the warm compiler work comes from sccache.
-`python3 scripts/fork/build_daemon.py status` shows the queue figures and limits;
-`stop` ends the daemon after its current build.
+by default, absent on Windows for `flock`). The memory cap applies only when
+`capped` is available: if neither `capped` nor `NV_BUILD_CAPPED` is found, the daemon
+prints a warning on every build and runs without a cap (jobs and the shared target
+directory still apply). `flock` is a POSIX facility, absent on Windows and on stock
+macOS: there the daemon's own FIFO still serialises cargo, but the cross-process
+lock is not set. The daemon creates the lock file's parent directory on first use.
+`NV_BUILD_WRAPPER` is the rustc wrapper, `sccache` by default when installed, or an
+explicit path; `NV_BUILD_SCCACHE_DIR` sets its cache. Every worker uses the same
+target directory, so a repeat of a family's test target is incremental and the
+warm compiler work comes from sccache. Only the variables cargo, rustc, this
+project's build scripts and the typed test targets need are passed into a build;
+a worker's other variables (other `NV_*` values included) are not forwarded.
+`python3 scripts/fork/build_daemon.py status` shows the queue figures, limits and
+any warning; `stop` ends the daemon after its current build.
 
 Set `NV_FAMILY_LAB_DIRECT=1` to use plain cargo instead. The optional wrapper and
 lock below then apply; with neither set there is no lock and no memory cap, which
