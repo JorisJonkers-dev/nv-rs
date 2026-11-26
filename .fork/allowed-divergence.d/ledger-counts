@@ -1,1 +1,1 @@
-docs/LEDGER.md  # regenerated with scripts/ledger at 40d31ae1: the typed count (110 to 1060) and the translated totals follow the current tree (nv-rs#787)
+docs/LEDGER.md  # regenerated with scripts/ledger on origin/fork: the typed count (110 to 1092), the translated totals and the per-function state counts follow the current tree (nv-rs#787, nv-rs#921)

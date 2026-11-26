@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! cargo run --release --manifest-path scripts/ledger/Cargo.toml [-- --check] [--tsv <file>]
+//! cargo run --release --manifest-path scripts/ledger/Cargo.toml -- queue [<unit>]
 //! ```
 //!
 //! Reads the engine map (`research/engine-map/engine_map.tsv`, one row per
@@ -43,9 +44,24 @@
 //! outside every function (data, or code outside Ghidra's functions) are
 //! counted separately.
 //!
+//! Each function also has a pipeline `state` (open, translated, typed,
+//! reference-verified, moved, retired), a `reference_level` (the peers it has
+//! passed: the translation, or the translation and the backend) and a
+//! `failure_class` for a rejected function. Evidence for a backend comparison,
+//! a move or a failure comes from `scripts/ledger/function_evidence.tsv`, which
+//! is empty until such evidence exists: nothing is claimed without it. A state
+//! change is a transition: a family moves before its translation is deleted,
+//! and a function with a by-address caller stays `moved`, never `retired`.
+//!
+//! `queue` writes the untyped functions as a resumable list in frame call-graph
+//! order (callees before callers), with the members of a family template kept
+//! together. A row is done when its typed marker and a registered `Diff` case
+//! both exist.
+//!
 //! Writes `docs/LEDGER.md`. `--check` writes nothing and fails if the file
 //! is out of date. `--tsv <file>` also writes the per-function ledger
-//! (address, size, name, subsystem, unit, status, Rust locations).
+//! (address, size, name, subsystem, unit, status, Rust locations, state,
+//! reference level, failure class).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -219,6 +235,65 @@ const TABLE: &str = "static init (table)";
 
 const STATUSES: [&str; 6] = ["translated", TABLE, "traced", "platform", "library", "open"];
 
+/// Where a function stands in the porting pipeline. This is separate from its
+/// ledger `status`: a function can be translated in Rust and still need a typed
+/// version, and a moved family's functions keep their address marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    Open,
+    Translated,
+    Typed,
+    ReferenceVerified,
+    Moved,
+    Retired,
+}
+
+impl State {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Translated => "translated",
+            Self::Typed => "typed",
+            Self::ReferenceVerified => "reference-verified",
+            Self::Moved => "moved",
+            Self::Retired => "retired",
+        }
+    }
+}
+
+/// The comparison peers a function has passed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReferenceLevel {
+    None,
+    Translation,
+    TranslationAndBackend,
+}
+
+impl ReferenceLevel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Translation => "translation",
+            Self::TranslationAndBackend => "translation and backend",
+        }
+    }
+}
+
+/// Classes a rejected function can be recorded under (nv-rs#916, "failure
+/// class"). A class is written only when evidence names it.
+const FAILURE_CLASSES: [&str; 5] = ["real", "float-only", "uninitialised read", "hang", "fault"];
+
+/// Facts that cannot be read from a source marker: a backend
+/// comparison, a failed `Diff`, a family move and the last by-address caller.
+#[derive(Default, Clone)]
+struct Evidence {
+    backend: bool,
+    failure_class: String,
+    family_moved: bool,
+    translation_deleted: bool,
+    by_address_callers: usize,
+}
+
 struct Func {
     addr: u32,
     size: u32,
@@ -235,6 +310,8 @@ struct Func {
     replaced: BTreeSet<String>,
     traced: BTreeSet<String>,
     incomplete: BTreeSet<String>,
+    /// Facts supplied by the evidence table, not by a source marker.
+    evidence: Evidence,
 }
 
 /// Whether a Rust location (`crates/...:line`) is in one of the engine crates:
@@ -252,6 +329,7 @@ impl Func {
     /// Translated, run from the static-initializer table or replaced inside
     /// the engine crates ([`in_engine_crate`]): the engine has it. A translation elsewhere (an older
     /// marker in `crates/world`) still needs its engine version.
+    #[cfg(test)]
     fn in_engine(&self) -> bool {
         !self.partial_in_engine()
             && self
@@ -267,6 +345,7 @@ impl Func {
         self.incomplete.iter().any(|l| in_engine_crate(l))
     }
 
+    #[cfg(test)]
     fn queue_status(&self) -> &'static str {
         if self.partial_in_engine() {
             "partial"
@@ -303,6 +382,43 @@ impl Func {
             "traced"
         } else {
             self.base()
+        }
+    }
+
+    /// The pipeline state. A move comes first; retirement needs all three of a
+    /// moved family, a deleted translation and no caller by address. Without a
+    /// backend peer a typed function has passed the translation only.
+    fn state(&self) -> State {
+        if self.evidence.family_moved {
+            if self.evidence.translation_deleted && self.evidence.by_address_callers == 0 {
+                State::Retired
+            } else {
+                State::Moved
+            }
+        } else if self.typed_in_engine() {
+            if self.evidence.backend {
+                State::ReferenceVerified
+            } else {
+                State::Typed
+            }
+        } else if self.translated_in_engine() {
+            State::Translated
+        } else {
+            State::Open
+        }
+    }
+
+    fn reference_level(&self) -> ReferenceLevel {
+        match self.state() {
+            State::ReferenceVerified => ReferenceLevel::TranslationAndBackend,
+            State::Typed | State::Moved | State::Retired => {
+                if self.evidence.backend {
+                    ReferenceLevel::TranslationAndBackend
+                } else {
+                    ReferenceLevel::Translation
+                }
+            }
+            _ => ReferenceLevel::None,
         }
     }
 }
@@ -384,23 +500,178 @@ fn scan(text: &str) -> Vec<(u32, Cite, usize)> {
     out
 }
 
+/// The address an `entry!` or a `Diff::new` names, when one follows the text.
+fn entry_address(rest: &str) -> Option<u32> {
+    let hex = rest.trim_start().strip_prefix("0x")?;
+    let digits: String = hex
+        .chars()
+        .take_while(|c| c.is_ascii_hexdigit() || *c == '_')
+        .filter(|c| *c != '_')
+        .collect();
+    u32::from_str_radix(&digits, 16).ok()
+}
+
 /// The addresses a file's `entry!`s register.
 fn registered_addresses(text: &str) -> Vec<u32> {
     let mut out = Vec::new();
     let mut from = 0;
     while let Some(k) = text[from..].find("entry!(") {
         from += k + 7;
-        let Some(rest) = text[from..].trim_start().strip_prefix("0x") else {
-            continue;
-        };
-        let digits: String = rest
-            .chars()
-            .take_while(|c| c.is_ascii_hexdigit() || *c == '_')
-            .filter(|c| *c != '_')
-            .collect();
-        out.extend(u32::from_str_radix(&digits, 16));
+        out.extend(entry_address(&text[from..]));
     }
     out
+}
+
+/// The addresses a file's `Diff::new(entry!(...))` cases name. A case reaches
+/// `.assert_same()` in the hygiene test; here its registration is what makes a
+/// queue row done, so a marker on its own is never enough.
+fn diff_addresses(text: &str) -> BTreeSet<u32> {
+    let mut out = BTreeSet::new();
+    let mut from = 0;
+    while let Some(k) = text[from..].find("Diff::new(") {
+        let start = from + k + "Diff::new(".len();
+        let end = text[start..]
+            .find(';')
+            .map(|n| start + n)
+            .unwrap_or(text.len());
+        let case = &text[start..end.min(start + 2048)];
+        if let Some(i) = case.find("entry!(") {
+            out.extend(entry_address(&case[i + "entry!(".len()..]));
+        }
+        from = start;
+    }
+    out
+}
+
+/// The evidence table: one row per function with a backend comparison, a
+/// rejection class or a move. Columns are read by name; a missing file is an
+/// empty table, so the ledger never claims a peer it has no evidence for.
+const EVIDENCE: &str = "scripts/ledger/function_evidence.tsv";
+const EVIDENCE_COLS: [&str; 6] = [
+    "address",
+    "backend",
+    "failure_class",
+    "family_moved",
+    "translation_deleted",
+    "by_address_callers",
+];
+
+fn parse_evidence(text: &str) -> Result<BTreeMap<u32, Evidence>, String> {
+    let mut cols: Vec<&str> = Vec::new();
+    let mut rows = BTreeMap::new();
+    for (i, line) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.starts_with('#') && !l.trim().is_empty())
+    {
+        let fields: Vec<&str> = line.split('\t').collect();
+        if cols.is_empty() {
+            cols = fields.clone();
+            if EVIDENCE_COLS.iter().any(|c| !cols.contains(c)) {
+                return Err(format!(
+                    "{EVIDENCE}:{}: expected columns {}",
+                    i + 1,
+                    EVIDENCE_COLS.join(", ")
+                ));
+            }
+            continue;
+        }
+        let get = |k: &str| -> &str {
+            cols.iter()
+                .position(|c| *c == k)
+                .and_then(|j| fields.get(j))
+                .copied()
+                .unwrap_or("")
+        };
+        let where_ = format!("{EVIDENCE}:{}", i + 1);
+        let addr = u32::from_str_radix(get("address").trim_start_matches("0x"), 16)
+            .map_err(|e| format!("{where_}: {e}"))?;
+        let bit = |k: &str| -> Result<bool, String> {
+            match get(k) {
+                "0" | "" => Ok(false),
+                "1" => Ok(true),
+                other => Err(format!("{where_}: {k} is {other:?}, expected 0 or 1")),
+            }
+        };
+        let failure_class = get("failure_class").to_string();
+        if !failure_class.is_empty() && !FAILURE_CLASSES.contains(&failure_class.as_str()) {
+            return Err(format!(
+                "{where_}: unknown failure class {failure_class:?}, expected one of {}",
+                FAILURE_CLASSES.join(", ")
+            ));
+        }
+        let by_address_callers = get("by_address_callers")
+            .parse()
+            .map_err(|e| format!("{where_}: by_address_callers: {e}"))?;
+        rows.insert(
+            addr,
+            Evidence {
+                backend: bit("backend")?,
+                failure_class,
+                family_moved: bit("family_moved")?,
+                translation_deleted: bit("translation_deleted")?,
+                by_address_callers,
+            },
+        );
+    }
+    Ok(rows)
+}
+
+fn load_evidence(path: &Path) -> Result<BTreeMap<u32, Evidence>, String> {
+    match fs::read_to_string(path) {
+        Ok(text) => parse_evidence(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
+/// Address -> family template id, from the committed family table. A function
+/// appears in one of the member columns; the id groups its siblings in the
+/// queue so one batch can cover a whole template.
+const FAMILIES: &str = "research/families/families.tsv";
+
+fn parse_families(text: &str) -> BTreeMap<u32, String> {
+    let mut cols: Vec<&str> = Vec::new();
+    let mut out = BTreeMap::new();
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+    {
+        let fields: Vec<&str> = line.split('\t').collect();
+        if cols.is_empty() {
+            cols = fields.clone();
+            continue;
+        }
+        let get = |k: &str| -> &str {
+            cols.iter()
+                .position(|c| *c == k)
+                .and_then(|j| fields.get(j))
+                .copied()
+                .unwrap_or("")
+        };
+        let Some(family) = fields.first() else {
+            continue;
+        };
+        for column in ["translated_members", "open_members", "other_members"] {
+            for token in get(column).split(|c: char| c.is_whitespace() || c == ';') {
+                let token = token.split(':').next().unwrap_or(token);
+                if token.len() == 8 && token.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    if let Ok(addr) = u32::from_str_radix(token, 16) {
+                        // The first row that places an address wins: strict
+                        // families come before the loose families that join them.
+                        out.entry(addr).or_insert_with(|| family.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn load_families(path: &Path) -> BTreeMap<u32, String> {
+    fs::read_to_string(path)
+        .map(|text| parse_families(&text))
+        .unwrap_or_default()
 }
 
 /// Credits each typed marker to its function, when that address is registered: a marker on a comment
@@ -505,6 +776,7 @@ fn load_map(path: &Path) -> Result<(Vec<Func>, Vec<String>), String> {
             replaced: BTreeSet::new(),
             traced: BTreeSet::new(),
             incomplete: BTreeSet::new(),
+            evidence: Evidence::default(),
         });
     }
     funcs.sort_by_key(|f| f.addr);
@@ -579,6 +851,7 @@ fn add_gaps(funcs: &mut Vec<Func>, text: &str) -> Result<usize, String> {
             replaced: BTreeSet::new(),
             traced: BTreeSet::new(),
             incomplete: BTreeSet::new(),
+            evidence: Evidence::default(),
         });
     }
     let n = add.len();
@@ -838,6 +1111,58 @@ fn render(funcs: &[Func], header: &[String], unmapped: usize, cites: usize) -> S
     for (k, v) in &placed {
         let _ = writeln!(s, "| {k} | {v} |");
     }
+    let mut states = BTreeMap::new();
+    let mut levels = BTreeMap::new();
+    let mut failures: BTreeMap<&str, usize> = BTreeMap::new();
+    for f in funcs {
+        *states.entry(f.state().as_str()).or_default() += 1;
+        *levels.entry(f.reference_level().as_str()).or_default() += 1;
+        if !f.evidence.failure_class.is_empty() {
+            *failures
+                .entry(f.evidence.failure_class.as_str())
+                .or_default() += 1;
+        }
+    }
+    let _ = writeln!(
+        s,
+        "\n## Function state\n\nOne state per function (the `state` column of `--tsv`). A typed \
+         marker makes `typed`; a backend peer makes `reference-verified`. A family moves before its \
+         translation is deleted, and a function with a caller by address stays `moved`, never \
+         `retired`. The counts use the same markers and evidence as the totals above.\n"
+    );
+    let _ = writeln!(s, "| State | Functions |\n| --- | ---: |");
+    for name in [
+        State::Open.as_str(),
+        State::Translated.as_str(),
+        State::Typed.as_str(),
+        State::ReferenceVerified.as_str(),
+        State::Moved.as_str(),
+        State::Retired.as_str(),
+    ] {
+        let _ = writeln!(s, "| {name} | {} |", states.get(name).unwrap_or(&0));
+    }
+    let _ = writeln!(s, "\n| Reference level | Functions |\n| --- | ---: |");
+    for level in [
+        ReferenceLevel::None,
+        ReferenceLevel::Translation,
+        ReferenceLevel::TranslationAndBackend,
+    ] {
+        let name = level.as_str();
+        let _ = writeln!(
+            s,
+            "| {} | {} |",
+            if name.is_empty() { "none" } else { name },
+            levels.get(name).unwrap_or(&0)
+        );
+    }
+    if failures.is_empty() {
+        let _ = writeln!(s, "\nNo rejected function has a failure class recorded.");
+    } else {
+        let _ = writeln!(s, "\n| Failure class | Functions |\n| --- | ---: |");
+        for (name, n) in &failures {
+            let _ = writeln!(s, "| {name} | {n} |");
+        }
+    }
     let _ = writeln!(
         s,
         "\n## By subsystem\n\nLargest first. `Named` counts functions with an Xbox PDB \
@@ -881,9 +1206,13 @@ fn render(funcs: &[Func], header: &[String], unmapped: usize, cites: usize) -> S
     s
 }
 
-/// One call site of the frame tree (`research/engine-map/frame.tsv`).
+/// One call site of the frame tree (`research/engine-map/frame.tsv`). `call`
+/// is the site's position in its caller's call list; `seq` is the depth-first
+/// row number and is the key the parent is found by.
 struct FrameRow {
+    seq: usize,
     depth: usize,
+    call: usize,
     addr: u32,
     name: String,
 }
@@ -909,7 +1238,9 @@ fn load_frame(path: &Path) -> Result<Vec<FrameRow>, String> {
                 .unwrap_or("")
         };
         out.push(FrameRow {
+            seq: get("seq").parse().map_err(|e| format!("{line}: {e}"))?,
             depth: get("depth").parse().map_err(|e| format!("{line}: {e}"))?,
+            call: get("call").parse().map_err(|e| format!("{line}: {e}"))?,
             addr: u32::from_str_radix(get("address"), 16).map_err(|e| format!("{line}: {e}"))?,
             name: get("name").to_string(),
         });
@@ -1013,6 +1344,135 @@ fn render_wiring(table: &str) -> String {
     out
 }
 
+/// One line of the resumable queue.
+struct QueueEntry<'a> {
+    f: &'a Func,
+    rank: usize,
+    done: bool,
+    family: String,
+}
+
+/// Frame functions in callee-before-caller order. The table is a tree of call
+/// sites: `seq` follows the calls depth first, so the caller of a row at depth
+/// `d` is the latest row at depth `d - 1`. Edges are kept per address, not per
+/// site: the tree holds repeated calls and a function can be a callee at one
+/// site and a caller at another. A post-order walk of that address graph puts
+/// every callee before its caller, and follows call order within a level.
+fn frame_post_order(rows: &[FrameRow]) -> Vec<u32> {
+    let mut children: BTreeMap<u32, Vec<(usize, u32)>> = BTreeMap::new();
+    let mut stack: Vec<(usize, u32)> = Vec::new();
+    let mut roots = Vec::new();
+    for r in rows {
+        if r.depth == 0 {
+            stack.clear();
+            stack.push((r.seq, r.addr));
+            if !roots.contains(&r.addr) {
+                roots.push(r.addr);
+            }
+            continue;
+        }
+        while stack.len() <= r.depth {
+            stack.push((0, 0));
+        }
+        let parent = stack[r.depth - 1].1;
+        if parent != r.addr {
+            let kids = children.entry(parent).or_default();
+            if !kids.iter().any(|&(_, a)| a == r.addr) {
+                kids.push((r.call, r.addr));
+            }
+        }
+        stack.truncate(r.depth);
+        stack.push((r.seq, r.addr));
+    }
+    for kids in children.values_mut() {
+        kids.sort_unstable();
+    }
+    fn visit(
+        addr: u32,
+        children: &BTreeMap<u32, Vec<(usize, u32)>>,
+        visited: &mut BTreeSet<u32>,
+        out: &mut Vec<u32>,
+    ) {
+        if !visited.insert(addr) {
+            return;
+        }
+        if let Some(kids) = children.get(&addr) {
+            for &(_, kid) in kids {
+                visit(kid, children, visited, out);
+            }
+        }
+        out.push(addr);
+    }
+    let mut visited = BTreeSet::new();
+    let mut out = Vec::new();
+    for &root in &roots {
+        visit(root, &children, &mut visited, &mut out);
+    }
+    for r in rows {
+        visit(r.addr, &children, &mut visited, &mut out);
+    }
+    out
+}
+
+/// Functions still in the typing pipeline, in frame-call-graph order, with
+/// family-template siblings together. A row is done when its typed marker and
+/// `Diff` case both exist, so a worker can resume at the first `no`. Functions
+/// outside the frame follow it, in address order.
+fn queue_rows<'a>(
+    funcs: &'a [Func],
+    families: &BTreeMap<u32, String>,
+    frame: &[FrameRow],
+    diffed: &BTreeSet<u32>,
+) -> Vec<QueueEntry<'a>> {
+    let by_addr: BTreeMap<u32, &'a Func> = funcs.iter().map(|f| (f.addr, f)).collect();
+    let mut ranked = Vec::new();
+    let mut seen = BTreeSet::new();
+    for a in frame_post_order(frame) {
+        if by_addr.contains_key(&a) && seen.insert(a) {
+            ranked.push(a);
+        }
+    }
+    for &a in by_addr.keys() {
+        if seen.insert(a) {
+            ranked.push(a);
+        }
+    }
+    let rank: BTreeMap<u32, usize> = ranked
+        .into_iter()
+        .enumerate()
+        .map(|(i, a)| (a, i))
+        .collect();
+
+    let mut groups: BTreeMap<String, Vec<(usize, &'a Func)>> = BTreeMap::new();
+    for f in funcs {
+        if f.base() != "open" || f.evidence.family_moved {
+            continue;
+        }
+        let family = families
+            .get(&f.addr)
+            .cloned()
+            .unwrap_or_else(|| format!("{:08x}", f.addr));
+        groups.entry(family).or_default().push((rank[&f.addr], f));
+    }
+    let mut groups: Vec<_> = groups.into_iter().collect();
+    for (_, members) in &mut groups {
+        members.sort_by_key(|(r, _)| *r);
+    }
+    groups.sort_by(|a, b| a.1[0].0.cmp(&b.1[0].0).then(a.0.cmp(&b.0)));
+    let mut out = Vec::new();
+    for (family, members) in groups {
+        for (r, f) in members {
+            out.push(QueueEntry {
+                f,
+                rank: r,
+                done: f.typed_in_engine() && diffed.contains(&f.addr),
+                family: family.clone(),
+            });
+        }
+    }
+    out
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let check = args.iter().any(|a| a == "--check");
@@ -1029,9 +1489,22 @@ fn main() {
             std::process::exit(2);
         }
     };
+    let evidence = match load_evidence(&root.join(EVIDENCE)) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("ledger: {e}");
+            std::process::exit(2);
+        }
+    };
+    for f in &mut funcs {
+        if let Some(e) = evidence.get(&f.addr) {
+            f.evidence = e.clone();
+        }
+    }
     let mut files = Vec::new();
     rust_files(&root.join("crates"), &mut files);
     rust_files(&root.join("viewer"), &mut files);
+    let mut diffed = BTreeSet::new();
     let mut cited = BTreeSet::new();
     let mut unmapped = BTreeSet::new();
     let mut registered = BTreeSet::new();
@@ -1046,6 +1519,7 @@ fn main() {
             .to_string_lossy()
             .replace('\\', "/");
         registered.extend(registered_addresses(&text));
+        diffed.extend(diff_addresses(&text));
         for (a, kind, line) in scan(&text) {
             cited.insert(a);
             let k = funcs.partition_point(|f| f.addr <= a);
@@ -1138,7 +1612,7 @@ fn main() {
             return;
         }
         Some("queue") => {
-            queue(&root, &funcs, &args[1..]);
+            queue(&root, &funcs, &args[1..], &diffed);
             return;
         }
         _ => {}
@@ -1168,7 +1642,9 @@ fn main() {
     }
     fs::write(&out, &md).expect("write docs/LEDGER.md");
     if let Some(t) = tsv {
-        let mut s = String::from("address\tsize\tname\tsubsystem\tunit\tstatus\trust\ttyped\n");
+        let mut s = String::from(
+            "address\tsize\tname\tsubsystem\tunit\tstatus\trust\ttyped\tstate\treference_level\tfailure_class\n",
+        );
         for f in &funcs {
             let locs: Vec<&String> = f
                 .translated
@@ -1181,7 +1657,7 @@ fn main() {
                 .collect();
             let _ = writeln!(
                 s,
-                "{:08x}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{:08x}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 f.addr,
                 f.size,
                 f.name,
@@ -1192,7 +1668,10 @@ fn main() {
                     .map(|l| l.as_str())
                     .collect::<Vec<_>>()
                     .join(","),
-                if f.typed_in_engine() { "yes" } else { "" }
+                if f.typed_in_engine() { "yes" } else { "" },
+                f.state().as_str(),
+                f.reference_level().as_str(),
+                f.evidence.failure_class
             );
         }
         fs::write(&t, s).expect("write tsv");
@@ -1204,46 +1683,40 @@ fn main() {
     );
 }
 
-/// `queue`: functions the engine crates do not have yet, per unit
-/// (unit, subsystem, functions, bytes, file, crate), largest first. `queue <unit>`: that unit's functions (address, size, status,
-/// name), the work list for one translator.
-fn queue(root: &Path, funcs: &[Func], args: &[String]) {
-    if let Some(unit) = args.first() {
-        // Optional address range [lo, hi): one part of a unit split between
-        // several translators.
-        let hex = |i: usize, d: u32| {
-            args.get(i)
-                .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok())
-                .unwrap_or(d)
-        };
-        let (lo, hi) = (hex(1, 0), hex(2, u32::MAX));
-        for f in funcs
-            .iter()
-            .filter(|f| &f.unit == unit && f.addr >= lo && f.addr < hi)
-        {
-            // Compiler and runtime code placed in a unit (static
-            // initializers) is not translation work even when cited.
-            let st = f.queue_status();
-            println!("{:08x}\t{}\t{}\t{}", f.addr, f.size, st, f.name);
+/// `queue`: one resumable work list of the untyped functions. `queue <unit>`
+/// restricts it to a unit; two hex arguments restrict it to `[lo, hi)` inside
+/// that unit. A row is done when its typed marker and `Diff` case exist, so a
+/// worker resumes at the first row still marked `no`.
+fn queue(root: &Path, funcs: &[Func], args: &[String], diffed: &BTreeSet<u32>) {
+    let families = load_families(&root.join(FAMILIES));
+    let frame = match load_frame(&root.join("research/engine-map/frame.tsv")) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("ledger: frame.tsv: {e}");
+            std::process::exit(2);
         }
-        return;
-    }
-    let mut per: BTreeMap<(&str, &str), (usize, u64)> = BTreeMap::new();
-    for f in funcs
-        .iter()
-        .filter(|f| !f.in_engine() && !f.unit.is_empty() && f.base() == "open")
-    {
-        let e = per.entry((&f.subsystem, &f.unit)).or_default();
-        e.0 += 1;
-        e.1 += f.size as u64;
-    }
-    let mut rows: Vec<_> = per.into_iter().collect();
-    rows.sort_by(|a, b| b.1 .1.cmp(&a.1 .1).then(a.0.cmp(&b.0)));
-    for ((sub, unit), (n, bytes)) in rows {
-        match units::unit_path(root, unit, sub) {
-            Ok((file, krate)) => println!("{unit}\t{sub}\t{n}\t{bytes}\t{file}\t{krate}"),
-            Err(e) => println!("{unit}\t{sub}\t{n}\t{bytes}\t-\t({e})"),
+    };
+    let hex = |i: usize, d: u32| {
+        args.get(i)
+            .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(d)
+    };
+    let (unit, lo, hi) = (args.first(), hex(1, 0), hex(2, u32::MAX));
+    let entries = queue_rows(funcs, &families, &frame, diffed);
+    println!("# rank\taddress\tstate\tdone\tfamily\tname");
+    for e in entries {
+        if unit.is_some_and(|u| &e.f.unit != u) || !(lo..hi).contains(&e.f.addr) {
+            continue;
         }
+        println!(
+            "{}\t{:08x}\t{}\t{}\t{}\t{}",
+            e.rank + 1,
+            e.f.addr,
+            e.f.state().as_str(),
+            if e.done { "yes" } else { "no" },
+            e.family,
+            e.f.name
+        );
     }
 }
 
@@ -1466,7 +1939,160 @@ mod tests {
             replaced: BTreeSet::new(),
             traced: BTreeSet::new(),
             incomplete: BTreeSet::new(),
+            evidence: Evidence::default(),
         }
+    }
+
+    fn frame_row(seq: usize, depth: usize, call: usize, addr: u32) -> FrameRow {
+        FrameRow {
+            seq,
+            depth,
+            call,
+            addr,
+            name: String::new(),
+        }
+    }
+
+    #[test]
+    fn state_follows_markers_and_moved_evidence() {
+        let mut f = func(0x00c9_0000, "havok");
+        assert_eq!(f.state(), State::Open);
+        assert_eq!(f.reference_level(), ReferenceLevel::None);
+
+        f.translated.insert("crates/engine-havok/src/x.rs:1".into());
+        assert_eq!(f.state(), State::Translated);
+        assert_eq!(f.reference_level(), ReferenceLevel::None);
+
+        f.typed.insert("crates/engine-typed/src/x.rs:2".into());
+        assert_eq!(f.state(), State::Typed);
+        assert_eq!(f.reference_level(), ReferenceLevel::Translation);
+
+        f.evidence.backend = true;
+        assert_eq!(f.state(), State::ReferenceVerified);
+        assert_eq!(f.reference_level(), ReferenceLevel::TranslationAndBackend);
+
+        // A moved family retires a function only once its translation is gone
+        // and nothing reaches it by address any more.
+        f.evidence.family_moved = true;
+        assert_eq!(f.state(), State::Moved);
+        f.evidence.by_address_callers = 1;
+        f.evidence.translation_deleted = true;
+        assert_eq!(f.state(), State::Moved, "a by-address caller remains");
+        f.evidence.by_address_callers = 0;
+        assert_eq!(f.state(), State::Retired);
+        let mut still_translated = func(0x00c9_0000, "havok");
+        still_translated.evidence = f.evidence.clone();
+        still_translated.evidence.translation_deleted = false;
+        assert_eq!(still_translated.state(), State::Moved);
+
+        let mut no_move = func(0x00c9_0010, "havok");
+        no_move.evidence.translation_deleted = true;
+        no_move.evidence.backend = true;
+        assert_eq!(no_move.state(), State::Open, "no translation and no move");
+        assert_eq!(no_move.reference_level(), ReferenceLevel::None);
+    }
+
+    #[test]
+    fn evidence_rows_carry_reference_and_failure_class() {
+        let text = "# verified peers and rejected functions\n\
+                    address\tbackend\tfailure_class\tfamily_moved\ttranslation_deleted\tby_address_callers\n\
+                    00c90000\t1\t\t0\t0\t0\n\
+                    00c90010\t0\tfloat-only\t1\t1\t0\n";
+        let rows = parse_evidence(text).unwrap();
+        assert!(rows[&0x00c9_0000].backend);
+        assert_eq!(rows[&0x00c9_0000].failure_class, "");
+        assert_eq!(rows[&0x00c9_0010].failure_class, "float-only");
+        assert!(rows[&0x00c9_0010].family_moved);
+        assert!(rows[&0x00c9_0010].translation_deleted);
+        assert_eq!(rows[&0x00c9_0010].by_address_callers, 0);
+        assert!(parse_evidence("address\tbackend\tfailure_class\tfamily_moved\ttranslation_deleted\tby_address_callers\n00c90000\t0\twrong\t0\t0\t0\n").is_err());
+    }
+
+    #[test]
+    fn diff_cases_name_the_address_they_check() {
+        let text =
+            "#[test] fn t() { Diff::new(entry!(0x00c9_0e60, f(u32))).run().assert_same(); }\n";
+        assert_eq!(diff_addresses(text), [0x00c9_0e60].into_iter().collect());
+        assert!(diff_addresses("Diff::new(0x00c9_0e60, f)\n").is_empty());
+        assert!(
+            diff_addresses("Diff::new(entry!(0x00c9_0e60, f))\n// no run\n").contains(&0x00c9_0e60)
+        );
+    }
+
+    #[test]
+    fn families_map_members_to_their_template() {
+        let text = "# look-alike families\n\
+                    family\tlevel\tinsns\tmembers\topen\ttranslated\tunits\tnames\ttranslated_members\topen_members\tother_members\n\
+                    s1\tstrict\t4\t3\t1\t1\tu\tn\t004012a0 crates/engine/x.rs:1; 004012b0 crates/engine/x.rs:2\t004012c0\t004012d0:traced\n";
+        let families = parse_families(text);
+        assert_eq!(families[&0x0040_12a0], "s1");
+        assert_eq!(families[&0x0040_12c0], "s1");
+        assert_eq!(families[&0x0040_12d0], "s1");
+        assert!(families.is_empty() == false);
+    }
+
+    #[test]
+    fn queue_orders_callees_before_callers_and_groups_family_siblings() {
+        // The frame tree: root -> A -> B, root -> C -> (D, E). B and E share a
+        // family template. A has a typed marker and a Diff case, so it is done.
+        let rows = vec![
+            frame_row(1, 0, 0, 0x0086e650),
+            frame_row(2, 1, 1, 0x00a00000),
+            frame_row(3, 2, 1, 0x00b00000),
+            frame_row(4, 1, 2, 0x00c00000),
+            frame_row(5, 2, 1, 0x00d00000),
+            frame_row(6, 2, 2, 0x00e00000),
+        ];
+        let mut funcs: Vec<Func> = [
+            0x0086e650, 0x00a00000, 0x00b00000, 0x00c00000, 0x00d00000, 0x00e00000, 0x00900000,
+        ]
+        .into_iter()
+        .map(|a| func(a, "fallout/ai"))
+        .collect();
+        funcs[1]
+            .typed
+            .insert("crates/engine-typed/src/a.rs:1".into());
+        let diffed: BTreeSet<u32> = [0x00a00000].into_iter().collect();
+        let families: BTreeMap<u32, String> = [(0x00b00000, "s1"), (0x00e00000, "s1")]
+            .into_iter()
+            .map(|(a, f)| (a, f.to_string()))
+            .collect();
+        let order = queue_rows(&funcs, &families, &rows, &diffed);
+        let addrs: Vec<u32> = order.iter().map(|e| e.f.addr).collect();
+        // Callees before callers: B before A, D and E before C, all frame
+        // functions before the one outside the frame. The family siblings B
+        // and E are together at the family's first frame position. A has both
+        // a typed marker and a Diff case, so its row is done.
+        assert_eq!(
+            addrs,
+            [0x00b00000, 0x00e00000, 0x00a00000, 0x00d00000, 0x00c00000, 0x0086e650, 0x00900000]
+        );
+        assert_eq!(order[2].f.addr, 0x00a00000);
+        assert!(order[2].done);
+        assert!(order
+            .iter()
+            .filter(|e| e.f.addr != 0x00a00000)
+            .all(|e| !e.done));
+
+        // A typed marker alone is not done: a registered Diff case is needed.
+        funcs[2]
+            .typed
+            .insert("crates/engine-typed/src/b.rs:1".into());
+        let order = queue_rows(&funcs, &families, &rows, &diffed);
+        assert_eq!(order[0].f.addr, 0x00b00000);
+        assert!(!order[0].done);
+        let diffed: BTreeSet<u32> = [0x00a00000, 0x00b00000].into_iter().collect();
+        let order = queue_rows(&funcs, &families, &rows, &diffed);
+        let addrs: Vec<u32> = order.iter().map(|e| e.f.addr).collect();
+        assert_eq!(
+            addrs,
+            [0x00b00000, 0x00e00000, 0x00a00000, 0x00d00000, 0x00c00000, 0x0086e650, 0x00900000]
+        );
+        assert!(order[0].done);
+        assert!(
+            !order[1].done,
+            "a sibling still needs its own marker and Diff case"
+        );
     }
 
     #[test]
