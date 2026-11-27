@@ -5,7 +5,7 @@
 //! (+8), 5 without one.
 
 use super::FAMILY;
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use crate::{culling, dispatch};
 use engine_core::ptr::Ptr;
 use engine_core::{args, typed_call, Engine};
@@ -235,9 +235,9 @@ fn spill<R: Real>(v: R) -> R {
 /// root on either word.
 pub fn quaternion_from_rotation(e: &mut Engine, this: Ptr, matrix: Ptr) {
     if float_precision() {
-        quaternion_in::<f32>(e, this.addr(), matrix.addr());
+        quaternion_in::<Single>(e, this.addr(), matrix.addr());
     } else {
-        quaternion_in::<f64>(e, this.addr(), matrix.addr());
+        quaternion_in::<Double>(e, this.addr(), matrix.addr());
     }
 }
 

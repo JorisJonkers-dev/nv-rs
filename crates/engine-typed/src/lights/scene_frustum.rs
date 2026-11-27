@@ -25,7 +25,7 @@
 use super::scene_light::{release, set_held_1a0};
 use super::ShadowSceneLight;
 use super::FAMILY;
-use crate::native::{float_precision, to_float, Real};
+use crate::native::{float_precision, to_float, Double, Real, Single};
 use crate::scene_node;
 use engine_core::lamp_distance;
 use engine_core::ptr::Ptr;
@@ -221,9 +221,9 @@ fn side_of<R: Real>(distance: R) -> u8 {
 /// the other; or when the edge crosses that plane inside the other planes.
 pub fn volumes_meet(e: &mut Engine, _this: Ptr<ShadowSceneLight>, first: Ptr, second: Ptr) -> bool {
     if float_precision() {
-        volumes_meet_in::<f32>(e, first.addr(), second.addr())
+        volumes_meet_in::<Single>(e, first.addr(), second.addr())
     } else {
-        volumes_meet_in::<f64>(e, first.addr(), second.addr())
+        volumes_meet_in::<Double>(e, first.addr(), second.addr())
     }
 }
 
@@ -417,9 +417,9 @@ fn fade<R: Real>(d: R, near: R, far: R) -> Option<u32> {
 /// dimmer 0, releases the shadow map. The word and both dimmers are stored.
 pub fn test_frustum_cull(e: &mut Engine, this: Ptr<ShadowSceneLight>, culler: u32) {
     if float_precision() {
-        test_frustum_cull_in::<f32>(e, this, culler);
+        test_frustum_cull_in::<Single>(e, this, culler);
     } else {
-        test_frustum_cull_in::<f64>(e, this, culler);
+        test_frustum_cull_in::<Double>(e, this, culler);
     }
 }
 
@@ -696,9 +696,9 @@ pub fn setup_frustum_depth_map(
         && e.get(this, ShadowSceneLight::spDynamicShadowMap) != 0
     {
         if float_precision() {
-            setup_frustum::<f32>(e, this, index);
+            setup_frustum::<Single>(e, this, index);
         } else {
-            setup_frustum::<f64>(e, this, index);
+            setup_frustum::<Double>(e, this, index);
         }
     } else {
         release_map_and_accumulator(e, this);
@@ -1049,9 +1049,9 @@ pub fn render_frustum_depth_map(
     index: u32,
 ) {
     if float_precision() {
-        render_frustum_depth_map_in::<f32>(e, this, holder, index);
+        render_frustum_depth_map_in::<Single>(e, this, holder, index);
     } else {
-        render_frustum_depth_map_in::<f64>(e, this, holder, index);
+        render_frustum_depth_map_in::<Double>(e, this, holder, index);
     }
 }
 

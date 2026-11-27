@@ -6,7 +6,9 @@
 use super::{copy_words, extra_init, EXTRA_PAYLOAD, SIMPLE_LIST_NEW};
 use crate::anim_keys::narrow;
 use crate::crt::low_half;
-use engine_core::x87::{x87_fsincos32, x87_load32, x87_quiet_bits, x87_store32};
+use engine_core::x87::{
+    x87_add, x87_fsincos32, x87_load32, x87_mul, x87_quiet_bits, x87_store32, x87_sub,
+};
 use engine_core::{args, Engine};
 
 /// `Swap32(ptr, 0)` and `Swap16(ptr, 0)`.
@@ -174,26 +176,30 @@ pub fn rotation_matrix(e: &mut Engine, this: u32, angle: f32, x: f32, y: f32, z:
     let sine = f64::from(f32::from_bits(sine));
     let cosine = f64::from(f32::from_bits(cosine));
     let (x, y, z) = (f64::from(x), f64::from(y), f64::from(z));
-    let one_minus_cos = f64::from(narrow(1.0 - cosine));
-    let xx = f64::from(narrow(x * x));
-    let yy = f64::from(narrow(y * y));
-    let zz = f64::from(narrow(z * z));
-    let xy = f64::from(narrow(x * y * one_minus_cos));
-    let xz = f64::from(narrow(x * z * one_minus_cos));
-    let yz = f64::from(narrow(y * z * one_minus_cos));
-    let x_sin = f64::from(narrow(x * sine));
-    let y_sin = f64::from(narrow(y * sine));
-    let z_sin = f64::from(narrow(z * sine));
+    let rounded = |value: f64| f64::from(narrow(value));
+    // Each operation is an x87 operation (`x87_*`): on a NaN operand it gives the NaN the x87
+    // gives (the larger payload), not the first operand's, so the payload is the exe's at every
+    // optimisation level (nv-rs#1009).
+    let one_minus_cos = rounded(x87_sub(1.0, cosine));
+    let xx = rounded(x87_mul(x, x));
+    let yy = rounded(x87_mul(y, y));
+    let zz = rounded(x87_mul(z, z));
+    let xy = rounded(x87_mul(x87_mul(x, y), one_minus_cos));
+    let xz = rounded(x87_mul(x87_mul(x, z), one_minus_cos));
+    let yz = rounded(x87_mul(x87_mul(y, z), one_minus_cos));
+    let x_sin = rounded(x87_mul(x, sine));
+    let y_sin = rounded(x87_mul(y, sine));
+    let z_sin = rounded(x87_mul(z, sine));
     let matrix = [
-        xx * one_minus_cos + cosine,
-        xy + z_sin,
-        xz - y_sin,
-        xy - z_sin,
-        yy * one_minus_cos + cosine,
-        yz + x_sin,
-        xz + y_sin,
-        yz - x_sin,
-        zz * one_minus_cos + cosine,
+        x87_add(x87_mul(xx, one_minus_cos), cosine),
+        x87_add(xy, z_sin),
+        x87_sub(xz, y_sin),
+        x87_sub(xy, z_sin),
+        x87_add(x87_mul(yy, one_minus_cos), cosine),
+        x87_add(yz, x_sin),
+        x87_add(xz, y_sin),
+        x87_sub(yz, x_sin),
+        x87_add(x87_mul(zz, one_minus_cos), cosine),
     ];
     for (offset, value) in (0..36u32).step_by(4).zip(matrix) {
         e.mem.set_f32(this.wrapping_add(offset), narrow(value));

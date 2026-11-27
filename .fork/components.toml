@@ -296,8 +296,7 @@ config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.en
 [[component.job]]
 name = "typed render, lights, particles"
 args = ["-p engine --test typed_render --test typed_lights --test typed_particles --test typed_multibound"]
-# engine-typed stays at opt-level 0 here: at opt-level 1 the compiler changes which NaN payload a float expression keeps (`lights_update_start`, `xd_rotation_matrix` differ in one payload byte on NaN inputs; both pass at opt-level 0, upstream's test profile, and with engine-core and engine at 1).
-config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine.opt-level=1"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed culling"
 args = ["-p engine --test typed_culling --test typed_fade --test compact_culling"]
@@ -331,8 +330,7 @@ config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.en
 [[component.job]]
 name = "typed runtime 3/5: HUD, setup, scripts"
 args = ["-p engine --test typed_hud --test typed_setup --test typed_scripts --test typed_ai_queries --test typed_archives --test typed_cell_refs"]
-# engine-typed stays at opt-level 0 here: at opt-level 1 the compiler changes which NaN payload a float expression keeps (`lights_update_start`, `xd_rotation_matrix` differ in one payload byte on NaN inputs; both pass at opt-level 0, upstream's test profile, and with engine-core and engine at 1).
-config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine.opt-level=1"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 # 4/5 and 5/5 were one job, the longest of a push run (19 to 26 min on Windows: 13 to 19 min of tests one binary after
 # another). Split by measured test time (run 45652900290, s): colours 206, coords 243, matrix 110 | facegen 159, head 44,
