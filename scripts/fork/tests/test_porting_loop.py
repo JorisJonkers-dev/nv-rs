@@ -345,6 +345,10 @@ class PortingLoop(unittest.TestCase):
         rows = list(range(7))
         self.assertEqual(porting_loop.chunk_family(rows, 3), [[0, 1, 2], [3, 4, 5], [6]])
         self.assertEqual(porting_loop.chunk_family(rows, 0), [rows])
+        self.assertEqual(porting_loop.chunk_family(rows, 3, 2), [[0, 1, 2], [3, 4, 5]])
+        self.assertEqual(porting_loop.chunk_limit({"NV_PORT_CHUNKS": "2"}), 2)
+        with self.assertRaises(ValueError):
+            porting_loop.chunk_limit({"NV_PORT_CHUNKS": "x"})
         self.assertEqual(porting_loop.chunk_size({}), 5)
         self.assertEqual(porting_loop.chunk_size({"NV_PORT_CHUNK": "2"}), 2)
         with self.assertRaises(ValueError):

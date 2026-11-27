@@ -81,6 +81,7 @@ Both worker and reviewer must be commands; no service is built into the tool.
 | `NV_PORT_BASE` | Ref every worktree starts at (default `fork`); set `origin/fork` when the local branch is stale. |
 | `NV_PORT_EXCLUDE` | Comma-separated family patterns (`fnmatch`) the batch never takes, for families another worker owns outside this clone's claims. |
 | `NV_PORT_CHUNK` | Most functions per chunk (default 5; 0 keeps a family whole). A family's chunks run one after another in its worktree, each with its own worker, `Diff` run and review; a failing chunk is dropped and ends the family, keeping the chunks before it. |
+| `NV_PORT_CHUNKS` | Chunks of one family taken in a batch (default 0, all of them). |
 | `NV_PORT_CLAIM_AGE` | Seconds before a family claim is treated as stale and reclaimed (default 3600). |
 
 Each worker and reviewer receives `NV_PORT_FAMILY`, `NV_PORT_BATCH`,

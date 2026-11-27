@@ -376,11 +376,20 @@ def chunk_size(env):
     return size
 
 
-def chunk_family(rows, size):
+def chunk_limit(env):
+    """Chunks of one family taken per batch (NV_PORT_CHUNKS, 0 = all of them)."""
+    try:
+        return max(0, int(str(env.get("NV_PORT_CHUNKS", "0")).strip()))
+    except ValueError as exc:
+        raise ValueError("NV_PORT_CHUNKS must be a whole number") from exc
+
+
+def chunk_family(rows, size, limit=0):
     """A family's rows in chunks of at most `size`, in queue order; siblings stay adjacent."""
     if not size or len(rows) <= size:
         return [list(rows)]
-    return [list(rows[i:i + size]) for i in range(0, len(rows), size)]
+    chunks = [list(rows[i:i + size]) for i in range(0, len(rows), size)]
+    return chunks[:limit] if limit else chunks
 
 
 def restore(worktree, commit, env, runner):
@@ -762,7 +771,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                 return fail(f"worktree add for {family}: {output.strip()}")
             created.append((worktree, branch))
             done_rows, done_delivered, done_passed, done_failed, done_lab = [], [], 0, 0, 0
-            for chunk_rows in chunk_family(family_rows, chunk_size(env)):
+            for chunk_rows in chunk_family(family_rows, chunk_size(env), chunk_limit(env)):
                 queue_file.write_text(
                     "# rank\taddress\tstate\tdone\tfamily\tname\n"
                     + "".join("\t".join(str(r[k]) for k in
