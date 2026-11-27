@@ -8,11 +8,15 @@ honest; nothing is written outside the temporary tree.
 """
 import contextlib
 import datetime
+import hashlib
 import io
 import os
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -42,6 +46,55 @@ EVIDENCE = "\n".join([
 ])
 PASSING = "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
 FAILING = "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"
+FAILING_CASES = "\n".join([
+    "Running tests/typed_fade.rs (target/debug/deps/typed_fade-1)",
+    "test fade::bad_case ... FAILED",
+    "test fade::good_case ... ok",
+    "error[E0308]: mismatched types",
+    "panicked at crates/engine/src/typed.rs:12:5",
+    "test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+])
+
+# A stub of agent-kit's `claim`: a directory is the cross-process lock. It keeps
+# the lock until `release`, so a second loop can see that the family is held.
+CLAIM_SCRIPT = '''#{python}
+# SPDX-License-Identifier: GPL-3.0-only
+import hashlib, os, shutil, sys, time
+
+verb, repo, key = sys.argv[1:4]
+issue = sys.argv[sys.argv.index("--issue") + 1] if "--issue" in sys.argv else "0"
+locks = os.environ["NV_PORT_TEST_CLAIM_LOCKS"]
+path = os.path.join(locks, hashlib.sha256((repo + "|" + key).encode()).hexdigest())
+if verb == "acquire":
+    try:
+        os.mkdir(path)
+    except FileExistsError:
+        sys.exit(1)
+    with open(os.path.join(path, "owner"), "w", encoding="utf-8") as handle:
+        handle.write(issue)
+    time.sleep(1.0)  # widen the window in which both loops ask for the same family
+elif verb == "renew":
+    sys.exit(0 if os.path.isdir(path) else 1)
+elif verb == "release":
+    shutil.rmtree(path, ignore_errors=True)
+elif verb == "list":
+    print("\\n".join(sorted(os.listdir(locks))))
+else:
+    sys.exit(2)
+'''
+
+
+def git(cwd, *args):
+    """A local git command for the two-clones test; no remote service is used."""
+    env = dict(os.environ)
+    env.update({
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
+        "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+    })
+    done = subprocess.run(["git", *args], cwd=str(cwd), env=env, check=True,
+                          text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return done.stdout
 
 
 class Recording:
@@ -341,6 +394,38 @@ class PortingLoop(unittest.TestCase):
             record = porting_loop.batch_record(root, "one-row")
             self.assertEqual(record["functions"], 2)
             self.assertEqual([f["family"] for f in record["families"]], ["fade"])
+
+    def test_chunks_keep_order_and_size(self):
+        rows = list(range(7))
+        self.assertEqual(porting_loop.chunk_family(rows, 3), [[0, 1, 2], [3, 4, 5], [6]])
+        self.assertEqual(porting_loop.chunk_family(rows, 0), [rows])
+        self.assertEqual(porting_loop.chunk_family(rows, 3, 2), [[0, 1, 2], [3, 4, 5]])
+        self.assertEqual(porting_loop.chunk_limit({"NV_PORT_CHUNKS": "2"}), 2)
+        with self.assertRaises(ValueError):
+            porting_loop.chunk_limit({"NV_PORT_CHUNKS": "x"})
+        self.assertEqual(porting_loop.chunk_size({}), 5)
+        self.assertEqual(porting_loop.chunk_size({"NV_PORT_CHUNK": "2"}), 2)
+        with self.assertRaises(ValueError):
+            porting_loop.chunk_size({"NV_PORT_CHUNK": "x"})
+        with self.assertRaises(ValueError):
+            porting_loop.chunk_size({"NV_PORT_CHUNK": "-1"})
+
+    def test_a_family_runs_chunk_by_chunk_in_one_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording()
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=3, name="chunks",
+                                          env={**environment(root), "NV_PORT_CHUNK": "1"},
+                                          today=datetime.date(2026, 11, 26), call=recorder)
+            self.assertEqual(code, 0)
+            workers = [c for c in recorder.calls if c[0][:1] == ["worker-tool"] and c[2].get("NV_PORT_FAMILY") == "fade"]
+            self.assertEqual(len(workers), 2)
+            self.assertEqual({c[2]["NV_PORT_ADDRESSES"] for c in workers}, {"00401000", "00401010"})
+            self.assertEqual(len({c[1] for c in workers}), 1)
+            record = porting_loop.batch_record(root, "chunks")
+            fade = [f for f in record["families"] if f["family"] == "fade"][0]
+            self.assertTrue(fade["passed"] >= 2)
 
     def test_excluded_families_are_never_taken(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -737,6 +822,216 @@ class PortingLoop(unittest.TestCase):
                 )
             self.assertEqual(code, 1)
             self.assertIn("ledger queue exited 2", errors.getvalue())
+
+    def test_two_clones_with_a_stub_claim_command_never_take_the_same_family(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seed = tree(root / "seed")
+            git(seed, "init", "-q")
+            git(seed, "add", "-A")
+            git(seed, "commit", "-qm", "chore: base")
+            bare = root / "remote.git"
+            git(root, "init", "--bare", "-q", str(bare))
+            git(seed, "push", "-q", str(bare), "HEAD:fork")
+            git(bare, "symbolic-ref", "HEAD", "refs/heads/fork")
+            one, two = root / "one", root / "two"
+            git(root, "clone", "-q", str(bare), str(one))
+            git(root, "clone", "-q", str(bare), str(two))
+            locks = root / "locks"
+            locks.mkdir()
+            script = root / "claim.py"
+            script.write_text(CLAIM_SCRIPT.format(python=sys.executable), encoding="utf-8")
+            script.chmod(0o755)
+            command = shlex.quote(sys.executable) + " " + shlex.quote(str(script))
+            shared = {
+                "NV_PORT_TEST_CLAIM_LOCKS": str(locks),
+                "NV_PORT_CLAIM_REPO": f"owner/remote-{root.name}",
+                "NV_PORT_CLAIM_ISSUE": "1027",
+                "NV_PORT_CLAIM_CMD": command,
+            }
+            envs = {}
+            for name, clone in (("one", one), ("two", two)):
+                envs[name] = dict(environment(clone), **shared)
+            recorders = {"one": Recording(), "two": Recording()}
+            barrier = threading.Barrier(2)
+            results = {}
+
+            def synced(name):
+                first = [False]
+
+                def runner(argv, cwd=None, env=None, log=None):
+                    joined = " ".join(map(str, argv))
+                    if not first[0] and "ledger/Cargo.toml" in joined and "queue" in joined:
+                        first[0] = True
+                        barrier.wait(timeout=20)
+                    return recorders[name](argv, cwd, env, log)
+
+                return runner
+
+            def run(name, clone):
+                results[name] = porting_loop.batch(
+                    root=clone, count=3, name=f"remote-{name}", env=envs[name],
+                    today=datetime.date(2026, 11, 26), call=synced(name),
+                )
+
+            with mock.patch.object(porting_loop.private_integrity, "check",
+                                   return_value=(True, "ok")):
+                threads = [threading.Thread(target=run, args=(name, clone))
+                           for name, clone in (("one", one), ("two", two))]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=60)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual(results, {"one": 0, "two": 0})
+            taken = {}
+            for name in ("one", "two"):
+                taken[name] = set()
+                for argv, _, _ in recorders[name].calls:
+                    if "worktree add" in " ".join(argv):
+                        taken[name].update(f for f in ("fade", "lights") if f in " ".join(argv))
+            self.assertTrue(taken["one"].isdisjoint(taken["two"]), taken)
+            self.assertEqual(taken["one"] | taken["two"], {"fade", "lights"})
+            loser = "one" if len(taken["one"]) < len(taken["two"]) else "two"
+            winner = "two" if loser == "one" else "one"
+            record = porting_loop.batch_record(envs[loser]["NV_PORT_ROOT"],
+                                               f"remote-{loser}")
+            self.assertEqual(set(record["skipped"]), taken[winner])
+            self.assertEqual(locks.exists(), True)
+            self.assertEqual(list(locks.iterdir()), [])  # both batches released their claims
+
+    def test_a_failing_diff_gives_the_next_attempt_its_failure_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording()
+            seen_files, seen_attempts = [], []
+
+            def runner(argv, cwd=None, env=None, log=None):
+                joined = " ".join(map(str, argv))
+                if "family_lab.py" in joined and "fade" in str(cwd):
+                    if env.get("NV_PORT_ATTEMPT") == "1":
+                        return 0, FAILING_CASES
+                    return 0, PASSING
+                if joined.startswith("worker-tool"):
+                    seen_attempts.append(env.get("NV_PORT_ATTEMPT"))
+                    path = env.get("NV_PORT_FAILURE_FILE")
+                    if path and Path(path).is_file():
+                        seen_files.append(Path(path).read_text(encoding="utf-8"))
+                return recorder(argv, cwd, env, log)
+
+            with mock.patch.object(porting_loop.private_integrity, "check",
+                                   return_value=(True, "ok")):
+                code = porting_loop.batch(
+                    root=root, count=3, name="retry", env=environment(root),
+                    today=datetime.date(2026, 11, 26), call=runner,
+                )
+            self.assertEqual(code, 0)
+            record = porting_loop.batch_record(root, "retry")
+            fade = next(f for f in record["families"] if f["family"] == "fade")
+            self.assertEqual(fade["attempts"], 2)
+            self.assertEqual(record["attempt_counts"]["fade"], 2)
+            self.assertEqual([a["failure_class"] for a in record["attempts"]
+                              if a["family"] == "fade"], ["diff", "none"])
+            self.assertEqual(seen_attempts.count("2"), 1)
+            self.assertEqual(len(seen_files), 1)
+            self.assertIn("fade::bad_case", seen_files[0])
+            self.assertIn("error[E0308]", seen_files[0])
+            self.assertIn("panicked at", seen_files[0])
+            worker_envs = [c[2] for c in recorder.calls if c[0] and c[0][0] == "worker-tool"]
+            self.assertNotIn("NV_PORT_FAILURE_FILE", worker_envs[0])
+            commands = joined(recorder)
+            self.assertTrue(any(c.startswith("git reset --hard") for c in commands))
+            self.assertIn("git clean -fd", commands)
+            body = (porting_loop.paths(root, "retry") / "retry.pr.md").read_text(encoding="utf-8")
+            self.assertIn("## Attempts", body)
+            self.assertIn("fade: 2 attempts", body)
+            self.assertIn("diff", body)
+
+    def test_a_worker_exit_is_retried_and_the_last_class_rejects_the_family(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording()
+            calls = []
+
+            def runner(argv, cwd=None, env=None, log=None):
+                joined = " ".join(map(str, argv))
+                if joined.startswith("worker-tool") and "fade" in env.get("NV_PORT_FAMILY", ""):
+                    calls.append(env.get("NV_PORT_ATTEMPT"))
+                    return 7, "worker failed to compile\n"
+                return recorder(argv, cwd, env, log)
+
+            with mock.patch.object(porting_loop.private_integrity, "check",
+                                   return_value=(True, "ok")):
+                code = porting_loop.batch(
+                    root=root, count=3, name="failed-worker",
+                    env={**environment(root), "NV_PORT_ATTEMPTS": "2"},
+                    today=datetime.date(2026, 11, 26), call=runner,
+                )
+            self.assertEqual(code, 0)
+            record = porting_loop.batch_record(root, "failed-worker")
+            self.assertEqual(record["attempt_counts"]["fade"], 2)
+            self.assertEqual(calls, ["1", "2"])
+            self.assertTrue(any("fade: worker exited 7" in reason
+                                for reason in record["rejected"]))
+            self.assertEqual([a["failure_class"] for a in record["attempts"]
+                              if a["family"] == "fade"], ["worker", "worker"])
+            failure = (porting_loop.paths(root, "failed-worker") / "fade.failure.txt").read_text(
+                encoding="utf-8")
+            self.assertIn("worker failed to compile", failure)
+
+    def test_local_claims_still_work_without_a_claim_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            env = environment(root)
+            for key in ("NV_PORT_CLAIM_CMD", "NV_PORT_CLAIM_REPO", "NV_PORT_CLAIM_ISSUE"):
+                env.pop(key, None)
+            self.assertIsNone(porting_loop.claim_config(env))
+            held = porting_loop.claim(root, "fade", "another-worker")
+            self.assertIsInstance(held, Path)
+            recorder = Recording()
+            with mock.patch.object(porting_loop.private_integrity, "check",
+                                   return_value=(True, "ok")):
+                porting_loop.batch(root=root, count=3, name="local", env=env,
+                                   today=datetime.date(2026, 11, 26), call=recorder)
+            record = porting_loop.batch_record(root, "local")
+            self.assertEqual(record["skipped"], ["fade"])
+            self.assertEqual([f["family"] for f in record["families"]], ["lights"])
+            directory = porting_loop.claim_directory(root)
+            self.assertTrue((directory / "fade.claim").is_file())
+            self.assertFalse((directory / "lights.claim").exists())  # released at batch end
+            porting_loop.release(root, "fade")
+
+    def test_a_claim_command_is_found_on_path_without_an_explicit_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            script = bin_dir / "claim"
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            script.chmod(0o755)
+            env = {"PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+                   "NV_PORT_CLAIM_REPO": "owner/name", "NV_PORT_CLAIM_ISSUE": "42"}
+            config = porting_loop.claim_config(env)
+            self.assertEqual(Path(config["argv"][0]), script)
+            self.assertEqual(config["issue"], "42")
+            self.assertEqual(porting_loop.claim_config({**env, "NV_PORT_CLAIM_REPO": ""}), None)
+
+    def test_the_pr_body_shows_attempts_and_their_failure_classes(self):
+        report = {
+            "families": [{"family": "fade", "passed": 3, "failed": 0,
+                          "review": "accepted", "attempts": 2}],
+            "classes": {},
+            "attempts": [
+                {"family": "fade", "attempt": 1, "failure_class": "diff",
+                 "detail": "1 failing cases"},
+                {"family": "fade", "attempt": 2, "failure_class": "none",
+                 "detail": "passed"},
+            ],
+        }
+        body = porting_loop.pr_body("batch", report)
+        self.assertIn("## Attempts", body)
+        self.assertIn("fade: 2 attempts", body)
+        self.assertIn("attempt 1: diff", body)
+        self.assertIn("attempt 2: none", body)
 
 
 if __name__ == "__main__":

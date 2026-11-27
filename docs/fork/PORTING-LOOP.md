@@ -22,6 +22,13 @@ python3 -I scripts/fork/porting_loop.py weekly --days 7 --out target/porting-loo
 3. It takes an exclusive claim per family and creates one git worktree for it.
    Claims live in the clone's common git directory, so worktrees of the same
    clone cannot take the same family; separate clones need `NV_PORT_CLAIM_DIR`.
+   When `NV_PORT_CLAIM_REPO` and a claim command are configured, it also takes
+   the remote claim `porting-<family>` for `NV_PORT_CLAIM_ISSUE` through
+   `claim acquire`, so workers on different machines or clones cannot take the
+   same family. The lease is renewed before every worker attempt and released
+   when the batch ends; a failed acquire skips the family like a held local
+   claim. `claim list <repo>` shows the remote claims. The local claim files are
+   the fallback and still apply when no claim command is configured.
    The worker's checker files are verified in its worktree right after the
    worker, before the Diff run and the review. A claim records its owner, time and
    process; one older than `NV_PORT_CLAIM_AGE` seconds (3600 by default) is
@@ -33,12 +40,19 @@ python3 -I scripts/fork/porting_loop.py weekly --days 7 --out target/porting-loo
    with the same `--name` does not collide with an earlier batch.
 5. It runs the configured worker command in that worktree, then runs the
    family's `Diff` cases with `family_lab.py`, which sends cargo to the build
-   daemon. A non-zero lab exit status or a failing `Diff` case keeps that
-   family out of the batch. It saves both command outputs beside the batch
-   record.
-6. It runs the configured review command, then checks the integrity hash in
-   the worktree. A changed checker fails the batch; a failed review keeps
-   that family out of it.
+   daemon. A non-zero worker exit, a non-zero lab exit or a failing `Diff` case
+   retries the family up to `NV_PORT_ATTEMPTS` times in total (3 by default).
+   Every retry resets that worktree to the base ref (`git reset --hard` and
+   `git clean -fd`) and runs the worker with `NV_PORT_ATTEMPT` and
+   `NV_PORT_FAILURE_FILE`; the file carries the failing case names and the first
+   40 lines of error output from the previous attempt. A family that fails every
+   attempt is rejected with the failure class of the last attempt. It saves all
+   command outputs beside the batch record. The JSON record and the pull request
+   body have an `## Attempts` section with the count and failure class of each
+   attempt per family.
+6. It runs the configured review command on the attempt that passed the worker,
+   the checker and the Diff lab. A changed checker fails the batch; a failed
+   review keeps that family out of it.
 7. It commits a batch report on a batch branch, merges the accepted family
    branches into it, writes a pull request body with pass counts and failure
    classes, pushes the batch branch and calls the configured pull request
@@ -59,13 +73,22 @@ Both worker and reviewer must be commands; no service is built into the tool.
 | `NV_PORT_PR` | Optional pull request command; it receives `--title`, `--body` and `--head`. The tool pushes the batch branch before calling it. Without it the body is written and printed. |
 | `NV_PORT_CLOSE` | Command required by `shakedown` to close the review unmerged; it receives `--batch`, `--reason` and `--branch` (the rulebook branch). |
 | `NV_PORT_CLAIM_DIR` | One claim directory shared by every worker. Separate clones of one repository share no git directory, so set it to a path they all see to exclude them from each other too. |
+| `NV_PORT_CLAIM_CMD` | Optional command for remote claims; when unset, `claim` is looked up on PATH. Used only together with `NV_PORT_CLAIM_REPO`. |
+| `NV_PORT_CLAIM_REPO` | `owner/name` slug passed to `claim acquire/renew/release/list`. Without it (or a claim command) claims are local files only. |
+| `NV_PORT_CLAIM_ISSUE` | Issue number passed to `claim acquire` and `claim release`; required when a remote claim repo is configured. |
+| `NV_PORT_CLAIM_LEASE` | Optional lease in seconds passed as `--lease-seconds` to `claim acquire`. |
+| `NV_PORT_ATTEMPTS` | Total worker attempts per family after a worker, Diff or lab failure (default 3). |
 | `NV_PORT_BASE` | Ref every worktree starts at (default `fork`); set `origin/fork` when the local branch is stale. |
 | `NV_PORT_EXCLUDE` | Comma-separated family patterns (`fnmatch`) the batch never takes, for families another worker owns outside this clone's claims. |
+| `NV_PORT_CHUNK` | Most functions per chunk (default 5; 0 keeps a family whole). A family's chunks run one after another in its worktree, each with its own worker, `Diff` run and review; a failing chunk is dropped and ends the family, keeping the chunks before it. |
+| `NV_PORT_CHUNKS` | Chunks of one family taken in a batch (default 0, all of them). |
 | `NV_PORT_CLAIM_AGE` | Seconds before a family claim is treated as stale and reclaimed (default 3600). |
 
 Each worker and reviewer receives `NV_PORT_FAMILY`, `NV_PORT_BATCH`,
 `NV_PORT_WORKTREE`, `NV_PORT_QUEUE_FILE` (that family's queue rows),
-`NV_PORT_ADDRESSES`, `NV_PORT_SHAKEDOWN` and the caller's environment. The build
+`NV_PORT_ADDRESSES`, `NV_PORT_SHAKEDOWN` and the caller's environment. A retry
+also receives `NV_PORT_ATTEMPT` (1 for the first try) and, from the second try,
+`NV_PORT_FAILURE_FILE` pointing at the previous attempt's failure. The build
 limits come from the build daemon's `NV_BUILD_*` variables. A pull request
 command may use `GITHUB_TOKEN` from its own environment; the tool never prints
 it and never puts it in a report.
@@ -99,8 +122,12 @@ committed log and the same report.
 `NV_PORT_REVIEW="python3 -I /path/to/scripts/fork/porting_agent.py review"`. The worker makes one
 writing gateway run per family (the prompt is the rulebook, the family's queue rows and how to type
 and register a function with its `Diff` case), applies the run's staged diff to `NV_PORT_WORKTREE`
-and commits it. The reviewer judges that commit read-only, must be another model than the worker,
+and commits it. On a retry it appends the section `Your previous attempt failed with this output`
+and the text of `NV_PORT_FAILURE_FILE` to the prompt, so the next attempt knows which Diff cases
+failed. The reviewer judges that commit read-only, must be another model than the worker,
 and exits 0 only on a `VERDICT: ACCEPT` line. Only public material is sent: queue rows are addresses
 and names, never decompiled code. Models, the gateway command, the writing-run slot count
 (`NV_PORT_SLOTS`, default 2) and the per-run metrics file (`NV_PORT_METRICS`, one JSON line per run
 with model, seconds, status and outcome) are environment; see the script's docstring.
+
+`porting_agent.py probe` asks every configured model one cheap question and parks the ones that fail for an hour (they sort last in the rotation); run it before a batch.
