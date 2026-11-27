@@ -357,16 +357,14 @@ pub fn setup_textures(e: &mut Engine, this: Ptr, state: Ptr) {
     let property = packet::state_property(e, state.addr(), 3);
     let stage = group_c::pass_stage(e, 0);
     if stage != 0 {
-        let count = e.global::<u32>(stage.wrapping_add(STAGE_COUNT));
-        e.set_global(stage.wrapping_add(STAGE_COUNT), count.wrapping_add(1));
+        let count = capture::own_at::<u32>(e, stage.wrapping_add(STAGE_COUNT));
+        capture::set_own_at(e, stage.wrapping_add(STAGE_COUNT), count.wrapping_add(1));
     }
     let texture = e.vcall(property, SLOT_PROPERTY_TEXTURE, &[]).u32();
     own::set_stage_texture(e, stage, texture);
     after_textures(e, this.addr());
-    let left = e
-        .global::<u32>(stage.wrapping_add(STAGE_COUNT))
-        .wrapping_sub(1);
-    e.set_global(stage.wrapping_add(STAGE_COUNT), left);
+    let left = capture::own_at::<u32>(e, stage.wrapping_add(STAGE_COUNT)).wrapping_sub(1);
+    capture::set_own_at(e, stage.wrapping_add(STAGE_COUNT), left);
     if left == 0 {
         e.call(STAGE_DELETE, &args![stage]);
     }

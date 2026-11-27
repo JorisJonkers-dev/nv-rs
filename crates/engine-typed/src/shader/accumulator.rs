@@ -999,7 +999,7 @@ pub fn set_pair_textures(e: &mut Engine, _this: u32, pass_type: u32) {
         let pass = capture::own_at::<u32>(e, CURRENT_PASS);
         let stages = e.global::<u32>(pass.wrapping_add(0x24));
         let stage = e.global::<u32>(stages.wrapping_add((first + i).wrapping_mul(4)));
-        e.set_global(stage.wrapping_add(8), texture);
+        capture::set_own_at(e, stage.wrapping_add(8), texture);
     }
 }
 

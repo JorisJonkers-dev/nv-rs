@@ -693,7 +693,7 @@ pub(crate) fn set_current_pass(e: &mut Engine, pass: u32) {
 /// A pass stage's texture (+8) set (condition 2).
 #[inline(always)]
 pub(crate) fn set_stage_texture(e: &mut Engine, stage: u32, texture: u32) {
-    e.set_global(stage.wrapping_add(8), texture);
+    capture::set_own_at(e, stage.wrapping_add(8), texture);
 }
 
 /// A constant switch object's word +0x20 set (condition 2).
@@ -828,7 +828,7 @@ pub fn copy_counted(e: &mut Engine, slot: u32, source: u32) {
 /// A pass stage's texture (+8) as the draw left it, read back.
 #[inline(always)]
 pub(crate) fn stage_texture(e: &Engine, stage: u32) -> u32 {
-    e.global::<u32>(stage.wrapping_add(8))
+    capture::own_at::<u32>(e, stage.wrapping_add(8))
 }
 
 /// Whether a constant entry is switched on (its byte +8), read back.

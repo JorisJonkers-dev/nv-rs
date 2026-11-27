@@ -378,11 +378,31 @@ pub fn is_open(e: &Engine) -> bool {
     OPEN.load(Relaxed) != 0 && PACKET.with(|p| p.borrow().as_ref().is_some_and(|p| p.run == run(e)))
 }
 
+/// The core's leaves' read of the own state ([`engine_core::own_view::own_read`]).
+fn hook_read(e: &Engine, addr: u32, len: u32) -> u32 {
+    match len {
+        1 => u32::from(own_at::<u8>(e, addr)),
+        2 => u32::from(own_at::<u16>(e, addr)),
+        _ => own_at::<u32>(e, addr),
+    }
+}
+
+/// The core's leaves' write of the own state ([`engine_core::own_view::own_write`]).
+#[allow(clippy::cast_possible_truncation)]
+fn hook_write(e: &mut Engine, addr: u32, len: u32, value: u32) {
+    match len {
+        1 => set_own_at(e, addr, value as u8),
+        2 => set_own_at(e, addr, value as u16),
+        _ => set_own_at(e, addr, value),
+    }
+}
+
 /// Opens an empty packet on this thread for `e`'s run. False (nothing done) when this thread holds one already.
 pub fn begin(e: &Engine) -> bool {
     // The translations that write own state main decides ([`note_write`]) reach this module through the core's hook:
     // installed here on every call (the first one sticks, the rest do nothing), so that no packet is open before it is.
     engine_core::own_view::set_note_hook(note_write);
+    engine_core::own_view::set_access_hooks(hook_read, hook_write);
     let opened = PACKET.with(|p| {
         let mut p = p.borrow_mut();
         if p.is_some() {

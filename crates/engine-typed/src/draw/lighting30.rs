@@ -1609,7 +1609,7 @@ fn shadow_stage(e: &mut Engine, pass: u32, property: u32) {
 fn set_entry(e: &mut Engine, pass: u32, slot: u32, value: u32) {
     let entries = e.global::<u32>(pass.wrapping_add(0x24));
     let entry = e.global::<u32>(entries.wrapping_add(slot));
-    e.set_global(entry.wrapping_add(8), value);
+    capture::set_own_at(e, entry.wrapping_add(8), value);
 }
 
 /// The word at `at` of the object at the property's `offset` (its texture sources).

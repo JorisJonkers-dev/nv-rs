@@ -13,6 +13,7 @@
 
 use super::{Family, FamilyId, Threads};
 use crate::abi::{AbiFn, OneWord};
+use crate::own_view::{own_read, own_write};
 use crate::ptr::Ptr;
 use crate::units::crt::{set_x87_control_word, x87_control_word};
 use crate::x87::{x87_add, x87_load32, x87_m32, x87_mul, x87_quiet_bits, x87_store32, x87_sub};
@@ -395,8 +396,8 @@ pub fn set_state_slot(
     }
     let add = |e: &mut Engine, offset: u32, delta: u32| {
         let at = base.wrapping_add(offset);
-        let counted = e.mem.u32(at).wrapping_add(delta);
-        e.mem.set_u32(at, counted);
+        let counted = own_read(e, at, 4).wrapping_add(delta);
+        own_write(e, at, 4, counted);
     };
     let at = |offset: u32| base.wrapping_add(slot + offset);
     // (marked byte, value word, count) of the side `enable` picks, then the other side's.
@@ -406,34 +407,34 @@ pub fn set_state_slot(
         (0xa4, 0x90, 0x88, 0x80, 0x64)
     };
     let word = base.wrapping_add(word + slot * 4);
-    if e.mem.u8(at(mine)) != 0 {
-        e.mem.set_u32(word, value);
+    if own_read(e, at(mine), 1) != 0 {
+        own_write(e, word, 4, value);
         let extra_byte = at(0xb0);
         if extra != 0 {
-            if e.mem.u8(extra_byte) == 0 {
+            if own_read(e, extra_byte, 1) == 0 {
                 add(e, 0xac, 1);
             }
-        } else if e.mem.u8(extra_byte) != 0 {
+        } else if own_read(e, extra_byte, 1) != 0 {
             add(e, 0xac, 0xffff_ffff);
         }
-        e.mem.set_u8(extra_byte, extra);
+        own_write(e, extra_byte, 1, u32::from(extra));
         return;
     }
-    if e.mem.u8(at(other)) != 0 {
-        e.mem.set_u8(at(other), 0);
+    if own_read(e, at(other), 1) != 0 {
+        own_write(e, at(other), 1, 0);
         add(e, other_count, 0xffff_ffff);
-        if e.mem.u8(at(0xb0)) != 0 {
+        if own_read(e, at(0xb0), 1) != 0 {
             add(e, 0xac, 0xffff_ffff);
         }
-        e.mem.set_u8(at(0xb0), 0);
+        own_write(e, at(0xb0), 1, 0);
     }
-    e.mem.set_u8(at(mine), 1);
-    e.mem.set_u32(word, value);
+    own_write(e, at(mine), 1, 1);
+    own_write(e, word, 4, value);
     add(e, count, 1);
     if extra != 0 {
         add(e, 0xac, 1);
     }
-    e.mem.set_u8(at(0xb0), extra);
+    own_write(e, at(0xb0), 1, u32::from(extra));
 }
 
 /// The family's functions at their exe addresses.

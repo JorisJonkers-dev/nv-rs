@@ -270,6 +270,74 @@ pub fn take_pass_state(e: &mut Engine) {
     }
 }
 
+/// The pass table (`011fdff8`, a pass for each of the 0x2f7 pass types), a pass's stage count (+0x18), stage array
+/// (+0x24) and render state block (+0x30), a render state block's header (`00e7f5d0`: five words, the entries' counts
+/// and last entries of its two lists), an entry (four words: the state, its value, the previous and the next) and the
+/// stage object's words the pass begins write at run time (the filter mode, stage number and texture, +0 to +0xc, and the
+/// speed tree's count, +0x60) and the stage state cache (+0x10) they set the sampler states in.
+const PASS_TABLE: u32 = 0x011f_dff8;
+const PASS_TYPES: u32 = 0x2f7;
+const PASS_COUNT: u32 = 0x18;
+const PASS_STAGES: u32 = 0x24;
+const PASS_STATES: (u32, u32) = (0x30, 0x34);
+const STATES_HEADER: (u32, u32) = (0, 0x14);
+const STATES_LISTS: [u32; 2] = [8, 0x10];
+const STATE_ENTRY: (u32, u32) = (0, 0x10);
+const STAGE_WORDS: [(u32, u32); 2] = [(0, 0xc), (0x60, 0x64)];
+const STAGE_CACHE: u32 = 0x10;
+const STAGE_CACHE_SIZE: u32 = 0xb8;
+/// The most stages a pass has and the most entries a state block's list is followed for (a guard).
+const MAX_STAGES: u32 = 16;
+const MAX_STATES: u32 = 256;
+
+/// The pass objects' mutable words as own blocks (nv-rs#992, step 2), after [`take_pass_state`]: for each pass of the
+/// table, its render state block pointer (+0x30: `00b7a870` makes the block when there is none), the block's header and
+/// the entries of its lists (`00e7f430` sets and moves them: the sun query's set-up writes them for pass type 9), and
+/// each stage's filter mode, number, texture and count (+0 to +0xc, +0x60) with its state cache (+0x10: `00e7de90`,
+/// `00e7def0` and the stage's own set-ups write its sampler banks). The blocks are taken in address order, which keeps
+/// the packet's lists cheap to build.
+pub fn take_pass_objects(e: &mut Engine) {
+    let mut blocks: Vec<(u32, u32, u32)> = Vec::new();
+    for i in 0..PASS_TYPES {
+        let Some(pass) = peek(e, PASS_TABLE + 4 * i).filter(|&a| a != 0) else {
+            continue;
+        };
+        blocks.push((pass, PASS_STATES.0, PASS_STATES.1));
+        if let (Some(count), Some(list)) = (peek(e, pass + PASS_COUNT), peek(e, pass + PASS_STAGES)) {
+            if list != 0 {
+                for k in 0..count.min(MAX_STAGES) {
+                    let Some(stage) = peek(e, list + 4 * k).filter(|&a| a != 0) else {
+                        continue;
+                    };
+                    for (from, to) in STAGE_WORDS {
+                        blocks.push((stage, from, to));
+                    }
+                    if let Some(cache) = peek(e, stage + STAGE_CACHE).filter(|&a| a != 0) {
+                        blocks.push((cache, 0, STAGE_CACHE_SIZE));
+                    }
+                }
+            }
+        }
+        let Some(states) = peek(e, pass + PASS_STATES.0).filter(|&a| a != 0) else {
+            continue;
+        };
+        blocks.push((states, STATES_HEADER.0, STATES_HEADER.1));
+        for last in STATES_LISTS {
+            let mut entry = peek(e, states + last).unwrap_or(0);
+            let mut guard = 0;
+            while entry != 0 && guard < MAX_STATES {
+                blocks.push((entry, STATE_ENTRY.0, STATE_ENTRY.1));
+                entry = peek(e, entry + 8).unwrap_or(0);
+                guard += 1;
+            }
+        }
+    }
+    blocks.sort_unstable_by_key(|&(object, from, _)| object.wrapping_add(from));
+    for (object, from, to) in blocks {
+        capture::own(e, object, from, to);
+    }
+}
+
 /// The renderers' per-draw words ([`RENDERER_BLOCKS`]) as own blocks (one renderer held twice is taken once).
 pub fn take_renderers(e: &Engine) {
     for global in RENDERER_GLOBALS {
