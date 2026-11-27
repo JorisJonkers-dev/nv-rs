@@ -106,6 +106,36 @@ jobs:
       pull-requests: read
     uses: JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
 
+  # Upstream sync pull requests (branches sync/*) are merged by rebase, so each replayed commit lands on fork as it
+  # is and must be a conventional commit (docs/fork/KEEPING-IN-SYNC.md). Every other pull request is squash merged
+  # and only its title counts (pr-text.yml), so this job is skipped for them.
+  commit-messages:
+    name: Commit messages (sync branches)
+    if: ${{ startsWith(github.head_ref, 'sync/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.50.3
+          path: .github-workflows
+          persist-credentials: false
+      - name: Check every commit message
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
+          python3 .github-workflows/scripts/pr_title_check.py --range "${base}..${HEAD_SHA}"
+
   # Upstream's ci.yml, as one job per engine component (.fork/components.toml); see fork-build.yml.
   build:
     name: Build
@@ -534,7 +564,7 @@ jobs:
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
+    needs: [changes, hygiene, commit-messages, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -556,7 +586,7 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "commit-messages", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.

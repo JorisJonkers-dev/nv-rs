@@ -153,6 +153,8 @@ part of the pipeline.
   `Upstream-Late-Commit:` line, `scripts/fork/sync_trailer.py`) and `Progress-Drop in description` (a count that goes
   down needs a `Progress-Drop: <reason>` line). The pipeline's own `Progress counts` job only reports a drop.
   Individual commit messages are not checked: pull requests are squash merged, so the title is the commit on fork.
+  The exception is an upstream sync pull request (branch `sync/*`), which is merged by rebase so every replayed commit
+  lands as it is: the pipeline's `Commit messages (sync branches)` job checks them, and is skipped for every other branch.
   Only `Pipeline Complete` is required in the ruleset "Fork line"; the three checks above are advisory until the
   owner adds them as required checks.
 - **Changing the base branch** neither starts the pipeline nor the text checks' rebuild. The ruleset does not turn on
