@@ -142,13 +142,15 @@ class Jobs(unittest.TestCase):
         self.assertEqual(got[:2], [("Component: c / j 1/2 (Windows)", "1/2"), ("Component: c / j 2/2 (Windows)", "2/2")])
         self.assertEqual(got[2], ("Component: c / k (Windows)", ""))
 
-    def test_shards_may_span_several_binaries_of_one_crate_but_not_a_lib_or_doc_run(self):
-        ok = [{"name": "j", "args": ["-p big --test one --test dir"], "shards": 2}]
-        m = model([comp("c", ["big"], job=ok)], workspace({"big": []}), root=str(self.tmp))
+    def test_shards_over_several_binaries_need_the_archive_and_never_a_lib_or_doc_run(self):
+        multi = [{"name": "j", "args": ["-p big --test one --test dir"], "shards": 2}]
+        m = model([comp("c", ["big"], job=multi)], workspace({"big": []}), root=str(self.tmp))
+        self.assertTrue(any("has shards" in e for e in m.errors), m.errors)
+        m = model([comp("c", ["big"], job=multi, archive=True)], workspace({"big": []}), root=str(self.tmp))
         self.assertFalse([e for e in m.errors if "shards" in e], m.errors)
         for args in (["-p big --test one --lib"], ["-p big --test one", "-p small"], ["-p big --doc"]):
             jobs = [{"name": "j", "args": args, "shards": 2}]
-            m = model([comp("c", ["big", "small"], job=jobs)], self.meta, root=str(self.tmp))
+            m = model([comp("c", ["big", "small"], job=jobs, archive=True)], self.meta, root=str(self.tmp))
             self.assertTrue(any("has shards" in e for e in m.errors), (args, m.errors))
 
     def test_a_test_file_in_no_job_fails(self):
@@ -342,6 +344,11 @@ class Grouping(unittest.TestCase):
 
 
 class Realistic(unittest.TestCase):
+    def test_no_component_archives_unless_it_asks(self):
+        full = real_model().plan(True, [])
+        self.assertEqual(full["builds"], [])
+        self.assertEqual({e["archive"] for e in full["include"]}, {""})
+
     def test_the_narrow_windows_clippy_covers_the_windows_required_components_only(self):
         got = real_model().windows_crates()
         self.assertIn("engine-platform", got)
@@ -351,6 +358,7 @@ class Realistic(unittest.TestCase):
 
     def test_the_typed_jobs_of_an_os_share_one_archive_build_and_a_single_job_builds_for_itself(self):
         m = real_model()
+        m.comps["integration"]["archive"] = True
         full = m.plan(True, [])
         builds = {b["os"]: b for b in full["builds"]}
         self.assertEqual(sorted(builds), ["ubuntu-latest", "windows-latest"])

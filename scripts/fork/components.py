@@ -234,10 +234,12 @@ class Model:
             if not job.get("name") or not job.get("args"):
                 self.errors.append(f"{name}: every job needs a name and args")
             if int(job.get("shards", 1)) > 1:
-                # Shards run from the archive of the component's group (run-component.sh splits the tests of all the job's binaries):
-                # a job that cannot be archived (a --lib or --doc run, several crates) cannot be sharded.
-                if self.archivable(c, job) is None:
-                    self.errors.append(f"{name}: job {job.get('name')!r} has shards, so it must run only `-p <one crate> --test ...` commands")
+                # One binary's tests split by name work anywhere; shards over several binaries need the archive of the component
+                # (`archive = true`, run-component.sh splits the tests of all the job's binaries together).
+                arch = self.archivable(c, job)
+                one = arch is not None and len(arch[1]) == 1
+                if not one and not (arch is not None and c.get("archive")):
+                    self.errors.append(f"{name}: job {job.get('name')!r} has shards, so it must run one `-p <crate> --test <binary>` (or, with `archive = true` on the component, only `-p <one crate> --test ...` commands)")
             for run in job.get("args", []):
                 crates.update(self.flags(run, "-p"))
                 for crate in self.flags(run, "-p"):
@@ -516,7 +518,7 @@ class Model:
                 flags = "".join(f" --config {c}" for c in job.get("config", []))
                 cmds = [self.test_command(r + self.optional_tests(job, r)) + flags for r in job["args"]]
             shards = int((job or {}).get("shards", 1))
-            arch = self.archivable(c, job) if "commands" not in c else None
+            arch = self.archivable(c, job) if "commands" not in c and c.get("archive") else None
             for shard in range(1, shards + 1):
                 label = comp if job is None else f"{comp} / {job['name']}" + (f" {shard}/{shards}" if shards > 1 else "")
                 got = self.shard_entries(comp, label, cmds, job_targets, f"{shard}/{shards}" if shards > 1 else "")
