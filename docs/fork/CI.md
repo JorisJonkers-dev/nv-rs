@@ -144,13 +144,22 @@ part of the pipeline.
   the two pull-request-only jobs and the build when only documentation changed). Its summary lists each component's
   result, the longest job of the component and the duration, then every job with queue and run time, the job that finished
   last (the critical path of this run) and the failed steps. A Linux twin that failed is shown as "failed (informational)".
-  On a title or description edit (pull_request `edited`) only the checks that read them run (hygiene, PR title, the
-  replay point of Verify sync, Progress counts); the builds and code checks skip, and `Pipeline Complete` passes only
-  when the newest run of the commits on the same head commit passed (`scripts/fork/edit_run_gate.py`), so an
-  edit neither restarts the whole pipeline nor turns a red pull request green. While that run is still going the gate
-  waits (polling, up to 170 minutes) instead of failing: a failed `Pipeline Complete` from an edit stayed on the head
-  commit and blocked the merge until someone re-ran it. If the pull request's head moved on meanwhile it passes.
-  A change of the base branch is also an `edited` event; it runs the whole pipeline.
+  A title or description edit does not start this workflow at all (see below), so only the run of the commits ever
+  creates a `Pipeline Complete` check run.
+- **Title and description checks (`pr-text.yml`, workflow "PR text"):** run on opened, edited, synchronize and
+  reopened, in about a minute (the progress check builds a small tool), and wait for nothing. Three checks:
+  `PR title is a Conventional Commit` (the title and the description are conventional and credit no coding agent),
+  `Upstream trailer in description` (a replay pull request ends its description with the newest `Upstream-Commit:` or
+  `Upstream-Late-Commit:` line, `scripts/fork/sync_trailer.py`) and `Progress-Drop in description` (a count that goes
+  down needs a `Progress-Drop: <reason>` line). The pipeline's own `Progress counts` job only reports a drop.
+  Individual commit messages are not checked: pull requests are squash merged, so the title is the commit on fork.
+  The exception is an upstream sync pull request (branch `sync/*`), which is merged by rebase so every replayed commit
+  lands as it is: the pipeline's `Commit messages (sync branches)` job checks them, and is skipped for every other branch.
+  Only `Pipeline Complete` is required in the ruleset "Fork line"; the three checks above are advisory until the
+  owner adds them as required checks.
+- **Changing the base branch** neither starts the pipeline nor the text checks' rebuild. The ruleset does not turn on
+  "require branches to be up to date before merging", so a retarget can keep a green `Pipeline Complete` from the old
+  base. Turning that setting on makes GitHub ask for a fresh run after the base moves.
 - **Test-count check (acceptance for a change to the map):** the component summaries together must equal what
   `cargo test --workspace` ran (upstream's log: 57,444 passed, 53 ignored). A feature a job misses would silently skip tests;
   the counts reveal it.

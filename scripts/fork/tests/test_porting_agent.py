@@ -34,6 +34,39 @@ class AllowedPathTest(unittest.TestCase):
             self.assertFalse(porting_agent.allowed_path(name), name)
 
 
+class ProviderSlotTest(unittest.TestCase):
+    def test_a_provider_never_has_more_runs_than_its_limit(self):
+        import threading
+        import time
+        lock, active, peak = threading.Lock(), {"n": 0}, {"n": 0}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(porting_agent.Slot, "POLL", 0.005):
+            env = {"NV_PORT_SLOT_DIR": tmp, "NV_PORT_PROVIDER_LIMIT": "2"}
+
+            def run():
+                with porting_agent.provider_slot(env, "free/hy4-flash"):
+                    with lock:
+                        active["n"] += 1
+                        peak["n"] = max(peak["n"], active["n"])
+                    time.sleep(0.02)
+                    with lock:
+                        active["n"] -= 1
+
+            threads = [threading.Thread(target=run) for _ in range(20)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        self.assertEqual(peak["n"], 2)
+
+    def test_providers_and_bad_limits(self):
+        self.assertEqual(porting_agent.provider_of("free/x"), "free")
+        self.assertEqual(porting_agent.provider_of("bare"), "bare")
+        self.assertEqual(porting_agent.provider_of(None), "unknown")
+        slot = porting_agent.provider_slot({"NV_PORT_PROVIDER_LIMIT": "x", "NV_PORT_SLOT_DIR": "/tmp/x"}, "a/b")
+        self.assertEqual(slot.count, 4)
+        self.assertEqual(porting_agent.provider_slot({"NV_PORT_PROVIDER_LIMIT": "0"}, "a").count, 1)
+
+
 class AgentTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

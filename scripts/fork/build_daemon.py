@@ -167,6 +167,13 @@ class Config:
                 "build daemon: warning: no memory-cap wrapper found; "
                 "set NV_BUILD_CAPPED to its path to cap build memory"
             )
+        # Number of parallel build slots (default 3, 1 behaves as before)
+        try:
+            self.slots = int(env.get("NV_BUILD_SLOTS", "3"))
+        except ValueError:
+            self.slots = 3
+        if self.slots < 1:
+            self.slots = 1
 
     def rustc_wrapper(self):
         """sccache when installed, an explicit override always, nothing when disabled."""
@@ -176,22 +183,30 @@ class Config:
             return self.wrapper
         return ""
 
-    def command(self, argv):
+    def command(self, argv, slot_index=0):
         command = list(self.flock)
         if self.flock:
-            command.append(self.lock)
+            if self.slots > 1:
+                command.append(self.lock + f".{slot_index}")
+            else:
+                command.append(self.lock)
         command += self.capped
         if self.capped:
             command.append(self.mem)
         return command + self.cargo + [str(arg) for arg in argv]
 
-    def build_env(self, base, passed):
+    def target_dir_for_slot(self, slot_index):
+        if self.slots > 1:
+            return self.target_dir + f"-slot{slot_index}"
+        return self.target_dir
+
+    def build_env(self, base, passed, slot_index=0):
         env = {key: value for key, value in base.items() if key in PASS_ENV}
         for key, value in passed.items():
             if key in PASS_ENV:
                 env[key] = value
         env["CARGO_BUILD_JOBS"] = self.jobs
-        env["CARGO_TARGET_DIR"] = self.target_dir
+        env["CARGO_TARGET_DIR"] = self.target_dir_for_slot(slot_index)
         env.pop("RUSTC_WRAPPER", None)
         if self.rustc_wrapper():
             env["RUSTC_WRAPPER"] = self.rustc_wrapper()
@@ -206,6 +221,7 @@ class Config:
             "sccache_dir": self.sccache_dir, "cargo": self.cargo,
             "flock": bool(self.flock), "capped": bool(self.capped),
             "warnings": list(self.warnings),
+            "slots": self.slots,
         }
 
 
@@ -213,29 +229,45 @@ def pass_env(env):
     return {key: value for key, value in env.items() if key in PASS_ENV}
 
 
-def handle(stream, req, config, stats, stop):
-    """Run one queued request; one worker thread calls this, so cargo never overlaps."""
+STATS_LOCK = threading.Lock()
+
+
+def new_stats():
+    """The counters the daemon keeps, shared by its slot threads under STATS_LOCK."""
+    return {"active": 0, "max_active": 0, "completed": 0, "failed": 0, "served": [],
+            "slot_active": {}, "slot_max_active": {}, "job_starts": [], "job_ends": [], "queued": 0}
+
+
+def handle(stream, req, config, stats, stop, slot_index=0):
+    """Run one queued request; a worker thread calls this for its slot."""
     kind = req.get("kind")
     if kind == "status":
-        send_frame(stream, {"kind": "done", "exit": 0,
-                            "status": dict(stats, config=config.describe())})
+        with STATS_LOCK:
+            snapshot = json.loads(json.dumps(dict(stats, config=config.describe())))
+        send_frame(stream, {"kind": "done", "exit": 0, "status": snapshot})
         return
     if kind == "stop":
         stop.set()
         send_frame(stream, {"kind": "done", "exit": 0})
         return
     label = str(req.get("label") or "client")
-    stats["served"] = stats["served"][-99:] + [label]
-    stats["active"] += 1
-    stats["max_active"] = max(stats["max_active"], stats["active"])
+    with STATS_LOCK:
+        stats["served"] = stats["served"][-99:] + [label]
+        stats["active"] += 1
+        stats["max_active"] = max(stats["max_active"], stats["active"])
+        running = stats["slot_active"].get(slot_index, 0) + 1
+        stats["slot_active"][slot_index] = running
+        stats["slot_max_active"][slot_index] = max(stats["slot_max_active"].get(slot_index, 0), running)
+        stats["job_starts"] = stats["job_starts"][-199:] + [
+            {"label": label, "slot": slot_index, "start": time.time()}]
     for warning in config.warnings:
         send_frame(stream, {"kind": "out", "data": warning + "\n"})
     code = 2
     try:
         argv = req.get("argv") or []
         cwd = str(req.get("cwd") or Path.cwd())
-        env = config.build_env(os.environ, req.get("env") or {})
-        proc = subprocess.Popen(config.command(argv), cwd=cwd, env=env,
+        env = config.build_env(os.environ, req.get("env") or {}, slot_index)
+        proc = subprocess.Popen(config.command(argv, slot_index), cwd=cwd, env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors="replace", bufsize=1)
         for line in proc.stdout:
@@ -244,10 +276,14 @@ def handle(stream, req, config, stats, stop):
     except Exception as exc:
         send_frame(stream, {"kind": "out", "data": f"build daemon: {exc}\n"})
     finally:
-        stats["active"] -= 1
-        stats["completed"] += 1
-        if code != 0:
-            stats["failed"] += 1
+        with STATS_LOCK:
+            stats["job_ends"] = stats["job_ends"][-199:] + [
+                {"label": label, "slot": slot_index, "end": time.time()}]
+            stats["active"] -= 1
+            stats["slot_active"][slot_index] -= 1
+            stats["completed"] += 1
+            if code != 0:
+                stats["failed"] += 1
         send_frame(stream, {"kind": "done", "exit": code})
 
 
@@ -268,7 +304,7 @@ def serve():
     write_state(runtime, state)
     jobs = queue.Queue()
     stop = threading.Event()
-    stats = {"active": 0, "max_active": 0, "completed": 0, "failed": 0, "served": []}
+    stats = new_stats()
 
     def reader(conn):
         try:
@@ -282,18 +318,22 @@ def serve():
                 stream.close()
                 conn.close()
                 return
+            with STATS_LOCK:
+                stats["queued"] += 1
             jobs.put((conn, stream, req))  # the worker closes both when done
         except (OSError, ValueError):
             conn.close()
 
-    def worker():
+    def worker(slot_index):
         while not stop.is_set() or not jobs.empty():
             try:
                 conn, stream, req = jobs.get(timeout=0.2)
             except queue.Empty:
                 continue
+            with STATS_LOCK:
+                stats["queued"] -= 1
             try:
-                handle(stream, req, config, stats, stop)
+                handle(stream, req, config, stats, stop, slot_index)
             except OSError:
                 pass
             finally:
@@ -301,8 +341,11 @@ def serve():
                 stream.close()
                 conn.close()
 
-    worker_thread = threading.Thread(target=worker, daemon=True)
-    worker_thread.start()
+    worker_threads = []
+    for i in range(config.slots):
+        t = threading.Thread(target=worker, args=(i,), daemon=True)
+        t.start()
+        worker_threads.append(t)
     try:
         while not stop.is_set():
             try:
@@ -314,7 +357,8 @@ def serve():
             threading.Thread(target=reader, args=(conn,), daemon=True).start()
     finally:
         listener.close()
-        worker_thread.join(timeout=30)
+        for t in worker_threads:
+            t.join(timeout=30)
         (runtime / STATE).unlink(missing_ok=True)
 
 

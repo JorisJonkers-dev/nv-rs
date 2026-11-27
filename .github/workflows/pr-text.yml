@@ -1,0 +1,93 @@
+# Fork-only (JorisJonkers-dev/nv-rs). The checks that read a pull request's TITLE or DESCRIPTION, in their own small
+# workflow so that editing either needs no run of the pipeline (fork-ci.yml, which runs for code changes only).
+# Each is a check of its own and none is named "Pipeline Complete". Pull requests are squash merged, so the title
+# becomes the commit on fork; the individual commit messages of the branch are not checked.
+#
+#   PR title is a Conventional Commit      the title (and the description) are conventional and credit no coding agent
+#   Upstream trailer in description        a replay pull request ends its description with the newest Upstream-Commit
+#   Progress-Drop in description           a count that goes down needs a `Progress-Drop: <reason>` line
+#
+name: PR text
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    name: PR title is a Conventional Commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.50.3
+          path: .github-workflows
+          persist-credentials: false
+      - name: Check the title and the description
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 .github-workflows/scripts/pr_title_check.py
+
+  upstream-trailer:
+    name: Upstream trailer in description
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # A pull request that replays upstream commits ends its description with the newest Upstream-Commit trailer, so a
+      # squash merge (its message is the description) keeps the replay point (scripts/fork/sync_trailer.py).
+      - name: The replay point survives the merge
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$BODY" >"$RUNNER_TEMP/pr-body.md"
+          python3 -I scripts/fork/sync_trailer.py "$BASE" "$HEAD" "$RUNNER_TEMP/pr-body.md"
+
+  progress:
+    name: Progress-Drop in description
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The same count check as "Progress counts" in fork-ci.yml, with the description's Progress-Drop line applied.
+      - name: Check the counts
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/progress-target"
+          cargo run --locked --quiet --release --manifest-path scripts/ledger/Cargo.toml -- --tsv "$RUNNER_TEMP/ledger.tsv" >/dev/null
+          git checkout -- docs/LEDGER.md
+          tool=(cargo run --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml --)
+          "${tool[@]}" fetch --sources "$RUNNER_TEMP/pins"
+          baseline=()
+          if git show "$BASE:docs/media/fork-progress.json" >"$RUNNER_TEMP/baseline.json" 2>/dev/null; then
+            baseline=(--baseline "$RUNNER_TEMP/baseline.json")
+          fi
+          allow=()
+          printf '%s\n' "$BODY" | tr -d '\r' >"$RUNNER_TEMP/pr-body.md"
+          if grep -qE '^Progress-Drop: *[^ ]' "$RUNNER_TEMP/pr-body.md"; then allow=(--allow-drop); fi
+          # The upstream replay (this repository's own sync branch) carries upstream's changes as they are: its drops
+          # are reported, not refused.
+          if [ "$HEAD_REF" = sync/upstream ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then allow=(--allow-drop); fi
+          "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" "${baseline[@]}" "${allow[@]}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

@@ -2,17 +2,17 @@
 # check (estate convention). The build is one job per engine component (fork-build.yml, .fork/components.toml,
 # docs/fork/CI.md); the repository's own checks run in parallel with it; Pipeline Complete gathers every result
 # and prints each component's result and duration. The two reusable workflows (hygiene, PR title) are jobs.
-# A description or title edit (pull_request `edited`) runs only the checks that read them (hygiene, PR title, the
-# replay point of Verify sync, Progress counts); the builds and code checks skip, and Pipeline Complete takes the
-# code's result from the latest finished run of the commits on the same head commit, so an edit cannot turn a red
-# pull request green and does not start the whole pipeline again. A change of the base branch (also an `edited`
-# event, with `changes.base`) runs everything: the merge with the new base was never checked.
+# This workflow runs for COMMITS only: a push, a new pull request, a reopen. Editing a pull request's title or
+# description does not start it (no `edited` trigger), so those edits create no "Pipeline Complete" check run and the
+# run of the commits stays the only source of the required check. The checks that read the title or the description
+# are in pr-text.yml. Here the Progress-Drop rule is not applied and the
+# Upstream-Commit trailer is not read; both are enforced there.
 # Upstream's own gate, .github/workflows/ci.yml (Windows, ~140 minutes), is not required here.
 name: Pipeline
 
 on:
   pull_request:
-    types: [opened, edited, reopened, synchronize]
+    types: [opened, reopened, synchronize]
   push:
     branches: [fork]
   workflow_dispatch:
@@ -21,11 +21,10 @@ on:
     - cron: '17 3 * * *'
 
 # A new commit on a branch cancels the run still going for the older one: runners are limited and the older
-# result is of no use. Not cancelled: a title edit (its own group, so it neither cancels nor is cancelled by a
-# push; no label events trigger this workflow, so a bot labelling a new pull request starts nothing) and the fork
-# branch (every commit there runs to the end, so it always has a finished run and its caches are saved).
+# result is of no use. Not cancelled: the fork branch (every commit there runs to the end, so it always has a
+# finished run and its caches are saved).
 concurrency:
-  group: pipeline-${{ github.ref == 'refs/heads/fork' && github.sha || format('{0}-{1}', github.event.pull_request.number || github.ref, github.event.action == 'edited' && !github.event.changes.base && github.run_id || 'commits') }}
+  group: pipeline-${{ github.ref == 'refs/heads/fork' && github.sha || format('{0}-commits', github.event.pull_request.number || github.ref) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/fork' }}
 
 permissions:
@@ -107,16 +106,41 @@ jobs:
       pull-requests: read
     uses: JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
 
-  pr-title:
-    name: PR title
-    if: ${{ github.event_name == 'pull_request' }}
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/pr-title-check.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
+  # Upstream sync pull requests (branches sync/*) are merged by rebase, so each replayed commit lands on fork as it
+  # is and must be a conventional commit (docs/fork/KEEPING-IN-SYNC.md). Every other pull request is squash merged
+  # and only its title counts (pr-text.yml), so this job is skipped for them.
+  commit-messages:
+    name: Commit messages (sync branches)
+    if: ${{ startsWith(github.head_ref, 'sync/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.50.3
+          path: .github-workflows
+          persist-credentials: false
+      - name: Check every commit message
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
+          python3 .github-workflows/scripts/pr_title_check.py --range "${base}..${HEAD_SHA}"
 
   # Upstream's ci.yml, as one job per engine component (.fork/components.toml); see fork-build.yml.
   build:
     name: Build
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' && (github.event.action != 'edited' || github.event.changes.base) }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     uses: ./.github/workflows/fork-build.yml
 
   # The repository's own checks, in parallel with the builds. Separate steps so one failing check does not hide
@@ -124,7 +148,6 @@ jobs:
   lint:
     name: Repository checks
     needs: changes
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -169,7 +192,6 @@ jobs:
   # builds them. Runs on every pull request and push to fork: the crates are fork-owned, so the `changes` filter would skip them.
   facade:
     name: Facade crates
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -201,7 +223,7 @@ jobs:
   macos:
     name: macOS
     needs: changes
-    if: ${{ needs.changes.outputs.native == 'true' && (github.event.action != 'edited' || github.event.changes.base) }}
+    if: ${{ needs.changes.outputs.native == 'true' }}
     runs-on: macos-latest
     timeout-minutes: 120
     env:
@@ -295,7 +317,7 @@ jobs:
   # (fork-coverage.yml, docs/fork/COVERAGE.md). Pull requests only; the nightly baseline is that workflow's own schedule.
   coverage:
     name: Coverage
-    if: ${{ github.event_name == 'pull_request' && (github.event.action != 'edited' || github.event.changes.base) }}
+    if: ${{ github.event_name == 'pull_request' }}
     permissions:
       contents: read
       actions: read
@@ -303,7 +325,8 @@ jobs:
     uses: ./.github/workflows/fork-coverage.yml
 
   # Upstream-owned files may differ from upstream only where .fork/allowed-divergence says so. Cheap, so it runs on every
-  # pull request and push, also when the builds are skipped; it needs the history and upstream's copy (main).
+  # pull request and push, also when the builds are skipped; it needs the history and upstream's copy (main). The
+  # replay point in the description is checked in pr-text.yml.
   verify-sync:
     name: Verify sync
     runs-on: ubuntu-latest
@@ -317,26 +340,12 @@ jobs:
         run: git fetch --no-tags origin main:refs/remotes/origin/main
       - name: No divergence outside the overlay
         run: scripts/fork/verify-sync.sh
-      # A pull request that replays upstream commits ends its description with the newest Upstream-Commit trailer, so a
-      # squash merge (its message is the description) keeps the replay point (scripts/fork/sync_trailer.py). Runs on
-      # description edits too (the `edited` trigger).
-      - name: The replay point survives the merge
-        if: ${{ github.event_name == 'pull_request' && !cancelled() }}
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-          BODY: ${{ github.event.pull_request.body }}
-        run: |
-          set -euo pipefail
-          printf '%s\n' "$BODY" >"$RUNNER_TEMP/pr-body.md"
-          python3 -I scripts/fork/sync_trailer.py "$BASE" "$HEAD" "$RUNNER_TEMP/pr-body.md"
 
   # A change to a layout constant of engine-core's mem.rs (the heap's ranges, the platform area, the extenders' code and
   # the helper area) must pass the window test before it merges (nv-rs#272, scripts/fork/layout_gate.py): the heap's
   # tests at lowered windows state the ranges' sizes, so a moved constant fails them. Cheap when nothing moved.
   layout-window:
     name: Layout window test
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -361,8 +370,8 @@ jobs:
 
   # The progress pictures' generator (docs/fork/PROGRESS.md, scripts/fork/progress) in check mode on every pull request,
   # so it cannot break unseen: its tests, two counts of the merged tree that must agree, and the counts against the base's
-  # summary. A count that goes down fails unless the description has a line `Progress-Drop: <reason>` (the `edited`
-  # trigger runs it again; the upstream replay's drops are only reported). Its report is in the run summary. The pictures themselves are committed after the merge
+  # summary. A count that goes down is only reported here; whether the description excuses it
+  # (`Progress-Drop: <reason>`) is checked in pr-text.yml. Its report is in the run summary. The pictures themselves are committed after the merge
   # (fork-progress.yml).
   progress:
     name: Progress counts
@@ -377,9 +386,6 @@ jobs:
       - name: Check the counts
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-          BODY: ${{ github.event.pull_request.body }}
-          HEAD_REF: ${{ github.head_ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
           rustup toolchain install
@@ -393,12 +399,8 @@ jobs:
           if git show "$BASE:docs/media/fork-progress.json" >"$RUNNER_TEMP/baseline.json" 2>/dev/null; then
             baseline=(--baseline "$RUNNER_TEMP/baseline.json")
           fi
-          allow=()
-          printf '%s\n' "$BODY" | tr -d '\r' >"$RUNNER_TEMP/pr-body.md"
-          if grep -qE '^Progress-Drop: *[^ ]' "$RUNNER_TEMP/pr-body.md"; then allow=(--allow-drop); fi
-          # The upstream replay (this repository's own sync branch) carries upstream's changes as they are: its drops
-          # are reported, not refused.
-          if [ "$HEAD_REF" = sync/upstream ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then allow=(--allow-drop); fi
+          # A drop is reported here, never refused: the description's Progress-Drop line is read by pr-text.yml.
+          allow=(--allow-drop)
           "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" "${baseline[@]}" "${allow[@]}" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -562,11 +564,10 @@ jobs:
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
+    needs: [changes, hygiene, commit-messages, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    # A description edit waits for the run of the commits (scripts/fork/edit_run_gate.py); every other run takes minutes.
-    timeout-minutes: 180
+    timeout-minutes: 15
     permissions:
       contents: read
       actions: read
@@ -579,31 +580,14 @@ jobs:
 
       # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
       # its override label is set), "Catalogue results" and the Linux tagged-engine-test job on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
-      # when only documentation changed. On a description edit the builds and code checks skip (the next step).
+      # when only documentation changed.
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
-          ACTION: ${{ github.event.action == 'edited' && !github.event.changes.base && 'edited' || 'full' }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" --arg act "$ACTION" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") or ((.key | IN("build", "macos", "lint", "facade", "layout-window")) and $act == "edited") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "commit-messages", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
-
-      # A description edit checked only the title and description; the code's result is that of the newest run of this
-      # workflow on the same head commit whose "Repository checks" ran (a run of the commits, not of another edit). While
-      # that run is still going this WAITS for it (a failure here would stay on the head commit as a red required check that no
-# later run replaces) and takes its result; a pull request that moved on to another head meanwhile passes.
-      - name: The commits' run passed
-        if: ${{ github.event.action == 'edited' && !github.event.changes.base }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          RUN_ID: ${{ github.run_id }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-        run: python3 -I scripts/fork/edit_run_gate.py
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.
       - name: Summary of the run
