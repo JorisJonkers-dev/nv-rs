@@ -76,6 +76,7 @@ pub mod estimate;
 pub mod exe;
 pub mod extend;
 pub mod hitch;
+pub mod lamp_distance;
 pub mod late_ai;
 pub mod loader_jobs;
 pub mod mem;
