@@ -113,8 +113,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
+          # The whole output goes to a file: the tail alone left a crashed test binary unnamed (nv-rs#1030). When the
+          # run fails, the lines that name the failing tests, panics and signals are printed from the file.
+          status=0
           # shellcheck disable=SC2086
-          cargo llvm-cov --locked --no-fail-fast --lcov --output-path out/lcov.info --ignore-filename-regex "$IGNORE" $ARGS 2>&1 | tail -n 40
+          cargo llvm-cov --locked --no-fail-fast --lcov --output-path out/lcov.info --ignore-filename-regex "$IGNORE" $ARGS >cov-test.log 2>&1 || status=$?
+          tail -n 40 cov-test.log
+          if [ "$status" -ne 0 ]; then
+            echo "::group::failing tests (cargo llvm-cov exit $status)"
+            grep -nE '^failures:|^---- |FAILED|panicked at|SIG[A-Z]+|signal:|error: test failed|Running ' cov-test.log | tail -n 200 || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
           cargo llvm-cov report --summary-only --ignore-filename-regex "$IGNORE" | tail -n 3 | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The baseline is the merge base of the pull request (docs/fork/COVERAGE.md): the lcov of the nightly (or manual)
