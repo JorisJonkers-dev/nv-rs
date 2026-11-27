@@ -101,6 +101,13 @@ dependencies (the check says exactly which are missing). A crate in two componen
 - **A changed test file selects its own job:** a file `crates/<crate>/tests/<name>.rs` that a component job lists with
   `--test <name>` reaches that job only (the mapping is `.fork/components.toml`, the same one the coverage plan reads); a
   change to the crate's source or to a dependency reaches every job that links it.
+- **The typed jobs gate on Linux:** the `integration` component is `runs_on = "both"`, `windows = "nightly"`: its typed Diff jobs
+  (the same split, one definition) run on Linux on every pull request and push, because a Diff test compares two Rust
+  implementations and needs no Windows. The Windows twin of every job is required as well, but runs only in the full run (the
+  nightly, a manual run, the label `ci:all-tests`) and on a push to `fork` that changes platform-relevant code; on a pull request
+  it runs with the label `ci:all-os`. A job with `os = "windows"` (the aggregator: host and Play, the doctests) stays on Windows
+  and follows the Windows rule of a pull request. Move a family back to Windows only by naming `os = "windows"` on its job and
+  listing why here: none is known.
 - **Small components share a Windows job:** a component with `group = "..."` in `.fork/components.toml` runs in the group's one
   Windows job (`Component: small crates (Windows)`, `Component: medium crates (Windows)`), only the members the change reaches,
   one after the other: a Windows job costs about 50 s before its first test. Linux jobs stay one per component.

@@ -167,6 +167,12 @@ jobs:
           pactl list short sinks
           echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" >> "$GITHUB_ENV"
           echo "NV_REQUIRE_SOUND_SERVER=1" >> "$GITHUB_ENV"
+      # The engine-core SSE rcp/rsqrt table test skips on the CPU that does not match the recorded tables (AMD or Intel), so the
+      # runner's CPU is part of the result: it is in the summary.
+      - name: Runner CPU
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          echo "CPU of ${{ matrix.name }}: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs), $(nproc) vCPU" >>"$GITHUB_STEP_SUMMARY"
       - name: Test ${{ matrix.component }}
         env:
           SCRIPT: ${{ matrix.script }}

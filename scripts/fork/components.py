@@ -153,6 +153,8 @@ class Model:
         for name, c in self.comps.items():
             if c.get("runs_on") not in ("windows", "both"):
                 self.errors.append(f"{name}: runs_on must be \"windows\" or \"both\"")
+            if c.get("windows") not in (None, "required", "nightly"):
+                self.errors.append(f"{name}: windows must be \"required\" or \"nightly\"")
             if not c["crates"] and "commands" not in c:
                 self.errors.append(f"{name}: has no crates and no commands")
             self.check_jobs(name, c)
@@ -359,9 +361,11 @@ class Model:
         flags = self.missing_features(self.flags(run, "-p"))
         return f"cargo test --locked {run}" + (f" --features {','.join(flags)}" if flags else "")
 
-    def entries(self, comp, seeds=None, tests=(), windows=True):
+    def entries(self, comp, seeds=None, tests=(), windows=True, windows_full=True):
         """Matrix entries of one component. seeds: the changed crates of a pull request (None: run everything); tests: the
-        changed (crate, test) files that select a job by name; windows: False leaves the Windows jobs out."""
+        changed (crate, test) files that select a job by name; windows: False leaves the Windows jobs out; windows_full: False
+        leaves out the Windows twin of a component with `windows = "nightly"` (it runs in the full run and on a push that
+        changes platform code only)."""
         c = self.comps[comp]
         linux_ready = bool(c["crates"]) and set(c["crates"]) <= self.linux_ok
         # os, label, informational
@@ -370,6 +374,9 @@ class Model:
             if c.get("linux") == "required":
                 # A component of Linux-only tests (cfg(unix)): a required Linux job, no Windows job.
                 targets = [("ubuntu-latest", "Linux", False)]
+            elif linux_ready and c.get("windows") == "nightly":
+                # Linux is the gate; the Windows twin is required too, but only where it is asked for (windows_full).
+                targets = [("ubuntu-latest", "Linux", False)] + ([("windows-latest", "Windows", False)] if windows_full else [])
             elif linux_ready and c.get("windows") != "required":
                 targets = [("ubuntu-latest", "Linux", False)]
             else:
@@ -384,6 +391,10 @@ class Model:
         for job in (c.get("job") or [None]):
             if seeds is not None and not (self.closure_of(self.job_crates(c, job)) & seeds) and not (self.job_tests(c, job) & set(tests)):
                 continue
+            job_targets = targets
+            if (job or {}).get("os") == "windows":
+                # A job that stays on Windows (it needs it: cfg(windows) code, or a family that only Windows reproduces bit for bit).
+                job_targets = [("windows-latest", "Windows", False)] if windows else []
             if "commands" in c:
                 cmds = list(c["commands"])
             elif job is None:
@@ -394,7 +405,7 @@ class Model:
             shards = int((job or {}).get("shards", 1))
             for shard in range(1, shards + 1):
                 label = comp if job is None else f"{comp} / {job['name']}" + (f" {shard}/{shards}" if shards > 1 else "")
-                result += self.shard_entries(comp, label, cmds, targets, f"{shard}/{shards}" if shards > 1 else "")
+                result += self.shard_entries(comp, label, cmds, job_targets, f"{shard}/{shards}" if shards > 1 else "")
         return result
 
     def shard_entries(self, comp, label, cmds, targets, shard):
@@ -419,8 +430,11 @@ class Model:
                     out.append(f"{m} -> target")
         return "\n".join(out[1:] or out)
 
-    def plan(self, run_all=True, files=(), all_os=True):
-        """all_os: False (a pull request without platform-relevant changes) leaves the Windows jobs out."""
+    def plan(self, run_all=True, files=(), all_os=True, windows_full=None):
+        """all_os: False (a pull request without platform-relevant changes) leaves the Windows jobs out. windows_full: whether
+        the Windows twins of `windows = "nightly"` components run (default: when everything runs)."""
+        if windows_full is None:
+            windows_full = run_all
         by_path, reason, seeds, tests = set(), "every component runs on this event", None, set()
         if not run_all:
             files, tests = self.split_tests(files)
@@ -433,7 +447,7 @@ class Model:
         include, status = [], []
         for name, c in self.comps.items():
             force = seeds is None or c.get("pr") == "always" or name in by_path
-            got = self.entries(name, None if force else seeds, tests, all_os)
+            got = self.entries(name, None if force else seeds, tests, all_os, windows_full)
             include += got
             status.append({"component": name, "tested": bool(got), "jobs": len(got),
                            "why": "" if got else "no crate of its test closure changed" if all_os or not self.entries(name, None if force else seeds, tests) else "Windows only, and no platform code changed"})
@@ -633,7 +647,10 @@ def main():
             files = read_list(a.files_from) if a.files_from else [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
         # A pull request runs Windows only for platform-relevant changes or with the label ci:all-os (--all-os); a push runs every OS.
         all_os = a.event != "pull_request" or a.all_os or full or model.platform_relevant(files)
-        json.dump(model.plan(full, files, all_os), sys.stdout, indent=1)
+        # The Windows twin of a `windows = "nightly"` component runs in the full run, and on a push to the integration branch
+        # whose change is platform-relevant; a pull request gets its Linux job only (or the twin with the label ci:all-os).
+        win_full = full or a.all_os or (a.event == "push" and model.platform_relevant(files))
+        json.dump(model.plan(full, files, all_os, win_full), sys.stdout, indent=1)
         print()
 
 
