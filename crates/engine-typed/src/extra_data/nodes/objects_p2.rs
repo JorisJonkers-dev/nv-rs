@@ -1788,13 +1788,6 @@ pub fn fn_00437b90(e: &mut Engine, this: Ptr) -> bool {
     e.mem.u32(this.addr() + 8) & 0x820 != 0
 }
 
-// Typed from 00437bb0
-/// An accessor that the engine map has no name for: the byte at +0x87 of a
-/// reference.
-pub fn fn_00437bb0(e: &mut Engine, this: Ptr) -> u8 {
-    e.mem.u8(this.addr() + 0x87)
-}
-
 // Typed from 00437bd0
 /// A predicate on a reference that the engine map has no name for: true when
 /// its kind code (`004f8960`) is 3.
@@ -2270,7 +2263,6 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         ),
         entry!(0x0043_7a90, fn_00437a90(Ptr<_>)),
         entry!(0x0043_7b90, fn_00437b90(Ptr<_>) -> bool),
-        entry!(0x0043_7bb0, fn_00437bb0(Ptr<_>) -> u8),
         entry!(0x0043_7bd0, fn_00437bd0(Ptr<_>) -> bool),
         entry!(0x0043_7bf0, fn_00437bf0(Ptr<_>) -> bool),
         entry!(0x0043_7c10, fn_00437c10(Ptr<_>) -> Ptr<_>),

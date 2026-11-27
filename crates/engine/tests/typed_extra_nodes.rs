@@ -3569,17 +3569,6 @@ fn n_00437b90() {
 }
 
 #[test]
-fn n_00437bb0() {
-    Diff::new(entry!(
-        0x0043_7bb0,
-        extra_data::nodes::objects_p2::fn_00437bb0(Ptr<_>) -> u8
-    ))
-    .node(&[A::This(0x50)])
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00437bd0() {
     Diff::new(entry!(
         0x0043_7bd0,
