@@ -247,7 +247,12 @@ impl<B: Backend> BackendPeer<B> {
 #[cfg(any(test, feature = "test-support"))]
 impl<B: Backend> ReferencePeer for BackendPeer<B> {
     fn run(&self, e: &mut Engine, addr: u32, args: &[u32]) -> Ret {
-        // A unit the build could not compile stays on its Rust translation.
+        // A unit the build could not compile stays on its Rust translation. The module's function
+        // is entered without `Engine::call`, so the entry shows in the call log and the hook as
+        // the translation's entry does: the comparison goes call for call from the first.
+        if self.has_export(addr) {
+            e.typed_note_direct(addr, args);
+        }
         self.run_export(e, addr, args)
             .unwrap_or_else(|| e.call(addr, args))
     }

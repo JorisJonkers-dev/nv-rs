@@ -181,8 +181,8 @@ Without both variables, or without a built backend, nothing is registered and th
 as before. The switch is separate from the `Diff` peer on purpose: the differential cases keep
 comparing the translation with the backend.
 
-With the gap units built (nv-rs#1000, below), 14 of the 72 `eax` rows have an export and are
-registered; the rest are in units that do not build yet or were left out with a recorded reason.
+With the gap units built (nv-rs#1000, below), 25 of the 72 `eax` rows have an export and are
+registered (36 of 59 units compile); the rest are in units that do not build yet or were left out with a recorded reason.
 The backend call hands back `EAX`, `EDX` and `ST0`. The library's exports are read from
 `exports.tsv` beside it.
 
@@ -250,3 +250,11 @@ the exception model (`00ec....`, `00ed....`) and are in no unit of the decomp; 7
 input; the other 4 name a stale register or an `MXCSR` value. None of them is held back only by
 the one-word result, so none moves to `eax`.
 
+
+Diff cases against the backend (nv-rs#1000): `crates/engine/tests/backend_gap_diff.rs` holds one case
+per gap, skipped without `NV_BACKEND_LIBRARY`. Three limits of a world, found by running them:
+a virtual call through a host double traps in the module (`call_indirect` reaches only functions
+the module holds); a callee the module holds is called inside it, so the host double never sees the
+call (and an overridable address cannot be ignored), so the world must not reach one; the peer
+enters its function without `Engine::call`, so it notes the entry in the call log itself. Cases so
+far: 00d4ded0. The other 24 registered gaps have none yet.
