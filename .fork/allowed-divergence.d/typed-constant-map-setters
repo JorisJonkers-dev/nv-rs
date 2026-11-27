@@ -1,6 +1,5 @@
 crates/engine-typed/src/draw/camera.rs  # the camera's view-projection product calls the typed D3DX multiply directly (nv-rs#936); drop when upstream types this call
 crates/engine-typed/src/draw/defined.rs  # the defined constants' texture transform and matrix product call typed helpers directly (nv-rs#936); drop when upstream types these calls
 crates/engine-typed/src/draw/mod.rs  # registers the typed constant-map setter at 00e83550 (nv-rs#936); drop when upstream registers it
-crates/engine-typed/src/draw/thunks.rs  # D3DXMatrixMultiply works the measured product out in place instead of jumping through its import (nv-rs#936); drop when upstream provides the typed helper
 crates/engine/tests/typed_draw.rs  # differential cases for the typed setter and the matrix helper (nv-rs#936); drop with the typed functions
 crates/engine/tests/typed_shader.rs  # the touched typed callers' cases compare the measured product, with the import call ignored (nv-rs#936); drop with the typed functions
