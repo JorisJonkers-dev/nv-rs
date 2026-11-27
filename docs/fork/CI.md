@@ -122,6 +122,37 @@ dependencies (the check says exactly which are missing). A crate in two componen
   jobs, because `engine` depends on nearly everything. So "affected only" helps the other 11 % and the small components; the slow
   path is shortened by the split, not by selection.
 
+## Compile once, run sharded
+
+**Opt-in (`archive = true` on a component), and off for `integration`.** Measured on the typed jobs (run 46066259144 against
+46059551659): the engine tests compile in about 4 to 6 minutes, but the archive of 46 binaries was 16.9 GB (each links the
+engine): upload 192 s, then 94 to 151 s of download in each of the 20 jobs. The phase took 27 min instead of 19.5 and
+used 199 runner minutes instead of 169. Stripping symbols and running in place did not change the download enough (a second run,
+119 s download). Turn it on for a component whose compile is much longer than moving its binaries.
+
+The jobs of a component with `archive = true` that run `-p <one crate> --test ...` commands with the same `--config` (the typed Diff jobs of
+`integration`: 20 of them, each of which used to compile the engine closure for about 8 minutes) share one build:
+
+- `scripts/fork/components.py matrix` gives the matrix entries an `archive` id and lists the builds (`builds`). A group is the
+  jobs of one component, OS, crate and `config`; a group of one job compiles for itself.
+- The `archive` job (`Build: integration engine tests (Ubuntu|Windows)`) runs `scripts/fork/test_archive.py build`: one
+  `cargo test --no-run` for the union of the group's test binaries, with the group's `--config`, and uploads every
+  executable (test binaries and binaries, at their workspace paths) with `archive.json` as the artifact `archive-<id>`
+  (retention one day, compression level 1).
+- The `partition` jobs download it and `run-component.sh` (`ARCHIVE` set)
+  runs each `--test` binary in place from the downloaded folder, from its package folder as cargo does, with the log format of `cargo test`: the job summary,
+  the test logs and the catalogue read the same lines. No partition job compiles. `SHARD=i/n` splits the tests of all of a
+  job's binaries together, so a sharded job may name several `--test` binaries (`check_jobs` only requires that it be an
+  archivable job: one crate, only `--test` runs).
+- The binaries run where they were built: the same runner image and checkout path (`env!("CARGO_MANIFEST_DIR")` is absolute).
+- `scripts/fork/tagged-engine-tests.sh` (macOS and Linux tagged engine tests) builds with the same `test_archive.py`.
+- A job that cannot be archived (`--lib`, `--doc`, several crates: the aggregator) compiles for itself, as a `component` job.
+- The archive job's rust-cache key is `engine-closure-<os>`, not the component's, so every group of the engine closure
+  restores the same crates.io dependencies.
+
+`Clippy (whole workspace)` runs on Linux (docs/fork/LINUX.md: green). `Clippy (Windows crates)` lints only the crates of the
+components that stay `windows = "required"` (`components.py windows-crates`), and runs when the run has Windows jobs.
+
 ## Generated reports
 
 The coverage catalogue reports under `docs/fork/coverage/` and the component census

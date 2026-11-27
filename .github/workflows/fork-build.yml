@@ -44,6 +44,10 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has_jobs: ${{ steps.plan.outputs.has_jobs }}
+      partitions: ${{ steps.plan.outputs.partitions }}
+      has_partitions: ${{ steps.plan.outputs.has_partitions }}
+      builds: ${{ steps.plan.outputs.builds }}
+      has_windows: ${{ steps.plan.outputs.has_windows }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,8 +73,16 @@ jobs:
           all_os=""
           if jq -e 'index("ci:all-os")' <<<"$LABELS" >/dev/null; then all_os="--all-os"; fi
           python3 -I scripts/fork/components.py matrix --event "$EVENT" ${BASE:+--base "$BASE"} --head "$HEAD" $all_os >matrix.json
-          echo "matrix=$(jq -c '{include: .include}' matrix.json)" >>"$GITHUB_OUTPUT"
-          echo "has_jobs=$(jq '.include | length > 0' matrix.json)" >>"$GITHUB_OUTPUT"
+          # A job whose test binaries an archive job compiled for its group runs as a partition (needs the archive); the rest
+          # compile for themselves, as component jobs.
+          {
+            echo "matrix=$(jq -c '{include: [.include[] | select(.archive == "")]}' matrix.json)"
+            echo "has_jobs=$(jq '[.include[] | select(.archive == "")] | length > 0' matrix.json)"
+            echo "partitions=$(jq -c '{include: [.include[] | select(.archive != "")]}' matrix.json)"
+            echo "has_partitions=$(jq '[.include[] | select(.archive != "")] | length > 0' matrix.json)"
+            echo "builds=$(jq -c '{include: .builds}' matrix.json)"
+            echo "has_windows=$(jq '[.include[] | select(.os == "windows-latest")] | length > 0' matrix.json)"
+          } >>"$GITHUB_OUTPUT"
           {
             echo "### Components in this run"
             echo
@@ -216,8 +228,136 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  # Compile once, run sharded (docs/fork/CI.md): the jobs of a component that run test binaries of one crate with the same
+  # --config (the typed Diff jobs) share one build. This job compiles the union of their binaries and uploads them; the
+  # `partition` jobs download the archive and run their own binaries, so none of them compiles the engine closure again.
+  archive:
+    name: ${{ matrix.name }}
+    needs: plan
+    if: ${{ needs.plan.outputs.has_partitions == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.builds) }}
+    env:
+      PY: ${{ matrix.os == 'windows-latest' && 'python' || 'python3' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ matrix.workspaces }}
+          shared-key: ${{ matrix.cache }}-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - name: Compile the test binaries
+        env:
+          ARGS: ${{ matrix.args }}
+          # Symbols only cost upload and download time: each binary links the whole engine (about 370 MB with them).
+          CARGO_PROFILE_DEV_STRIP: symbols
+        run: |
+          # shellcheck disable=SC2086 # the arguments are a word list
+          "$PY" -I scripts/fork/test_archive.py build "$RUNNER_TEMP/archive" -- $ARGS
+          du -sh "$RUNNER_TEMP/archive" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: archive-${{ matrix.id }}
+          path: ${{ runner.temp }}/archive/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 1
+
+  partition:
+    name: ${{ matrix.name }}
+    needs: [plan, archive]
+    if: ${{ !cancelled() && needs.plan.outputs.has_partitions == 'true' && needs.archive.result == 'success' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      # The jobs only run tests (the compile is the archive job's): all of a family's twenty at once.
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.partitions) }}
+    env:
+      PY: ${{ matrix.os == 'windows-latest' && 'python' || 'python3' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: archive-${{ matrix.archive }}
+          path: ${{ runner.temp }}/archive
+      # The binaries run from the downloaded folder (no copy: the archive is large).
+      - name: Archive folder
+        run: echo "ARCHIVE=$RUNNER_TEMP/archive" >>"$GITHUB_ENV"
+      - name: Runner CPU
+        if: ${{ runner.os == 'Linux' }}
+        env:
+          JOB_NAME: ${{ matrix.name }}
+        run: |
+          echo "CPU of $JOB_NAME: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs), $(nproc) vCPU" >>"$GITHUB_STEP_SUMMARY"
+      - name: Test ${{ matrix.component }}
+        env:
+          SCRIPT: ${{ matrix.script }}
+          SHARD: ${{ matrix.shard }}
+        run: bash scripts/fork/run-component.sh
+      - name: Summary
+        if: ${{ !cancelled() }}
+        env:
+          TITLE: ${{ matrix.name }}
+        run: |
+          "$PY" -I scripts/fork/libtest_summary.py --title "$TITLE" --timings "$RUNNER_TEMP/timings.txt" "$RUNNER_TEMP/test.log" >>"$GITHUB_STEP_SUMMARY"
+      - name: Keep the test log
+        if: ${{ !cancelled() }}
+        env:
+          INDEX: ${{ strategy.job-index }}
+        run: |
+          os="$(tr '[:upper:]' '[:lower:]' <<<"$RUNNER_OS")"
+          mkdir -p "$RUNNER_TEMP/testlog"
+          if [ -s "$RUNNER_TEMP/test.log" ]; then cp "$RUNNER_TEMP/test.log" "$RUNNER_TEMP/testlog/test-$os-p$INDEX.log"; fi
+          echo "TESTLOG=testlog-$os-p$INDEX" >>"$GITHUB_ENV"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: ${{ env.TESTLOG }}
+          path: ${{ runner.temp }}/testlog/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # The whole workspace is linted on Linux (docs/fork/LINUX.md: green). The `cfg(windows)` code only the Windows build sees
+  # is linted by the narrow Windows job below.
   clippy:
     name: Clippy (whole workspace)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PY: python3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: '. -> target'
+          shared-key: clippy-linux
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - run: |
+          rc=0
+          # Outside the checkout (nvinspect's hygiene test reads every file git does not ignore).
+          cargo clippy --locked --workspace --all-targets --message-format json -- -D warnings >"$RUNNER_TEMP/clippy.json" || rc=$?
+          "$PY" -I scripts/fork/clippy_annotations.py "$RUNNER_TEMP/clippy.json"
+          exit "$rc"
+
+  # Only the crates of the components that stay required on Windows (`windows = "required"`: their `cfg(windows)` code is
+  # linted here and nowhere else). Runs when the run has Windows jobs: on a pull request, platform code or the label ci:all-os.
+  clippy-windows:
+    name: Clippy (Windows crates)
+    needs: plan
+    if: ${{ needs.plan.outputs.has_windows == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 180
     env:
@@ -230,12 +370,13 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: '. -> target'
-          shared-key: clippy-windows
+          shared-key: clippy-windows-crates
           save-if: ${{ github.ref == 'refs/heads/fork' }}
       - run: |
           rc=0
-          # Outside the checkout (nvinspect's hygiene test reads every file git does not ignore).
-          cargo clippy --locked --workspace --all-targets --message-format json -- -D warnings >"$RUNNER_TEMP/clippy.json" || rc=$?
+          crates="$(python -I scripts/fork/components.py windows-crates)"
+          # shellcheck disable=SC2086 # the crates are a word list
+          cargo clippy --locked $crates --all-targets --message-format json -- -D warnings >"$RUNNER_TEMP/clippy.json" || rc=$?
           "$PY" -I scripts/fork/clippy_annotations.py "$RUNNER_TEMP/clippy.json"
           exit "$rc"
 
@@ -266,7 +407,7 @@ jobs:
   # One result for fork-ci.yml: failed when any required job failed (informational Linux jobs cannot fail it).
   done:
     name: Build result
-    needs: [plan, fmt, component, clippy]
+    needs: [plan, fmt, archive, component, partition, clippy, clippy-windows]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

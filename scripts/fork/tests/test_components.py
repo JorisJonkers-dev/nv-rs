@@ -142,10 +142,16 @@ class Jobs(unittest.TestCase):
         self.assertEqual(got[:2], [("Component: c / j 1/2 (Windows)", "1/2"), ("Component: c / j 2/2 (Windows)", "2/2")])
         self.assertEqual(got[2], ("Component: c / k (Windows)", ""))
 
-    def test_shards_need_exactly_one_test_binary(self):
-        jobs = [{"name": "j", "args": ["-p big --test one --test dir"], "shards": 2}]
-        m = model([comp("c", ["big"], job=jobs)], workspace({"big": []}), root=str(self.tmp))
-        self.assertTrue(any("exactly one `--test` binary" in e for e in m.errors), m.errors)
+    def test_shards_over_several_binaries_need_the_archive_and_never_a_lib_or_doc_run(self):
+        multi = [{"name": "j", "args": ["-p big --test one --test dir"], "shards": 2}]
+        m = model([comp("c", ["big"], job=multi)], workspace({"big": []}), root=str(self.tmp))
+        self.assertTrue(any("has shards" in e for e in m.errors), m.errors)
+        m = model([comp("c", ["big"], job=multi, archive=True)], workspace({"big": []}), root=str(self.tmp))
+        self.assertFalse([e for e in m.errors if "shards" in e], m.errors)
+        for args in (["-p big --test one --lib"], ["-p big --test one", "-p small"], ["-p big --doc"]):
+            jobs = [{"name": "j", "args": args, "shards": 2}]
+            m = model([comp("c", ["big", "small"], job=jobs, archive=True)], self.meta, root=str(self.tmp))
+            self.assertTrue(any("has shards" in e for e in m.errors), (args, m.errors))
 
     def test_a_test_file_in_no_job_fails(self):
         m = self.split(["-p big --test one --test dir", "-p small"])
@@ -338,6 +344,38 @@ class Grouping(unittest.TestCase):
 
 
 class Realistic(unittest.TestCase):
+    def test_no_component_archives_unless_it_asks(self):
+        full = real_model().plan(True, [])
+        self.assertEqual(full["builds"], [])
+        self.assertEqual({e["archive"] for e in full["include"]}, {""})
+
+    def test_the_narrow_windows_clippy_covers_the_windows_required_components_only(self):
+        got = real_model().windows_crates()
+        self.assertIn("engine-platform", got)
+        self.assertIn("d3d9-wgpu", got)
+        self.assertNotIn("esm", got)
+        self.assertNotIn("engine", got)
+
+    def test_the_typed_jobs_of_an_os_share_one_archive_build_and_a_single_job_builds_for_itself(self):
+        m = real_model()
+        m.comps["integration"]["archive"] = True
+        full = m.plan(True, [])
+        builds = {b["os"]: b for b in full["builds"]}
+        self.assertEqual(sorted(builds), ["ubuntu-latest", "windows-latest"])
+        for os_name, b in builds.items():
+            members = [e for e in full["include"] if e["archive"] == b["id"]]
+            self.assertEqual({e["os"] for e in members}, {os_name})
+            self.assertEqual(len(members), b["jobs"])
+            self.assertTrue(all(e["component"] == "integration" and " / typed" in e["name"] for e in members))
+            self.assertIn("-p engine --test typed_shader", b["args"])
+            self.assertEqual(b["args"].count("--test typed_interface"), 1)  # three shards, one binary
+            self.assertIn("--config profile.dev.package.engine.opt-level=1", b["args"])
+        # the aggregator (`--lib`, `--doc`, several crates) is never archived
+        self.assertTrue(all(e["archive"] == "" for e in full["include"] if "aggregator" in e["name"]))
+        one = m.plan(False, ["crates/engine/tests/typed_pathing.rs"])
+        self.assertEqual(one["builds"], [])
+        self.assertEqual({e["archive"] for e in one["include"]}, {""})
+
     def test_only_platform_crates_and_toolchain_files_are_platform_relevant(self):
         m = real_model()
         for f in ("crates/d3d9-wgpu/src/lib.rs", "crates/engine-platform/src/lib.rs", "crates/fork-window/src/lib.rs",
@@ -503,7 +541,7 @@ class RealMap(unittest.TestCase):
         data = json.loads(out)
         # the count follows .fork/linux-ok.txt (one Linux twin per fully covered component), so compare with the model instead of a constant
         self.assertEqual(len(data["include"]), len(real_model().plan()["include"]))
-        self.assertEqual({"name", "component", "cache", "os", "informational", "shard", "workspaces", "timeout", "script"}, set(data["include"][0]))
+        self.assertEqual({"name", "component", "cache", "os", "informational", "shard", "workspaces", "timeout", "script", "archive"}, set(data["include"][0]))
 
     def test_the_cli_prints_what_a_file_list_reaches(self):
         files = Path(tempfile.mkdtemp()) / "files.txt"
