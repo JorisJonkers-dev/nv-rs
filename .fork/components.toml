@@ -319,12 +319,24 @@ config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.en
 # 4/5 and 5/5 were one job, the longest of a push run (19 to 26 min on Windows: 13 to 19 min of tests one binary after
 # another). Split by measured test time (run 45652900290, s): colours 206, coords 243, matrix 110 | facegen 159, head 44,
 # save 131, script lines 218, script params 22: about 9.5 min of tests each.
-name = "typed runtime 4/5: facegen colours, coords, matrix"
-args = ["-p engine --test typed_facegen_colours --test typed_facegen_coords --test typed_facegen_matrix"]
+name = "typed runtime 4/5: facegen colours, coords, matrix, sizes, navmesh edges"
+args = ["-p engine --test typed_facegen_colours --test typed_facegen_coords --test typed_facegen_matrix --test typed_facegen_sizes --test typed_navmesh_edges"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed runtime 5/5: facegen, save, script lines, idle HUD"
 args = ["-p engine --test typed_facegen --test typed_save --test typed_script_lines --test typed_facegen_head --test typed_script_params --test typed_hud_idle"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
+[[component.job]]
+name = "typed AI processes"
+args = ["-p engine --test typed_ai_process --test typed_ai_low_process --test typed_ai_middle_low_process"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
+[[component.job]]
+name = "typed interface"
+args = ["-p engine --test typed_interface"]
+config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
+[[component.job]]
+name = "typed forms"
+args = ["-p engine --test typed_forms"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
