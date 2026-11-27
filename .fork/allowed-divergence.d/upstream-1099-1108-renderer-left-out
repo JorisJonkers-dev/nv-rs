@@ -1,0 +1,23 @@
+crates/d3d9-stream/examples/record_compare.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-stream/src/cmd.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-stream/src/kept.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-stream/src/lib.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-stream/src/tests.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-stream/src/wire.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-wgpu/examples/replay_digests.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-wgpu/src/bin/d3d9-replay.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-wgpu/src/lighting_ahead.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/d3d9-wgpu/tests/sun_shadow.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-core/src/draw_items.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-core/src/mem/touch.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-core/src/world_drawn.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-platform/src/d3d9items.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-platform/tests/lighting_before_switch.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-platform/tests/lighting_frames/mod.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-platform/tests/lighting_fresh_start.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-platform/tests/lighting_switch.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/engine-typed/src/draw/keep.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/host/src/scene_light.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/jip/src/ui_hooks_tests.rs  # keeps the test of the README's JIP LN row (upstream's README rewrite, slaterain/nv-rs#1111, left out)
+crates/nv-launcher/src/play/mod.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
+crates/nv-launcher/src/settings.rs  # upstream's renderer stage 1 (slaterain/nv-rs#1108) or Shift+F11 lighting switch (#1099), left out of the sync 2026-11-27
