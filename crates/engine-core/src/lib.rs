@@ -76,6 +76,7 @@ pub mod estimate;
 pub mod exe;
 pub mod extend;
 pub mod hitch;
+pub mod lamp_distance;
 pub mod late_ai;
 pub mod loader_jobs;
 pub mod mem;
@@ -100,7 +101,6 @@ pub mod typed;
 pub mod types;
 pub mod units;
 pub mod watch_check;
-pub mod lamp_distance;
 pub mod world_drawn;
 pub mod x87;
 
