@@ -271,6 +271,8 @@ fn n_004302a0() {
     ))
     .node(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x004302d0, 0x00430390, 0x004303c0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -283,6 +285,8 @@ fn n_004302d0() {
     ))
     .node(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00430390, 0x004303c0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -334,6 +338,8 @@ fn n_00430410() {
         A::Word(&[0, 1, 2, 5, 0x14]),
     ])
     .translation_calls_plainly(&[0x004303e0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -349,6 +355,8 @@ fn n_004305f0() {
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
         A::Word(&[0, 1, 2, 5, 0x14]),
     ])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -357,7 +365,9 @@ fn n_004305f0() {
 fn n_00430660() {
     Diff::new(entry!(0x0043_0660, extra_data::nodes::objects::extra_dismembered_limbs_check_dismembered_limbs_identical(Ptr<_>, Ptr<_>) -> bool))
         .node(&[A::This(0x40), A::Obj(0x40)])
-        .run()
+        .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .run()
         .assert_same();
 }
 
@@ -369,6 +379,8 @@ fn n_00430780() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430830])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -448,6 +460,8 @@ fn n_004309e0() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430a10, 0x00430b40])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -459,6 +473,8 @@ fn n_00430a10() {
         extra_data::nodes::objects::refr_lock_get_level(Ptr<_>, Ptr<_>) -> i32
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -481,6 +497,8 @@ fn n_00430ae0() {
         extra_data::nodes::objects::refr_lock_is_broken(Ptr<_>) -> bool
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -489,7 +507,9 @@ fn n_00430ae0() {
 fn n_00430b40() {
     Diff::new(entry!(0x0043_0b40, extra_data::nodes::objects::refr_lock_numeric_value_to_enum(i32) -> i32))
         .node(&[A::Word(&[0, 1, 2, 5, 0x14, 0x15, 0xffff_ffff])])
-        .run()
+        .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .run()
         .assert_same();
 }
 
@@ -497,6 +517,8 @@ fn n_00430b40() {
 fn n_00430bc0() {
     Diff::new(entry!(0x0043_0bc0, extra_data::nodes::objects::fn_00430bc0(u32) -> i32))
         .node(&[A::Word(&[0, 1, 2, 0x10, 0xffff_ffff])])
+        .tolerate_garbage_stops(3)
+        .max_calls(2000)
         .run()
         .assert_same();
 }
@@ -531,6 +553,8 @@ fn n_00430ce0() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430b40])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -628,6 +652,8 @@ fn n_004310d0() {
         extra_data::nodes::objects::extra_guarded_ref_data_add_guard(Ptr<_>, Ptr<_>)
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -643,6 +669,8 @@ fn n_00431120() {
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
     ])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -676,6 +704,8 @@ fn n_00431260() {
         extra_data::nodes::objects::fn_00431260(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1294,6 +1324,8 @@ fn n_004323b0() {
         extra_data::nodes::objects::extra_info_general_topic_destructor(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1310,6 +1342,8 @@ fn n_00432440() {
     ))
     .node(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x004323b0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1394,6 +1428,8 @@ fn n_004326c0() {
         A::Float,
     ])
     .translation_calls_plainly(&[0x00432650])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1468,6 +1504,8 @@ fn n_00432900() {
         extra_data::nodes::objects::extra_tres_pass_package_destructor(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1734,6 +1772,8 @@ fn n_004330b0() {
     ))
     .node(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x004330e0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1745,6 +1785,8 @@ fn n_004330e0() {
         extra_data::nodes::objects::fn_004330e0(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1760,6 +1802,8 @@ fn n_004331c0() {
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
         A::Flag,
     ])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1937,6 +1981,8 @@ fn n_004336f0() {
         extra_data::nodes::objects::fn_004336f0(u32, Ptr<_>) -> Ptr<_>
     ))
     .node(&[A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]), A::This(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1948,6 +1994,8 @@ fn n_00433750() {
         extra_data::nodes::objects::fn_00433750(Ptr<_>)
     ))
     .node(&[A::This(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1977,6 +2025,8 @@ fn n_00433800() {
     ))
     .node(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x00433750, 0x00433830])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -1989,6 +2039,8 @@ fn n_00433830() {
     ))
     .node(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00433750])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2016,6 +2068,8 @@ fn n_00433940() {
     ))
     .node(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x00433750, 0x00433970])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2028,6 +2082,8 @@ fn n_00433970() {
     ))
     .node(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00433750])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2040,6 +2096,8 @@ fn n_00433a00() {
     ))
     .node(&[A::This(0x40), A::Word(&[0, 1, 2, 0x10, 0xffff_ffff])])
     .translation_calls_plainly(&[0x004336f0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2064,6 +2122,8 @@ fn n_00433b70() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00433750])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2090,6 +2150,8 @@ fn n_00433d10() {
     ))
     .node(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x00433d40, 0x004343c0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2102,6 +2164,8 @@ fn n_00433d40() {
     ))
     .node(&[A::This(0x40)])
     .translation_calls_plainly(&[0x004343c0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2113,6 +2177,8 @@ fn n_00433db0() {
         extra_data::nodes::objects::extra_decal_refs_init_item(Ptr<_>, Ptr<_>)
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2124,6 +2190,8 @@ fn n_00433ed0() {
         extra_data::nodes::objects::extra_reflector_refs_init_item(Ptr<_>, Ptr<_>)
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2135,6 +2203,8 @@ fn n_00434050() {
         extra_data::nodes::objects::extra_lit_water_refs_init_item(Ptr<_>, Ptr<_>)
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2158,6 +2228,8 @@ fn n_004342b0() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x004343c0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2169,6 +2241,8 @@ fn n_004343c0() {
         extra_data::nodes::objects::fn_004343c0(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2180,6 +2254,8 @@ fn n_00434410() {
         extra_data::nodes::objects::extra_decal_refs_get_ref_decal_data(Ptr<_>, u32) -> Ptr<_>
     ))
     .node(&[A::This(0x40), A::Word(&[0, 1, 2, 0x10, 0xffff_ffff])])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2197,6 +2273,8 @@ fn n_00434480() {
         A::Obj(0x50),
     ])
     .translation_calls_plainly(&[0x00434410])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2208,6 +2286,8 @@ fn n_00434560() {
         extra_data::nodes::objects::fn_00434560(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2231,6 +2311,8 @@ fn n_004346f0() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00434d90])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2242,6 +2324,8 @@ fn n_00434800() {
         extra_data::nodes::objects::fn_00434800(Ptr<_>, u32)
     ))
     .node(&[A::This(0x40), A::Word(&[0, 1, 2, 0x10, 0xffff_ffff])])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2258,6 +2342,8 @@ fn n_004348a0() {
         A::Flag,
     ])
     .translation_calls_plainly(&[0x00434410])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2292,6 +2378,8 @@ fn n_00434a70() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00434f60, 0x00434fa0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2303,6 +2391,8 @@ fn n_00434af0() {
         extra_data::nodes::objects::fn_00434af0(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2326,6 +2416,8 @@ fn n_00434c80() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00434d90])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2337,6 +2429,8 @@ fn n_00434d90() {
         extra_data::nodes::objects::extra_reflected_refs_clear_reference_data(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2371,6 +2465,8 @@ fn n_00434ee0() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00434f60, 0x00434fa0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2448,6 +2544,8 @@ fn n_004350c0() {
         extra_data::nodes::objects::fn_004350c0(Ptr<_>) -> f32
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2492,6 +2590,8 @@ fn n_004351d0() {
         extra_data::nodes::objects::fn_004351d0(Ptr<_>, Ptr<_>) -> Ptr<_>
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2577,6 +2677,9 @@ fn n_00435ac0() {
         extra_data::nodes::objects::fn_00435ac0(Ptr<_>)
     ))
     .node(&[A::This(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .translation_calls_plainly(&[0x00435b20])
     .run()
     .assert_same();
 }
@@ -2588,6 +2691,9 @@ fn n_00435bb0() {
         extra_data::nodes::objects::fn_00435bb0(Ptr<_>)
     ))
     .node(&[A::This(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .translation_calls_plainly(&[0x00435b20])
     .run()
     .assert_same();
 }
@@ -2861,6 +2967,9 @@ fn n_00435a90() {
             -> Ptr<_>
     ))
     .node(&[A::This(0x40), A::Flag])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .translation_calls_plainly(&[0x00435b20])
     .run()
     .assert_same();
 }
@@ -2898,6 +3007,9 @@ fn n_00435b80() {
             -> Ptr<_>
     ))
     .node(&[A::This(0x40), A::Flag])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .translation_calls_plainly(&[0x00435b20])
     .run()
     .assert_same();
 }
@@ -2921,6 +3033,8 @@ fn n_00435c40() {
         extra_data::nodes::objects_p2::extra_friend_hits_extra_friend_hits(Ptr<_>) -> Ptr<_>
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2960,6 +3074,8 @@ fn n_00435d40() {
     ))
     .node(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00435e40])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2968,6 +3084,8 @@ fn n_00435d40() {
 fn n_00435dd0() {
     Diff::new(entry!(0x0043_5dd0, extra_data::nodes::objects_p2::fn_00435dd0() -> f32))
         .node(&[])
+        .tolerate_garbage_stops(3)
+        .max_calls(2000)
         .run()
         .assert_same();
 }
@@ -2991,6 +3109,8 @@ fn n_00435e00() {
     ))
     .node(&[A::This(0x50)])
     .translation_calls_plainly(&[0x00435dd0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3003,6 +3123,8 @@ fn n_00435e20() {
     ))
     .node(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00435e40])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3014,6 +3136,8 @@ fn n_00435e40() {
         extra_data::nodes::objects_p2::extra_friend_hits_remove_old_hits(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3081,6 +3205,8 @@ fn n_00435fa0() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430830])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3337,7 +3463,9 @@ fn n_00436780() {
         extra_data::nodes::objects_p2::fn_00436780(Ptr<_>, Ptr<_>, Ptr<_>) -> Ptr<_>
     ))
     .node(&[A::This(0x50), A::Obj(0x50), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00430830])
+    .translation_calls_plainly(&[0x00430830, 0x00436aa0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3377,6 +3505,8 @@ fn n_00436b20() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430830, 0x00436780])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3459,6 +3589,8 @@ fn n_00436e10() {
         extra_data::nodes::objects_p2::fn_00436e10(Ptr<_>, Ptr<_>)
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3470,6 +3602,8 @@ fn n_00436f20() {
         extra_data::nodes::objects_p2::fn_00436f20(Ptr<_>, Ptr<_>, u8)
     ))
     .node(&[A::This(0x40), A::Obj(0x50), A::Word(&[0, 1, 2, 5, 0x14])])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3481,6 +3615,8 @@ fn n_00436f80() {
         extra_data::nodes::objects_p2::fn_00436f80(Ptr<_>, Ptr<_>, u8)
     ))
     .node(&[A::This(0x40), A::Obj(0x50), A::Word(&[0, 1, 2, 5, 0x14])])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3495,6 +3631,8 @@ fn n_00437010() {
         ) -> bool
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3509,6 +3647,8 @@ fn n_00437080() {
         ) -> bool
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3520,6 +3660,9 @@ fn n_004370f0() {
         extra_data::nodes::objects_p2::fn_004370f0(Ptr<_>, Ptr<_>)
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .translation_calls_plainly(&[0x00438900])
     .run()
     .assert_same();
 }
@@ -3595,7 +3738,9 @@ fn n_004374e0() {
     Diff::new(entry!(0x0043_74e0, extra_data::nodes::objects_p2::extra_say_topic_info_once_a_day_scalar_deleting_destructor(Ptr<_>, u32) -> Ptr<_>))
         .node(&[A::This(0x40), A::Flag])
         .translation_calls_plainly(&[0x004375c0])
-        .run()
+        .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .run()
         .assert_same();
 }
 
@@ -3618,6 +3763,8 @@ fn n_004375c0() {
         extra_data::nodes::objects_p2::fn_004375c0(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3662,6 +3809,9 @@ fn n_00437750() {
         extra_data::nodes::objects_p2::fn_00437750(Ptr<_>) -> Ptr<_>
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .translation_calls_plainly(&[0x004386b0])
     .run()
     .assert_same();
 }
@@ -3677,7 +3827,9 @@ fn n_004377c0() {
             -> Ptr<_>
     ))
     .node(&[A::This(0x40), A::Flag])
-    .translation_calls_plainly(&[0x004377f0])
+    .translation_calls_plainly(&[0x004377f0, 0x00438780])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3689,6 +3841,9 @@ fn n_004377f0() {
         extra_data::nodes::objects_p2::fn_004377f0(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .translation_calls_plainly(&[0x00438780])
     .run()
     .assert_same();
 }
@@ -3704,6 +3859,8 @@ fn n_00437850() {
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
         A::Flag,
     ])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3737,6 +3894,8 @@ fn n_00437a30() {
         extra_data::nodes::objects_p2::extra_patrol_ref_in_use_data_compare(Ptr<_>, Ptr<_>) -> bool
     ))
     .node(&[A::This(0x40), A::Obj(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3776,6 +3935,8 @@ fn n_00437ab0() {
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00437b90, 0x00437bb0, 0x00437bd0, 0x00437bf0])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3839,7 +4000,9 @@ fn n_00437c10() {
 fn n_00437c40() {
     Diff::new(entry!(0x0043_7c40, extra_data::nodes::objects_p2::extra_follower_swim_breadcrumbs_extra_follower_swim_breadcrumbs(Ptr<_>) -> Ptr<_>))
         .node(&[A::This(0x40)])
-        .run()
+        .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .run()
         .assert_same();
 }
 
@@ -3848,7 +4011,9 @@ fn n_00437ce0() {
     Diff::new(entry!(0x0043_7ce0, extra_data::nodes::objects_p2::extra_follower_swim_breadcrumbs_scalar_deleting_destructor(Ptr<_>, u32) -> Ptr<_>))
         .node(&[A::This(0x40), A::Flag])
         .translation_calls_plainly(&[0x00437d10])
-        .run()
+        .tolerate_garbage_stops(3)
+    .max_calls(2000)
+    .run()
         .assert_same();
 }
 
@@ -3859,6 +4024,8 @@ fn n_00437d10() {
         extra_data::nodes::objects_p2::fn_00437d10(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3914,6 +4081,8 @@ fn n_00437f90() {
     .translation_calls_plainly(&[
         0x00438170, 0x004381b0, 0x004381d0, 0x00438210, 0x00438220, 0x00438230,
     ])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3925,6 +4094,8 @@ fn n_00438170() {
         extra_data::nodes::objects_p2::fixed_string_construct(Ptr<_>, u32) -> Ptr<_>
     ))
     .node(&[A::This(0x50), A::Word(&[0, 1, 2, 0x10, 0xffff_ffff])])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3937,6 +4108,8 @@ fn n_004381b0() {
     ))
     .node(&[A::This(0x50)])
     .translation_calls_plainly(&[0x004381d0, 0x00438210])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3949,6 +4122,8 @@ fn n_004381d0() {
     ))
     .node(&[A::This(0x50)])
     .translation_calls_plainly(&[0x00438210])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -4058,6 +4233,8 @@ fn n_004383e0() {
     ))
     .node(&[A::This(0x50), A::Word(&[0, 1, 2, 0x10, 0xffff_ffff])])
     .translation_calls_plainly(&[0x00438820])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -4093,6 +4270,8 @@ fn n_00438470() {
         extra_data::nodes::objects_p3::bs_string_t_set(Ptr<_>, Ptr<_>) -> bool
     ))
     .node(&[A::This(0x50), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -4149,6 +4328,8 @@ fn n_00438610() {
         extra_data::nodes::objects_p3::fn_00438610(Ptr<_>, Ptr<_>) -> u32
     ))
     .node(&[A::This(0x50), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -4216,6 +4397,8 @@ fn n_004387b0() {
         extra_data::nodes::objects_p3::bs_simple_array_compare_buffer(Ptr<_>, Ptr<_>) -> bool
     ))
     .node(&[A::This(0x50), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -4227,6 +4410,8 @@ fn n_00438820() {
         extra_data::nodes::objects_p3::fn_00438820(Ptr<_>, u32) -> Ptr<_>
     ))
     .node(&[A::This(0x50), A::Word(&[0, 1, 2, 0x10, 0xffff_ffff])])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -4261,6 +4446,8 @@ fn n_00438940() {
         extra_data::nodes::objects_p3::fn_00438940(Ptr<_>, Ptr<_>)
     ))
     .node(&[A::This(0x50), A::Obj(0x50)])
+    .tolerate_garbage_stops(3)
+    .max_calls(2000)
     .run()
     .assert_same();
 }

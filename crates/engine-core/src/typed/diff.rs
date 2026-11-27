@@ -453,6 +453,8 @@ pub struct Diff {
     all_words: bool,
     max_cases: usize,
     stop_cases: Option<StopCases>,
+    /// [`Diff::tolerate_garbage_stops`]: the runs that must go through without a stop.
+    garbage_stops: Option<usize>,
     stack_bytes: u32,
     nan_payloads: bool,
     max_calls: usize,
@@ -481,6 +483,7 @@ impl Diff {
             all_words: all_words_from_env(),
             max_cases: 512,
             stop_cases: None,
+            garbage_stops: None,
             stack_bytes: 64,
             max_calls: DEFAULT_MAX_CALLS,
             nan_payloads: false,
@@ -669,6 +672,16 @@ impl Diff {
         self
     }
 
+    /// For a world drawn at random, where a run may stop on a null pointer field or on the call budget
+    /// on both sides alike: such a stop is not a failure (the two stops are still compared), but at
+    /// least `min_through` runs must go through without one, or the test compared nothing real. A stop at
+    /// an address other than 0 that the setup lacks a double for still fails. Use the exact
+    /// [`Diff::expect_stops`] where the stopping inputs are known.
+    pub fn tolerate_garbage_stops(mut self, min_through: usize) -> Diff {
+        self.garbage_stops = Some(min_through);
+        self
+    }
+
     /// The most calls one run may make (100,000 by default, the direct `typed_call!`s noted with
     /// them): past it the run stops with "call budget spent", so a wrong version that loops for
     /// good shows as a stop on its side, not as a log that grows until the machine runs out.
@@ -764,6 +777,7 @@ impl Diff {
     #[must_use = "the report says whether they agreed: call `assert_same`"]
     pub fn run(&self) -> Report {
         let mut report = Report {
+            min_through: self.garbage_stops.unwrap_or(0),
             control_words: self.words_to_run(),
             ..Report::default()
         };
@@ -802,7 +816,9 @@ impl Diff {
         match (&translation.stop, &typed.stop) {
             (Some(a), Some(b)) if a == b => {
                 report.stopped += 1;
-                if !expected || a.starts_with("open function") {
+                let garbage = self.garbage_stops.is_some()
+                    && (!a.starts_with("open function") || a.starts_with("open function 00000000"));
+                if (!expected || a.starts_with("open function")) && !garbage {
                     report.note(
                         case,
                         word,
@@ -2164,6 +2180,8 @@ pub struct Report {
     pub skipped_runs: usize,
     /// Of those, the runs where both sides stopped alike.
     pub stopped: usize,
+    /// [`Diff::tolerate_garbage_stops`]: the runs that must go through without a stop (0: no demand).
+    pub min_through: usize,
     /// Of those, the runs whose direct branch ran too (none without debug assertions).
     pub direct_runs: usize,
     /// The `typed_call!`s that went direct on those runs. 0 for a function with one means no family
@@ -2246,6 +2264,13 @@ impl Report {
         assert!(self.runs > 0, "nothing ran: no case was generated");
         assert!(self.found == 0, "{self}");
         assert!(
+            self.runs.saturating_sub(self.stopped) >= self.min_through,
+            "only {} of {} runs went through without a stop, {} needed: the world reaches no real path ({self})",
+            self.runs.saturating_sub(self.stopped),
+            self.runs,
+            self.min_through
+        );
+        assert!(
             self.unnamed.is_empty(),
             "typed_call! at {:08x?} went by address: no family this test names holds it, so the \
              function it names ran nowhere. Name its family with `.family(..)`, or list the address \
@@ -2256,7 +2281,10 @@ impl Report {
 
     /// Whether something ran, nothing differed and every `typed_call!`'s function ran.
     pub fn is_same(&self) -> bool {
-        self.runs > 0 && self.found == 0 && self.unnamed.is_empty()
+        self.runs > 0
+            && self.found == 0
+            && self.runs.saturating_sub(self.stopped) >= self.min_through
+            && self.unnamed.is_empty()
     }
 }
 
