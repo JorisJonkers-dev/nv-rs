@@ -160,23 +160,50 @@ nix store paths; `NV_MINGW_INCLUDE`, `NV_LIBCXX_INCLUDE`, `NV_CLANG`,
 
 About 5,860 `// Translation incomplete:` markers exist. A marker whose reason names only the C++
 exception frame (`FS:[0]`, SEH, a funclet or filter) or the `/GS` cookie check is exception-only
-(about 5,770); one that also names an uninitialised read, an x87 or MXCSR state, a register-only
-entry or a write past a frame is a real gap (89). `python3 -I scripts/fork/real_gaps.py --root .`
+(about 5,760); one that also names an uninitialised read, an x87 or MXCSR state, a register-only
+entry or a write past a frame is a real gap (96). `python3 -I scripts/fork/real_gaps.py --root .`
 writes them to `crates/engine-core/src/typed/real_gaps.txt` (`--check` fails when it is stale; a
 unit test compares the committed list with the tree). Exception-only markers are counted, not listed.
+The split is by what the reason says is left out (a clause that names more than the frame or the
+cookie makes a gap), and the unit tests pin the mixed cases, including a reason that reads
+"the frame is not modeled, and the new block's slots are read before they are written".
+
+The list has a third column. `eax` means the backend's one-word result is all a caller can read.
+`registers` means it is not, and the gap stays on its translation: the marker names the x87 or
+SSE state, `EDX`, `ST0`, a register input or a register-only entry, a stale register or XMM lane,
+or the translation's own signature returns a `u64`, `f64` or `Ret` (the script reads the function
+that follows the marker). That is decided from the marker and the source, not from where the file
+lives.
 
 With `NV_BACKEND_LIBRARY` set to the built library and `NV_BACKEND_GAPS=1`, `Engine::new` registers
-the backend's function at each of those addresses it has, after the typed families are applied.
+the backend's function at each `eax` address it has, after the typed families are applied.
 Without both variables, or without a built backend, nothing is registered and the engine behaves
 as before. The switch is separate from the `Diff` peer on purpose: the differential cases keep
 comparing the translation with the backend.
 
-The backend's export returns one word (`EAX`, or an `f32`), and its calls back into the engine
-return `EAX` only. Gaps whose translations live in `units/crt/` (the x87 helpers, which answer in
-`EDX` and `ST0`) are therefore left on their translations. Backend calls are serialised across
-threads. The private run's `real gaps on the backend` command runs
-`cargo test -p engine-core --lib typed::backend_gaps` with both variables and prints
-`backend-gaps: N of M real gaps registered`.
+The switch is inert until nv-rs#1000 lands: the backend cannot yet build the units that hold the
+gaps, so no export exists at a gap address and no `Diff` case has run against a real backend for
+them. #1000 also widens the call to return `EAX`, `EDX` and `ST0`, after which the `registers`
+rows can be reconsidered.
+
+Two refusals, each one `backend-gaps:` line on stderr and nothing registered:
+
+- Real threads. A backend call holds one process-wide lock (the module's trap state and import
+  hook are global) while its import hook runs engine code, and that code can wait on another real
+  thread that then needs the lock. The switch is therefore refused when `NV_THREADS` names `real`;
+  a registered gap called on an engine that runs real threads anyway (the host may choose them)
+  stops with a message naming the address. The mutex is not released across import calls, because
+  the module's trap state would then be shared by two calls at once. With stepped threads only one
+  thread runs at a time, so the lock changes no interleaving.
+- A stale `.tsv`. Before it registers, the loader checks that `decomp_init` and every wrapper the
+  `.tsv` lists resolve in the library. A `.tsv` left over from another build names a symbol the
+  library lacks, and then nothing is registered. (An arity or signature change under the same name
+  is not visible from the library; the build writes both files together.)
+
+When the switch is on and the library does not load, or loads but fails the check, the line says
+why. On success it prints `backend-gaps: N of M real gaps registered` once. The private run's
+`real gaps on the backend` command runs `cargo test -p engine-core --lib typed::backend_gaps` with
+both variables.
 
 Status: the backend could not be built for the gap units on the machine this was written on (see the
 pull request): the wasm toolchain rejects the units' inline x86 assembly, and the few that compile

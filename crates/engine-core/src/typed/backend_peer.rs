@@ -41,6 +41,10 @@ pub trait Backend {
     fn trap(&self, clear: bool) -> Option<String>;
     /// Route the module's imports to the host.
     fn set_import_hook(&self, hook: ImportHook);
+    /// Whether the library has a symbol of this name. A backend that cannot tell says yes.
+    fn has_symbol(&self, _name: &str) -> bool {
+        true
+    }
 }
 
 thread_local! {
@@ -175,6 +179,25 @@ impl<B: Backend> BackendPeer<B> {
             ret.st0 = f32::from_bits(bits) as f64;
         }
         Some(ret)
+    }
+
+    /// Whether the library has every wrapper the `.tsv` lists. A `.tsv` left over from another build
+    /// names exports the library lacks (or has moved); the first one missing is the error.
+    pub(crate) fn verify(&self) -> Result<(), String> {
+        if !self.backend.has_symbol("decomp_init") {
+            return Err("the library has no decomp_init: it is not a backend build".into());
+        }
+        match self
+            .exports
+            .iter()
+            .find(|x| !self.backend.has_symbol(&x.wrapper))
+        {
+            Some(x) => Err(format!(
+                "the .tsv lists {} at {:08x} but the library has no such symbol: it is from another build",
+                x.wrapper, x.address
+            )),
+            None => Ok(()),
+        }
     }
 
     /// Whether the module has a function at `addr`.
@@ -429,6 +452,11 @@ impl Backend for LibBackend {
                 CStr::from_ptr(p).to_string_lossy().into_owned()
             })
         }
+    }
+
+    fn has_symbol(&self, name: &str) -> bool {
+        let name = format!("{name}\0");
+        unsafe { self.library.get::<*const ()>(name.as_bytes()) }.is_ok()
     }
 
     fn set_import_hook(&self, hook: ImportHook) {
