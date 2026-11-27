@@ -1,0 +1,1 @@
+crates/engine/tests/typed_ai_middle_low_process.rs  # clippy allow on a test with an always-true comparison; upstream does not run clippy on tests

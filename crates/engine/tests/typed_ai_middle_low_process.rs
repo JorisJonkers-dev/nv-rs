@@ -1034,6 +1034,8 @@ fn reaches(
 /// The worlds the seeds make reach the deep branches, checked on the translations (so a change to
 /// the world that loses one shows here, not as a weaker comparison).
 #[test]
+// The one comparison below (`& 0xff != 0x100`) is always true; kept as upstream wrote it (docs/fork/divergence.d/upstream-test-lints.md).
+#[allow(clippy::bad_bit_mask)]
 fn the_seeds_reach_every_branch() {
     const WARNING: u32 = 0x005b_5e40;
     const ADJUST: u32 = 0x0093_7480;
