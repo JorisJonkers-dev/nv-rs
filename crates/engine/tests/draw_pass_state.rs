@@ -7,6 +7,7 @@
 use engine as _;
 use engine_core::prelude::*;
 use engine_core::Engine;
+use engine_core::typed::leaf;
 use engine_typed::draw::{capture, own, statics};
 
 const VERTEX_ENTRIES: u32 = 0x011f_ebd8;
@@ -167,4 +168,168 @@ fn the_draws_pass_state_stands_when_main_writes_nothing() {
         [2, 1, 2],
         "A 3 -> 2, B untouched, C 1 -> 2"
     );
+}
+
+// ---- The pass objects (nv-rs#992, step 2): stage words, stage state caches, render state blocks, Group C entries. ----
+
+const PASS_TABLE: u32 = 0x011f_dff8;
+/// The sampler state to slot map the exe keeps (`0126f92c`, a halfword a state).
+const SLOT_MAP: u32 = 0x0126_f92c;
+/// Lighting 3.0's constant entry pointers (`01201080` on), the seventh of them.
+const GROUP_C_ENTRIES: u32 = 0x0120_1080;
+
+/// One pass of the pass table (pass type 9, the sun query's) with two stages, each with a state cache, a render state
+/// block holding one entry, and one Group C constant entry.
+struct Passes {
+    e: Engine,
+    pass: u32,
+    stages: [u32; 2],
+    caches: [u32; 2],
+    block: u32,
+    entry: u32,
+    group_c: u32,
+}
+
+fn passes() -> Passes {
+    let mut e = Engine::new();
+    for (base, len) in [
+        (0x011f_9000u32, 0x7000u32),
+        (0x0120_0000, 0x3000),
+        (0x0126_f000, 0x1000),
+    ] {
+        if !e.mem.is_mapped(base) {
+            e.map(base, len);
+        }
+    }
+    // Sampler state s lives in slot s - 1.
+    for state in 1..6u32 {
+        e.mem.set_u16(SLOT_MAP + 2 * state, (state - 1) as u16);
+    }
+    let pass = e.mem.alloc(0x80);
+    e.mem.set_u32(PASS_TABLE + 4 * 9, pass);
+    let list = e.mem.alloc(0x10);
+    let mut stages = [0u32; 2];
+    let mut caches = [0u32; 2];
+    for i in 0..2usize {
+        let stage = e.mem.alloc(0x68);
+        let cache = e.mem.alloc(0xb8);
+        e.mem.set_u32(stage + 4, i as u32);
+        e.mem.set_u32(stage + 8, 0x1000 + i as u32);
+        e.mem.set_u32(stage + 0x10, cache);
+        e.mem.set_u32(list + 4 * i as u32, stage);
+        stages[i] = stage;
+        caches[i] = cache;
+    }
+    e.mem.set_u32(pass + 0x18, 2);
+    e.mem.set_u32(pass + 0x24, list);
+    // A render state block (`00e7f5d0`): the second list's last entry at +0x10, the entry {state, value, previous, next}.
+    let block = e.mem.alloc(0x20);
+    let entry = e.mem.alloc(0x10);
+    e.mem.set_u32(entry, 0x1c);
+    e.mem.set_u32(entry + 4, 5);
+    e.mem.set_u32(block + 0xc, 1);
+    e.mem.set_u32(block + 0x10, entry);
+    e.mem.set_u32(pass + 0x30, block);
+    let group_c = e.mem.alloc(0x40);
+    e.mem.set_u32(GROUP_C_ENTRIES + 0x1c, group_c);
+    Passes {
+        e,
+        pass,
+        stages,
+        caches,
+        block,
+        entry,
+        group_c,
+    }
+}
+
+/// The cut takes every word of the pass objects and Group C's entries the pass begins write.
+#[test]
+fn the_cut_takes_the_pass_objects_and_group_c_entries() {
+    let Passes {
+        mut e,
+        pass,
+        stages,
+        caches,
+        block,
+        entry,
+        group_c,
+    } = passes();
+    assert!(capture::begin(&e));
+    statics::take_pass_state(&mut e);
+    statics::take_pass_objects(&mut e);
+    for (what, addr, len) in [
+        ("render state block pointer", pass + 0x30, 4),
+        ("render state block header", block, 0x14),
+        ("render state entry", entry, 0x10),
+        ("stage 0 texture", stages[0] + 8, 4),
+        ("stage 1 texture", stages[1] + 8, 4),
+        ("stage 1 count", stages[1] + 0x60, 4),
+        ("stage 0 state cache", caches[0], 0xb8),
+        ("stage 1 state cache", caches[1], 0xb8),
+        ("Group C entry byte", group_c + 8, 1),
+        ("Group C entry switch word", group_c + 0x20, 4),
+    ] {
+        assert!(
+            capture::owns(&e, addr, len),
+            "the cut did not take the {what}"
+        );
+    }
+    capture::end(&mut e);
+}
+
+/// A posted draw and the extra passes (or the sun query) beginning the same pass: main writes the stage texture, a
+/// sampler state of the stage's cache, the render state's value, the block and a Group C entry while the draw has not
+/// run (the stepped order, the worst case); the draw reads what the cut saw, writes its own, and the join leaves what
+/// the serial order does: the draw first, then main. Fails when the cut leaves any of them in guest memory (the draw
+/// would read main's writes), which is what made the joins of `006426a0` and `00b6c0d0` necessary.
+#[test]
+fn the_draw_reads_the_pass_objects_as_cut_while_main_begins_the_same_pass() {
+    let Passes {
+        mut e,
+        pass,
+        stages,
+        caches,
+        block,
+        entry,
+        group_c,
+    } = passes();
+    assert!(capture::begin(&e));
+    statics::take_pass_state(&mut e);
+    statics::take_pass_objects(&mut e);
+    let packet = capture::detach(&e).expect("the packet");
+    // Main, first: its pass begin through the setters it shares with the draw, and the untyped ones by address.
+    capture::set_own_at(&mut e, stages[0] + 8, 0x7001u32);
+    leaf::set_state_slot(&mut e, caches[0], 1u32, 0x11u32, 0u32, 0u32);
+    e.mem.set_u32(entry + 4, 9);
+    let other = e.mem.alloc(0x20);
+    e.mem.set_u32(pass + 0x30, other);
+    e.mem.set_u8(group_c + 8, 1);
+    engine_core::own_view::note_write(&e, group_c + 8, 1);
+    assert!(capture::attach(packet).is_ok());
+    // The draw, after: its reads are the cut's.
+    assert_eq!(capture::own_at::<u32>(&e, stages[0] + 8), 0x1000);
+    assert_eq!(capture::own_at::<u8>(&e, caches[0] + 0xa4), 0, "no sampler state yet");
+    assert_eq!(capture::own_at::<u32>(&e, entry + 4), 5);
+    assert_eq!(capture::own_at::<u32>(&e, pass + 0x30), block);
+    assert_eq!(capture::own_at::<u8>(&e, group_c + 8), 0);
+    // And its writes stay its own until the join.
+    capture::set_own_at(&mut e, stages[1] + 8, 0x7002u32);
+    leaf::set_state_slot(&mut e, caches[1], 2u32, 0x22u32, 0u32, 0u32);
+    assert_eq!(capture::own_at::<u32>(&e, stages[1] + 8), 0x7002);
+    assert_eq!(capture::own_at::<u8>(&e, caches[1] + 0xa5), 1, "the draw's sampler state");
+    assert_eq!(e.mem.u32(stages[1] + 8), 0x1001, "guest memory keeps main's");
+    assert_eq!(e.mem.u8(caches[1] + 0xa5), 0, "guest memory keeps main's");
+    let report = capture::end(&mut e);
+    assert!(report.kept_main > 0);
+    // The serial order: the draw, then main.
+    assert_eq!(e.mem.u32(stages[0] + 8), 0x7001, "main's, the draw wrote none");
+    assert_eq!(e.mem.u32(stages[1] + 8), 0x7002, "the draw's, main wrote none");
+    assert_eq!(e.mem.u8(caches[0] + 0xa4), 1);
+    assert_eq!(e.mem.u32(caches[0] + 0x90), 0x11, "main's sampler state");
+    assert_eq!(e.mem.u8(caches[1] + 0xa5), 1);
+    assert_eq!(e.mem.u32(caches[1] + 0x94), 0x22, "the draw's sampler state");
+    assert_eq!(e.mem.u32(entry + 4), 9, "main's render state value");
+    assert_eq!(e.mem.u32(pass + 0x30), other, "main's block");
+    assert_eq!(e.mem.u8(group_c + 8), 1, "main's Group C entry");
 }
