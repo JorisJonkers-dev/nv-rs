@@ -5,9 +5,8 @@
 # This workflow runs for COMMITS only: a push, a new pull request, a reopen. Editing a pull request's title or
 # description does not start it (no `edited` trigger), so those edits create no "Pipeline Complete" check run and the
 # run of the commits stays the only source of the required check. The checks that read the title or the description
-# are in fork-pr-text.yml (the "PR text / ..." checks). Here the Progress-Drop rule is not applied and the
-# Upstream-Commit trailer is not read; both are enforced there. A change of the base branch does not rebuild either;
-# fork-pr-text.yml reports it (see docs/fork/CI.md).
+# are in pr-text.yml. Here the Progress-Drop rule is not applied and the
+# Upstream-Commit trailer is not read; both are enforced there.
 # Upstream's own gate, .github/workflows/ci.yml (Windows, ~140 minutes), is not required here.
 name: Pipeline
 
@@ -106,36 +105,6 @@ jobs:
       contents: read
       pull-requests: read
     uses: JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
-
-  # Every commit of the pull request is a conventional commit and credits no coding agent. The title and the
-  # description are checked in fork-pr-text.yml, so fixing them does not need a new commit here. The script wants a
-  # title; a fixed valid one is passed because only the commits are read in this job.
-  commit-messages:
-    name: Commit messages
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: JorisJonkers-dev/github-workflows
-          ref: v0.50.3
-          path: .github-workflows
-          persist-credentials: false
-      - name: Check every commit message
-        env:
-          PR_TITLE: 'chore: commit messages only'
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          base="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
-          python3 .github-workflows/scripts/pr_title_check.py --range "${base}..${HEAD_SHA}"
 
   # Upstream's ci.yml, as one job per engine component (.fork/components.toml); see fork-build.yml.
   build:
@@ -327,7 +296,7 @@ jobs:
 
   # Upstream-owned files may differ from upstream only where .fork/allowed-divergence says so. Cheap, so it runs on every
   # pull request and push, also when the builds are skipped; it needs the history and upstream's copy (main). The
-  # replay point in the description is checked in fork-pr-text.yml.
+  # replay point in the description is checked in pr-text.yml.
   verify-sync:
     name: Verify sync
     runs-on: ubuntu-latest
@@ -372,7 +341,7 @@ jobs:
   # The progress pictures' generator (docs/fork/PROGRESS.md, scripts/fork/progress) in check mode on every pull request,
   # so it cannot break unseen: its tests, two counts of the merged tree that must agree, and the counts against the base's
   # summary. A count that goes down is only reported here; whether the description excuses it
-  # (`Progress-Drop: <reason>`) is checked in fork-pr-text.yml ("PR text / Progress counts"). Its report is in the run summary. The pictures themselves are committed after the merge
+  # (`Progress-Drop: <reason>`) is checked in pr-text.yml. Its report is in the run summary. The pictures themselves are committed after the merge
   # (fork-progress.yml).
   progress:
     name: Progress counts
@@ -400,7 +369,7 @@ jobs:
           if git show "$BASE:docs/media/fork-progress.json" >"$RUNNER_TEMP/baseline.json" 2>/dev/null; then
             baseline=(--baseline "$RUNNER_TEMP/baseline.json")
           fi
-          # A drop is reported here, never refused: the description's Progress-Drop line is read by fork-pr-text.yml.
+          # A drop is reported here, never refused: the description's Progress-Drop line is read by pr-text.yml.
           allow=(--allow-drop)
           "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" "${baseline[@]}" "${allow[@]}" \
             | tee -a "$GITHUB_STEP_SUMMARY"
@@ -565,7 +534,7 @@ jobs:
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, commit-messages, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
+    needs: [changes, hygiene, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -587,7 +556,7 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "commit-messages", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.
