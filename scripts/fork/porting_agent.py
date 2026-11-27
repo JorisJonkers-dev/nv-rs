@@ -68,6 +68,48 @@ How a function is typed:
 - Add a Diff case for each typed function to the family's suite `crates/engine/tests/typed_{family}.rs`
   (create the suite from an existing one if the family has none). A case runs the typed version and
   the translation on the same inputs and compares them.
+- Use the Diff harness's real types and nothing else: `engine_core::typed::diff::{{Case, Diff, Input}}`,
+  `engine_core::typed::leaf`, `engine_core::prelude::*` and the family's own `engine_typed::<family>`
+  module (`cannot find type Case in this scope` means the `use` line is missing). Copy the `use` block and
+  the `Diff::new(entry!(..))` chain from an existing suite; do not invent a harness, helper type or macro.
+  A typed function takes `(e: &mut Engine, <args>)`, returns the exe's result and is registered once in the
+  family's `funcs` with `entry!(<address>, module::name(Ptr) -> u32)`. A complete small pair (typed function,
+  then its suite case, then the registration):
+
+```rust
+// crates/engine-typed/src/facegen/sizes.rs
+// Typed from 0065c490
+/// The bytes of a model's loaded EGT texture data (`thiscall`) ...
+pub fn egt_size(e: &mut Engine, this: Ptr) -> u32 {{
+    walk(e, this, 0xc, 0x58, 0x58, |e, record| {{
+        let (begin, end) = ends(e, record.wrapping_add(0x10));
+        end.wrapping_sub(begin).wrapping_mul(3)
+    }})
+}}
+// crates/engine-typed/src/facegen/mod.rs, in FACEGEN's funcs
+entry!(0x0065_c490, sizes::egt_size(Ptr) -> u32),
+// crates/engine/tests/typed_facegen_sizes.rs
+use engine as _;
+use engine_core::prelude::*;
+use engine_core::typed::diff::{{Case, Diff, Input}};
+use engine_core::typed::leaf;
+use engine_typed::facegen::{{self, sizes}};
+#[test]
+fn facegen_egt_size() {{
+    Diff::new(entry!(0x0065_c490, sizes::egt_size(Ptr) -> u32))
+        .family(&facegen::FACEGEN)
+        .family(&leaf::LEAVES)
+        .inputs(&[Input::Of(&CASES)])
+        .setup(|e, case| vec![model(e, case, 0xc, 0x58, 0x10)])
+        .run()
+        .assert_same();
+}}
+```
+  `.setup` builds guest memory for the case and returns the argument words (`Ptr` arguments are
+  addresses from `e.mem.alloc`); `Input::Word`, `Flag`, `F32`, `F64` and `Of(&[..])` generate the others.
+- Your output is limited to the typed crate (`crates/engine-typed/src/<family>`, its `mod.rs` registration)
+  and the typed suites `crates/engine/tests/typed_*.rs`. Any other path you change is dropped
+  from your run before it is committed.
 - Never edit the checker: crates/engine-core/src/typed/diff.rs, crates/engine-core/src/typed/mod.rs,
   crates/engine-core/src/x87.rs, crates/engine/tests/diff_reference_peer.rs or anything under
   scripts/ledger. Never weaken, delete or skip a test. Never run cargo; builds are run for you.
