@@ -287,10 +287,8 @@ class AffectedOnly(unittest.TestCase):
         self.assertEqual(self.os_of(m.plan(True, [], all_os=True))[-1:], [("top", "win", False)])  # a push keeps every job
         self.assertIn(("fmt", "ubu", True), self.os_of(m.plan(True, [])))
 
-    def test_platform_crates_and_typed_test_files_are_platform_relevant(self):
+    def test_docs_and_fork_scripts_are_not_platform_relevant(self):
         m = model(self.cfg(), self.META)
-        self.assertTrue(m.platform_relevant(["crates/engine-core/src/lib.rs"]))
-        self.assertTrue(m.platform_relevant(["crates/engine/tests/typed_culling.rs"]))
         self.assertFalse(m.platform_relevant(["crates/esm/src/lib.rs", "docs/x.md", "scripts/fork/components.py"]))
 
     def test_a_cfg_on_windows_or_macos_makes_a_file_platform_relevant(self):
@@ -340,12 +338,21 @@ class Grouping(unittest.TestCase):
 
 
 class Realistic(unittest.TestCase):
+    def test_only_platform_crates_and_toolchain_files_are_platform_relevant(self):
+        m = real_model()
+        for f in ("crates/d3d9-wgpu/src/lib.rs", "crates/engine-platform/src/lib.rs", "crates/fork-window/src/lib.rs",
+                  "crates/nv-launcher/src/lib.rs", "Cargo.lock", "rust-toolchain.toml", "crates/esm/Cargo.toml", ".cargo/config.toml"):
+            self.assertTrue(m.platform_relevant([f]), f)
+        for f in ("crates/engine-core/src/lib.rs", "crates/engine-typed/src/lib.rs", "crates/engine-bs/src/lib.rs",
+                  "crates/engine-fallout-ai/src/lib.rs", "crates/engine/tests/typed_culling.rs"):
+            self.assertFalse(m.platform_relevant([f]), f)
+
     def test_a_typed_test_file_reaches_only_its_job_and_the_typed_crates_reach_every_typed_job(self):
         m = real_model()
         got = lambda files: {e["name"] for e in m.plan(False, files)["include"] if e["component"] == "integration"}
         one = got(["crates/engine/tests/typed_pathing.rs"])
         self.assertEqual(one, {"Component: integration / typed pathing (Linux)"})
-        self.assertTrue(m.platform_relevant(["crates/engine/tests/typed_pathing.rs"]))
+        self.assertFalse(m.platform_relevant(["crates/engine/tests/typed_pathing.rs"]))
         every = got(["crates/engine-typed/src/lib.rs"])
         self.assertTrue(one < every and len(every) >= 15, every)
 

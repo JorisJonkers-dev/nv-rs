@@ -91,10 +91,12 @@ dependencies (the check says exactly which are missing). A crate in two componen
   everything too, never nothing.
 - **Which OS a pull request runs:** Linux for every component that runs. The Windows jobs (and the Windows-only
   components, `integration` and `launcher-and-ledger`) run on a pull request only when the change is platform-relevant
-  (`components.py platform`): a file of `engine-core`, `engine-typed`, `engine-bs`, `engine-fallout-*`, `d3d9-*`,
-  `engine-platform` or `fork-window`, a typed family's test file (`crates/engine/tests/typed_*.rs`), or a Rust file with a
-  `cfg` on `windows` or `macos`; or when the pull request carries the label `ci:all-os` as its run starts (a label added
-  afterwards counts from the next push; adding it does not start a run). A Linux twin that is informational is left out
+  (`components.py platform`): a file of `d3d9-*`, `engine-platform`, `fork-window`, `nv-launcher` or `fork-play` (the Windows
+  device, window, platform, launcher and Play builds); a Rust file with a `cfg` on `windows`, `unix`, `macos` or
+  `target_os`; a Cargo or toolchain file (`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `deny.toml`, `.cargo/`); or when the
+  pull request carries the label `ci:all-os` as its run starts (a label added
+  afterwards counts from the next push; adding it does not start a run). General engine code (`engine-core`, `engine-typed`, `engine-bs`, `engine-fallout-*`, the typed families' test
+  files) is not platform code: it runs on Linux, and its Windows twins run in the nightly. A Linux twin that is informational is left out
   when the Windows job of the same component runs. The macOS job runs on a pull request only for `d3d9-*`, `engine-platform`,
   `fork-window`, `fork-api`, `fork-play`, `fork-gfx`, a `cfg` on macOS, or the label. The schedule and a manual run run everything on
   every OS, and a push to `fork` runs every OS for what its commits reach.
