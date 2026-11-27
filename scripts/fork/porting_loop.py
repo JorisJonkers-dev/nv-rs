@@ -318,6 +318,22 @@ def claim_age(env):
     return seconds
 
 
+def rate_lines(rate):
+    """Markdown section summarising the measured rate of one batch."""
+    wall = rate["wall_seconds"]
+    per_hour = rate["delivered"] / (wall / 3600) if wall > 0 else 0.0
+    return [
+        "",
+        "## Rate",
+        "",
+        f"- Model runs: {rate['model_runs']}",
+        f"- Build seconds: {rate['build_seconds']:.1f}",
+        f"- Diff seconds: {rate['diff_seconds']:.1f}",
+        f"- Wall seconds: {wall:.1f}",
+        f"- Verified functions per hour: {per_hour:.2f}",
+    ]
+
+
 def pr_body(name, report):
     """One pull request's evidence: totals, counts, classes and skipped families."""
     totals = {"passed": 0, "failed": 0}
@@ -335,6 +351,8 @@ def pr_body(name, report):
     lines += [f"- {kind}: {count}" for kind, count in sorted(report["classes"].items())]
     if not report["classes"]:
         lines.append("- none recorded")
+    if report.get("rate") is not None:
+        lines += rate_lines(report["rate"])
     for title, key in (("Rejected families", "rejected"), ("Skipped families", "skipped")):
         if report.get(key):
             lines += ["", f"## {title}", ""]
@@ -739,6 +757,8 @@ def weekly(root=REPO, days=7, env=None, today=None, out=None, call=call):
     lines += [f"| {date} | {counts[date]} |" for date in sorted(counts)]
     lines += ["", f"- Window: {first.isoformat()} to {today.isoformat()}",
               f"- Total: {sum(counts.values())}",
+              f"- Verified functions per hour: "
+              f"{sum(counts.values()) / (days * 24) if days > 0 else 0.0:.2f}",
               f"- Delivery records without a queue row: {dropped}", ""]
     text = "\n".join(lines)
     if out is not None:

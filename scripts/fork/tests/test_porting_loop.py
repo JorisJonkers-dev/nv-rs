@@ -232,6 +232,60 @@ class PortingLoop(unittest.TestCase):
         self.assertIn("## Skipped families", body)
         self.assertIn("crt", body)
 
+    def test_rate_lines_show_the_measured_seconds_and_hourly_rate(self):
+        lines = porting_loop.rate_lines({
+            "model_runs": 5, "build_seconds": 120.4, "diff_seconds": 30.5,
+            "wall_seconds": 7200.0, "delivered": 6,
+        })
+        self.assertEqual(lines, [
+            "", "## Rate", "",
+            "- Model runs: 5",
+            "- Build seconds: 120.4",
+            "- Diff seconds: 30.5",
+            "- Wall seconds: 7200.0",
+            "- Verified functions per hour: 3.00",
+        ])
+
+    def test_rate_lines_do_not_divide_by_a_zero_wall_time(self):
+        lines = porting_loop.rate_lines({
+            "model_runs": 2, "build_seconds": 1.0, "diff_seconds": 2.0,
+            "wall_seconds": 0.0, "delivered": 6,
+        })
+        self.assertEqual(lines[:3], ["", "## Rate", ""])
+        self.assertIn("- Verified functions per hour: 0.00", lines)
+
+    def test_the_pr_body_adds_a_rate_section_only_when_the_report_has_one(self):
+        report = {
+            "families": [
+                {"family": "fade", "passed": 3, "failed": 1, "review": "accepted"},
+            ],
+            "classes": {"real": 2},
+            "rejected": ["crt"],
+            "skipped": ["lights"],
+            "stale": ["crt"],
+        }
+        without = porting_loop.pr_body("batch-1", report)
+        self.assertEqual(without, "\n".join([
+            "# Porting batch batch-1", "", "## Pass counts", "",
+            "- Diff cases: 3 passed; 1 failed",
+            "- fade: 3 passed, 1 failed (accepted)",
+            "", "## Failure classes", "", "- real: 2",
+            "", "## Rejected families", "", "- crt",
+            "", "## Skipped families", "", "- lights",
+            "", "- Claims reclaimed after expiry: crt",
+            "", "The checker hash and the review result are recorded in the batch report.", "",
+        ]))
+        rate = {
+            "model_runs": 4, "build_seconds": 10.0, "diff_seconds": 20.0,
+            "wall_seconds": 7200.0, "delivered": 6,
+        }
+        with_rate = porting_loop.pr_body("batch-1", dict(report, rate=rate))
+        self.assertEqual(with_rate, without.replace(
+            "\n\n## Rejected families",
+            "\n" + "\n".join(porting_loop.rate_lines(rate)) + "\n\n## Rejected families",
+            1,
+        ))
+
     def test_a_batch_uses_the_daemon_a_worktree_per_family_and_two_configured_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = tree(tmp)
@@ -645,6 +699,32 @@ class PortingLoop(unittest.TestCase):
                                 today=datetime.date(2026, 11, 26), out=out,
                                 call=Recording(queue=queue))
             self.assertIn("2026-11-26 | 1", out.read_text(encoding="utf-8"))
+
+    def test_weekly_reports_delivered_verified_functions_per_hour(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            addresses = [f"{0x00401000 + i * 0x10:08X}" for i in range(14)]
+            queue = ["# rank\taddress\tstate\tdone\tfamily\tname"]
+            queue += [f"{i}\t{address}\treference-verified\tyes\tfade\tf{i}"
+                      for i, address in enumerate(addresses, 1)]
+            queue += [
+                "15\t00403000\ttyped\tyes\tcrt\tc", "",
+            ]
+            for address in addresses:
+                porting_loop.record_delivery(
+                    root, "2026-11-25", "batch-1", address, "fade")
+            out = root / "weekly.md"
+            porting_loop.weekly(
+                root=root, days=7, env=environment(root),
+                today=datetime.date(2026, 11, 26), out=out,
+                call=Recording(queue="\n".join(queue)),
+            )
+            text = out.read_text(encoding="utf-8")
+            self.assertIn("2026-11-25 | 14", text)
+            self.assertIn("- Total: 14", text)
+            self.assertIn("- Verified functions per hour: 0.08", text)
+            self.assertLess(text.index("- Total: 14"),
+                            text.index("- Verified functions per hour: 0.08"))
 
     def test_weekly_reports_a_queue_failure_without_a_traceback(self):
         with tempfile.TemporaryDirectory() as tmp:
