@@ -19,7 +19,7 @@ const BS_EXTRA_DATA_DESTRUCT: u32 = 0x0040_ecb0;
 /// `__RTDynamicCast(object, vfDelta, sourceType, targetType, isReference)`.
 const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// `RTTI Type Descriptor` of `BSExtraData`, the source type of the
-/// `dynamic_cast`s in the `Compare` methods.
+/// checked casts in the `Compare` methods.
 const BS_EXTRA_DATA_TYPE: u32 = 0x0118_3b2c;
 /// `BSSimpleArray<T,1024>::operator[]` of the folded body: the address of
 /// the element slot.
@@ -2372,7 +2372,7 @@ pub fn fn_00437e50(
 /// "Screen01:0" is asked of `root` (virtual slot 0x9c, called with a fixed
 /// string); when there is none, nothing more happens. When both strings
 /// (`00428070`, `004280b0`) are non-empty, the texture path
-/// `Textures\creatures\Securitron\%s_%s.dds` is formatted from them, passed
+/// is formatted from them, passed
 /// through `SwapPlatformLanguageTexturePath` and loaded
 /// (`TES::CreateTextureImage`) into a smart pointer on the stack. Then the
 /// screen's property of the type `00438220` gives (3) is asked

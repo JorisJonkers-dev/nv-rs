@@ -49,7 +49,7 @@ pub(crate) const MEMCMP: u32 = 0x00ec_4835;
 pub(crate) const FTOL: u32 = 0x00ec_62c0;
 
 /// `RTTI Type Descriptor` of `BSExtraData`, the source type of the
-/// `dynamic_cast`s in the `Compare` methods.
+/// checked casts in the `Compare` methods.
 pub(crate) const BS_EXTRA_DATA_TYPE: u32 = 0x0118_3b2c;
 /// `RTTI Type Descriptor` of `ExtraStartingPosition`.
 pub(crate) const EXTRA_STARTING_POSITION_TYPE: u32 = 0x0118_4b10;
@@ -2558,7 +2558,7 @@ pub fn fn_00432da0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 /// The `__RTDynamicCast` the `Compare` and `Copy` methods start with: `other`
 /// as the class with the RTTI descriptor `target_type`, null when it is not
 /// one.
-pub(crate) fn dynamic_cast_extra<U>(e: &mut Engine, other: Ptr, target_type: u32) -> Ptr<U> {
+pub(crate) fn checked_cast_extra<U>(e: &mut Engine, other: Ptr, target_type: u32) -> Ptr<U> {
     e.call(
         DYNAMIC_CAST,
         &args![other, 0u32, BS_EXTRA_DATA_TYPE, target_type, 0u32],
@@ -2895,7 +2895,7 @@ pub fn extra_enable_state_parent_compare(
 ) -> bool {
     let s = store(e);
     let cast: Ptr<ExtraEnableStateParent> =
-        dynamic_cast_extra(e, other, EXTRA_ENABLE_STATE_PARENT_TYPE);
+        checked_cast_extra(e, other, EXTRA_ENABLE_STATE_PARENT_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -2973,7 +2973,7 @@ pub fn extra_random_teleport_marker_compare(
 ) -> bool {
     let s = store(e);
     let cast: Ptr<ExtraRandomTeleportMarker> =
-        dynamic_cast_extra(e, other, EXTRA_RANDOM_TELEPORT_MARKER_TYPE);
+        checked_cast_extra(e, other, EXTRA_RANDOM_TELEPORT_MARKER_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -3036,7 +3036,7 @@ pub fn fn_00433640(e: &mut Engine, this: Ptr<ExtraLinkedRef>) -> Ptr<ExtraLinked
 /// (`BSExtraData::Compare` is not asked.)
 pub fn extra_linked_ref_compare(e: &mut Engine, this: Ptr<ExtraLinkedRef>, other: Ptr) -> bool {
     let s = store(e);
-    let cast: Ptr<ExtraLinkedRef> = dynamic_cast_extra(e, other, EXTRA_LINKED_REF_TYPE);
+    let cast: Ptr<ExtraLinkedRef> = checked_cast_extra(e, other, EXTRA_LINKED_REF_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -3199,7 +3199,7 @@ pub fn fn_00433a00(
 /// otherwise the strings are compared with `strcmp`). `BSExtraData::Compare`
 /// is not asked.
 pub fn extra_activate_ref_compare(e: &mut Engine, this: Ptr<ExtraActivateRef>, other: Ptr) -> bool {
-    let cast: Ptr<ExtraActivateRef> = dynamic_cast_extra(e, other, EXTRA_ACTIVATE_REF_TYPE);
+    let cast: Ptr<ExtraActivateRef> = checked_cast_extra(e, other, EXTRA_ACTIVATE_REF_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -3250,7 +3250,7 @@ pub fn extra_activate_ref_compare(e: &mut Engine, this: Ptr<ExtraActivateRef>, o
 /// Nothing happens when `other` is another class. The exception-unwinding
 /// frame is not translated.
 pub fn extra_activate_ref_copy(e: &mut Engine, this: Ptr<ExtraActivateRef>, other: Ptr) {
-    let cast: Ptr<ExtraActivateRef> = dynamic_cast_extra(e, other, EXTRA_ACTIVATE_REF_TYPE);
+    let cast: Ptr<ExtraActivateRef> = checked_cast_extra(e, other, EXTRA_ACTIVATE_REF_TYPE);
     if cast.is_null() {
         return;
     }
@@ -3559,7 +3559,7 @@ pub(crate) fn entry_lists_differ(
 /// first word here or differs from it in its 0x1c bytes. `BSExtraData::Compare`
 /// is not asked.
 pub fn extra_decal_refs_compare(e: &mut Engine, this: Ptr<ExtraDecalRefs>, other: Ptr) -> bool {
-    let cast: Ptr<ExtraDecalRefs> = dynamic_cast_extra(e, other, EXTRA_DECAL_REFS_TYPE);
+    let cast: Ptr<ExtraDecalRefs> = checked_cast_extra(e, other, EXTRA_DECAL_REFS_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -3574,7 +3574,7 @@ pub fn extra_decal_refs_compare(e: &mut Engine, this: Ptr<ExtraDecalRefs>, other
 /// happens when `other` is another class. The exception-unwinding frame is not
 /// translated.
 pub fn extra_decal_refs_copy(e: &mut Engine, this: Ptr<ExtraDecalRefs>, other: Ptr) {
-    let cast: Ptr<ExtraDecalRefs> = dynamic_cast_extra(e, other, EXTRA_DECAL_REFS_TYPE);
+    let cast: Ptr<ExtraDecalRefs> = checked_cast_extra(e, other, EXTRA_DECAL_REFS_TYPE);
     if cast.is_null() {
         return;
     }
@@ -3710,7 +3710,7 @@ pub fn extra_reflected_refs_compare(
     this: Ptr<ExtraReflectedRefs>,
     other: Ptr,
 ) -> bool {
-    let cast: Ptr<ExtraReflectedRefs> = dynamic_cast_extra(e, other, EXTRA_REFLECTED_REFS_TYPE);
+    let cast: Ptr<ExtraReflectedRefs> = checked_cast_extra(e, other, EXTRA_REFLECTED_REFS_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -3724,7 +3724,7 @@ pub fn extra_reflected_refs_compare(
 /// list's entries at the head, so the order is reversed. Nothing happens when
 /// `other` is another class. The exception-unwinding frame is not translated.
 pub fn extra_reflected_refs_copy(e: &mut Engine, this: Ptr<ExtraReflectedRefs>, other: Ptr) {
-    let cast: Ptr<ExtraReflectedRefs> = dynamic_cast_extra(e, other, EXTRA_REFLECTED_REFS_TYPE);
+    let cast: Ptr<ExtraReflectedRefs> = checked_cast_extra(e, other, EXTRA_REFLECTED_REFS_TYPE);
     if cast.is_null() {
         return;
     }
@@ -3874,7 +3874,7 @@ pub fn extra_water_light_refs_compare(
     this: Ptr<ExtraWaterLightRefs>,
     other: Ptr,
 ) -> bool {
-    let cast: Ptr<ExtraWaterLightRefs> = dynamic_cast_extra(e, other, EXTRA_WATER_LIGHT_REFS_TYPE);
+    let cast: Ptr<ExtraWaterLightRefs> = checked_cast_extra(e, other, EXTRA_WATER_LIGHT_REFS_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -3891,7 +3891,7 @@ pub fn extra_water_light_refs_compare(
 /// of the other list that is not already there (`00434f60`). Nothing happens
 /// when `other` is another class.
 pub fn extra_water_light_refs_copy(e: &mut Engine, this: Ptr<ExtraWaterLightRefs>, other: Ptr) {
-    let cast: Ptr<ExtraWaterLightRefs> = dynamic_cast_extra(e, other, EXTRA_WATER_LIGHT_REFS_TYPE);
+    let cast: Ptr<ExtraWaterLightRefs> = checked_cast_extra(e, other, EXTRA_WATER_LIGHT_REFS_TYPE);
     if cast.is_null() {
         return;
     }
@@ -3924,7 +3924,7 @@ pub fn extra_reflector_refs_compare(
     this: Ptr<ExtraReflectorRefs>,
     other: Ptr,
 ) -> bool {
-    let cast: Ptr<ExtraReflectorRefs> = dynamic_cast_extra(e, other, EXTRA_REFLECTOR_REFS_TYPE);
+    let cast: Ptr<ExtraReflectorRefs> = checked_cast_extra(e, other, EXTRA_REFLECTOR_REFS_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -3939,7 +3939,7 @@ pub fn extra_reflector_refs_compare(
 /// the order is reversed. Nothing happens when `other` is another class. The
 /// exception-unwinding frame is not translated.
 pub fn extra_reflector_refs_copy(e: &mut Engine, this: Ptr<ExtraReflectorRefs>, other: Ptr) {
-    let cast: Ptr<ExtraReflectorRefs> = dynamic_cast_extra(e, other, EXTRA_REFLECTOR_REFS_TYPE);
+    let cast: Ptr<ExtraReflectorRefs> = checked_cast_extra(e, other, EXTRA_REFLECTOR_REFS_TYPE);
     if cast.is_null() {
         return;
     }
@@ -3986,7 +3986,7 @@ pub fn extra_lit_water_refs_compare(
     this: Ptr<ExtraLitWaterRefs>,
     other: Ptr,
 ) -> bool {
-    let cast: Ptr<ExtraLitWaterRefs> = dynamic_cast_extra(e, other, EXTRA_LIT_WATER_REFS_TYPE);
+    let cast: Ptr<ExtraLitWaterRefs> = checked_cast_extra(e, other, EXTRA_LIT_WATER_REFS_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -4003,7 +4003,7 @@ pub fn extra_lit_water_refs_compare(
 /// of the other list that is not already there (`00434f60`). Nothing happens
 /// when `other` is another class.
 pub fn extra_lit_water_refs_copy(e: &mut Engine, this: Ptr<ExtraLitWaterRefs>, other: Ptr) {
-    let cast: Ptr<ExtraLitWaterRefs> = dynamic_cast_extra(e, other, EXTRA_LIT_WATER_REFS_TYPE);
+    let cast: Ptr<ExtraLitWaterRefs> = checked_cast_extra(e, other, EXTRA_LIT_WATER_REFS_TYPE);
     if cast.is_null() {
         return;
     }
@@ -4070,7 +4070,7 @@ pub fn extra_merchant_container_compare(
 ) -> bool {
     let s = store(e);
     let cast: Ptr<ExtraMerchantContainer> =
-        dynamic_cast_extra(e, other, EXTRA_MERCHANT_CONTAINER_TYPE);
+        checked_cast_extra(e, other, EXTRA_MERCHANT_CONTAINER_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -4110,7 +4110,7 @@ pub fn extra_lev_crea_modifier_compare(
 ) -> bool {
     let s = store(e);
     let cast: Ptr<ExtraLevCreaModifier> =
-        dynamic_cast_extra(e, other, EXTRA_LEV_CREA_MODIFIER_TYPE);
+        checked_cast_extra(e, other, EXTRA_LEV_CREA_MODIFIER_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -4163,7 +4163,7 @@ pub fn fn_00435150(e: &mut Engine, this: Ptr<ExtraPoison>, poison: Ptr) -> Ptr<E
 /// not asked.)
 pub fn extra_poison_compare(e: &mut Engine, this: Ptr<ExtraPoison>, other: Ptr) -> bool {
     let s = store(e);
-    let cast: Ptr<ExtraPoison> = dynamic_cast_extra(e, other, EXTRA_POISON_TYPE);
+    let cast: Ptr<ExtraPoison> = checked_cast_extra(e, other, EXTRA_POISON_TYPE);
     if cast.is_null() {
         return true;
     }
@@ -4238,7 +4238,7 @@ pub fn extra_last_finished_sequence_compare(
 ) -> bool {
     let s = store(e);
     let cast: Ptr<ExtraLastFinishedSequence> =
-        dynamic_cast_extra(e, other, EXTRA_LAST_FINISHED_SEQUENCE_TYPE);
+        checked_cast_extra(e, other, EXTRA_LAST_FINISHED_SEQUENCE_TYPE);
     if cast.is_null() {
         return true;
     }

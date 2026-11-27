@@ -9,7 +9,7 @@ use engine_core::types::*;
 use engine_core::AbiFn;
 
 /// `RTTI Type Descriptor` of `ExtraSpecialRenderFlags`, the target of the
-/// `dynamic_cast` in its `Compare` and `Copy`.
+/// `checked cast` in its `Compare` and `Copy`.
 const EXTRA_SPECIAL_RENDER_FLAGS_TYPE: u32 = 0x0118_4078;
 /// The setter of the word at +0xc (`m_flags`; `this`, the new value). The
 /// engine map names the folded body `NonActorMagicCaster::SetCurrentSpell`.
