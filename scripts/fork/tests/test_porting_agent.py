@@ -145,6 +145,29 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(porting_agent.work(env), 0)
         self.assertEqual(len(set(models)), 2)
 
+    def test_work_appends_the_previous_failure_to_its_prompt(self):
+        failure = Path(self.tmp.name) / "failure.txt"
+        failure.write_text(
+            "Failing cases: fade::bad_case\nerror[E0308]: mismatched types\n",
+            encoding="utf-8",
+        )
+        gw = Path(self.tmp.name) / "gw-retry"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)],
+                       check=True, env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
+        (gw / "retry.rs").write_text("// SPDX-License-Identifier: GPL-3.0-only\n")
+        git(gw, "add", "-A")
+        seen = {}
+
+        def fake(env, payload, sandbox=None):
+            seen.update(payload)
+            return {"status": "ok", "worktree": str(gw)}
+
+        with mock.patch.object(porting_agent, "gateway", fake):
+            self.assertEqual(porting_agent.work(dict(self.env, NV_PORT_FAILURE_FILE=str(failure))), 0)
+        self.assertIn("Your previous attempt failed with this output", seen["prompt"])
+        self.assertIn("fade::bad_case", seen["prompt"])
+        self.assertIn("error[E0308]", seen["prompt"])
+
     def test_rates_count_outcomes_per_model(self):
         path = Path(self.tmp.name) / "r.jsonl"
         path.write_text("\n".join(json.dumps(r) for r in [

@@ -18,6 +18,7 @@ Configuration (environment, nothing machine-specific in this file):
     NV_PORT_SLOTS                                  concurrent writing runs (default 2)
     NV_PORT_TIME_LIMIT                             seconds per model run (default 1500)
     NV_PORT_METRICS                                JSON lines file the runs are logged to
+    NV_PORT_FAILURE_FILE                           previous attempt's failure, added to the work prompt
 
 Usage:
     python3 -I scripts/fork/porting_agent.py work
@@ -78,6 +79,7 @@ The rulebook every batch follows:
 
 {rulebook}
 
+{previous}
 End your last message with one line per function: `TYPED <address>` or `SKIPPED <address>: <reason>`.
 """
 
@@ -230,6 +232,25 @@ def read_rows(env):
     return Path(env["NV_PORT_QUEUE_FILE"]).read_text(encoding="utf-8")
 
 
+def previous_failure(env):
+    """The failure file the loop wrote before a retry, as a prompt section.
+
+    The loop bounds the file to failing case names and the first 40 error lines;
+    a missing or empty file simply leaves the section out. The text is data from
+    the repository's own test output, not decompiled material.
+    """
+    path = env.get("NV_PORT_FAILURE_FILE")
+    if not path:
+        return ""
+    try:
+        text = Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    if not text:
+        return ""
+    return "Your previous attempt failed with this output:\n\n" + text + "\n\n"
+
+
 def template_family(worktree):
     """A small typed family to point the model at: the suite with the fewest lines."""
     suites = sorted((Path(worktree) / "crates" / "engine" / "tests").glob("typed_*.rs"),
@@ -249,7 +270,8 @@ def work(env):
     base = run(["git", "rev-parse", "HEAD"], worktree, check=True).stdout.strip()
     prompt = WORK_PROMPT.format(
         family=family, batch=batch, rows=read_rows(env), template=template_family(worktree),
-        rulebook=(worktree / RULEBOOK).read_text(encoding="utf-8"))
+        rulebook=(worktree / RULEBOOK).read_text(encoding="utf-8"),
+        previous=previous_failure(env))
     result, payload, started = {}, {}, time.time()
     for client, model in candidates(env, "NV_PORT_WORKER", DEFAULT_WORKER):
         payload = {
