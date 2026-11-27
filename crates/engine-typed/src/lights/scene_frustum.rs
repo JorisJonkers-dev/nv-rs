@@ -27,6 +27,7 @@ use super::ShadowSceneLight;
 use super::FAMILY;
 use crate::native::{float_precision, to_float, Real};
 use crate::scene_node;
+use engine_core::lamp_distance;
 use engine_core::ptr::Ptr;
 use engine_core::sync_direct::interlocked_increment;
 use engine_core::types::NiTListItem;
@@ -504,8 +505,9 @@ fn test_frustum_cull_in<R: Real>(e: &mut Engine, this: Ptr<ShadowSceneLight>, cu
             distance = (ld::<R>(e.mem.u32(object.wrapping_add(0x110))) * ld::<R>(distance)).store();
         }
         let d = ld::<R>(distance);
-        let near = ld::<R>(e.global::<u32>(DIMMER_NEAR));
-        let far = ld::<R>(e.global::<u32>(DIMMER_FAR));
+        // the fork's `light.lamp_distance` scales both fade distances (the same bits at 1)
+        let near = ld::<R>(lamp_distance::scaled_bits(e.global::<u32>(DIMMER_NEAR)));
+        let far = ld::<R>(lamp_distance::scaled_bits(e.global::<u32>(DIMMER_FAR)));
         let fade_shadow = match fade(d, near, far) {
             Some(value) => {
                 dimmer = value;
