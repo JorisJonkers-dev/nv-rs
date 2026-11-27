@@ -140,3 +140,24 @@ fn run_00ba74a0_spawns_at_the_zero_point() {
         .run()
         .assert_same();
 }
+
+/// 00c806b0: the nearest-hit wrapper of a ray test. A null node makes the ray test (`00c7fcc0`,
+/// which the module holds) leave the best record alone, so the answer is its first word, zero.
+#[test]
+fn run_00c806b0_answers_the_best_hit_word() {
+    use engine_havok::units::bshavok::bhkutilfunctions::fn_00c806b0;
+    fn through(e: &mut Engine, node: Ptr, ray: u32, flag: u32) -> u32 {
+        fn_00c806b0(e, node, ray, flag)
+    }
+    let Some(peer) = backend() else { return };
+    Diff::new(entry!(0x00c8_06b0, through(Ptr, u32, u32) -> u32))
+        .translation(entry!(0x00c8_06b0, fn_00c806b0(Ptr, u32, u32) -> u32).1)
+        .reference_peer(peer)
+        .inputs(&[Input::Of(&[0]), Input::Of(&[0]), Input::Of(&[0, 1])])
+        .setup(|e, case| {
+            let ray = e.mem.alloc(0x40);
+            vec![0, ray, case.word(2)]
+        })
+        .run()
+        .assert_same();
+}
