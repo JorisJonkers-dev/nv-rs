@@ -78,6 +78,7 @@ class ToolchainUnavailable(RuntimeError):
 
 
 SIZE_T_OPS = re.compile(r"(operator\s+(?:new|delete)(?:\[\])?\s*\((?:[^(),]*, ?)?)(?:unsigned int|unsigned(?!\s+(?:int|long|short|char|__int64)\b))")
+SIZE_T_FIRST = re.compile(r"(operator\s+(?:new|delete)(?:\[\])?\s*\()(?:unsigned int|unsigned(?!\s+(?:int|long|short|char|__int64)\b))(?=\s+\w+\s*,)")
 NAMED_ENUM = re.compile(r"\benum(\s+)(?!class\b|struct\b)([A-Za-z_]\w*)(\s*)([;{])")
 IMPORT_RE = re.compile(r"/\* import: '([^']+)' '([^']+)' \*/\s*\n\s*([^\n;]+);")
 EXPORT_RE = re.compile(r"/\* export: '([^']+)' \*/\s*\n\s*([^\n;]+);")
@@ -107,10 +108,43 @@ SIZE_T_TYPEDEF = re.compile(r"typedef unsigned int (\w*size_t);")
 NAKED = re.compile(r"__declspec\(naked\)\s*")
 
 
+CRITICAL_SECTION_CALL = re.compile(r"\b(?:Enter|Leave|TryEnter|Initialize|Delete)CriticalSection\(")
+
+
+def cast_critical_sections(text):
+    """Cast the argument of each `EnterCriticalSection(...)` and `LeaveCriticalSection(...)` call.
+
+    The decomp passes an `int[6]`, a `void*` or its own struct; the Win32 prototype takes the
+    struct pointer, which MSVC's own declaration (`void*`) hid. A declaration is left alone.
+    """
+    out, at = [], 0
+    for match in CRITICAL_SECTION_CALL.finditer(text):
+        if match.start() < at:
+            continue
+        line = text[text.rfind("\n", 0, match.start()) + 1:match.start()]
+        if "__stdcall" in line or "WINAPI" in line:
+            continue
+        depth, end = 1, match.end()
+        while end < len(text) and depth:
+            depth += (text[end] == "(") - (text[end] == ")")
+            end += 1
+        if depth:
+            continue
+        out.append(text[at:match.end()])
+        out.append("(struct _RTL_CRITICAL_SECTION*)(" + text[match.end():end - 1] + ")")
+        out.append(")")
+        at = end
+    out.append(text[at:])
+    return "".join(out)
+
+
 def rewrite_source(text):
     """Apply the build-copy-only rewrites: CRT size_t spelling, MSVC enum width and clang gaps."""
     text = SIZE_T_OPS.sub(lambda m: m.group(1) + "__SIZE_TYPE__", text)
+    # A placement form's first parameter is the size too (the pattern above stops at the second).
+    text = SIZE_T_FIRST.sub(lambda m: m.group(1) + "__SIZE_TYPE__", text)
     text = INTRINSIC_DECLS.sub("", text)
+    text = cast_critical_sections(text)
     text = NAKED.sub("", text)
     text = INTERLOCKED_DEF.sub(r"\1Fnv_\2(", text)
     text = SIZE_T_TYPEDEF.sub(r"typedef __SIZE_TYPE__ \1;", text)
@@ -288,8 +322,22 @@ def drop_conflicting_declarations(stderr, copy):
                 continue
             path = Path(file)
             lines = path.read_text(errors="surrogateescape").split("\n")
-            if not (0 < number <= len(lines)) or not DECLARATION_LINE.match(lines[number - 1]):
+            if not (0 < number <= len(lines)):
                 continue
+            if not DECLARATION_LINE.match(lines[number - 1]):
+                # A declaration after other statements on the line (`typedef X Vec;extern "C" T N[4];`):
+                # blank only the `extern "C"` declaration that names the symbol.
+                name = re.search(r"'(\w+)'", group["msg"])
+                if not name or system_second:
+                    continue
+                pattern = re.compile(r'extern\s+"C"[^;{}]*\b%s\b[^;{}]*;' % re.escape(name.group(1)))
+                changed = pattern.sub("", lines[number - 1], count=1)
+                if changed == lines[number - 1]:
+                    continue
+                lines[number - 1] = changed
+                path.write_text("\n".join(lines), errors="surrogateescape")
+                blanked += 1
+                break
             lines[number - 1] = "#include <windows.h>" if system_second else ""
             path.write_text("\n".join(lines), errors="surrogateescape")
             blanked += 1
@@ -632,7 +680,10 @@ def make_standins(out, tools):
     # reads as an intrinsic that mingw's empty intrin.h stand-in no longer provides.
     (standins / "nv_asm.h").write_text(
         "#pragma once\n"
-        "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+        + "".join("#ifndef %s\n#define %s\n#endif\n" % (n, n) for n in (
+            "_In_", "_In_opt_", "_Out_", "_Out_opt_", "_Inout_", "_Inout_opt_", "_Ret_maybenull_",
+            "_Success_(x)", "_Check_return_"))
+        + "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
         "__attribute__((noreturn, noinline)) void %s(void);\n"
         "#ifdef __cplusplus\n}\n#endif\n"
         "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"

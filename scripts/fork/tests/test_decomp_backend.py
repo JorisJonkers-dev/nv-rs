@@ -94,6 +94,28 @@ class RewriteTests(unittest.TestCase):
         kept = "void* operator new(unsigned long long size);"
         self.assertEqual(kept, backend.rewrite_source(kept))
 
+    def test_critical_section_arguments_are_cast_and_declarations_left(self):
+        text = ("extern void __stdcall EnterCriticalSection(void* cs);\n"
+                "void f() { EnterCriticalSection(*(void**)((char*)this + 0x14)); }\n")
+        out = backend.rewrite_source(text)
+        self.assertIn("EnterCriticalSection(void* cs);", out)
+        self.assertIn("EnterCriticalSection((struct _RTL_CRITICAL_SECTION*)(*(void**)((char*)this + 0x14)));", out)
+
+    def test_a_placement_operator_news_first_size_is_widened(self):
+        out = backend.rewrite_source("static void* operator new(unsigned int size, unsigned int r) {}")
+        self.assertIn("operator new(__SIZE_TYPE__ size, __SIZE_TYPE__ r)", out)
+
+    def test_a_linkage_conflict_after_other_statements_blanks_only_that_declaration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = Path(temp) / "copy"
+            copy.mkdir()
+            unit = copy / "a.cpp"
+            unit.write_text('typedef int Vec;extern "C" unsigned char DAT_1[118];\n')
+            stderr = ("%s:1:30: error: declaration of 'DAT_1' with C language linkage conflicts with "
+                      "declaration in global scope\n" % unit)
+            self.assertEqual(1, backend.drop_conflicting_declarations(stderr, copy))
+            self.assertEqual("typedef int Vec;\n", unit.read_text())
+
     def test_rewrite_leaves_unrelated_text_alone(self):
         source = "unsigned int count; enum Plain : int { X }; // unsigned int note\n"
         self.assertEqual(backend.rewrite_source(source), source)
