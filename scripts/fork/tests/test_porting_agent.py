@@ -49,7 +49,7 @@ class AgentTest(unittest.TestCase):
         self.env = {
             "NV_PORT_WORKTREE": str(self.wt), "NV_PORT_FAMILY": "small", "NV_PORT_BATCH": "b",
             "NV_PORT_QUEUE_FILE": str(self.queue), "NV_PORT_METRICS": str(root / "m.jsonl"),
-            "NV_PORT_SLOT_DIR": str(root / "slots"), "PATH": "/usr/bin:/bin:/run/current-system/sw/bin",
+            "NV_PORT_SLOT_DIR": str(root / "slots"), "NV_PORT_COOLDOWN": str(root / "cool.json"), "PATH": "/usr/bin:/bin:/run/current-system/sw/bin",
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
         }
@@ -111,6 +111,39 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(porting_agent.review(self.env), 1)
         same = dict(self.env, NV_PORT_REVIEW_CLIENT="pi-free", NV_PORT_REVIEW_MODEL="free/deepseek-v4.1-flash")
         self.assertEqual(porting_agent.review(same), 2)
+
+    def test_a_limited_model_falls_over_to_the_next_and_cools_down(self):
+        env = dict(self.env, NV_PORT_WORKER_MODELS="free/deepseek-v4.1-flash,opencode:opencode-go/hy4-flash-free",
+                   NV_PORT_FAMILY="small")
+        order = porting_agent.candidates(env, "NV_PORT_WORKER", porting_agent.DEFAULT_WORKER)
+        self.assertEqual(len(order), 2)
+        limited = {"status": "failed", "summary": "every free deployment is limited; back in 20021s"}
+        self.assertTrue(porting_agent.is_limited(limited))
+        self.assertFalse(porting_agent.is_limited({"status": "ok", "summary": "429 mentioned"}))
+        porting_agent.mark_limited(env, order[0][1], json.dumps(limited))
+        self.assertGreater(porting_agent.cooling(env)[order[0][1]], 20000 + __import__("time").time() - 5)
+        again = porting_agent.candidates(env, "NV_PORT_WORKER", porting_agent.DEFAULT_WORKER)
+        self.assertEqual(again[-1], order[0])
+        self.assertEqual(sorted(p[0] for p in order), ["opencode", "pi-free"])
+
+    def test_work_tries_the_next_model_when_the_first_is_limited(self):
+        gw = Path(self.tmp.name) / "gw"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)], check=True,
+                       env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
+        (gw / "new.rs").write_text("x\n")
+        git(gw, "add", "-A")
+        models = []
+
+        def fake(env, payload, sandbox=None):
+            models.append(payload["model"])
+            if len(models) == 1:
+                return {"status": "failed", "summary": "429 every free deployment is limited; back in 100s"}
+            return {"status": "ok", "worktree": str(gw)}
+
+        env = dict(self.env, NV_PORT_WORKER_MODELS="free/a-1,free/b-1")
+        with mock.patch.object(porting_agent, "gateway", fake):
+            self.assertEqual(porting_agent.work(env), 0)
+        self.assertEqual(len(set(models)), 2)
 
     def test_template_family_is_the_smallest_suite(self):
         self.assertEqual(porting_agent.template_family(self.wt), "small")

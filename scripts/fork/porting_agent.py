@@ -112,6 +112,61 @@ def settings(env, prefix, default):
     return client, env.get(f"{prefix}_MODEL", default[1])
 
 
+LIMITED = re.compile(r"429|rate.?limit|is limited|back in (\d+)s|quota", re.IGNORECASE)
+BACK_IN = re.compile(r"back in (\d+)s")
+
+
+def cooldown_path(env):
+    return Path(env.get("NV_PORT_COOLDOWN") or Path(env.get(
+        "NV_PORT_SLOT_DIR", str(Path.home() / ".cache" / "nv-workers" / "slots"))) / "cooldown.json")
+
+
+def cooling(env):
+    """Models a provider said it limits, with the time they come back (seconds since epoch)."""
+    try:
+        data = json.loads(cooldown_path(env).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    now = time.time()
+    return {k: v for k, v in data.items() if isinstance(v, (int, float)) and v > now}
+
+
+def mark_limited(env, model, text):
+    found = BACK_IN.search(text)
+    until = time.time() + (int(found.group(1)) if found else 900)
+    state = cooling(env)
+    state[model] = until
+    path = cooldown_path(env)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state), encoding="utf-8")
+    except OSError as exc:
+        print(f"cooldown not written: {exc}", file=sys.stderr)
+
+
+def is_limited(result):
+    return result.get("status") != "ok" and bool(LIMITED.search(json.dumps(result)))
+
+
+def candidates(env, prefix, default):
+    """(client, model) pairs to try, the family's pick first, models in cooldown last.
+
+    An entry of `<prefix>_MODELS` is `model` or `client:model` (the client defaults to
+    `<prefix>_CLIENT`).
+    """
+    client = env.get(f"{prefix}_CLIENT", default[0])
+    pairs = []
+    for item in [m.strip() for m in env.get(f"{prefix}_MODELS", "").split(",") if m.strip()]:
+        head, sep, tail = item.partition(":")
+        pairs.append((head, tail) if sep and "/" not in head else (client, item))
+    if f"{prefix}_MODEL" in env or not pairs:
+        return [(client, env.get(f"{prefix}_MODEL", default[1]))]
+    start = zlib.crc32(env.get("NV_PORT_FAMILY", "").encode()) % len(pairs)
+    ordered = pairs[start:] + pairs[:start]
+    hot = cooling(env)
+    return [p for p in ordered if p[1] not in hot] + [p for p in ordered if p[1] in hot]
+
+
 def family_of(model):
     return model.split("/")[-1].split("-")[0]
 
@@ -191,25 +246,36 @@ def clean(env, payload, cwd):
 def work(env):
     worktree = Path(env["NV_PORT_WORKTREE"])
     family, batch = env["NV_PORT_FAMILY"], env["NV_PORT_BATCH"]
-    client, model = settings(env, "NV_PORT_WORKER", DEFAULT_WORKER)
     base = run(["git", "rev-parse", "HEAD"], worktree, check=True).stdout.strip()
     prompt = WORK_PROMPT.format(
         family=family, batch=batch, rows=read_rows(env), template=template_family(worktree),
         rulebook=(worktree / RULEBOOK).read_text(encoding="utf-8"))
-    payload = {
-        "workflow": f"porting-{batch}-{family}"[:80], "client": client, "model": model,
-        "mode": "write", "prompt": prompt, "repo": str(worktree), "base": base,
-        "check": "python3 -I scripts/fork/private_integrity.py --check",
-        "time_limit_s": int(env.get("NV_PORT_TIME_LIMIT", "1500")), "escalate": False,
-    }
-    started = time.time()
-    with Slot(env.get("NV_PORT_SLOT_DIR", str(Path.home() / ".cache" / "nv-workers" / "slots")),
-              int(env.get("NV_PORT_SLOTS", "2"))):
-        result = gateway(env, payload)
+    result, payload, started = {}, {}, time.time()
+    for client, model in candidates(env, "NV_PORT_WORKER", DEFAULT_WORKER):
+        payload = {
+            "workflow": f"porting-{batch}-{family}"[:80], "client": client, "model": model,
+            "mode": "write", "prompt": prompt, "repo": str(worktree), "base": base,
+            "check": "python3 -I scripts/fork/private_integrity.py --check",
+            "time_limit_s": int(env.get("NV_PORT_TIME_LIMIT", "1500")), "escalate": False,
+        }
+        started = time.time()
+        with Slot(env.get("NV_PORT_SLOT_DIR", str(Path.home() / ".cache" / "nv-workers" / "slots")),
+                  int(env.get("NV_PORT_SLOTS", "2"))):
+            result = gateway(env, payload)
+        if not is_limited(result):
+            break
+        mark_limited(env, model, json.dumps(result))
+        metrics(env, {"role": "worker", "family": family, "batch": batch, "client": client,
+                      "model": model, "outcome": "limited", "status": result.get("status")})
+        print(f"{model} is limited; trying the next model", file=sys.stderr)
     record = {"role": "worker", "family": family, "batch": batch, "client": client, "model": model,
               "seconds": round(time.time() - started, 1), "status": result.get("status"),
               "reason": result.get("reason") or result.get("code"),
               "usage": result.get("usage") or result.get("tokens"), "cost": result.get("cost_usd")}
+    try:
+        Path(env["NV_PORT_QUEUE_FILE"] + ".worker").write_text(f"{payload.get('model', '')}\n", encoding="utf-8")
+    except OSError:
+        pass
     if result.get("status") != "ok" or not result.get("worktree"):
         metrics(env, {**record, "outcome": "gateway-failed"})
         print(f"worker run failed: {json.dumps(result)[:600]}", file=sys.stderr)
@@ -240,25 +306,31 @@ def work(env):
 def review(env):
     worktree = Path(env["NV_PORT_WORKTREE"])
     family, batch = env["NV_PORT_FAMILY"], env["NV_PORT_BATCH"]
-    client, model = settings(env, "NV_PORT_REVIEW", DEFAULT_REVIEWER)
-    wclient, wmodel = settings(env, "NV_PORT_WORKER", DEFAULT_WORKER)
-    if family_of(model) == family_of(wmodel) and env.get("NV_PORT_REVIEW_MODELS"):
-        others = [m.strip() for m in env["NV_PORT_REVIEW_MODELS"].split(",")
-                  if m.strip() and family_of(m.strip()) != family_of(wmodel)]
-        if others:
-            model = others[0]
-    if (client, model) == (wclient, wmodel):
+    try:
+        wmodel = Path(env["NV_PORT_QUEUE_FILE"] + ".worker").read_text(encoding="utf-8").strip()
+    except OSError:
+        wmodel = settings(env, "NV_PORT_WORKER", DEFAULT_WORKER)[1]
+    options = [c for c in candidates(env, "NV_PORT_REVIEW", DEFAULT_REVIEWER)
+               if family_of(c[1]) != family_of(wmodel)]
+    if not options:
         print("reviewer must differ from the worker", file=sys.stderr)
         return 2
     diff = run(["git", "diff", "HEAD~1", "HEAD"], worktree).stdout
     if len(diff) > MAX_DIFF:
         diff = diff[:MAX_DIFF] + "\n[diff cut]\n"
     prompt = REVIEW_PROMPT.format(family=family, rows=read_rows(env), diff=diff)
-    payload = {"workflow": f"porting-review-{batch}-{family}"[:80], "client": client, "model": model,
+    payload = {"workflow": f"porting-review-{batch}-{family}"[:80], "client": options[0][0], "model": options[0][1],
                "mode": "read-only", "prompt": prompt, "repo": str(worktree),
                "time_limit_s": int(env.get("NV_PORT_TIME_LIMIT", "1500")), "escalate": False}
-    started = time.time()
-    result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
+    started, result = time.time(), {}
+    for client, model in options:
+        payload.update({"client": client, "model": model})
+        started = time.time()
+        result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
+        if not is_limited(result):
+            break
+        mark_limited(env, model, json.dumps(result))
+        print(f"{model} is limited; trying the next reviewer", file=sys.stderr)
     text = result.get("summary") or result.get("output") or ""
     verdicts = VERDICT.findall(text)
     verdict = verdicts[-1].upper() if verdicts else "NONE"
