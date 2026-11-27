@@ -1518,7 +1518,7 @@ pub fn fn_006b6580(e: &mut Engine, this: Ptr) -> u8 {
             0x0087_7a30,
             leaf::array_element(e, list, index)
         );
-        let form = e.mem.u32(element);
+        let form = engine_core::typed::form_array::slot(e, list, index, element);
         if e.call(FORM_TYPE_00401170, &args![form]).u32() == 0x43 {
             of_type = of_type.wrapping_add(1);
         }

@@ -75,9 +75,9 @@
     "features.declared": 5,
     "features.done": 5,
     "features.reference": 92,
-    "native.families": 36,
-    "native.stage2_families": 1,
-    "native.typed": 2793
+    "native.families": 37,
+    "native.stage2_families": 2,
+    "native.typed": 2802
   },
   "engine_port": {
     "game_functions": 69459,
@@ -90,7 +90,7 @@
     "library": 16
   },
   "native_64bit": {
-    "typed": 2793,
+    "typed": 2802,
     "translated_by_hand": 47733,
     "families": [
       "ai",
@@ -107,6 +107,7 @@
       "draw_f",
       "extra_data",
       "facegen",
+      "formarray",
       "forms",
       "geometry",
       "hud",
@@ -131,6 +132,7 @@
       "topic_search"
     ],
     "stage2_families": [
+      "formarray",
       "lockfree"
     ]
   },
