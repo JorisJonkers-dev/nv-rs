@@ -1,3 +1,5 @@
+crates/engine-fallout-cell/src/units/fallout_shared/extradatalist.rs  # the rotation matrix's float operations give the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
+crates/engine-typed/src/ai/middle_low_process.rs  # native float maths gives the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
 crates/engine-typed/src/collision/body.rs  # native float maths gives the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
 crates/engine-typed/src/dispatch/ray.rs  # native float maths gives the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
 crates/engine-typed/src/extra_data/records.rs  # native float maths gives the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
@@ -13,4 +15,3 @@ crates/engine-typed/src/pathing/point.rs  # native float maths gives the x87's N
 crates/engine-typed/src/pathing/pov.rs  # native float maths gives the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
 crates/engine-typed/src/pathing/search.rs  # native float maths gives the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
 crates/engine-typed/src/scene_node/node.rs  # native float maths gives the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
-crates/engine-fallout-cell/src/units/fallout_shared/extradatalist.rs  # the rotation matrix's float operations give the x87's NaN at every optimisation level (nv-rs#1009); drop when upstream does the same
