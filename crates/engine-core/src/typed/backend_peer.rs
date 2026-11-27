@@ -73,6 +73,21 @@ extern "C" fn import_hook(name: *const c_char, args: *mut u32, n: u32) -> u32 {
     IMPORT_HOOK.with(|h| h.borrow().as_ref().map_or(0, |f| f(&name, words)))
 }
 
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+thread_local! {
+    static DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Leaves one level of [`DEPTH`] when a backend call ends, however it ends.
+struct Leave;
+
+impl Drop for Leave {
+    fn drop(&mut self) {
+        DEPTH.with(|d| d.set(d.get() - 1));
+    }
+}
+
 /// The peer for the cases of one process. Every case gets a fresh engine, but the library, its
 /// table and its trap state are shared; only the guest bytes change between cases.
 pub struct BackendPeer<B: Backend> {
@@ -135,8 +150,16 @@ impl<B: Backend> BackendPeer<B> {
     /// The export's result for `args` on `e`'s guest memory, or `None` when the module has no
     /// function at `addr`. The trap the call left is kept for [`last_trap`].
     pub(crate) fn run_export(&self, e: &mut Engine, addr: u32, args: &[u32]) -> Option<Ret> {
-        self.init(e);
         let export = self.exports.iter().find(|x| x.address == addr)?;
+        // The module's trap state and import hook are process-global: one call at a time across
+        // threads. A call the module makes back into a gap on the same thread must not wait on itself.
+        let _serial = DEPTH.with(|d| {
+            let outer = d.get() == 0;
+            d.set(d.get() + 1);
+            outer.then(|| SERIAL.lock().unwrap_or_else(|p| p.into_inner()))
+        });
+        let _leave = Leave;
+        self.init(e);
         self.backend.trap(true);
         ACTIVE_ENGINE.with(|cell| cell.set(e as *mut Engine));
         let bits = self.backend.call(&export.wrapper, args);

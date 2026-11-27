@@ -158,17 +158,26 @@ nix store paths; `NV_MINGW_INCLUDE`, `NV_LIBCXX_INCLUDE`, `NV_CLANG`,
 
 ## Real gaps (nv-rs#930)
 
-About 5,860 `// Translation incomplete:` markers exist; about 5,790 say only that the C++ exception
-frame (`FS:[0]`, SEH, a funclet or filter) or the `/GS` cookie check is not translated. The other
-67 leave real behaviour out (x87 status words, uninitialised stack reads, register-only entries,
-writes past a frame). `python3 -I scripts/fork/real_gaps.py --root .` writes them to
-`crates/engine-core/src/typed/real_gaps.txt` (`--check` fails when that list is stale); the
-exception-only markers are counted and not listed.
+About 5,860 `// Translation incomplete:` markers exist. A marker whose reason names only the C++
+exception frame (`FS:[0]`, SEH, a funclet or filter) or the `/GS` cookie check is exception-only
+(about 5,770); one that also names an uninitialised read, an x87 or MXCSR state, a register-only
+entry or a write past a frame is a real gap (89). `python3 -I scripts/fork/real_gaps.py --root .`
+writes them to `crates/engine-core/src/typed/real_gaps.txt` (`--check` fails when it is stale; a
+unit test compares the committed list with the tree). Exception-only markers are counted, not listed.
 
 With `NV_BACKEND_LIBRARY` set to the built library and `NV_BACKEND_GAPS=1`, `Engine::new` registers
 the backend's function at each of those addresses it has, after the typed families are applied.
 Without both variables, or without a built backend, nothing is registered and the engine behaves
 as before. The switch is separate from the `Diff` peer on purpose: the differential cases keep
-comparing the translation with the backend. In the private run
-`cargo test -p engine-core --lib typed::backend_gaps` prints `backend-gaps: N of M real gaps
-registered`.
+comparing the translation with the backend.
+
+The backend's export returns one word (`EAX`, or an `f32`), and its calls back into the engine
+return `EAX` only. Gaps whose translations live in `units/crt/` (the x87 helpers, which answer in
+`EDX` and `ST0`) are therefore left on their translations. Backend calls are serialised across
+threads. The private run's `real gaps on the backend` command runs
+`cargo test -p engine-core --lib typed::backend_gaps` with both variables and prints
+`backend-gaps: N of M real gaps registered`.
+
+Status: the backend could not be built for the gap units on the machine this was written on (see the
+pull request): the wasm toolchain rejects the units' inline x86 assembly, and the few that compile
+stop at unresolved GOT symbols.

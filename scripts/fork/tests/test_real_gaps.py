@@ -27,7 +27,12 @@ class RealGapTests(unittest.TestCase):
         found = dict(rg.markers("x.rs", SOURCE))
         self.assertEqual(set(found), {"00c55010", "00ec1111", "00ec2222", "00ed282b", "00aaa430", "00aaa431"})
         gaps = {a for a, why in found.items() if not rg.is_exception_only(why)}
-        self.assertEqual(gaps, {"00ed282b"})
+        self.assertEqual(gaps, {"00ed282b", "00aaa430", "00aaa431"})
+
+    def test_a_marker_that_also_names_a_real_gap_is_one(self):
+        self.assertTrue(rg.is_exception_only("the /GS cookie check is not modeled."))
+        self.assertFalse(rg.is_exception_only("the FS:[0] frame is not translated; slot 0xA4 is uninitialised stack"))
+        self.assertFalse(rg.is_exception_only("SEH frame is not translated, and MXCSR values other than 0x1f80 are not modelled"))
 
     def test_a_marker_reads_its_continuation_lines(self):
         found = dict(rg.markers("x.rs", SOURCE))
@@ -41,8 +46,8 @@ class RealGapTests(unittest.TestCase):
             (root / "crates/a/target").mkdir()
             (root / "crates/a/target/skip.rs").write_text("// Translation incomplete: 00000001 - x87 gap\n")
             gaps, exception_only = rg.scan(root)
-        self.assertEqual(gaps, {"00ed282b": "crates/a/src/lib.rs"})
-        self.assertEqual(exception_only, {"00c55010", "00ec1111", "00ec2222", "00aaa430", "00aaa431"})
+        self.assertEqual(set(gaps), {"00ed282b", "00aaa430", "00aaa431"})
+        self.assertEqual(exception_only, {"00c55010", "00ec1111", "00ec2222"})
 
     def test_a_list_round_trips_and_the_check_notices_a_stale_one(self):
         text = rg.render({"00ed282b": "a.rs", "00aaa430": "b.rs"})
@@ -56,11 +61,22 @@ class RealGapTests(unittest.TestCase):
             self.assertEqual(rg.main(["--root", str(root)]), 0)
             self.assertEqual(rg.main(["--root", str(root), "--check"]), 0)
 
-    def test_the_committed_list_is_well_formed(self):
+    def test_the_committed_list_is_what_the_tree_generates(self):
         repo = Path(__file__).resolve().parents[3]
-        addresses = rg.parse((repo / rg.OUTPUT).read_text())
-        self.assertEqual(addresses, sorted(set(addresses)))
-        self.assertGreater(len(addresses), 50)
+        gaps, _ = rg.scan(repo)
+        self.assertEqual((repo / rg.OUTPUT).read_text(), rg.render(gaps))
+        self.assertIn("Do not edit; run", rg.render(gaps))
+
+    def test_each_marker_is_classified_by_what_it_says_is_left_out(self):
+        repo = Path(__file__).resolve().parents[3]
+        gaps, exception_only = rg.scan(repo)
+        for address in ("00c65a80", "00ed6af6", "00daf540", "00b6d370", "00e39ab0", "00aaa430"):
+            self.assertIn(address, gaps, address)
+        # Only the frame or the cookie is left out: not a real gap.
+        self.assertIn("00c55010", exception_only)
+        # The frame and an uninitialised read: a real gap.
+        self.assertIn("00ca77f0", gaps)
+        self.assertNotIn("00ca77f0", exception_only)
 
 
 if __name__ == "__main__":
