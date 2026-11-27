@@ -342,7 +342,7 @@ args = ["-p engine --test typed_forms --test typed_form_array"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
-args = ["-p host -p play-patch -p nv-viewer -p fork-scene-run", "-p engine --lib --test par_render --test real_scda --test jip_call_arity --test jg_editor_ids_compile --test stewie_fixes --test recursive_lock_publication --test par_bones --test scrap_heap_publication --test node_pool_publication --test menu_mouse_move --test save_changes_map --test save_maps --test menu_tiles --test water_clip_plane --test xinput_pad --test xnvse_inline_arguments --test xnvse_line_reader --test havok_bodies --test par_manager --test par_tasks --test diff_reference_peer", "-p engine --doc"]
+args = ["-p host -p play-patch -p nv-viewer -p fork-scene-run", "-p engine --lib --test par_render --test real_scda --test jip_call_arity --test jg_editor_ids_compile --test stewie_fixes --test recursive_lock_publication --test par_bones --test scrap_heap_publication --test node_pool_publication --test menu_mouse_move --test save_changes_map --test save_maps --test menu_tiles --test water_clip_plane --test xinput_pad --test xnvse_inline_arguments --test xnvse_line_reader --test havok_bodies --test par_manager --test par_tasks --test diff_reference_peer --test backend_gap_diff", "-p engine --doc"]
 optional_tests = ["engine/capture_run_mode"]
 
 [[component]]
