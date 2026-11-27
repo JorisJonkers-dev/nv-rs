@@ -357,8 +357,14 @@ class RealMap(unittest.TestCase):
         typed = [v for k, v in got.items() if "typed" in k]
         self.assertEqual(len(typed), 18)
         for script in typed:
+            # `typed_lights` and `typed_cell_refs` keep engine-typed at opt-level 0: at 1 a float expression keeps another
+            # NaN payload than the translation's (`.fork/components.toml`); every other typed job has all three at 1.
+            nan_payload_sensitive = "--test typed_lights" in script or "--test typed_cell_refs" in script
             for crate in ("engine-core", "engine-typed", "engine"):
-                self.assertIn(f"--config profile.dev.package.{crate}.opt-level=1", script)
+                if crate == "engine-typed" and nan_payload_sensitive:
+                    self.assertNotIn(f"--config profile.dev.package.{crate}.opt-level=1", script)
+                else:
+                    self.assertIn(f"--config profile.dev.package.{crate}.opt-level=1", script)
             self.assertNotIn("debug-assertions", script)  # the direct run of each case needs them: the dev default stays
         self.assertFalse([v for k, v in got.items() if "aggregator" in k and "--config" in v])
 
