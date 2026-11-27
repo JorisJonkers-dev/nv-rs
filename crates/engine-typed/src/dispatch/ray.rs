@@ -19,7 +19,7 @@
 //! as the exe's code computes it: the back faces' cross product (`004b3800`), the dot products
 //! (`004b6190`), the scaled direction (`004a3760`) and the sum (`00439e90`).
 
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use engine_core::ptr::Ptr;
 use engine_core::x87::x87_quiet_bits;
 use engine_core::Engine;
@@ -80,9 +80,9 @@ pub fn ray_hits_triangle(
         v: v.addr(),
     };
     if float_precision() {
-        hits::<f32>(e, w)
+        hits::<Single>(e, w)
     } else {
-        hits::<f64>(e, w)
+        hits::<Double>(e, w)
     }
 }
 

@@ -2,7 +2,7 @@
 
 use super::modifiers;
 use super::{NiParticleSystem, NiTimeController, FAMILY};
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use crate::slot_target;
 use engine_core::ptr::Ptr;
 use engine_core::{args, typed_call, Engine};
@@ -106,9 +106,9 @@ pub fn update_ctlr(e: &mut Engine, this: Ptr<NiTimeController>, time: Ptr) {
         // `FLD life; FCOMPP; TEST AH,5; JP`: on when the life span is below the difference, which the
         // exe keeps in a register at the running thread's precision.
         let below = if float_precision() {
-            life_span_below::<f32>(life_span, now, last)
+            life_span_below::<Single>(life_span, now, last)
         } else {
-            life_span_below::<f64>(life_span, now, last)
+            life_span_below::<Double>(life_span, now, last)
         };
         if below {
             let now = e.mem.u32(time.addr());

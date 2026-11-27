@@ -12,7 +12,7 @@
 //! exe stores them.
 
 use super::FAMILY;
-use crate::native::{float_precision, to_float, Real};
+use crate::native::{float_precision, to_float, Double, Real, Single};
 use engine_core::ptr::Ptr;
 use engine_core::x87::x87_quiet_bits;
 use engine_core::{args, typed_call, Engine};
@@ -284,9 +284,9 @@ pub fn update_to_target(e: &mut Engine, this: Ptr, time: f32, target: u32) -> bo
         },
     );
     let step = if float_precision() {
-        step_in::<f32>(strength, scale, offset, time)
+        step_in::<Single>(strength, scale, offset, time)
     } else {
-        step_in::<f64>(strength, scale, offset, time)
+        step_in::<Double>(strength, scale, offset, time)
     };
     let mut i = 0u32;
     while i < count(e, base) {
@@ -373,9 +373,9 @@ pub fn merge_morph_data_from(
                 let current = get(e, base, i);
                 let from = get(e, source, i);
                 if single {
-                    blend_in::<f32>(from, current, clamped)
+                    blend_in::<Single>(from, current, clamped)
                 } else {
-                    blend_in::<f64>(from, current, clamped)
+                    blend_in::<Double>(from, current, clamped)
                 }
             };
             changed |= set(e, base, i, value);
