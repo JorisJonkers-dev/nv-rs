@@ -212,9 +212,10 @@ fn peek(e: &Engine, addr: u32) -> Option<u32> {
 
 /// The shared pass-begin state as own blocks (nv-rs#992), after [`take`]: the 22 vertex and 22 pixel constant entries'
 /// enabled byte and switch word (the draw's `enable_entries` and its set-ups write them, main's pass begins
-/// `00c02ce0` and `00c02f70` too), and each shader object's counted pointers +0x28, +0x30 and +0x34, which are
-/// marked as counted ([`capture::own_counted`]) with their objects held until the join, so the drawing side's
-/// assignments leave the counts to it. Main's untyped writers of these say what they wrote ([`capture::note_write`]),
+/// `00c02ce0` and `00c02f70` too), and +0x28 to +0x38 of each shader object (one own block), in which the
+/// counted pointers +0x28, +0x30 and +0x34 are marked counted ([`capture::own_counted`]; the marks are the
+/// join's list of words whose counts move, not a second copy) with their objects held until the join, so the
+/// drawing side's assignments leave the counts to it. Main's untyped writers of these say what they wrote ([`capture::note_write`]),
 /// so that the join keeps main's value where main wrote last.
 pub fn take_pass_state(e: &mut Engine) {
     for table in ENTRY_TABLES {

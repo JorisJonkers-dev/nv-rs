@@ -380,7 +380,8 @@ pub fn is_open(e: &Engine) -> bool {
 
 /// Opens an empty packet on this thread for `e`'s run. False (nothing done) when this thread holds one already.
 pub fn begin(e: &Engine) -> bool {
-    // The translations that write own state main decides ([`note_write`]) reach this module through the core's hook.
+    // The translations that write own state main decides ([`note_write`]) reach this module through the core's hook:
+    // installed here on every call (the first one sticks, the rest do nothing), so that no packet is open before it is.
     engine_core::own_view::set_note_hook(note_write);
     let opened = PACKET.with(|p| {
         let mut p = p.borrow_mut();

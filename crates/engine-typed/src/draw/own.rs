@@ -758,6 +758,11 @@ pub(crate) fn device_vertex_constants(
 /// The counted pointer at `slot` set to the word at `source`, the exe's own code (condition 7):
 /// nothing when they are equal; else the old object's count goes down (deleted at 0, its slot 4), the
 /// new one is stored (read again from `source` when `reread`) and, when not null, counted.
+///
+/// The drawing side's own pointer is only set in the packet: its old object is released (and deleted at zero) and the
+/// new one counted at the join ([`capture::end`]), not at this call as in the exe. Nothing may read these counts
+/// between the cut and the join; the objects are held meanwhile, so none is freed early, and the final counts and
+/// pointers are those of the serial order (the test `main_wins_the_pass_state_it_wrote_last_and_the_counts_follow`).
 pub fn assign_counted(e: &mut Engine, slot: u32, source: u32, reread: bool) {
     let old = capture::own_at::<u32>(e, slot);
     let new = capture::own_at::<u32>(e, source);

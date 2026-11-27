@@ -2231,7 +2231,7 @@ or 1, like every row): the thread with the value packet's POISON check, for test
   entry), pinned by `scene_draw_joins_a_posted_world_draw_first`. The cost: the frame's secondary scenes no longer
   overlap the draw; the join goes when the counted pointers are in the packet (with the sun query's, #938).
   Until then the counter's `same_pass` is non-zero in an exterior with a sky.
-  **Step one of nv-rs#992 (the joins stay).** The pass begins' shared state is now in the packet as own blocks, taken by
+  **Step one of nv-rs#992 (the joins stay; the shared state is only partly in the packet).** The pass begins' shared state is now in the packet as own blocks, taken by
   `statics::take_pass_state` after the statics when the cut takes the own state: the enabled byte (+8) and the switch word
   (+0x20) of the 22 vertex (`011febd8`) and 22 pixel (`011fec30`) constant entries, and +0x28 to +0x38 of each shader
   object in the shader table (`011f9548`), with +0x28, +0x30 and +0x34 marked counted and their objects held until the
@@ -2242,5 +2242,6 @@ or 1, like every row): the thread with the value packet's POISON check, for test
   `00c02f70` and `00c02ce0` (the entries' byte), `00a5f860` and `00c663d0` (the counted pointer, also when it is a
   no-op), so the join keeps main's value where main wrote last, also an equal one. Still outside the packet, which is
   why `006426a0` and `00b6c0d0` keep their joins: the pass objects' stage textures (+8), sampler words and state blocks
-  (`00b71a10`, `00e7de90` write them untyped, and `render::pass`, `shader::textures` and `shader::accumulator` write
-  stage +8 by guest address), and the Group C entries.
+  (`00b71a10` and `00e7de90` write them untyped, as does `00b7a870`'s write of pass 9's state block +0x30 and 0xa8
+  state; `render::pass`, `shader::textures` and `shader::accumulator` write stage +8 by guest address), and the Group
+  C entries. This step changes no join and no output; it is the precondition for removing them.
