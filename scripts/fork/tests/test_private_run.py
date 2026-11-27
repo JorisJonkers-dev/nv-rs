@@ -54,6 +54,7 @@ COVERED_DATA_FILES = frozenset({
     "crates/engine-havok/src/units/havok_sdk/hkalookatiksolver.rs",
     "crates/host/src/lib.rs",
     "crates/host/src/native_inflate.rs",
+    "crates/engine/tests/backend_gap_diff.rs",
     "crates/engine/tests/diff_reference_peer.rs",
     "crates/engine/tests/havok_bodies.rs",
     "crates/engine/tests/real_scda.rs",
