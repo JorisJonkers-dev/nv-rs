@@ -70,7 +70,11 @@ pub fn on_havok_helper() -> bool {
 /// threads, on a helper, while a typed family runs dual, while a per-call diagnostic is on, or
 /// while a job is posted). Posts nothing and changes nothing.
 pub fn havok_post_ready(e: &Engine) -> bool {
+    // Only the main thread posts: the step may wait for a lock another game thread holds, and a
+    // wait on the helper cannot hand the turn to that thread as a coroutine does (a stop, "a
+    // coroutine yields only from its own thread", for a step posted from game thread 17).
     e.real.is_none()
+        && crate::thread_host::on_main(e)
         && !HELPER.with(Cell::get)
         && !on_draw_helper()
         && !on_havok_helper()
