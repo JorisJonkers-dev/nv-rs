@@ -1,3 +1,3 @@
-docs/FIXES.md  # the extra passes share the shaders' counted pointers with the detached draw and join it first (nv-rs#990)
-crates/engine-typed/src/draw/drivers.rs  # the secondary scenes' draw joins a posted world draw first, with its test (nv-rs#990)
-crates/engine-bs/src/units/bsshader/run_00b6c0d0.rs  # the translation's entry joins too (nv-rs#990)
+docs/FIXES.md  # the extra passes run beside a posted draw (nv-rs#992; they joined it first from nv-rs#990)
+crates/engine-typed/src/draw/drivers.rs  # the secondary scenes' draw does not join a posted world draw, with its test (nv-rs#992)
+crates/engine-bs/src/units/bsshader/run_00b6c0d0.rs  # the translation's entry does not join either (nv-rs#992)

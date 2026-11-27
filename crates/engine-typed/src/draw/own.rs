@@ -312,7 +312,7 @@ pub(crate) fn fog_ambient_inline(e: &mut Engine) {
         capture::set_own_at(e, AMBIENT.wrapping_add(4 * index), word);
     }
     let enable = capture::own_at::<u32>(e, AMBIENT_ENABLE);
-    e.set_global(enable.wrapping_add(8), 1u8);
+    capture::set_own_at(e, enable.wrapping_add(8), 1u8);
     capture::set_own_at(e, AMBIENT_SET, 1u8);
     capture::set_own_at(e, AMBIENT_FOG, 1u8);
 }
@@ -693,7 +693,7 @@ pub(crate) fn set_current_pass(e: &mut Engine, pass: u32) {
 /// A pass stage's texture (+8) set (condition 2).
 #[inline(always)]
 pub(crate) fn set_stage_texture(e: &mut Engine, stage: u32, texture: u32) {
-    e.set_global(stage.wrapping_add(8), texture);
+    capture::set_own_at(e, stage.wrapping_add(8), texture);
 }
 
 /// A constant switch object's word +0x20 set (condition 2).
@@ -828,7 +828,7 @@ pub fn copy_counted(e: &mut Engine, slot: u32, source: u32) {
 /// A pass stage's texture (+8) as the draw left it, read back.
 #[inline(always)]
 pub(crate) fn stage_texture(e: &Engine, stage: u32) -> u32 {
-    e.global::<u32>(stage.wrapping_add(8))
+    capture::own_at::<u32>(e, stage.wrapping_add(8))
 }
 
 /// Whether a constant entry is switched on (its byte +8), read back.
@@ -1042,7 +1042,7 @@ pub(crate) fn constant_byte(e: &Engine, at: u32) -> u8 {
 /// A constant entry's word at `offset` set (the light data entry's count, +0x20) (condition 2).
 #[inline(always)]
 pub(crate) fn set_entry_word(e: &mut Engine, entry: u32, offset: u32, value: u32) {
-    e.set_global(entry.wrapping_add(offset), value);
+    capture::set_own_at(e, entry.wrapping_add(offset), value);
 }
 
 /// A clip plane set on the device (`IDirect3DDevice9::SetClipPlane`, slot 0xdc: the index and the plane)

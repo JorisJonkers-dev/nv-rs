@@ -210,6 +210,50 @@ pub fn note_write(e: &crate::Engine, addr: u32, len: u32) {
     }
 }
 
+/// What the engine core's shared leaves (a function the draw and main both run, typed in the core, which cannot name
+/// the draw family) read and write the draw's own state with: the draw family's accessors (`capture::own_at`,
+/// `capture::set_own_at`), set when a packet first opens. The read answers `len` (1, 2 or 4) bytes at `addr` as a
+/// number, the packet's copy when this thread's packet owns them, else guest memory; the write stores the number, into
+/// the packet's copy while it owns the bytes, else into guest memory (noted for the join, as the accessor does).
+/// Nothing is called before a packet opened: the leaves read and write guest memory.
+static ACCESS_HOOKS: std::sync::OnceLock<(ReadHook, WriteHook)> = std::sync::OnceLock::new();
+
+/// The read and write routines of [`set_access_hooks`].
+type ReadHook = fn(&crate::Engine, u32, u32) -> u32;
+type WriteHook = fn(&mut crate::Engine, u32, u32, u32);
+
+/// Sets the accessors [`own_read`] and [`own_write`] use (the first pair stays).
+pub fn set_access_hooks(read: ReadHook, write: WriteHook) {
+    let _ = ACCESS_HOOKS.set((read, write));
+}
+
+/// `len` (1, 2 or 4) bytes at `addr` as the draw's own state holds them: see [`set_access_hooks`].
+#[inline]
+pub fn own_read(e: &crate::Engine, addr: u32, len: u32) -> u32 {
+    if let Some((read, _)) = ACCESS_HOOKS.get() {
+        return read(e, addr, len);
+    }
+    match len {
+        1 => u32::from(e.mem.u8(addr)),
+        2 => u32::from(e.mem.u16(addr)),
+        _ => e.mem.u32(addr),
+    }
+}
+
+/// `value`'s low `len` (1, 2 or 4) bytes stored at `addr` as the draw's own state keeps them: see [`set_access_hooks`].
+#[inline]
+pub fn own_write(e: &mut crate::Engine, addr: u32, len: u32, value: u32) {
+    if let Some((_, write)) = ACCESS_HOOKS.get() {
+        write(e, addr, len, value);
+        return;
+    }
+    match len {
+        1 => e.mem.set_u8(addr, value as u8),
+        2 => e.mem.set_u16(addr, value as u16),
+        _ => e.mem.set_u32(addr, value),
+    }
+}
+
 /// The page table's hash of a page number.
 #[inline(always)]
 fn hash(page: u32) -> usize {

@@ -690,8 +690,8 @@ pub fn cached_stage_state(
         (C::abSetB, C::auiValuesB, 0u8),
         (C::abSetA, C::auiValuesA, 1),
     ] {
-        if e.global::<u8>(elem_addr(this, set, slot, 1)) != 0 {
-            let cached = e.global::<u32>(elem_addr(this, values, slot, 4));
+        if capture::own_at::<u8>(e, elem_addr(this, set, slot, 1)) != 0 {
+            let cached = capture::own_at::<u32>(e, elem_addr(this, values, slot, 4));
             e.set_global(value, cached);
             e.set_global(bank, which);
             return true;
@@ -706,10 +706,10 @@ pub fn cached_stage_state(
 pub fn apply_stage_states(e: &mut Engine, this: Ptr<StageStateCache>, stage: u32) -> u32 {
     type C = StageStateCache;
     for slot in 0..8 {
-        let value = if e.global::<u8>(elem_addr(this, C::abSetB, slot, 1)) != 0 {
-            e.global::<u32>(elem_addr(this, C::auiValuesB, slot, 4))
-        } else if e.global::<u8>(elem_addr(this, C::abSetA, slot, 1)) != 0 {
-            e.global::<u32>(elem_addr(this, C::auiValuesA, slot, 4))
+        let value = if capture::own_at::<u8>(e, elem_addr(this, C::abSetB, slot, 1)) != 0 {
+            capture::own_at::<u32>(e, elem_addr(this, C::auiValuesB, slot, 4))
+        } else if capture::own_at::<u8>(e, elem_addr(this, C::abSetA, slot, 1)) != 0 {
+            capture::own_at::<u32>(e, elem_addr(this, C::auiValuesA, slot, 4))
         } else {
             continue;
         };
@@ -726,10 +726,10 @@ pub fn apply_stage_states(e: &mut Engine, this: Ptr<StageStateCache>, stage: u32
 pub fn apply_sampler_states(e: &mut Engine, this: Ptr<StageStateCache>, stage: u32) -> u32 {
     type C = StageStateCache;
     for slot in 0..5 {
-        let value = if e.global::<u8>(elem_addr(this, C::abSetD, slot, 1)) != 0 {
-            e.global::<u32>(elem_addr(this, C::auiValuesD, slot, 4))
-        } else if e.global::<u8>(elem_addr(this, C::abSetC, slot, 1)) != 0 {
-            e.global::<u32>(elem_addr(this, C::auiValuesC, slot, 4))
+        let value = if capture::own_at::<u8>(e, elem_addr(this, C::abSetD, slot, 1)) != 0 {
+            capture::own_at::<u32>(e, elem_addr(this, C::auiValuesD, slot, 4))
+        } else if capture::own_at::<u8>(e, elem_addr(this, C::abSetC, slot, 1)) != 0 {
+            capture::own_at::<u32>(e, elem_addr(this, C::auiValuesC, slot, 4))
         } else {
             continue;
         };
@@ -756,6 +756,15 @@ pub fn apply_states(e: &mut Engine, this: Ptr<StageStateCache>, stage: u32) -> u
     }
 }
 
+/// A stage's state cache (+0x10), read through the packet.
+#[inline(always)]
+pub(crate) fn stage_cache(e: &Engine, stage: u32) -> Ptr<StageStateCache> {
+    Ptr::new(capture::own_at::<u32>(
+        e,
+        stage.wrapping_add(NiD3DTextureStage::pStateCache.off),
+    ))
+}
+
 // Typed from 00e7de90
 /// `thiscall(stage, index)`: the address mode pair `index` (U then V, sampler states 1 and 2) into the
 /// stage's cache, bank D.
@@ -763,7 +772,7 @@ pub fn set_address_modes(e: &mut Engine, this: Ptr<NiD3DTextureStage>, index: u3
     let entry = ADDRESS_MODES.wrapping_add(index.wrapping_mul(8));
     for (state, at) in [(1u32, entry), (2, entry.wrapping_add(4))] {
         let value = e.global::<u32>(at);
-        let cache = e.get(this, NiD3DTextureStage::pStateCache);
+        let cache = stage_cache(e, this.addr());
         typed_call!(
             leaf::FAMILY,
             0x00e8_90c0,
@@ -780,14 +789,14 @@ pub fn set_filter_mode(e: &mut Engine, this: Ptr<NiD3DTextureStage>, mode: u32) 
     let triple = FILTER_MODES.wrapping_add(mode.wrapping_mul(12));
     for (state, word) in [(5u32, 1u32), (6, 0), (7, 2)] {
         let value = e.global::<u32>(triple.wrapping_add(word * 4));
-        let cache = e.get(this, NiD3DTextureStage::pStateCache);
+        let cache = stage_cache(e, this.addr());
         typed_call!(
             leaf::FAMILY,
             0x00e8_90c0,
             leaf::set_state_slot(e, cache.addr(), state, value, 0u32, 0u32)
         );
     }
-    e.set(this, NiD3DTextureStage::m_eFilterMode, mode);
+    capture::own_set(e, this, NiD3DTextureStage::m_eFilterMode, mode);
 }
 
 // Typed from 00e8eeb0

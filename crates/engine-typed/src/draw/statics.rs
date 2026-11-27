@@ -70,8 +70,13 @@ pub(crate) const RENDERER_GLOBALS: [u32; 2] = [0x011f_4748, 0x011f_9508];
 pub(crate) const RENDERER_BLOCKS: [(u32, u32); 4] =
     [(0xc, 0x14), (0x634, 0x674), (0x684, 0x68c), (0x940, 0xa80)];
 
+/// The camera the draw last started with (`011f917c`): the world draw's first half and the secondary scenes' draw
+/// (`00b6c0d0`, the extra passes, which run beside a posted draw since nv-rs#992) each write it as they start
+/// ([`super::packet::note_camera`]), and the draw's speed tree camera rows read it back (`00bb1a90`).
+pub(crate) const LAST_CAMERA_BLOCK: (u32, u32) = (0x011f_917c, 0x011f_9180);
+
 /// The global blocks, in one list (what [`take`] owns besides the render-state cache and the camera).
-pub const GLOBAL_BLOCKS: [(u32, u32); 11] = [
+pub const GLOBAL_BLOCKS: [(u32, u32); 12] = [
     RENDERING_PASS,
     ACCUMULATORS,
     SHADER_STATICS,
@@ -83,6 +88,7 @@ pub const GLOBAL_BLOCKS: [(u32, u32); 11] = [
     SHADER_MODE,
     MODE_FUNCTIONS,
     CAMERA_EYE,
+    LAST_CAMERA_BLOCK,
 ];
 
 /// Whether `addr` lies in one of the own blocks of globals (for the checks).
@@ -201,6 +207,23 @@ const ENTRY_SWITCH: (u32, u32) = (0x20, 0x24);
 const SHADER_COUNTED: [u32; 3] = [0x28, 0x30, 0x34];
 const SHADER_COUNTED_BLOCK: (u32, u32) = (0x28, 0x38);
 
+/// Group C's constant entry pointers, as lists of words: lighting 3.0's (`01201080` to `012010ec`: the two lists, the
+/// alpha test, ambient, pass end and eye entries) and the pass flags' (`011ff4a0`, nine).
+const GROUP_C_ENTRY_POINTERS: [(u32, u32); 2] =
+    [(0x0120_1080, 0x0120_10ec), (0x011f_f4a0, 0x011f_f4c4)];
+/// The no-lighting shader's vtable and its entries' pointers (+0x170, +0x174, +0x178).
+const NO_LIGHTING_VTABLE: u32 = 0x010b_b230;
+const NO_LIGHTING_ENTRIES: [u32; 3] = [0x170, 0x174, 0x178];
+
+/// A constant entry's enabled byte and switch word as own blocks (nothing for a null or unmapped pointer).
+fn take_entry(e: &Engine, entry: Option<u32>) {
+    let Some(entry) = entry.filter(|&a| a != 0) else {
+        return;
+    };
+    capture::own(e, entry, ENTRY_ENABLED.0, ENTRY_ENABLED.1);
+    capture::own(e, entry, ENTRY_SWITCH.0, ENTRY_SWITCH.1);
+}
+
 /// The word at `addr`, `None` when it is not mapped.
 fn peek(e: &Engine, addr: u32) -> Option<u32> {
     let mut b = [0u8; 4];
@@ -220,11 +243,24 @@ fn peek(e: &Engine, addr: u32) -> Option<u32> {
 pub fn take_pass_state(e: &mut Engine) {
     for table in ENTRY_TABLES {
         for i in 0..ENTRIES {
-            let Some(entry) = peek(e, table + 4 * i).filter(|&a| a != 0) else {
-                continue;
-            };
-            capture::own(e, entry, ENTRY_ENABLED.0, ENTRY_ENABLED.1);
-            capture::own(e, entry, ENTRY_SWITCH.0, ENTRY_SWITCH.1);
+            take_entry(e, peek(e, table + 4 * i));
+        }
+    }
+    // Group C's entries (nv-rs#992, step 2): the lighting 3.0 shader's lists and the ambient, alpha test and pass end
+    // entries (`01201080` to `012010ec`), the pass flags' nine (`011ff4a0`), and the no-lighting shaders' three.
+    for (from, to) in GROUP_C_ENTRY_POINTERS {
+        for at in (from..to).step_by(4) {
+            take_entry(e, peek(e, at));
+        }
+    }
+    for i in 0..SHADER_SLOTS {
+        let Some(shader) = peek(e, SHADER_TABLE + 4 * i).filter(|&a| a != 0) else {
+            continue;
+        };
+        if peek(e, shader) == Some(NO_LIGHTING_VTABLE) {
+            for offset in NO_LIGHTING_ENTRIES {
+                take_entry(e, peek(e, shader + offset));
+            }
         }
     }
     for i in 0..SHADER_SLOTS {
@@ -238,6 +274,207 @@ pub fn take_pass_state(e: &mut Engine) {
                 capture::hold(e, object);
             }
         }
+    }
+}
+
+/// The pass table (`011fdff8`, a pass for each of the 0x2f7 pass types), a pass's stage count (+0x18), stage array
+/// (+0x24) and render state block (+0x30), a render state block's header (`00e7f5d0`: five words, the entries' counts
+/// and last entries of its two lists), an entry (four words: the state, its value, the previous and the next) and the
+/// stage object's words the pass begins write at run time (the filter mode, stage number and texture, +0 to +0xc, and the
+/// speed tree's count, +0x60) and the stage state cache (+0x10) they set the sampler states in.
+const PASS_TABLE: u32 = 0x011f_dff8;
+const PASS_TYPES: u32 = 0x2f7;
+const PASS_COUNT: u32 = 0x18;
+const PASS_STAGES: u32 = 0x24;
+const PASS_STATES: (u32, u32) = (0x30, 0x34);
+const STATES_HEADER: (u32, u32) = (0, 0x14);
+const STATES_LISTS: [u32; 2] = [8, 0x10];
+const STATE_ENTRY: (u32, u32) = (0, 0x10);
+const STAGE_WORDS: [(u32, u32); 2] = [(0, 0xc), (0x60, 0x64)];
+const STAGE_CACHE: u32 = 0x10;
+const STAGE_CACHE_SIZE: u32 = 0xb8;
+/// The most stages a pass has and the most entries a state block's list is followed for (a guard).
+const MAX_STAGES: u32 = 16;
+const MAX_STATES: u32 = 256;
+
+/// The pass objects' mutable words as own blocks (nv-rs#992, step 2), after [`take_pass_state`]: for each pass the
+/// draw may begin, its render state block pointer (+0x30: `00b7a870` makes the block when there is none), the
+/// block's header and the entries of its lists (`00e7f430` sets and moves them: the sun query's set-up writes them for
+/// pass type 9), and each stage's filter mode, number, texture and count (+0 to +0xc, +0x60) with its state cache
+/// (+0x10: `00e7de90`, `00e7def0` and the stage's own set-ups write its sampler banks). The blocks are taken in
+/// address order, which keeps the packet's lists cheap to build.
+///
+/// `listed`: the passes of the world draw's lists (the draw begins no other); the passes to take are those their
+/// shaders' pass choices (`select_pass`, slot 0xf0) can make current ([`candidate_passes`]), a few dozen of the table's
+/// some 700. `None`: every pass of the table (for the checks).
+///
+/// The pass table `011fdff8` is NOT a table of the pass for each type in every shader: the shadow light shader's
+/// `select_pass` (`00b7af80`) and `00b7ad00` read it by type, but lighting 3.0's (`00c0abd0`) reads it at a place of its
+/// own for the type ([`super::lighting30::pass_case`]), and the sky, leaf and tall grass shaders' pass choices read words of
+/// their own object. Every candidate is checked to be a pass (mapped, a stage count within [`MAX_STAGES`], the stage array
+/// and the state block mapped when named): a word that is not (the `0x11` that `00b78a40`'s tests keep in the table) is
+/// left in guest memory. Water, no-lighting and the branch shader keep what they begin in guest memory (as before this
+/// step); a pass with more than [`MAX_STAGES`] stages keeps the rest in guest memory (the exe's passes have eight at
+/// most).
+///
+/// No two blocks overlap: the same block reached twice (a stage two passes share) is taken once, and a block that
+/// partly overlaps another is a fault (asserted).
+pub fn take_pass_objects(e: &mut Engine, listed: Option<&[u32]>) {
+    let passes = candidate_passes(e, listed);
+    let mut blocks = pass_blocks(e, &passes);
+    blocks.sort_unstable_by_key(|&(object, from, to)| (object.wrapping_add(from), to));
+    blocks.dedup();
+    assert_no_overlap(&blocks);
+    for (object, from, to) in blocks {
+        capture::own(e, object, from, to);
+    }
+}
+
+/// Whether `pass` looks like a pass object: a word-aligned address of mapped memory that holds a stage count within
+/// [`MAX_STAGES`], a mapped stage array (when it has stages) and a mapped render state block or none.
+fn is_pass(e: &Engine, pass: u32) -> bool {
+    if pass == 0 || pass % 4 != 0 {
+        return false;
+    }
+    let Some(count) = peek(e, pass + PASS_COUNT) else {
+        return false;
+    };
+    let Some(list) = peek(e, pass + PASS_STAGES) else {
+        return false;
+    };
+    let Some(states) = peek(e, pass + PASS_STATES.0) else {
+        return false;
+    };
+    count <= MAX_STAGES
+        && (count == 0 || peek(e, list).is_some())
+        && (states == 0 || peek(e, states).is_some())
+}
+
+/// The passes the draw's pass choices may make current, for the `listed` passes (every pass of the table for
+/// `None`): the table's pass for each listed type, lighting 3.0's for the type, and the words of the sky, leaf and tall
+/// grass shaders of the lists' geometries. Only objects that are passes ([`is_pass`]); each once, in address order.
+fn candidate_passes(e: &Engine, listed: Option<&[u32]>) -> Vec<u32> {
+    let mut found = engine_core::AddrSet::default();
+    let mut take = |e: &Engine, at: u32| {
+        if let Some(pass) = peek(e, at).filter(|&p| is_pass(e, p)) {
+            found.insert(pass);
+        }
+    };
+    match listed {
+        None => {
+            for i in 0..PASS_TYPES {
+                take(e, PASS_TABLE + 4 * i);
+            }
+        }
+        Some(listed) => {
+            let mut types = engine_core::AddrSet::default();
+            let mut shaders = engine_core::AddrSet::default();
+            for &pass in listed {
+                types.insert(super::packet::pass_type(e, pass));
+                let geometry = super::packet::pass_geometry(e, pass);
+                if geometry != 0 {
+                    if let Some(shader) = peek(e, geometry.wrapping_add(GEOMETRY_SHADER)) {
+                        shaders.insert(shader);
+                    }
+                }
+            }
+            for &kind in &types {
+                if kind < PASS_TYPES {
+                    take(e, PASS_TABLE + 4 * kind);
+                }
+                if let Some((_, place, _)) = super::lighting30::pass_case(kind) {
+                    take(e, PASS_TABLE + place);
+                }
+            }
+            for &shader in shaders.iter().filter(|&&s| s != 0) {
+                match peek(e, shader) {
+                    Some(SKY_SHADER_VTABLE) => {
+                        for &kind in &types {
+                            if let Some(offset) = super::sky::sky_pass_offset(kind) {
+                                take(e, shader + offset);
+                            }
+                        }
+                    }
+                    Some(LEAF_SHADER_VTABLE) => {
+                        take(e, shader + 0x384);
+                        take(e, shader + 0x388);
+                    }
+                    Some(TALL_GRASS_VTABLE) => {
+                        for &kind in &types {
+                            if kind.wrapping_sub(0x16) <= 0x27 {
+                                take(e, shader.wrapping_add(4 * kind).wrapping_add(0x14));
+                            } else if kind.wrapping_sub(0x25c) <= 0x2b {
+                                take(e, shader.wrapping_add(4 * kind).wrapping_sub(0x904));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let mut passes: Vec<u32> = found.into_iter().collect();
+    passes.sort_unstable();
+    passes
+}
+
+/// The sky, leaf and tall grass shaders' vtables (their pass choices read words of the object).
+const SKY_SHADER_VTABLE: u32 = 0x010a_fe18;
+const LEAF_SHADER_VTABLE: u32 = 0x010b_9190;
+const TALL_GRASS_VTABLE: u32 = 0x010b_8980;
+
+/// The own blocks of `passes` (`(object, from, to)`).
+fn pass_blocks(e: &Engine, passes: &[u32]) -> Vec<(u32, u32, u32)> {
+    let mut blocks: Vec<(u32, u32, u32)> = Vec::new();
+    for &pass in passes {
+        blocks.push((pass, PASS_STATES.0, PASS_STATES.1));
+        if let (Some(count), Some(list)) = (peek(e, pass + PASS_COUNT), peek(e, pass + PASS_STAGES))
+        {
+            if list != 0 {
+                for k in 0..count.min(MAX_STAGES) {
+                    let Some(stage) = peek(e, list + 4 * k).filter(|&a| a != 0) else {
+                        continue;
+                    };
+                    for (from, to) in STAGE_WORDS {
+                        blocks.push((stage, from, to));
+                    }
+                    if let Some(cache) = peek(e, stage + STAGE_CACHE).filter(|&a| a != 0) {
+                        blocks.push((cache, 0, STAGE_CACHE_SIZE));
+                    }
+                }
+            }
+        }
+        let Some(states) = peek(e, pass + PASS_STATES.0).filter(|&a| a != 0) else {
+            continue;
+        };
+        blocks.push((states, STATES_HEADER.0, STATES_HEADER.1));
+        for last in STATES_LISTS {
+            let mut entry = peek(e, states + last).unwrap_or(0);
+            let mut guard = 0;
+            while entry != 0 && guard < MAX_STATES {
+                blocks.push((entry, STATE_ENTRY.0, STATE_ENTRY.1));
+                entry = peek(e, entry + 8).unwrap_or(0);
+                guard += 1;
+            }
+        }
+    }
+    blocks
+}
+
+/// Asserts that no two of the blocks (sorted by address, each once) overlap.
+fn assert_no_overlap(blocks: &[(u32, u32, u32)]) {
+    for pair in blocks.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        assert!(
+            a.0.wrapping_add(a.2) <= b.0.wrapping_add(b.1),
+            "pass object blocks overlap: {:#x}+{:#x}..{:#x} and {:#x}+{:#x}..{:#x}",
+            a.0,
+            a.1,
+            a.2,
+            b.0,
+            b.1,
+            b.2
+        );
     }
 }
 
@@ -717,6 +954,25 @@ mod tests {
                 }
             }
         }
+        // A pass stage's own words (nv-rs#992, step 2: the filter mode, number, texture and count, +0 to +0xc and +0x60,
+        // and the state cache pointer +0x10), a stage state cache's bytes (+0 to `STAGE_CACHE_SIZE`) and a pass's render
+        // state block pointer (+0x30) are own blocks of the draw: a raw read or write of one on a name holding a stage,
+        // a cache or a pass goes through the accessors (`own_at`, `own_get`, `set_own_at`, `own_read`).
+        for (name, text) in sources {
+            for (n, line) in code_of(text).lines().enumerate() {
+                if line.contains("// own:") {
+                    continue;
+                }
+                let body = line.split("//").next().unwrap_or(line);
+                if let Some((what, offset)) = raw_pass_object_word(body) {
+                    findings.push(format!(
+                        "{name}:{}: the {what}'s word +{offset:#x} read or written in place in `{}`",
+                        n + 1,
+                        line.trim()
+                    ));
+                }
+            }
+        }
         assert!(
             findings.is_empty(),
             "own state read or written past the packet:\n{}",
@@ -747,6 +1003,88 @@ mod tests {
             let named = before.find("propert").is_some();
             ((lo..hi).contains(&value) && added && named).then_some(value)
         })
+    }
+
+    /// The pass object word (a stage's, a stage state cache's or a pass's render state block pointer) that `body` reads or
+    /// writes in place: a raw access with, after a name containing `stage`, `cache` or `pass`, an offset added
+    /// (`.wrapping_add(0x..)` or `+ 0x..`) that lies in one of their own blocks. `None` when there is none.
+    fn raw_pass_object_word(body: &str) -> Option<(&'static str, u32)> {
+        let raw = ["e.mem.", "e.global", "e.set_global", "e.get(", "e.set("]
+            .iter()
+            .any(|r| body.contains(r));
+        if !raw {
+            return None;
+        }
+        // (where the offset starts, where the name it is added to ends)
+        let mut starts: Vec<(usize, usize)> = body
+            .match_indices(".wrapping_add(")
+            .map(|(at, p)| (at + p.len(), at))
+            .collect();
+        starts.extend(body.match_indices('+').map(|(at, _)| (at + 1, at)));
+        starts.into_iter().find_map(|(at, name_end)| {
+            let rest = body[at..].trim_start();
+            let (digits, radix) = match rest.strip_prefix("0x") {
+                Some(hex) => (hex, 16),
+                None => (rest, 10),
+            };
+            let digits: String = digits
+                .chars()
+                .take_while(|c| c.is_digit(radix) || *c == '_')
+                .filter(|c| *c != '_')
+                .collect();
+            let value = u32::from_str_radix(&digits, radix).ok()?;
+            // A factor (`4 * index`) is no offset.
+            let after = digits_end(rest, radix);
+            if after.trim_start().starts_with('*') {
+                return None;
+            }
+            let name = body[..name_end].trim_end();
+            let name = &name[name
+                .rfind(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .map_or(0, |i| i + 1)..];
+            let near = name;
+            if near.contains("stage") && (value < 0xc || value == STAGE_CACHE || value == 0x60) {
+                Some(("pass stage", value))
+            } else if near.contains("cache") && value < STAGE_CACHE_SIZE && !near.contains("render")
+            {
+                Some(("stage state cache", value))
+            } else if near.contains("pass") && value == PASS_STATES.0 {
+                Some(("pass", value))
+            } else {
+                None
+            }
+        })
+    }
+
+    /// What follows the number that opens `rest` (after its `0x` when `radix` is 16).
+    fn digits_end(rest: &str, radix: u32) -> &str {
+        let rest = if radix == 16 {
+            rest.strip_prefix("0x").unwrap_or(rest)
+        } else {
+            rest
+        };
+        rest.trim_start_matches(|c: char| c.is_digit(radix) || c == '_')
+    }
+
+    /// The pass object check sees the in-place forms and lets the accessors and other objects pass.
+    #[test]
+    fn raw_pass_object_words_are_seen() {
+        for line in [
+            "let texture = e.mem.u32(stage + 8);",
+            "e.mem.set_u32(stage.wrapping_add(0x60), 1);",
+            "let cache = e.global::<u32>(stage + 0x10);",
+            "let v = e.mem.u8(cache + 0xa4);",
+            "let block = e.mem.u32(pass + 0x30);",
+        ] {
+            assert!(raw_pass_object_word(line).is_some(), "{line}");
+        }
+        for line in [
+            "let texture = capture::own_at::<u32>(e, stage + 8);",
+            "let count = e.mem.u32(stage + 0x14);",
+            "let x = e.mem.u32(pass + 0x24);",
+        ] {
+            assert!(raw_pass_object_word(line).is_none(), "{line}");
+        }
     }
 
     /// The per-frame property check sees the in-place forms and lets the packet's reads and other offsets pass.

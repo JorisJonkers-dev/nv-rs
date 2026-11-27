@@ -1558,7 +1558,7 @@ fn geometry_constants_with(e: &mut Engine, this: Ptr, block: Ptr, transform: u32
         }
     });
     for (map_offset, program_offset) in [(0x30u32, 0x44u32), (0x34, 0x5c)] {
-        let map = e.global::<u32>(base + map_offset); // own: main's object read in place (value packet B, piece 4)
+        let map = crate::draw::own::constant_map(e, base, map_offset);
         if map == 0 {
             continue;
         }

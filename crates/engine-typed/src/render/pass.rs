@@ -31,7 +31,9 @@ pub fn bind_pass_stages(e: &mut Engine) {
         if entry == 0 {
             return;
         }
-        if e.mem.u8(entry.wrapping_add(0x64)) != 0 && e.mem.u32(entry.wrapping_add(8)) != 0 {
+        if e.mem.u8(entry.wrapping_add(0x64)) != 0
+            && capture::own_at::<u32>(e, entry.wrapping_add(8)) != 0
+        {
             let _: bool = typed_call!(FAMILY, 0x00e7_eb00, stage::bind(e, Ptr::new(entry), 0u8));
         }
         index += 1;
@@ -70,7 +72,7 @@ pub fn geometry_pass(e: &mut Engine, this: Ptr, pass: Ptr) {
     let source = e.mem.u32(property.wrapping_add(0xac));
     let stage0 = pass_stage(e, 0);
     let texture = e.mem.u32(source);
-    e.mem.set_u32(stage0.wrapping_add(8), texture);
+    capture::set_own_at(e, stage0.wrapping_add(8), texture);
     let mode = property_clamp_mode(e, property);
     typed_call!(
         crate::shader::FAMILY,
@@ -83,7 +85,7 @@ pub fn geometry_pass(e: &mut Engine, this: Ptr, pass: Ptr) {
         0x00c0_3230,
         accumulator::texture_by_index(e, Ptr::new(property), 0u32)
     );
-    e.mem.set_u32(stage1.wrapping_add(8), texture);
+    capture::set_own_at(e, stage1.wrapping_add(8), texture);
     let mode = property_clamp_mode(e, property);
     typed_call!(
         crate::shader::FAMILY,
