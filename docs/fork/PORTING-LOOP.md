@@ -59,6 +59,7 @@ Both worker and reviewer must be commands; no service is built into the tool.
 | `NV_PORT_PR` | Optional pull request command; it receives `--title`, `--body` and `--head`. The tool pushes the batch branch before calling it. Without it the body is written and printed. |
 | `NV_PORT_CLOSE` | Command required by `shakedown` to close the review unmerged; it receives `--batch`, `--reason` and `--branch` (the rulebook branch). |
 | `NV_PORT_CLAIM_DIR` | One claim directory shared by every worker. Separate clones of one repository share no git directory, so set it to a path they all see to exclude them from each other too. |
+| `NV_PORT_BASE` | Ref every worktree starts at (default `fork`); set `origin/fork` when the local branch is stale. |
 | `NV_PORT_CLAIM_AGE` | Seconds before a family claim is treated as stale and reclaimed (default 3600). |
 
 Each worker and reviewer receives `NV_PORT_FAMILY`, `NV_PORT_BATCH`,
@@ -89,3 +90,16 @@ days ending today. A verified address with no log entry is credited to the day
 it is first seen; a log entry whose address is no longer in the queue is
 reported as a dropped record. A clean checkout or a fresh clone keeps the
 committed log and the same report.
+
+## Worker and reviewer commands
+
+`scripts/fork/porting_agent.py` provides both commands for a model gateway:
+`NV_PORT_WORKER="python3 -I /path/to/scripts/fork/porting_agent.py work"` and
+`NV_PORT_REVIEW="python3 -I /path/to/scripts/fork/porting_agent.py review"`. The worker makes one
+writing gateway run per family (the prompt is the rulebook, the family's queue rows and how to type
+and register a function with its `Diff` case), applies the run's staged diff to `NV_PORT_WORKTREE`
+and commits it. The reviewer judges that commit read-only, must be another model than the worker,
+and exits 0 only on a `VERDICT: ACCEPT` line. Only public material is sent: queue rows are addresses
+and names, never decompiled code. Models, the gateway command, the writing-run slot count
+(`NV_PORT_SLOTS`, default 2) and the per-run metrics file (`NV_PORT_METRICS`, one JSON line per run
+with model, seconds, status and outcome) are environment; see the script's docstring.
