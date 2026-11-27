@@ -1042,7 +1042,7 @@ pub(crate) fn constant_byte(e: &Engine, at: u32) -> u8 {
 /// A constant entry's word at `offset` set (the light data entry's count, +0x20) (condition 2).
 #[inline(always)]
 pub(crate) fn set_entry_word(e: &mut Engine, entry: u32, offset: u32, value: u32) {
-    e.set_global(entry.wrapping_add(offset), value);
+    capture::set_own_at(e, entry.wrapping_add(offset), value);
 }
 
 /// A clip plane set on the device (`IDirect3DDevice9::SetClipPlane`, slot 0xdc: the index and the plane)

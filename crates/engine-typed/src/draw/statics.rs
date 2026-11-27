@@ -201,6 +201,22 @@ const ENTRY_SWITCH: (u32, u32) = (0x20, 0x24);
 const SHADER_COUNTED: [u32; 3] = [0x28, 0x30, 0x34];
 const SHADER_COUNTED_BLOCK: (u32, u32) = (0x28, 0x38);
 
+/// Group C's constant entry pointers, as lists of words: lighting 3.0's (`01201080` to `012010ec`: the two lists, the
+/// alpha test, ambient, pass end and eye entries) and the pass flags' (`011ff4a0`, nine).
+const GROUP_C_ENTRY_POINTERS: [(u32, u32); 2] = [(0x0120_1080, 0x0120_10ec), (0x011f_f4a0, 0x011f_f4c4)];
+/// The no-lighting shader's vtable and its entries' pointers (+0x170, +0x174, +0x178).
+const NO_LIGHTING_VTABLE: u32 = 0x010b_b230;
+const NO_LIGHTING_ENTRIES: [u32; 3] = [0x170, 0x174, 0x178];
+
+/// A constant entry's enabled byte and switch word as own blocks (nothing for a null or unmapped pointer).
+fn take_entry(e: &Engine, entry: Option<u32>) {
+    let Some(entry) = entry.filter(|&a| a != 0) else {
+        return;
+    };
+    capture::own(e, entry, ENTRY_ENABLED.0, ENTRY_ENABLED.1);
+    capture::own(e, entry, ENTRY_SWITCH.0, ENTRY_SWITCH.1);
+}
+
 /// The word at `addr`, `None` when it is not mapped.
 fn peek(e: &Engine, addr: u32) -> Option<u32> {
     let mut b = [0u8; 4];
@@ -220,11 +236,24 @@ fn peek(e: &Engine, addr: u32) -> Option<u32> {
 pub fn take_pass_state(e: &mut Engine) {
     for table in ENTRY_TABLES {
         for i in 0..ENTRIES {
-            let Some(entry) = peek(e, table + 4 * i).filter(|&a| a != 0) else {
-                continue;
-            };
-            capture::own(e, entry, ENTRY_ENABLED.0, ENTRY_ENABLED.1);
-            capture::own(e, entry, ENTRY_SWITCH.0, ENTRY_SWITCH.1);
+            take_entry(e, peek(e, table + 4 * i));
+        }
+    }
+    // Group C's entries (nv-rs#992, step 2): the lighting 3.0 shader's lists and the ambient, alpha test and pass end
+    // entries (`01201080` to `012010ec`), the pass flags' nine (`011ff4a0`), and the no-lighting shaders' three.
+    for (from, to) in GROUP_C_ENTRY_POINTERS {
+        for at in (from..to).step_by(4) {
+            take_entry(e, peek(e, at));
+        }
+    }
+    for i in 0..SHADER_SLOTS {
+        let Some(shader) = peek(e, SHADER_TABLE + 4 * i).filter(|&a| a != 0) else {
+            continue;
+        };
+        if peek(e, shader) == Some(NO_LIGHTING_VTABLE) {
+            for offset in NO_LIGHTING_ENTRIES {
+                take_entry(e, peek(e, shader + offset));
+            }
         }
     }
     for i in 0..SHADER_SLOTS {
