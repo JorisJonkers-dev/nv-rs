@@ -36,6 +36,9 @@ class AgentTest(unittest.TestCase):
         (self.wt / "crates" / "engine" / "tests").mkdir(parents=True)
         (self.wt / "crates" / "engine" / "tests" / "typed_small.rs").write_text("x")
         git(self.wt, "init", "-q")
+        for key, value in (("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false"),
+                           ("core.hooksPath", "/dev/null")):
+            git(self.wt, "config", key, value)
         git(self.wt, "add", "-A")
         git(self.wt, "commit", "-qm", "chore: base")
         self.queue = root / "q.tsv"
@@ -57,7 +60,8 @@ class AgentTest(unittest.TestCase):
 
     def test_work_applies_the_gateway_patch_and_commits(self):
         gw = Path(self.tmp.name) / "gw"
-        subprocess.run(["git", "clone", "-q", str(self.wt), str(gw)], check=True)
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)], check=True,
+                       env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
         (gw / "new.rs").write_text("// SPDX-License-Identifier: GPL-3.0-only\n")
         git(gw, "add", "-A")
         seen = {}
@@ -80,7 +84,8 @@ class AgentTest(unittest.TestCase):
         with mock.patch.object(porting_agent, "gateway", lambda *a, **k: {"status": "failed"}):
             self.assertEqual(porting_agent.work(self.env), 1)
         gw = Path(self.tmp.name) / "gw"
-        subprocess.run(["git", "clone", "-q", str(self.wt), str(gw)], check=True)
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)], check=True,
+                       env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
         ok = {"status": "ok", "worktree": str(gw)}
         with mock.patch.object(porting_agent, "gateway", lambda *a, **k: ok):
             self.assertEqual(porting_agent.work(self.env), 1)
