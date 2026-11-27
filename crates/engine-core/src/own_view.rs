@@ -216,16 +216,14 @@ pub fn note_write(e: &crate::Engine, addr: u32, len: u32) {
 /// number, the packet's copy when this thread's packet owns them, else guest memory; the write stores the number, into
 /// the packet's copy while it owns the bytes, else into guest memory (noted for the join, as the accessor does).
 /// Nothing is called before a packet opened: the leaves read and write guest memory.
-static ACCESS_HOOKS: std::sync::OnceLock<(
-    fn(&crate::Engine, u32, u32) -> u32,
-    fn(&mut crate::Engine, u32, u32, u32),
-)> = std::sync::OnceLock::new();
+static ACCESS_HOOKS: std::sync::OnceLock<(ReadHook, WriteHook)> = std::sync::OnceLock::new();
+
+/// The read and write routines of [`set_access_hooks`].
+type ReadHook = fn(&crate::Engine, u32, u32) -> u32;
+type WriteHook = fn(&mut crate::Engine, u32, u32, u32);
 
 /// Sets the accessors [`own_read`] and [`own_write`] use (the first pair stays).
-pub fn set_access_hooks(
-    read: fn(&crate::Engine, u32, u32) -> u32,
-    write: fn(&mut crate::Engine, u32, u32, u32),
-) {
+pub fn set_access_hooks(read: ReadHook, write: WriteHook) {
     let _ = ACCESS_HOOKS.set((read, write));
 }
 
