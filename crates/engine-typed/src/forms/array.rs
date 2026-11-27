@@ -112,6 +112,11 @@ fn release(e: &mut Engine, s: Store, block: u32) {
 /// no items (+0xc) and no count (+0x10), and the element block of `capacity` words made only when
 /// the capacity is not zero (`00aa1070`).
 pub fn construct_base(e: &mut Engine, this: u32, capacity: u32, grow_by: u32) -> u32 {
+    base_body(e, this, capacity, grow_by)
+}
+
+/// [`construct_base`]'s body, which the translation's constructor runs as a Rust call (no step).
+fn base_body(e: &mut Engine, this: u32, capacity: u32, grow_by: u32) -> u32 {
     let s = array_store(e, this);
     e.mem.set_u32(this, BASE_VTABLE);
     e.mem.set_u32(this.wrapping_add(CAPACITY), capacity);
@@ -133,7 +138,7 @@ pub fn construct_base(e: &mut Engine, this: u32, capacity: u32, grow_by: u32) ->
 // Typed from 004701d0
 /// The registry array's constructor: the base's, then `01019a3c`.
 pub fn construct(e: &mut Engine, this: u32, capacity: u32, grow_by: u32) -> u32 {
-    construct_base(e, this, capacity, grow_by);
+    base_body(e, this, capacity, grow_by);
     e.mem.set_u32(this, FORM_ARRAY_VTABLE);
     this
 }
@@ -181,7 +186,7 @@ pub fn set_at_grow(e: &mut Engine, this: u32, index: u32, element: u32) -> u32 {
     if index >= e.mem.u32(this.wrapping_add(CAPACITY)) {
         let s = array_store(e, this);
         let grow_by = grow_get(e, s, this);
-        set_size(e, this, index.wrapping_add(grow_by));
+        size_body(e, this, index.wrapping_add(grow_by));
     }
     e.call(SET_AT, &args![this, index, element]);
     index
@@ -193,6 +198,11 @@ pub fn set_at_grow(e: &mut Engine, this: u32, index: u32, element: u32) -> u32 {
 /// Then a new block of `new_max` words (`0096afc0`; null for 0) takes the used elements, the others
 /// are zeroed, the old block is released (`004ede70`) and the capacity is `new_max`.
 pub fn set_size(e: &mut Engine, this: u32, new_max: u32) {
+    size_body(e, this, new_max)
+}
+
+/// [`set_size`]'s body, which `SetAtGrow` runs as a Rust call (no step).
+fn size_body(e: &mut Engine, this: u32, new_max: u32) {
     if new_max == e.mem.u32(this.wrapping_add(CAPACITY)) {
         return;
     }
