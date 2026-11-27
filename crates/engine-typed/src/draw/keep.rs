@@ -594,7 +594,14 @@ pub fn draw(e: &mut Engine, key: Key, mut body: impl FnMut(&mut Engine)) {
                 let done = with_held(e, ask, |e| replay(e, key));
                 count(|s| match done {
                     Done::Drawn => s.check_items += 1,
-                    _ => s.check_items_dropped += 1,
+                    _ => {
+                        if s.check_items_dropped == 0 {
+                            eprintln!(
+                                "NV_DRAW_ITEMS check FAILED: a check item could not be made beside its draw ({done:?}); counted in `check items ... dropped`"
+                            );
+                        }
+                        s.check_items_dropped += 1;
+                    }
                 });
                 done == Done::Drawn
             });
@@ -611,7 +618,13 @@ pub fn draw(e: &mut Engine, key: Key, mut body: impl FnMut(&mut Engine)) {
                             .entry(difference_kind(&old.ops, &built.ops))
                             .or_default() += 1;
                         if k.stats.first_mismatch.is_none() {
-                            k.stats.first_mismatch = Some(format!("{key:08x?}: {diff}"));
+                            let first = format!("{key:08x?}: {diff}");
+                            // Said at once, not only in the counters a million draws later: a check run that
+                            // finds the items differ from the draws is a failed check.
+                            eprintln!(
+                                "NV_DRAW_ITEMS check FAILED: a kept record differs from the set-up it was made from (first: {first}); draw items are not safe to turn on"
+                            );
+                            k.stats.first_mismatch = Some(first);
                         }
                     }
                 }

@@ -17,17 +17,23 @@ before it, apart from the 16 byte header (the command list's hash).
 
 ## What was checked
 
-On `docs/fork/scenes/bench-quick.toml` (goodsprings and docs-house, stepped threads so that a stream repeats), the
-branch below this one against this one:
+Configuration of every run below: `nv-rs-dev scene soak --places docs/fork/scenes/bench-quick.toml --only
+goodsprings,docs-house --frames N --env NV_D3D9_RECORD=FILE`, Vulkan (`NV_D3D9=wgpu`, the play default), 1280x720 offscreen.
+The scene tool always runs the game with stepped threads and a virtual clock (`NV_REPEATABLE`), so these are not runs with
+real threads and the render thread as a player gets them: a real-threads run of the items cannot be made with the scene
+tool, and none was made. The branch below this one against this one:
 
 - off (default): byte-identical after the 16 byte header; control (baseline twice) byte-identical.
-- `NV_DRAW_ITEMS=1`: 0 stops, 0 error lines; 797,514 of the first million draws replayed as items, 12,735 built, 0 plain,
-  0 items without a record.
-- `NV_DRAW_ITEMS=1` with the stepped drawing thread (`NV_THREADS=stepped NV_DRAW_THREAD=1 NV_DRAW_THREAD_CHECK=1`):
-  byte-identical to the same run with items off: the packet is open, so every draw is plain; the two coexist.
-- `NV_DRAW_ITEMS=1` with `NV_DRAW_DETACH=1` (no thread): runs, 0 stops; records are built (the stream holds `RecordNext`).
+- `NV_DRAW_ITEMS=1`, 1,100 frames: 0 stops, 0 error lines; of the first million draws 797,514 replayed as items, 12,735
+  built, 0 plain, 0 items without a record.
+- The drawing thread is experimental and refused in play (`NV_DRAW_THREAD`, [`crate::draw_thread::refusal`]), so for a
+  player no value packet is open and items are not held back by it. With it on (stepped threads, `NV_DRAW_THREAD=1
+  NV_DRAW_THREAD_CHECK=1`) every draw is plain, the stream byte-identical to the same run with items off; the host says
+  so once in the log. The two do not overlap.
+- `NV_DRAW_ITEMS=1 NV_DRAW_DETACH=1` (no thread): runs, 0 stops; records are built (the stream holds `RecordNext`).
 - Speed, 1,100 frames each, stepped threads (noise 5 to 10 %): off 19.4 / 14.4 ms and 17.9 / 12.1 ms, items on
-  19.6 / 13.0 ms and 19.2 / 12.6 ms (goodsprings / docs-house). No measurable gain in stepped mode.
+  19.6 / 13.0 ms and 19.2 / 12.6 ms (goodsprings / docs-house). There is no measurable gain beside the fork's draw,
+  stepped; the real-threads speed is unmeasured. Check mode was not timed.
 
 ## Known problem, why it stays off
 
@@ -38,4 +44,8 @@ this fork: in 900 frames 799,424 draws checked, 100,906 differed. The first: a `
 constant). It does not go away with `NV_PRESET=vanilla` or `NV_TYPED=lockfree:off`. Upstream states 0 differences for
 its own tree, so a fork change that the record does not know as an input (the fork's sampler and draw state code) is the
 suspect. The picture check that decides the switch has therefore not passed here; the switch stays off, as upstream's
-does, and the check is the first thing to run before anything turns it on.
+does, and the check is the first thing to run before anything turns it on. A check run now says so in the log at the first
+difference (`NV_DRAW_ITEMS check FAILED`) and when an item cannot be made beside its draw.
+
+`NEXT_ID` (the backend record numbers) is one counter for the whole run, so two threads never share a number; the backend
+keeps one record table, and a game makes one device.

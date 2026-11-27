@@ -408,10 +408,15 @@ impl Host {
         // set before the game makes its device, whose backend is then made for them.
         engine_core::draw_items::set_mode(choice.draw_items);
         if choice.draw_items != engine_core::draw_items::Mode::Off {
-            eprintln!(
+            fork_log::info!(target: "host",
                 "nv-rs: the world's still lit objects drawn from kept records: {:?} (sDrawItems, NV_DRAW_ITEMS)",
                 choice.draw_items
             );
+            if choice.is_on(&fixes::DRAW_THREAD) {
+                fork_log::info!(target: "host",
+                    "nv-rs: draw items stay plain while the world is drawn on a thread of its own (NV_DRAW_THREAD): a draw is kept only where no value packet is open"
+                );
+            }
         }
         // `NV_SOUND=out`: the game's sound on the player's default device, from when the game
         // makes its DirectSound device on; `NV_SOUND_RECORD=FILE.wav` also records what goes
