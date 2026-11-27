@@ -11,7 +11,7 @@ use engine_core::prelude::*;
 use engine_core::typed::diff::{Diff, Input};
 use engine_core::typed::form_array::{self, BASE, CAPACITY, COUNT, GROW_BY, SIZE};
 use engine_core::typed::moved::poison;
-use engine_typed::forms::{array, FORMS};
+use engine_typed::forms::{array, array::FORM_ARRAY, FORMS};
 
 const ALLOCATE_BYTES: u32 = 0x00aa_1070;
 const FREE_BLOCK: u32 = 0x004e_de70;
@@ -72,7 +72,7 @@ const SHAPES: &[u32] = &[0, 1, 2, 3, 4, 5];
 #[test]
 fn construct_base() {
     Diff::new(entry!(0x0047_05e0, array::construct_base(u32, u32, u32) -> u32))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[Input::Of(&[0, 1, 2, 0x20]), Input::Of(&[0, 1, 5, u32::MAX])])
         .setup(|e, case| {
             doubles(e);
@@ -86,7 +86,7 @@ fn construct_base() {
 #[test]
 fn construct() {
     Diff::new(entry!(0x0047_01d0, array::construct(u32, u32, u32) -> u32))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[Input::Of(&[0, 1, 2, 0x20]), Input::Of(&[0, 1, 5, u32::MAX])])
         .setup(|e, case| {
             doubles(e);
@@ -100,7 +100,7 @@ fn construct() {
 #[test]
 fn destructor() {
     Diff::new(entry!(0x0047_0110, array::destructor(u32)))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[Input::Of(SHAPES)])
         .setup(|e, case| {
             doubles(e);
@@ -113,7 +113,7 @@ fn destructor() {
 #[test]
 fn add() {
     Diff::new(entry!(0x0047_0140, array::add(u32, u32) -> u32))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[Input::Of(SHAPES), Input::Of(&[0, 0x1234, u32::MAX])])
         .setup(|e, case| {
             doubles(e);
@@ -129,7 +129,7 @@ fn add() {
 #[test]
 fn set_at_grow() {
     Diff::new(entry!(0x0086_4240, array::set_at_grow(u32, u32, u32) -> u32))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[
             Input::Of(SHAPES),
             Input::Of(&[0, 1, 2, 3, 4, 7]),
@@ -149,7 +149,7 @@ fn set_at_grow() {
 #[test]
 fn set_size() {
     Diff::new(entry!(0x0086_4280, array::set_size(u32, u32)))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[Input::Of(SHAPES), Input::Of(&[0, 1, 2, 3, 4, 8])])
         .setup(|e, case| {
             doubles(e);
@@ -162,7 +162,7 @@ fn set_size() {
 #[test]
 fn set_at() {
     Diff::new(entry!(0x0061_bd20, array::set_at(u32, u32, u32)))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[
             Input::Of(SHAPES),
             Input::Of(&[0, 1, 2, 3]),
@@ -182,7 +182,7 @@ fn set_at() {
 #[test]
 fn remove_at() {
     Diff::new(entry!(0x0048_6b80, array::remove_at(u32, u32) -> u32))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[Input::Of(SHAPES), Input::Of(&[0, 1, 2, 3, u32::MAX])])
         .setup(|e, case| {
             doubles(e);
@@ -195,7 +195,7 @@ fn remove_at() {
 #[test]
 fn clear() {
     Diff::new(entry!(0x0086_3db0, array::clear(u32)))
-        .family(&FORMS)
+        .family(&FORM_ARRAY)
         .inputs(&[Input::Of(SHAPES)])
         .setup(|e, case| {
             doubles(e);
@@ -247,7 +247,7 @@ mod forms {
 
     fn engine(spec: &str) -> Engine {
         let mut e = Engine::new_untyped_for_test();
-        e.typed_apply_for_test(&[&FORMS, &leaf::LEAVES], spec);
+        e.typed_apply_for_test(&[&FORM_ARRAY, &FORMS, &leaf::LEAVES], spec);
         e.map(LOG, LOG_BYTES);
         e.map(FORM_MAP & !0xfff, 0x1000);
         e.map(VTABLE & !0xfff, 0x1000);
@@ -395,7 +395,7 @@ mod forms {
 
     #[test]
     fn the_array_lives_alike_in_every_form() {
-        let stage1 = life("forms");
+        let stage1 = life("formarray");
         assert!(stage1.poison_held);
         // The default: stage 1's store.
         let default = life("");
@@ -403,7 +403,7 @@ mod forms {
         assert_eq!(default.heap, stage1.heap);
         assert_eq!(default.steps, stage1.steps);
 
-        let dual = life("forms:dual");
+        let dual = life("formarray:dual");
         assert_eq!(dual.answers, stage1.answers);
         assert_eq!(dual.bytes, stage1.bytes);
         assert_eq!(dual.heap, stage1.heap);
@@ -413,7 +413,7 @@ mod forms {
 
         // K1: the same answers, bytes, guest heap (same sizes, same order) and steps; poison while
         // it lives; nothing left in the slab.
-        let k1 = life("forms:moved");
+        let k1 = life("formarray:moved");
         assert_eq!(k1.answers, stage1.answers);
         assert_eq!(k1.bytes, stage1.bytes);
         assert_eq!(
@@ -429,7 +429,7 @@ mod forms {
         );
 
         // K2: the same answers and bytes; the guest bytes of the block are gone.
-        let k2 = life("forms:freed");
+        let k2 = life("formarray:freed");
         assert_eq!(k2.answers, stage1.answers);
         assert_eq!(k2.bytes, stage1.bytes);
         assert!(k2.heap.len() < stage1.heap.len());

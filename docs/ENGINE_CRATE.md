@@ -1155,14 +1155,14 @@ Untyped code that reads a moved map's bytes sees what stage 1 leaves there (the 
 `typed_lockfree.rs`); what it cannot read is listed in ADR-0014. The race campaign for the family's real
 threads is in [`docs/fork/LOCKFREE-MOVED.md`](fork/LOCKFREE-MOVED.md); stepped mode stays the reference.
 
-The forms family has a stage-2 form for one object so far (nv-rs#951, parent #916): the form registry array
+The `formarray` family (beside `forms`) has a stage-2 form for one object so far (nv-rs#951, parent #916): the form registry array
 (`011c54c4`, `NiTLargeArray<TESForm *>`). Its element block lives in the slab; the array object stays a K1 stub
 (`engine_core::typed::form_array`: vtable, capacity, used size and count stay, +4 holds poison, the grow-by +0x14 is the
 spare word holding the record's handle). The large-array bodies it shares with other arrays (`004705e0`,
 `004701d0`, `00470110`, `00470140`, `00486b80`, `0061bd20`, `00863db0`, `00864240`, `00864280`) are typed in
 `engine-typed`'s `forms/array.rs`; an array with no record is the guest array they have always worked on. The
-nav mesh info map's count reads a slot through `form_array::slot`. `NV_TYPED=forms:dual`, `forms:moved` (K1) and
-`forms:freed` (K2) choose the form; the family is not moved by default yet (`crates/engine/tests/typed_form_array.rs`:
+nav mesh info map's count reads a slot through `form_array::slot`. `NV_TYPED=formarray:dual`, `formarray:moved` (K1) and
+`formarray:freed` (K2) choose the form; the family is not moved by default yet (`crates/engine/tests/typed_form_array.rs`:
 the life of the array is alike in every form, K1 with the guest heap and time-slice steps of stage 1).
 
 ## Checking against the real exe

@@ -109,7 +109,7 @@ macro_rules! image {
 /// its tests read (a family left out here is never registered; the repository hygiene test
 /// `every_declared_family_is_provided` finds a `pub static .. : Family` of any crate that no list
 /// or `provide` call names).
-pub static FAMILIES: [&engine_core::typed::Family; 33] = [
+pub static FAMILIES: [&engine_core::typed::Family; 34] = [
     &crate::lockfree::LOCKFREE,
     &crate::culling::CULLING,
     &crate::pathing::PATHING,
@@ -141,6 +141,7 @@ pub static FAMILIES: [&engine_core::typed::Family; 33] = [
     &crate::navmesh_edges::NAVMESH_EDGES,
     &crate::ai::AI,
     &crate::forms::FORMS,
+    &crate::forms::array::FORM_ARRAY,
     &crate::extra_data::EXTRA_DATA,
     &crate::scene_node::SCENE_NODE,
 ];

@@ -15,10 +15,12 @@
 //! `0096afc0` over it) and the release (`004ede70`): K1 makes them for the block's guest shadow, K2
 //! charges them as steps.
 
-use super::FAMILY;
+use engine_core::typed::form_array::FAMILY;
 use engine_core::typed::form_array::{tag, BASE, CAPACITY, COUNT, GROW_BY, SIZE, STUB};
 use engine_core::typed::moved::{self, Store};
+use engine_core::typed::{Family, Threads};
 use engine_core::{args, Engine};
+use engine_core::{entry, AbiFn};
 
 /// `NiTLargeArray<TESForm *>`'s vtable (the base's) and the one `004701d0` stores after it.
 const BASE_VTABLE: u32 = 0x0101_9a34;
@@ -306,4 +308,31 @@ pub fn clear(e: &mut Engine, this: u32) {
     }
     e.mem.set_u32(this.wrapping_add(SIZE), 0);
     e.mem.set_u32(this.wrapping_add(COUNT), 0);
+}
+
+/// `NV_TYPED=formarray`: the registry array's functions (a family of its own beside `forms`, so a
+/// test of the forms' unit may keep its doubles at these addresses). On unless `NV_TYPED` says
+/// otherwise; stage 2 for the one array: `formarray:dual`, `formarray:moved` (K1), `formarray:freed` (K2).
+pub static FORM_ARRAY: Family = Family {
+    name: "formarray",
+    id: FAMILY,
+    past_gate: true,
+    threads: Threads::Both,
+    stage2: true,
+    funcs,
+};
+
+/// The family's functions, by exe address.
+fn funcs() -> Vec<(u32, AbiFn)> {
+    vec![
+        entry!(0x0047_0110, destructor(u32)),
+        entry!(0x0047_0140, add(u32, u32) -> u32),
+        entry!(0x0047_01d0, construct(u32, u32, u32) -> u32),
+        entry!(0x0047_05e0, construct_base(u32, u32, u32) -> u32),
+        entry!(0x0048_6b80, remove_at(u32, u32) -> u32),
+        entry!(0x0061_bd20, set_at(u32, u32, u32)),
+        entry!(0x0086_3db0, clear(u32)),
+        entry!(0x0086_4240, set_at_grow(u32, u32, u32) -> u32),
+        entry!(0x0086_4280, set_size(u32, u32)),
+    ]
 }

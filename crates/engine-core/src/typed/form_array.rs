@@ -16,8 +16,8 @@ use super::moved::{K1, POISON_BASE};
 use super::FamilyId;
 use crate::Engine;
 
-/// The forms family's bit (`engine_typed::forms::FAMILY`, which a test there compares).
-pub const FAMILY: FamilyId = FamilyId::new(45);
+/// The registry array family's bit (`engine_typed::forms::array::FAMILY`).
+pub const FAMILY: FamilyId = FamilyId::new(48);
 
 /// The array object's K1 stub: the record is the array's layout in the slab, the moved field the
 /// element block (+4), the spare word the grow-by (+0x14).

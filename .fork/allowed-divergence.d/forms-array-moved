@@ -1,5 +1,6 @@
 crates/engine-core/src/typed/mod.rs  # the form_array module (nv-rs#951)
-crates/engine-typed/src/forms/mod.rs  # the forms family has a stage-2 form: the array's entries (nv-rs#951)
 crates/engine-typed/src/forms/tesform.rs  # the registry array is made with its record and read through form_array::slot (nv-rs#951)
 crates/engine-fallout-pathfinding/src/units/fallout_shared_pathfinding/navmeshinfomap.rs  # the nav mesh count reads the array's slot through form_array::slot (nv-rs#951)
 docs/ENGINE_CRATE.md  # the forms family's stage-2 array (nv-rs#951)
+crates/engine-typed/src/lib.rs  # the formarray family is listed (nv-rs#951)
+crates/engine-typed/src/forms/mod.rs  # the array module (nv-rs#951)
