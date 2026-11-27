@@ -1,21 +1,25 @@
-# Places with water in view under an open sky (the Colorado at Cottonwood Cove, Lake Mead's Boulder Beach, Hoover Dam's
-# river from the south): the draw gate's scenes for the sun query and the water shader, which the quick suite has none of.
+# Places with water in view under an open sky, and the sun in view (the draw gate's scenes for the sun's occlusion query
+# and the water shader, which the quick suite does not exercise): Lake Mead's Boulder Beach looking up the sun in the
+# morning (`hour`, a low sun in the east), the Colorado at Cottonwood Cove at noon, and Hoover Dam's river from the south.
 # Run with `nv-rs-scene bench --places docs/fork/scenes/bench-water.toml`.
 version = 1
 [[place]]
-name = "cottonwood-cove"
-world = "WastelandNV"
-x = 63127
-y = -89233
-z = 114
-heading = 90
-[[place]]
-name = "boulder-beach"
+name = "boulder-beach-morning-sun"
 world = "WastelandNV"
 x = 53808
 y = 38384
 z = 3850
-heading = 60
+heading = 90
+pitch = -12
+hour = 8
+[[place]]
+name = "cottonwood-cove-noon"
+world = "WastelandNV"
+x = 63127
+y = -89233
+z = 114
+heading = 180
+pitch = -35
 [[place]]
 name = "hoover-dam-from-the-south"
 world = "WastelandNV"

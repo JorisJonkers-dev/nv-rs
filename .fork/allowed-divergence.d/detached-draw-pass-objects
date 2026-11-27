@@ -9,3 +9,4 @@ crates/engine-bs/src/units/bsshader/lighting30shader.rs  # the stage texture set
 crates/engine-fallout-unplaced-b/src/units/unplaced/run_00c048b0.rs  # the stage texture setters write through the packet (nv-rs#992)
 crates/engine-typed/src/draw/packet.rs  # the last camera (011f917c) is an own global (nv-rs#992)
 crates/engine-bs/src/units/bsshader/bsshaderaccumulator.rs  # the sun query's and the late passes' reads of the shader's counted maps go through the packet (nv-rs#992)
+crates/engine-typed/src/draw/sky.rs  # the sky pass offsets are visible to the cut's pass set (nv-rs#992)
