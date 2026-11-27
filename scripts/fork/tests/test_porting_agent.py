@@ -25,6 +25,15 @@ def git(cwd, *args):
                                "PATH": "/usr/bin:/bin:/run/current-system/sw/bin"}).stdout
 
 
+class AllowedPathTest(unittest.TestCase):
+    def test_only_the_typed_crate_and_typed_suites_are_allowed(self):
+        for name in ("crates/engine-typed/src/lib.rs", "crates/engine/tests/typed_0086a830.rs"):
+            self.assertTrue(porting_agent.allowed_path(name), name)
+        for name in (".fork/components.toml", "crates/engine/tests/sub/typed_x.rs",
+                     "crates/engine-core/src/typed/diff.rs", "crates/engine/tests/other.rs"):
+            self.assertFalse(porting_agent.allowed_path(name), name)
+
+
 class AgentTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -62,23 +71,28 @@ class AgentTest(unittest.TestCase):
         gw = Path(self.tmp.name) / "gw"
         subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)], check=True,
                        env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
-        (gw / "new.rs").write_text("// SPDX-License-Identifier: GPL-3.0-only\n")
+        (gw / "crates/engine-typed/src").mkdir(parents=True, exist_ok=True)
+        (gw / "crates/engine-typed/src/new.rs").write_text("// SPDX-License-Identifier: GPL-3.0-only\n")
+        (gw / ".fork").mkdir()
+        (gw / ".fork/components.toml").write_text("stray\n")
         git(gw, "add", "-A")
         seen = {}
 
         def fake(env, payload, sandbox=None):
             seen.update(payload)
-            return {"status": "ok", "worktree": str(gw), "staged_files": ["new.rs"]}
+            return {"status": "ok", "worktree": str(gw), "staged_files": ["crates/engine-typed/src/new.rs"]}
 
         with mock.patch.object(porting_agent, "gateway", fake):
             self.assertEqual(porting_agent.work(self.env), 0)
         self.assertEqual(seen["mode"], "write")
         self.assertIn("00401000", seen["prompt"])
         self.assertIn("RULES", seen["prompt"])
-        self.assertTrue((self.wt / "new.rs").is_file())
+        self.assertTrue((self.wt / "crates/engine-typed/src/new.rs").is_file())
         self.assertIn("type the small family", git(self.wt, "log", "-1", "--format=%s"))
         record = json.loads(Path(self.env["NV_PORT_METRICS"]).read_text().splitlines()[-1])
         self.assertEqual(record["outcome"], "committed")
+        self.assertFalse((self.wt / ".fork/components.toml").exists())
+        self.assertEqual(record["stray"], [".fork/components.toml"])
 
     def test_work_fails_on_gateway_failure_and_empty_change(self):
         with mock.patch.object(porting_agent, "gateway", lambda *a, **k: {"status": "failed"}):
@@ -130,7 +144,8 @@ class AgentTest(unittest.TestCase):
         gw = Path(self.tmp.name) / "gw"
         subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)], check=True,
                        env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
-        (gw / "new.rs").write_text("x\n")
+        (gw / "crates/engine-typed/src").mkdir(parents=True, exist_ok=True)
+        (gw / "crates/engine-typed/src/new.rs").write_text("x\n")
         git(gw, "add", "-A")
         models = []
 
@@ -154,7 +169,8 @@ class AgentTest(unittest.TestCase):
         gw = Path(self.tmp.name) / "gw-retry"
         subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)],
                        check=True, env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
-        (gw / "retry.rs").write_text("// SPDX-License-Identifier: GPL-3.0-only\n")
+        (gw / "crates/engine-typed/src").mkdir(parents=True, exist_ok=True)
+        (gw / "crates/engine-typed/src/retry.rs").write_text("// SPDX-License-Identifier: GPL-3.0-only\n")
         git(gw, "add", "-A")
         seen = {}
 
@@ -198,15 +214,16 @@ class AgentTest(unittest.TestCase):
         gw = Path(self.tmp.name) / "gw"
         subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)], check=True,
                        env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
-        (gw / "new.rs").write_text("x\n")
+        (gw / "crates/engine-typed/src").mkdir(parents=True, exist_ok=True)
+        (gw / "crates/engine-typed/src/new.rs").write_text("x\n")
         result = {"status": "failed", "reason": "foreign-worktree-change", "worktree": str(gw),
-                  "staged_files": ["new.rs"]}
+                  "staged_files": ["crates/engine-typed/src/new.rs"]}
         self.assertTrue(porting_agent.is_foreign_only(result))
         self.assertFalse(porting_agent.is_foreign_only({**result, "staged_files": []}))
         self.assertFalse(porting_agent.is_foreign_only({**result, "reason": "timeout"}))
         with mock.patch.object(porting_agent, "gateway", lambda *a, **k: result):
             self.assertEqual(porting_agent.work(self.env), 0)
-        self.assertTrue((self.wt / "new.rs").is_file())
+        self.assertTrue((self.wt / "crates/engine-typed/src/new.rs").is_file())
 
     def test_template_family_is_the_smallest_suite(self):
         self.assertEqual(porting_agent.template_family(self.wt), "small")

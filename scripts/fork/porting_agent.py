@@ -221,6 +221,15 @@ class Slot:
             self.handle.close()
 
 
+ALLOWED_PATHS = ("crates/engine-typed/", "crates/engine/tests/typed_*.rs")
+
+
+def allowed_path(name):
+    """A worker's change belongs to the typed crate or a typed_* Diff suite; the rest is stray."""
+    return name.startswith("crates/engine-typed/") or (
+        name.startswith("crates/engine/tests/typed_") and name.endswith(".rs") and "/" not in name[len("crates/engine/tests/"):])
+
+
 def gateway(env, payload, sandbox=None):
     """One gateway run; returns the parsed result (an error object on a refusal)."""
     child = dict(env)
@@ -315,7 +324,12 @@ def work(env):
         return 1
     gw = Path(result["worktree"])
     run(["git", "add", "-A"], gw)
-    patch = run(["git", "diff", "--cached", "--binary", base], gw)
+    names = run(["git", "diff", "--cached", "--name-only", base], gw).stdout.split()
+    stray = [n for n in names if not allowed_path(n)]
+    if stray:
+        record["stray"] = stray
+        print(f"dropping files outside the family's module and test: {stray}", file=sys.stderr)
+    patch = run(["git", "diff", "--cached", "--binary", base, "--", *ALLOWED_PATHS], gw)
     clean(env, payload, worktree)
     if patch.returncode or not patch.stdout.strip():
         metrics(env, {**record, "outcome": "empty"})
