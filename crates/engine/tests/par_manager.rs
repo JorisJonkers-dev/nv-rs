@@ -12,9 +12,9 @@
 //!   `00c6c3d0`, a recording stand-in: the Havok side is not the subject here).
 //!
 //! With four and with eight threads every node's world transform, every bound but those of the nodes two items update
-//! at once (there a finite sphere of the same size to within a factor of two: each item resets the bound and merges
-//! into it in place, and the exe's two runners race the same way), and the actors synchronized (each once, with 2),
-//! are those of the exe's one thread; more than two runners took items. No game files.
+//! at once (there within the last bits: each item resets the bound and merges into it in place, and the exe's two
+//! runners race the same way), and the actors synchronized (each once, with 2), are those of the exe's one thread;
+//! more than two runners took items. No game files.
 use engine as _;
 use engine_bs::units::bsmain::bsparalleltaskmanager::set_threads_for_tests;
 use engine_core::{args, exe::Import, real_threads, Engine, Ret};
@@ -519,25 +519,22 @@ fn more_threads_leave_the_scene_as_the_exe_s_one() {
             );
             if one.raced.contains(&i) {
                 // Two items update this node at once (or its bound merges such a node's): each resets its bound and
-                // merges its children's into it in place, with no order between the two runners (the exe's two
-                // runners race the same way, and the exe's one thread's run is one of the outcomes, not the outcome).
-                // A sphere merge depends on the order of its children, and one runner's reset can drop what the
-                // other merged, so the centre moves by a share of the radius and the radius by up to 40% (measured
-                // with 1, 4 and 8 threads, nv-rs#1022); there is no order to pin. What stays: a finite sphere of
-                // the same size to within a factor of two.
+                // merges its children's into it in place, so the interleaving can move the last bits (the exe's two
+                // runners race the same way). The bound is still the merge of the same children's.
                 let floats = |v: &[u8]| -> Vec<f32> {
                     v[0x34..0x44]
                         .chunks(4)
                         .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
                         .collect()
                 };
-                let (many_sphere, one_sphere) = (floats(a), floats(b));
-                assert!(
-                    many_sphere.iter().all(|x| x.is_finite())
-                        && many_sphere[3] > 0.0
-                        && (0.5..=2.0).contains(&(many_sphere[3] / one_sphere[3])),
-                    "{threads} threads: node {i}'s bound {many_sphere:?} against {one_sphere:?}"
-                );
+                for (x, y) in floats(a).iter().zip(floats(b)) {
+                    assert!(
+                        (x - y).abs() <= 1e-5 * y.abs().max(1.0),
+                        "{threads} threads: node {i}'s bound {:?} against {:?}",
+                        floats(a),
+                        floats(b)
+                    );
+                }
             } else {
                 assert_eq!(a, b, "{threads} threads: node {i}'s bound");
             }
