@@ -181,8 +181,8 @@ Without both variables, or without a built backend, nothing is registered and th
 as before. The switch is separate from the `Diff` peer on purpose: the differential cases keep
 comparing the translation with the backend.
 
-With the gap units built (nv-rs#1000, below), 25 of the 72 `eax` rows have an export and are
-registered (36 of 59 units compile); the rest are in units that do not build yet or were left out with a recorded reason.
+With the gap units built (nv-rs#1000, below), 27 of the 72 `eax` rows have an export and are
+registered (38 of 59 units compile); the rest are in units that do not build yet or were left out with a recorded reason.
 The backend call hands back `EAX`, `EDX` and `ST0`. The library's exports are read from
 `exports.tsv` beside it.
 
@@ -223,7 +223,7 @@ build copy and the generated shim only.
   Declarations the decomp makes of a Win32 or CRT function with a type MSVC accepts and clang does
   not (`TlsGetValue(unsigned int)`, `memcpy` with an `unsigned int` size) are repaired from the
   compiler's own diagnostics: the contradicting line is blanked, or, when the system header came
-  second, replaced by `#include <windows.h>`. A unit that fails in the shared working copy is
+  second, replaced by `#include <windows.h>`. A second definition of the decomp's `LocalM128` union (one per namespace block, each with its own `_mm_setr_ps` declaration, so clang sees two functions that differ only in their return type) is blanked from the copy (`drop_duplicate_local_m128`); that builds `hkgeometryutility.cpp` and `blk_00dc0000_od_o2_nood_variant.cpp`. A unit that fails in the shared working copy is
   tried again alone in a fresh copy, because a repair for one unit can break another.
 - Inline assembly. MSVC `__asm` blocks (and `__declspec(naked)`, which wasm lacks) are replaced in
   the copy by a call to a stub that traps. After linking, every exported function that calls the
@@ -263,4 +263,4 @@ process-wide lock until its test ends (run in parallel they corrupted each other
 A fourth limit: a callee the module holds (found with 00b15280 and 00488400, whose callees `00b16cd0`,
 `004858f0` the backend runs inside the module or inlines) is not in the backend's call log, so a world whose
 path reaches one differs in outgoing calls by construction; those gaps need a world that stops before the
-call, or a log of the module's inner calls. The other 20 registered gaps have no case yet.
+call, or a log of the module's inner calls. The other 23 registered gaps have no case yet.

@@ -345,6 +345,42 @@ def drop_conflicting_declarations(stderr, copy):
     return blanked
 
 
+LOCAL_M128_END = re.compile(r"^\s*\}\s*__m128\s*,\s*LocalM128\s*;\s*$")
+
+
+def drop_duplicate_local_m128(stderr, copy):
+    """Blank a second definition of the decomp's `LocalM128` union in the private copy.
+
+    Some units define the type twice (one definition per namespace block) and declare `_mm_setr_ps`
+    with each, so clang sees two functions that differ only in their return type. The definition
+    nearest above the later declaration goes (`typedef union ... } __m128, LocalM128;`, line
+    numbers stay), so both declarations and the code between use the first. Returns how many
+    definitions were blanked.
+    """
+    blanked = 0
+    for line in stderr.splitlines():
+        found = DIAGNOSTIC.match(line)
+        if (not found or found["kind"] != "error"
+                or "differ only in their return type" not in found["msg"]
+                or not _inside(found["file"], copy)):
+            continue
+        path = Path(found["file"])
+        lines = path.read_text(errors="surrogateescape").split("\n")
+        end = next((i for i in range(int(found["line"]) - 1, -1, -1)
+                    if LOCAL_M128_END.match(lines[i])), None)
+        if end is None:
+            continue
+        start = next((i for i in range(end, -1, -1) if lines[i].lstrip().startswith("typedef union")), None)
+        if start is None:
+            continue
+        for i in range(start, end + 1):
+            lines[i] = ""
+        path.write_text("\n".join(lines), errors="surrogateescape")
+        blanked += 1
+        break
+    return blanked
+
+
 FNV_MARKER = re.compile(r"^// @fnv 0x([0-9a-fA-F]{1,8})\b")
 EXPORT_PREFIX = "fnv_"
 SKIPPED_HEADS = ("template", "extern", "struct", "class", "namespace", "union", "enum", "#", "}",
@@ -1079,7 +1115,8 @@ def compile_unit(tools, copy, standins, source, obj, cxx=False):
         if not result.returncode:
             return True, ""
         attempts.append(result)
-        blanked = drop_conflicting_declarations(result.stderr, copy)
+        blanked = (drop_duplicate_local_m128(result.stderr, copy)
+                   or drop_conflicting_declarations(result.stderr, copy))
         # The stand-in type is the last repair: a blanked declaration can clear the same error.
         wants_sse = (not blanked and not sse_types
                      and ("unknown type name '__m128'" in result.stderr
