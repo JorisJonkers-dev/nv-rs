@@ -363,6 +363,44 @@ def review(env):
     return 0 if result.get("status") == "ok" and verdict == "ACCEPT" else 1
 
 
+def probe(env, runner=None, hour=3600):
+    """Run one cheap read-only prompt per configured model; park the ones that fail for an hour.
+
+    Returns {model: ok}. A model that answers is taken out of the cooldown file.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    runner = runner or gateway
+    pairs = []
+    for prefix, default in (("NV_PORT_WORKER", DEFAULT_WORKER), ("NV_PORT_REVIEW", DEFAULT_REVIEWER)):
+        for pair in candidates({**env, "NV_PORT_FAMILY": ""}, prefix, default):
+            if pair not in pairs:
+                pairs.append(pair)
+
+    def one(pair):
+        client, model = pair
+        result = runner(env, {"workflow": "porting-probe", "client": client, "model": model,
+                              "mode": "read-only", "prompt": "Reply with exactly: OK",
+                              "time_limit_s": int(env.get("NV_PORT_PROBE_TIME", "120")),
+                              "escalate": False})
+        return model, result.get("status") == "done" or result.get("status") == "ok"
+
+    with ThreadPoolExecutor(max_workers=max(1, len(pairs))) as pool:
+        outcome = dict(pool.map(one, pairs))
+    state = cooling(env)
+    for model, ok in outcome.items():
+        if ok:
+            state.pop(model, None)
+        else:
+            state[model] = time.time() + hour
+    path = cooldown_path(env)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state), encoding="utf-8")
+    except OSError as exc:
+        print(f"cooldown not written: {exc}", file=sys.stderr)
+    return outcome
+
+
 def rates(path):
     """Per-model counts from the metrics file: runs, committed, limited, and review accepts."""
     table = {}
@@ -391,6 +429,10 @@ def rates(path):
 def main(argv=None, env=None):
     argv = sys.argv[1:] if argv is None else argv
     env = dict(os.environ if env is None else env)
+    if argv == ["probe"]:
+        for model, ok in sorted(probe(env).items()):
+            print(("ok   " if ok else "down ") + model)
+        return 0
     if argv == ["rates"]:
         for model, row in sorted(rates(env.get("NV_PORT_METRICS", "metrics.jsonl")).items()):
             print(model, json.dumps(row, sort_keys=True))

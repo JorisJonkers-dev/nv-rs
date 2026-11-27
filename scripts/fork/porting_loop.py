@@ -364,6 +364,31 @@ def diff_counts(text, family=None):
     return {"passed": passed, "failed": failed}
 
 
+def chunk_size(env):
+    """Functions per chunk (NV_PORT_CHUNK, default 5; 0 keeps a family whole)."""
+    raw = str(env.get("NV_PORT_CHUNK", "5")).strip()
+    try:
+        size = int(raw)
+    except ValueError as exc:
+        raise ValueError("NV_PORT_CHUNK must be a whole number of functions") from exc
+    if size < 0:
+        raise ValueError("NV_PORT_CHUNK must not be negative")
+    return size
+
+
+def chunk_family(rows, size):
+    """A family's rows in chunks of at most `size`, in queue order; siblings stay adjacent."""
+    if not size or len(rows) <= size:
+        return [list(rows)]
+    return [list(rows[i:i + size]) for i in range(0, len(rows), size)]
+
+
+def restore(worktree, commit, env, runner):
+    """Drop everything a failed chunk left in the worktree."""
+    runner(["git", "reset", "--hard", commit], cwd=worktree, env=env)
+    runner(["git", "clean", "-fd"], cwd=worktree, env=env)
+
+
 def allowed_attempts(env):
     """Total worker attempts a family gets (NV_PORT_ATTEMPTS, default 3)."""
     raw = str(env.get("NV_PORT_ATTEMPTS", str(ATTEMPTS))).strip()
@@ -736,109 +761,130 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             if code:
                 return fail(f"worktree add for {family}: {output.strip()}")
             created.append((worktree, branch))
-            failure_file = paths(root, name) / (slug(family) + ".failure.txt")
-            failure_file.unlink(missing_ok=True)
-            attempt_counts[family] = 0
-
-            def record_attempt(number, kind, detail, passed=0, failed=0, lab_exit=None):
-                attempt_log.append({
-                    "family": family, "attempt": number, "failure_class": kind,
-                    "detail": detail, "passed": passed, "failed": failed,
-                    "lab_exit": lab_exit,
-                })
-
-            finished = None
-            for attempt in range(1, attempts + 1):
-                if attempt > 1:
-                    # A retry starts from the base ref: a failed worker's edits
-                    # and partially typed files must not leak into its successor.
-                    code, output = call(["git", "reset", "--hard", base],
-                                        cwd=worktree, env=env)
-                    if code:
-                        return fail(f"reset of {family}: {output.strip()}")
-                    code, output = call(["git", "clean", "-fd"], cwd=worktree, env=env)
-                    if code:
-                        return fail(f"clean of {family}: {output.strip()}")
-                if not renew_claim(held, root, env):
-                    skipped.append(family)
-                    print(f"skip {family}: its claim could not be renewed", file=sys.stderr)
-                    break
-                attempt_counts[family] = attempt
-                attempt_env = dict(child)
-                attempt_env["NV_PORT_ATTEMPT"] = str(attempt)
-                if attempt > 1:
-                    attempt_env["NV_PORT_FAILURE_FILE"] = str(failure_file)
-                else:
-                    attempt_env.pop("NV_PORT_FAILURE_FILE", None)
-                worker_code, worker_output = call(
-                    worker, cwd=worktree, env=attempt_env,
-                    log=logdir / (slug(family) + ".worker.log"),
+            done_rows, done_delivered, done_passed, done_failed, done_lab = [], [], 0, 0, 0
+            for chunk_rows in chunk_family(family_rows, chunk_size(env)):
+                queue_file.write_text(
+                    "# rank\taddress\tstate\tdone\tfamily\tname\n"
+                    + "".join("\t".join(str(r[k]) for k in
+                             ("rank", "address", "state", "done", "family", "name")) + "\n"
+                             for r in chunk_rows),
+                    encoding="utf-8",
                 )
-                if worker_code:
-                    detail = f"worker exited {worker_code}"
-                    record_attempt(attempt, "worker", detail)
-                    if attempt < attempts:
-                        write_failure(failure_file, attempt, detail, [],
-                                      failure_excerpt([worker_output]))
-                        continue
-                    rejected.append(f"{family}: {detail}")
-                    break
-                # The checker is verified before anything of the worker's is run or reviewed.
-                ok, why = private_integrity.check(worktree)
-                if not ok:
-                    return fail(f"{family}: {why}")
-                # family_lab.py sends its cargo arguments to the build daemon itself.
-                lab_code, output = call(
-                    [sys.executable, str(worktree / "scripts" / "fork" / "family_lab.py"),
-                     "run", family],
-                    cwd=worktree, env=attempt_env, log=logdir / (slug(family) + ".diff.log"),
-                )
-                counts = diff_counts(output, family)
-                if lab_code or counts["failed"]:
-                    kind = "lab" if lab_code else "diff"
-                    detail = f"Diff exited {lab_code} with {counts['failed']} failing cases"
-                    record_attempt(attempt, kind, detail, counts["passed"],
+                child = family_env(env, chunk_rows, name, worktree, queue_file, shakedown)
+                code, output = call(["git", "rev-parse", "HEAD"], cwd=worktree, env=env)
+                chunk_base = output.strip() if not code else base
+                failure_file = paths(root, name) / (slug(family) + ".failure.txt")
+                failure_file.unlink(missing_ok=True)
+                attempt_counts[family] = 0
+
+                def record_attempt(number, kind, detail, passed=0, failed=0, lab_exit=None):
+                    attempt_log.append({
+                        "family": family, "attempt": number, "failure_class": kind,
+                        "detail": detail, "passed": passed, "failed": failed,
+                        "lab_exit": lab_exit,
+                    })
+
+                finished = None
+                for attempt in range(1, attempts + 1):
+                    if attempt > 1:
+                        # A retry starts from the base ref: a failed worker's edits
+                        # and partially typed files must not leak into its successor.
+                        code, output = call(["git", "reset", "--hard", chunk_base],
+                                            cwd=worktree, env=env)
+                        if code:
+                            return fail(f"reset of {family}: {output.strip()}")
+                        code, output = call(["git", "clean", "-fd"], cwd=worktree, env=env)
+                        if code:
+                            return fail(f"clean of {family}: {output.strip()}")
+                    if not renew_claim(held, root, env):
+                        skipped.append(family)
+                        print(f"skip {family}: its claim could not be renewed", file=sys.stderr)
+                        break
+                    attempt_counts[family] = attempt
+                    attempt_env = dict(child)
+                    attempt_env["NV_PORT_ATTEMPT"] = str(attempt)
+                    if attempt > 1:
+                        attempt_env["NV_PORT_FAILURE_FILE"] = str(failure_file)
+                    else:
+                        attempt_env.pop("NV_PORT_FAILURE_FILE", None)
+                    worker_code, worker_output = call(
+                        worker, cwd=worktree, env=attempt_env,
+                        log=logdir / (slug(family) + ".worker.log"),
+                    )
+                    if worker_code:
+                        detail = f"worker exited {worker_code}"
+                        record_attempt(attempt, "worker", detail)
+                        if attempt < attempts:
+                            write_failure(failure_file, attempt, detail, [],
+                                          failure_excerpt([worker_output]))
+                            continue
+                        rejected.append(f"{family}: {detail}")
+                        break
+                    # The checker is verified before anything of the worker's is run or reviewed.
+                    ok, why = private_integrity.check(worktree)
+                    if not ok:
+                        return fail(f"{family}: {why}")
+                    # family_lab.py sends its cargo arguments to the build daemon itself.
+                    lab_code, output = call(
+                        [sys.executable, str(worktree / "scripts" / "fork" / "family_lab.py"),
+                         "run", family],
+                        cwd=worktree, env=attempt_env, log=logdir / (slug(family) + ".diff.log"),
+                    )
+                    counts = diff_counts(output, family)
+                    if lab_code or counts["failed"]:
+                        kind = "lab" if lab_code else "diff"
+                        detail = f"Diff exited {lab_code} with {counts['failed']} failing cases"
+                        record_attempt(attempt, kind, detail, counts["passed"],
+                                       counts["failed"], lab_code)
+                        if attempt < attempts:
+                            write_failure(failure_file, attempt, detail,
+                                          failing_cases(output, family),
+                                          failure_excerpt([worker_output, output], family))
+                            continue
+                        rejected.append(f"{family}: {detail}")
+                        break
+                    record_attempt(attempt, "none", "passed", counts["passed"],
                                    counts["failed"], lab_code)
-                    if attempt < attempts:
-                        write_failure(failure_file, attempt, detail,
-                                      failing_cases(output, family),
-                                      failure_excerpt([worker_output, output], family))
-                        continue
-                    rejected.append(f"{family}: {detail}")
+                    finished = (attempt_env, counts, lab_code)
                     break
-                record_attempt(attempt, "none", "passed", counts["passed"],
-                               counts["failed"], lab_code)
-                finished = (attempt_env, counts, lab_code)
-                break
-            if finished is None:
-                continue
-            attempt_env, counts, lab_code = finished
-            review_code, _ = call(reviewer, cwd=worktree, env=attempt_env,
-                                  log=logdir / (slug(family) + ".review.log"))
-            review = "accepted" if review_code == 0 else "rejected"
-            if review == "rejected":
-                attempt_log[-1].update({
-                    "failure_class": "review", "detail": f"review exited {review_code}",
-                })
-            if review == "accepted":
-                delivered = []
-                try:
-                    after = queue(worktree, env, call)
-                except (RuntimeError, ValueError):
-                    after = []
-                delivered = [r["address"] for r in after
-                             if r["state"] == "reference-verified"
-                             and r["address"] not in verified
-                             and r["address"] in {x["address"] for x in family_rows}]
+                if finished is None:
+                    restore(worktree, chunk_base, env, call)
+                    break
+                attempt_env, counts, lab_code = finished
+                review_code, _ = call(reviewer, cwd=worktree, env=attempt_env,
+                                      log=logdir / (slug(family) + ".review.log"))
+                review = "accepted" if review_code == 0 else "rejected"
+                if review == "rejected":
+                    attempt_log[-1].update({
+                        "failure_class": "review", "detail": f"review exited {review_code}",
+                    })
+                if review == "accepted":
+                    delivered = []
+                    try:
+                        after = queue(worktree, env, call)
+                    except (RuntimeError, ValueError):
+                        after = []
+                    delivered = [r["address"] for r in after
+                                 if r["state"] == "reference-verified"
+                                 and r["address"] not in verified
+                                 and r["address"] in {x["address"] for x in chunk_rows}]
+                    done_rows.extend(chunk_rows)
+                    done_delivered.extend(delivered)
+                    done_passed += counts["passed"]
+                    done_failed += counts["failed"]
+                    done_lab = lab_code
+                else:
+                    rejected.append(f"{family}: review exited {review_code}")
+                    restore(worktree, chunk_base, env, call)
+                    break
+            if done_rows:
                 accepted.append({
-                    "delivered": delivered,
+                    "delivered": done_delivered,
                     "family": family, "branch": branch, "worktree": worktree,
-                    "addresses": [r["address"] for r in family_rows],
-                    "passed": counts["passed"], "failed": counts["failed"],
-                    "lab_exit": lab_code, "review": review,
+                    "addresses": [r["address"] for r in done_rows],
+                    "passed": done_passed, "failed": done_failed,
+                    "lab_exit": done_lab, "review": "accepted",
                 })
-            else:
-                rejected.append(f"{family}: review exited {review_code}")
 
         report = make_report("closed unmerged" if shakedown else "open")
         write_json(root, name, report)

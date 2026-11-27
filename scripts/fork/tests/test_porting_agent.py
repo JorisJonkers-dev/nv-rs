@@ -180,6 +180,20 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(porting_agent.rates(Path(self.tmp.name) / "none"), {})
         self.assertEqual(porting_agent.main(["rates"], env={"NV_PORT_METRICS": str(path)}), 0)
 
+    def test_probe_parks_failing_models_for_an_hour(self):
+        env = dict(self.env, NV_PORT_WORKER_MODELS="free/a-1,free/b-1", NV_PORT_REVIEW_MODELS="free/c-1")
+
+        def stub(env, payload, sandbox=None):
+            return {"status": "failed" if payload["model"] == "free/b-1" else "done"}
+
+        outcome = porting_agent.probe(env, runner=stub)
+        self.assertEqual(outcome, {"free/a-1": True, "free/b-1": False, "free/c-1": True})
+        self.assertEqual(list(porting_agent.cooling(env)), ["free/b-1"])
+        order = porting_agent.candidates({**env, "NV_PORT_FAMILY": "x"}, "NV_PORT_WORKER", porting_agent.DEFAULT_WORKER)
+        self.assertEqual(order[-1][1], "free/b-1")
+        porting_agent.probe(env, runner=lambda e, p, sandbox=None: {"status": "ok"})
+        self.assertEqual(porting_agent.cooling(env), {})
+
     def test_template_family_is_the_smallest_suite(self):
         self.assertEqual(porting_agent.template_family(self.wt), "small")
 

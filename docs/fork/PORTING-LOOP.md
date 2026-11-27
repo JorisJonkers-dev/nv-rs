@@ -80,6 +80,7 @@ Both worker and reviewer must be commands; no service is built into the tool.
 | `NV_PORT_ATTEMPTS` | Total worker attempts per family after a worker, Diff or lab failure (default 3). |
 | `NV_PORT_BASE` | Ref every worktree starts at (default `fork`); set `origin/fork` when the local branch is stale. |
 | `NV_PORT_EXCLUDE` | Comma-separated family patterns (`fnmatch`) the batch never takes, for families another worker owns outside this clone's claims. |
+| `NV_PORT_CHUNK` | Most functions per chunk (default 5; 0 keeps a family whole). A family's chunks run one after another in its worktree, each with its own worker, `Diff` run and review; a failing chunk is dropped and ends the family, keeping the chunks before it. |
 | `NV_PORT_CLAIM_AGE` | Seconds before a family claim is treated as stale and reclaimed (default 3600). |
 
 Each worker and reviewer receives `NV_PORT_FAMILY`, `NV_PORT_BATCH`,
@@ -127,3 +128,5 @@ and exits 0 only on a `VERDICT: ACCEPT` line. Only public material is sent: queu
 and names, never decompiled code. Models, the gateway command, the writing-run slot count
 (`NV_PORT_SLOTS`, default 2) and the per-run metrics file (`NV_PORT_METRICS`, one JSON line per run
 with model, seconds, status and outcome) are environment; see the script's docstring.
+
+`porting_agent.py probe` asks every configured model one cheap question and parks the ones that fail for an hour (they sort last in the rotation); run it before a batch.

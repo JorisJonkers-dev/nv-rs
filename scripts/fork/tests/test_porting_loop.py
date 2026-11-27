@@ -341,6 +341,34 @@ class PortingLoop(unittest.TestCase):
             self.assertEqual(record["functions"], 2)
             self.assertEqual([f["family"] for f in record["families"]], ["fade"])
 
+    def test_chunks_keep_order_and_size(self):
+        rows = list(range(7))
+        self.assertEqual(porting_loop.chunk_family(rows, 3), [[0, 1, 2], [3, 4, 5], [6]])
+        self.assertEqual(porting_loop.chunk_family(rows, 0), [rows])
+        self.assertEqual(porting_loop.chunk_size({}), 5)
+        self.assertEqual(porting_loop.chunk_size({"NV_PORT_CHUNK": "2"}), 2)
+        with self.assertRaises(ValueError):
+            porting_loop.chunk_size({"NV_PORT_CHUNK": "x"})
+        with self.assertRaises(ValueError):
+            porting_loop.chunk_size({"NV_PORT_CHUNK": "-1"})
+
+    def test_a_family_runs_chunk_by_chunk_in_one_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording()
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=3, name="chunks",
+                                          env={**environment(root), "NV_PORT_CHUNK": "1"},
+                                          today=datetime.date(2026, 11, 26), call=recorder)
+            self.assertEqual(code, 0)
+            workers = [c for c in recorder.calls if c[0][:1] == ["worker-tool"] and c[2].get("NV_PORT_FAMILY") == "fade"]
+            self.assertEqual(len(workers), 2)
+            self.assertEqual({c[2]["NV_PORT_ADDRESSES"] for c in workers}, {"00401000", "00401010"})
+            self.assertEqual(len({c[1] for c in workers}), 1)
+            record = porting_loop.batch_record(root, "chunks")
+            fade = [f for f in record["families"] if f["family"] == "fade"][0]
+            self.assertTrue(fade["passed"] >= 2)
+
     def test_excluded_families_are_never_taken(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = tree(tmp)
