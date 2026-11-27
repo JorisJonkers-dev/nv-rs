@@ -41,6 +41,7 @@ pub mod mod_fit_worn;
 pub mod native_inflate;
 pub mod patch_data;
 pub mod phys_blend;
+pub mod player_high_process;
 pub mod player_move;
 pub mod report_place;
 pub mod save_out;
