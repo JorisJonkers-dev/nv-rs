@@ -235,7 +235,7 @@ def replay(args):
             all_os = model.platform_relevant(files)
             # The files are those of the pull request at its merge, read against today's tree: a file the tree no longer has
             # counts as deleted, so only files that still exist are selected by the map.
-            plan = model.plan(False, files, all_os, imp)
+            plan = model.plan(False, files, all_os, impact=imp)
             durs = []
             for e in plan["include"]:
                 comp = e["component"]
