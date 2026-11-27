@@ -35,8 +35,13 @@ from pathlib import Path
 
 try:
     import fcntl
-except ImportError:  # Windows: the slot lock is not taken
+except ImportError:  # POSIX only
     fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # Windows only
+    msvcrt = None
 
 FORK = Path(__file__).resolve().parent
 REPO = FORK.parent.parent
@@ -206,10 +211,12 @@ class Slot:
             for index in range(self.count):
                 handle = (self.directory / f"slot{index}.lock").open("w")
                 try:
-                    if fcntl is not None:
-                        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except OSError:
+                    taken = self._try_lock(handle)
+                except Exception:
                     handle.close()
+                    raise
+                if not taken:
+                    handle.close()  # held by another run: try the next slot
                     continue
                 self.handle = handle
                 return self
@@ -218,9 +225,33 @@ class Slot:
 
     POLL = 2
 
+    def _try_lock(self, handle):
+        """Take an advisory lock; False means this slot is held by another run."""
+        try:
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            elif msvcrt is not None:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                raise RuntimeError(
+                    "no file locking on this platform: the slot limit cannot be enforced")
+        except OSError:
+            return False
+        return True
+
+    def _unlock(self, handle):
+        """Release a Windows byte lock; closing the file releases an flock on POSIX."""
+        if fcntl is None and msvcrt is not None:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
     def __exit__(self, *_):
-        if self.handle:
-            self.handle.close()
+        if self.handle is not None:
+            try:
+                self._unlock(self.handle)
+            finally:
+                self.handle.close()
+                self.handle = None
 
 
 def provider_of(model):
