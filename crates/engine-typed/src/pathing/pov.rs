@@ -6,7 +6,7 @@ use super::navmesh::{barycentric, product_below_zero, product_not_above_zero, si
 use super::point::{abs, add, length, length_squared, length_xy_squared, root, scaled, subtract};
 use super::{copy_point, double_global, float, get, real, FAMILY};
 use crate::culling::layout::NiPoint3;
-use crate::native::{float_precision, to_float, Real};
+use crate::native::{float_precision, to_float, Double, Real, Single};
 use engine_core::ptr::Ptr;
 use engine_core::typed::leaf;
 use engine_core::{args, typed_call, Engine};
@@ -59,9 +59,9 @@ fn turn<R: Real>(e: &Engine, a: Ptr<Point2>, b: Ptr<Point2>, rotate: bool) -> (f
 #[inline(always)]
 fn turned(e: &Engine, a: Ptr<Point2>, b: Ptr<Point2>, rotate: bool) -> (f32, f32) {
     if float_precision() {
-        turn::<f32>(e, a, b, rotate)
+        turn::<Single>(e, a, b, rotate)
     } else {
-        turn::<f64>(e, a, b, rotate)
+        turn::<Double>(e, a, b, rotate)
     }
 }
 
@@ -657,9 +657,9 @@ pub fn sphere_tangents(
             let flag = u32::from((which != 0) == outer);
             e.set(entry, Tangent::side, flag);
             let (x, y) = if single {
-                tangent::<f32>(k, dx, dy, w, inv, which == 0)
+                tangent::<Single>(k, dx, dy, w, inv, which == 0)
             } else {
-                tangent::<f64>(k, dx, dy, w, inv, which == 0)
+                tangent::<Double>(k, dx, dy, w, inv, which == 0)
             };
             e.set(entry, Tangent::x, x);
             e.set(entry, Tangent::y, y);

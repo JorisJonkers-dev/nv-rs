@@ -20,7 +20,7 @@
 
 use super::walk::slot_word;
 use super::ShadowSceneLight;
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use engine_core::ptr::{Field, Ptr};
 use engine_core::sync_direct::{interlocked_decrement, interlocked_increment};
 use engine_core::types::{NiTListItem, NiTPointerList};
@@ -336,9 +336,9 @@ pub(super) fn luminance_to_bound_here(
     bound: u32,
 ) -> f32 {
     if float_precision() {
-        luminance_to_bound_in::<f32>(e, this, bound)
+        luminance_to_bound_in::<Single>(e, this, bound)
     } else {
-        luminance_to_bound_in::<f64>(e, this, bound)
+        luminance_to_bound_in::<Double>(e, this, bound)
     }
 }
 
@@ -402,9 +402,9 @@ pub fn luminance_at(
         return 0.0;
     }
     if float_precision() {
-        luminance_at_in::<f32>(e, this, light, [x, y, z])
+        luminance_at_in::<Single>(e, this, light, [x, y, z])
     } else {
-        luminance_at_in::<f64>(e, this, light, [x, y, z])
+        luminance_at_in::<Double>(e, this, light, [x, y, z])
     }
 }
 
@@ -475,9 +475,9 @@ pub fn facing_luminance(
     }
     let (a, b) = ([ax, ay, az], [bx, by, bz]);
     if float_precision() {
-        facing_luminance_in::<f32>(e, this, light, a, b)
+        facing_luminance_in::<Single>(e, this, light, a, b)
     } else {
-        facing_luminance_in::<f64>(e, this, light, a, b)
+        facing_luminance_in::<Double>(e, this, light, a, b)
     }
 }
 

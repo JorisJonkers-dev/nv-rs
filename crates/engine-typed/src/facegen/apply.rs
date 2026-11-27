@@ -11,7 +11,7 @@
 //! The vertices are the same words either way.
 
 use super::{keyframe, morph, FAMILY};
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use engine_core::ptr::Ptr;
 use engine_core::{args, typed_call, Engine};
 
@@ -885,7 +885,7 @@ pub fn morph_pass(e: &mut Engine, this: Ptr, force: u8) {
             if e.call(at::QUARTERED, &[]).bool() {
                 let quarter: f64 = e.global(at::QUARTER);
                 (far, near) = if float_precision() {
-                    let q = f32::narrow(quarter);
+                    let q = Single::narrow(quarter).0;
                     (far * q, near * q)
                 } else {
                     (
@@ -897,9 +897,9 @@ pub fn morph_pass(e: &mut Engine, this: Ptr, force: u8) {
             let single = float_precision();
             let close = |e: &mut Engine, limit: f32| -> bool {
                 let inside = if single {
-                    within::<f32>(distance, limit, ten)
+                    within::<Single>(distance, limit, ten)
                 } else {
-                    within::<f64>(distance, limit, ten)
+                    within::<Double>(distance, limit, ten)
                 };
                 inside || e.mem.u8(node + IN_DIALOGUE) != 0 || e.call(at::IN_MENU_MODE, &[]).bool()
             };
@@ -938,9 +938,9 @@ pub fn morph_pass(e: &mut Engine, this: Ptr, force: u8) {
             } else if !base_applied {
                 let far = setting(e, at::FAR_SETTING);
                 let outside = if single {
-                    beyond::<f32>(distance, far, ten)
+                    beyond::<Single>(distance, far, ten)
                 } else {
-                    beyond::<f64>(distance, far, ten)
+                    beyond::<Double>(distance, far, ten)
                 };
                 if outside {
                     let animation = animation_data(e, node);

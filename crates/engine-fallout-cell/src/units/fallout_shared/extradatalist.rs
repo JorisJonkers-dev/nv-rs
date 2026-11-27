@@ -4301,7 +4301,7 @@ pub(crate) fn extra_sound_or_empty(
 /// `x*y*(1-c) + z*s`, `x*z*(1-c) - y*s`, `x*y*(1-c) - z*s`, ...). The sine
 /// and cosine come from `004169a0`. The code computes on the x87 stack and
 /// rounds to `float` where it stores a temporary; the translation computes
-/// in `f64` and rounds at the same stores.
+/// in `f64` and rounds at the same stores, each operation with the x87's choice of NaN.
 pub fn fn_004168a0(e: &mut Engine, this: Ptr, angle: f32, x: f32, y: f32, z: f32) {
     let (sine, cosine) = e.with_stack(8, |e, scratch| {
         e.call(0x0041_69a0, &args![angle, scratch, scratch.addr() + 4]);
@@ -4311,26 +4311,30 @@ pub fn fn_004168a0(e: &mut Engine, this: Ptr, angle: f32, x: f32, y: f32, z: f32
         )
     });
     let (x, y, z) = (x as f64, y as f64, z as f64);
-    let one_minus_cos = (1.0 - cosine) as f32 as f64;
-    let xx = (x * x) as f32 as f64;
-    let yy = (y * y) as f32 as f64;
-    let zz = (z * z) as f32 as f64;
-    let xy = (x * y * one_minus_cos) as f32 as f64;
-    let xz = (x * z * one_minus_cos) as f32 as f64;
-    let yz = (y * z * one_minus_cos) as f32 as f64;
-    let x_sin = (x * sine) as f32 as f64;
-    let y_sin = (y * sine) as f32 as f64;
-    let z_sin = (z * sine) as f32 as f64;
+    let rounded = |value: f64| value as f32 as f64;
+    // Each operation is an x87 operation (`x87_*`): on a NaN operand it gives the NaN the x87
+    // gives (the larger payload), not the first operand's, so the payload is the exe's at every
+    // optimisation level (nv-rs#1009).
+    let one_minus_cos = rounded(x87_sub(1.0, cosine));
+    let xx = rounded(x87_mul(x, x));
+    let yy = rounded(x87_mul(y, y));
+    let zz = rounded(x87_mul(z, z));
+    let xy = rounded(x87_mul(x87_mul(x, y), one_minus_cos));
+    let xz = rounded(x87_mul(x87_mul(x, z), one_minus_cos));
+    let yz = rounded(x87_mul(x87_mul(y, z), one_minus_cos));
+    let x_sin = rounded(x87_mul(x, sine));
+    let y_sin = rounded(x87_mul(y, sine));
+    let z_sin = rounded(x87_mul(z, sine));
     let matrix = [
-        xx * one_minus_cos + cosine,
-        xy + z_sin,
-        xz - y_sin,
-        xy - z_sin,
-        yy * one_minus_cos + cosine,
-        yz + x_sin,
-        xz + y_sin,
-        yz - x_sin,
-        zz * one_minus_cos + cosine,
+        x87_add(x87_mul(xx, one_minus_cos), cosine),
+        x87_add(xy, z_sin),
+        x87_sub(xz, y_sin),
+        x87_sub(xy, z_sin),
+        x87_add(x87_mul(yy, one_minus_cos), cosine),
+        x87_add(yz, x_sin),
+        x87_add(xz, y_sin),
+        x87_sub(yz, x_sin),
+        x87_add(x87_mul(zz, one_minus_cos), cosine),
     ];
     for (index, value) in matrix.into_iter().enumerate() {
         e.mem.set_f32(this.addr() + index as u32 * 4, value as f32);

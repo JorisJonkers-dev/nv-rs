@@ -9,7 +9,7 @@ use super::{
     BSPSysSimpleColorModifier, NiPSysAgeDeathModifier, NiPSysBombModifier,
     NiPSysBoundUpdateModifier, NiPSysData, NiPSysGrowFadeModifier, NiPSysModifier, FAMILY,
 };
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use crate::{culling, dispatch, slot_target};
 use engine_core::ptr::Ptr;
 use engine_core::{args, typed_call, Engine};
@@ -186,9 +186,9 @@ pub fn bomb(e: &mut Engine, this: Ptr<NiPSysBombModifier>, time: f32, data: Ptr<
         let single = float_precision();
         loop {
             if single {
-                bomb_particle::<f32>(e, this, data, time, bomb_at, f, direction, u32::from(i));
+                bomb_particle::<Single>(e, this, data, time, bomb_at, f, direction, u32::from(i));
             } else {
-                bomb_particle::<f64>(e, this, data, time, bomb_at, f, direction, u32::from(i));
+                bomb_particle::<Double>(e, this, data, time, bomb_at, f, direction, u32::from(i));
             }
             i = i.wrapping_add(1);
             if i >= e.get(data, NiPSysData::m_usActive) {
@@ -384,9 +384,9 @@ pub fn age_death(
     data: Ptr<NiPSysData>,
 ) {
     if float_precision() {
-        age_death_in::<f32>(e, this, time, data);
+        age_death_in::<Single>(e, this, time, data);
     } else {
-        age_death_in::<f64>(e, this, time, data);
+        age_death_in::<Double>(e, this, time, data);
     }
 }
 
@@ -480,9 +480,9 @@ fn low_half(word: u32) -> u16 {
 /// becomes 0, else while it is above 2π it loses 2π (the first test before any subtraction).
 pub fn rotation(e: &mut Engine, this: Ptr, time: f32, data: Ptr<NiPSysData>) {
     if float_precision() {
-        rotation_in::<f32>(e, this, time, data);
+        rotation_in::<Single>(e, this, time, data);
     } else {
-        rotation_in::<f64>(e, this, time, data);
+        rotation_in::<Double>(e, this, time, data);
     }
 }
 
@@ -552,9 +552,9 @@ pub fn grow_fade(
     data: Ptr<NiPSysData>,
 ) {
     if float_precision() {
-        grow_fade_in::<f32>(e, this, time, data);
+        grow_fade_in::<Single>(e, this, time, data);
     } else {
-        grow_fade_in::<f64>(e, this, time, data);
+        grow_fade_in::<Double>(e, this, time, data);
     }
 }
 
@@ -665,9 +665,9 @@ pub fn bound_update(
     data: Ptr<NiPSysData>,
 ) {
     if float_precision() {
-        bound_update_in::<f32>(e, this, time, data);
+        bound_update_in::<Single>(e, this, time, data);
     } else {
-        bound_update_in::<f64>(e, this, time, data);
+        bound_update_in::<Double>(e, this, time, data);
     }
 }
 
@@ -830,9 +830,9 @@ pub fn simple_color(
     data: Ptr<NiPSysData>,
 ) {
     if float_precision() {
-        simple_color_in::<f32>(e, this, time, data);
+        simple_color_in::<Single>(e, this, time, data);
     } else {
-        simple_color_in::<f64>(e, this, time, data);
+        simple_color_in::<Double>(e, this, time, data);
     }
 }
 
