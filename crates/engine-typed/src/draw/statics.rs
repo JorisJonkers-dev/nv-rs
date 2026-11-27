@@ -188,6 +188,59 @@ pub fn take(e: &Engine, acc: Ptr<BSShaderAccumulator>) {
     capture::own_counted(e, super::own::HELD_ACCUMULATOR);
 }
 
+/// The vertex (`011febd8`) and pixel (`011fec30`) constant entries, 22 pointers each, and the shader table
+/// (`011f9548`, `BSShaderManager::pShaders`, 0x23 slots).
+const ENTRY_TABLES: [u32; 2] = [0x011f_ebd8, 0x011f_ec30];
+const ENTRIES: u32 = 22;
+const SHADER_TABLE: u32 = 0x011f_9548;
+const SHADER_SLOTS: u32 = 0x23;
+/// A constant entry's enabled byte (+8) and its switch word (+0x20: the register count the set-ups give).
+const ENTRY_ENABLED: (u32, u32) = (8, 9);
+const ENTRY_SWITCH: (u32, u32) = (0x20, 0x24);
+/// A shader object's counted pointers: +0x28 (the declaration), +0x30 and +0x34 (the pixel and vertex constant maps).
+const SHADER_COUNTED: [u32; 3] = [0x28, 0x30, 0x34];
+const SHADER_COUNTED_BLOCK: (u32, u32) = (0x28, 0x38);
+
+/// The word at `addr`, `None` when it is not mapped.
+fn peek(e: &Engine, addr: u32) -> Option<u32> {
+    let mut b = [0u8; 4];
+    e.mem
+        .try_read(addr, &mut b)
+        .ok()
+        .map(|()| u32::from_le_bytes(b))
+}
+
+/// The shared pass-begin state as own blocks (nv-rs#992), after [`take`]: the 22 vertex and 22 pixel constant entries'
+/// enabled byte and switch word (the draw's `enable_entries` and its set-ups write them, main's pass begins
+/// `00c02ce0` and `00c02f70` too), and +0x28 to +0x38 of each shader object (one own block), in which the
+/// counted pointers +0x28, +0x30 and +0x34 are marked counted ([`capture::own_counted`]; the marks are the
+/// join's list of words whose counts move, not a second copy) with their objects held until the join, so the
+/// drawing side's assignments leave the counts to it. Main's untyped writers of these say what they wrote ([`capture::note_write`]),
+/// so that the join keeps main's value where main wrote last.
+pub fn take_pass_state(e: &mut Engine) {
+    for table in ENTRY_TABLES {
+        for i in 0..ENTRIES {
+            let Some(entry) = peek(e, table + 4 * i).filter(|&a| a != 0) else {
+                continue;
+            };
+            capture::own(e, entry, ENTRY_ENABLED.0, ENTRY_ENABLED.1);
+            capture::own(e, entry, ENTRY_SWITCH.0, ENTRY_SWITCH.1);
+        }
+    }
+    for i in 0..SHADER_SLOTS {
+        let Some(shader) = peek(e, SHADER_TABLE + 4 * i).filter(|&a| a != 0) else {
+            continue;
+        };
+        capture::own(e, shader, SHADER_COUNTED_BLOCK.0, SHADER_COUNTED_BLOCK.1);
+        for offset in SHADER_COUNTED {
+            capture::own_counted(e, shader + offset);
+            if let Some(object) = peek(e, shader + offset).filter(|&a| a != 0) {
+                capture::hold(e, object);
+            }
+        }
+    }
+}
+
 /// The renderers' per-draw words ([`RENDERER_BLOCKS`]) as own blocks (one renderer held twice is taken once).
 pub fn take_renderers(e: &Engine) {
     for global in RENDERER_GLOBALS {

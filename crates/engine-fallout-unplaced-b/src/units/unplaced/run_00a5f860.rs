@@ -20,6 +20,9 @@ const DELETE_THIS_SLOT: u32 = 0x4;
 /// the slot.
 pub fn fn_00a5f860(e: &mut Engine, this: Ptr, object: Ptr) -> Ptr {
     let old = e.mem.u32(this.addr());
+    // A detached world draw may own this slot (a shader's counted pointer): main's assignment decides it, also when it
+    // leaves the value as it was (nv-rs#992).
+    engine_core::own_view::note_write(e, this.addr(), 4);
     if old == object.addr() {
         return this;
     }
