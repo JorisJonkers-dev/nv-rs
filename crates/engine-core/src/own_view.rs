@@ -190,6 +190,26 @@ impl OwnView {
     }
 }
 
+/// What a translation calls when it writes a word the draw may own (`note_write`): the draw family's own routine
+/// (`engine_typed::draw::capture::note_write`), set when a packet first opens. Nothing is called before that.
+static NOTE_HOOK: std::sync::OnceLock<fn(&crate::Engine, u32, u32)> = std::sync::OnceLock::new();
+
+/// Sets the routine [`note_write`] calls (the first one stays).
+pub fn set_note_hook(hook: fn(&crate::Engine, u32, u32)) {
+    let _ = NOTE_HOOK.set(hook);
+}
+
+/// Says that main wrote, or decided without writing, the bytes `[addr, addr + len)` of guest memory: while a draw's
+/// value packet is open and owns them, the join keeps main's value for them (`capture::end`). For a translation
+/// that writes state a detached draw may share (a counted pointer, a constant entry's switch), also when the write
+/// leaves the value as it was. Nothing without a packet.
+#[inline]
+pub fn note_write(e: &crate::Engine, addr: u32, len: u32) {
+    if let Some(hook) = NOTE_HOOK.get() {
+        hook(e, addr, len);
+    }
+}
+
 /// The page table's hash of a page number.
 #[inline(always)]
 fn hash(page: u32) -> usize {

@@ -223,6 +223,9 @@ pub fn hk_quaternion_set_mul(
 /// so the stored and retained pointer is the one the source holds by then.
 pub fn hk_ref_counted_pointer_assign(e: &mut Engine, this: Ptr, source: Ptr) -> Ptr {
     let old = e.mem.u32(this.addr());
+    // A detached world draw may own this slot (a shader's counted pointer): main's assignment decides it, also when it
+    // leaves the value as it was (nv-rs#992).
+    engine_core::own_view::note_write(e, this.addr(), 4);
     // 00c663db: `CMP EDI,[EBX]`, the source word is only compared here.
     if old != e.mem.u32(source.addr()) {
         if old != 0 {

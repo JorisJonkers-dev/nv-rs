@@ -23,7 +23,7 @@ const SLOT_PIXEL_CONSTANTS: u32 = 0x1b4;
 /// or a variable name (+0x24).
 fn settable(e: &Engine, entry: u32) -> bool {
     entry != 0
-        && e.mem.u8(entry.wrapping_add(8)) != 0
+        && crate::draw::capture::own_at::<u8>(e, entry.wrapping_add(8)) != 0
         && (e.mem.u32(entry.wrapping_add(0x1c)) != 0xffff_ffff
             || e.mem.u32(entry.wrapping_add(0x24)) != 0)
 }

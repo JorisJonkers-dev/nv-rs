@@ -351,6 +351,7 @@ impl Drop for OpenSlot {
 
 /// `run`'s packet closed ([`end`]).
 fn note_closed(run: usize) {
+    watch_clear(run);
     for r in &OPEN_RUNS {
         if r.compare_exchange(run, 0, Relaxed, Relaxed).is_ok() {
             return;
@@ -379,6 +380,8 @@ pub fn is_open(e: &Engine) -> bool {
 
 /// Opens an empty packet on this thread for `e`'s run. False (nothing done) when this thread holds one already.
 pub fn begin(e: &Engine) -> bool {
+    // The translations that write own state main decides ([`note_write`]) reach this module through the core's hook.
+    engine_core::own_view::set_note_hook(note_write);
     let opened = PACKET.with(|p| {
         let mut p = p.borrow_mut();
         if p.is_some() {
@@ -662,6 +665,7 @@ pub fn own(e: &Engine, object: u32, from: u32, to: u32) {
             }
             let (bytes, cut) = (&p.own_bytes, &mut p.own_cut);
             cut.extend_from_slice(&bytes[at..]);
+            watch_add(p.run, a, z);
             let index = u32::try_from(p.own.len()).expect("the packet stays under 4 GB");
             let k = p.own_by_lo.partition_point(|&i| p.own[i as usize].lo < a);
             p.own_by_lo.insert(k, index);
@@ -682,11 +686,43 @@ pub fn own_counted(e: &Engine, addr: u32) {
     });
 }
 
+/// The own blocks of the open packets, by run and address (sorted, apart from each other): what a write of main's
+/// that no accessor routes ([`note_write`], from the translations) is told apart by, since the packet itself is on the
+/// drawing thread. Only a hit is worth a mark: main writes counted pointers all the time.
+static WATCH: std::sync::Mutex<Vec<(usize, u32, u32)>> = std::sync::Mutex::new(Vec::new());
+
+/// A block `[lo, hi)` of `run`'s own state taken.
+fn watch_add(run: usize, lo: u32, hi: u32) {
+    let mut w = WATCH.lock().unwrap_or_else(|p| p.into_inner());
+    let k = w.partition_point(|&(r, l, _)| (r, l) < (run, lo));
+    w.insert(k, (run, lo, hi));
+}
+
+/// `run`'s blocks given up (its packet closed).
+fn watch_clear(run: usize) {
+    WATCH
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .retain(|&(r, _, _)| r != run);
+}
+
+/// Whether `[addr, addr + len)` meets a block of `run`'s open packet.
+fn watched(run: usize, addr: u32, len: u32) -> bool {
+    let w = WATCH.lock().unwrap_or_else(|p| p.into_inner());
+    let end = addr.saturating_add(len);
+    let k = w.partition_point(|&(r, l, _)| (r, l) <= (run, addr));
+    let before = k
+        .checked_sub(1)
+        .and_then(|i| w.get(i))
+        .is_some_and(|&(r, _, hi)| r == run && hi > addr);
+    before || w.get(k).is_some_and(|&(r, lo, _)| r == run && lo < end)
+}
+
 /// Notes that main decided the own state's bytes `[addr, addr + len)` after the cut although it wrote nothing there (a
 /// hold of the object already held): the join keeps main's value for them, as a write would. Nothing on the thread
 /// whose packet serves `e`, or while no packet is open.
 pub fn note_write(e: &Engine, addr: u32, len: u32) {
-    if !active() {
+    if !active() || !watched(run(e), addr, len) {
         return;
     }
     let mine = PACKET.with(|p| p.borrow().as_ref().is_some_and(|p| p.serves(e)));
