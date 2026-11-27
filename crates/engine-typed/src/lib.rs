@@ -227,17 +227,26 @@ mod tests {
         );
         let defaults = parse_switch(None, &families).unwrap();
         for (f, m) in families.iter().zip(&defaults) {
-            assert_eq!(*m == Mode::On, f.past_gate, "{}", f.name);
+            // Past its gate a family is on, in its stage-2 form when it moves by default (nv-rs#946).
+            assert_eq!(*m != Mode::Off, f.past_gate, "{}", f.name);
+            assert_eq!(*m, engine_core::typed::default_mode(f), "{}", f.name);
         }
+        // Every family that moves by default is a family with a stage-2 form.
+        for (name, _) in engine_core::typed::MOVED_BY_DEFAULT {
+            let f = families.iter().find(|f| f.name == *name).expect("a family");
+            assert!(f.stage2, "{name} moves by default and has no stage-2 form");
+        }
+        let lockfree = families.iter().position(|f| f.name == "lockfree").unwrap();
+        assert_eq!(defaults[lockfree], Mode::Moved);
         let off = parse_switch(Some("off"), &families).unwrap();
         assert!(off.iter().all(|m| *m == Mode::Off));
         let one_off = parse_switch(Some("shader:off"), &families).unwrap();
         assert_eq!(one_off[3], Mode::Off);
-        assert!(one_off.iter().filter(|m| **m == Mode::On).count() == 32);
+        assert!(one_off.iter().filter(|m| **m != Mode::Off).count() == 32);
         // `NV_TYPED=geometry:off` still turns the geometry family (index 12) off, and only it.
         let geometry_off = parse_switch(Some("geometry:off"), &families).unwrap();
         assert_eq!(geometry_off[12], Mode::Off);
-        assert!(geometry_off.iter().filter(|m| **m == Mode::On).count() == 32);
+        assert!(geometry_off.iter().filter(|m| **m != Mode::Off).count() == 32);
     }
 
     /// No two of this crate's families (with the core's) hold the same address, past their gate or not:

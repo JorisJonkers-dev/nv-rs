@@ -1,6 +1,6 @@
 //! Where the family's code reads and writes the maps' body (stage 2 of the migration;
 //! `engine_core::typed::moved`): through the store of the operation's root, the same code in every
-//! form. Stage 1 (`NV_TYPED=lockfree`, the default) is the guest store; `lockfree:dual` keeps the
+//! form. Stage 1 (`NV_TYPED=lockfree`, the rollback) is the guest store; `lockfree:dual` keeps the
 //! guest body the truth and mirrors it in the slab; `lockfree:moved` (K1) and `lockfree:freed` (K2)
 //! keep the body in the slab.
 //!
@@ -36,7 +36,8 @@ pub(crate) mod tag {
     pub const SCAN_COPY: u16 = 8;
 }
 
-/// The family's store: stage 1's unless `NV_TYPED` puts the family in a stage-2 form. Reads and
+/// The family's store: the slab's in the family's default form (K1, `typed::MOVED_BY_DEFAULT`),
+/// stage 1's (the guest heap) under `NV_TYPED=lockfree` or `lockfree:off`. Reads and
 /// writes through it reach a guest object or a moved one, whichever the address names.
 #[inline(always)]
 pub(crate) fn store(e: &Engine) -> Store {
@@ -108,6 +109,8 @@ pub(crate) fn map_set<T: Word>(
 /// guest word into the mirror), in place on a moved one.
 pub(crate) fn clear_word(e: &mut Engine, s: Store, addr: u32, at: u32, words: &[u32]) {
     if matches!(s, Store::Moved { .. }) && moved::is_handle(at) {
+        // The call by address is one step of the time slice, done in place here.
+        e.typed_charge(&[addr]);
         s.store(e, at, 0);
     } else {
         s.whole(e, |e| {
@@ -119,6 +122,11 @@ pub(crate) fn clear_word(e: &mut Engine, s: Store, addr: u32, at: u32, words: &[
 
 /// `operator new(size)` for the family's own object, in the store `s`.
 pub(crate) fn alloc(e: &mut Engine, s: Store, size: u32, tag: u16) -> u32 {
+    if matches!(s, Store::Moved { shadows: false, .. }) {
+        // K2 makes no call by address: its steps of the time slice are charged (`operator new` and
+        // the allocator's own call).
+        e.typed_charge(&NEW_STEPS);
+    }
     s.alloc(e, size, tag, |e| {
         e.call(super::OPERATOR_NEW, &args![size]).u32()
     })
@@ -126,6 +134,9 @@ pub(crate) fn alloc(e: &mut Engine, s: Store, size: u32, tag: u16) -> u32 {
 
 /// `operator delete(p)` for the family's own object (a guest or moved block, whichever `p` is).
 pub(crate) fn free(e: &mut Engine, s: Store, p: u32) {
+    if matches!(s, Store::Moved { shadows: false, .. }) && moved::is_handle(p) {
+        e.typed_charge(&DELETE_STEPS);
+    }
     s.free(e, p, |e, block| {
         e.call(super::OPERATOR_DELETE, &args![block]);
     })
@@ -144,6 +155,9 @@ pub(crate) fn construct_array(
     constructor: u32,
 ) {
     if matches!(s, Store::Moved { .. }) && moved::is_handle(block) {
+        // The iterator's call and each element's constructor are steps of the time slice.
+        e.typed_charge(&[super::VECTOR_CONSTRUCT]);
+        e.typed_charge_n(constructor, count);
         return;
     }
     s.whole(e, |e| {
@@ -158,6 +172,9 @@ pub(crate) fn construct_array(
 /// The link compare-and-swap (`004491c0`, `cdecl(link, new, expected)`): whether the link held
 /// `expected` and now holds `new`.
 pub(crate) fn swap_link(e: &mut Engine, s: Store, link: u32, new: u32, expected: u32) -> bool {
+    if in_place(s, link) {
+        e.typed_charge(&SWAP_LINK_STEPS);
+    }
     s.cas(e, link, expected, new, |e| {
         e.call(SWAP_LINK, &args![link, new, expected]).bool()
     })
@@ -165,6 +182,21 @@ pub(crate) fn swap_link(e: &mut Engine, s: Store, link: u32, new: u32, expected:
 
 /// The link compare-and-swap (`cdecl(link, new, expected)`).
 const SWAP_LINK: u32 = 0x0044_91c0;
+/// The calls by address a moved form does in place, as steps of the thread host's time slice
+/// (measured in the stage 1 run: the calls the exe's own code makes under each, in order). The link
+/// compare-and-swap: itself, its wrapper `0043b460`, the interlocked import and `0040fbe0`.
+/// Each address by the name the repository gives it: `004491c0` the link compare-and-swap (`SWAP_LINK`);
+/// `0043b460` the interlocked compare-exchange wrapper; `00fdf1bc` the `InterlockedCompareExchange`
+/// import slot; `0040fbe0` the error report (cdecl, variable arguments), the last step of the
+/// measured sequence.
+pub(crate) const SWAP_LINK_STEPS: [u32; 4] = [SWAP_LINK, 0x0043_b460, 0x00fd_f1bc, 0x0040_fbe0];
+/// `operator new` (`00401000`) and the allocator's call under it (`MemoryManager::Allocate`,
+/// `00aa3e40`), `operator delete` and the allocator's (`MemoryManager::Deallocate`, `00aa4060`).
+pub(crate) const NEW_STEPS: [u32; 2] = [super::OPERATOR_NEW, 0x00aa_3e40];
+pub(crate) const DELETE_STEPS: [u32; 2] = [super::OPERATOR_DELETE, 0x00aa_4060];
+/// The interlocked increment's wrapper (`0040b460`, the counter helper) and its import
+/// (`00fdf1c0`, the `InterlockedIncrement` slot).
+pub(crate) const INCREMENT_STEPS: [u32; 2] = [0x0040_b460, 0x00fd_f1c0];
 /// `NiPointer<T>::operator=` from an object (`thiscall(holder, object)`), the object's release
 /// (`NiRefObject::DecRefCount`, Xbox PDB; `thiscall`) and its count taken (`thiscall`), a holder's
 /// release (`thiscall(holder)`) and a counted pointer local made from a holder (`thiscall(local,
@@ -177,7 +209,7 @@ const POINTER_FROM_HOLDER: u32 = 0x0044_e370;
 
 /// Whether `holder` is a moved word, done in place rather than by address.
 #[inline(always)]
-fn in_place(s: Store, at: u32) -> bool {
+pub(crate) fn in_place(s: Store, at: u32) -> bool {
     matches!(s, Store::Moved { .. }) && moved::is_handle(at)
 }
 
@@ -187,6 +219,7 @@ fn in_place(s: Store, at: u32) -> bool {
 /// counted (`0092c870`).
 pub(crate) fn holder_set(e: &mut Engine, s: Store, holder: u32, object: u32) {
     if in_place(s, holder) {
+        e.typed_charge(&[HOLDER_SET]);
         let held = s.load(e, holder);
         if held != object {
             if held != 0 {
@@ -215,6 +248,7 @@ pub(crate) fn holder_set(e: &mut Engine, s: Store, holder: u32, object: u32) {
 /// held object, if any, released (`0044dd60`).
 pub(crate) fn holder_release(e: &mut Engine, s: Store, holder: u32) {
     if in_place(s, holder) {
+        e.typed_charge(&[HOLDER_RELEASE]);
         let held = s.load(e, holder);
         if held != 0 {
             e.call(RELEASE, &args![held]);
@@ -229,6 +263,7 @@ pub(crate) fn holder_release(e: &mut Engine, s: Store, holder: u32) {
 /// (`0092c870`).
 pub(crate) fn pointer_from_holder(e: &mut Engine, s: Store, local: u32, holder: u32) {
     if in_place(s, holder) {
+        e.typed_charge(&[POINTER_FROM_HOLDER]);
         let held = s.load(e, holder);
         e.mem.set_u32(local, held);
         if held != 0 {

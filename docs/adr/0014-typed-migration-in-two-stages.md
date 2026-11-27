@@ -78,7 +78,9 @@ These are open for the maintainer, and nothing in this record settles them:
   count and lock) stay usable as before. The family's exe addresses are not overridable: a hook there
   would send the family's calls by address and put untyped code in front of its handles. The objects'
   guest addresses (K1 stubs) and vtables stay where the game made them. Until a family moves by default,
-  nothing changes for extenders.
+  nothing changes for extenders. The lock-free maps moved by default on 2026-11-27 (nv-rs#946; K1, rolled
+  back at start-up by `NV_TYPED=lockfree` or `lockfree:off`; K2 is `lockfree:freed`), so for them the rule above
+  applies to every run that sets no switch.
 
 ## Consequences
 

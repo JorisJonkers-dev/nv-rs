@@ -2083,6 +2083,12 @@ mod forms {
     const LOG_BYTES: u32 = 0x1_0000;
     const NEW: u32 = 0x0040_1000;
     const DELETE: u32 = 0x0040_1030;
+    const ALLOCATE: u32 = 0x00aa_3e40;
+    const DEALLOCATE: u32 = 0x00aa_4060;
+    std::thread_local! {
+        /// The address of each step of the time slice, in order ([`Run::new`]).
+        static STEPS: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
     /// The map's moved fields (`LockFreeMap`'s K1 stub).
     const MOVED_FIELDS: [u32; 4] = [4, 0xc, 0x10, 0x14];
 
@@ -2181,12 +2187,18 @@ mod forms {
             e.mem.set_u32(W_TLS, a[1]);
             ret(1)
         });
+        // The allocator's own call under each, as the exe's `operator new` and `operator delete`
+        // make it (the steps of the time slice that K2's moved blocks must still take).
+        e.register(ALLOCATE, |_, _| ret(0));
+        e.register(DEALLOCATE, |_, _| ret(0));
         e.register(NEW, |e, a| {
+            e.call(ALLOCATE, &[]);
             let p = e.mem.alloc(a[0].max(1));
             log(e, 1, a[0], p);
             ret(p)
         });
         e.register(DELETE, |e, a| {
+            e.call(DEALLOCATE, &[]);
             if a[0] != 0 {
                 log(e, 2, 0, a[0]);
                 e.mem.free(a[0]);
@@ -2205,6 +2217,8 @@ mod forms {
         poison_held: bool,
         dual: Option<(u64, u64)>,
         slab_after: Vec<(u8, u16, u64, u64)>,
+        /// The steps of the thread host's time slice the life took ([`Run::new`] counts them).
+        steps: Vec<u32>,
     }
 
     /// The family's map, its moved fields at each look, and the rest of a life's bookkeeping.
@@ -2220,12 +2234,23 @@ mod forms {
     impl Run {
         fn new(spec: &str) -> Run {
             let mut e = engine(spec);
+            // The time slice is on, as under the stepped host, and never used up: each call by
+            // address and each direct call of a typed function is one step, in every form
+            // (nv-rs#946: the stepped threads hand over after so many steps, so a form that makes
+            // fewer calls changes where they do).
+            STEPS.with(|s| s.borrow_mut().clear());
+            e.slice_hook = Some(|e, addr| {
+                STEPS.with(|s| s.borrow_mut().push(addr));
+                e.slice_left = 0;
+            });
+            e.slice_len = 0;
+            e.slice_left = 0;
             let objects = (0..8).map(|_| ref_object(&mut e, 1)).collect();
             let map = e.mem.alloc(0x40);
             Run {
                 e,
                 map,
-                moved_form: spec.ends_with(":moved") || spec.ends_with(":freed"),
+                moved_form: spec.ends_with(":moved") || spec.ends_with(":freed") || spec.is_empty(),
                 poison_held: true,
                 objects,
                 answers: Vec::new(),
@@ -2296,6 +2321,7 @@ mod forms {
                 .collect();
             let heap = logged(&self.e);
             Life {
+                steps: STEPS.with(|s| std::mem::take(&mut *s.borrow_mut())),
                 answers: self.answers,
                 references,
                 heap,
@@ -2548,6 +2574,37 @@ mod forms {
             let form = life(spec);
             assert_eq!(form.answers, stage1.answers, "{spec}: the answers");
             assert_eq!(form.references, stage1.references, "{spec}: the references");
+            if spec != "lockfree:dual" {
+                // (The dual run takes the time slice out while it does both halves of an access.)
+                // The stepped threads hand over after so many steps (calls by address and direct
+                // calls of typed functions): a form that takes fewer, or others, changes where.
+                let first = form
+                    .steps
+                    .iter()
+                    .zip(&stage1.steps)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(form.steps.len().min(stage1.steps.len()));
+                let around = |v: &[u32]| -> Vec<String> {
+                    v[first.saturating_sub(6)..(first + 6).min(v.len())]
+                        .iter()
+                        .map(|a| format!("{a:08x}"))
+                        .collect()
+                };
+                assert_eq!(
+                    form.steps.len(),
+                    stage1.steps.len(),
+                    "{spec}: steps of the time slice; first difference at {first}: form {:?}, stage 1 {:?}",
+                    around(&form.steps),
+                    around(&stage1.steps)
+                );
+                assert_eq!(
+                    form.steps,
+                    stage1.steps,
+                    "{spec}: first difference at step {first}: form {:?}, stage 1 {:?}",
+                    around(&form.steps),
+                    around(&stage1.steps)
+                );
+            }
             assert!(form.poison_held, "{spec}: the poison held");
             assert!(
                 form.slab_after.is_empty(),
@@ -2589,6 +2646,346 @@ mod forms {
     #[test]
     fn the_tree_node_map_lives_alike_in_every_form() {
         every_form(tree_life, 20);
+    }
+
+    // The family moves by default (nv-rs#946): with no switch it is in K1, and the rollbacks are
+    // the switch's other forms.
+
+    /// With `NV_TYPED` silent the lock-free family is in its K1 form and lives as stage 1 does.
+    #[test]
+    fn the_family_moves_by_default() {
+        use engine_core::typed::{switch_for, Mode};
+        assert!(lockfree::LOCKFREE.stage2, "the family has a stage-2 form");
+        // No switch, and `NV_TYPED=all`, both give the moved form through the path a run takes
+        // (`switch_for`: none is the default); a run compared with the original's record has it off.
+        for given in [None, Some("all")] {
+            let e = engine(switch_for(given, false).unwrap_or(""));
+            assert_eq!(e.typed_mode(lockfree::FAMILY), Mode::Moved, "{given:?}");
+        }
+        let compared = engine(switch_for(None, true).expect("off"));
+        assert_eq!(compared.typed_mode(lockfree::FAMILY), Mode::Off);
+        for spec in ["", "all", "off,all"] {
+            let e = engine(spec);
+            assert_eq!(e.typed_mode(lockfree::FAMILY), Mode::Moved, "{spec:?}");
+        }
+        // The rollbacks: stage 1, K2, the dual run and the translation.
+        for (spec, mode) in [
+            ("lockfree", Mode::On),
+            ("lockfree:freed", Mode::Freed),
+            ("lockfree:dual", Mode::Dual),
+            ("lockfree:off", Mode::Off),
+            ("off", Mode::Off),
+        ] {
+            assert_eq!(engine(spec).typed_mode(lockfree::FAMILY), mode, "{spec}");
+        }
+        // The default's life is K1's: stage 1's answers, guest heap and steps of the time slice.
+        let stage1 = counted_life("lockfree");
+        let default = counted_life("");
+        assert_eq!(default.answers, stage1.answers);
+        assert_eq!(default.references, stage1.references);
+        assert_eq!(default.heap, stage1.heap, "K1 makes stage 1's guest blocks");
+        assert_eq!(default.steps, stage1.steps, "and takes stage 1's steps");
+        assert!(default.slab_after.is_empty());
+        let default = words_life("");
+        assert_eq!(default.answers, words_life("lockfree").answers);
+    }
+
+    /// The save check: what untyped code reads of a map (its vtable, bucket count, count and lock,
+    /// so a save or a co-save that walks the object) is the same bytes in K1 and K2 as in stage 1, at
+    /// every look through a map's life; the moved fields and the spare word hold the poison and the
+    /// record's handle, which no save reads (ADR-0014, "Not decided here").
+    #[test]
+    fn the_bytes_untyped_code_reads_stay_as_stage_1_has_them() {
+        let snapshot = |spec: &str| {
+            let mut r = Run::new(spec);
+            let map = r.map;
+            let mut looks: Vec<Vec<u32>> = Vec::new();
+            let mut look = |r: &Run| {
+                looks.push(
+                    (0..0x40u32)
+                        .step_by(4)
+                        .filter(|off| !MOVED_FIELDS.contains(off) && *off != 0x1c)
+                        .map(|off| r.e.mem.u32(map + off))
+                        .collect(),
+                );
+            };
+            r.call(0x0044_c270, &[map, 2, 4, 3]);
+            look(&r);
+            let face = r.call(0x0044_9f80, &[map]);
+            let word = r.e.mem.alloc(4);
+            for key in [1u32, 2, 3, 5, 6, 9] {
+                r.e.mem.set_u32(word, 0x100 + key);
+                r.ask(0x0044_a130, &[face, key, word, 0]);
+                look(&r);
+            }
+            r.ask(0x0066_5f20, &[face, 2]);
+            look(&r);
+            r.call(0x0044_c480, &[map, 0]);
+            look(&r);
+            r.call(0x0044_c3f0, &[map]);
+            look(&r);
+            looks
+        };
+        let stage1 = snapshot("lockfree");
+        for spec in ["lockfree:moved", "lockfree:freed", ""] {
+            assert_eq!(
+                snapshot(spec),
+                stage1,
+                "{spec:?}: the bytes untyped code reads"
+            );
+        }
+    }
+
+    /// The race campaign's part for the family's real threads (ADR-0015; nv-rs#946): the caller and
+    /// three helpers, each on its own OS thread and its own engine, work one map in the form `spec`
+    /// at once: each thread's own interface (the family's per-thread TLS entry), inserts into and
+    /// removes from the same four buckets, finds by the map. The game's own lock, the interlocked
+    /// operations, the thread id and the TLS slot are stood in by real ones (the lock a spin lock on
+    /// the map's lock word, the interlocked operations atomic, a TLS value and an id per thread), so
+    /// what is raced is the family's code. Run for several rounds with the threads' starts shifted,
+    /// then the map's answers are checked against what each thread did, and the slab is empty after
+    /// the map's destruction. The helper pool is one per process (`fork_join` stops a second run),
+    /// so each form runs in a child process of its own: see `race_in_child`.
+    fn race(spec: &str, mode: engine_core::typed::Mode) {
+        use std::cell::Cell;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        thread_local! {
+            static TLS: Cell<u32> = const { Cell::new(0) };
+            static ID: Cell<u32> = const { Cell::new(0) };
+        }
+        static NEXT_ID: AtomicU32 = AtomicU32::new(0x1000);
+        const THREADS: usize = 4;
+        const ROUNDS: u32 = 40;
+        const KEYS: u32 = 48;
+        static FAILURES: AtomicU32 = AtomicU32::new(0);
+        static WORDS: [AtomicU32; THREADS] = [const { AtomicU32::new(0) }; THREADS];
+
+        fn atomic(e: &Engine, a: u32) -> &AtomicU32 {
+            e.mem.atomic_u32(a).expect("a mapped, aligned word")
+        }
+
+        let mut e = engine(spec);
+        assert_eq!(e.typed_mode(lockfree::FAMILY), mode, "{spec:?}");
+        e.register(LOCK_ENTER, |e, a| {
+            while atomic(e, a[0])
+                .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                std::thread::yield_now();
+            }
+            ret(0)
+        });
+        e.register(LOCK_LEAVE, |e, a| {
+            atomic(e, a[0]).store(0, Ordering::Release);
+            ret(0)
+        });
+        e.register(COMPARE_EXCHANGE, |e, a| {
+            let old = atomic(e, a[0])
+                .compare_exchange(a[2], a[1], Ordering::SeqCst, Ordering::SeqCst)
+                .unwrap_or_else(|seen| seen);
+            ret(old)
+        });
+        e.register(INCREMENT, |e, a| {
+            ret(atomic(e, a[0])
+                .fetch_add(1, Ordering::SeqCst)
+                .wrapping_add(1))
+        });
+        e.register(DECREMENT, |e, a| {
+            ret(atomic(e, a[0])
+                .fetch_sub(1, Ordering::SeqCst)
+                .wrapping_sub(1))
+        });
+        e.register(VT_FN + 0x3c, |e, a| {
+            atomic(e, a[0] + 0x18).fetch_add(1, Ordering::SeqCst);
+            ret(0)
+        });
+        e.register(VT_FN + 0x40, |e, a| {
+            atomic(e, a[0] + 0x18).fetch_sub(1, Ordering::SeqCst);
+            ret(0)
+        });
+        e.register(CURRENT_THREAD_ID, |_, _| {
+            ret(ID.with(|id| {
+                if id.get() == 0 {
+                    id.set(NEXT_ID.fetch_add(1, Ordering::SeqCst));
+                }
+                id.get()
+            }))
+        });
+        e.register(TLS_GET_VALUE, |_, _| ret(TLS.with(Cell::get)));
+        e.register(TLS_SET_VALUE, |_, a| {
+            TLS.with(|t| t.set(a[1]));
+            ret(1)
+        });
+        // The allocator's blocks come from the shared heap; no log is kept (it is not shared).
+        e.register(NEW, |e, a| ret(e.mem.alloc(a[0].max(1))));
+        e.register(DELETE, |e, a| {
+            if a[0] != 0 {
+                e.mem.free(a[0]);
+            }
+            ret(0)
+        });
+
+        let map = e.mem.alloc(0x40);
+        // One interface per thread that ever calls in: the caller and three helpers for each of the
+        // three joins, so room for ten, not the four that run at once.
+        e.call(0x0044_c270, &[map, 16, 4, 3]);
+        for word in &WORDS {
+            word.store(e.mem.alloc(4), Ordering::SeqCst);
+        }
+        assert!(e.mem.can_share(), "memory that can be shared");
+        FAILURES.store(0, Ordering::SeqCst);
+
+        let job = |e: &mut Engine, n: usize| {
+            let word = WORDS[n].load(Ordering::SeqCst);
+            let face = e.call(0x0044_9f80, &[map]).u32();
+            for round in 0..ROUNDS {
+                // The threads' keys overlap in bucket, not in key: key = KEYS * thread + k.
+                let base = KEYS * u32::try_from(n).expect("few") + 1;
+                for k in 0..KEYS {
+                    let key = base + (k + round) % KEYS;
+                    e.mem.set_u32(word, key ^ 0xa5a5);
+                    let put = e.call(0x0044_a130, &[face, key, word, 0]).u32() & 0xff;
+                    let out = e.call(0x0044_9530, &[map, key, word]).u32() & 0xff;
+                    let value = e.mem.u32(word);
+                    if put != 1 || out != 1 || value != key ^ 0xa5a5 {
+                        FAILURES.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+                // Out again in a shifted order, so each round starts from empty.
+                for k in 0..KEYS {
+                    let key = base + (k * 7 + round) % KEYS;
+                    let gone = e.call(0x0066_5f20, &[face, key]).u32() & 0xff;
+                    let again = e.call(0x0066_5f20, &[face, key]).u32() & 0xff;
+                    if again != 0 || gone > 1 {
+                        FAILURES.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            }
+        };
+        for _ in 0..3 {
+            assert!(
+                engine_core::real_threads::fork_join(&mut e, THREADS - 1, &job),
+                "the helpers ran"
+            );
+        }
+        assert_eq!(
+            FAILURES.load(Ordering::SeqCst),
+            0,
+            "a thread saw a wrong answer"
+        );
+        // The same keys for every thread: they meet in the same buckets, on the same nodes and slot
+        // words. Whether a put, a find or a remove finds the key depends on the interleaving, so only
+        // what every interleaving allows is checked: a find that hits holds the value every thread
+        // stores, one that misses leaves the out word alone, a remove answers 0 or 1.
+        let shared = |e: &mut Engine, n: usize| {
+            let word = WORDS[n].load(Ordering::SeqCst);
+            let face = e.call(0x0044_9f80, &[map]).u32();
+            for round in 0..ROUNDS {
+                for k in 0..KEYS {
+                    let key = 1 + (k + round) % KEYS;
+                    e.mem.set_u32(word, key ^ 0x5a5a);
+                    let put = e.call(0x0044_a130, &[face, key, word, 0]).u32() & 0xff;
+                    let out = e.call(0x0044_9530, &[map, key, word]).u32() & 0xff;
+                    let value = e.mem.u32(word);
+                    let sound = put <= 1
+                        && match out {
+                            1 => value == key ^ 0x5a5a,
+                            0 => true,
+                            _ => false,
+                        };
+                    if !sound {
+                        FAILURES.fetch_add(1, Ordering::SeqCst);
+                    }
+                    let gone = e
+                        .call(0x0066_5f20, &[face, 1 + (k * 5 + round) % KEYS])
+                        .u32()
+                        & 0xff;
+                    if gone > 1 {
+                        FAILURES.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            }
+        };
+        for _ in 0..3 {
+            assert!(
+                engine_core::real_threads::fork_join(&mut e, THREADS - 1, &shared),
+                "the helpers ran"
+            );
+        }
+        assert_eq!(
+            FAILURES.load(Ordering::SeqCst),
+            0,
+            "a thread saw an answer no interleaving gives, on shared keys"
+        );
+        // What is left is removed by one thread, and then none is found.
+        let face = e.call(0x0044_9f80, &[map]).u32();
+        for key in 1..=KEYS {
+            while e.call(0x0066_5f20, &[face, key]).u32() & 0xff != 0 {}
+        }
+        // Everything removed: the map's count is back to zero and a find on each key misses.
+        assert_eq!(e.mem.u32(map + 0x18), 0, "the count after every remove");
+        let out = e.mem.alloc(4);
+        for key in 1..=KEYS * THREADS as u32 {
+            assert_eq!(
+                e.call(0x0044_9530, &[map, key, out]).u32() & 0xff,
+                0,
+                "key {key}"
+            );
+        }
+        e.call(0x0044_c3f0, &[map]);
+        let census = e.moved().expect("made").slab.census();
+        assert!(census.is_empty(), "left in the slab: {census:?}");
+    }
+
+    /// Runs [`race`] for `spec` in a child process (this binary, the test `race_child`), so each
+    /// form has the helper pool to itself.
+    fn race_in_child(spec: &str) {
+        let exe = std::env::current_exe().expect("the test binary");
+        let out = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "forms::race_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("NV_LOCKFREE_RACE_SPEC", spec)
+            .output()
+            .expect("the child ran");
+        assert!(
+            out.status.success(),
+            "{spec:?}: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // A wrong test name would run no test and still exit 0.
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("race_child ... ok"),
+            "{spec:?}: the child ran no test"
+        );
+    }
+
+    /// The child of [`race_in_child`]: a no-op unless `NV_LOCKFREE_RACE_SPEC` names the form.
+    #[test]
+    fn race_child() {
+        use engine_core::typed::Mode;
+        match std::env::var("NV_LOCKFREE_RACE_SPEC").as_deref() {
+            Ok("default") => race("", Mode::Moved),
+            Ok("lockfree:freed") => race("lockfree:freed", Mode::Freed),
+            _ => {}
+        }
+    }
+
+    /// The default form (K1, what ships) holds under real threads.
+    #[test]
+    fn the_default_family_holds_under_real_threads() {
+        race_in_child("default");
+    }
+
+    /// K2 (`lockfree:freed`) holds under real threads.
+    #[test]
+    fn the_family_in_k2_holds_under_real_threads() {
+        race_in_child("lockfree:freed");
     }
 }
 
