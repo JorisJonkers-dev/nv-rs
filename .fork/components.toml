@@ -347,6 +347,8 @@ config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.en
 [[component.job]]
 name = "typed interface"
 args = ["-p engine --test typed_interface"]
+# Three shards of the one binary: the job was the tail of the run (17 to 50 minutes in the last runs).
+shards = 3
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed forms"

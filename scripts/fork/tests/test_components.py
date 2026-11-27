@@ -378,7 +378,7 @@ class Affected(unittest.TestCase):
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
         self.assertIn("integration", got)
-        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 19)
+        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 21)
 
     def test_a_fallout_change_reaches_every_component_whose_tests_link_it(self):
         _, got = self.reached(["crates/engine-fallout-cell/src/lib.rs"])
@@ -450,7 +450,7 @@ class RealMap(unittest.TestCase):
     def test_the_typed_jobs_build_the_harness_crates_at_opt_level_1_and_the_aggregator_does_not(self):
         got = {e["name"]: e["script"] for e in real_model().entries("integration")}
         typed = [v for k, v in got.items() if "typed" in k]
-        self.assertEqual(len(typed), 18)
+        self.assertEqual(len(typed), 20)
         for script in typed:
             # `typed_lights` and `typed_cell_refs` keep engine-typed at opt-level 0: at 1 a float expression keeps another
             # NaN payload than the translation's (`.fork/components.toml`); every other typed job has all three at 1.

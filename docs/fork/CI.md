@@ -104,6 +104,9 @@ dependencies (the check says exactly which are missing). A crate in two componen
 - **Small components share a Windows job:** a component with `group = "..."` in `.fork/components.toml` runs in the group's one
   Windows job (`Component: small crates (Windows)`, `Component: medium crates (Windows)`), only the members the change reaches,
   one after the other: a Windows job costs about 50 s before its first test. Linux jobs stay one per component.
+- **Slots and wall time:** the component matrix runs at most 16 jobs of a run at a time (`max-parallel`), the coverage matrix 3, and the
+  long typed jobs start first. A new commit on a pull request cancels the run still going (`concurrency` of `fork-ci.yml`), which
+  frees its runners. `typed interface` is three shards of its one test binary, so it is no longer the tail of the run.
 - The Linux probe runs in the schedule and manual runs only. "Repository checks" also runs the `nvinspect`
   hygiene test, so it runs when the builds are skipped.
 - Measured on the last 300 upstream commits (simulation of the rule): 253 of 283 code commits reach the five slow typed

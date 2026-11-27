@@ -107,6 +107,9 @@ jobs:
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
+      # At most 16 of this run's jobs at a time (a full run has up to 54): the runs of other pull requests get the other
+      # runners instead of queueing behind this one. The long typed jobs are first in the matrix (components.py).
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       PY: ${{ matrix.os == 'windows-latest' && 'python' || 'python3' }}
