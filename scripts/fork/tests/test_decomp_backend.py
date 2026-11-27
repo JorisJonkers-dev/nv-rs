@@ -10,6 +10,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -86,6 +87,12 @@ class RewriteTests(unittest.TestCase):
         self.assertIn("enum { ANONYMOUS = 3 };", out)
         self.assertIn("enum class Scoped {", out)
         self.assertNotIn("unsigned int size", out)
+
+    def test_a_bare_unsigned_size_parameter_of_operator_new_is_widened(self):
+        text = "static void* operator new[](unsigned size)\n{ return 0; }\n"
+        self.assertIn("operator new[](__SIZE_TYPE__ size)", backend.rewrite_source(text))
+        kept = "void* operator new(unsigned long long size);"
+        self.assertEqual(kept, backend.rewrite_source(kept))
 
     def test_rewrite_leaves_unrelated_text_alone(self):
         source = "unsigned int count; enum Plain : int { X }; // unsigned int note\n"
@@ -1085,6 +1092,24 @@ class NoBackendTests(unittest.TestCase):
             (out / "vectors.json").write_text("[]")
             result = backend.verify(out / "libfnv_decomp.so", out / "manifest.json", out / "vectors.json")
             self.assertEqual(result[0]["reason"], "backend is not built")
+
+
+class SseHeaderTests(unittest.TestCase):
+    def test_the_intrinsic_headers_define_the_type_once_and_declare_the_functions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            standins = backend.make_standins(Path(temp), {})
+            for name in ("xmmintrin.h", "sse_types.h"):
+                text = (standins / name).read_text()
+                self.assertIn("#ifndef _INCLUDED_MM2", text)
+                self.assertIn("__m128 _mm_shuffle_ps(__m128, __m128, int);", text)
+                self.assertIn("#define _MM_SHUFFLE(", text)
+            # windows.h includes intrin.h: it stays empty so a unit's own spelling is the only one.
+            self.assertEqual("#pragma once\n", (standins / "intrin.h").read_text())
+
+    def test_every_declared_intrinsic_is_defined_by_the_runtime(self):
+        declared = set(re.findall(r"\b(_mm_\w+)\(", backend.SSE_DECLS))
+        defined = set(re.findall(r"\b(_mm_\w+)\b", backend.SSE_SOURCE))
+        self.assertEqual(set(), declared - defined)
 
 
 class EstimateStandinTests(unittest.TestCase):

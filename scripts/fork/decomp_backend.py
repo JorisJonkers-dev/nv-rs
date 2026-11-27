@@ -77,7 +77,7 @@ class ToolchainUnavailable(RuntimeError):
     """The clang/wasm2c toolchain is neither installed nor fetchable on this host."""
 
 
-SIZE_T_OPS = re.compile(r"(operator\s+(?:new|delete)(?:\[\])?\s*\((?:[^(),]*, ?)?)unsigned int")
+SIZE_T_OPS = re.compile(r"(operator\s+(?:new|delete)(?:\[\])?\s*\((?:[^(),]*, ?)?)(?:unsigned int|unsigned(?!\s+(?:int|long|short|char|__int64)\b))")
 NAMED_ENUM = re.compile(r"\benum(\s+)(?!class\b|struct\b)([A-Za-z_]\w*)(\s*)([;{])")
 IMPORT_RE = re.compile(r"/\* import: '([^']+)' '([^']+)' \*/\s*\n\s*([^\n;]+);")
 EXPORT_RE = re.compile(r"/\* export: '([^']+)' \*/\s*\n\s*([^\n;]+);")
@@ -514,6 +514,8 @@ m128 _mm_rcp_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.u[i] = nv_rcp_bi
 m128 _mm_rcp_ss(m128 a) { m128 r = a; r.u[0] = nv_rcp_bits(a.u[0]); return r; }
 m128 _mm_rsqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.u[i] = nv_rsqrt_bits(a.u[i]); return r; }
 m128 _mm_rsqrt_ss(m128 a) { m128 r = a; r.u[0] = nv_rsqrt_bits(a.u[0]); return r; }
+void _mm_stream_ps(float* p, m128 a) { p[0] = a.f[0]; p[1] = a.f[1]; p[2] = a.f[2]; p[3] = a.f[3]; }
+void _mm_prefetch(const char* p, int hint) { (void)p; (void)hint; }
 m128 _mm_setzero_ps(void) { m128 r = {{0, 0, 0, 0}}; return r; }
 m128 _mm_set_ps1(float v) { m128 r = {{v, v, v, v}}; return r; }
 m128 _mm_set1_ps(float v) { m128 r = {{v, v, v, v}}; return r; }
@@ -542,6 +544,36 @@ void _mm_setcsr(unsigned int v) { (void)v; }
 """
 
 
+# MSVC's built-in `__m128` and the intrinsics a unit calls without declaring them, spelled as
+# the compiler's own header does: `<xmmintrin.h>` and the fallback header a unit gets when clang
+# does not know the type (`sse_types.h`). `_INCLUDED_MM2` is the guard the decomp's own copies of
+# the union test, so the type is defined once either way. The functions are those of `nv_sse.c`.
+SSE_DECLS = (
+    "#ifndef _INCLUDED_MM2\n#define _INCLUDED_MM2\n"
+    "#define _MM_SHUFFLE(z, y, x, w) (((z) << 6) | ((y) << 4) | ((x) << 2) | (w))\n"
+    "union __declspec(intrin_type) __declspec(align(16)) __m128 {\n"
+    "  float m128_f32[4]; unsigned __int64 m128_u64[2]; };\n"
+    "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+    + "".join("__m128 %s(__m128, __m128);\n" % name for name in (
+        "_mm_add_ps _mm_sub_ps _mm_mul_ps _mm_div_ps _mm_min_ps _mm_max_ps _mm_add_ss _mm_sub_ss "
+        "_mm_mul_ss _mm_div_ss _mm_min_ss _mm_max_ss _mm_and_ps _mm_andnot_ps _mm_or_ps _mm_xor_ps "
+        "_mm_cmpeq_ps _mm_cmplt_ps _mm_cmple_ps _mm_cmpgt_ps _mm_cmpge_ps _mm_cmpneq_ps "
+        "_mm_cmpeq_ss _mm_cmplt_ss _mm_cmple_ss _mm_cmpgt_ss _mm_cmpge_ss _mm_cmpneq_ss "
+        "_mm_move_ss _mm_unpacklo_ps _mm_unpackhi_ps _mm_movelh_ps _mm_movehl_ps").split())
+    + "".join("__m128 %s(__m128);\n" % name for name in (
+        "_mm_sqrt_ps _mm_sqrt_ss _mm_rcp_ps _mm_rcp_ss _mm_rsqrt_ps _mm_rsqrt_ss").split())
+    + "__m128 _mm_setzero_ps(void);\n__m128 _mm_set_ps1(float);\n__m128 _mm_set1_ps(float);\n"
+    "__m128 _mm_set_ps(float, float, float, float);\n__m128 _mm_setr_ps(float, float, float, float);\n"
+    "__m128 _mm_set_ss(float);\n__m128 _mm_load_ss(const float*);\n__m128 _mm_load_ps(const float*);\n"
+    "__m128 _mm_loadu_ps(const float*);\n__m128 _mm_load_ps1(const float*);\n"
+    "__m128 _mm_load1_ps(const float*);\nvoid _mm_store_ss(float*, __m128);\n"
+    "void _mm_store_ps(float*, __m128);\nvoid _mm_storeu_ps(float*, __m128);\n"
+    "void _mm_stream_ps(float*, __m128);\nfloat _mm_cvtss_f32(__m128);\nint _mm_movemask_ps(__m128);\n"
+    "__m128 _mm_shuffle_ps(__m128, __m128, int);\nvoid _mm_prefetch(const char*, int);\n"
+    "#ifdef __cplusplus\n}\n#endif\n#endif\n"
+)
+
+
 def make_standins(out, tools):
     """Write the small mingw-w64/SSE stand-ins the wasm units compile against."""
     standins = Path(out) / "standins"
@@ -562,21 +594,38 @@ def make_standins(out, tools):
         intrin = intrin.replace('#define __buildint(a) __asm__ __volatile__("int {$}" #a :)',
                                 "#define __buildint(a) __builtin_trap()")
         # The x86 barrier asm names `eax`, which wasm has no register for; a fence is the same ordering.
+        # A unit calls `::_ReadWriteBarrier()`; the macro's asm cannot take the scope operator, so
+        # the name is the function `nv_runtime.c` defines (a fence).
+        intrin = intrin.replace(
+            '#define _ReadWriteBarrier() __asm__ __volatile__ ("" ::: "memory")\n', "")
         intrin = re.sub(r"#define __buildmemorybarrier\(\) \\\n\{ \\\n.*?\n\}\n",
                         "#define __buildmemorybarrier() { __atomic_thread_fence(__ATOMIC_SEQ_CST); }\n",
                         intrin, flags=re.S)
-        intrin = "\n".join(line for line in intrin.split("\n")
-                           if not re.match(r"\s*(?:__INTRINSICS_USEINLINE|__build\w*\(.*\)\s*;?\s*$)", line))
+        # A definition the header marks for inlining is emitted by every unit that includes it; a
+        # weak one lets the units link together instead of dropping all but the first. A marker
+        # that precedes an asm wrapper (`__build...`) has nothing to attach to and goes.
+        lines, kept = intrin.split("\n"), []
+        for number, line in enumerate(lines):
+            if re.match(r"\s*(?:__MINGW_EXTENSION\s+)?__INTRINSICS_USEINLINE\s*$", line):
+                follows_wrapper = number + 1 < len(lines) and re.match(r"\s*__build\w*\(", lines[number + 1])
+                if not follows_wrapper:
+                    kept.append("__attribute__((__weak__))")
+            elif not re.match(r"\s*(?:__INTRINSICS_USEINLINE|__build\w*\(.*\)\s*;?\s*$)", line):
+                kept.append(line)
+        intrin = "\n".join(kept)
         (standins / "psdk_inc" / "intrin-impl.h").write_text(intrin)
         math = Path(mingw) / "math.h"
         if math.is_file():
             (standins / "math.h").write_text(standin_math(math.read_text(errors="surrogateescape")))
     # The decomp spells its own `__m128` union and declares the `_mm_*` functions it calls; the
     # headers stay empty so clang's x86-only ones are not used, and nv_sse.c defines the functions.
-    vector = "#pragma once\n"
+    # `intrin.h` stays empty: windows.h includes it, and a unit that declares its own
+    # `extern "C" LocalM128 _mm_add_ps(...)` would then see two spellings. The headers a unit
+    # includes to get the intrinsics define them.
+    (standins / "intrin.h").write_text("#pragma once\n")
     for name in ("xmmintrin.h", "emmintrin.h", "pmmintrin.h", "immintrin.h", "mmintrin.h",
-                 "intrin.h", "x86intrin.h"):
-        (standins / name).write_text(vector)
+                 "x86intrin.h"):
+        (standins / name).write_text("#pragma once\n" + SSE_DECLS)
     (standins / "wasm_prelude.h").write_text(
         "#pragma once\nextern \"C\" unsigned long __readfsdword(unsigned long);\n")
     # Included in every unit: the stub the rewritten `__asm` blocks call, and the barrier clang
@@ -591,10 +640,7 @@ def make_standins(out, tools):
         "#ifdef __cplusplus\n}\n#endif\n"
         % ASM_STUB)
     # MSVC's built-in `__m128`, for units that use it without declaring it.
-    (standins / "sse_types.h").write_text(
-        "#pragma once\n"
-        "union __declspec(intrin_type) __declspec(align(16)) __m128 {\n"
-        "  float m128_f32[4]; unsigned __int64 m128_u64[2]; };\n")
+    (standins / "sse_types.h").write_text("#pragma once\n" + SSE_DECLS)
     (standins / "nv_runtime.c").write_text(
         "__attribute__((noreturn, noinline)) void %s(void) { __builtin_trap(); }\n"
         "void _ReadWriteBarrier(void) { __atomic_signal_fence(__ATOMIC_SEQ_CST); }\n%s" % (ASM_STUB, estimate_source() + SSE_SOURCE))
@@ -986,7 +1032,8 @@ def compile_unit(tools, copy, standins, source, obj, cxx=False):
         # The stand-in type is the last repair: a blanked declaration can clear the same error.
         wants_sse = (not blanked and not sse_types
                      and ("unknown type name '__m128'" in result.stderr
-                          or "no type named '__m128'" in result.stderr))
+                          or "no type named '__m128'" in result.stderr
+                          or "use of undeclared identifier '_mm_" in result.stderr))
         sse_types = sse_types or wants_sse
         if not blanked and not wants_sse:
             break
