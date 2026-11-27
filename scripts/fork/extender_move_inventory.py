@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUT = REPO / "docs" / "fork" / "EXTENDER-MOVE-INVENTORY.md"
 
 # ADR-0014 names LockFreeMap as the pilot of the families that can really move; it goes first.
-FAMILY_ORDER = ("lock-free maps", "Havok", "forms", "cell references", "geometry", "animation keys")
+FAMILY_ORDER = ("lock-free maps", "Havok", "forms", "cell references", "extra data", "geometry", "animation keys")
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,12 @@ FIELDS = (
     Field("cell references", "cell flags", "CELL_FLAGS", 0x24),
     Field("cell references", "noise texture path", "NOISE_TEXTURE_PATH", 0x5c),
     Field("cell references", "loaded data", "LOADED_DATA", 0x64),
+    # Extra data: the list's chain head and type bitmap, and a node's next and first payload word
+    # (nvse's invref.rs and misc_ref.rs, jip's extra data commands). Not moved yet (nv-rs#952).
+    Field("extra data", "chain head", "EXTRA_DATA", 0x04),
+    Field("extra data", "type bitmap", "EXTRA_PRESENCE", 0x08),
+    Field("extra data", "node next", "EXTRA_NEXT", 0x08),
+    Field("extra data", "node payload word", "EXTRA_VALUE", 0x0c),
     # Geometry: the scene graph's node fields.
     Field("geometry", "first-person node", "NODE_1ST_PERSON", 0x694),
     # Animation keys: the actor's animation process fields.
