@@ -277,6 +277,8 @@ jobs:
       - name: Compile the test binaries
         env:
           ARGS: ${{ matrix.args }}
+          # Symbols only cost upload and download time: each binary links the whole engine (about 370 MB with them).
+          CARGO_PROFILE_DEV_STRIP: symbols
         run: |
           # shellcheck disable=SC2086 # the arguments are a word list
           "$PY" -I scripts/fork/test_archive.py build "$RUNNER_TEMP/archive" -- $ARGS
@@ -310,10 +312,9 @@ jobs:
         with:
           name: archive-${{ matrix.archive }}
           path: ${{ runner.temp }}/archive
-      - name: Binaries into the checkout
-        run: |
-          "$PY" -I scripts/fork/test_archive.py extract "$RUNNER_TEMP/archive"
-          echo "ARCHIVE=$RUNNER_TEMP/archive" >>"$GITHUB_ENV"
+      # The binaries run from the downloaded folder (no copy: the archive is large).
+      - name: Archive folder
+        run: echo "ARCHIVE=$RUNNER_TEMP/archive" >>"$GITHUB_ENV"
       - name: Runner CPU
         if: ${{ runner.os == 'Linux' }}
         env:

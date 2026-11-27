@@ -60,7 +60,9 @@ archived_tests() {
       echo "::error title=archive::the archive has no test binary $crate/$t"
       return 1
     fi
-    exes[$t]="$PWD/${found%%$'\t'*}"
+    # Run in place from the archive's folder (a copy of the whole archive cost minutes); the artifact keeps no permissions.
+    exes[$t]="$ARCHIVE/${found%%$'\t'*}"
+    chmod +x "${exes[$t]}"
     cwds[$t]="${found#*$'\t'}"
   done
   if [ -n "${SHARD:-}" ]; then

@@ -133,8 +133,8 @@ The jobs of a component that run `-p <one crate> --test ...` commands with the s
   `cargo test --no-run` for the union of the group's test binaries, with the group's `--config`, and uploads every
   executable (test binaries and binaries, at their workspace paths) with `archive.json` as the artifact `archive-<id>`
   (retention one day, compression level 1).
-- The `partition` jobs download it, `test_archive.py extract` puts the binaries back, and `run-component.sh` (`ARCHIVE` set)
-  runs each `--test` binary from its package's folder, as cargo does, with the log format of `cargo test`: the job summary,
+- The `partition` jobs download it and `run-component.sh` (`ARCHIVE` set)
+  runs each `--test` binary in place from the downloaded folder, from its package folder as cargo does, with the log format of `cargo test`: the job summary,
   the test logs and the catalogue read the same lines. No partition job compiles. `SHARD=i/n` splits the tests of all of a
   job's binaries together, so a sharded job may name several `--test` binaries (`check_jobs` only requires that it be an
   archivable job: one crate, only `--test` runs).
