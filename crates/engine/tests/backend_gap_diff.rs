@@ -19,9 +19,22 @@ mod gate {
     ));
 }
 
+use std::cell::RefCell;
+use std::sync::{Mutex, MutexGuard};
+
+/// The loaded module is one guest reservation for the whole process, so two cases cannot run
+/// against it at once: each case holds this until its test thread ends.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    static HELD: RefCell<Option<MutexGuard<'static, ()>>> = const { RefCell::new(None) };
+}
+
 /// The backend, or `None` (the case skips) when the private run has not built one.
 fn backend() -> Option<Box<dyn engine_core::typed::diff::ReferencePeer>> {
     gate::require_data("NV_BACKEND_LIBRARY")?;
+    let guard = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    HELD.with(|h| *h.borrow_mut() = Some(guard));
     Some(engine_core::typed::diff::backend_peer().expect("the backend library did not load"))
 }
 
