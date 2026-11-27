@@ -4148,8 +4148,11 @@ mod tests {
         let mut e = Engine::new_untyped();
         e.kernel.threads.current = 0;
         assert!(havok_post_ready(&e));
+        assert!(loader_post_ready(&e));
         e.kernel.threads.current = 17;
         assert!(!havok_post_ready(&e));
+        // Loader and garbage-collection jobs follow the same rule.
+        assert!(!loader_post_ready(&e));
     }
 
     /// A device function's slot is its byte offset into the ranges laid end to end: every address
