@@ -35,5 +35,13 @@ rules here are edited by hand when a batch shows a gap in them.
 ## Shakedown
 
 <!-- shakedown:start -->
-_No shakedown has been recorded yet._
+### Shakedown shakedown2 (closed unmerged)
+
+- Functions offered: 124
+- Families accepted: 0
+- Diff cases passed: 0
+- Diff cases failed: 0
+- Failure classes: none recorded
+- Rule: a family needs a passing worker, lab and review before it is accepted; 2 were rejected here.
+- Rule: a batch is accepted only with a passing review and an unchanged checker.
 <!-- shakedown:end -->
