@@ -24,6 +24,7 @@ Usage:
 """
 import argparse
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -482,7 +483,10 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
         return 1
     verified = {r["address"] for r in all_rows if r["state"] == "reference-verified"}
     groups = {}
+    excluded = [x.strip() for x in env.get("NV_PORT_EXCLUDE", "").split(",") if x.strip()]
     for row in all_rows:
+        if any(fnmatch.fnmatchcase(row["family"], pattern) for pattern in excluded):
+            continue
         if row["done"] == "no" and row["state"] != "retired":
             groups.setdefault(row["family"], []).append(row)
     # A batch takes whole families: the queue keeps siblings together on purpose.
