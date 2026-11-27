@@ -144,7 +144,10 @@ fn fill_reason(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulator>) -> Op
     if reason.is_none() {
         super::statics::take(e, acc);
         super::statics::take_pass_state(e);
-        let types: AddrSet<u32> = passes.iter().map(|&pass| packet::pass_type(e, pass)).collect();
+        let types: AddrSet<u32> = passes
+            .iter()
+            .map(|&pass| packet::pass_type(e, pass))
+            .collect();
         super::statics::take_pass_objects(e, Some(&types));
         for &pass in &passes {
             own_clip_plane_caches(e, pass);

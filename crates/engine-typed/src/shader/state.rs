@@ -759,7 +759,10 @@ pub fn apply_states(e: &mut Engine, this: Ptr<StageStateCache>, stage: u32) -> u
 /// A stage's state cache (+0x10), read through the packet.
 #[inline(always)]
 pub(crate) fn stage_cache(e: &Engine, stage: u32) -> Ptr<StageStateCache> {
-    Ptr::new(capture::own_at::<u32>(e, stage.wrapping_add(NiD3DTextureStage::pStateCache.off)))
+    Ptr::new(capture::own_at::<u32>(
+        e,
+        stage.wrapping_add(NiD3DTextureStage::pStateCache.off),
+    ))
 }
 
 // Typed from 00e7de90

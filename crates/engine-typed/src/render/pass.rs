@@ -31,7 +31,9 @@ pub fn bind_pass_stages(e: &mut Engine) {
         if entry == 0 {
             return;
         }
-        if e.mem.u8(entry.wrapping_add(0x64)) != 0 && capture::own_at::<u32>(e, entry.wrapping_add(8)) != 0 {
+        if e.mem.u8(entry.wrapping_add(0x64)) != 0
+            && capture::own_at::<u32>(e, entry.wrapping_add(8)) != 0
+        {
             let _: bool = typed_call!(FAMILY, 0x00e7_eb00, stage::bind(e, Ptr::new(entry), 0u8));
         }
         index += 1;

@@ -209,7 +209,8 @@ const SHADER_COUNTED_BLOCK: (u32, u32) = (0x28, 0x38);
 
 /// Group C's constant entry pointers, as lists of words: lighting 3.0's (`01201080` to `012010ec`: the two lists, the
 /// alpha test, ambient, pass end and eye entries) and the pass flags' (`011ff4a0`, nine).
-const GROUP_C_ENTRY_POINTERS: [(u32, u32); 2] = [(0x0120_1080, 0x0120_10ec), (0x011f_f4a0, 0x011f_f4c4)];
+const GROUP_C_ENTRY_POINTERS: [(u32, u32); 2] =
+    [(0x0120_1080, 0x0120_10ec), (0x011f_f4a0, 0x011f_f4c4)];
 /// The no-lighting shader's vtable and its entries' pointers (+0x170, +0x174, +0x178).
 const NO_LIGHTING_VTABLE: u32 = 0x010b_b230;
 const NO_LIGHTING_ENTRIES: [u32; 3] = [0x170, 0x174, 0x178];
@@ -313,7 +314,8 @@ pub fn take_pass_objects(e: &mut Engine, types: Option<&engine_core::AddrSet<u32
             continue;
         };
         blocks.push((pass, PASS_STATES.0, PASS_STATES.1));
-        if let (Some(count), Some(list)) = (peek(e, pass + PASS_COUNT), peek(e, pass + PASS_STAGES)) {
+        if let (Some(count), Some(list)) = (peek(e, pass + PASS_COUNT), peek(e, pass + PASS_STAGES))
+        {
             if list != 0 {
                 for k in 0..count.min(MAX_STAGES) {
                     let Some(stage) = peek(e, list + 4 * k).filter(|&a| a != 0) else {

@@ -6,8 +6,8 @@
 
 use engine as _;
 use engine_core::prelude::*;
-use engine_core::Engine;
 use engine_core::typed::leaf;
+use engine_core::Engine;
 use engine_typed::draw::{capture, own, statics};
 
 const VERTEX_ENTRIES: u32 = 0x011f_ebd8;
@@ -309,7 +309,11 @@ fn the_draw_reads_the_pass_objects_as_cut_while_main_begins_the_same_pass() {
     assert!(capture::attach(packet).is_ok());
     // The draw, after: its reads are the cut's.
     assert_eq!(capture::own_at::<u32>(&e, stages[0] + 8), 0x1000);
-    assert_eq!(capture::own_at::<u8>(&e, caches[0] + 0xa4), 0, "no sampler state yet");
+    assert_eq!(
+        capture::own_at::<u8>(&e, caches[0] + 0xa4),
+        0,
+        "no sampler state yet"
+    );
     assert_eq!(capture::own_at::<u32>(&e, entry + 4), 5);
     assert_eq!(capture::own_at::<u32>(&e, pass + 0x30), block);
     assert_eq!(capture::own_at::<u8>(&e, group_c + 8), 0);
@@ -317,18 +321,38 @@ fn the_draw_reads_the_pass_objects_as_cut_while_main_begins_the_same_pass() {
     capture::set_own_at(&mut e, stages[1] + 8, 0x7002u32);
     leaf::set_state_slot(&mut e, caches[1], 2u32, 0x22u32, 0u32, 0u32);
     assert_eq!(capture::own_at::<u32>(&e, stages[1] + 8), 0x7002);
-    assert_eq!(capture::own_at::<u8>(&e, caches[1] + 0xa5), 1, "the draw's sampler state");
-    assert_eq!(e.mem.u32(stages[1] + 8), 0x1001, "guest memory keeps main's");
+    assert_eq!(
+        capture::own_at::<u8>(&e, caches[1] + 0xa5),
+        1,
+        "the draw's sampler state"
+    );
+    assert_eq!(
+        e.mem.u32(stages[1] + 8),
+        0x1001,
+        "guest memory keeps main's"
+    );
     assert_eq!(e.mem.u8(caches[1] + 0xa5), 0, "guest memory keeps main's");
     let report = capture::end(&mut e);
     assert!(report.kept_main > 0);
     // The serial order: the draw, then main.
-    assert_eq!(e.mem.u32(stages[0] + 8), 0x7001, "main's, the draw wrote none");
-    assert_eq!(e.mem.u32(stages[1] + 8), 0x7002, "the draw's, main wrote none");
+    assert_eq!(
+        e.mem.u32(stages[0] + 8),
+        0x7001,
+        "main's, the draw wrote none"
+    );
+    assert_eq!(
+        e.mem.u32(stages[1] + 8),
+        0x7002,
+        "the draw's, main wrote none"
+    );
     assert_eq!(e.mem.u8(caches[0] + 0xa4), 1);
     assert_eq!(e.mem.u32(caches[0] + 0x90), 0x11, "main's sampler state");
     assert_eq!(e.mem.u8(caches[1] + 0xa5), 1);
-    assert_eq!(e.mem.u32(caches[1] + 0x94), 0x22, "the draw's sampler state");
+    assert_eq!(
+        e.mem.u32(caches[1] + 0x94),
+        0x22,
+        "the draw's sampler state"
+    );
     assert_eq!(e.mem.u32(entry + 4), 9, "main's render state value");
     assert_eq!(e.mem.u32(pass + 0x30), other, "main's block");
     assert_eq!(e.mem.u8(group_c + 8), 1, "main's Group C entry");
