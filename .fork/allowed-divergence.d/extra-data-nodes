@@ -1,0 +1,1 @@
+crates/engine-typed/src/extra_data/mod.rs  # the node classes' registered functions (nv-rs#952)
