@@ -85,9 +85,31 @@ WAT_EXPORT_RE = re.compile(r'\(export\s+"([^"]+)"\s+\(func\s+\$?([\w.]+)\)\)')
 TABLE_BASE_LOCAL_RE = re.compile(r"global\.get\s+\$__table_base\s*\n\s*local\.set\s+(\d+)")
 
 
+# Declarations of MSVC intrinsics that clang already provides as macros or built-ins, and an
+# `extern "C"` operator delete that clang's implicit C++ declaration contradicts.
+INTRINSIC_DECLS = re.compile(
+    r'^[ \t]*extern "C"[ \t]+(?:void\*?[ \t]+(?:__cdecl[ \t]+)?(?:_alloca\(unsigned int\)|_ReadWriteBarrier\((?:void)?\)));[ \t]*$',
+    re.M)
+EXTERN_C_DELETE = re.compile(r'extern "C"([ \t]+void[ \t]+(?:__cdecl[ \t]+)?operator[ \t]+delete)')
+# `__if_not_exists` on a member of an incomplete template is an error in clang; the name it tests
+# is never there, so the guarded include is the intent.
+INCOMPLETE_MEMBER_TEST = re.compile(r"__if_not_exists\(TESDataHandlerArrayType::m_pBase\)")
+
+
+# The decomp's non-MSVC `InterlockedIncrement`/`Decrement` definitions collide with the macros
+# winnt.h makes of them; the macros stay and the definitions are renamed out of the way.
+INTERLOCKED_DEF = re.compile(r"^(FNV_FORCEINLINE long )(Interlocked(?:Increment|Decrement))\(", re.M)
+SIZE_T_TYPEDEF = re.compile(r"typedef unsigned int (\w*size_t);")
+
+
 def rewrite_source(text):
-    """Apply the two build-copy-only rewrites: CRT size_t spelling and MSVC enum width."""
+    """Apply the build-copy-only rewrites: CRT size_t spelling, MSVC enum width and clang gaps."""
     text = SIZE_T_OPS.sub(lambda m: m.group(1) + "__SIZE_TYPE__", text)
+    text = INTRINSIC_DECLS.sub("", text)
+    text = INTERLOCKED_DEF.sub(r"\1Fnv_\2(", text)
+    text = SIZE_T_TYPEDEF.sub(r"typedef __SIZE_TYPE__ \1;", text)
+    text = EXTERN_C_DELETE.sub(r"\1", text)
+    text = INCOMPLETE_MEMBER_TEST.sub("__if_not_exists(TESDataHandlerArrayType_never_defined)", text)
     text = text.replace("typedef unsigned int size_t;", "typedef __SIZE_TYPE__ size_t;")
     return NAMED_ENUM.sub(r"enum\1\2 : int\3\4", text)
 
@@ -107,10 +129,361 @@ def prepare_build_copy(decomp, out):
         if path.is_file() and path.suffix in {".h", ".c", ".cpp", ".hpp"}:
             original = path.read_text(errors="surrogateescape")
             rewritten = rewrite_source(original)
+            if path.suffix in {".c", ".cpp"} or "__asm" in rewritten or "_asm" in rewritten:
+                rewritten, _ = rewrite_inline_asm(rewritten)
+            if path.suffix in {".c", ".cpp"}:
+                rewritten, _ = annotate_function_exports(rewritten)
             if rewritten != original:
                 path.write_text(rewritten, errors="surrogateescape")
                 changed += 1
     return changed
+
+
+# x87 helpers the mingw math.h inlines with `fabs`, `fxam` and `fucom`; wasm has no x87 stack.
+FXAM_HELPER = (
+    "static __inline__ unsigned short __nv_fxam(long double v) {\n"
+    "  unsigned short s = __builtin_signbit(v) ? 0x0200 : 0;\n"
+    "  if (__builtin_isnan(v)) return s | 0x0100;\n"
+    "  if (__builtin_isinf(v)) return s | 0x0500;\n"
+    "  if (v == 0) return s | 0x4000;\n"
+    "  return s | (__builtin_isnormal(v) ? 0x0400 : 0x4400);\n"
+    "}\n"
+    "static __inline__ unsigned short __nv_fucom(long double x, long double y) {\n"
+    "  if (__builtin_isnan(x) || __builtin_isnan(y)) return 0x4500;\n"
+    "  return x > y ? 0 : (x < y ? 0x0100 : 0x4000);\n"
+    "}\n"
+)
+FABS_ASM = re.compile(r'__asm__ __volatile__ \("fabs;" : "=t" \(res\) : "0" \(x\)\);')
+FXAM_ASM = re.compile(r'__asm__ __volatile__ \(\s*"fxam;[^:]*:\s*"=a" \((\w+)\)\s*:\s*"t" \((\w+)\)\s*\);')
+FUCOM_ASM = re.compile(r'__asm__ __volatile__ \("fucom %%st\(1\);"\s*"fnstsw;": "=a" \(retval\) : "t" \(x\), "u" \(y\)\);')
+
+
+def standin_math(text):
+    """The mingw math.h with its x87 inline assembly replaced by the same results in C."""
+    text = FABS_ASM.sub("res = __builtin_fabs(x);", text)
+    text = FXAM_ASM.sub(r"\1 = __nv_fxam(\2);", text)
+    text = FUCOM_ASM.sub("retval = __nv_fucom(x, y);", text)
+    marker = "#ifndef _MATH_H_"
+    at = text.find("#define _MATH_H_")
+    if at >= 0:
+        end = text.index("\n", at) + 1
+        text = text[:end] + FXAM_HELPER + text[end:]
+    return text
+
+
+# MSVC inline assembly (`__asm { ... }` or `__asm mov ...`) has no meaning in wasm. The build copy
+# replaces each block with a call to an in-module stub that traps; a function that still calls the
+# stub after inlining is left out of the exports with the reason recorded (nv-rs#1000).
+ASM_KEYWORD = re.compile(r"(?<![\w])_{1,2}asm(?![\w])")
+ASM_STUB = "__nv_untranslated_asm"
+
+
+def _skip_to_block_end(text, start):
+    """The index just after the `}` that closes the `{` at `start`, or -1 when it never closes."""
+    depth, index, size = 0, start, len(text)
+    while index < size:
+        char = text[index]
+        if text.startswith("//", index):
+            index = text.find("\n", index)
+            if index < 0:
+                return -1
+            continue
+        if text.startswith("/*", index):
+            index = text.find("*/", index)
+            if index < 0:
+                return -1
+            index += 2
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return -1
+
+
+def rewrite_inline_asm(text):
+    """Replace every MSVC `__asm` statement or block with a call to the trapping stub."""
+    out, last, count = [], 0, 0
+    for match in ASM_KEYWORD.finditer(text):
+        if match.start() < last:
+            continue
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        prefix = text[line_start:match.start()]
+        if "//" in prefix or prefix.count('"') % 2:
+            continue
+        index = match.end()
+        while index < len(text) and text[index] in " \t":
+            index += 1
+        if index < len(text) and text[index] == "{":
+            end = _skip_to_block_end(text, index)
+            if end < 0:
+                continue
+        else:
+            end = text.find("\n", index)
+            end = len(text) if end < 0 else end
+            following = ASM_KEYWORD.search(text, index, end)
+            if following:
+                end = following.start()
+            brace = text.find("}", index, end)
+            if brace >= 0:
+                end = brace
+        out.append(text[last:match.start()])
+        out.append("%s();" % ASM_STUB)
+        last = end
+        count += 1
+    out.append(text[last:])
+    return "".join(out), count
+
+
+DIAGNOSTIC = re.compile(r"^(?P<file>/[^:\n]+|[A-Za-z]:[^:\n]+):(?P<line>\d+):\d+: (?P<kind>error|note): (?P<msg>.*)$")
+CONFLICT_MESSAGES = ("conflicting types for", "has a different language linkage",
+                     "functions that differ only in their return type cannot be overloaded",
+                     "with C language linkage conflicts with declaration in global scope")
+DECLARATION_LINE = re.compile(r"^\s*(?:extern\s+\"C\"\s+)?[^{};=]*(?:\([^{};]*\)|\b\w+)\s*;\s*$")
+
+
+def _inside(file, copy):
+    try:
+        return str(Path(file).resolve()).startswith(str(Path(copy).resolve()) + os.sep)
+    except OSError:
+        return False
+
+
+def drop_conflicting_declarations(stderr, copy):
+    """Blank the decomp's own redeclaration of a system function or variable.
+
+    The decomp spells its Win32 and CRT declarations for MSVC, which accepts a different
+    parameter type under C linkage; clang refuses it. When the diagnostic's own line or its note
+    is a one-line declaration in the build copy, that line is blanked (line numbers stay). Only the
+    private copy changes. Returns how many lines were blanked.
+    """
+    groups, current = [], None
+    for line in stderr.splitlines():
+        found = DIAGNOSTIC.match(line)
+        if not found:
+            continue
+        if found["kind"] == "error":
+            current = {"msg": found["msg"], "where": [(found["file"], int(found["line"]))]}
+            groups.append(current)
+        elif current is not None:
+            current["where"].append((found["file"], int(found["line"])))
+    blanked = 0
+    for group in groups:
+        if not any(message in group["msg"] for message in CONFLICT_MESSAGES):
+            continue
+        # When the system header is the one that came second, the decomp's earlier declaration is
+        # replaced by the include, so the code between the two still sees the system's.
+        system_second = not _inside(group["where"][0][0], copy)
+        for file, number in group["where"]:
+            if not _inside(file, copy) or not Path(file).is_file():
+                continue
+            path = Path(file)
+            lines = path.read_text(errors="surrogateescape").split("\n")
+            if not (0 < number <= len(lines)) or not DECLARATION_LINE.match(lines[number - 1]):
+                continue
+            lines[number - 1] = "#include <windows.h>" if system_second else ""
+            path.write_text("\n".join(lines), errors="surrogateescape")
+            blanked += 1
+            break
+    return blanked
+
+
+FNV_MARKER = re.compile(r"^// @fnv 0x([0-9a-fA-F]{1,8})\b")
+EXPORT_PREFIX = "fnv_"
+SKIPPED_HEADS = ("template", "extern", "struct", "class", "namespace", "union", "enum", "#", "}",
+                 "typedef", "using", "__declspec(thread)", "__declspec(dllimport)")
+
+
+def annotate_function_exports(text):
+    """Give each function the decomp marks with `// @fnv 0xADDR` an export named for its address.
+
+    Clang mangles for Itanium on wasm and the decomp's symbol table holds MSVC names, so a name
+    cannot say which function is which; the marker above each definition does. The line that
+    follows the marker, when it starts a function definition, gets
+    `__attribute__((export_name("fnv_<addr>")))`. A marker over anything else (a template, a
+    declaration, a variable) is left alone. Returns the text and the number of exports named.
+    """
+    lines = text.split("\n")
+    count = 0
+    for index, line in enumerate(lines):
+        found = FNV_MARKER.match(line)
+        if not found:
+            continue
+        head = index + 1
+        while head < len(lines) and (not lines[head].strip() or lines[head].lstrip().startswith("//")):
+            head += 1
+        if head >= len(lines) or lines[head].lstrip().startswith(SKIPPED_HEADS):
+            continue
+        signature = []
+        for probe in lines[head:head + 40]:
+            signature.append(probe)
+            joined = "\n".join(signature)
+            if "{" in joined or ";" in joined:
+                break
+        joined = "\n".join(signature)
+        brace, semi = joined.find("{"), joined.find(";")
+        paren = joined.find("(")
+        if brace < 0 or (0 <= semi < brace) or paren < 0 or paren > brace:
+            continue
+        if "=" in joined[:paren]:
+            continue
+        # A constructor or destructor is emitted twice (complete and base, or deleting), and both
+        # would claim the name.
+        head_text = joined[:brace]
+        if re.search(r"(\w+)::~?\1\s*\(", head_text) or "::~" in head_text:
+            continue
+        address = int(found.group(1), 16)
+        lines[head] = '__attribute__((export_name("%s%08x"))) %s' % (EXPORT_PREFIX, address, lines[head])
+        count += 1
+    return "\n".join(lines), count
+
+
+EXPORT_NAME_ATTRIBUTE = re.compile(r'__attribute__\(\(export_name\("%s([0-9a-f]{8})"\)\)\) ' % EXPORT_PREFIX)
+
+
+def keep_first_export_of_each_address(copy, sources):
+    """Strip the export name from a function whose address an earlier unit already exports.
+
+    Variants of one source (`_o2_variant`, `_rtm_variant`) hold the same function at the same
+    address; a module cannot export one name twice. The first unit named keeps it; the later
+    function is still compiled, and anything inside the module that calls it still reaches it.
+    Returns how many export names were removed.
+    """
+    seen, removed = set(), 0
+    for source in sources:
+        path = Path(copy) / source
+        if not path.is_file():
+            continue
+        text = path.read_text(errors="surrogateescape")
+
+        def decide(match):
+            nonlocal removed
+            if match.group(1) in seen:
+                removed += 1
+                return ""
+            seen.add(match.group(1))
+            return match.group(0)
+
+        updated = EXPORT_NAME_ATTRIBUTE.sub(decide, text)
+        if updated != text:
+            path.write_text(updated, errors="surrogateescape")
+    return removed
+
+
+def wat_function_bodies(wat):
+    """Map each function's index to its WAT text; the module's functions are `(func (;N;) ...)`."""
+    bodies = {}
+    for part in re.split(r"\n  \(func (?=\(;)", wat)[1:]:
+        found = re.match(r"\(;(\d+);\)", part)
+        if found:
+            bodies[int(found.group(1))] = part
+    return bodies
+
+
+def wat_exports(wat):
+    """Export field to function index."""
+    return {field: int(index) for field, index in
+            re.findall(r'\(export "([^"]+)" \(func (\d+)\)\)', wat)}
+
+
+def wat_got_globals(wat):
+    """The GOT imports as {global index: (kind, field)}."""
+    return {int(index): (kind, field) for kind, field, index in
+            re.findall(r'\(import "GOT\.(mem|func)" "([^"]+)" \(global \(;(\d+);\)', wat)}
+
+
+def exports_left_out(wat, unresolved=()):
+    """Why a function the module exports cannot be called, keyed by the export's field.
+
+    A function that calls the asm stub holds x86 inline assembly (the stub traps). One that reads
+    a GOT global the decomp's symbol table has no address for would read a zero binding. Either is
+    left out of the exports, with the reason.
+    """
+    bodies, exports = wat_function_bodies(wat), wat_exports(wat)
+    reasons = {}
+    stub = exports.get(ASM_STUB)
+    unresolved_index = {index: field for index, (_, field) in wat_got_globals(wat).items()
+                        if field in set(unresolved)}
+    for field, function in exports.items():
+        body = bodies.get(function, "")
+        if stub is not None and function != stub and re.search(r"call %d(?!\d)" % stub, body):
+            reasons[field] = "contains x86 inline assembly that has no wasm translation"
+            continue
+        for index, name in unresolved_index.items():
+            if re.search(r"global\.get %d(?!\d)" % index, body):
+                reasons[field] = "uses %s, which has no address in the decomp's symbol table" % name
+                break
+    return reasons
+
+
+# The SSE intrinsics the decomp declares and calls (`extern "C" LocalM128 _mm_add_ps(...)`), as plain
+# functions over MSVC's `__m128` layout, linked into the module. The arithmetic is IEEE single
+# precision, so add, sub, mul, div, min, max, sqrt and the compares are exact; `rcp` and `rsqrt`
+# are the exact reciprocal where the hardware gives a 12-bit estimate, and `getcsr` reports the
+# default control state. A function that calls an estimate differs from the original in its low bits.
+SSE_SOURCE = r"""
+typedef union __attribute__((aligned(16))) { float f[4]; unsigned int u[4]; unsigned long long q[2]; } m128;
+#define OP(name, expr) m128 name(m128 a, m128 b) { m128 r; \
+  for (int i = 0; i < 4; i++) r.f[i] = (expr); return r; }
+#define OPS(name, expr) m128 name(m128 a, m128 b) { m128 r = a; \
+  { int i = 0; r.f[0] = (expr); } return r; }
+#define BITS(name, expr) m128 name(m128 a, m128 b) { m128 r; \
+  for (int i = 0; i < 4; i++) r.u[i] = (expr); return r; }
+#define CMP(name, test) m128 name(m128 a, m128 b) { m128 r; \
+  for (int i = 0; i < 4; i++) r.u[i] = (test) ? 0xffffffffu : 0; return r; }
+#define CMPS(name, test) m128 name(m128 a, m128 b) { m128 r = a; \
+  { int i = 0; r.u[0] = (test) ? 0xffffffffu : 0; } return r; }
+OP(_mm_add_ps, a.f[i] + b.f[i])  OPS(_mm_add_ss, a.f[i] + b.f[i])
+OP(_mm_sub_ps, a.f[i] - b.f[i])  OPS(_mm_sub_ss, a.f[i] - b.f[i])
+OP(_mm_mul_ps, a.f[i] * b.f[i])  OPS(_mm_mul_ss, a.f[i] * b.f[i])
+OP(_mm_div_ps, a.f[i] / b.f[i])  OPS(_mm_div_ss, a.f[i] / b.f[i])
+OP(_mm_min_ps, a.f[i] < b.f[i] ? a.f[i] : b.f[i])
+OP(_mm_max_ps, a.f[i] > b.f[i] ? a.f[i] : b.f[i])
+OPS(_mm_min_ss, a.f[i] < b.f[i] ? a.f[i] : b.f[i])
+OPS(_mm_max_ss, a.f[i] > b.f[i] ? a.f[i] : b.f[i])
+BITS(_mm_and_ps, a.u[i] & b.u[i])  BITS(_mm_andnot_ps, ~a.u[i] & b.u[i])
+BITS(_mm_or_ps, a.u[i] | b.u[i])   BITS(_mm_xor_ps, a.u[i] ^ b.u[i])
+CMP(_mm_cmpeq_ps, a.f[i] == b.f[i])  CMP(_mm_cmplt_ps, a.f[i] < b.f[i])
+CMP(_mm_cmple_ps, a.f[i] <= b.f[i])  CMP(_mm_cmpgt_ps, a.f[i] > b.f[i])
+CMP(_mm_cmpge_ps, a.f[i] >= b.f[i])  CMP(_mm_cmpneq_ps, !(a.f[i] == b.f[i]))
+CMPS(_mm_cmpeq_ss, a.f[i] == b.f[i]) CMPS(_mm_cmplt_ss, a.f[i] < b.f[i])
+CMPS(_mm_cmple_ss, a.f[i] <= b.f[i]) CMPS(_mm_cmpgt_ss, a.f[i] > b.f[i])
+CMPS(_mm_cmpge_ss, a.f[i] >= b.f[i]) CMPS(_mm_cmpneq_ss, !(a.f[i] == b.f[i]))
+m128 _mm_sqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = __builtin_sqrtf(a.f[i]); return r; }
+m128 _mm_sqrt_ss(m128 a) { m128 r = a; r.f[0] = __builtin_sqrtf(a.f[0]); return r; }
+m128 _mm_rcp_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = 1.0f / a.f[i]; return r; }
+m128 _mm_rcp_ss(m128 a) { m128 r = a; r.f[0] = 1.0f / a.f[0]; return r; }
+m128 _mm_rsqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = 1.0f / __builtin_sqrtf(a.f[i]); return r; }
+m128 _mm_rsqrt_ss(m128 a) { m128 r = a; r.f[0] = 1.0f / __builtin_sqrtf(a.f[0]); return r; }
+m128 _mm_setzero_ps(void) { m128 r = {{0, 0, 0, 0}}; return r; }
+m128 _mm_set_ps1(float v) { m128 r = {{v, v, v, v}}; return r; }
+m128 _mm_set1_ps(float v) { m128 r = {{v, v, v, v}}; return r; }
+m128 _mm_set_ps(float w, float z, float y, float x) { m128 r = {{x, y, z, w}}; return r; }
+m128 _mm_setr_ps(float x, float y, float z, float w) { m128 r = {{x, y, z, w}}; return r; }
+m128 _mm_set_ss(float v) { m128 r = {{v, 0, 0, 0}}; return r; }
+m128 _mm_load_ss(const float* p) { m128 r = {{*p, 0, 0, 0}}; return r; }
+m128 _mm_load_ps(const float* p) { m128 r = {{p[0], p[1], p[2], p[3]}}; return r; }
+m128 _mm_loadu_ps(const float* p) { m128 r = {{p[0], p[1], p[2], p[3]}}; return r; }
+m128 _mm_load_ps1(const float* p) { m128 r = {{*p, *p, *p, *p}}; return r; }
+m128 _mm_load1_ps(const float* p) { m128 r = {{*p, *p, *p, *p}}; return r; }
+void _mm_store_ss(float* p, m128 a) { *p = a.f[0]; }
+void _mm_store_ps(float* p, m128 a) { p[0] = a.f[0]; p[1] = a.f[1]; p[2] = a.f[2]; p[3] = a.f[3]; }
+void _mm_storeu_ps(float* p, m128 a) { p[0] = a.f[0]; p[1] = a.f[1]; p[2] = a.f[2]; p[3] = a.f[3]; }
+float _mm_cvtss_f32(m128 a) { return a.f[0]; }
+int _mm_movemask_ps(m128 a) { return (a.u[0] >> 31) | ((a.u[1] >> 31) << 1) | ((a.u[2] >> 31) << 2) | ((a.u[3] >> 31) << 3); }
+m128 _mm_move_ss(m128 a, m128 b) { m128 r = a; r.f[0] = b.f[0]; return r; }
+m128 _mm_unpacklo_ps(m128 a, m128 b) { m128 r = {{a.f[0], b.f[0], a.f[1], b.f[1]}}; return r; }
+m128 _mm_unpackhi_ps(m128 a, m128 b) { m128 r = {{a.f[2], b.f[2], a.f[3], b.f[3]}}; return r; }
+m128 _mm_movelh_ps(m128 a, m128 b) { m128 r = {{a.f[0], a.f[1], b.f[0], b.f[1]}}; return r; }
+m128 _mm_movehl_ps(m128 a, m128 b) { m128 r = {{b.f[2], b.f[3], a.f[2], a.f[3]}}; return r; }
+m128 _mm_shuffle_ps(m128 a, m128 b, int m) {
+  m128 r = {{a.f[m & 3], a.f[(m >> 2) & 3], b.f[(m >> 4) & 3], b.f[(m >> 6) & 3]}}; return r; }
+unsigned int _mm_getcsr(void) { return 0x1f80; }
+void _mm_setcsr(unsigned int v) { (void)v; }
+"""
 
 
 def make_standins(out, tools):
@@ -132,19 +505,43 @@ def make_standins(out, tools):
         intrin = (Path(mingw) / "psdk_inc" / "intrin-impl.h").read_text(errors="surrogateescape")
         intrin = intrin.replace('#define __buildint(a) __asm__ __volatile__("int {$}" #a :)',
                                 "#define __buildint(a) __builtin_trap()")
+        # The x86 barrier asm names `eax`, which wasm has no register for; a fence is the same ordering.
+        intrin = re.sub(r"#define __buildmemorybarrier\(\) \\\n\{ \\\n.*?\n\}\n",
+                        "#define __buildmemorybarrier() { __atomic_thread_fence(__ATOMIC_SEQ_CST); }\n",
+                        intrin, flags=re.S)
         intrin = "\n".join(line for line in intrin.split("\n")
                            if not re.match(r"\s*(?:__INTRINSICS_USEINLINE|__build\w*\(.*\)\s*;?\s*$)", line))
         (standins / "psdk_inc" / "intrin-impl.h").write_text(intrin)
-    vector = ("#pragma once\n"
-              "typedef float __m128 __attribute__((__vector_size__(16), __aligned__(16)));\n"
-              "typedef long long __m128i __attribute__((__vector_size__(16), __aligned__(16)));\n"
-              "typedef double __m128d __attribute__((__vector_size__(16), __aligned__(16)));\n"
-              "typedef long long __m64 __attribute__((__vector_size__(8), __aligned__(8)));\n")
+        math = Path(mingw) / "math.h"
+        if math.is_file():
+            (standins / "math.h").write_text(standin_math(math.read_text(errors="surrogateescape")))
+    # The decomp spells its own `__m128` union and declares the `_mm_*` functions it calls; the
+    # headers stay empty so clang's x86-only ones are not used, and nv_sse.c defines the functions.
+    vector = "#pragma once\n"
     for name in ("xmmintrin.h", "emmintrin.h", "pmmintrin.h", "immintrin.h", "mmintrin.h",
                  "intrin.h", "x86intrin.h"):
         (standins / name).write_text(vector)
     (standins / "wasm_prelude.h").write_text(
         "#pragma once\nextern \"C\" unsigned long __readfsdword(unsigned long);\n")
+    # Included in every unit: the stub the rewritten `__asm` blocks call, and the barrier clang
+    # reads as an intrinsic that mingw's empty intrin.h stand-in no longer provides.
+    (standins / "nv_asm.h").write_text(
+        "#pragma once\n"
+        "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+        "__attribute__((noreturn, noinline)) void %s(void);\n"
+        "#ifdef __cplusplus\n}\n#endif\n"
+        "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+        "void _ReadWriteBarrier(void);\nunsigned int _mm_getcsr(void);\nvoid _mm_setcsr(unsigned int);\n"
+        "#ifdef __cplusplus\n}\n#endif\n"
+        % ASM_STUB)
+    # MSVC's built-in `__m128`, for units that use it without declaring it.
+    (standins / "sse_types.h").write_text(
+        "#pragma once\n"
+        "union __declspec(intrin_type) __declspec(align(16)) __m128 {\n"
+        "  float m128_f32[4]; unsigned __int64 m128_u64[2]; };\n")
+    (standins / "nv_runtime.c").write_text(
+        "__attribute__((noreturn, noinline)) void %s(void) { __builtin_trap(); }\n"
+        "void _ReadWriteBarrier(void) { __atomic_signal_fence(__ATOMIC_SEQ_CST); }\n%s" % (ASM_STUB, SSE_SOURCE))
     return standins
 
 
@@ -489,17 +886,22 @@ def rewrite_addresses(wat, addresses):
     return "".join(out), count
 
 
-def wasm_flags(copy, standins, tools, cxx=False):
+def wasm_flags(copy, standins, tools, cxx=False, sse_types=False):
     flags = ["--target=wasm32-unknown-unknown", "-mms-bitfields", "-fshort-wchar",
              "-fms-extensions", "-fms-compatibility", "-fms-compatibility-version=19",
              "-nostdlib", "-Wno-everything", "-O2", "-fPIC", "-flto", "-D_WIN32",
              "-DWIN32", "-D__i386__", "-D_M_IX86=600", "-D_X86_", "-D__GNUC__=4",
-             "-D__GNUC_MINOR__=2", "-isystem", str(standins)]
-    if tools.get("mingw"):
-        flags += ["-isystem", tools["mingw"]]
+             "-D__GNUC_MINOR__=2", "-fno-builtin-_InterlockedIncrement",
+             "-fno-builtin-_InterlockedDecrement", "-include", str(standins / "nv_asm.h"),
+             "-isystem", str(standins)]
+    # libc++ first: its stddef.h and friends wrap the next header on the path, mingw's included.
     if cxx and tools.get("libcxx"):
         flags += ["-isystem", tools["libcxx"], "-D_LIBCPP_HAS_NO_THREADS",
                   "-include", str(standins / "wasm_prelude.h")]
+    if tools.get("mingw"):
+        flags += ["-isystem", tools["mingw"]]
+    if sse_types:
+        flags += ["-include", str(standins / "sse_types.h")]
     flags += ["-I", str(copy / "include"), "-I", str(copy / "src")]
     if tools.get("resource"):
         flags += ["-resource-dir", tools["resource"]]
@@ -507,17 +909,35 @@ def wasm_flags(copy, standins, tools, cxx=False):
 
 
 def compile_unit(tools, copy, standins, source, obj, cxx=False):
+    """Compile one unit to wasm, repairing what clang refuses in the private copy and trying again.
+
+    Two repairs: a declaration of the decomp's that contradicts the system header's is blanked
+    (`drop_conflicting_declarations`), and a unit that uses MSVC's built-in `__m128` without
+    declaring it gets the stand-in type. The loop stops when a round changes nothing.
+    """
     path = copy / source
     if not path.is_file():
         return False, "source not found in build copy"
     compiler = tools["cxx"] if cxx else tools["clang"]
-    result = run([compiler, *wasm_flags(copy, standins, tools, cxx), "-c", path, "-o", obj])
-    if result.returncode:
-        for line in result.stderr.splitlines():
-            if "error:" in line:
-                return False, line.split("error:", 1)[1].strip()[:240]
-        return False, (result.stderr.strip().splitlines() or ["clang failed"])[-1][:240]
-    return True, ""
+    sse_types, result, attempts = False, None, []
+    for _ in range(12):
+        result = run([compiler, *wasm_flags(copy, standins, tools, cxx, sse_types),
+                      "-c", path, "-o", obj])
+        if not result.returncode:
+            return True, ""
+        attempts.append(result)
+        blanked = drop_conflicting_declarations(result.stderr, copy)
+        wants_sse = (not sse_types and ("unknown type name '__m128'" in result.stderr
+                                        or "no type named '__m128'" in result.stderr))
+        sse_types = sse_types or wants_sse
+        if not blanked and not wants_sse:
+            break
+    # Report the attempt that got furthest: the stand-in type can make a unit worse.
+    result = min(attempts, key=lambda r: r.stderr.count("error:"))
+    for line in result.stderr.splitlines():
+        if "error:" in line:
+            return False, line.split("error:", 1)[1].strip()[:240]
+    return False, (result.stderr.strip().splitlines() or ["clang failed"])[-1][:240]
 
 
 def declaration(declaration_text):
@@ -577,12 +997,45 @@ def collect_symbols(manifest, units):
     return symbols
 
 
+ADDRESS_NAME = re.compile(r"(?:^|[^0-9A-Za-z])(?:DAT|PTR|FUN|str|g|s|u|LAB|BYTE|DWORD|WORD|PTR_DAT|PTR_FUN)_(?:[A-Za-z]*_)?"
+                          r"([0-9a-f]{8})(?![0-9A-Za-z])")
+
+
+def itanium_identifiers(name):
+    """The length-prefixed identifiers of an Itanium name, or the name itself when it has none."""
+    found, index = [], 0
+    while True:
+        match = re.compile(r"(\d+)").search(name, index)
+        if not match:
+            break
+        size = int(match.group(1))
+        start = match.end()
+        if size == 0 or start + size > len(name):
+            index = match.end()
+            continue
+        found.append(name[start:start + size])
+        index = start + size
+    return found or [name]
+
+
 def symbol_address(symbols, name):
-    """Resolve an export or GOT name to a number, including its literal _name key."""
+    """Resolve an export or GOT name to a number, including its literal _name key.
+
+    Besides the symbol tables: `fnv_<addr>` is an export the build named for its address, and the
+    decomp spells its globals and functions with the address (`DAT_01017130`, `FUN_00c877b0`),
+    also inside an Itanium name (`_ZN12fnv_00b13c1012DAT_01017130E`).
+    """
+    found = re.fullmatch(EXPORT_PREFIX + r"([0-9a-f]{8})", name)
+    if found:
+        return int(found.group(1), 16)
     for key in (name, name.lstrip("?_"), name.lstrip("?"), "_" + name, name.upper()):
         if key in symbols:
             value = symbols[key]
             return int(value, 0) if isinstance(value, str) else int(value)
+    for identifier in reversed(itanium_identifiers(name)):
+        found = ADDRESS_NAME.fullmatch(identifier) or ADDRESS_NAME.search(identifier)
+        if found and re.fullmatch(r"[0-9a-f]{8}", found.group(1)):
+            return int(found.group(1), 16)
     return None
 
 
@@ -599,12 +1052,23 @@ def export_manifest(exports, units, symbols=None):
     return result
 
 
-def got_values(globals_, func_globals, symbols):
-    """Bind every GOT.mem and GOT.func name, refusing a silent zero binding."""
+def unmangle(name):
+    """A wasm2c identifier back to the module's field name: `0x5F` is `_`, `0x2E` is `.`."""
+    return re.sub(r"0x([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), name)
+
+
+def got_values(globals_, func_globals, symbols, lenient=False):
+    """Bind every GOT.mem and GOT.func name, refusing a silent zero binding.
+
+    With `lenient` an unresolved name is bound to zero and returned in a third list, so the build
+    can leave out the exports that read it instead of stopping.
+    """
     mem = [symbol_address(symbols, name) for name in globals_]
     funcs = {name: symbol_address(symbols, name) for name in func_globals}
     unresolved = ([name for name, value in zip(globals_, mem) if value is None]
                   + [name for name, value in funcs.items() if value is None])
+    if lenient:
+        return ([value or 0 for value in mem], {k: v or 0 for k, v in funcs.items()}, unresolved)
     if unresolved:
         raise RuntimeError("unresolved GOT symbol(s): " + ", ".join(unresolved))
     return mem, funcs
@@ -637,7 +1101,7 @@ def exports_from_units(units):
 
 
 def generate_shim(path, imports, exports, globals_, instantiate, host=None,
-                  func_globals=None, func_values=None):
+                  func_globals=None, func_values=None, startup=None):
     """Write the host side: guest memory, original-address table, GOT and import stubs."""
     host = host or detect_host()
     func_globals = func_globals or []
@@ -683,10 +1147,15 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
                 "wasm_rt_memory_t*" if target == "&e->mem" else "u32*")
             lines.append('%s %s(struct w2c_env* e) { return %s; }' % (ret, name, target))
             continue
-        args = ", ".join("u32 a%d" % i for i in range(len(item["params"])))
-        array = "{" + ", ".join("a%d" % i for i in range(len(item["params"]))) + "}" if item["params"] else "NULL"
-        lines.append('%s(struct w2c_env* e, %s) { (void)e; u32 a[] = %s; return decomp_call_import("%s", a, %d); }'
-                     % (item["decl"].split("(")[0].strip(), args, array, item["field"], len(item["params"])))
+        args = ", ".join("%s a%d" % (kind, i) for i, kind in enumerate(item["params"]))
+        values = ", ".join("(u32)a%d" % i for i in range(len(item["params"])))
+        array = "{" + values + "}" if values else "{0}"
+        call = 'decomp_call_import("%s", a, %d)' % (item["field"], len(item["params"]))
+        result = item.get("result") or "u32"
+        body = ("%s; return;" % call if result == "void"
+                else "return (%s)%s;" % (result, call))
+        lines.append('%s(struct w2c_env* e%s) { (void)e; u32 a[] = %s; %s }'
+                     % (item["decl"].split("(")[0].strip(), ", " + args if args else "", array, body))
     lines += ['', 'int decomp_init(unsigned char* guest, uint64_t size, uint32_t entries,',
               '                 uint32_t* globals, uint32_t nglobals) {',
               '  wasm_rt_init();',
@@ -709,9 +1178,10 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
         instantiate_args += ", &fgot, &env" if func_globals else ", &got, &env"
     elif len(instantiate.split(",")) == 2:
         instantiate_args += ", &env"
-    lines += ['  wasm2c_mod_instantiate(%s);' % instantiate_args,
-              '  w2c_mod_0x5F_wasm_apply_data_relocs(&inst);',
-              '  w2c_mod_0x5F_wasm_call_ctors(&inst);']
+    # A module with no data relocations or constructors does not export these.
+    startup = ("__wasm_apply_data_relocs", "__wasm_call_ctors") if startup is None else startup
+    lines += ['  wasm2c_mod_instantiate(%s);' % instantiate_args]
+    lines += ['  w2c_mod_0x5F%s(&inst);' % name[1:] for name in startup]
     for entry in exports:
         if entry["address"] is not None and entry["arity"] is not None:
             args = "WASM_RT_I32, " * (entry["arity"] + 1)
@@ -820,10 +1290,33 @@ def fallback_shim(path, exports, host=None):
     Path(path).write_text("\n".join(lines) + "\n")
 
 
+def read_gap_addresses(path):
+    """The addresses of a `real_gaps.txt`-style list: `<8 hex digits> <file> <result>` lines."""
+    found = []
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and re.match(r"[0-9a-fA-F]{8}\b", line):
+            found.append(int(line.split()[0], 16))
+    return found
+
+
+def gap_units(units, addresses):
+    """The sources of the units that define a function at one of `addresses`, in list order."""
+    wanted, sources = set(addresses), []
+    for unit in units:
+        held = {address_value(f.get("address")) for f in unit.get("functions", [])}
+        if wanted & held and unit["source"] not in sources:
+            sources.append(unit["source"])
+    return sources
+
+
 def select_units(units, sources=None, limit=None):
     if sources:
-        wanted = set(sources)
-        return [u for u in units if u.get("source") in wanted]
+        by_source = {}
+        for unit in units:
+            by_source.setdefault(unit.get("source"), unit)
+        # In the order asked for: when two units define one symbol, the first named keeps it.
+        return [by_source[source] for source in dict.fromkeys(sources) if source in by_source]
     if limit is None:
         return units
     return units[:limit]
@@ -868,6 +1361,42 @@ def write_build_outputs(out, report, exports, globals_, global_values, imports=N
     (out / "exports.tsv").write_text("\n".join(lines) + "\n")
 
 
+def link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes):
+    """Link the units, dropping a later unit that defines a symbol an earlier one already does.
+
+    Variants of one source define the same symbol at different addresses; one module holds one
+    definition. The first unit named keeps it, and each dropped unit is reported with the symbol
+    and the unit that kept it. Returns the objects that were linked.
+    """
+    by_object = {}
+    for unit, outcome in zip(chosen, outcomes):
+        if outcome["ok"]:
+            by_object[outcome["object"]] = (unit, outcome)
+    objects = list(objects)
+    for _ in range(len(objects) + 1):
+        linked = run([tools["wasm_ld"], "--experimental-pic", "-shared",
+                      "--unresolved-symbols=import-dynamic", "--export-all", "--import-memory",
+                      "--max-memory=%d" % GUEST_SIZE, "--lto-O2", "-o", wasm, *objects, runtime])
+        if not linked.returncode:
+            return objects
+        match = re.search(r"duplicate symbol: (.+)\n>>> defined in (\S+)\n>>> defined in (\S+)",
+                          linked.stderr)
+        if not match:
+            raise RuntimeError("wasm-ld: " + linked.stderr.strip()[-500:])
+        symbol, first, second = match.groups()
+        dropped = Path(second).name
+        if dropped not in by_object or dropped == Path(first).name:
+            raise RuntimeError("wasm-ld: " + linked.stderr.strip()[-500:])
+        kept = by_object.get(Path(first).name, ({"source": first}, None))[0]["source"]
+        unit, outcome = by_object[dropped]
+        outcome["ok"] = False
+        outcome["reason"] = "duplicate symbol %s, kept from %s" % (symbol, kept)
+        objects = [o for o in objects if o.name != dropped]
+        if not objects:
+            break
+    raise RuntimeError("wasm-ld: no unit is left after dropping duplicates")
+
+
 def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
           compiler=None, allow_fallback=False, force_fallback=False):
     """Build a native library and write report.json/report.md into the output folder."""
@@ -890,6 +1419,7 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
     rewrites = prepare_build_copy(decomp, out)
     standins = make_standins(out, tools)
     objects, outcomes = [], []
+    keep_first_export_of_each_address(out / "copy", [unit["source"] for unit in chosen])
     for index, unit in enumerate(chosen):
         obj = out / ("unit_%04d.o" % index)
         ok, reason = compile_unit(tools, out / "copy", standins, unit["source"], obj,
@@ -899,13 +1429,16 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
             objects.append(obj)
     if not objects:
         raise RuntimeError("no unit compiled; nothing to link")
+    runtime = out / "nv_runtime.o"
+    stub = run([tools["clang"], "--target=wasm32-unknown-unknown", "-O2", "-fPIC", "-nostdlib",
+                "-Wno-everything", "-c", standins / "nv_runtime.c", "-o", runtime])
+    if stub.returncode:
+        raise RuntimeError("asm stub: " + stub.stderr.strip()[-500:])
     wasm = out / "mod.wasm"
-    linked = run([tools["wasm_ld"], "--experimental-pic", "-shared", "--unresolved-symbols=import-dynamic",
-                  "--export-all", "--import-memory", "--max-memory=%d" % GUEST_SIZE, "--lto-O2",
-                  "-o", wasm, *objects])
-    if linked.returncode:
-        raise RuntimeError("wasm-ld: " + linked.stderr.strip()[-500:])
-    symbols = collect_symbols(manifest, all_units)
+    objects = link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes)
+    symbols = collect_symbols({}, chosen)
+    for key, value in collect_symbols(manifest, all_units).items():
+        symbols.setdefault(key, value)
     addresses = dict(symbols)
     for unit in chosen:
         for function in unit.get("functions", []):
@@ -915,7 +1448,13 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
     wat2wat, wat2wasm = wabt_tool(tools, "wasm2wat"), wabt_tool(tools, "wat2wasm")
     if not wat2wat or not wat2wasm:
         raise RuntimeError("wabt needs wasm2wat and wat2wasm to bind function addresses")
-    text = run([wat2wat, wasm]).stdout
+    disassembled = run([wat2wat, wasm])
+    if disassembled.returncode:
+        raise RuntimeError("wasm2wat: " + disassembled.stderr.strip()[-500:])
+    text = disassembled.stdout
+    # The analysis reads functions and globals by index; the rewrite below reads them by name.
+    indexed = run([wat2wat, "--no-debug-names", wasm])
+    analysed = indexed.stdout if not indexed.returncode else ""
     text, bound = rewrite_addresses(text, addresses)
     addressed = out / "addressed.wat"
     addressed.write_text(text)
@@ -936,11 +1475,21 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
         elif item["module"] == "GOT.func" and match:
             func_globals.append(match.group(2))
     exports = export_manifest(exports, chosen, symbols)
-    global_values, func_values = got_values(globals_, func_globals, symbols)
+    global_values, raw_funcs, unresolved = got_values(
+        [unmangle(name) for name in globals_], [unmangle(name) for name in func_globals],
+        symbols, lenient=True)
+    func_values = {name: raw_funcs[unmangle(name)] for name in func_globals}
+    # A function that holds x86 `__asm`, or reads a global with no known address, is not exported.
+    reasons = exports_left_out(analysed, unresolved)
+    left_out = [{"name": e["name"], "address": e["address"], "reason": reasons[e["name"]]}
+                for e in exports if e["name"] in reasons and e["address"] is not None]
+    exports = [e for e in exports if e["name"] not in reasons and e["name"] != ASM_STUB]
     shim = out / "shim.c"
     instantiate = re.search(r"void wasm2c_mod_instantiate\(([^;]+)\);", header).group(1)
+    startup = [name for name in ("__wasm_apply_data_relocs", "__wasm_call_ctors")
+               if "w2c_mod_0x5F%s(" % name[1:] in header]
     generate_shim(shim, imports, exports, globals_, instantiate, host=host,
-                  func_globals=func_globals, func_values=func_values)
+                  func_globals=func_globals, func_values=func_values, startup=startup)
     library = out / host["library_name"]
     runtime_dir = tools["wabt_runtime"]
     includes = []
@@ -956,6 +1505,8 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
                          dict(zip(globals_, global_values)), rewrites)
     report["bound_function_addresses"] = bound
     report["got_func_values"] = func_values
+    report["left_out_of_exports"] = left_out
+    report["unresolved_globals"] = unresolved
     write_build_outputs(out, report, exports, globals_, global_values, imports, symbols)
     return report
 
@@ -1230,6 +1781,7 @@ def main(argv=None):
         sub.add_argument("--decomp", required=True, help="local fnv_decomp checkout")
         sub.add_argument("--unit", action="append", default=[], help="source path to build (repeatable)")
         sub.add_argument("--limit", type=int, help="build only the first N units")
+        sub.add_argument("--gaps", help="a real_gaps.txt: also build the units that hold its addresses")
         sub.add_argument("--out", default=".decomp-backend", help="git-ignored output folder")
         sub.add_argument("--offline", action="store_true", help="do not fetch a missing toolchain")
         if name == "build":
@@ -1243,6 +1795,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     download = blocked_download if args.command in ("build", "layout") and args.offline else None
     if args.command == "build":
+        if args.gaps:
+            manifest = json.loads((Path(args.decomp) / "build" / "units.json").read_text())
+            args.unit = list(args.unit) + gap_units(manifest.get("units", []),
+                                                    read_gap_addresses(args.gaps))
         report = build(args.decomp, args.out, args.unit, args.limit,
                        download=download, force_fallback=args.cranelift)
         print("compiled %d, skipped %d; library %s" % (
