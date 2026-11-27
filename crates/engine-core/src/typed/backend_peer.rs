@@ -18,13 +18,42 @@ use std::sync::Arc;
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::OnceLock;
 
+/// What the export's function returns, as the build's `exports.tsv` spells it. Every kind has the
+/// one word the wrapper returns (`EAX`); the others add what a caller of the original reads next.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResultKind {
+    /// `EAX` alone: an integer, a pointer, a bool, or nothing.
+    #[default]
+    Word,
+    /// A `float`: the word is its bits, and `ST0` holds the value.
+    F32,
+    /// A `double`: `ST0` holds it; the word is zero.
+    F64,
+    /// A 64-bit integer: the word is the low half (`EAX`), `EDX` the high half.
+    U64,
+}
+
+impl ResultKind {
+    fn from_word(word: Option<&str>) -> Self {
+        match word {
+            Some("f32") => Self::F32,
+            Some("f64") => Self::F64,
+            Some("u64") => Self::U64,
+            _ => Self::Word,
+        }
+    }
+}
+
+/// The widest export a wrapper is built for: `decomp_backend.py` gives up on anything wider.
+pub const MAX_ARITY: usize = 12;
+
 /// One callable export: its original address, the shim's wrapper and the result's spelling.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Export {
     pub address: u32,
     pub wrapper: String,
     pub arity: usize,
-    pub float: bool,
+    pub kind: ResultKind,
 }
 
 /// The host side of the module's imports: an import's name and its guest words in, its result out.
@@ -37,6 +66,11 @@ pub trait Backend {
     fn init(&self, guest: *mut u8, size: u64, entries: u32, globals: &[u32]) -> bool;
     /// Call the export's wrapper with guest words.
     fn call(&self, wrapper: &str, args: &[u32]) -> u32;
+    /// The rest of the last call's result: `EDX` (the high word of a 64-bit integer) and `ST0` (a
+    /// `double`). A backend that cannot say returns zeros.
+    fn wide(&self) -> (u32, f64) {
+        (0, 0.0)
+    }
     /// Clear the last trap, then report the trap the last call left, if any.
     fn trap(&self, clear: bool) -> Option<String>;
     /// Route the module's imports to the host.
@@ -170,13 +204,17 @@ impl<B: Backend> BackendPeer<B> {
         ACTIVE_ENGINE.with(|cell| cell.set(std::ptr::null_mut()));
         let trap = self.backend.trap(false);
         LAST_TRAP.with(|t| *t.borrow_mut() = trap);
+        let (edx, st0) = self.backend.wide();
         let mut ret = Ret {
             eax: bits,
             edx: 0,
             st0: 0.0,
         };
-        if export.float {
-            ret.st0 = f32::from_bits(bits) as f64;
+        match export.kind {
+            ResultKind::Word => {}
+            ResultKind::F32 => ret.st0 = f32::from_bits(bits) as f64,
+            ResultKind::F64 => ret.st0 = st0,
+            ResultKind::U64 => ret.edx = edx,
         }
         Some(ret)
     }
@@ -293,7 +331,7 @@ fn active() -> bool {
     *ACTIVE.get_or_init(|| std::env::var_os("NV_BACKEND_LIBRARY").is_some_and(|v| !v.is_empty()))
 }
 
-/// Parse the build's `exports.tsv`: `#` comments, `export <va> <wrapper> <arity> [f32]`,
+/// Parse the build's `exports.tsv`: `#` comments, `export <va> <wrapper> <arity> [f32|f64|u64]`,
 /// `import <name> <va>` and `global <va>` lines. No game or reconstruction bytes are read.
 pub fn parse_exports(text: &str) -> (Vec<Export>, Vec<u32>, HashMap<String, u32>) {
     let (mut exports, mut globals, mut imports) = (Vec::new(), Vec::new(), HashMap::new());
@@ -308,11 +346,14 @@ pub fn parse_exports(text: &str) -> (Vec<Export>, Vec<u32>, HashMap<String, u32>
                     continue;
                 };
                 if let (Ok(address), Ok(arity)) = (u32::from_str_radix(va, 16), arity.parse()) {
+                    if arity > MAX_ARITY {
+                        continue;
+                    }
                     exports.push(Export {
                         address,
                         wrapper: wrapper.into(),
                         arity,
-                        float: words.next() == Some("f32"),
+                        kind: ResultKind::from_word(words.next()),
                     });
                 }
             }
@@ -336,9 +377,15 @@ pub fn parse_exports(text: &str) -> (Vec<Export>, Vec<u32>, HashMap<String, u32>
     (exports, globals, imports)
 }
 
-/// The backend loaded from `library` and the `.tsv` beside it, or `None` when either is missing.
+/// The file the build writes its exports to, beside the library.
+pub(crate) fn exports_file(library: &std::path::Path) -> std::path::PathBuf {
+    library.with_file_name("exports.tsv")
+}
+
+/// The backend loaded from `library` and the `exports.tsv` beside it, or `None` when either is
+/// missing.
 pub(crate) fn load(library: &std::path::Path) -> Option<BackendPeer<LibBackend>> {
-    let text = std::fs::read_to_string(library.with_extension("tsv")).ok()?;
+    let text = std::fs::read_to_string(exports_file(library)).ok()?;
     let (exports, globals, imports) = parse_exports(&text);
     LibBackend::open(library)
         .ok()
@@ -389,37 +436,46 @@ impl Backend for LibBackend {
         let name = format!("{wrapper}\0");
         let bytes = name.as_bytes();
         // The shim's wrapper is named for the export, not its arity: its signature comes from
-        // `exports.tsv`. Six spellings cover every arity the build exports (`decomp_backend.py`
-        // gives up on anything wider).
+        // `exports.tsv`.
+        // The wrapper's signature is `u32 (u32 x arity)`, spelled out per arity.
+        macro_rules! call_with {
+            ($($arg:ident),*) => {{
+                type F = unsafe extern "C" fn($(call_with!(@word $arg)),*) -> u32;
+                let [$($arg),*] = args else { unreachable!() };
+                unsafe { self.library.get::<F>(bytes).map(|func| func($(*$arg),*)) }
+            }};
+            (@word $arg:ident) => { u32 };
+        }
+        match args.len() {
+            0 => unsafe { self.library.get::<unsafe extern "C" fn() -> u32>(bytes).map(|f| f()) },
+            1 => call_with!(a),
+            2 => call_with!(a, b),
+            3 => call_with!(a, b, c),
+            4 => call_with!(a, b, c, d),
+            5 => call_with!(a, b, c, d, e),
+            6 => call_with!(a, b, c, d, e, f),
+            7 => call_with!(a, b, c, d, e, f, g),
+            8 => call_with!(a, b, c, d, e, f, g, h),
+            9 => call_with!(a, b, c, d, e, f, g, h, i),
+            10 => call_with!(a, b, c, d, e, f, g, h, i, j),
+            11 => call_with!(a, b, c, d, e, f, g, h, i, j, k),
+            12 => call_with!(a, b, c, d, e, f, g, h, i, j, k, l),
+            _ => Ok(0),
+        }
+        .unwrap_or(0)
+    }
+
+    fn wide(&self) -> (u32, f64) {
         unsafe {
-            match args.len() {
-                0 => self
-                    .library
-                    .get::<unsafe extern "C" fn() -> u32>(bytes)
-                    .map(|f| f()),
-                1 => self
-                    .library
-                    .get::<unsafe extern "C" fn(u32) -> u32>(bytes)
-                    .map(|f| f(args[0])),
-                2 => self
-                    .library
-                    .get::<unsafe extern "C" fn(u32, u32) -> u32>(bytes)
-                    .map(|f| f(args[0], args[1])),
-                3 => self
-                    .library
-                    .get::<unsafe extern "C" fn(u32, u32, u32) -> u32>(bytes)
-                    .map(|f| f(args[0], args[1], args[2])),
-                4 => self
-                    .library
-                    .get::<unsafe extern "C" fn(u32, u32, u32, u32) -> u32>(bytes)
-                    .map(|f| f(args[0], args[1], args[2], args[3])),
-                5 => self
-                    .library
-                    .get::<unsafe extern "C" fn(u32, u32, u32, u32, u32) -> u32>(bytes)
-                    .map(|f| f(args[0], args[1], args[2], args[3], args[4])),
-                _ => Ok(0),
-            }
-            .unwrap_or(0)
+            let edx = self
+                .library
+                .get::<unsafe extern "C" fn() -> u32>(b"decomp_last_edx\0")
+                .map_or(0, |f| f());
+            let st0 = self
+                .library
+                .get::<unsafe extern "C" fn() -> f64>(b"decomp_last_st0\0")
+                .map_or(0.0, |f| f());
+            (edx, st0)
         }
     }
 
@@ -522,7 +578,7 @@ mod tests {
                 address: 0x00ef_1000,
                 wrapper: "decomp_call_0".into(),
                 arity: 1,
-                float: false,
+                kind: ResultKind::Word,
             }],
             vec![],
             HashMap::new(),
@@ -540,7 +596,7 @@ mod tests {
                 address: 0x00ef_1000,
                 wrapper: "decomp_call_0".into(),
                 arity: 1,
-                float: true,
+                kind: ResultKind::F32,
             }]
         );
         assert_eq!(globals, vec![0x00bb_0000]);
@@ -565,10 +621,85 @@ mod tests {
             address: 0x00ef_1000,
             wrapper: "decomp_call_0".into(),
             arity: 1,
-            float: true,
+            kind: ResultKind::F32,
         }]);
         let ret = ReferencePeer::run(&peer, &mut e, 0x00ef_1000, &[0x0200_1010]);
         assert_eq!(ret.st0, f32::from_bits(7) as f64);
+    }
+
+    /// A backend whose last call left `EDX` and `ST0` behind, as the shim's accessors report them.
+    struct Wide;
+    impl Backend for Wide {
+        fn init(&self, _: *mut u8, _: u64, _: u32, _: &[u32]) -> bool {
+            true
+        }
+        fn call(&self, _: &str, _: &[u32]) -> u32 {
+            0x1111_2222
+        }
+        fn wide(&self) -> (u32, f64) {
+            (0x3333_4444, 2.5)
+        }
+        fn trap(&self, _: bool) -> Option<String> {
+            None
+        }
+        fn set_import_hook(&self, _: ImportHook) {}
+    }
+
+    fn wide_peer(kind: ResultKind) -> BackendPeer<Wide> {
+        BackendPeer::new(
+            Wide,
+            vec![Export {
+                address: 0x00ef_1000,
+                wrapper: "decomp_call_0".into(),
+                arity: 0,
+                kind,
+            }],
+            vec![],
+            HashMap::new(),
+        )
+    }
+
+    #[test]
+    fn a_wide_result_hands_back_eax_edx_and_st0() {
+        let mut e = Engine::new_untyped_for_test();
+        let ret = ReferencePeer::run(&wide_peer(ResultKind::U64), &mut e, 0x00ef_1000, &[]);
+        assert_eq!((ret.eax, ret.edx, ret.st0), (0x1111_2222, 0x3333_4444, 0.0));
+        let ret = ReferencePeer::run(&wide_peer(ResultKind::F64), &mut e, 0x00ef_1000, &[]);
+        assert_eq!((ret.eax, ret.edx, ret.st0), (0x1111_2222, 0, 2.5));
+        // A one-word export keeps EDX and ST0 as they were: what the callee left is not its result.
+        let ret = ReferencePeer::run(&wide_peer(ResultKind::Word), &mut e, 0x00ef_1000, &[]);
+        assert_eq!((ret.eax, ret.edx, ret.st0), (0x1111_2222, 0, 0.0));
+    }
+
+    #[test]
+    fn the_exports_are_read_from_the_file_the_build_writes() {
+        assert_eq!(
+            exports_file(std::path::Path::new("/b/out/libfnv_decomp.so")),
+            std::path::PathBuf::from("/b/out/exports.tsv")
+        );
+        assert_eq!(
+            exports_file(std::path::Path::new("fnv_decomp.dll")),
+            std::path::PathBuf::from("exports.tsv")
+        );
+    }
+
+    #[test]
+    fn the_tsv_says_what_an_export_returns_and_drops_what_is_too_wide() {
+        let (exports, _, _) = parse_exports(
+            "export 00001000 decomp_call_0 2\nexport 00002000 decomp_call_1 1 f32\n\
+             export 00003000 decomp_call_2 3 f64\nexport 00004000 decomp_call_3 12 u64\n\
+             export 00005000 decomp_call_4 13\n",
+        );
+        let kinds: Vec<_> = exports.iter().map(|x| (x.address, x.arity, x.kind)).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                (0x1000, 2, ResultKind::Word),
+                (0x2000, 1, ResultKind::F32),
+                (0x3000, 3, ResultKind::F64),
+                (0x4000, 12, ResultKind::U64),
+            ]
+        );
     }
 
     #[test]
@@ -643,7 +774,7 @@ mod tests {
                 address: 0x00ef_1000,
                 wrapper: "decomp_call_0".into(),
                 arity: 2,
-                float: false,
+                kind: ResultKind::Word,
             }],
             vec![],
             HashMap::new(),

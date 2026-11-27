@@ -47,6 +47,7 @@ import zipfile
 
 TABLE_ENTRIES = 0x01000000  # the guest's .text VAs all fit below 16 MiB
 GUEST_SIZE = 1 << 32
+MAX_ARITY = 12  # widest export a wrapper is made for; `LibBackend::call` has the same ceiling
 BANNED_SUFFIXES = {".so", ".a", ".lib", ".o", ".obj", ".dylib", ".dll", ".exe", ".pdb", ".wasm", ".cwasm"}
 GENERATED_NAMES = {"mod.c", "mod.h", "wasm-rt-impl.c", "wasm-rt-mem-impl.c"}
 TOOLCHAIN_VERSION = "v1"
@@ -102,10 +103,15 @@ INTERLOCKED_DEF = re.compile(r"^(FNV_FORCEINLINE long )(Interlocked(?:Increment|
 SIZE_T_TYPEDEF = re.compile(r"typedef unsigned int (\w*size_t);")
 
 
+# A naked function is all assembly; wasm has no such attribute, and its body becomes the stub.
+NAKED = re.compile(r"__declspec\(naked\)\s*")
+
+
 def rewrite_source(text):
     """Apply the build-copy-only rewrites: CRT size_t spelling, MSVC enum width and clang gaps."""
     text = SIZE_T_OPS.sub(lambda m: m.group(1) + "__SIZE_TYPE__", text)
     text = INTRINSIC_DECLS.sub("", text)
+    text = NAKED.sub("", text)
     text = INTERLOCKED_DEF.sub(r"\1Fnv_\2(", text)
     text = SIZE_T_TYPEDEF.sub(r"typedef __SIZE_TYPE__ \1;", text)
     text = EXTERN_C_DELETE.sub(r"\1", text)
@@ -238,7 +244,7 @@ def rewrite_inline_asm(text):
     return "".join(out), count
 
 
-DIAGNOSTIC = re.compile(r"^(?P<file>/[^:\n]+|[A-Za-z]:[^:\n]+):(?P<line>\d+):\d+: (?P<kind>error|note): (?P<msg>.*)$")
+DIAGNOSTIC = re.compile(r"^(?P<file>[A-Za-z]:[^:\n]+|[^\s:][^:\n]*):(?P<line>\d+):\d+: (?P<kind>error|note): (?P<msg>.*)$")
 CONFLICT_MESSAGES = ("conflicting types for", "has a different language linkage",
                      "functions that differ only in their return type cannot be overloaded",
                      "with C language linkage conflicts with declaration in global scope")
@@ -927,8 +933,10 @@ def compile_unit(tools, copy, standins, source, obj, cxx=False):
             return True, ""
         attempts.append(result)
         blanked = drop_conflicting_declarations(result.stderr, copy)
-        wants_sse = (not sse_types and ("unknown type name '__m128'" in result.stderr
-                                        or "no type named '__m128'" in result.stderr))
+        # The stand-in type is the last repair: a blanked declaration can clear the same error.
+        wants_sse = (not blanked and not sse_types
+                     and ("unknown type name '__m128'" in result.stderr
+                          or "no type named '__m128'" in result.stderr))
         sse_types = sse_types or wants_sse
         if not blanked and not wants_sse:
             break
@@ -1047,7 +1055,7 @@ def export_manifest(exports, units, symbols=None):
         va = symbol_address(symbols, entry["name"])
         arity = len(entry["params"])
         result.append({**entry, "address": va, "wrapper": "decomp_call_%d" % index,
-                       "arity": arity if arity <= 5 and all(p in {"u32", "f32", "int", "unsigned int"}
+                       "arity": arity if arity <= MAX_ARITY and all(p in {"u32", "f32", "int", "unsigned int"}
                                                             for p in entry["params"]) else None})
     return result
 
@@ -1116,6 +1124,10 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
              'static struct w2c_env env; static w2c_mod inst; static struct w2c_GOT0x2Emem got;',
              'static struct w2c_GOT0x2Efunc fgot; static unsigned char* guest_base;',
              'static uint32_t decomp_trap_code; static const char* decomp_trap_reason;',
+             '/* The rest of the last call\'s result: EDX (the high word of a u64) and ST0 (a float). */',
+             'static uint32_t decomp_edx; static double decomp_st0;',
+             'uint32_t decomp_last_edx(void) { return decomp_edx; }',
+             'double decomp_last_st0(void) { return decomp_st0; }',
              "/* Trap state and wasm2c's jump buffer are process-global: one caller at a time. */", '']
     for index, name in enumerate(globals_):
         lines.append('u32* w2c_GOT0x2Emem_%s(struct w2c_GOT0x2Emem* g) { return &g->f%d; }'
@@ -1203,19 +1215,31 @@ def generate_shim(path, imports, exports, globals_, instantiate, host=None,
     for index, entry in enumerate(exports):
         if entry["arity"] is None:
             continue
-        cast = lambda p: "((union {u32 u; f32 f;}){.u=%s}).f" % p if p == "f32" else p
-        args = ", ".join("%s a%d" % (p, i) for i, p in enumerate(entry["params"]))
-        values = ", ".join(cast("a%d" % i) for i in range(len(entry["params"])))
+        # Every wrapper takes guest words; an f32 parameter is the word's bits.
+        args = ", ".join("u32 a%d" % i for i in range(len(entry["params"])))
+        values = ", ".join(
+            "((union {u32 u; f32 f;}){.u=a%d}).f" % i if kind == "f32" else "a%d" % i
+            for i, kind in enumerate(entry["params"]))
         call = "%s(&inst%s%s)" % (entry["cname"], ", " if values else "", values)
-        result = (call + "; return 0;" if entry["result"] == "void" else
-                  "return ((union {u32 u; f32 f;}){.f=(f32)(%s)}).u;" % call if entry["result"] == "f32"
-                  else "return (u32)(%s);" % call)
+        kind = entry["result"]
+        if kind == "void":
+            body = "%s; return 0;" % call
+        elif kind == "f32":
+            body = ("f32 v = %s; decomp_st0 = (double)v; "
+                    "return ((union {u32 u; f32 f;}){.f=v}).u;" % call)
+        elif kind == "f64":
+            body = "double v = %s; decomp_st0 = v; return 0;" % call
+        elif kind == "u64":
+            body = "uint64_t v = %s; decomp_edx = (u32)(v >> 32); return (u32)v;" % call
+        else:
+            body = "return (u32)(%s);" % call
         lines += ['u32 decomp_call_%d(%s) {' % (index, args),
                   '  wasm_rt_trap_t trap = WASM_RT_SETJMP(g_wasm_rt_jmp_buf);',
                   '  if (trap != WASM_RT_TRAP_NONE) { decomp_trap_code = trap;',
                   '    decomp_trap_reason = wasm_rt_strerror(trap); return 0; }',
                   '  decomp_trap_code = 0; decomp_trap_reason = NULL;',
-                  '  %s }' % result]
+                  '  decomp_edx = 0; decomp_st0 = 0.0;',
+                  '  %s }' % body]
     Path(path).write_text("\n".join(lines) + "\n")
 
 
@@ -1249,7 +1273,8 @@ def fallback_shim(path, exports, host=None):
         body = ("%s; return 0;" % call if entry["result"] == "void" else
                 "return ((union {u32 u; f32 f;}){.f=(f32)(%s)}).u;" % call
                 if entry["result"] == "f32" else "return (u32)(%s);" % call)
-        wrappers.append('u32 %s(%s) { %s }' % (entry["wrapper"], params, body))
+        words = ", ".join("u32 a%d" % i for i in range(len(entry["params"])))
+        wrappers.append('u32 %s(%s) { %s }' % (entry["wrapper"], words, body))
     lines = ['#include <stdint.h>', '#include <stdlib.h>', '#include <string.h>']
     lines += guest_memory_source(host).splitlines()
     lines += [
@@ -1283,6 +1308,8 @@ def fallback_shim(path, exports, host=None):
         'uint32_t decomp_last_trap_code(void) { return decomp_trap_code; }',
         'const char* decomp_last_trap_reason(void) { return decomp_trap_reason; }',
         'void decomp_clear_trap(void) { decomp_trap_code = 0; decomp_trap_reason = NULL; }',
+        'uint32_t decomp_last_edx(void) { return 0; }',
+        'double decomp_last_st0(void) { return 0.0; }',
         'int decomp_table_has(uint32_t va) {',
         '  return table && va < table_size && table[va] != NULL; }',
         '']
@@ -1301,7 +1328,7 @@ def read_gap_addresses(path):
 
 
 def gap_units(units, addresses):
-    """The sources of the units that define a function at one of `addresses`, in list order."""
+    """The sources of the units that define a function at one of `addresses`, in manifest order."""
     wanted, sources = set(addresses), []
     for unit in units:
         held = {address_value(f.get("address")) for f in unit.get("functions", [])}
@@ -1348,8 +1375,9 @@ def write_build_outputs(out, report, exports, globals_, global_values, imports=N
     for entry in exports:
         if entry.get("address") is None or entry.get("arity") is None:
             continue
+        kind = entry.get("result")
         lines.append("export %08x %s %d%s" % (entry["address"], entry["wrapper"], entry["arity"],
-                                              " f32" if entry.get("result") == "f32" else ""))
+                                              " " + kind if kind in ("f32", "f64", "u64") else ""))
     for item in imports or []:
         if not item.get("function"):
             continue
@@ -1400,7 +1428,7 @@ def link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes):
 def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
           compiler=None, allow_fallback=False, force_fallback=False):
     """Build a native library and write report.json/report.md into the output folder."""
-    decomp, out = Path(decomp), Path(out)
+    decomp, out = Path(decomp), Path(out).resolve()
     check_out_path(decomp, out)
     out.mkdir(parents=True, exist_ok=True)
     tools = toolchain if toolchain is not None else find_toolchain(download=download)
@@ -1420,13 +1448,27 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
     standins = make_standins(out, tools)
     objects, outcomes = [], []
     keep_first_export_of_each_address(out / "copy", [unit["source"] for unit in chosen])
+    # Repairs to shared headers help the units after them and can break others; each unit is built
+    # in a working copy first, and one that fails is tried again alone in a fresh copy.
+    work, retry = out / "work", out / "retry"
+    for folder in (work, retry):
+        if folder.exists():
+            shutil.rmtree(folder)
+    shutil.copytree(out / "copy", work)
     for index, unit in enumerate(chosen):
         obj = out / ("unit_%04d.o" % index)
-        ok, reason = compile_unit(tools, out / "copy", standins, unit["source"], obj,
-                                  cxx=unit["source"].endswith((".cpp", ".cc", ".cxx")))
+        cxx = unit["source"].endswith((".cpp", ".cc", ".cxx"))
+        ok, reason = compile_unit(tools, work, standins, unit["source"], obj, cxx=cxx)
+        if not ok:
+            if retry.exists():
+                shutil.rmtree(retry)
+            shutil.copytree(out / "copy", retry)
+            ok, reason = compile_unit(tools, retry, standins, unit["source"], obj, cxx=cxx)
         outcomes.append({"ok": ok, "reason": reason, "object": obj.name})
         if ok:
             objects.append(obj)
+    for folder in (work, retry):
+        shutil.rmtree(folder, ignore_errors=True)
     if not objects:
         raise RuntimeError("no unit compiled; nothing to link")
     runtime = out / "nv_runtime.o"
@@ -1484,6 +1526,8 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
     left_out = [{"name": e["name"], "address": e["address"], "reason": reasons[e["name"]]}
                 for e in exports if e["name"] in reasons and e["address"] is not None]
     exports = [e for e in exports if e["name"] not in reasons and e["name"] != ASM_STUB]
+    for index, entry in enumerate(exports):
+        entry["wrapper"] = "decomp_call_%d" % index  # the shim numbers the wrappers it writes
     shim = out / "shim.c"
     instantiate = re.search(r"void wasm2c_mod_instantiate\(([^;]+)\);", header).group(1)
     startup = [name for name in ("__wasm_apply_data_relocs", "__wasm_call_ctors")
