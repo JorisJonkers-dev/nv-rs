@@ -38,6 +38,7 @@ pub(crate) fn low_half(word: u32) -> u16 {
 /// Their typed bodies keep their own cases in `typed_extra_nodes`.
 pub(crate) const LEFT_ON_TRANSLATIONS: &[u32] = &[
     0x0043_08c0,
+    0x0043_0a90,
     0x0043_0c70,
     0x0043_0ca0,
     0x0043_0f30,
@@ -89,6 +90,7 @@ pub(crate) const LEFT_ON_TRANSLATIONS: &[u32] = &[
     0x0043_38b0,
     0x0043_3a00,
     0x0043_3ca0,
+    0x0043_3db0,
     0x0043_4560,
     0x0043_4800,
     0x0043_48a0,
@@ -118,6 +120,7 @@ pub(crate) const LEFT_ON_TRANSLATIONS: &[u32] = &[
     0x0043_6660,
     0x0043_6f80,
     0x0043_7240,
+    0x0043_7730,
 ];
 
 /// The registered entries of one of the node files, without [`LEFT_ON_TRANSLATIONS`].
