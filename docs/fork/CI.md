@@ -124,7 +124,13 @@ dependencies (the check says exactly which are missing). A crate in two componen
 
 ## Compile once, run sharded
 
-The jobs of a component that run `-p <one crate> --test ...` commands with the same `--config` (the typed Diff jobs of
+**Opt-in (`archive = true` on a component), and off for `integration`.** Measured on the typed jobs (run 46066259144 against
+46059551659): the engine tests compile in about 4 to 6 minutes, but the archive of 46 binaries was 16.9 GB (each links the
+engine): upload 192 s, then 94 to 151 s of download in each of the 20 jobs. The phase took 27 min instead of 19.5 and
+used 199 runner minutes instead of 169. Stripping symbols and running in place did not change the download enough (a second run,
+119 s download). Turn it on for a component whose compile is much longer than moving its binaries.
+
+The jobs of a component with `archive = true` that run `-p <one crate> --test ...` commands with the same `--config` (the typed Diff jobs of
 `integration`: 20 of them, each of which used to compile the engine closure for about 8 minutes) share one build:
 
 - `scripts/fork/components.py matrix` gives the matrix entries an `archive` id and lists the builds (`builds`). A group is the
