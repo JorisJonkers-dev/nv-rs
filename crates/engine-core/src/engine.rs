@@ -653,8 +653,16 @@ impl Engine {
     /// a render helper's engine, which has one placed stack of its own whichever game thread is
     /// current (its `thread_index` is the shared kernel's current thread, so the Havok helper,
     /// posted from any game thread, would otherwise build a second stack on the same region).
+    ///
+    /// One stack is right because a helper engine with a placed stack runs one job at a time (a
+    /// helper takes the next job only after the poster joined the last), so no two jobs have
+    /// locals on it together; it never holds a stack under another key.
     fn stack_key(&self) -> usize {
         if self.placed_stack.is_some() {
+            debug_assert!(
+                self.guest_stacks.iter().skip(1).all(Option::is_none),
+                "a helper engine with a placed stack runs one job at a time, on the one stack"
+            );
             0
         } else {
             self.thread_index()
