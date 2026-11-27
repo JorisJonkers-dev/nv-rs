@@ -3,6 +3,7 @@
 
 Run: python3 -I -m unittest discover -s scripts/fork/tests -v        (no network, no cargo)
 """
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -22,32 +23,80 @@ def run(rid, code, gate_status="completed", gate="success"):
 
 class Verdict(unittest.TestCase):
     def test_the_commits_run_that_passed_passes_the_edit(self):
-        self.assertEqual(g.verdict([run(1, "success")])[0], True)
+        self.assertEqual(g.verdict([run(1, "success")])[0], "pass")
 
     def test_a_red_commits_run_keeps_the_edit_red(self):
-        passed, message = g.verdict([run(1, "failure", gate="failure")])
-        self.assertFalse(passed)
+        state, message = g.verdict([run(1, "failure", gate="failure")])
+        self.assertEqual(state, "fail")
         self.assertIn("run 1", message)
 
     def test_earlier_edit_runs_are_passed_over_for_the_commits_run(self):
         # newest first: an edit run that passed, then the red run of the commits
-        self.assertFalse(g.verdict([run(3, "skipped"), run(2, "skipped"), run(1, "failure", gate="failure")])[0])
-        self.assertTrue(g.verdict([run(3, "skipped", gate="failure"), run(1, "success")])[0])
+        self.assertEqual(g.verdict([run(3, "skipped"), run(2, "skipped"), run(1, "failure", gate="failure")])[0], "fail")
+        self.assertEqual(g.verdict([run(3, "skipped", gate="failure"), run(1, "success")])[0], "pass")
 
-    def test_a_commits_run_still_going_fails_the_edit(self):
-        passed, message = g.verdict([run(1, "success", gate_status="in_progress")])
-        self.assertFalse(passed)
+    def test_a_commits_run_still_going_makes_the_edit_wait_not_fail(self):
+        state, message = g.verdict([run(1, "success", gate_status="in_progress")])
+        self.assertEqual(state, "wait")
         self.assertIn("has not finished", message)
 
-    def test_a_commits_run_whose_gate_has_not_started_fails_the_edit(self):
-        self.assertFalse(g.verdict([run(1, None, gate_status=None)])[0])
+    def test_a_commits_run_whose_gate_has_not_started_makes_the_edit_wait(self):
+        self.assertEqual(g.verdict([run(1, None, gate_status=None)])[0], "wait")
 
     def test_a_cancelled_commits_run_fails_the_edit(self):
-        self.assertFalse(g.verdict([run(1, "success", gate="cancelled")])[0])
+        self.assertEqual(g.verdict([run(1, "success", gate="cancelled")])[0], "fail")
 
-    def test_no_commits_run_fails_the_edit(self):
-        self.assertFalse(g.verdict([])[0])
-        self.assertFalse(g.verdict([run(2, "skipped")])[0])
+    def test_no_commits_run_yet_waits(self):
+        self.assertEqual(g.verdict([])[0], "wait")
+        self.assertEqual(g.verdict([run(2, "skipped")])[0], "wait")
+
+
+class Main(unittest.TestCase):
+    """main() with the GitHub calls replaced: a sequence of looks and of pull request states."""
+
+    def setUp(self):
+        self.env = {"REPO": "o/r", "HEAD_SHA": "abc123456", "RUN_ID": "9", "PR_NUMBER": "5", "HEAD_REF": "b",
+                    "HEAD_REPO": "o/r", "GATE_POLL": "60", "GATE_LIMIT": "600", "GATE_GRACE": "120"}
+        for k, v in self.env.items():
+            os.environ[k] = v
+        self.addCleanup(lambda: [os.environ.pop(k, None) for k in self.env])
+        self.now, self.slept = 0, []
+        self.looks, self.heads = [], []
+        self._look, self._sup = g.look, g.superseded
+        g.look = lambda *a: self.looks.pop(0) if len(self.looks) > 1 else self.looks[0]
+        g.superseded = lambda *a: self.heads.pop(0) if self.heads else False
+        self.addCleanup(lambda: (setattr(g, "look", self._look), setattr(g, "superseded", self._sup)))
+
+    def go(self):
+        def sleep(s):
+            self.slept.append(s)
+            self.now += s
+        return g.main(clock=lambda: self.now, wait=sleep)
+
+    def test_it_waits_for_the_commits_run_and_then_passes_without_ever_failing(self):
+        self.looks = [("wait", "run 1 of the commits has not finished")] * 3 + [("pass", "run 1 passed")]
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.slept, [60, 60, 60])
+
+    def test_a_red_commits_run_fails_when_it_finishes(self):
+        self.looks = [("wait", "run 1 of the commits has not finished"), ("fail", "run 1: Pipeline Complete failure")]
+        self.assertEqual(self.go(), 1)
+
+    def test_a_head_that_moved_on_ends_the_wait_green(self):
+        self.looks = [("wait", "run 1 of the commits has not finished")]
+        self.heads = [False, True]
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.slept, [60])
+
+    def test_a_run_that_never_ends_fails_at_the_limit(self):
+        self.looks = [("wait", "run 1 of the commits has not finished")]
+        self.assertEqual(self.go(), 1)
+        self.assertEqual(sum(self.slept), 600)
+
+    def test_no_run_at_all_fails_after_the_grace(self):
+        self.looks = [("wait", "no run of the commits on this head commit yet")]
+        self.assertEqual(self.go(), 1)
+        self.assertEqual(sum(self.slept), 120)
 
 
 class AllJobs(unittest.TestCase):

@@ -565,10 +565,12 @@ jobs:
     needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A description edit waits for the run of the commits (scripts/fork/edit_run_gate.py); every other run takes minutes.
+    timeout-minutes: 180
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -589,7 +591,8 @@ jobs:
 
       # A description edit checked only the title and description; the code's result is that of the newest run of this
       # workflow on the same head commit whose "Repository checks" ran (a run of the commits, not of another edit). While
-      # that run is still going this fails, and that run's own Pipeline Complete, finishing later, is the one that counts.
+      # that run is still going this WAITS for it (a failure here would stay on the head commit as a red required check that no
+# later run replaces) and takes its result; a pull request that moved on to another head meanwhile passes.
       - name: The commits' run passed
         if: ${{ github.event.action == 'edited' && !github.event.changes.base }}
         env:
