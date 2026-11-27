@@ -386,6 +386,20 @@ class PortingLoop(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([f["family"] for f in record["families"]], ["fade"])
 
+    def test_families_claimed_by_another_batch_are_not_offered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            claims = Path(tmp) / "claims"
+            env = dict(environment(root), NV_PORT_CLAIM_DIR=str(claims), NV_PORT_FAMILIES="1")
+            porting_loop.claim(root, "fade", "other-batch", directory=str(claims))
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=10, name="held", env=env,
+                                          today=datetime.date(2026, 11, 26), call=Recording())
+            record = porting_loop.batch_record(root, "held")
+        self.assertEqual(code, 0)
+        self.assertEqual([f["family"] for f in record["families"]], ["lights"])
+        self.assertEqual(record["skipped"], ["fade"])
+
     def test_one_model_slot_keeps_families_sequential(self):
         spans, _ = self.run_four_families(1)
         spans.sort()

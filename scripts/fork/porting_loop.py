@@ -729,10 +729,17 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
         most_families = int(env.get("NV_PORT_FAMILIES", "0"))
     except ValueError:
         most_families = 0
+    busy = 0
     for family, family_rows in groups.items():
-        if offered >= count or (most_families > 0 and len(selected) >= most_families):
+        if offered >= count or (most_families > 0 and len(selected) - busy >= most_families):
             break
         selected[family] = family_rows
+        taken = claim_time(root, family, env.get("NV_PORT_CLAIM_DIR", "").strip() or None)
+        if taken is not None and (as_utc(datetime.datetime.now(datetime.timezone.utc))
+                                  - taken).total_seconds() <= age:
+            # Held by another batch right now: it is reported as skipped but takes no share of this one.
+            busy += 1
+            continue
         offered += len(family_rows)
     rows = [row for family_rows in selected.values() for row in family_rows]
 
