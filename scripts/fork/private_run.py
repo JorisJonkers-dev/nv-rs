@@ -40,6 +40,7 @@ GATE_COMMANDS = (
     ("engine-havok", ("cargo", "test", "-p", "engine-havok", "--lib", "--", "--nocapture")),
     ("host", ("cargo", "test", "-p", "host", "--lib", "--", "--nocapture")),
     ("reference peer", ("cargo", "test", "-p", "engine", "--test", "diff_reference_peer", "--", "--nocapture")),
+    ("backend gap cases", ("cargo", "test", "-p", "engine", "--test", "backend_gap_diff", "--", "--nocapture")),
 )
 
 # Private-input integration tests the gate does not drive: each target is `#[ignore]`d and reads its variable
