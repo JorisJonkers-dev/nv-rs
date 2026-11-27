@@ -75,9 +75,9 @@
     "features.declared": 5,
     "features.done": 5,
     "features.reference": 92,
-    "native.families": 30,
+    "native.families": 36,
     "native.stage2_families": 1,
-    "native.typed": 1093
+    "native.typed": 2793
   },
   "engine_port": {
     "game_functions": 69459,
@@ -90,9 +90,10 @@
     "library": 16
   },
   "native_64bit": {
-    "typed": 1093,
+    "typed": 2793,
     "translated_by_hand": 47733,
     "families": [
+      "ai",
       "ai_queries",
       "anim_keys",
       "animation",
@@ -104,19 +105,24 @@
       "dispatch",
       "draw",
       "draw_f",
+      "extra_data",
       "facegen",
+      "forms",
       "geometry",
       "hud",
+      "interface",
       "leaves",
       "lights",
       "lockfree",
       "multibound",
+      "navmesh_edges",
       "particles",
       "pathing",
       "process",
       "render",
       "save",
       "scene",
+      "scene_node",
       "script_lines",
       "scripts",
       "setup",
