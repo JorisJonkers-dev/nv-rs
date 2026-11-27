@@ -226,7 +226,8 @@ pub enum Mode {
 /// The rollback is stage 1, `NV_TYPED=<family>` (on, objects in the game's heap), or `<family>:off`
 /// (the translation); `<family>:freed` is K2 and `<family>:dual` the dual run. Every name is a
 /// family with a stage-2 form ([`Family::stage2`]), which a test checks.
-pub const MOVED_BY_DEFAULT: &[(&str, Mode)] = &[("lockfree", Mode::Moved)];
+pub const MOVED_BY_DEFAULT: &[(&str, Mode)] =
+    &[("lockfree", Mode::Moved), ("formarray", Mode::Moved)];
 
 /// The form `family` has when `NV_TYPED` is silent about it: [`Mode::Off`] before its gate, its
 /// [`MOVED_BY_DEFAULT`] form when it has one, else [`Mode::On`].
@@ -1166,7 +1167,10 @@ mod tests {
         };
         let table: &[&Family] = &[&MOVER, &PAST_GATE];
         let parse = |s: Option<&str>| parse_switch(s, table);
-        assert_eq!(MOVED_BY_DEFAULT, [("lockfree", Moved)]);
+        assert_eq!(
+            MOVED_BY_DEFAULT,
+            [("lockfree", Moved), ("formarray", Moved)]
+        );
         assert_eq!(default_mode(&MOVER), Moved);
         assert_eq!(default_mode(&PAST_GATE), On);
         assert_eq!(default_mode(&STAND_IN), Off);
