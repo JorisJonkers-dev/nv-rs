@@ -143,8 +143,12 @@ fn apply_with(
     }
     static PEER: OnceLock<Result<BackendPeer<backend_peer::LibBackend>, String>> = OnceLock::new();
     let peer = PEER.get_or_init(|| {
-        backend_peer::load(&library)
-            .ok_or_else(|| format!("{} or the exports.tsv beside it did not load", library.display()))
+        backend_peer::load(&library).ok_or_else(|| {
+            format!(
+                "{} or the exports.tsv beside it did not load",
+                library.display()
+            )
+        })
     });
     match peer {
         Ok(peer) => match register_checked(e, peer, &registerable()) {

@@ -447,7 +447,11 @@ impl Backend for LibBackend {
             (@word $arg:ident) => { u32 };
         }
         match args.len() {
-            0 => unsafe { self.library.get::<unsafe extern "C" fn() -> u32>(bytes).map(|f| f()) },
+            0 => unsafe {
+                self.library
+                    .get::<unsafe extern "C" fn() -> u32>(bytes)
+                    .map(|f| f())
+            },
             1 => call_with!(a),
             2 => call_with!(a, b),
             3 => call_with!(a, b, c),
@@ -690,7 +694,10 @@ mod tests {
              export 00003000 decomp_call_2 3 f64\nexport 00004000 decomp_call_3 12 u64\n\
              export 00005000 decomp_call_4 13\n",
         );
-        let kinds: Vec<_> = exports.iter().map(|x| (x.address, x.arity, x.kind)).collect();
+        let kinds: Vec<_> = exports
+            .iter()
+            .map(|x| (x.address, x.arity, x.kind))
+            .collect();
         assert_eq!(
             kinds,
             vec![
