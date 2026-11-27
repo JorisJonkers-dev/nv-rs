@@ -145,6 +145,18 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(porting_agent.work(env), 0)
         self.assertEqual(len(set(models)), 2)
 
+    def test_rates_count_outcomes_per_model(self):
+        path = Path(self.tmp.name) / "r.jsonl"
+        path.write_text("\n".join(json.dumps(r) for r in [
+            {"role": "worker", "model": "m", "outcome": "committed", "seconds": 2},
+            {"role": "worker", "model": "m", "outcome": "limited"},
+            {"role": "reviewer", "model": "r", "verdict": "ACCEPT"}]) + "\nnot json\n")
+        table = porting_agent.rates(path)
+        self.assertEqual((table["m"]["runs"], table["m"]["committed"], table["m"]["limited"]), (2, 1, 1))
+        self.assertEqual(table["r"]["accepted"], 1)
+        self.assertEqual(porting_agent.rates(Path(self.tmp.name) / "none"), {})
+        self.assertEqual(porting_agent.main(["rates"], env={"NV_PORT_METRICS": str(path)}), 0)
+
     def test_template_family_is_the_smallest_suite(self):
         self.assertEqual(porting_agent.template_family(self.wt), "small")
 

@@ -341,9 +341,38 @@ def review(env):
     return 0 if result.get("status") == "ok" and verdict == "ACCEPT" else 1
 
 
+def rates(path):
+    """Per-model counts from the metrics file: runs, committed, limited, and review accepts."""
+    table = {}
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return table
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        entry = table.setdefault(row.get("model", "?"), {"runs": 0, "committed": 0, "limited": 0,
+                                                         "reviews": 0, "accepted": 0, "seconds": 0.0})
+        if row.get("role") == "reviewer":
+            entry["reviews"] += 1
+            entry["accepted"] += row.get("verdict") == "ACCEPT"
+            continue
+        entry["runs"] += 1
+        entry["committed"] += row.get("outcome") == "committed"
+        entry["limited"] += row.get("outcome") == "limited"
+        entry["seconds"] += row.get("seconds") or 0
+    return table
+
+
 def main(argv=None, env=None):
     argv = sys.argv[1:] if argv is None else argv
     env = dict(os.environ if env is None else env)
+    if argv == ["rates"]:
+        for model, row in sorted(rates(env.get("NV_PORT_METRICS", "metrics.jsonl")).items()):
+            print(model, json.dumps(row, sort_keys=True))
+        return 0
     if argv not in (["work"], ["review"]):
         print(__doc__, file=sys.stderr)
         return 2
