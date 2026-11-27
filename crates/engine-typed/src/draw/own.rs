@@ -1000,13 +1000,18 @@ pub(crate) fn set_draw_count(e: &mut Engine, data: u32, count: u16) {
 /// The counted pointer at `slot` released and cleared, the exe's own code (condition 7): when it holds
 /// an object, its count goes down (deleted at 0, its slot 4) and the slot is cleared.
 pub(crate) fn clear_counted(e: &mut Engine, slot: u32) {
-    let old = e.global::<u32>(slot);
+    let old = capture::own_at::<u32>(e, slot);
+    if capture::owns(e, slot, 4) {
+        // The drawing side: its own pointer, the counts left to the join.
+        capture::set_own_at(e, slot, 0u32);
+        return;
+    }
     if old != 0 {
         let left = engine_core::sync_direct::interlocked_decrement(e, old.wrapping_add(4)) as u32;
         if left == 0 {
             e.vcall(old, SLOT_DELETE, &[]);
         }
-        e.set_global(slot, 0u32);
+        capture::set_own_at(e, slot, 0u32);
     }
 }
 

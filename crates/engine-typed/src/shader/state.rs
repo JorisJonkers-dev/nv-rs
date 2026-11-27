@@ -949,7 +949,7 @@ pub fn sort_entries_by_enabled(e: &mut Engine, _this: u32, array: Ptr<NiTArray>)
         loop {
             if take(e, &mut held, index) {
                 let entry = Ptr::<ConstantEntry>::new(held);
-                if e.get(entry, ConstantEntry::ucEnabled) == 1 {
+                if capture::own_at::<u8>(e, entry.addr().wrapping_add(8)) == 1 {
                     if disabled < index {
                         let other = e
                             .get(array, NiTArray::m_pBase)
@@ -977,7 +977,7 @@ pub fn sort_entries_by_enabled(e: &mut Engine, _this: u32, array: Ptr<NiTArray>)
                                     hold(e, held);
                                 }
                             }
-                            if e.global::<u8>(held.wrapping_add(8)) == 0 {
+                            if capture::own_at::<u8>(e, held.wrapping_add(8)) == 0 {
                                 break;
                             }
                             disabled = disabled.wrapping_add(1);

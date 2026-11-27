@@ -102,7 +102,7 @@ pub fn set_shader_constants(
                     };
                     let register = e.mem.u32(entry.wrapping_add(0x1c));
                     let data = e.mem.u32(entry.wrapping_add(0x30));
-                    let count = e.mem.u32(entry.wrapping_add(0x20));
+                    let count = crate::draw::capture::own_at::<u32>(e, entry.wrapping_add(0x20));
                     let device = e.mem.u32(base.wrapping_add(0x38));
                     // The data is often the draw's own constants (the shader statics): an image of the packet's copy.
                     let result = crate::draw::capture::own_image(
