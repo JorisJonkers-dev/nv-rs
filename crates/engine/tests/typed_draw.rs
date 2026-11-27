@@ -2171,8 +2171,9 @@ fn matrix_inverse_thunk() {
     .assert_same();
 }
 
-/// The import slot `D3DXMatrixMultiply` jumps through. The translation calls it; the typed helper
-/// does its work in place, so the test ignores that call and compares the words it writes.
+/// The import slot `D3DXMatrixMultiply` jumps through. The translation calls it, and so does the
+/// typed thunk (through `d3dx_direct`, taking the steps of a call by address); the test compares
+/// those calls and the words written.
 const MATRIX_MULTIPLY_IMPORT: u32 = 0x00fd_f424;
 
 /// A word of a matrix built from scratch: the case's floats, unit and zero words, and NaN payloads
@@ -2227,7 +2228,6 @@ fn matrix_multiply_thunk() {
         thunks::matrix_multiply(Ptr<()>, Ptr<()>, Ptr<()>) -> Ptr<()>
     ))
     .common()
-    .ignore_calls(&[MATRIX_MULTIPLY_IMPORT])
     .inputs(&[Input::F32, Input::F32, Input::Of(&[0, 1, 2])])
     .float_sweep(24)
     .setup(multiply_world)

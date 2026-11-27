@@ -1390,11 +1390,11 @@ pub fn process_patrol(e: &mut Engine, this: Ptr, actor: Ptr) {
         e.vcall(actor_word, 0x418, &[]);
         return;
     }
-    let mut time = typed_call!(
+    let mut time = patrol_time_to_spend(typed_call!(
         FAMILY,
         0x0090_7260,
         get_time_delta(e, Ptr::new(process), actor_word)
-    );
+    ));
     let zero = e.mem.f64(ZERO_DOUBLE);
     let data_ptr = Ptr::new(data);
     while f64::from(time) > zero {
@@ -1424,6 +1424,19 @@ pub fn process_patrol(e: &mut Engine, this: Ptr, actor: Ptr) {
             ),
             _ => 0.0,
         };
+    }
+}
+
+/// The time `ProcessPatrol` has to spend. `GetTimeDelta` divides by the game's time scale, so a
+/// time scale of 0 gives infinity after a change of the hour, and the loop, which takes the time of
+/// each leg off it, never ends: every leg queues a task until the task queue's scrap heap is full
+/// (nv-rs#457). A time that is not a finite number is spent as no time; finite times pass unchanged.
+/// The translation in `engine-fallout-ai` (`patrol_time_to_spend`) does the same.
+fn patrol_time_to_spend(time: f32) -> f32 {
+    if time.is_finite() {
+        time
+    } else {
+        0.0
     }
 }
 

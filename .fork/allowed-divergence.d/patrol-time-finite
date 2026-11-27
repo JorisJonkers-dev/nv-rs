@@ -1,1 +1,2 @@
 crates/engine-fallout-ai/src/units/fallout_ai/lowprocess.rs  # ProcessPatrol spends a time that is not finite (time scale 0 after a change of the hour) as no time, instead of looping until the task queue overflows (nv-rs#457)
+crates/engine-typed/src/ai/low_process.rs  # ProcessPatrol spends a time that is not finite as no time, as the translation does (nv-rs#457)
