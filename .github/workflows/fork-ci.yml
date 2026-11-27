@@ -82,7 +82,7 @@ jobs:
           overlay = [o for o in overlay if o]
           # Files that steer the builds count when they are MODIFIED (an existing, verified behaviour changes); a newly added
           # file cannot change what an earlier run verified, and the push to the fork branch runs the full builds anyway.
-          steering = re.compile(r"^(\.fork/(linux-ok\.txt|components\.toml)|\.github/workflows/fork-build\.yml|scripts/fork/(linux_probe|components|libtest_summary|clippy_annotations)\.py|scripts/fork/run-component\.sh)$")
+          steering = re.compile(r"^(\.fork/(linux-ok\.txt|components\.toml)|\.github/workflows/fork-build\.yml|scripts/fork/(linux_probe|components|libtest_summary|clippy_annotations|test_archive)\.py|scripts/fork/run-component\.sh)$")
           docs = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
           fork_owned = lambda f: any(f == o or (o.endswith("/") and f.startswith(o)) for o in overlay)
           code = [f for f in diff("ACDMRT") if not (docs.match(f) or fork_owned(f))]

@@ -77,7 +77,7 @@
     "features.reference": 92,
     "native.families": 37,
     "native.stage2_families": 2,
-    "native.typed": 2802
+    "native.typed": 3112
   },
   "engine_port": {
     "game_functions": 69459,
@@ -90,7 +90,7 @@
     "library": 16
   },
   "native_64bit": {
-    "typed": 2802,
+    "typed": 3112,
     "translated_by_hand": 47733,
     "families": [
       "ai",

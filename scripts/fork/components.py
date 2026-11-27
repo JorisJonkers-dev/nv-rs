@@ -18,6 +18,7 @@ Stdlib only; Python 3.11 or newer (tomllib).
 """
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -31,18 +32,19 @@ GLOBAL_PREFIXES = (".cargo/",)
 # The fork's own files that steer the builds (the rest of the fork's files cannot change what the builds verify).
 STEERING = {
     ".fork/components.toml", ".fork/linux-ok.txt", ".github/workflows/fork-build.yml",
-    "scripts/fork/components.py", "scripts/fork/run-component.sh", "scripts/fork/libtest_summary.py",
+    "scripts/fork/components.py", "scripts/fork/run-component.sh", "scripts/fork/test_archive.py", "scripts/fork/libtest_summary.py",
     "scripts/fork/clippy_annotations.py", "scripts/fork/linux_probe.py", "scripts/fork/gpu_gate.py", "scripts/fork/vkd3d_gate.py",
 }
 # Platform-relevant code: a pull request that changes it runs the Windows jobs too (otherwise a pull request runs Linux
-# only; pushes to the integration branch, the schedule and a manual run run every OS). The typed families run their Diff
-# cases against the original code, some only on Windows, so every crate they read or write is on the list.
-PLATFORM_CRATES = ("engine-core", "engine-typed", "engine-bs", "engine-fallout-*", "d3d9-*", "engine-platform", "fork-window")
-# The macOS job builds the window, device and platform layers and the facade: only these (or a cfg on macos) matter to it.
+# only; pushes to the integration branch run the Windows twins only for it, the schedule and a manual run run every OS).
+# Only code that Windows alone can verify counts: a file with a cfg on windows, macos or unix, the Windows device, window
+# and platform layers, the launcher and Play (their Windows build), and the toolchain and Cargo files. General engine code
+# (engine-core, engine-typed, engine-bs, engine-fallout-*) runs on Linux; its Windows twins run in the nightly.
+PLATFORM_CRATES = ("d3d9-*", "engine-platform", "fork-window", "nv-launcher", "fork-play")
+PLATFORM_FILES = {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rust-toolchain", "deny.toml"}  # by file name, in any directory
 MACOS_CRATES = ("d3d9-*", "engine-platform", "fork-window", "fork-api", "fork-play", "fork-gfx")
 MACOS_CFG = re.compile(r'cfg(?:_attr)?!?\([^\n]*\bmacos\b|target_os\s*=\s*"macos"|target_vendor\s*=\s*"apple"')
-PLATFORM_FILES = ("crates/engine/tests/typed_",)
-PLATFORM_CFG = re.compile(r'cfg(?:_attr)?!?\([^\n]*\b(?:windows|macos)\b|target_os\s*=\s*"(?:windows|macos)"')
+PLATFORM_CFG = re.compile(r'cfg(?:_attr)?!?\([^\n]*\b(?:windows|macos|unix)\b|target_os\s*=\s*"(?:windows|macos|linux)"|target_family\s*=\s*"(?:windows|unix)"')
 DOCS = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
 # Estimates, from the cold Windows runs of 2026-11-13 (docs/fork/CI.md): seconds per 100 000 lines.
 S_LIB, S_TEST, S_EXT = 4.6, 18.0, 35.0
@@ -153,6 +155,8 @@ class Model:
         for name, c in self.comps.items():
             if c.get("runs_on") not in ("windows", "both"):
                 self.errors.append(f"{name}: runs_on must be \"windows\" or \"both\"")
+            if c.get("windows") not in (None, "required", "nightly"):
+                self.errors.append(f"{name}: windows must be \"required\" or \"nightly\"")
             if not c["crates"] and "commands" not in c:
                 self.errors.append(f"{name}: has no crates and no commands")
             self.check_jobs(name, c)
@@ -194,10 +198,12 @@ class Model:
             if not job.get("name") or not job.get("args"):
                 self.errors.append(f"{name}: every job needs a name and args")
             if int(job.get("shards", 1)) > 1:
-                # run-component.sh splits ONE test binary's test list; with several binaries the shards would overlap or miss tests.
-                one = len(job.get("args", [])) == 1 and len(self.flags(job["args"][0], "--test")) == 1 and "--lib" not in job["args"][0] and "--doc" not in job["args"][0]
-                if not one:
-                    self.errors.append(f"{name}: job {job.get('name')!r} has shards, so it must run exactly one `--test` binary")
+                # One binary's tests split by name work anywhere; shards over several binaries need the archive of the component
+                # (`archive = true`, run-component.sh splits the tests of all the job's binaries together).
+                arch = self.archivable(c, job)
+                one = arch is not None and len(arch[1]) == 1
+                if not one and not (arch is not None and c.get("archive")):
+                    self.errors.append(f"{name}: job {job.get('name')!r} has shards, so it must run one `-p <crate> --test <binary>` (or, with `archive = true` on the component, only `-p <one crate> --test ...` commands)")
             for run in job.get("args", []):
                 crates.update(self.flags(run, "-p"))
                 for crate in self.flags(run, "-p"):
@@ -293,12 +299,16 @@ class Model:
                 everything, reason = True, reason or f"{f} is outside every crate"
         return everything, reason, crates, by_path
 
+    def windows_crates(self):
+        """The crates of the components that must build and test on Windows: `windows = "required"` or `runs_on = "windows"`."""
+        return sorted({x for c in self.comps.values() if c.get("windows") == "required" or c["runs_on"] == "windows" for x in c["crates"]})
+
     def platform_relevant(self, files, macos=False):
-        """Does a change touch code that only Windows can verify (macos=True: only macOS): a platform crate, a typed family's
-        test file, or a Rust file that has a cfg on windows or macos?"""
+        """Does a change touch code that only Windows can verify (macos=True: only macOS): a platform crate, a Cargo or toolchain
+        file, or a Rust file that has a cfg on windows, unix or macos?"""
         crates, cfg = (MACOS_CRATES, MACOS_CFG) if macos else (PLATFORM_CRATES, PLATFORM_CFG)
         for f in files:
-            if f.startswith(PLATFORM_FILES) and not macos:
+            if (os.path.basename(f) in PLATFORM_FILES or f.startswith(GLOBAL_PREFIXES)) and not macos:
                 return True
             d = max((d for d in self.dirs if d != "." and f.startswith(d + "/")), key=len, default=None)
             if d and any(fnmatch.fnmatch(self.dirs[d], g) for g in crates):
@@ -359,9 +369,11 @@ class Model:
         flags = self.missing_features(self.flags(run, "-p"))
         return f"cargo test --locked {run}" + (f" --features {','.join(flags)}" if flags else "")
 
-    def entries(self, comp, seeds=None, tests=(), windows=True):
+    def entries(self, comp, seeds=None, tests=(), windows=True, windows_full=True):
         """Matrix entries of one component. seeds: the changed crates of a pull request (None: run everything); tests: the
-        changed (crate, test) files that select a job by name; windows: False leaves the Windows jobs out."""
+        changed (crate, test) files that select a job by name; windows: False leaves the Windows jobs out; windows_full: False
+        leaves out the Windows twin of a component with `windows = "nightly"` (it runs in the full run and on a push that
+        changes platform code only)."""
         c = self.comps[comp]
         linux_ready = bool(c["crates"]) and set(c["crates"]) <= self.linux_ok
         # os, label, informational
@@ -370,6 +382,9 @@ class Model:
             if c.get("linux") == "required":
                 # A component of Linux-only tests (cfg(unix)): a required Linux job, no Windows job.
                 targets = [("ubuntu-latest", "Linux", False)]
+            elif linux_ready and c.get("windows") == "nightly":
+                # Linux is the gate; the Windows twin is required too, but only where it is asked for (windows_full).
+                targets = [("ubuntu-latest", "Linux", False)] + ([("windows-latest", "Windows", False)] if windows_full else [])
             elif linux_ready and c.get("windows") != "required":
                 targets = [("ubuntu-latest", "Linux", False)]
             else:
@@ -384,6 +399,10 @@ class Model:
         for job in (c.get("job") or [None]):
             if seeds is not None and not (self.closure_of(self.job_crates(c, job)) & seeds) and not (self.job_tests(c, job) & set(tests)):
                 continue
+            job_targets = targets
+            if (job or {}).get("os") == "windows":
+                # A job that stays on Windows (it needs it: cfg(windows) code, or a family that only Windows reproduces bit for bit).
+                job_targets = [("windows-latest", "Windows", False)] if windows else []
             if "commands" in c:
                 cmds = list(c["commands"])
             elif job is None:
@@ -392,10 +411,57 @@ class Model:
                 flags = "".join(f" --config {c}" for c in job.get("config", []))
                 cmds = [self.test_command(r + self.optional_tests(job, r)) + flags for r in job["args"]]
             shards = int((job or {}).get("shards", 1))
+            arch = self.archivable(c, job) if "commands" not in c and c.get("archive") else None
             for shard in range(1, shards + 1):
                 label = comp if job is None else f"{comp} / {job['name']}" + (f" {shard}/{shards}" if shards > 1 else "")
-                result += self.shard_entries(comp, label, cmds, targets, f"{shard}/{shards}" if shards > 1 else "")
+                got = self.shard_entries(comp, label, cmds, job_targets, f"{shard}/{shards}" if shards > 1 else "")
+                for e in got:
+                    if arch:
+                        e["_arch"] = arch
+                result += got
         return result
+
+    def archivable(self, c, job):
+        """(crate, tests, --config flags) of a job that only runs `-p <one crate> --test ...` commands: its test binaries can come
+        from an archive that one job built for every such job of the component with the same crate and flags. None otherwise
+        (a `--lib` or `--doc` run, several crates, or no job list)."""
+        if not job:
+            return None
+        crates, tests = set(), []
+        for run in job["args"]:
+            if re.search(r"--(lib|doc|bins?|examples?|tests|benches)\b", run) or not self.flags(run, "--test"):
+                return None
+            crates.update(self.flags(run, "-p"))
+            tests += self.flags(run, "--test") + [t for t in re.findall(r"--test (\S+)", self.optional_tests(job, run))]
+        if len(crates) != 1:
+            return None
+        return (crates.pop(), tuple(dict.fromkeys(tests)), tuple(job.get("config", [])))
+
+    def archived(self, include):
+        """Entries of the same component, OS, crate and --config that run test binaries get one archive: a `build` job compiles the
+        union of their binaries once (the compile is most of a typed job's time) and each of them runs its own from the
+        archive. A group of one entry compiles for itself as before. Returns (entries, builds)."""
+        groups = {}
+        for e in include:
+            a = e.pop("_arch", None)
+            if a:
+                groups.setdefault((e["component"], e["os"], a[0], a[2]), []).append((e, a[1]))
+        builds = []
+        for (comp, os_name, crate, config), members in groups.items():
+            if len(members) < 2:
+                continue
+            tests = list(dict.fromkeys(t for _, ts in members for t in ts))
+            ident = f"{comp}-{crate}-{os_name.split('-')[0]}-" + hashlib.sha1("|".join(config).encode()).hexdigest()[:6]
+            args = f"-p {crate} " + " ".join(f"--test {t}" for t in tests) + "".join(f" --config {x}" for x in config)
+            builds.append({"id": ident, "name": f"Build: {comp} {crate} tests ({os_name.split('-')[0].title()})", "component": comp, "cache": "engine-closure",
+                           "os": os_name, "timeout": WINDOWS_TIMEOUT if os_name == "windows-latest" else LINUX_TIMEOUT,
+                           "workspaces": ". -> target", "args": args, "jobs": len(members)})
+            for e, _ in members:
+                e["archive"] = ident
+        for e in include:
+            e.pop("_arch", None)
+            e.setdefault("archive", "")
+        return include, builds
 
     def shard_entries(self, comp, label, cmds, targets, shard):
         result = []
@@ -419,8 +485,11 @@ class Model:
                     out.append(f"{m} -> target")
         return "\n".join(out[1:] or out)
 
-    def plan(self, run_all=True, files=(), all_os=True):
-        """all_os: False (a pull request without platform-relevant changes) leaves the Windows jobs out."""
+    def plan(self, run_all=True, files=(), all_os=True, windows_full=None):
+        """all_os: False (a pull request without platform-relevant changes) leaves the Windows jobs out. windows_full: whether
+        the Windows twins of `windows = "nightly"` components run (default: when everything runs)."""
+        if windows_full is None:
+            windows_full = run_all
         by_path, reason, seeds, tests = set(), "every component runs on this event", None, set()
         if not run_all:
             files, tests = self.split_tests(files)
@@ -433,11 +502,12 @@ class Model:
         include, status = [], []
         for name, c in self.comps.items():
             force = seeds is None or c.get("pr") == "always" or name in by_path
-            got = self.entries(name, None if force else seeds, tests, all_os)
+            got = self.entries(name, None if force else seeds, tests, all_os, windows_full)
             include += got
             status.append({"component": name, "tested": bool(got), "jobs": len(got),
                            "why": "" if got else "no crate of its test closure changed" if all_os or not self.entries(name, None if force else seeds, tests) else "Windows only, and no platform code changed"})
-        return {"include": self.grouped(include), "components": status, "reason": reason}
+        include, builds = self.archived(self.grouped(include))
+        return {"include": include, "builds": builds, "components": status, "reason": reason}
 
     def grouped(self, include):
         """Components that name a `group` share one Windows job per group (checkout, toolchain and cache restore cost about
@@ -588,7 +658,7 @@ def cmd_affected(model, a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected", "fixture", "platform"])
+    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected", "fixture", "platform", "windows-crates"])
     ap.add_argument("--toml", default=".fork/components.toml")
     ap.add_argument("--metadata", help="a saved `cargo metadata --no-deps` instead of running cargo")
     ap.add_argument("--timings")
@@ -620,6 +690,9 @@ def main():
         cmd_graph(model, a)
     elif a.cmd == "affected":
         cmd_affected(model, a)
+    elif a.cmd == "windows-crates":
+        # The crates whose Windows build must stay required (windows = "required", or Windows only): the narrow Windows clippy.
+        print(" ".join(f"-p {x}" for x in model.windows_crates()))
     elif a.cmd == "platform":
         # `true` when a change reaches code that only Windows or macOS can verify (see platform_relevant).
         files = read_list(a.files_from) if a.files_from else [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
@@ -633,7 +706,10 @@ def main():
             files = read_list(a.files_from) if a.files_from else [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
         # A pull request runs Windows only for platform-relevant changes or with the label ci:all-os (--all-os); a push runs every OS.
         all_os = a.event != "pull_request" or a.all_os or full or model.platform_relevant(files)
-        json.dump(model.plan(full, files, all_os), sys.stdout, indent=1)
+        # The Windows twin of a `windows = "nightly"` component runs in the full run, and on a push to the integration branch
+        # whose change is platform-relevant; a pull request gets its Linux job only (or the twin with the label ci:all-os).
+        win_full = full or a.all_os or (a.event == "push" and model.platform_relevant(files))
+        json.dump(model.plan(full, files, all_os, win_full), sys.stdout, indent=1)
         print()
 
 
