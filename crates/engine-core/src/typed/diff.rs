@@ -51,7 +51,9 @@
 //! - memory after the call, every mapped page, and which pages are mapped: bytes outside the stack
 //!   for locals are compared byte by byte, and a difference names its first address and both bytes;
 //! - whether and how the run stopped: a run where both stop alike fails unless the test says that
-//!   input stops ([`Diff::expect_stops`]), since it compared nothing past the stop;
+//!   input stops ([`Diff::expect_stops`]), since it compared nothing past the stop, or the test
+//!   draws its world at random and says so ([`Diff::tolerate_garbage_stops`]), which also demands a
+//!   number of runs that go through without a stop;
 //! - the heap's top and free bytes, the control word and the clock after the call.
 //!
 //! With [`Diff::float_ulps`], the words that read as floats compare within a number of ulps
@@ -3135,6 +3137,33 @@ mod tests {
         assert!(report.is_same(), "{report}");
         assert_eq!((report.runs, report.stopped), (2, 1));
         let report = diff(2);
+        assert!(!report.is_same(), "{report}");
+    }
+
+    /// Control: tolerating garbage stops does not excuse a real difference, whether in the result of a run
+    /// that goes through or in a stop only one side takes.
+    #[test]
+    fn tolerating_garbage_stops_still_catches_a_real_difference() {
+        fn one(_: &mut Engine, _: u32) -> u32 {
+            1
+        }
+        fn two(_: &mut Engine, _: u32) -> u32 {
+            2
+        }
+        let report = Diff::new(crate::entry!(0x0040_2000, two(u32) -> u32))
+            .translation(crate::entry!(0x0040_2000, one(u32) -> u32).1)
+            .inputs(&[Input::Of(&[1])])
+            .control_words(&[OTHER_THREADS])
+            .tolerate_garbage_stops(0)
+            .run();
+        assert!(!report.is_same(), "{report}");
+        // One side stops where the other does not.
+        let report = Diff::new(crate::entry!(0x0040_2000, one(u32) -> u32))
+            .translation(crate::entry!(0x0040_2000, reads(u32) -> u32).1)
+            .inputs(&[Input::Of(&[0x0300_0000])])
+            .control_words(&[OTHER_THREADS])
+            .tolerate_garbage_stops(0)
+            .run();
         assert!(!report.is_same(), "{report}");
     }
 
