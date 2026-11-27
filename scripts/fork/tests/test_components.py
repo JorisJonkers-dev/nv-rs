@@ -344,7 +344,7 @@ class Realistic(unittest.TestCase):
         m = real_model()
         got = lambda files: {e["name"] for e in m.plan(False, files)["include"] if e["component"] == "integration"}
         one = got(["crates/engine/tests/typed_pathing.rs"])
-        self.assertEqual(one, {"Component: integration / typed pathing (Windows)"})
+        self.assertEqual(one, {"Component: integration / typed pathing (Linux)"})
         self.assertTrue(m.platform_relevant(["crates/engine/tests/typed_pathing.rs"]))
         every = got(["crates/engine-typed/src/lib.rs"])
         self.assertTrue(one < every and len(every) >= 15, every)
@@ -448,7 +448,7 @@ class RealMap(unittest.TestCase):
         self.assertIn("--features engine-core/test-support", script)  # tests/typed_seam.rs is cfg(feature = "test-support")
 
     def test_the_typed_jobs_build_the_harness_crates_at_opt_level_1_and_the_aggregator_does_not(self):
-        got = {e["name"]: e["script"] for e in real_model().entries("integration")}
+        got = {e["name"]: e["script"] for e in real_model().entries("integration", windows_full=False)}
         typed = [v for k, v in got.items() if "typed" in k]
         self.assertEqual(len(typed), 20)
         for script in typed:
@@ -456,6 +456,33 @@ class RealMap(unittest.TestCase):
                 self.assertIn(f"--config profile.dev.package.{crate}.opt-level=1", script)
             self.assertNotIn("debug-assertions", script)  # the direct run of each case needs them: the dev default stays
         self.assertFalse([v for k, v in got.items() if "aggregator" in k and "--config" in v])
+
+    def test_the_typed_jobs_gate_on_linux_and_their_windows_twins_run_in_the_full_run_only(self):
+        m = real_model()
+        names = lambda **kw: {e["name"] for e in m.plan(**kw)["include"] if e["component"] == "integration"}
+        pr = names(run_all=False, files=["crates/engine-typed/src/lib.rs"])
+        self.assertTrue(pr and all(n.endswith("(Linux)") for n in pr if "typed" in n), pr)
+        full = names()
+        typed = [n for n in full if "typed" in n]
+        self.assertEqual(sum(n.endswith("(Linux)") for n in typed), sum(n.endswith("(Windows)") for n in typed))
+        self.assertGreaterEqual(len(typed), 40)
+        push = names(run_all=False, files=["crates/engine-typed/src/lib.rs"], windows_full=True)
+        self.assertTrue(any(n.endswith("(Windows)") and "typed" in n for n in push))
+
+    def test_the_aggregator_stays_on_windows(self):
+        m = real_model()
+        agg = [e for e in m.entries("integration", windows_full=False) if "aggregator" in e["name"]]
+        self.assertEqual([e["os"] for e in agg], ["windows-latest"])
+        self.assertEqual([e["os"] for e in m.entries("integration", windows=False)], ["ubuntu-latest"] * 20)
+
+    def test_a_job_that_names_os_windows_stays_on_windows_and_a_bad_windows_value_fails(self):
+        meta = workspace({"a": []})
+        c = comp("a", ["a"], runs_on="both", windows="nightly", job=[{"name": "x", "args": ["-p a"], "os": "windows"}, {"name": "y", "args": ["-p a --lib"]}])
+        m = model([c], meta, linux_ok=["a"])
+        self.assertEqual({(e["name"], e["os"]) for e in m.entries("a", windows_full=False)},
+                         {("Component: a / x (Windows)", "windows-latest"), ("Component: a / y (Linux)", "ubuntu-latest")})
+        bad = model([comp("a", ["a"], runs_on="both", windows="sometimes")], meta)
+        self.assertTrue(any("windows must be" in e for e in bad.errors))
 
     def test_the_old_shards_are_gone(self):
         self.assertFalse((REPO / ".fork" / "test-groups.json").exists())

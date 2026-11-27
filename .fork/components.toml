@@ -261,7 +261,11 @@ name = "integration"
 purpose = "The assembled engine and the host: the differential tests of every typed family against its translation, and the program that runs the game. The slow part of CI: the engine crate links all 19 engine crates"
 crates = ["engine", "host", "play-patch", "fork-scene-run", "nv-viewer"]
 requires = ["core", "formats", "engine-base", "fallout-world", "fallout-gameplay", "fallout-front", "scripting", "rendering", "platform", "presence", "memlog", "log", "hitch", "qos", "game-folders", "game-profile", "mod-chooser", "mod-install", "scene", "gfx"]
-runs_on = "windows"
+# The Diff tests compare two Rust implementations, so the typed jobs gate on Linux (free runners that start faster). The
+# Windows twin of every job is required too but runs only in the full run (the nightly) and on a push to fork that changes
+# platform code (`windows = "nightly"`); a job with `os = "windows"` stays on Windows always.
+runs_on = "both"
+windows = "nightly"
 # The typed jobs are sized by measured test time (about 7 minutes of tests each, 2026-11-23 run: the one runtime job took
 # 36 minutes alone, mostly binaries run one after another with few tests each); a family goes in a job of its own when
 # its binary is the longest.
@@ -354,6 +358,8 @@ args = ["-p engine --test typed_forms --test typed_form_array --test typed_extra
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
+# The host and Play build and the doctests stay on Windows (the Windows entry points are cfg(windows) code).
+os = "windows"
 args = ["-p host -p play-patch -p nv-viewer -p fork-scene-run", "-p engine --lib --test par_render --test real_scda --test jip_call_arity --test jg_editor_ids_compile --test stewie_fixes --test recursive_lock_publication --test par_bones --test scrap_heap_publication --test node_pool_publication --test menu_mouse_move --test save_changes_map --test save_maps --test menu_tiles --test water_clip_plane --test xinput_pad --test xnvse_inline_arguments --test xnvse_line_reader --test havok_bodies --test par_manager --test par_tasks --test diff_reference_peer --test backend_gap_diff", "-p engine --doc"]
 optional_tests = ["engine/capture_run_mode"]
 
