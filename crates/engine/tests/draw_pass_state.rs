@@ -333,3 +333,34 @@ fn the_draw_reads_the_pass_objects_as_cut_while_main_begins_the_same_pass() {
     assert_eq!(e.mem.u32(pass + 0x30), other, "main's block");
     assert_eq!(e.mem.u8(group_c + 8), 1, "main's Group C entry");
 }
+
+/// The camera the draw last started with (`011f917c`) is written by the world draw's first half and by the secondary
+/// scenes' draw alike, and read back by the speed tree's camera rows: it is an own global, so the extra passes' camera
+/// does not replace the draw's under it, and at the join main's stays (it wrote last in the serial order).
+#[test]
+fn the_last_camera_is_the_draws_own_while_the_extra_passes_start() {
+    const LAST_CAMERA: u32 = 0x011f_917c;
+    assert!(statics::is_own_global(LAST_CAMERA));
+    let mut e = Engine::new();
+    if !e.mem.is_mapped(0x011f_9000) {
+        e.map(0x011f_9000, 0x7000);
+    }
+    e.mem.set_u32(LAST_CAMERA, 0xaaaa);
+    assert!(capture::begin(&e));
+    for (lo, hi) in statics::GLOBAL_BLOCKS {
+        capture::own(&e, lo, 0, hi - lo);
+    }
+    // The draw's first half noted its camera.
+    capture::set_own_at(&mut e, LAST_CAMERA, 0xbbbbu32);
+    let packet = capture::detach(&e).expect("the packet");
+    // Main's extra passes start: their camera, written live.
+    capture::set_own_at(&mut e, LAST_CAMERA, 0xccccu32);
+    assert!(capture::attach(packet).is_ok());
+    assert_eq!(
+        capture::own_at::<u32>(&e, LAST_CAMERA),
+        0xbbbb,
+        "the draw reads its own camera"
+    );
+    capture::end(&mut e);
+    assert_eq!(e.mem.u32(LAST_CAMERA), 0xcccc, "main started last");
+}

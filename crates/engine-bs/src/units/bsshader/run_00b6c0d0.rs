@@ -678,6 +678,7 @@ pub fn fn_00b6c0d0(e: &mut Engine, first: u32, second: Ptr) -> u32 {
     if holder != 0 && first != 0 {
         e.call(OBJECT_METHOD_004E9BB0, &[holder, first]);
         e.mem.set_u32(CURRENT_011F917C, first);
+        engine_core::own_view::note_write(e, CURRENT_011F917C, 4);
         e.call(SHADER_MANAGER_00B54B10, &[second]);
         e.vcall(second, 0x8c, &[first]);
         e.vcall(second, 0xa8, &[]);

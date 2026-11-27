@@ -70,8 +70,13 @@ pub(crate) const RENDERER_GLOBALS: [u32; 2] = [0x011f_4748, 0x011f_9508];
 pub(crate) const RENDERER_BLOCKS: [(u32, u32); 4] =
     [(0xc, 0x14), (0x634, 0x674), (0x684, 0x68c), (0x940, 0xa80)];
 
+/// The camera the draw last started with (`011f917c`): the world draw's first half and the secondary scenes' draw
+/// (`00b6c0d0`, the extra passes, which run beside a posted draw since nv-rs#992) each write it as they start
+/// ([`super::packet::note_camera`]), and the draw's speed tree camera rows read it back (`00bb1a90`).
+pub(crate) const LAST_CAMERA_BLOCK: (u32, u32) = (0x011f_917c, 0x011f_9180);
+
 /// The global blocks, in one list (what [`take`] owns besides the render-state cache and the camera).
-pub const GLOBAL_BLOCKS: [(u32, u32); 11] = [
+pub const GLOBAL_BLOCKS: [(u32, u32); 12] = [
     RENDERING_PASS,
     ACCUMULATORS,
     SHADER_STATICS,
@@ -83,6 +88,7 @@ pub const GLOBAL_BLOCKS: [(u32, u32); 11] = [
     SHADER_MODE,
     MODE_FUNCTIONS,
     CAMERA_EYE,
+    LAST_CAMERA_BLOCK,
 ];
 
 /// Whether `addr` lies in one of the own blocks of globals (for the checks).

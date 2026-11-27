@@ -6,3 +6,4 @@
 - Decision: keep; offer upstream
 - Reason: nv-rs#992 (part of #938): the joins of the sun query and the extra passes can go only when this state is the draw's own
 - Evidence: `the_cut_takes_the_pass_objects_and_group_c_entries`, `the_draw_reads_the_pass_objects_as_cut_while_main_begins_the_same_pass` (crates/engine/tests/draw_pass_state.rs); the recorded-run gate in docs/FIXES.md
+- Also: the camera the draw last started with (`011f917c`) is an own global (`crates/engine-typed/src/draw/packet.rs`, `statics.rs`); the translation of `00b6c0d0` notes its write (`crates/engine-bs/src/units/bsshader/run_00b6c0d0.rs`)
