@@ -43,7 +43,7 @@ as `chore(progress): ... [skip ci]`.
   the hand translations.
 - *Stage-2 store*: typed families declared with `stage2: true` (`pub static NAME: Family = Family { ... }`), out of all
   typed families. A stage-2 store means the family's objects can move to host memory.
-- No family moves its objects by default (`NV_TYPED` unset is stage 1), and no limit of the 32-bit address space is
+- Only the lock-free maps move their objects by default (`NV_TYPED` unset is K2 for them, stage 1 for the other typed families), and no limit of the 32-bit address space is
   claimed from these numbers.
 
 **Direct3D 9 on wgpu.** The full lists come from mingw-w64's `d3d9.h` and `d3d9types.h` at a pinned tag.

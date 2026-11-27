@@ -1,6 +1,6 @@
 //! Where the family's code reads and writes the maps' body (stage 2 of the migration;
 //! `engine_core::typed::moved`): through the store of the operation's root, the same code in every
-//! form. Stage 1 (`NV_TYPED=lockfree`, the default) is the guest store; `lockfree:dual` keeps the
+//! form. Stage 1 (`NV_TYPED=lockfree`, the rollback) is the guest store; `lockfree:dual` keeps the
 //! guest body the truth and mirrors it in the slab; `lockfree:moved` (K1) and `lockfree:freed` (K2)
 //! keep the body in the slab.
 //!

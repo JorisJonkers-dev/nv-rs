@@ -1150,6 +1150,9 @@ mod tests {
         // A run compared with the original's record has the family off, not moved.
         assert_eq!(parse(switch_for(None, true)), Ok(vec![Off, Off]));
         assert_eq!(parse(Some("off,lockfree:freed")), Ok(vec![Freed, Off]));
+        // A bare name is stage 1 whatever else is listed.
+        assert_eq!(parse(Some("lockfree,all,lockfree")), Ok(vec![On, On]));
+        assert_eq!(parse(Some("off,lockfree")), Ok(vec![On, Off]));
     }
 
     #[test]

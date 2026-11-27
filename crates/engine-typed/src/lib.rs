@@ -230,6 +230,11 @@ mod tests {
             assert_eq!(*m != Mode::Off, f.past_gate, "{}", f.name);
             assert_eq!(*m, engine_core::typed::default_mode(f), "{}", f.name);
         }
+        // Every family that moves by default is a family with a stage-2 form.
+        for (name, _) in engine_core::typed::MOVED_BY_DEFAULT {
+            let f = families.iter().find(|f| f.name == *name).expect("a family");
+            assert!(f.stage2, "{name} moves by default and has no stage-2 form");
+        }
         let lockfree = families.iter().position(|f| f.name == "lockfree").unwrap();
         assert_eq!(defaults[lockfree], Mode::Freed);
         let off = parse_switch(Some("off"), &families).unwrap();

@@ -2729,10 +2729,8 @@ mod forms {
         for word in &WORDS {
             word.store(e.mem.alloc(4), Ordering::SeqCst);
         }
-        assert!(
-            e.mem.is_shared() || e.mem.can_share(),
-            "memory that can be shared"
-        );
+        assert!(e.mem.can_share(), "memory that can be shared");
+        FAILURES.store(0, Ordering::SeqCst);
 
         let job = |e: &mut Engine, n: usize| {
             let word = WORDS[n].load(Ordering::SeqCst);
@@ -2772,6 +2770,52 @@ mod forms {
             0,
             "a thread saw a wrong answer"
         );
+        // The same keys for every thread: they meet in the same buckets, on the same nodes and slot
+        // words. Whether a put, a find or a remove finds the key depends on the interleaving, so only
+        // what every interleaving allows is checked: a find that hits holds the value every thread
+        // stores, one that misses leaves the out word alone, a remove answers 0 or 1.
+        let shared = |e: &mut Engine, n: usize| {
+            let word = WORDS[n].load(Ordering::SeqCst);
+            let face = e.call(0x0044_9f80, &[map]).u32();
+            for round in 0..ROUNDS {
+                for k in 0..KEYS {
+                    let key = 1 + (k + round) % KEYS;
+                    e.mem.set_u32(word, key ^ 0x5a5a);
+                    let put = e.call(0x0044_a130, &[face, key, word, 0]).u32() & 0xff;
+                    e.mem.set_u32(word, 0xdead);
+                    let out = e.call(0x0044_9530, &[map, key, word]).u32() & 0xff;
+                    let value = e.mem.u32(word);
+                    let sound = put <= 1 && match out {
+                        1 => value == key ^ 0x5a5a,
+                        0 => value == 0xdead,
+                        _ => false,
+                    };
+                    if !sound {
+                        FAILURES.fetch_add(1, Ordering::SeqCst);
+                    }
+                    let gone = e.call(0x0066_5f20, &[face, 1 + (k * 5 + round) % KEYS]).u32() & 0xff;
+                    if gone > 1 {
+                        FAILURES.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            }
+        };
+        for _ in 0..3 {
+            assert!(
+                engine_core::real_threads::fork_join(&mut e, THREADS - 1, &shared),
+                "the helpers ran"
+            );
+        }
+        assert_eq!(
+            FAILURES.load(Ordering::SeqCst),
+            0,
+            "a thread saw an answer no interleaving gives, on shared keys"
+        );
+        // What is left is removed by one thread, and then none is found.
+        let face = e.call(0x0044_9f80, &[map]).u32();
+        for key in 1..=KEYS {
+            while e.call(0x0066_5f20, &[face, key]).u32() & 0xff != 0 {}
+        }
         // Everything removed: the map's count is back to zero and a find on each key misses.
         assert_eq!(e.mem.u32(map + 0x18), 0, "the count after every remove");
         let out = e.mem.alloc(4);
