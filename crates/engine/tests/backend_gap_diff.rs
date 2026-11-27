@@ -76,3 +76,54 @@ fn run_00d4ded0_sets_the_referenced_object() {
     }
     report.assert_same();
 }
+
+/// A particle shader with no target (the 16-bit target count at +0x126 is zero): both spawn
+/// functions store the zero point as the position and the velocity of particle `index`, the
+/// timer between them. The gap (stack words stored for a null first target) is not reached.
+fn particles_without_targets(e: &mut Engine, case: &engine_core::typed::diff::Case) -> Vec<u32> {
+    let this = e.mem.alloc(0x130);
+    let data = e.mem.alloc(0x30 * 4);
+    e.mem.set_u32(this + 0x60, data);
+    e.mem.set_u32(this + 0x104, 0x3f80_0000);
+    e.mem.set_u16(this + 0x126, 0);
+    // The zero point (`011f426c`) holds a vector the world picks, so a copy is visible.
+    e.map(0x011f_426c, 0x10);
+    e.mem.set_u32(0x011f_426c, 0x3f00_0000);
+    e.mem.set_u32(0x011f_426c + 4, 0x4000_0000);
+    e.mem.set_u32(0x011f_426c + 8, 0x4040_0000);
+    vec![this, case.word(0)]
+}
+
+#[test]
+fn run_00ba71d0_spawns_at_the_zero_point() {
+    use engine_bs::units::bsshader::particleshaderproperty::fn_00ba71d0;
+    use engine_bs::units::bsshader::particleshaderproperty::ParticleShaderProperty as Particles;
+    fn through(e: &mut Engine, this: Ptr<Particles>, index: u32) {
+        fn_00ba71d0(e, this, index)
+    }
+    let Some(peer) = backend() else { return };
+    Diff::new(entry!(0x00ba_71d0, through(Ptr<Particles>, u32)))
+        .translation(entry!(0x00ba_71d0, fn_00ba71d0(Ptr<Particles>, u32)).1)
+        .reference_peer(peer)
+        .inputs(&[Input::Of(&[0, 1, 3])])
+        .setup(particles_without_targets)
+        .run()
+        .assert_same();
+}
+
+#[test]
+fn run_00ba74a0_spawns_at_the_zero_point() {
+    use engine_bs::units::bsshader::particleshaderproperty::fn_00ba74a0;
+    use engine_bs::units::bsshader::particleshaderproperty::ParticleShaderProperty as Particles;
+    fn through(e: &mut Engine, this: Ptr<Particles>, index: u32) {
+        fn_00ba74a0(e, this, index)
+    }
+    let Some(peer) = backend() else { return };
+    Diff::new(entry!(0x00ba_74a0, through(Ptr<Particles>, u32)))
+        .translation(entry!(0x00ba_74a0, fn_00ba74a0(Ptr<Particles>, u32)).1)
+        .reference_peer(peer)
+        .inputs(&[Input::Of(&[0, 1, 3])])
+        .setup(particles_without_targets)
+        .run()
+        .assert_same();
+}

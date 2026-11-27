@@ -257,4 +257,4 @@ a virtual call through a host double traps in the module (`call_indirect` reache
 the module holds); a callee the module holds is called inside it, so the host double never sees the
 call (and an overridable address cannot be ignored), so the world must not reach one; the peer
 enters its function without `Engine::call`, so it notes the entry in the call log itself. Cases so
-far: 00d4ded0. The other 24 registered gaps have none yet.
+far: 00d4ded0, 00ba71d0 and 00ba74a0 (a particle shader with no targets). The other 22 registered gaps have none yet.
