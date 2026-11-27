@@ -134,7 +134,7 @@ pub fn prepare_streams(
             }
         }
         if declaration.is_none() {
-            let own = e.mem.u32(base.wrapping_add(0x28));
+            let own = crate::draw::capture::own_at::<u32>(e, base.wrapping_add(0x28));
             if own != 0 {
                 declaration = Some(declaration_built(e, own));
             }
@@ -152,7 +152,7 @@ pub fn prepare_streams(
             }
         }
         let renderer = e.mem.u32(base.wrapping_add(0x18));
-        let own = e.mem.u32(base.wrapping_add(0x28));
+        let own = crate::draw::capture::own_at::<u32>(e, base.wrapping_add(0x28));
         if partition != 0 {
             result = e.mem.u32(partition.wrapping_add(0x28));
             let _: bool = typed_call!(

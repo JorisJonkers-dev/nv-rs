@@ -1,2 +1,3 @@
 docs/FIXES.md  # the drawing thread's reference states each side's state and why the sun query keeps its join (nv-rs#938)
 crates/engine-fallout-misc/src/units/fallout_misc/main_p2.rs  # a test of the world pass's join at its first half (nv-rs#938)
+crates/engine-fallout-unplaced-a/src/units/unplaced/run_006426a0.rs  # the sun query does not join a posted world draw, and its test (nv-rs#992)

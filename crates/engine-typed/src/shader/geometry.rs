@@ -58,7 +58,7 @@ pub(crate) const PIXEL_ENTRIES: u32 = 0x011f_ec30;
 /// Whether the constant-map entry the pointer at `slot` holds is enabled (`m_bEnabled`, +8).
 pub(crate) fn entry_enabled(e: &Engine, slot: u32) -> bool {
     let entry = capture::own_at::<u32>(e, slot); // own: an own slot handed in (its callers name the block)
-    e.global::<u8>(entry.wrapping_add(8)) != 0 // own: main's object read in place (value packet B, piece 4)
+    capture::own_at::<u8>(e, entry.wrapping_add(8)) != 0 // own: the entry's byte is an own block (nv-rs#992)
 }
 
 /// A float the exe copies through the x87 stack (`FLD dword`, `FSTP dword`): its bits, as they are.
@@ -1558,7 +1558,7 @@ fn geometry_constants_with(e: &mut Engine, this: Ptr, block: Ptr, transform: u32
         }
     });
     for (map_offset, program_offset) in [(0x30u32, 0x44u32), (0x34, 0x5c)] {
-        let map = e.global::<u32>(base + map_offset); // own: main's object read in place (value packet B, piece 4)
+        let map = crate::draw::own::constant_map(e, base, map_offset);
         if map == 0 {
             continue;
         }

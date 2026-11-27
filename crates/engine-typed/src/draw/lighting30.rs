@@ -1204,9 +1204,9 @@ pub fn setup_switches(e: &mut Engine, this: Ptr, pass_type: u32) {
         own::set_constant_byte(e, FLAGS_B + (j - 1), u8::from((mask >> j) & 1 != 0));
     }
     let base = this.addr();
-    let first = e.global::<u32>(base.wrapping_add(0x34));
+    let first = own::constant_map(e, base, 0x34);
     e.vcall(first, 0x24, &[]);
-    let second = e.global::<u32>(base.wrapping_add(0x30));
+    let second = own::constant_map(e, base, 0x30);
     e.vcall(second, 0x24, &[]);
     if entry_on(e, SWITCH_FOG_ENTRY) {
         let index = u32::from(packet::fog_index(e));
@@ -1452,8 +1452,8 @@ pub fn bone_setup(
         return 0;
     }
     let switch = capture::own_at::<u32>(e, BONE_SWITCH);
-    let switched = switch != 0 && e.global::<u8>(switch.wrapping_add(8)) != 0;
-    if !switched && e.global::<u32>(t.wrapping_add(0x34)) != e.global::<u32>(t.wrapping_add(0x70)) {
+    let switched = switch != 0 && own::entry_is_enabled(e, switch);
+    if !switched && own::constant_map(e, t, 0x34) != e.global::<u32>(t.wrapping_add(0x70)) {
         return 0;
     }
     let renderer = e.global::<u32>(packet::RENDERER);
@@ -1609,7 +1609,7 @@ fn shadow_stage(e: &mut Engine, pass: u32, property: u32) {
 fn set_entry(e: &mut Engine, pass: u32, slot: u32, value: u32) {
     let entries = e.global::<u32>(pass.wrapping_add(0x24));
     let entry = e.global::<u32>(entries.wrapping_add(slot));
-    e.set_global(entry.wrapping_add(8), value);
+    capture::set_own_at(e, entry.wrapping_add(8), value);
 }
 
 /// The word at `at` of the object at the property's `offset` (its texture sources).
@@ -1754,7 +1754,7 @@ const PASS_TABLE: u32 = 0x0120_0ec0;
 /// its own case, `0x17f` to `0x2ed` through the bytes `00c0b970` into the table `00c0b7c0`; decoded from the exe):
 /// the shader's field whose word goes into its counted pointer +0x28, the pass's place in the pass table, and
 /// whether the pass is read after the assignment rather than before it.
-fn pass_case(pass_type: u32) -> Option<(u32, u32, bool)> {
+pub(crate) fn pass_case(pass_type: u32) -> Option<(u32, u32, bool)> {
     Some(match pass_type {
         0xa => (0x7c, 0x4, false),
         0xb => (0x8c, 0x8, false),

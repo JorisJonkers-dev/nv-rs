@@ -38,7 +38,7 @@ use crate::{AddrMap, Engine};
 use std::ffi::OsString;
 use std::sync::{Mutex, OnceLock};
 
-#[cfg(any(test, feature = "test-support"))]
+mod backend_gaps;
 mod backend_peer;
 #[cfg(any(test, feature = "test-support"))]
 pub mod diff;
@@ -637,6 +637,7 @@ pub fn apply(e: &mut Engine) {
         .iter()
         .any(|name| std::env::var_os(name).is_some());
     apply_families(e, &families, switch_for(switch_text(), compared));
+    backend_gaps::apply(e);
 }
 
 /// The dual run's line for the status line and the run's end: for each family in its dual run on

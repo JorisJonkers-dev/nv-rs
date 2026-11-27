@@ -2231,3 +2231,109 @@ or 1, like every row): the thread with the value packet's POISON check, for test
   entry), pinned by `scene_draw_joins_a_posted_world_draw_first`. The cost: the frame's secondary scenes no longer
   overlap the draw; the join goes when the counted pointers are in the packet (with the sun query's, #938).
   Until then the counter's `same_pass` is non-zero in an exterior with a sky.
+  **Step one of nv-rs#992 (the joins stay; the shared state is only partly in the packet).** The pass begins' shared state is now in the packet as own blocks, taken by
+  `statics::take_pass_state` after the statics when the cut takes the own state: the enabled byte (+8) and the switch word
+  (+0x20) of the 22 vertex (`011febd8`) and 22 pixel (`011fec30`) constant entries, and +0x28 to +0x38 of each shader
+  object in the shader table (`011f9548`), with +0x28, +0x30 and +0x34 marked counted and their objects held until the
+  join. The accessors (`own::set_entry_enabled`, `entry_is_enabled`, `set_switch_word`, `constant_map`, `assign_counted`,
+  `set_counted`, `copy_counted`) read and write them through the packet; the drawing side leaves the counts to the
+  join, which moves them in the serial order. Main's untyped writers say what they wrote
+  (`engine_core::own_view::note_write`, answered by `capture::note_write` only for an address a packet owns):
+  `00c02f70` and `00c02ce0` (the entries' byte), `00a5f860` and `00c663d0` (the counted pointer, also when it is a
+  no-op), so the join keeps main's value where main wrote last, also an equal one. Still outside the packet, which is
+  why `006426a0` and `00b6c0d0` keep their joins: the pass objects' stage textures (+8), sampler words and state blocks
+  (`00b71a10` and `00e7de90` write them untyped, as does `00b7a870`'s write of pass 9's state block +0x30 and 0xa8
+  state; `render::pass`, `shader::textures` and `shader::accumulator` write stage +8 by guest address), and the Group
+  C entries. This step changes no join and no output; it is the precondition for removing them.
+  **Step two of nv-rs#992 (the pass objects and Group C are own blocks; the joins of `006426a0` and `00b6c0d0` are gone).**
+  The census of what the pass begins still shared with main, taken by grepping the offsets, the accessor names and
+  the addresses over the typed code (`draw/`, `shader/`, `render/`) and the untyped translations the draw reaches
+  (`00c0bae0` to `00c0bcf0`, `00bbc610`, `00bbdcd0`, `00bbdda0`, `00bb9640`, `00b7a870`, `00b71a10`, `00e7de90`,
+  `00e7f430`), with the readers step one left in guest memory:
+
+  | Field | Readers (draw side) | Writers | Conversion |
+  | --- | --- | --- | --- |
+  | Group C constant entries' byte +8 and switch word +0x20: the lighting 3.0 lists, alpha test, ambient, pass end, eye, bone and light-data entries (the pointers at `01201080` to `012010ec`), the pass flags' nine (`011ff4a0`), the no-lighting shader's +0x170, +0x174, +0x178 | `lighting30::entry_on`, `own::entry_is_enabled`, `skin::bone_matrices`, `lighting30` bone lights | `own::set_entry_enabled` (`setups::enable_entries`, `apply_mask`, `group_c::pass_flags`, ambient and pass end, `lighting30` colour, alpha test and switches, `no_lighting::setup_fog`, `light_fog`), `own::set_entry_word` (light data count), `set_switch_word`, `shader_global` (sub-texture count); main: the same typed code, `00c02ce0`, `00c02f70` (noted since step one) | `statics::take_pass_state` takes them (`take_entry`); `own::set_entry_word` writes through the packet; `skin` and `lighting30` read the bone switch through `own::entry_is_enabled` |
+  | The shader objects' counted maps +0x30, +0x34 (taken in step one) | `geometry_constants_with` (`shader/geometry.rs`, read in guest), `lighting30::setup_switches`, `lighting30` bone lights, `skin::bone_matrices` (read in guest in step one) | `select_pass`, `own::assign_counted`, `copy_counted`; `00c663d0`, `00a5f860` (noted) | the three readers go through `own::constant_map` (this changes the stepped draw thread's stream, below) |
+  | The sun query's set-up of pass type 9 (`00b64bf0`, `bsshaderaccumulator.rs`) and the late passes' set-up (`00b64020`) | read the shader's counted maps +0x34, +0x30 after `00b7a870` (in guest memory before this fix) | `00b7a870` (`select_pass`'s counted-map writes, noted) | read through `engine_core::own_view::own_read` (`the_sun_query_calls_the_counted_maps_the_set_up_made`, red with the guest read) |
+  | Stage objects (`NiD3DTextureStage`) +0 to +0xc (filter mode, stage number, texture) and +0x60 (the speed tree's count) of every stage of every pass in the pass table `011fdff8` | `render::stage::bind`, `apply`, `send_sampler_commands`, `sampler_state_changed`, `render::pass::bind_pass_stages`, `bind_masked_stages`, `own::stage_texture` | `shader::textures::set_stage_texture`, `own::set_stage_texture` (`setups`, `group_c`, `water`, `sky`, `tall_grass`, `speedtree`), `lighting30::set_entry`, `shader::accumulator` (+8), `render::pass::geometry_pass`, `state::set_filter_mode`, `speedtree` count; untyped: `00c0bae0`, `00c0bb20`, `00c0bb50`, `00c0bba0`, `00c0bbd0`, `00c0bc00`, `00c0bc90`, `00c0bcf0`, `00bbc610`, `00bbdcd0`, `00bbdda0` and the lighting 3.0 helper at `00c048b0`'s stage setter | `statics::take_pass_objects` takes the words (the rest of the stage, +0x10 to +0x64, is written only when the stage is made); readers and writers go through `capture::own_at`, `set_own_at`, `own_get`, `own_set`; the untyped writers through `engine_core::own_view::own_write` |
+  | Stage state caches (the object at stage +0x10, 0xb8 bytes: the two stage-state banks, the sampler banks C and D, their set bytes and counts) | `state::cached_stage_state`, `apply_stage_states`, `apply_sampler_states`, `apply_states` (through `bind`), `sampler_state_changed` | `leaf::set_state_slot` (`00e8_90c0`, a leaf of the core, behind `set_address_modes` and `set_filter_mode`, `00e7de90`, `00e7def0`); untyped `00bb9640`, `00e7de90` by address | the whole cache is an own block; `leaf::set_state_slot` reads and writes through `own_view::own_read` and `own_write`, the hook the draw family installs when a packet first opens |
+  | Render state blocks (the object at pass +0x30: header of five words; entries of four: state, value, previous, next) and the pointer at pass +0x30 | `passes::pass_states`, `set_pass_states`, `restore_pass_states` | `00b7a870` (`set_state`, `00b71a10`, `00e7f430`: the sun query's set-up of pass type 9, and a pass's first set-up, which makes the block), all by address, on main | the pointer, the header and the entries of the second list are own blocks, the readers go through `own_at`; the draw never writes them, so the join keeps main's |
+  | The camera the draw last started with (`011f917c`) | `speedtree::camera_rows` (`packet::last_camera`) | the world draw's first half and the secondary scenes' draw (`drivers::start`, `packet::note_camera`), the translation of `00b6c0d0` | an own global (`statics::LAST_CAMERA_BLOCK`); the accessors go through the packet; the translation notes its write. Found by a real-threads run, not by the stepped gate: with the joins gone the extra passes replaced the camera under the draw (49 962 reads of a camera the cut had not taken in 600 frames, none after) |
+  | Pass objects' count +0x18, stage array +0x24, constants +0x44, +0x5c, mask +0x4c | `bind_pass_stages`, `bind_masked_stages`, `setups`, `lighting30`, `group_c`, every stage lookup | none after the pass is made | left in guest memory: nothing writes them while a draw is posted |
+  | Stage fields +0x10 to +0x64 other than the above (transform flags, source, matrix, `bHasTransform`, `bEnabled`) | `render::stage::send_transform`, `bind_pass_stages` | none after the stage is made | left in guest memory |
+
+  Counts: the sampler banks' counts in the stage state cache (+0x64, +0x88, +0xac) are kept by `set_state_slot` alone and
+  read by nobody; run beside each other main and the draw each add one to the same count, and the join (byte by byte, main's
+  when main changed it) keeps one, not two. No render and no constant depends on it.
+
+  The own blocks of the pass objects are taken sorted by address, once each, and only for the passes the draw can begin: those
+  its lists' shaders' pass choices make current (`statics::candidate_passes`). The pass table `011fdff8` is not a table of
+  the pass for each type in every shader: the shadow light shader's pass choices (`00b7af80`, `00b7ad00`) read it by type,
+  lighting 3.0's (`00c0abd0`) at a place of its own for the type (`lighting30::pass_case`), and the sky, leaf and tall
+  grass shaders' (`00b884e0`, `00bb1b20`, `00baa3f0`) read words of their own object, so the set is the table's pass for each
+  listed type, lighting 3.0's place for it, and those three classes' own pass words. Each candidate is checked to be a pass (a
+  mapped, aligned object with a stage count within 16 and a mapped stage array and state block): the `0x11` that
+  `00b78a40`'s tests keep in the table, and an unmapped word, are left in guest memory. No two blocks overlap: a block reached
+  twice (a stage two passes share) is taken once, a partial overlap is a fault (asserted). Water, no-lighting and the branch
+  shader keep what they begin in guest memory (as before this step). The first version took all 700 passes: 447 KB and
+  several thousand blocks a cut, the stepped job 1.7 ms and the join 1.4 ms more a frame; with the lists' types 62 KB a
+  cut, 0.3 ms and 0.5 ms (`NV_DRAW_THREAD`'s waits line, 1200 frames); the stream is the same bytes either way. A
+  stage, a stage state cache and a pass's block pointer read or written in place (`e.mem.u32(stage + 8)`, `cache + 0xa4`,
+  `pass + 0x30`) fail `own_state_is_read_and_written_only_through_the_packet`. `+0x18`, `+0x24` and `+0x4c` of a pass
+  are written by no translation after the pass is made (`00b71a10` writes +0x30 only), so they stay in guest memory.
+
+  Gate (recorded runs of `nv-rs-dev scene bench --suite quick`, 1500 frames, `NV_REPEATABLE`, `NV_SOUND=out`; a fixed
+  environment, argv and working directory for every run, since the game's heap addresses move with them; the baseline is
+  origin/fork at the merge of #996, built from its own worktree): control, the baseline twice with no switches, with
+  `NV_DRAW_THREAD=1` and with `NV_DRAW_THREAD=1 NV_DRAW_DETACH=1` (stepped, `NV_DRAW_THREAD_CHECK=1`): byte-identical.
+  Group C entries, the stage objects, state caches and state blocks: no switches, `NV_DRAW_DETACH=1`, the stepped draw
+  thread and the stepped draw thread with detach: byte-identical to the baseline (522 625 873 bytes without the
+  draw thread, 522 608 863 with it; 1201 posts). The three readers step one left in guest memory (the shader objects'
+  counted maps in `geometry_constants_with`, `lighting30` and `skin`) make the stepped draw thread's stream differ from the
+  baseline's from command 29920 on: the baseline binds a texture at command 29920 that the serial stream does not, and sends bone
+  constants (registers 100 to 111 of draw 1863, frame 147) unlike the serial run's, where the corrected stream's draw has the
+  serial run's; this commit is separate, and the later gates are against it. With the draw thread's POISON
+  (`NV_DRAW_THREAD=poison`: the packet's guest bytes scribbled while the draw runs) the baseline stops at its first posted
+  draw with a read through the scribbled counted map (`6e6e6e6e`); with the readers fixed 1500 frames run through with no
+  stop and, after the ambient entry's enabled byte (`own::fog_ambient`, written in guest memory) was set through the
+  packet, none of the packet's bytes written past it (`written 0`, from 2402); the poisoned stream is the unpoisoned one.
+  Removing the two joins: the stepped draw thread's stream has more commands (7704 `SetTextureStageState`, 7704
+  `SetSamplerState`, 2766 `SetRenderState`: main's setters, run beside a posted draw, send values their cache already holds,
+  `capture::beside`), and the device state at each of the 826 179 draws is the same as before (`record_compare --digests`).
+  The join counter after the removal: `posted 1201, joined 1200 (0 inside the same world pass)`, the joins by point
+  `00b63a90` (the refraction normals' accumulation, `bsshaderaccumulator`), after the world pass has ended; 6000 frames of
+  the suite: `posted 5401, joined 5400 (0 inside the same world pass)`. The sun query (`006426a0`, `00b64bf0`) runs every
+  frame of the suite (the recording holds its queries, 5136 `QueryIssue`), so its former race is in the recorded runs
+  above; the water is not: the suite's views have no water in them (`bench-water.toml`, below).
+
+  Water scene (`docs/fork/scenes/bench-water.toml`: Lake Mead's Boulder Beach looking at the morning sun, the Colorado at
+  Cottonwood Cove, Hoover Dam's river; 1500 frames, same recorded-run set-up). Control (baseline twice, no switches):
+  byte-identical. Branch against baseline: no switches and `NV_DRAW_DETACH=1` byte-identical (424 522 815 bytes). The
+  stepped draw thread cannot be compared with the baseline's here: the baseline's draw thread stops at its first posted draw
+  in this scene (`read of unmapped memory at 00000020`, in its second half's image space effects, with the join of
+  `00b6c0d0` in place and with it put back on this branch; the first post, frame 121), so no stream exists to compare. On
+  this branch the stepped draw thread runs all 1201 posts (424 664 311 bytes), the same with and without detach
+  (byte-identical), the join counter `joined 1200 (0 inside the same world pass)`. Against the serial run its stream has
+  1314 draws (one a frame) whose device state is not in the serial run's, at the same draw index with the same draw
+  command (the suite's: 2): in the first, 9 render states and the shader pair differ. Not explained by this change: the
+  baseline cannot run the scene, and the same difference stays with the two joins put back. What the scene shows about
+  the second half: it runs the image space effects there, and POISON (`NV_DRAW_THREAD=poison`) stops at the first post in
+  it, both on the baseline (a read of a scribbled word through `00b6b6c0`'s held targets, `bad959d8`) and on this branch
+  (the same read); those untyped translations (`run_00b6b330`, `run_00b6adb0`, `run_00c04030`: the held targets'
+  stack `011fa020`, the renderer's mode words +0x200 to +0x208, the image space shader's constant maps) read own
+  state in guest memory, and the renderer's target group (+0x888) is no own block: tried here and not kept, since making
+  them own made the unpoisoned stepped draw thread stop at its first post too (the image space effect reads the renderer's
+  target group after main's secondary passes changed it). Real threads (`NV_THREADS=real NV_RENDER_THREAD=1
+  NV_DRAW_THREAD=1`): the scene stops at its first post (frame 121, the draw side never answers: a 15-minute hang until the
+  bench's timeout); the suite's real run is below. These are limits of the draw thread's second half in scenes with water,
+  not of the two joins.
+
+  Real threads (`NV_THREADS=real NV_RENDER_THREAD=1 NV_DRAW_THREAD=1`, not repeatable: two runs of 600 posts each, 200 frames a place): no stop, `misses 0`, `written 0`; the baseline's runs have `misses 0` too.
+
+  Tests: `the_cut_takes_the_pass_objects_and_group_c_entries`, `the_last_camera_is_the_draws_own_while_the_extra_passes_start`, `the_draw_reads_the_pass_objects_as_cut_while_main_begins_the_same_pass`
+  (a posted draw and main begin the same pass: main writes first, the draw reads what the cut saw, the join leaves the
+  serial order; with `take_pass_objects` left out the second fails, the draw reading main's texture),
+  `the_pass_objects_are_those_the_listed_passes_begin_and_a_non_pointer_entry_is_left_alone` (the `0x11` and unmapped table words),
+  `a_pass_the_listed_shader_holds_is_taken_though_no_table_entry_names_it`, `the_sun_query_calls_the_counted_maps_the_set_up_made`, and for the joins
+  `scene_draw_does_not_join_a_posted_world_draw`, `these_entries_do_not_join_the_drawing_thread` (`006426a0`).

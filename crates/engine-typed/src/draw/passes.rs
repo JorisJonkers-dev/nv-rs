@@ -7,7 +7,7 @@
 //! The render states go through the shader family's setters and caches (condition 2 of the pipeline
 //! probe: the render-state cache the next draw on main reads).
 
-use super::{own, packet, FAMILY};
+use super::{capture, own, packet, FAMILY};
 use crate::shader::{self, state};
 use engine_core::ptr::Ptr;
 use engine_core::{args, typed_call, Engine};
@@ -16,8 +16,8 @@ use engine_core::{args, typed_call, Engine};
 #[inline(always)]
 fn pass_states(e: &Engine) -> u32 {
     let pass = packet::current_pass(e);
-    let states = e.global::<u32>(pass.wrapping_add(0x30));
-    e.global::<u32>(states.wrapping_add(0x10))
+    let states = capture::own_at::<u32>(e, pass.wrapping_add(0x30));
+    capture::own_at::<u32>(e, states.wrapping_add(0x10))
 }
 
 // Typed from 00be0eb0
@@ -26,14 +26,14 @@ fn pass_states(e: &Engine) -> u32 {
 pub fn set_pass_states(e: &mut Engine, _this: u32, _unused: u32) {
     let mut node = pass_states(e);
     while node != 0 {
-        let value = e.global::<u32>(node.wrapping_add(4));
-        let state = e.global::<u32>(node);
+        let value = capture::own_at::<u32>(e, node.wrapping_add(4));
+        let state = capture::own_at::<u32>(e, node);
         typed_call!(
             shader::FAMILY,
             0x00b9_7d90,
             state::set_state(e, state, value, 0u32)
         );
-        node = e.global::<u32>(node.wrapping_add(8));
+        node = capture::own_at::<u32>(e, node.wrapping_add(8));
     }
 }
 
@@ -43,9 +43,9 @@ pub fn set_pass_states(e: &mut Engine, _this: u32, _unused: u32) {
 pub fn restore_pass_states(e: &mut Engine, _this: u32, _unused: u32) {
     let mut node = pass_states(e);
     while node != 0 {
-        let state = e.global::<u32>(node);
+        let state = capture::own_at::<u32>(e, node);
         typed_call!(FAMILY, 0x00b9_8610, restore_state(e, state, 0u32));
-        node = e.global::<u32>(node.wrapping_add(8));
+        node = capture::own_at::<u32>(e, node.wrapping_add(8));
     }
 }
 

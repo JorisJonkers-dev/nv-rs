@@ -3499,7 +3499,7 @@ pub fn fn_00bbc610(e: &mut Engine, _this: Ptr, pass: Ptr, first: u32) {
     while index < e.mem.u32(pass + 0x18) {
         let stage = e.mem.u32(e.mem.u32(pass + 0x24).wrapping_add(4 * index));
         if stage != 0 {
-            e.mem.set_u32(stage + 8, 0);
+            engine_core::own_view::own_write(e, stage + 8, 4, 0);
         }
         index += 1;
     }
@@ -3710,7 +3710,7 @@ pub fn fn_00bbdcd0(e: &mut Engine, this: Ptr, geometry: Ptr, pass: Ptr) {
             e.global::<u32>(TEXTURE_011F9510)
         };
     }
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     e.call(STAGE_SET_00E7DE90, &args![stage, 3u32]);
     let own = e.mem.u32(object + 8);
     let stage = e.mem.u32(e.mem.u32(pass + 0x24) + 4);
@@ -3719,7 +3719,7 @@ pub fn fn_00bbdcd0(e: &mut Engine, this: Ptr, geometry: Ptr, pass: Ptr) {
     } else {
         e.global::<u32>(TEXTURE_011F952C)
     };
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     e.call(STAGE_SET_00E7DE90, &args![stage, 3u32]);
     fn_00bbc610(e, Ptr::NULL, Ptr::new(pass), 2);
     let second = e.mem.u32(object + 0x60);
@@ -3748,7 +3748,7 @@ pub fn fn_00bbdda0(e: &mut Engine, this: Ptr, geometry: Ptr, pass: Ptr) {
     } else {
         e.global::<u32>(TEXTURE_011F952C)
     };
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     e.call(STAGE_SET_00E7DE90, &args![stage, 3u32]);
     fn_00bbc610(e, Ptr::NULL, Ptr::new(pass), 1);
     e.vcall(this.addr(), 0x108, &args![]);

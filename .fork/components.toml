@@ -275,7 +275,7 @@ args = ["-p engine --test typed_shader"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed draw"
-args = ["-p engine --test typed_draw"]
+args = ["-p engine --test typed_draw --test draw_pass_state"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed render, lights, particles"

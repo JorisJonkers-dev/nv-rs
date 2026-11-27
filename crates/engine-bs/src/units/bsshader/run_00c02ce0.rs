@@ -83,6 +83,8 @@ fn set_flags(e: &mut Engine, objects: u32, masks: u32, pass: u32) {
             let mask = bit.rotate_left(1);
             let word = e.mem.u32(masks.wrapping_add(pass.wrapping_mul(4)));
             e.mem.set_u8(object + 8, u8::from(word & mask != 0));
+            // A detached world draw owns these bytes: main's set-up decides them, also to the value they had (nv-rs#992).
+            engine_core::own_view::note_write(e, object + 8, 1);
         }
         bit = bit.rotate_left(1);
     }
@@ -114,10 +116,12 @@ pub fn fn_00c02ce0(e: &mut Engine, pass: u32) {
     let object = e.global::<u32>(FLAG_OBJECT_011FEC6C);
     let set = pass == 0xc1 || pass == 0xc2;
     e.mem.set_u8(object + 8, u8::from(set));
+    engine_core::own_view::note_write(e, object + 8, 1);
     let object = e.global::<u32>(FLAG_OBJECT_011FEC44);
     // Unreachable: no pass is below 0x2d8 and above 0x2ef; kept as the exe tests it.
     if object != 0 && pass < 0x2d8 && pass > 0x2ef {
         e.mem.set_u8(object + 8, 0);
+        engine_core::own_view::note_write(e, object + 8, 1);
     }
 }
 
