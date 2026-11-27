@@ -5,6 +5,7 @@ Run: python3 -I -m unittest discover -s scripts/fork/tests -v
 The gateway is a stub; no model, network or cargo is used.
 """
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -65,6 +66,67 @@ class ProviderSlotTest(unittest.TestCase):
         slot = porting_agent.provider_slot({"NV_PORT_PROVIDER_LIMIT": "x", "NV_PORT_SLOT_DIR": "/tmp/x"}, "a/b")
         self.assertEqual(slot.count, 4)
         self.assertEqual(porting_agent.provider_slot({"NV_PORT_PROVIDER_LIMIT": "0"}, "a").count, 1)
+
+
+class SlotLockTest(unittest.TestCase):
+    """The slot limit is a real lock on both POSIX and Windows."""
+
+    def test_posix_fake_moves_to_the_next_slot_when_the_first_is_locked(self):
+        calls = []
+
+        class FakeFcntl:
+            LOCK_EX = 2
+            LOCK_NB = 4
+
+            def flock(self, handle, operation):
+                calls.append((Path(handle.name).name, operation))
+                if len(calls) == 1:
+                    raise OSError("slot held")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(porting_agent, "fcntl", FakeFcntl()), \
+                mock.patch.object(porting_agent, "msvcrt", None):
+            with porting_agent.Slot(tmp, 2) as slot:
+                self.assertEqual(Path(slot.handle.name).name, "slot1.lock")
+            self.assertIsNone(slot.handle)  # closing the handle releases the flock
+        self.assertEqual(calls, [("slot0.lock", FakeFcntl.LOCK_EX | FakeFcntl.LOCK_NB),
+                                 ("slot1.lock", FakeFcntl.LOCK_EX | FakeFcntl.LOCK_NB)])
+
+    def test_windows_fake_moves_to_the_next_slot_and_unlocks_on_exit(self):
+        calls = []
+
+        class FakeMsvcrt:
+            LK_NBLCK = 1
+            LK_UNLCK = 2
+
+            def locking(self, fd, mode, length):
+                # msvcrt locks from the current position; the release must seek to 0.
+                calls.append((mode, length, os.lseek(fd, 0, os.SEEK_CUR)))
+                if mode == self.LK_NBLCK and len(calls) == 1:
+                    raise OSError("slot held")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(porting_agent, "fcntl", None), \
+                mock.patch.object(porting_agent, "msvcrt", FakeMsvcrt()):
+            with porting_agent.Slot(tmp, 2) as slot:
+                self.assertEqual(Path(slot.handle.name).name, "slot1.lock")
+                slot.handle.write("moved")
+                slot.handle.seek(5)
+            self.assertIsNone(slot.handle)
+        self.assertEqual(calls, [(FakeMsvcrt.LK_NBLCK, 1, 0),
+                                 (FakeMsvcrt.LK_NBLCK, 1, 0),
+                                 (FakeMsvcrt.LK_UNLCK, 1, 0)])
+
+    def test_neither_locking_module_refuses_to_claim_a_slot(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(porting_agent, "fcntl", None), \
+                mock.patch.object(porting_agent, "msvcrt", None):
+            slot = porting_agent.Slot(tmp, 2)
+            with self.assertRaisesRegex(
+                    RuntimeError,
+                    "no file locking on this platform: the slot limit cannot be enforced"):
+                slot.__enter__()
+            self.assertIsNone(slot.handle)  # the failed claim left no open handle
 
 
 class AgentTest(unittest.TestCase):

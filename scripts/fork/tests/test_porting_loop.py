@@ -290,21 +290,20 @@ class PortingLoop(unittest.TestCase):
 
     def test_rate_lines_show_the_measured_seconds_and_hourly_rate(self):
         lines = porting_loop.rate_lines({
-            "model_runs": 5, "build_seconds": 120.4, "diff_seconds": 30.5,
+            "model_runs": 5, "lab_seconds": 120.4,
             "wall_seconds": 7200.0, "delivered": 6,
         })
         self.assertEqual(lines, [
             "", "## Rate", "",
             "- Model runs: 5",
-            "- Build seconds: 120.4",
-            "- Diff seconds: 30.5",
+            "- Lab seconds (build and Diff together): 120.4",
             "- Wall seconds: 7200.0",
             "- Verified functions per hour: 3.00",
         ])
 
     def test_rate_lines_do_not_divide_by_a_zero_wall_time(self):
         lines = porting_loop.rate_lines({
-            "model_runs": 2, "build_seconds": 1.0, "diff_seconds": 2.0,
+            "model_runs": 2, "lab_seconds": 1.0,
             "wall_seconds": 0.0, "delivered": 6,
         })
         self.assertEqual(lines[:3], ["", "## Rate", ""])
@@ -333,7 +332,7 @@ class PortingLoop(unittest.TestCase):
             "", "The checker hash and the review result are recorded in the batch report.", "",
         ]))
         rate = {
-            "model_runs": 4, "build_seconds": 10.0, "diff_seconds": 20.0,
+            "model_runs": 4, "lab_seconds": 10.0,
             "wall_seconds": 7200.0, "delivered": 6,
         }
         with_rate = porting_loop.pr_body("batch-1", dict(report, rate=rate))
@@ -374,6 +373,9 @@ class PortingLoop(unittest.TestCase):
         self.assertEqual([f["family"] for f in record["families"]], ["fam1", "fam2", "fam3", "fam4"])
         self.assertEqual(record["rate"]["model_runs"], 8)
         self.assertGreater(record["rate"]["wall_seconds"], 0)
+        self.assertIn("lab_seconds", record["rate"])
+        self.assertNotIn("build_seconds", record["rate"])
+        self.assertNotIn("diff_seconds", record["rate"])
 
     def test_a_family_limit_bounds_how_many_families_a_batch_takes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -879,6 +881,60 @@ class PortingLoop(unittest.TestCase):
             self.assertIn("- Verified functions per hour: 0.08", text)
             self.assertLess(text.index("- Total: 14"),
                             text.index("- Verified functions per hour: 0.08"))
+
+    def test_weekly_compares_the_rate_before_and_after_a_since_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            addresses = [f"{0x00401000 + i * 0x10:08X}" for i in range(15)]
+            queue = ["# rank\taddress\tstate\tdone\tfamily\tname"]
+            queue += [f"{i}\t{address}\treference-verified\tyes\tfade\tf{i}"
+                      for i, address in enumerate(addresses, 1)]
+            queue.append("")
+            # The table's window starts on 2026-11-20; two of the "before" records
+            # are older than that, but still belong to the span before --since.
+            next_address = 0
+            for date, count in (("2026-11-18", 2), ("2026-11-19", 1), ("2026-11-20", 1),
+                                ("2026-11-21", 1), ("2026-11-22", 2), ("2026-11-23", 1),
+                                ("2026-11-25", 3), ("2026-11-26", 4)):
+                for address in addresses[next_address:next_address + count]:
+                    porting_loop.record_delivery(root, date, "batch-1", address, "fade")
+                next_address += count
+            out = root / "weekly.md"
+            env = environment(root)
+            today = datetime.date(2026, 11, 26)
+            recorder = Recording(queue="\n".join(queue))
+            self.assertEqual(porting_loop.weekly(
+                root=root, days=7, env=env, today=today, out=out,
+                since=datetime.date(2026, 11, 22), call=recorder), 0)
+            text = out.read_text(encoding="utf-8")
+            self.assertIn("## Rate before and after 2026-11-22", text)
+            self.assertIn("- Before: 5 verified functions in 5 days (0.04 per hour)", text)
+            self.assertIn("- After: 10 verified functions in 5 days (0.08 per hour)", text)
+            self.assertNotIn("2026-11-18 |", text)  # outside the daily table's window
+            self.assertIn("- Total: 12", text)
+            self.assertLess(text.index("## Rate before and after"),
+                            text.index("- Before: 5"))
+
+    def test_weekly_without_since_keeps_its_original_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            out = root / "weekly.md"
+            env, today = environment(root), datetime.date(2026, 11, 26)
+            porting_loop.weekly(root=root, days=7, env=env, today=today, out=out,
+                                call=Recording(queue=QUEUE))
+            plain = out.read_text(encoding="utf-8")
+            self.assertNotIn("Rate before and after", plain)
+            porting_loop.weekly(root=root, days=7, env=env, today=today, out=out,
+                                since="2026-11-25", call=Recording(queue=QUEUE))
+            with_since = out.read_text(encoding="utf-8")
+            self.assertTrue(with_since.startswith(plain))
+            self.assertIn("## Rate before and after 2026-11-25", with_since)
+            self.assertIn("- Before: 0 verified functions in 2 days (0.00 per hour)", with_since)
+
+    def test_weekly_main_parses_an_iso_since_date(self):
+        with mock.patch.object(porting_loop, "weekly", return_value=0) as report:
+            self.assertEqual(porting_loop.main(["weekly", "--since", "2026-11-22"]), 0)
+        self.assertEqual(report.call_args[1]["since"], datetime.date(2026, 11, 22))
 
     def test_weekly_reports_a_queue_failure_without_a_traceback(self):
         with tempfile.TemporaryDirectory() as tmp:
