@@ -3,10 +3,9 @@
 
 use super::layouts::*;
 use super::objects::*;
-use super::{round_to_f32, store, FAMILY};
+use super::{store, FAMILY};
 use crate::dispatch;
 use engine_core::prelude::*;
-use engine_core::types::*;
 use engine_core::AbiFn;
 
 /// `operator delete(pointer)` (cdecl, one stack argument).
@@ -21,16 +20,6 @@ const DYNAMIC_CAST: u32 = 0x00ec_43fb;
 /// `RTTI Type Descriptor` of `BSExtraData`, the source type of the
 /// checked casts in the `Compare` methods.
 const BS_EXTRA_DATA_TYPE: u32 = 0x0118_3b2c;
-/// `BSSimpleArray<T,1024>::operator[]` of the folded body: the address of
-/// the element slot.
-const SIMPLE_ARRAY_AT: u32 = 0x006a_7ad0;
-/// The array element removal `RemoveOldHits` uses (`this` is the array; the
-/// arguments are the index and the flag 1). The engine map names the folded
-/// body `BSSimpleArray<BGSBodyPart_P_1024>::_MoveItems`.
-const SIMPLE_ARRAY_REMOVE_AT: u32 = 0x009a_4320;
-/// The array append `AddHit` uses (`this` is the array; the argument is the
-/// address of the element to copy in; returns the new index).
-const SIMPLE_ARRAY_APPEND: u32 = 0x0043_8610;
 /// The `ExtraFriendHits::Hits` array's constructor (`this` is the array).
 const HITS_ARRAY_CONSTRUCT: u32 = 0x0043_85c0;
 /// The `ExtraFriendHits::Hits` array's destructor (`this` is the array).
@@ -66,16 +55,6 @@ const EXTRA_SAVED_HAVOK_DATA_DESTRUCT: u32 = 0x0043_5bb0;
 /// `ExtraRefractionProperty`'s destructor body (reached by
 /// address from its scalar deleting destructor).
 const EXTRA_REFRACTION_PROPERTY_DESTRUCT: u32 = 0x0043_5f80;
-/// A float game-setting accessor: `this` is the setting (an exe global), the
-/// result is the address of its value.
-const SETTING_FLOAT_VALUE: u32 = 0x0040_3e20;
-/// The float setting `AddHit` compares the age of the newest hit with.
-const HIT_SETTING_ADD: u32 = 0x011c_d78c;
-/// The float setting `RemoveOldHits` compares the age of each hit with.
-const HIT_SETTING_REMOVE: u32 = 0x011c_d580;
-/// The global float `00435dd0` returns (the time the hit ages are measured
-/// against).
-const HIT_CLOCK: u32 = 0x011f_1bf0;
 
 /// Extra-data type bytes, as passed to the base constructor.
 const TYPE_EMITTANCE_SOURCE: u32 = 0x67;
@@ -180,19 +159,6 @@ const PROCESS_LISTS_ADD_REFERENCE: u32 = 0x0096_d450;
 const PROCESS_LISTS: u32 = 0x011e_0e80;
 /// The global holding the `PlayerCharacter` pointer.
 const PLAYER: u32 = 0x011d_ea3c;
-/// The constructor of the faction map `ExtraFactionChanges` builds on its
-/// stack (`this` is the 0x10-byte map, the argument the bucket count).
-const FACTION_MAP_CONSTRUCT: u32 = 0x0043_83e0;
-/// The faction map's destructor (`this` is the map).
-const FACTION_MAP_DESTRUCT: u32 = 0x0043_88a0;
-/// The faction map's insertion or update (`this`, key, value byte).
-const FACTION_MAP_SET_AT: u32 = 0x0055_94e0;
-/// The faction map's lookup (`this`, key, address of the value byte;
-/// returns whether the key was found).
-const FACTION_MAP_LOOKUP: u32 = 0x0057_c850;
-/// An accessor: the address `this + 0x2c` (the faction list embedded in a
-/// base actor record).
-const FACTION_LIST_OF: u32 = 0x005d_8a70;
 
 /// Extra-data type bytes of this session's classes.
 const TYPE_EDITOR_REF_MOVE_DATA: u32 = 0x4c;
@@ -641,123 +607,12 @@ pub fn fn_00435ce0(e: &mut Engine, this: Ptr<ExtraFriendHits>) {
     e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
 }
 
-/// The count of a `BSSimpleArray`.
-fn array_size(e: &mut Engine, array: Ptr<BSSimpleArray>) -> u32 {
-    typed_call!(leaf::FAMILY, 0x0044_ddc0, leaf::word_at_8(e, array))
-}
-
-/// The address of slot `index` of a `BSSimpleArray`.
-fn array_slot(e: &mut Engine, array: Ptr<BSSimpleArray>, index: u32) -> Ptr {
-    e.call(SIMPLE_ARRAY_AT, &args![array, index]).ptr()
-}
-
-/// The age (`00435e00`) of the time stamp stored in the array slot at `slot`,
-/// which the game first copies into a local.
-fn stamp_age(e: &mut Engine, slot: Ptr) -> f32 {
-    let stamp = e.mem.u32(slot.addr());
-    e.with_stack(4, |e, holder| {
-        e.mem.set_u32(holder.addr(), stamp);
-        typed_call!(FAMILY, 0x0043_5e00, fn_00435e00(e, holder))
-    })
-}
-
-/// The float value of a game setting, read through its accessor.
-fn setting_value(e: &mut Engine, setting: u32) -> f32 {
-    let slot: Ptr = e.call(SETTING_FLOAT_VALUE, &args![setting]).ptr();
-    f32::from_bits(e.mem.u32(slot.addr()))
-}
-
-/// The tail of `AddHit`: a new time stamp (`00435de0` stores the clock
-/// `00435dd0` returns) appended to `hits`.
-fn record_hit(e: &mut Engine, hits: Ptr<BSSimpleArray>) {
-    let now = typed_call!(FAMILY, 0x0043_5dd0, fn_00435dd0(e));
-    e.with_stack(4, |e, stamp| {
-        typed_call!(FAMILY, 0x0043_5de0, fn_00435de0(e, stamp, now));
-        e.call(SIMPLE_ARRAY_APPEND, &args![hits, stamp]);
-    });
-}
-
-// Typed from 00435d40
-/// `ExtraFriendHits::AddHit` (Xbox PDB): drops the hits that are too old
-/// (`RemoveOldHits`), then records a hit at the current time (`00435dd0`)
-/// unless the age of the newest remaining hit is below the setting at
-/// `011cd78c` (a hit is also recorded when there is none, or when the
-/// comparison is unordered).
-pub fn extra_friend_hits_add_hit(e: &mut Engine, this: Ptr<ExtraFriendHits>) {
-    typed_call!(
-        FAMILY,
-        0x0043_5e40,
-        extra_friend_hits_remove_old_hits(e, this)
-    );
-    let hits = this.at(ExtraFriendHits::Hits);
-    let count = array_size(e, hits) as i32;
-    if count > 0 {
-        let slot = array_slot(e, hits, (count - 1) as u32);
-        let age = stamp_age(e, slot);
-        let setting = setting_value(e, HIT_SETTING_ADD);
-        // FCOMP then `TEST AH,0x41`: setting <= age, or unordered.
-        if setting as f64 > age as f64 {
-            return;
-        }
-    }
-    record_hit(e, hits);
-}
-
-// Typed from 00435dd0
-/// The current time the hits are aged against (the engine map has no name for
-/// it): returns the `float` at `011f1bf0` in ST0.
-pub fn fn_00435dd0(e: &mut Engine) -> f32 {
-    e.global::<f32>(HIT_CLOCK)
-}
-
 // Typed from 00435de0
 /// `CombatTimeStamp`'s constructor (the engine map has no name for it):
 /// stores `value` in the one-float time stamp at `this`. Returns `this`.
 pub fn fn_00435de0(e: &mut Engine, this: Ptr, value: f32) -> Ptr {
     e.mem.set_u32(this.addr(), x87_quiet(value).to_bits());
     this
-}
-
-// Typed from 00435e00
-/// The age of the time stamp at `this` (the engine map has no name for it):
-/// the current time (`00435dd0`) minus the stamp, rounded to `float`, in ST0.
-pub fn fn_00435e00(e: &mut Engine, this: Ptr) -> f32 {
-    let now = typed_call!(FAMILY, 0x0043_5dd0, fn_00435dd0(e));
-    let stamp = f32::from_bits(e.mem.u32(this.addr()));
-    round_to_f32(f64::from(now) - f64::from(stamp))
-}
-
-// Typed from 00435e20
-/// `ExtraFriendHits::GetHitCount` (Xbox PDB): drops the old hits, then
-/// returns how many remain.
-pub fn extra_friend_hits_get_hit_count(e: &mut Engine, this: Ptr<ExtraFriendHits>) -> u32 {
-    typed_call!(
-        FAMILY,
-        0x0043_5e40,
-        extra_friend_hits_remove_old_hits(e, this)
-    );
-    let hits = this.at(ExtraFriendHits::Hits);
-    array_size(e, hits)
-}
-
-// Typed from 00435e40
-/// `ExtraFriendHits::RemoveOldHits` (Xbox PDB): removes every hit whose age
-/// (`00435e00`) is greater than the setting at `011cd580` (the comparison is
-/// ordered: an unordered result keeps the hit). The count is read again on
-/// every pass; after a removal the same index is looked at again.
-pub fn extra_friend_hits_remove_old_hits(e: &mut Engine, this: Ptr<ExtraFriendHits>) {
-    let hits = this.at(ExtraFriendHits::Hits);
-    let mut index: u32 = 0;
-    while index < array_size(e, hits) {
-        let slot = array_slot(e, hits, index);
-        let age = stamp_age(e, slot);
-        let setting = setting_value(e, HIT_SETTING_REMOVE);
-        if (setting as f64) < (age as f64) {
-            e.call(SIMPLE_ARRAY_REMOVE_AT, &args![hits, index, 1u32]);
-            index = index.wrapping_sub(1);
-        }
-        index = index.wrapping_add(1);
-    }
 }
 
 // Typed from 00435ec0
@@ -1306,37 +1161,6 @@ pub fn fn_00436af0(
     this
 }
 
-// Typed from 00436b20
-/// `ExtraTalkingActor::ExtraTalkingActor` (Xbox PDB): extra-data type 0x55,
-/// then `00436780` builds the talking object from `base_object` and `source`
-/// (stored in `pTalkObject`), and the object is moved to the vector that
-/// `source`'s virtual method at +0x1f4 returns
-/// (`TESObjectREFR::SetLocationOnReference`). Returns `this`. The
-/// exception-unwinding frame is not translated.
-pub fn extra_talking_actor_extra_talking_actor(
-    e: &mut Engine,
-    this: Ptr<ExtraTalkingActor>,
-    base_object: Ptr,
-    source: Ptr,
-) -> Ptr<ExtraTalkingActor> {
-    let s = store(e);
-    construct_base(
-        e,
-        this.cast(),
-        TYPE_TALKING_ACTOR,
-        EXTRA_TALKING_ACTOR_VTABLE,
-    );
-    let object = typed_call!(
-        FAMILY,
-        0x0043_6780,
-        fn_00436780(e, this.cast(), base_object, source)
-    );
-    s.set(e, this, ExtraTalkingActor::pTalkObject, object);
-    let location = e.vcall(source.addr(), 0x1f4, &args![]).u32();
-    e.call(SET_LOCATION_ON_REFERENCE, &args![object, location]);
-    this
-}
-
 // Typed from 00436bb0
 /// `ExtraTalkingActor`'s destructor body (the engine map has no name for it):
 /// resets the vtable, then runs the base destructor. The talking object is
@@ -1580,49 +1404,6 @@ pub fn extra_faction_changes_get_is_expelled(
     false
 }
 
-// Typed from 004370f0
-/// A method of `ExtraFactionChanges` that the engine map has no name for.
-/// Builds a map of 37 buckets on the stack (`004383e0`, destroyed at the end
-/// by `004388a0`); every entry of the list gets rank `0xff` and its faction
-/// is recorded in the map (`005594e0`, value 1). Then, when `other` is not
-/// null, every entry of the list `005d8a70` gives for `other + 0x30` whose
-/// faction is not in the map, or is there with a zero value (`0057c850`), is
-/// added to the list as `{faction, 0xff}`. The exception-unwinding frame is
-/// not translated.
-pub fn fn_004370f0(e: &mut Engine, this: Ptr<ExtraFactionChanges>, other: Ptr) {
-    let s = store(e);
-    e.with_stack(0x10, |e, map| {
-        e.call(FACTION_MAP_CONSTRUCT, &args![map, 0x25u32]);
-        let mut node = s.get(e, this, ExtraFactionChanges::pFactionChanges).addr();
-        while node != 0 && node_item(e, node) != 0 {
-            let entry = Ptr::<FactionRank>::new(node_item(e, node));
-            node = node_next(e, node);
-            e.set(entry, FactionRank::cRank, 0xff);
-            let faction = e.get(entry, FactionRank::pFaction);
-            e.call(FACTION_MAP_SET_AT, &args![map, faction, 1u32]);
-        }
-        if !other.is_null() {
-            let mut node = e.call(FACTION_LIST_OF, &args![other.addr() + 0x30]).u32();
-            while node != 0 && node_item(e, node) != 0 {
-                let entry = Ptr::<FactionRank>::new(node_item(e, node));
-                node = node_next(e, node);
-                let faction = e.get(entry, FactionRank::pFaction);
-                let recorded = e.with_stack(4, |e, value| {
-                    let found = e
-                        .call(FACTION_MAP_LOOKUP, &args![map, faction, value])
-                        .bool();
-                    found && e.mem.u8(value.addr()) != 0
-                });
-                if !recorded {
-                    let list = s.get(e, this, ExtraFactionChanges::pFactionChanges);
-                    add_faction_entry(e, list, faction, 0xff);
-                }
-            }
-        }
-        e.call(FACTION_MAP_DESTRUCT, &args![map]);
-    });
-}
-
 // Typed from 00437240
 /// A function of this unit that the engine map has no name for: copies a
 /// `RadioData` (0x10 bytes: radius, range type, static percentage, position
@@ -1666,7 +1447,6 @@ const TYPE_SAY_TO_TOPIC_INFO: u32 = 0x75;
 const TYPE_WATER_ZONE_MAP: u32 = 0x7e;
 const TYPE_IGNORED_BY_SANDBOX: u32 = 0x80;
 const TYPE_PATROL_REF_IN_USE_DATA: u32 = 0x88;
-const TYPE_FOLLOWER_SWIM_BREADCRUMBS: u32 = 0x8b;
 
 /// Their vtables.
 const EXTRA_SAY_TOPIC_INFO_ONCE_A_DAY_VTABLE: u32 = 0x0101_5f3c;
@@ -1699,68 +1479,16 @@ const CRUMB_DELETE: u32 = 0x007b_3fa0;
 const WATER_ZONE_MAP_CONSTRUCT: u32 = 0x0043_83b0;
 /// The destructor of that map (`this` is the map).
 const WATER_ZONE_MAP_DESTRUCT: u32 = 0x0043_8720;
-/// The map's lookup (`this` is the map, the arguments the key and the
-/// address of the word that receives the count).
-const ZONE_MAP_LOOKUP: u32 = 0x0085_3130;
-/// The map's `SetAt` (`this` is the map, the arguments the key and the value).
-const ZONE_MAP_SET_AT: u32 = 0x0084_4700;
-/// The map's `RemoveAt` (`this` is the map, the argument the key).
-const ZONE_MAP_REMOVE_AT: u32 = 0x0040_5430;
-/// The map's first position (`this` is the map; 0 when it is empty).
-const ZONE_MAP_FIRST: u32 = 0x004b_9ba0;
-/// The map's iteration step (`this` is the map; the arguments are the
-/// addresses of the position, of the key and of the value, which receive
-/// the entry; the position advances).
-const ZONE_MAP_NEXT: u32 = 0x006b_7f20;
-/// The float `fn_00437850` starts its search for the highest zone from (the
-/// lowest `f32`, held in the exe's data).
-const LOWEST_FLOAT: u32 = 0x0101_5f5c;
-/// The reference for a handle (cdecl, one stack argument; null when the
-/// handle has none).
-const REFERENCE_FOR_HANDLE: u32 = 0x0048_39c0;
 /// A method of the reference that returns a small integer (the code
 /// compared with 3 and with 5 below; `this` only).
 const REFERENCE_KIND: u32 = 0x004f_8960;
-/// `MobileObject::GetCurrentProcessType` (Xbox PDB).
-const GET_CURRENT_PROCESS_TYPE: u32 = 0x0093_1850;
 /// The global that holds a fixed string's empty value.
 const EMPTY_FIXED_STRING: u32 = 0x0109_b220;
 /// Creates the fixed string for a C string (cdecl, one stack argument).
 const FIXED_STRING_CREATE: u32 = 0x00a5_b690;
-/// Releases a fixed string's text (cdecl, one stack argument: the address
-/// of the text's header, 8 bytes before the text).
-const FIXED_STRING_RELEASE: u32 = 0x0040_19a0;
 /// The string assignment `ExtraSecuritronFace` uses (`this` is the string,
 /// the argument a C string).
 const STRING_ASSIGN: u32 = 0x0043_8390;
-/// The two methods of `ExtraSecuritronFace` that copy a string out (`this`
-/// is the extra data, the argument the address of the destination string).
-const GET_FACE_STRING_FIRST: u32 = 0x0042_8070;
-const GET_FACE_STRING_SECOND: u32 = 0x0042_80b0;
-/// A string's length (`this` is the string).
-const STRING_LENGTH: u32 = 0x0040_48e0;
-/// A string's destructor (`this` is the string).
-const STRING_DESTRUCT: u32 = 0x0040_37d0;
-/// `sprintf`-style formatting (cdecl: buffer, size, format, then the values).
-const FORMAT_STRING: u32 = 0x0040_6d00;
-/// `SwapPlatformLanguageTexturePath(source, destination, size)` (Xbox PDB;
-/// cdecl).
-const SWAP_PLATFORM_LANGUAGE_TEXTURE_PATH: u32 = 0x004b_7240;
-/// The global holding the `TES` pointer.
-const TES: u32 = 0x011d_ea10;
-/// `TES::CreateTextureImage` (Xbox PDB; `this` is the TES object, then the
-/// path, the address of the smart pointer that receives the image and two
-/// zero words).
-const CREATE_TEXTURE_IMAGE: u32 = 0x0045_68c0;
-/// `NiAVObject::GetProperty` (Xbox PDB; `this`, the property type).
-const GET_PROPERTY: u32 = 0x00a5_9d30;
-/// The format of the texture path `ApplyFace` builds.
-const SECURITRON_TEXTURE_FORMAT: u32 = 0x0101_5f84;
-/// The name of the object `ApplyFace` looks for.
-const SECURITRON_SCREEN_NAME: u32 = 0x0101_5fac;
-/// The three-word exe global `ExtraFollowerSwimBreadcrumbs`' constructor
-/// copies into `LeaderLocation`.
-const DEFAULT_LEADER_LOCATION: u32 = 0x011f_426c;
 
 // Typed from 00437300
 /// `ExtraCombatStyle::Compare` (Xbox PDB): true when `other` is not an
@@ -1979,73 +1707,6 @@ pub fn fn_004377f0(e: &mut Engine, this: Ptr<ExtraWaterZoneMap>) {
     e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
 }
 
-// Typed from 00437850
-/// A method of `ExtraWaterZoneMap` that the engine map has no name for; it
-/// keeps the count of the zone in the map (`WaterZoneMap`, at +0xc) and
-/// `pHighestWaterZone`, the zone with the greatest float at +0x18.
-///
-/// With `add` set: looks the zone up (the result is not used), sets its count
-/// to 1 (`SetAt`) and, when its float is above the lowest float, makes it the
-/// highest. With `add` clear: looks the count up; at 1 or less the zone is
-/// removed (`RemoveAt`) and the highest zone is searched again over the
-/// remaining entries (an entry replaces the best one when its float is
-/// strictly above it, so the earlier entry wins a tie; `pHighestWaterZone` is
-/// left alone when no entry is above the lowest float); above 1 the count is
-/// set to the count minus 1.
-pub fn fn_00437850(e: &mut Engine, this: Ptr<ExtraWaterZoneMap>, zone: u32, add: bool) {
-    let s = store(e);
-    let map = this.addr() + 0xc;
-    let lowest = e.global::<f32>(LOWEST_FLOAT);
-    if add {
-        e.with_stack(4, |e, count| {
-            e.mem.set_u32(count.addr(), 0);
-            e.call(ZONE_MAP_LOOKUP, &args![map, zone, count]);
-        });
-        e.call(ZONE_MAP_SET_AT, &args![map, zone, 1u32]);
-        if lowest < f32::from_bits(e.mem.u32(zone + 0x18)) {
-            s.set(
-                e,
-                this,
-                ExtraWaterZoneMap::pHighestWaterZone,
-                Ptr::new(zone),
-            );
-        }
-        return;
-    }
-    let count = e.with_stack(4, |e, slot| {
-        e.mem.set_u32(slot.addr(), 0);
-        e.call(ZONE_MAP_LOOKUP, &args![map, zone, slot]);
-        e.mem.u32(slot.addr()) as i32
-    });
-    if count > 1 {
-        e.call(ZONE_MAP_SET_AT, &args![map, zone, (count - 1) as u32]);
-        return;
-    }
-    e.call(ZONE_MAP_REMOVE_AT, &args![map, zone]);
-    let first = e.call(ZONE_MAP_FIRST, &args![map]).u32();
-    e.with_stack(12, |e, slots| {
-        let position = slots.addr();
-        let key = slots.addr() + 4;
-        let value = slots.addr() + 8;
-        e.mem.set_u32(position, first);
-        let mut best = lowest;
-        while e.mem.u32(position) != 0 {
-            e.call(ZONE_MAP_NEXT, &args![map, position, key, value]);
-            let candidate = e.mem.u32(key);
-            let height = f32::from_bits(e.mem.u32(candidate + 0x18));
-            if best < height {
-                best = height;
-                s.set(
-                    e,
-                    this,
-                    ExtraWaterZoneMap::pHighestWaterZone,
-                    Ptr::new(candidate),
-                );
-            }
-        }
-    });
-}
-
 // Typed from 00437970
 /// `ExtraIgnoredBySandbox`'s constructor (the engine map has no name for it):
 /// extra-data type 0x80, no payload. Returns `this`.
@@ -2120,54 +1781,6 @@ pub fn fn_00437a90(e: &mut Engine, this: Ptr<ExtraPatrolRefInUseData>) {
     e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
 }
 
-// Typed from 00437ab0
-/// `ExtraPatrolRefInUseData::GetCanBeUsedBy` (Xbox PDB): true when `user` is
-/// the reference that already holds the patrol reference (its handle,
-/// `0084e3a0`, equals `User`). Otherwise looks up the reference for `User`
-/// (`004839c0`): when it is gone, or virtual slot 0x22c (called with 0) is
-/// true, or its flags word has `0x820` (`00437b90`), the hold is released
-/// (`User` = 0) and the answer is true. A reference for which virtual slot
-/// 0x100 is false answers false. Otherwise the hold is released (answer true)
-/// when its kind code (`004f8960`) is 5 or 3, or when it has a current process
-/// type (`00931850`, non-zero) and the byte at +0x87 is clear; else false.
-pub fn extra_patrol_ref_in_use_data_get_can_be_used_by(
-    e: &mut Engine,
-    this: Ptr<ExtraPatrolRefInUseData>,
-    user: Ptr,
-) -> bool {
-    let s = store(e);
-    if !user.is_null() {
-        let handle = typed_call!(leaf::FAMILY, 0x0084_e3a0, leaf::word_at_c(e, user));
-        if handle == s.get(e, this, ExtraPatrolRefInUseData::User) {
-            return true;
-        }
-    }
-    let handle = s.get(e, this, ExtraPatrolRefInUseData::User);
-    let reference = e.call(REFERENCE_FOR_HANDLE, &args![handle]).ptr();
-    if reference.is_null() {
-        s.set(e, this, ExtraPatrolRefInUseData::User, 0);
-        return true;
-    }
-    if e.vcall(reference.addr(), 0x22c, &args![0u32]).bool()
-        || typed_call!(FAMILY, 0x0043_7b90, fn_00437b90(e, reference))
-    {
-        s.set(e, this, ExtraPatrolRefInUseData::User, 0);
-        return true;
-    }
-    if !e.vcall(reference.addr(), 0x100, &args![]).bool() {
-        return false;
-    }
-    let releases = typed_call!(FAMILY, 0x0043_7bf0, fn_00437bf0(e, reference))
-        || typed_call!(FAMILY, 0x0043_7bd0, fn_00437bd0(e, reference))
-        || (e.call(GET_CURRENT_PROCESS_TYPE, &args![reference]).u32() != 0
-            && typed_call!(FAMILY, 0x0043_7bb0, fn_00437bb0(e, reference)) == 0);
-    if releases {
-        s.set(e, this, ExtraPatrolRefInUseData::User, 0);
-        return true;
-    }
-    false
-}
-
 // Typed from 00437b90
 /// A predicate on a form that the engine map has no name for: true when the
 /// flags word at +0x8 has bit `0x20` or `0x800` set.
@@ -2207,33 +1820,6 @@ pub fn fn_00437c10(e: &mut Engine, this: Ptr) -> Ptr {
         0x0068_15c0,
         leaf::same_word(e, this.addr() + 0x10)
     );
-    this
-}
-
-// Typed from 00437c40
-/// `ExtraFollowerSwimBreadcrumbs::ExtraFollowerSwimBreadcrumbs` (Xbox PDB):
-/// extra-data type 0x8b, `eLeaderState` 0, `LeaderLocation` copied from the
-/// three-word exe global at `011f426c`, `LeaderNavMeshID` 0 and the crumb
-/// list at +0x20 built in place (`0096a2d0`). Returns `this`. The
-/// exception-unwinding frame is not translated.
-pub fn extra_follower_swim_breadcrumbs_extra_follower_swim_breadcrumbs(
-    e: &mut Engine,
-    this: Ptr<ExtraFollowerSwimBreadcrumbs>,
-) -> Ptr<ExtraFollowerSwimBreadcrumbs> {
-    let s = store(e);
-    construct_base(
-        e,
-        this.cast(),
-        TYPE_FOLLOWER_SWIM_BREADCRUMBS,
-        EXTRA_FOLLOWER_SWIM_BREADCRUMBS_VTABLE,
-    );
-    s.set(e, this, ExtraFollowerSwimBreadcrumbs::eLeaderState, 0);
-    for offset in [0u32, 4, 8] {
-        let word = e.mem.u32(DEFAULT_LEADER_LOCATION + offset);
-        e.mem.set_u32(this.addr() + 0x10 + offset, word);
-    }
-    s.set(e, this, ExtraFollowerSwimBreadcrumbs::LeaderNavMeshID, 0);
-    e.call(SIMPLE_LIST_CONSTRUCT, &args![this.addr() + 0x20]);
     this
 }
 
@@ -2365,82 +1951,6 @@ pub fn fn_00437e50(
     appended
 }
 
-// Typed from 00437f90
-/// `ExtraSecuritronFace::ApplyFace` (Xbox PDB): `this` holds two strings
-/// (personality at +0xc, mood at +0x14) and `root` is the Securitron's scene
-/// object. Nothing happens for a null `root`. Otherwise the object named
-/// "Screen01:0" is asked of `root` (virtual slot 0x9c, called with a fixed
-/// string); when there is none, nothing more happens. When both strings
-/// (`00428070`, `004280b0`) are non-empty, the texture path
-/// is formatted from them, passed
-/// through `SwapPlatformLanguageTexturePath` and loaded
-/// (`TES::CreateTextureImage`) into a smart pointer on the stack. Then the
-/// screen's property of the type `00438220` gives (3) is asked
-/// (`NiAVObject::GetProperty`) and, when it exists, receives the texture
-/// (`00438230`), null when none was loaded. The exception-unwinding frame and
-/// the stack-cookie check are not translated.
-pub fn extra_securitron_face_apply_face(e: &mut Engine, this: Ptr<ExtraSecuritronFace>, root: Ptr) {
-    if root.is_null() {
-        return;
-    }
-    e.with_stack(0x228, |e, frame| {
-        let base = frame.addr();
-        let name = Ptr::new(base);
-        let first = base + 4;
-        let second = base + 0xc;
-        let path = base + 0x14;
-        let texture = base + 0x120;
-        let localized = base + 0x124;
-        let name_text = typed_call!(
-            FAMILY,
-            0x0043_8170,
-            fixed_string_construct(e, name, SECURITRON_SCREEN_NAME)
-        );
-        let screen: Ptr = e.vcall(root.addr(), 0x9c, &args![name_text]).ptr();
-        typed_call!(FAMILY, 0x0043_81b0, fixed_string_destruct(e, name));
-        if screen.is_null() {
-            return;
-        }
-        e.call(NI_POINTER_CONSTRUCT, &args![texture, 0u32]);
-        e.call(GET_FACE_STRING_FIRST, &args![this, first]);
-        e.call(GET_FACE_STRING_SECOND, &args![this, second]);
-        if e.call(STRING_LENGTH, &args![first]).u32() != 0
-            && e.call(STRING_LENGTH, &args![second]).u32() != 0
-        {
-            let second_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, second));
-            let first_text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, first));
-            e.call(
-                FORMAT_STRING,
-                &args![
-                    path,
-                    0x104u32,
-                    SECURITRON_TEXTURE_FORMAT,
-                    first_text,
-                    second_text
-                ],
-            );
-            e.call(
-                SWAP_PLATFORM_LANGUAGE_TEXTURE_PATH,
-                &args![path, localized, 0x104u32],
-            );
-            let tes = e.global::<u32>(TES);
-            e.call(
-                CREATE_TEXTURE_IMAGE,
-                &args![tes, localized, texture, 0u32, 0u32],
-            );
-        }
-        let property_type = typed_call!(FAMILY, 0x0043_8220, fn_00438220(e));
-        let property: Ptr = e.call(GET_PROPERTY, &args![screen, property_type]).ptr();
-        if !property.is_null() {
-            let image = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, texture));
-            typed_call!(FAMILY, 0x0043_8230, fn_00438230(e, property, image));
-        }
-        e.call(STRING_DESTRUCT, &args![second]);
-        e.call(STRING_DESTRUCT, &args![first]);
-        e.call(NI_POINTER_DESTRUCT, &args![texture]);
-    });
-}
-
 // Typed from 00438170
 /// The constructor of a fixed string (`NiFixedString`) that the engine map
 /// has no name for: stores in `this` the empty value (the word at `0109b220`)
@@ -2454,25 +1964,6 @@ pub fn fixed_string_construct(e: &mut Engine, this: Ptr, text: u32) -> Ptr {
     };
     e.mem.set_u32(this.addr(), value);
     this
-}
-
-// Typed from 004381b0
-/// The destructor of a fixed string that the engine map has no name for:
-/// releases the text (`004381d0`).
-pub fn fixed_string_destruct(e: &mut Engine, this: Ptr) {
-    typed_call!(FAMILY, 0x0043_81d0, fixed_string_release(e, this));
-}
-
-// Typed from 004381d0
-/// Releases the text of the fixed string at `slot` (cdecl, one stack word;
-/// the engine map has no name for it): nothing for the empty value, otherwise
-/// `004019a0` with the header address of the text (`00438210`).
-pub fn fixed_string_release(e: &mut Engine, slot: Ptr) {
-    if e.mem.u32(slot.addr()) == e.mem.u32(EMPTY_FIXED_STRING) {
-        return;
-    }
-    let header = typed_call!(FAMILY, 0x0043_8210, fn_00438210(e, slot));
-    e.call(FIXED_STRING_RELEASE, &args![header]);
 }
 
 // Typed from 00438210
@@ -2619,16 +2110,7 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
             ) -> Ptr<_>
         ),
         entry!(0x0043_5ce0, fn_00435ce0(Ptr<_>)),
-        entry!(0x0043_5d40, extra_friend_hits_add_hit(Ptr<_>)),
-        entry!(0x0043_5dd0, fn_00435dd0() -> f32),
         entry!(0x0043_5de0, fn_00435de0(Ptr<_>, f32) -> Ptr<_>),
-        entry!(0x0043_5e00, fn_00435e00(Ptr<_>) -> f32),
-        entry!(0x0043_5e20,
-            extra_friend_hits_get_hit_count(Ptr<_>) -> u32
-        ),
-        entry!(0x0043_5e40,
-            extra_friend_hits_remove_old_hits(Ptr<_>)
-        ),
         entry!(0x0043_5ec0,
             fn_00435ec0(Ptr<_>, Ptr<_>) -> Ptr<_>
         ),
@@ -2705,13 +2187,6 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_6af0,
             fn_00436af0(Ptr<_>, u32) -> Ptr<_>
         ),
-        entry!(0x0043_6b20,
-            extra_talking_actor_extra_talking_actor(
-                Ptr<_>,
-                Ptr<_>,
-                Ptr<_>,
-            ) -> Ptr<_>
-        ),
         entry!(0x0043_6bb0, fn_00436bb0(Ptr<_>)),
         entry!(0x0043_6bd0,
             extra_radius_compare(Ptr<_>, Ptr<_>) -> bool
@@ -2739,7 +2214,6 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_7080,
             extra_faction_changes_get_is_expelled(Ptr<_>, Ptr<_>) -> bool
         ),
-        entry!(0x0043_70f0, fn_004370f0(Ptr<_>, Ptr<_>)),
         entry!(0x0043_7240, fn_00437240(Ptr<_>, Ptr<_>)),
         entry!(0x0043_7290,
             extra_radio_data_compare(Ptr<_>, Ptr<_>) -> bool
@@ -2781,7 +2255,6 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
             ) -> Ptr<_>
         ),
         entry!(0x0043_77f0, fn_004377f0(Ptr<_>)),
-        entry!(0x0043_7850, fn_00437850(Ptr<_>, u32, bool)),
         entry!(0x0043_7970, fn_00437970(Ptr<_>) -> Ptr<_>),
         entry!(0x0043_79a0,
             fn_004379a0(Ptr<_>, Ptr<_>) -> Ptr<_>
@@ -2796,22 +2269,11 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
             fn_00437a60(Ptr<_>, u32) -> Ptr<_>
         ),
         entry!(0x0043_7a90, fn_00437a90(Ptr<_>)),
-        entry!(0x0043_7ab0,
-            extra_patrol_ref_in_use_data_get_can_be_used_by(
-                Ptr<_>,
-                Ptr<_>,
-            ) -> bool
-        ),
         entry!(0x0043_7b90, fn_00437b90(Ptr<_>) -> bool),
         entry!(0x0043_7bb0, fn_00437bb0(Ptr<_>) -> u8),
         entry!(0x0043_7bd0, fn_00437bd0(Ptr<_>) -> bool),
         entry!(0x0043_7bf0, fn_00437bf0(Ptr<_>) -> bool),
         entry!(0x0043_7c10, fn_00437c10(Ptr<_>) -> Ptr<_>),
-        entry!(0x0043_7c40,
-            extra_follower_swim_breadcrumbs_extra_follower_swim_breadcrumbs(
-                Ptr<_>,
-            ) -> Ptr<_>
-        ),
         entry!(0x0043_7ce0,
             extra_follower_swim_breadcrumbs_scalar_deleting_destructor(
                 Ptr<_>,
@@ -2826,12 +2288,7 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_7e50,
             fn_00437e50(Ptr<_>, u32, u32, u32, u32, u32) -> bool
         ),
-        entry!(0x0043_7f90,
-            extra_securitron_face_apply_face(Ptr<_>, Ptr<_>)
-        ),
         entry!(0x0043_8170, fixed_string_construct(Ptr<_>, u32) -> Ptr<_>),
-        entry!(0x0043_81b0, fixed_string_destruct(Ptr<_>)),
-        entry!(0x0043_81d0, fixed_string_release(Ptr<_>)),
         entry!(0x0043_8210, fn_00438210(Ptr<_>) -> u32),
         entry!(0x0043_8220, fn_00438220() -> u32),
         entry!(0x0043_8230, fn_00438230(Ptr<_>, u32)),

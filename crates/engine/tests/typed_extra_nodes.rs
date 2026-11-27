@@ -362,40 +362,6 @@ fn n_00430200() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004302a0() {
-    Diff::new(entry!(
-        0x0043_02a0,
-        extra_data::nodes::objects::extra_dismembered_limbs_scalar_deleting_destructor(
-            Ptr<_>,
-            u32,
-        )
-            -> Ptr<_>
-    ))
-    .node_real(&[A::This(0x40), A::Flag])
-    .translation_calls_plainly(&[0x004302d0, 0x00430390, 0x004303c0])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004302d0() {
-    Diff::new(entry!(
-        0x0043_02d0,
-        extra_data::nodes::objects::fn_004302d0(Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40)])
-    .translation_calls_plainly(&[0x00430390, 0x004303c0])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00430390() {
     Diff::new(entry!(
         0x0043_0390,
@@ -449,24 +415,6 @@ fn n_00430410() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004305f0() {
-    Diff::new(entry!(
-        0x0043_05f0,
-        extra_data::nodes::objects::fn_004305f0(Ptr<_>, u32, u8)
-    ))
-    .node_real(&[
-        A::This(0x40),
-        A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
-        A::Word(&[0, 1, 2, 5, 0x14]),
-    ])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00430660() {
     Diff::new(entry!(0x0043_0660, extra_data::nodes::objects::extra_dismembered_limbs_check_dismembered_limbs_identical(Ptr<_>, Ptr<_>) -> bool))
         .node(&[A::This(0x40), A::Obj(0x40)])
@@ -474,21 +422,6 @@ fn n_00430660() {
     .max_calls(2000)
     .run()
         .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00430780() {
-    Diff::new(entry!(
-        0x0043_0780,
-        extra_data::nodes::objects::fn_00430780(Ptr<_>, Ptr<_>) -> Ptr<_>
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00430830])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
 }
 
 #[test]
@@ -559,21 +492,6 @@ fn n_00430950() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004309e0() {
-    Diff::new(entry!(
-        0x0043_09e0,
-        extra_data::nodes::objects::refr_lock_get_lock_level(Ptr<_>, Ptr<_>) -> i32
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00430a10, 0x00430b40])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00430a10() {
     Diff::new(entry!(
         0x0043_0a10,
@@ -595,31 +513,6 @@ fn n_00430a90() {
     .node(&[A::This(0x40), A::Flag])
     .run()
     .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00430ae0() {
-    Diff::new(entry!(
-        0x0043_0ae0,
-        extra_data::nodes::objects::refr_lock_is_broken(Ptr<_>) -> bool
-    ))
-    .node_real(&[A::This(0x40)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00430b40() {
-    Diff::new(entry!(0x0043_0b40, extra_data::nodes::objects::refr_lock_numeric_value_to_enum(i32) -> i32))
-        .node_real(&[A::Word(&[0, 1, 2, 5, 0x14, 0x15, 0xffff_ffff])])
-        .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-        .assert_same();
 }
 
 #[test]
@@ -650,21 +543,6 @@ fn n_00430ca0() {
         extra_data::nodes::objects::fn_00430ca0(Ptr<_>)
     ))
     .node(&[A::This(0x40)])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00430ce0() {
-    Diff::new(entry!(
-        0x0043_0ce0,
-        extra_data::nodes::objects::extra_lock_compare(Ptr<_>, Ptr<_>) -> bool
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00430b40])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -762,24 +640,6 @@ fn n_004310d0() {
         extra_data::nodes::objects::extra_guarded_ref_data_add_guard(Ptr<_>, Ptr<_>)
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00431120() {
-    Diff::new(entry!(
-        0x0043_1120,
-        extra_data::nodes::objects::fn_00431120(Ptr<_>, u32, u32)
-    ))
-    .node_real(&[
-        A::This(0x40),
-        A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
-        A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
-    ])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -2123,82 +1983,12 @@ fn n_00433790() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00433800() {
-    Diff::new(entry!(
-        0x0043_3800,
-        extra_data::nodes::objects::extra_activate_ref_children_scalar_deleting_destructor(
-            Ptr<_>,
-            u32,
-        )
-            -> Ptr<
-            _,
-        >
-    ))
-    .node_real(&[A::This(0x40), A::Flag])
-    .translation_calls_plainly(&[0x00433750, 0x00433830])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00433830() {
-    Diff::new(entry!(
-        0x0043_3830,
-        extra_data::nodes::objects::fn_00433830(Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40)])
-    .translation_calls_plainly(&[0x00433750])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_004338b0() {
     Diff::new(entry!(
         0x0043_38b0,
         extra_data::nodes::objects::fn_004338b0(Ptr<_>) -> Ptr<_>
     ))
     .node(&[A::This(0x40)])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00433940() {
-    Diff::new(entry!(
-        0x0043_3940,
-        extra_data::nodes::objects::extra_activate_ref_scalar_deleting_destructor(
-            Ptr<_>,
-            u32,
-        )
-            -> Ptr<_>
-    ))
-    .node_real(&[A::This(0x40), A::Flag])
-    .translation_calls_plainly(&[0x00433750, 0x00433970])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00433970() {
-    Diff::new(entry!(
-        0x0043_3970,
-        extra_data::nodes::objects::fn_00433970(Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40)])
-    .translation_calls_plainly(&[0x00433750])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2230,60 +2020,12 @@ fn n_00433a20() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00433b70() {
-    Diff::new(entry!(
-        0x0043_3b70,
-        extra_data::nodes::objects::extra_activate_ref_copy(Ptr<_>, Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00433750])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00433ca0() {
     Diff::new(entry!(
         0x0043_3ca0,
         extra_data::nodes::objects::fn_00433ca0(Ptr<_>) -> Ptr<_>
     ))
     .node(&[A::This(0x40)])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00433d10() {
-    Diff::new(entry!(
-        0x0043_3d10,
-        extra_data::nodes::objects::extra_decal_refs_scalar_deleting_destructor(
-            Ptr<_>,
-            u32,
-        ) -> Ptr<_>
-    ))
-    .node_real(&[A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false), A::Flag])
-    .translation_calls_plainly(&[0x00433d40, 0x004343c0])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00433d40() {
-    Diff::new(entry!(
-        0x0043_3d40,
-        extra_data::nodes::objects::fn_00433d40(Ptr<_>)
-    ))
-    .node_real(&[A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false)])
-    .translation_calls_plainly(&[0x004343c0])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2302,58 +2044,12 @@ fn n_00433db0() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00433ed0() {
-    Diff::new(entry!(
-        0x0043_3ed0,
-        extra_data::nodes::objects::extra_reflector_refs_init_item(Ptr<_>, Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00434050() {
-    Diff::new(entry!(
-        0x0043_4050,
-        extra_data::nodes::objects::extra_lit_water_refs_init_item(Ptr<_>, Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_004341e0() {
     Diff::new(entry!(
         0x0043_41e0,
         extra_data::nodes::objects::extra_decal_refs_compare(Ptr<_>, Ptr<_>) -> bool
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004342b0() {
-    Diff::new(entry!(
-        0x0043_42b0,
-        extra_data::nodes::objects::extra_decal_refs_copy(Ptr<_>, Ptr<_>)
-    ))
-    .node_real(&[
-        A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false),
-        A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], true),
-    ])
-    .translation_calls_plainly(&[0x004343c0])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2385,25 +2081,6 @@ fn n_00434410() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00434480() {
-    Diff::new(entry!(
-        0x0043_4480,
-        extra_data::nodes::objects::fn_00434480(Ptr<_>, u32, Ptr<_>, Ptr<_>)
-    ))
-    .node(&[
-        A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false),
-        A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
-        A::Obj(0x50),
-        A::Obj(0x50),
-    ])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00434560() {
     Diff::new(entry!(
         0x0043_4560,
@@ -2423,21 +2100,6 @@ fn n_00434620() {
         extra_data::nodes::objects::extra_reflected_refs_compare(Ptr<_>, Ptr<_>) -> bool
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004346f0() {
-    Diff::new(entry!(
-        0x0043_46f0,
-        extra_data::nodes::objects::extra_reflected_refs_copy(Ptr<_>, Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00434d90])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2529,21 +2191,6 @@ fn n_00434bb0() {
         extra_data::nodes::objects::extra_reflector_refs_compare(Ptr<_>, Ptr<_>) -> bool
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00434c80() {
-    Diff::new(entry!(
-        0x0043_4c80,
-        extra_data::nodes::objects::extra_reflector_refs_copy(Ptr<_>, Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00434d90])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -2664,20 +2311,6 @@ fn n_00435070() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004350c0() {
-    Diff::new(entry!(
-        0x0043_50c0,
-        extra_data::nodes::objects::fn_004350c0(Ptr<_>) -> f32
-    ))
-    .node_real(&[A::This(0x40)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00435100() {
     Diff::new(entry!(
         0x0043_5100,
@@ -2706,20 +2339,6 @@ fn n_00435180() {
         extra_data::nodes::objects::extra_poison_compare(Ptr<_>, Ptr<_>) -> bool
     ))
     .node(&[A::This(0x40), A::Obj(0x50)])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004351d0() {
-    Diff::new(entry!(
-        0x0043_51d0,
-        extra_data::nodes::objects::fn_004351d0(Ptr<_>, Ptr<_>) -> Ptr<_>
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
     .run()
     .assert_same();
 }
@@ -3196,83 +2815,12 @@ fn n_00435ce0() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00435d40() {
-    Diff::new(entry!(
-        0x0043_5d40,
-        extra_data::nodes::objects_p2::extra_friend_hits_add_hit(Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40)])
-    .translation_calls_plainly(&[0x00435dd0, 0x00435e40])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00435dd0() {
-    Diff::new(entry!(0x0043_5dd0, extra_data::nodes::objects_p2::fn_00435dd0() -> f32))
-        .node_real(&[])
-        .tolerate_garbage_stops(3)
-        .max_calls(2000)
-        .run()
-        .assert_same();
-}
-
-#[test]
 fn n_00435de0() {
     Diff::new(entry!(
         0x0043_5de0,
         extra_data::nodes::objects_p2::fn_00435de0(Ptr<_>, f32) -> Ptr<_>
     ))
     .node(&[A::This(0x50), A::Float])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00435e00() {
-    Diff::new(entry!(
-        0x0043_5e00,
-        extra_data::nodes::objects_p2::fn_00435e00(Ptr<_>) -> f32
-    ))
-    .node_real(&[A::This(0x50)])
-    .translation_calls_plainly(&[0x00435dd0])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00435e20() {
-    Diff::new(entry!(
-        0x0043_5e20,
-        extra_data::nodes::objects_p2::extra_friend_hits_get_hit_count(Ptr<_>) -> u32
-    ))
-    .node_real(&[A::This(0x40)])
-    .translation_calls_plainly(&[0x00435e40])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00435e40() {
-    Diff::new(entry!(
-        0x0043_5e40,
-        extra_data::nodes::objects_p2::extra_friend_hits_remove_old_hits(Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .translation_calls_plainly(&[0x00435e00])
     .run()
     .assert_same();
 }
@@ -3629,25 +3177,6 @@ fn n_00436af0() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00436b20() {
-    Diff::new(entry!(
-        0x0043_6b20,
-        extra_data::nodes::objects_p2::extra_talking_actor_extra_talking_actor(
-            Ptr<_>,
-            Ptr<_>,
-            Ptr<_>,
-        ) -> Ptr<_>
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00430830, 0x00436780])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00436bb0() {
     Diff::new(entry!(
         0x0043_6bb0,
@@ -3785,21 +3314,6 @@ fn n_00437080() {
     .node(&[A::This(0x40), A::Obj(0x50)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004370f0() {
-    Diff::new(entry!(
-        0x0043_70f0,
-        extra_data::nodes::objects_p2::fn_004370f0(Ptr<_>, Ptr<_>)
-    ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .translation_calls_plainly(&[0x00438900])
     .run()
     .assert_same();
 }
@@ -3986,24 +3500,6 @@ fn n_004377f0() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00437850() {
-    Diff::new(entry!(
-        0x0043_7850,
-        extra_data::nodes::objects_p2::fn_00437850(Ptr<_>, u32, bool)
-    ))
-    .node_real(&[
-        A::This(0x40),
-        A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
-        A::Flag,
-    ])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00437970() {
     Diff::new(entry!(
         0x0043_7970,
@@ -4062,25 +3558,6 @@ fn n_00437a90() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00437ab0() {
-    Diff::new(entry!(
-        0x0043_7ab0,
-        extra_data::nodes::objects_p2::extra_patrol_ref_in_use_data_get_can_be_used_by(
-            Ptr<_>,
-            Ptr<_>,
-        )
-            -> bool
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .translation_calls_plainly(&[0x00437b90, 0x00437bb0, 0x00437bd0, 0x00437bf0])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00437b90() {
     Diff::new(entry!(
         0x0043_7b90,
@@ -4133,17 +3610,6 @@ fn n_00437c10() {
     .node(&[A::This(0x50)])
     .run()
     .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00437c40() {
-    Diff::new(entry!(0x0043_7c40, extra_data::nodes::objects_p2::extra_follower_swim_breadcrumbs_extra_follower_swim_breadcrumbs(Ptr<_>) -> Ptr<_>))
-        .node_real(&[A::This(0x40)])
-        .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-        .assert_same();
 }
 
 #[test]
@@ -4212,59 +3678,12 @@ fn n_00437e50() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00437f90() {
-    Diff::new(entry!(
-        0x0043_7f90,
-        extra_data::nodes::objects_p2::extra_securitron_face_apply_face(Ptr<_>, Ptr<_>)
-    ))
-    .node_real(&[A::This(0x40), A::Obj(0x50)])
-    .translation_calls_plainly(&[
-        0x00438170, 0x004381b0, 0x004381d0, 0x00438210, 0x00438220, 0x00438230,
-    ])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00438170() {
     Diff::new(entry!(
         0x0043_8170,
         extra_data::nodes::objects_p2::fixed_string_construct(Ptr<_>, u32) -> Ptr<_>
     ))
     .node(&[A::This(0x50), A::Word(&[0, 1, 2, 0x10, 0xffff_ffff])])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004381b0() {
-    Diff::new(entry!(
-        0x0043_81b0,
-        extra_data::nodes::objects_p2::fixed_string_destruct(Ptr<_>)
-    ))
-    .node_real(&[A::This(0x50)])
-    .translation_calls_plainly(&[0x004381d0, 0x00438210])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_004381d0() {
-    Diff::new(entry!(
-        0x0043_81d0,
-        extra_data::nodes::objects_p2::fixed_string_release(Ptr<_>)
-    ))
-    .node_real(&[A::This(0x50)])
-    .translation_calls_plainly(&[0x00438210])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -4407,20 +3826,6 @@ fn n_00438440() {
 }
 
 #[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00438470() {
-    Diff::new(entry!(
-        0x0043_8470,
-        extra_data::nodes::objects_p3::bs_string_t_set(Ptr<_>, Ptr<_>) -> bool
-    ))
-    .node_real(&[A::This(0x50), A::Obj(0x50)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
-    .run()
-    .assert_same();
-}
-
-#[test]
 fn n_00438570() {
     Diff::new(entry!(
         0x0043_8570,
@@ -4461,20 +3866,6 @@ fn n_004385f0() {
         extra_data::nodes::objects_p3::fn_004385f0(Ptr<_>)
     ))
     .node(&[A::This(0x50)])
-    .run()
-    .assert_same();
-}
-
-#[test]
-#[ignore = "no world reaches its real path yet (docs/fork/EXTRA-DATA-MOVE.md)"]
-fn n_00438610() {
-    Diff::new(entry!(
-        0x0043_8610,
-        extra_data::nodes::objects_p3::fn_00438610(Ptr<_>, Ptr<_>) -> u32
-    ))
-    .node_real(&[A::This(0x50), A::Obj(0x50)])
-    .tolerate_garbage_stops(3)
-    .max_calls(2000)
     .run()
     .assert_same();
 }

@@ -16,17 +16,6 @@ const EXTRA_SPECIAL_RENDER_FLAGS_TYPE: u32 = 0x0118_4078;
 const SET_FLAGS: u32 = 0x0041_fd00;
 /// A string-like constructor (`this`, a pointer, 0); `00438390` forwards to it.
 const STRING_INIT: u32 = 0x0040_37f0;
-/// The length of the `BSStringT` that is `this` (`sLen`, or the C string
-/// length when `sLen` is `0xffff`).
-const STRING_LENGTH: u32 = 0x0040_48e0;
-/// `sMaxLen` of the `BSStringT` that is `this`.
-const STRING_CAPACITY: u32 = 0x0040_39a0;
-/// Stores `sMaxLen` (`this`, the value; clamped to `0xffff`).
-const STRING_SET_CAPACITY: u32 = 0x0040_3a00;
-/// Stores `sLen` (`this`, the value; clamped to `0xffff`).
-const STRING_SET_LENGTH: u32 = 0x0040_39c0;
-/// `memcpy(destination, source, size)` (a cdecl wrapper).
-const MEM_COPY: u32 = 0x0040_1460;
 /// `memset(destination, value, size)` (a cdecl wrapper).
 const MEM_SET: u32 = 0x0040_3d30;
 /// The C runtime `memset(destination, value, size)`.
@@ -43,9 +32,6 @@ const ARRAY_CONSTRUCT_ELEMENTS: u32 = 0x0043_0000;
 /// The array constructor of the `DismemberedLimb *` and `unsigned int`
 /// arrays (`this`, reservation, size).
 const ARRAY_CONSTRUCT: u32 = 0x006b_3eb0;
-/// Makes room for one more element at the end of an array and returns its
-/// index (`this`).
-const ARRAY_ADD_SLOT: u32 = 0x0076_1540;
 
 /// Vtables of the template classes of this range.
 const WATER_ZONE_MAP_VTABLE: u32 = 0x0101_5fbc;
@@ -177,43 +163,6 @@ pub fn bs_map_scalar_deleting_destructor(e: &mut Engine, this: Ptr, flags: u32) 
     this
 }
 
-// Typed from 00438470
-/// `BSStringT<char>::Set` (Xbox PDB): copies the string `other` into `this`.
-/// When it is longer than `sMaxLen` a new buffer of `len + 1` bytes replaces
-/// the old one (which is freed); an empty source frees the buffer and nulls
-/// it; otherwise the text is copied over the existing buffer. `sLen` is set
-/// last. Returns whether the new string is non-empty.
-pub fn bs_string_t_set(e: &mut Engine, this: Ptr<BSStringT>, other: Ptr) -> bool {
-    let s = store(e);
-    let mut length = e.call(STRING_LENGTH, &args![other]).u32();
-    let capacity = e.call(STRING_CAPACITY, &args![this]).u32();
-    if length > capacity {
-        let old = s.get(e, this, BSStringT::pString);
-        let buffer = e.call(OPERATOR_NEW, &args![length + 1]).u32();
-        s.set(e, this, BSStringT::pString, buffer);
-        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
-        e.call(MEM_COPY, &args![buffer, text, length + 1]);
-        if old != 0 {
-            e.call(OPERATOR_DELETE, &args![old]);
-        }
-        e.call(STRING_SET_CAPACITY, &args![this, length]);
-    } else if length == 0 {
-        let buffer = s.get(e, this, BSStringT::pString);
-        if buffer != 0 {
-            e.call(OPERATOR_DELETE, &args![buffer]);
-        }
-        s.set(e, this, BSStringT::pString, 0);
-        length = 0;
-        e.call(STRING_SET_CAPACITY, &args![this, 0u32]);
-    } else {
-        let text = typed_call!(leaf::FAMILY, 0x0055_9450, leaf::word_at_0(e, other));
-        let buffer = s.get(e, this, BSStringT::pString);
-        e.call(MEM_COPY, &args![buffer, text, length + 1]);
-    }
-    e.call(STRING_SET_LENGTH, &args![this, length]);
-    length != 0
-}
-
 // Typed from 00438570
 /// The constructor of the array whose scalar deleting destructor the engine
 /// map calls `BSSimpleArray<DismemberedLimb *,1024>`: stores the vtable and
@@ -247,26 +196,6 @@ pub fn fn_004385c0(e: &mut Engine, this: Ptr) -> Ptr {
 pub fn fn_004385f0(e: &mut Engine, this: Ptr) {
     e.mem.set_u32(this.addr(), COMBAT_TIME_STAMP_ARRAY_VTABLE);
     e.call(SIMPLE_ARRAY_CLEAR, &args![this, 1u32]);
-}
-
-// Typed from 00438610
-/// The append of the `BSSimpleArray<CombatTimeStamp,1024>` (the engine map
-/// has no name for it): takes the next slot (`00761540`), constructs it
-/// (`00430000(this, slot, 1)`), copies in the word `*value` and returns the
-/// new index.
-pub fn fn_00438610(e: &mut Engine, this: Ptr<BSSimpleArray>, value: Ptr) -> u32 {
-    let s = store(e);
-    let index = e.call(ARRAY_ADD_SLOT, &args![this]).u32();
-    let buffer = s.get(e, this, BSSimpleArray::pBuffer);
-    e.call(
-        ARRAY_CONSTRUCT_ELEMENTS,
-        &args![this, buffer + index * 4, 1u32],
-    );
-    let word = e.mem.u32(value.addr());
-    // The buffer is read again: the slot request can have moved it.
-    let buffer = s.get(e, this, BSSimpleArray::pBuffer);
-    e.mem.set_u32(buffer + index * 4, word);
-    index
 }
 
 // Typed from 00438660
@@ -513,12 +442,10 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_8440,
             bs_map_scalar_deleting_destructor(Ptr<_>, u32) -> Ptr<_>
         ),
-        entry!(0x0043_8470, bs_string_t_set(Ptr<_>, Ptr<_>) -> bool),
         entry!(0x0043_8570, fn_00438570(Ptr<_>) -> Ptr<_>),
         entry!(0x0043_85a0, fn_004385a0(Ptr<_>)),
         entry!(0x0043_85c0, fn_004385c0(Ptr<_>) -> Ptr<_>),
         entry!(0x0043_85f0, fn_004385f0(Ptr<_>)),
-        entry!(0x0043_8610, fn_00438610(Ptr<_>, Ptr<_>) -> u32),
         entry!(0x0043_8660, fn_00438660(Ptr<_>) -> Ptr<_>),
         entry!(0x0043_8690, fn_00438690(Ptr<_>)),
         entry!(0x0043_86b0,

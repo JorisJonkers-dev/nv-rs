@@ -53,12 +53,7 @@ pub(crate) const FTOL: u32 = 0x00ec_62c0;
 pub(crate) const BS_EXTRA_DATA_TYPE: u32 = 0x0118_3b2c;
 /// `RTTI Type Descriptor` of `ExtraStartingPosition`.
 pub(crate) const EXTRA_STARTING_POSITION_TYPE: u32 = 0x0118_4b10;
-/// `RTTI Type Descriptor` of `ExtraLock`.
-pub(crate) const EXTRA_LOCK_TYPE: u32 = 0x0118_4754;
 
-/// `0.0` (`double`), what `REFR_LOCK::IsBroken` compares the entry point's
-/// result with.
-pub(crate) const ZERO: u32 = 0x0101_2060;
 /// The global holding the `PlayerCharacter` pointer (`PlayerCharacter::pSingleton`).
 pub(crate) const PLAYER: u32 = 0x011d_ea3c;
 
@@ -72,12 +67,6 @@ pub(crate) const SETTING_FLOAT_VALUE: u32 = 0x0040_3e20;
 /// An integer game-setting accessor: `this` is the setting (an exe global),
 /// the result is the address of its value.
 pub(crate) const SETTING_INT_VALUE: u32 = 0x0043_d4d0;
-/// `BGSEntryPoint::HandleEntryPoint(entryPoint, actor, result, ...)` (Xbox
-/// PDB name, cdecl).
-pub(crate) const HANDLE_ENTRY_POINT: u32 = 0x005e_58f0;
-/// The entry point `REFR_LOCK::IsBroken` asks (its result tells whether the
-/// player's perks make a failed attempt count less).
-pub(crate) const ENTRY_POINT_LOCK_BROKEN: u32 = 0x20;
 
 /// The float setting `REFR_LOCK::GetLevel` scales a leveled lock's level
 /// bonus by.
@@ -99,8 +88,6 @@ pub(crate) const LOCK_LEVEL_SETTINGS: [u32; 6] = [
 pub(crate) const EXTRA_ANIM_VTABLE: u32 = 0x0101_5b28;
 /// `ExtraDismemberedLimbs`'s vtable.
 pub(crate) const EXTRA_DISMEMBERED_LIMBS_VTABLE: u32 = 0x0101_5b34;
-/// `ExtraStartingPosition`'s vtable.
-pub(crate) const EXTRA_STARTING_POSITION_VTABLE: u32 = 0x0101_5b40;
 /// The vtable of the `BSExtraData` subclass of type 0x49 built by `004308c0`.
 pub(crate) const EXTRA_TYPE_49_VTABLE: u32 = 0x0101_5b4c;
 /// `ExtraLight`'s vtable.
@@ -118,7 +105,6 @@ pub(crate) const EXTRA_TELEPORT_VTABLE: u32 = 0x0101_58a8;
 
 /// Extra-data type bytes, as passed to the base constructor.
 pub(crate) const TYPE_DISMEMBERED_LIMBS: u32 = 0x5f;
-pub(crate) const TYPE_STARTING_POSITION: u32 = 0x0f;
 pub(crate) const TYPE_49: u32 = 0x49;
 pub(crate) const TYPE_LIGHT: u32 = 0x29;
 pub(crate) const TYPE_LOCK: u32 = 0x2a;
@@ -361,21 +347,11 @@ pub(crate) const BS_STRING_CONSTRUCT: u32 = 0x0040_37b0;
 /// `BSStringT<char>::Set(source, length)` (`this` is the string; the source
 /// is a character pointer and the length 0 means all of it).
 pub(crate) const BS_STRING_SET: u32 = 0x0040_37f0;
-/// `BSStringT<char>::Clear` (`this` is the string; `Set(0, 0)`).
-pub(crate) const BS_STRING_CLEAR: u32 = 0x0040_37d0;
-/// `BSStringT<char>::Set(other)` (Xbox PDB; `this` is the string, the
-/// argument the string to copy; in this unit, not yet translated).
-pub(crate) const BS_STRING_COPY: u32 = 0x0043_8470;
 /// `BSStringT<char>::GetLength` (the folded body: the stored length, or the
 /// C string's length when that is 0xffff; `this` is the string).
 pub(crate) const BS_STRING_LENGTH: u32 = 0x0040_48e0;
 /// `strcmp(a, b)` (the wrapper; `00ec6da0` is the CRT function).
 pub(crate) const STRCMP: u32 = 0x0040_8b20;
-/// `memcpy(destination, source, size)` (the wrapper around `00ec44d0`).
-pub(crate) const MEMCPY: u32 = 0x0040_1460;
-/// The constructor of a `REF_ACTIVATE_DATA` (`this` is the 8-byte data:
-/// clears the reference and the delay).
-pub(crate) const REF_ACTIVATE_DATA_CONSTRUCT: u32 = 0x0041_4010;
 /// An empty C string in the exe's data (what `ExtraActivateRef`'s constructor sets
 /// its text to).
 pub(crate) const EMPTY_STRING: u32 = 0x0101_1584;
@@ -384,8 +360,6 @@ pub(crate) const EMPTY_STRING: u32 = 0x0101_1584;
 /// `ExtraDismemberedLimbs` (`this` is the array). In this unit; not yet
 /// translated.
 pub(crate) const DISMEMBERED_LIMBS_ARRAY_CONSTRUCT: u32 = 0x0043_8570;
-/// Destructor of the same array. In this unit; not yet translated.
-pub(crate) const DISMEMBERED_LIMBS_ARRAY_DESTRUCT: u32 = 0x0043_85a0;
 /// Constructor of the `Guards` array member of `ExtraGuardedRefData`. In
 /// this unit; not yet translated.
 pub(crate) const GUARDS_ARRAY_CONSTRUCT: u32 = 0x0043_8660;
@@ -402,9 +376,6 @@ pub(crate) const TESNPC_BUILD_OBJECT_ARRAY: u32 = 0x0060_5fc0;
 /// Takes a reference and returns the object `TESNPC::BuildObjectArray` is
 /// called on (a 19-byte accessor in `the extradatalist unit`).
 pub(crate) const REFR_NPC_ACCESSOR: u32 = 0x0041_81e0;
-/// The constructor of the `FILE_POS_ROT` member of `ExtraStartingPosition`
-/// (`this` is the member).
-pub(crate) const FILE_POS_ROT_CONSTRUCT: u32 = 0x0069_2710;
 /// Deletes the animation an `ExtraAnim` owns (`this` is the animation, the
 /// argument says whether to free it).
 pub(crate) const ANIMATION_DELETE: u32 = 0x0041_8d20;
@@ -455,15 +426,11 @@ pub(crate) const EXTRA_X_TARGET_VTABLE: u32 = 0x0101_5e28;
 pub(crate) const TYPE_MERCHANT_CONTAINER: u32 = 0x3c;
 pub(crate) const TYPE_LEV_CREA_MODIFIER: u32 = 0x1e;
 pub(crate) const TYPE_POISON: u32 = 0x3f;
-pub(crate) const TYPE_LAST_FINISHED_SEQUENCE: u32 = 0x41;
 pub(crate) const TYPE_X_TARGET: u32 = 0x44;
 
 /// `LCM_NONE` (Xbox PDB `LEV_CREA_MODIFIER`; the others are `LCM_EASY` 0,
 /// `LCM_MEDIUM` 1, `LCM_HARD` 2, `LCM_BOSS` 3).
 pub(crate) const LEV_CREA_MODIFIER_NONE: u32 = 4;
-/// The table of float-setting pointers, one per `LEV_CREA_MODIFIER` value
-/// below `LCM_NONE`, that `fn_004350c0` indexes.
-pub(crate) const LEV_CREA_SETTING_TABLE: u32 = 0x0118_4ab0;
 
 /// `TESForm::GetFile(index)` (Xbox PDB name; `this` is the form, the argument
 /// -1 asks for the last file that changed it).
@@ -472,43 +439,18 @@ pub(crate) const FORM_GET_FILE: u32 = 0x0048_4e60;
 /// stack arguments): adds the file's compile index to the form id held at the
 /// address given.
 pub(crate) const FORM_ADD_COMPILE_INDEX: u32 = 0x0048_5d50;
-/// `TESObjectREFR::GetRefPersists` (Xbox PDB name; `this` is the reference).
-pub(crate) const REFR_GET_REF_PERSISTS: u32 = 0x0056_53d0;
-/// The accessor of a reference's extra-data list (`this + 0x44`, in
-/// `the tesscriptfunctions unit` by address range; `this` is the reference, the
-/// result the address of the embedded list).
-pub(crate) const REFR_EXTRA_LIST: u32 = 0x005d_43c0;
 /// The log function (cdecl, `format, ...`) the `InitItem`s report with.
 pub(crate) const MASTERFILE_LOG: u32 = 0x005b_5e40;
-/// Two methods of `ExtraDataList` (in `the extradatalist unit` by address range;
-/// `this` is the list, the arguments are a reference and a flag, 1 to add)
-/// that `ExtraReflectorRefs::InitItem` calls for effect flag bits 0 and 1.
-pub(crate) const REFLECTOR_ADD_FIRST: u32 = 0x0041_f4c0;
-pub(crate) const REFLECTOR_ADD_SECOND: u32 = 0x0041_f650;
-/// `ExtraDataList::SetWaterLightRef(reference, add)` (engine map name; `this`
-/// is the extra-data list).
-pub(crate) const WATER_LIGHT_REF_SET: u32 = 0x0041_f840;
 /// Removes from the list starting at `this` the first node whose item equals
 /// the word at the address given (in `the highprocess unit` by address range).
 pub(crate) const SIMPLE_LIST_REMOVE_ITEM: u32 = 0x0090_5330;
 /// Whether the list at `this` holds an item equal to the word at the address
 /// given (the engine map has no name for it).
 pub(crate) const SIMPLE_LIST_CONTAINS: u32 = 0x005f_65d0;
-/// The constructor of a `REF_DECAL_DATA` (`this` is the 0x1c-byte block; it
-/// runs two folded `NiPoint3` constructors and returns `this`).
-pub(crate) const REF_DECAL_DATA_CONSTRUCT: u32 = 0x0055_a400;
-/// `strlen(string)` (the wrapper around the CRT function `00ec6130`, cdecl).
-pub(crate) const STRLEN: u32 = 0x0044_a670;
-/// `strcpy_s(destination, size, source)` (the wrapper around `00ec65a6`,
-/// cdecl).
-pub(crate) const STRING_COPY_CHECKED: u32 = 0x0040_6d30;
 
 /// The messages the `InitItem`s log (the format strings of `MASTERFILE_LOG`;
 /// each takes one form id).
 pub(crate) const MESSAGE_DECAL_NOT_FOUND: u32 = 0x0101_5cf8;
-pub(crate) const MESSAGE_REFLECTOR_NOT_FOUND: u32 = 0x0101_5d8c;
-pub(crate) const MESSAGE_NOT_PERSISTENT: u32 = 0x0101_5d30;
-pub(crate) const MESSAGE_LIT_WATER_NOT_FOUND: u32 = 0x0101_5dc8;
 
 /// The count of a `BSSimpleArray`.
 pub(crate) fn array_size(e: &mut Engine, array: Ptr<BSSimpleArray>) -> u32 {
@@ -654,39 +596,6 @@ pub fn extra_dismembered_limbs_extra_dismembered_limbs(
     this
 }
 
-// Typed from 004302a0
-/// `ExtraDismemberedLimbs::_scalar_deleting_destructor_` (Xbox PDB): the
-/// destructor, then `operator delete` when `flags & 1`. Returns `this`.
-pub fn extra_dismembered_limbs_scalar_deleting_destructor(
-    e: &mut Engine,
-    this: Ptr<ExtraDismemberedLimbs>,
-    flags: u32,
-) -> Ptr<ExtraDismemberedLimbs> {
-    typed_call!(FAMILY, 0x0043_02d0, fn_004302d0(e, this));
-    delete_when_asked(e, this.cast(), flags);
-    this
-}
-
-// Typed from 004302d0
-/// `ExtraDismemberedLimbs`' destructor body: deletes every non-null
-/// `DismemberedLimb` in the array (the count is read again on every pass, as
-/// the loop condition does), destroys the array, then runs the base
-/// destructor. The exception-unwinding frame is not translated.
-pub fn fn_004302d0(e: &mut Engine, this: Ptr<ExtraDismemberedLimbs>) {
-    e.mem.set_u32(this.addr(), EXTRA_DISMEMBERED_LIMBS_VTABLE);
-    let array = this.at(ExtraDismemberedLimbs::DismemberedLimbs);
-    let mut index = 0;
-    while index < array_size(e, array) {
-        let limb: Ptr<DismemberedLimb> = array_pointer_at(e, array, index);
-        if !limb.is_null() {
-            typed_call!(FAMILY, 0x0043_0390, fn_00430390(e, limb, 1));
-        }
-        index += 1;
-    }
-    e.call(DISMEMBERED_LIMBS_ARRAY_DESTRUCT, &args![array]);
-    e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
-}
-
 // Typed from 00430390
 /// `DismemberedLimb`'s scalar deleting destructor (the engine map has no
 /// name): the destructor, then `operator delete` when `flags & 1`. Returns
@@ -815,21 +724,6 @@ pub fn extra_dismembered_limbs_dismember(
     }
 }
 
-// Typed from 004305f0
-/// Sets `bLimbRemoved` to `removed` on every entry whose `cLimb` is `limb`
-/// (the Xbox PDB has no name for this method of `ExtraDismemberedLimbs`).
-pub fn fn_004305f0(e: &mut Engine, this: Ptr<ExtraDismemberedLimbs>, limb: u32, removed: u8) {
-    let array = this.at(ExtraDismemberedLimbs::DismemberedLimbs);
-    let mut index = 0;
-    while index < array_size(e, array) {
-        let entry: Ptr<DismemberedLimb> = array_pointer_at(e, array, index);
-        if !entry.is_null() && e.get(entry, DismemberedLimb::cLimb) as u32 == limb {
-            e.set(entry, DismemberedLimb::bLimbRemoved, removed);
-        }
-        index += 1;
-    }
-}
-
 // Typed from 00430660
 /// `ExtraDismemberedLimbs::CheckDismemberedLimbsIdentical` (Xbox PDB):
 /// whether `other` has the same dismembered limbs, the same number of
@@ -876,42 +770,6 @@ pub fn extra_dismembered_limbs_check_dismembered_limbs_identical(
         index += 1;
     }
     true
-}
-
-// Typed from 00430780
-/// `ExtraStartingPosition`'s constructor from a reference (the engine map has
-/// no name for it): extra-data type 0x0f; the position (the three floats the
-/// reference's vtable `+0x1f4` function returns the address of) and the
-/// rotation (`00430830` of the reference) are copied into `startPosition`.
-/// Returns `this`. The exception-unwinding frame is not translated.
-pub fn fn_00430780(
-    e: &mut Engine,
-    this: Ptr<ExtraStartingPosition>,
-    reference: Ptr,
-) -> Ptr<ExtraStartingPosition> {
-    construct_base(
-        e,
-        this.cast(),
-        TYPE_STARTING_POSITION,
-        EXTRA_STARTING_POSITION_VTABLE,
-    );
-    let start = this.at(ExtraStartingPosition::startPosition);
-    e.call(FILE_POS_ROT_CONSTRUCT, &args![start]);
-    let position = e.vcall(reference.addr(), 0x1f4, &[]).u32();
-    let target = start.at(FilePosRot::pos).addr();
-    copy_words(e, position, target);
-    let rotation = typed_call!(FAMILY, 0x0043_0830, fn_00430830(e, reference));
-    let target = start.at(FilePosRot::rot).addr();
-    copy_words(e, rotation.addr(), target);
-    this
-}
-
-/// Copies three 32-bit words (a `NiPoint3`) bit for bit.
-pub(crate) fn copy_words(e: &mut Engine, from: u32, to: u32) {
-    for word in 0..3 {
-        let value = e.mem.u32(from + 4 * word);
-        e.mem.set_u32(to + 4 * word, value);
-    }
 }
 
 // Typed from 00430830
@@ -1002,18 +860,6 @@ pub fn fn_00430950(e: &mut Engine, this: Ptr<ExtraLight>) {
     e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
 }
 
-// Typed from 004309e0
-/// `REFR_LOCK::GetLockLevel` (Xbox PDB): the difficulty bracket (0 very easy
-/// to 4 very hard, 5 key only) of the lock's level for `reference`.
-pub fn refr_lock_get_lock_level(e: &mut Engine, this: Ptr<RefrLock>, reference: Ptr) -> i32 {
-    let level = typed_call!(FAMILY, 0x0043_0a10, refr_lock_get_level(e, this, reference));
-    typed_call!(
-        FAMILY,
-        0x0043_0b40,
-        refr_lock_numeric_value_to_enum(e, level)
-    )
-}
-
 // Typed from 00430a10
 /// `REFR_LOCK::GetLevel` (Xbox PDB): the lock's level. A leveled lock
 /// (`cFlags` bit 2) adds the level of `reference` (the player when it is
@@ -1055,40 +901,6 @@ pub fn refr_lock_set_locked(e: &mut Engine, this: Ptr<RefrLock>, locked: bool) {
     }
 }
 
-// Typed from 00430ae0
-/// `REFR_LOCK::IsBroken` (Xbox PDB): whether `uiNumTries` has reached the
-/// number of tries the lock takes: 1 when the entry point 0x20 (asked of the
-/// player) leaves its value at 0.0, otherwise 2.
-pub fn refr_lock_is_broken(e: &mut Engine, this: Ptr<RefrLock>) -> bool {
-    let s = store(e);
-    let player = e.global::<u32>(PLAYER);
-    let value = e.with_stack(4, |e, result| {
-        e.mem.set_f32(result.addr(), 0.0);
-        e.call(
-            HANDLE_ENTRY_POINT,
-            &args![ENTRY_POINT_LOCK_BROKEN, player, result],
-        );
-        e.mem.f32(result.addr())
-    });
-    let zero: f64 = e.global(ZERO);
-    let tries_allowed: u32 = if value as f64 == zero { 1 } else { 2 };
-    s.get(e, this, RefrLock::uiNumTries) >= tries_allowed
-}
-
-// Typed from 00430b40
-/// `REFR_LOCK::NumericValueToEnum` (Xbox PDB): the first difficulty bracket
-/// whose top setting (`LOCK_LEVEL_SETTINGS`) is at least `value`; 5 when
-/// `value` passes every one.
-pub fn refr_lock_numeric_value_to_enum(e: &mut Engine, value: i32) -> i32 {
-    for (bracket, setting) in (0i32..).zip(LOCK_LEVEL_SETTINGS[..5].iter()) {
-        let top = e.call(SETTING_INT_VALUE, &args![*setting]).u32();
-        if value <= e.mem.i32(top) {
-            return bracket;
-        }
-    }
-    5
-}
-
 // Typed from 00430bc0
 /// The inverse of `REFR_LOCK::NumericValueToEnum` (no Xbox PDB name): the
 /// value of the setting for difficulty `bracket` (0 to 5), 0 for anything
@@ -1128,52 +940,6 @@ pub fn fn_00430ca0(e: &mut Engine, this: Ptr<ExtraLock>) {
     let lock = s.get(e, this, ExtraLock::pLock);
     e.call(OPERATOR_DELETE, &args![lock]);
     e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
-}
-
-// Typed from 00430ce0
-/// `ExtraLock::Compare` (Xbox PDB): true when `other` is not an `ExtraLock`,
-/// when `BSExtraData::Compare` returns true, or when the two locks differ
-/// in `cFlags`, `pKey`, difficulty bracket of `cBaseLevel`, `uiNumTries` or
-/// `uiTimesUnlocked`.
-pub fn extra_lock_compare(e: &mut Engine, this: Ptr<ExtraLock>, other: Ptr) -> bool {
-    let s = store(e);
-    let cast: Ptr<ExtraLock> = e
-        .call(
-            DYNAMIC_CAST,
-            &args![other, 0u32, BS_EXTRA_DATA_TYPE, EXTRA_LOCK_TYPE, 0u32],
-        )
-        .ptr();
-    if cast.is_null() {
-        return true;
-    }
-    if e.call(BS_EXTRA_DATA_COMPARE, &args![this, other]).bool() {
-        return true;
-    }
-    let mine = s.get(e, this, ExtraLock::pLock);
-    let theirs = s.get(e, cast, ExtraLock::pLock);
-    if e.get(mine, RefrLock::cFlags) != e.get(theirs, RefrLock::cFlags) {
-        return true;
-    }
-    if s.get(e, mine, RefrLock::pKey) != s.get(e, theirs, RefrLock::pKey) {
-        return true;
-    }
-    let my_bracket = typed_call!(
-        FAMILY,
-        0x0043_0b40,
-        refr_lock_numeric_value_to_enum(e, e.get(mine, RefrLock::cBaseLevel) as i32)
-    );
-    let their_bracket = typed_call!(
-        FAMILY,
-        0x0043_0b40,
-        refr_lock_numeric_value_to_enum(e, e.get(theirs, RefrLock::cBaseLevel) as i32)
-    );
-    if my_bracket != their_bracket {
-        return true;
-    }
-    if s.get(e, mine, RefrLock::uiNumTries) != s.get(e, theirs, RefrLock::uiNumTries) {
-        return true;
-    }
-    s.get(e, mine, RefrLock::uiTimesUnlocked) != s.get(e, theirs, RefrLock::uiTimesUnlocked)
 }
 
 // Typed from 00430dd0
@@ -1327,28 +1093,6 @@ pub fn extra_guarded_ref_data_add_guard(
             e.call(SIMPLE_ARRAY_ADD, &args![guards, local]);
         }
     });
-}
-
-// Typed from 00431120
-/// For every guard in `Guards` (the engine map has no name for this method of
-/// `ExtraGuardedRefData`): looks the form up, and when it is a form whose
-/// vtable `+0xf0` and `+0x100` functions are both true and `008d8520` gives it
-/// a process, calls that process's vtable `+0x60c` function with the form,
-/// `second` and `first`.
-pub fn fn_00431120(e: &mut Engine, this: Ptr<ExtraGuardedRefData>, first: u32, second: u32) {
-    let guards = this.at(ExtraGuardedRefData::Guards);
-    let mut index = 0;
-    while index < array_size(e, guards) {
-        let id = array_pointer_at::<()>(e, guards, index).addr();
-        let form = e.call(LOOKUP_FORM_BY_ID, &args![id]).u32();
-        if form != 0 && e.vcall(form, 0xf0, &[]).bool() && e.vcall(form, 0x100, &[]).bool() {
-            let process = typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, form));
-            if process != 0 {
-                e.vcall(process, 0x60c, &args![form, second, first]);
-            }
-        }
-        index += 1;
-    }
 }
 
 // Typed from 004311f0
@@ -3102,33 +2846,6 @@ pub fn fn_00433790(
     this
 }
 
-// Typed from 00433800
-/// `ExtraActivateRefChildren::_scalar_deleting_destructor_` (Xbox PDB): the
-/// destructor, then `operator delete` when `flags & 1`. Returns `this`.
-pub fn extra_activate_ref_children_scalar_deleting_destructor(
-    e: &mut Engine,
-    this: Ptr<ExtraActivateRefChildren>,
-    flags: u32,
-) -> Ptr<ExtraActivateRefChildren> {
-    typed_call!(FAMILY, 0x0043_3830, fn_00433830(e, this));
-    delete_when_asked(e, this.cast(), flags);
-    this
-}
-
-// Typed from 00433830
-/// `ExtraActivateRefChildren`'s destructor body (the engine map has no name
-/// for it): resets the vtable, deletes the child list's items and nodes
-/// (`00433750`), runs the list's destructor body, then the base destructor.
-/// The exception-unwinding frame is not translated.
-pub fn fn_00433830(e: &mut Engine, this: Ptr<ExtraActivateRefChildren>) {
-    e.mem
-        .set_u32(this.addr(), EXTRA_ACTIVATE_REF_CHILDREN_VTABLE);
-    let list = this.at(ExtraActivateRefChildren::ChildList);
-    typed_call!(FAMILY, 0x0043_3750, fn_00433750(e, list));
-    e.call(SIMPLE_LIST_DESTRUCT, &args![list]);
-    e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
-}
-
 // Typed from 004338b0
 /// `ExtraActivateRef`'s constructor (the engine map has no name for it):
 /// extra-data type 0x53, an empty parent list, no flags, and an
@@ -3142,36 +2859,6 @@ pub fn fn_004338b0(e: &mut Engine, this: Ptr<ExtraActivateRef>) -> Ptr<ExtraActi
     e.set(this, ExtraActivateRef::cActivateFlags, 0);
     e.call(BS_STRING_SET, &args![text, EMPTY_STRING, 0u32]);
     this
-}
-
-// Typed from 00433940
-/// `ExtraActivateRef::_scalar_deleting_destructor_` (Xbox PDB): the
-/// destructor, then `operator delete` when `flags & 1`. Returns `this`.
-pub fn extra_activate_ref_scalar_deleting_destructor(
-    e: &mut Engine,
-    this: Ptr<ExtraActivateRef>,
-    flags: u32,
-) -> Ptr<ExtraActivateRef> {
-    typed_call!(FAMILY, 0x0043_3970, fn_00433970(e, this));
-    delete_when_asked(e, this.cast(), flags);
-    this
-}
-
-// Typed from 00433970
-/// `ExtraActivateRef`'s destructor body (the engine map has no name for it):
-/// resets the vtable, deletes the parent list's items and nodes (`00433750`),
-/// clears the `ActivateTextOverride` string, runs the list's destructor body,
-/// then the base destructor. The exception-unwinding frame is not translated.
-pub fn fn_00433970(e: &mut Engine, this: Ptr<ExtraActivateRef>) {
-    e.mem.set_u32(this.addr(), EXTRA_ACTIVATE_REF_VTABLE);
-    let list = this.at(ExtraActivateRef::ParentList);
-    typed_call!(FAMILY, 0x0043_3750, fn_00433750(e, list));
-    e.call(
-        BS_STRING_CLEAR,
-        &args![this.at(ExtraActivateRef::ActivateTextOverride)],
-    );
-    e.call(SIMPLE_LIST_DESTRUCT, &args![list]);
-    e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
 }
 
 // Typed from 00433a00
@@ -3242,47 +2929,6 @@ pub fn extra_activate_ref_compare(e: &mut Engine, this: Ptr<ExtraActivateRef>, o
     e.call(STRCMP, &args![my_chars, their_chars]).u32() != 0
 }
 
-// Typed from 00433b70
-/// `ExtraActivateRef::Copy` (Xbox PDB): when `other` is an `ExtraActivateRef`,
-/// deletes this parent list's entries, copies each of the other list's
-/// 8-byte entries into a new one added to the list (at the head, so the order
-/// is reversed), and copies the flags and the activate text (`BSStringT::Set`).
-/// Nothing happens when `other` is another class. The exception-unwinding
-/// frame is not translated.
-pub fn extra_activate_ref_copy(e: &mut Engine, this: Ptr<ExtraActivateRef>, other: Ptr) {
-    let cast: Ptr<ExtraActivateRef> = checked_cast_extra(e, other, EXTRA_ACTIVATE_REF_TYPE);
-    if cast.is_null() {
-        return;
-    }
-    let list = this.at(ExtraActivateRef::ParentList);
-    typed_call!(FAMILY, 0x0043_3750, fn_00433750(e, list));
-    let mut node = cast.at(ExtraActivateRef::ParentList);
-    while !node.is_null() && !list_node_is_empty(e, node) {
-        let item = list_node_item(e, node);
-        node = list_node_next(e, node);
-        let memory = e.call(OPERATOR_NEW, &args![8u32]).u32();
-        let copy = if memory != 0 {
-            e.call(REF_ACTIVATE_DATA_CONSTRUCT, &args![memory]).u32()
-        } else {
-            0
-        };
-        e.call(MEMCPY, &args![copy, item, 8u32]);
-        e.with_stack(4, |e, local| {
-            e.mem.set_u32(local.addr(), copy);
-            e.call(SIMPLE_LIST_ADD_HEAD, &args![list, local]);
-        });
-    }
-    let flags = e.get(cast, ExtraActivateRef::cActivateFlags);
-    e.set(this, ExtraActivateRef::cActivateFlags, flags);
-    e.call(
-        BS_STRING_COPY,
-        &args![
-            this.at(ExtraActivateRef::ActivateTextOverride),
-            cast.at(ExtraActivateRef::ActivateTextOverride)
-        ],
-    );
-}
-
 // Typed from 00433ca0
 /// `ExtraDecalRefs`' constructor (the engine map has no name for it):
 /// extra-data type 0x57 and an empty decal list. Returns `this`. The
@@ -3290,35 +2936,6 @@ pub fn extra_activate_ref_copy(e: &mut Engine, this: Ptr<ExtraActivateRef>, othe
 pub fn fn_00433ca0(e: &mut Engine, this: Ptr<ExtraDecalRefs>) -> Ptr<ExtraDecalRefs> {
     construct_with_list(e, this.cast(), TYPE_DECAL_REFS, EXTRA_DECAL_REFS_VTABLE);
     this
-}
-
-// Typed from 00433d10
-/// `ExtraDecalRefs::_scalar_deleting_destructor_` (Xbox PDB): the
-/// destructor, then `operator delete` when `flags & 1`. Returns `this`.
-pub fn extra_decal_refs_scalar_deleting_destructor(
-    e: &mut Engine,
-    this: Ptr<ExtraDecalRefs>,
-    flags: u32,
-) -> Ptr<ExtraDecalRefs> {
-    typed_call!(FAMILY, 0x0043_3d40, fn_00433d40(e, this));
-    delete_when_asked(e, this.cast(), flags);
-    this
-}
-
-// Typed from 00433d40
-/// `ExtraDecalRefs`' destructor body (the decompiler names it
-/// `CMFCFilterChunkValueImpl::~CMFCFilterChunkValueImpl` by mistake; the body
-/// is this class's): resets the vtable, frees the decal list's entries
-/// (`004343c0`), runs the list's destructor body, then the base destructor.
-/// The exception-unwinding frame is not translated.
-pub fn fn_00433d40(e: &mut Engine, this: Ptr<ExtraDecalRefs>) {
-    e.mem.set_u32(this.addr(), EXTRA_DECAL_REFS_VTABLE);
-    typed_call!(FAMILY, 0x0043_43c0, fn_004343c0(e, this));
-    e.call(
-        SIMPLE_LIST_DESTRUCT,
-        &args![this.at(ExtraDecalRefs::DecalRefList)],
-    );
-    e.call(BS_EXTRA_DATA_DESTRUCT, &args![this]);
 }
 
 /// The frame helper of the three `InitItem`s: asks the owner's file for its
@@ -3400,117 +3017,6 @@ pub fn extra_decal_refs_init_item(e: &mut Engine, this: Ptr<ExtraDecalRefs>, own
     });
 }
 
-// Typed from 00433ed0
-/// `ExtraReflectorRefs::InitItem` (engine map name, not in the Xbox PDB;
-/// `this`, then the reference the extra data belongs to): resolves the form
-/// id of every entry to a persistent reference. An entry whose form is not a
-/// reference, or whose reference is not persistent, is logged ("Unable to find
-/// water reflector reference" / "is not persistent so cannot reflect or
-/// refract other references"), removed and deleted. For the others, the
-/// reference's extra-data list is told about the owner once for each of the
-/// entry's effect flags (bit 0: `0041f4c0`, bit 1: `0041f650`), and the first
-/// word of the entry becomes the reference pointer. The exception-unwinding
-/// frame is not translated.
-pub fn extra_reflector_refs_init_item(e: &mut Engine, this: Ptr<ExtraReflectorRefs>, owner: Ptr) {
-    e.with_stack(8, |e, frame| {
-        let item_slot = frame;
-        let id_slot = frame.byte_add(4);
-        let mut node = this.at(ExtraReflectorRefs::RefList);
-        let mut previous: Ptr<BSSimpleList> = Ptr::NULL;
-        while !node.is_null() && !list_node_is_empty(e, node) {
-            let mut removed = false;
-            let item = list_node_item(e, node);
-            e.mem.set_u32(item_slot.addr(), item);
-            let id = e.mem.u32(item);
-            e.mem.set_u32(id_slot.addr(), id);
-            let reference = resolve_reference(e, owner, id_slot);
-            if reference.is_null() || !e.call(REFR_GET_REF_PERSISTS, &args![reference]).bool() {
-                let id = e.mem.u32(id_slot.addr());
-                if reference.is_null() {
-                    e.call(MASTERFILE_LOG, &args![MESSAGE_REFLECTOR_NOT_FOUND, id]);
-                } else {
-                    e.call(MASTERFILE_LOG, &args![MESSAGE_NOT_PERSISTENT, id]);
-                }
-                node = drop_unresolved_entry(e, node, previous, item_slot);
-                removed = true;
-            } else {
-                // REF_REFLECTOR_DATA::iEffectFlags (Xbox PDB) +0x04
-                if e.mem.u32(item + 4) & 1 != 0 {
-                    let list = e.call(REFR_EXTRA_LIST, &args![reference]).u32();
-                    e.call(REFLECTOR_ADD_FIRST, &args![list, owner, 1u32]);
-                }
-                if e.mem.u32(item + 4) & 2 != 0 {
-                    let list = e.call(REFR_EXTRA_LIST, &args![reference]).u32();
-                    e.call(REFLECTOR_ADD_SECOND, &args![list, owner, 1u32]);
-                }
-                e.mem.set_u32(item, reference.addr());
-            }
-            if !removed {
-                previous = node;
-                node = list_node_next(e, node);
-            }
-        }
-    });
-}
-
-// Typed from 00434050
-/// `ExtraLitWaterRefs::InitItem` (engine map name, not in the Xbox PDB;
-/// `this`, then the reference the extra data belongs to): resolves the form
-/// id of every entry to a persistent reference and rebuilds the list from
-/// the ones that resolve (the temporary list reverses their order, the
-/// refill reverses it again, so the order is kept). An entry whose form is not a
-/// reference, or whose reference is not persistent, is logged ("Unable to find
-/// lit water reference" / "is not persistent so cannot reflect or refract
-/// other references") and dropped. For each good reference, its extra-data
-/// list is told about the owner (`ExtraDataList::SetWaterLightRef`, adding)
-/// and the reference is added at the head of a temporary list; the list is
-/// then cleared and refilled from the temporary one, which is cleared and
-/// destroyed. The exception-unwinding frame is not translated.
-pub fn extra_lit_water_refs_init_item(e: &mut Engine, this: Ptr<ExtraLitWaterRefs>, owner: Ptr) {
-    // `frame`: the temporary list (8 bytes), then the form id and the
-    // reference, whose addresses are passed on.
-    e.with_stack(0x10, |e, frame| {
-        let temporary: Ptr<BSSimpleList> = frame.cast();
-        let id_slot = frame.byte_add(8);
-        let reference_slot = frame.byte_add(0xc);
-        e.call(SIMPLE_LIST_CONSTRUCT, &args![temporary]);
-        let list = this.at(ExtraLitWaterRefs::RefList);
-        let mut node = list;
-        while !node.is_null() && !list_node_is_empty(e, node) {
-            let id = list_node_item(e, node);
-            e.mem.set_u32(id_slot.addr(), id);
-            let reference = resolve_reference(e, owner, id_slot);
-            e.mem.set_u32(reference_slot.addr(), reference.addr());
-            if reference.is_null() || !e.call(REFR_GET_REF_PERSISTS, &args![reference]).bool() {
-                let id = e.mem.u32(id_slot.addr());
-                if reference.is_null() {
-                    e.call(MASTERFILE_LOG, &args![MESSAGE_LIT_WATER_NOT_FOUND, id]);
-                } else {
-                    e.call(MASTERFILE_LOG, &args![MESSAGE_NOT_PERSISTENT, id]);
-                }
-            } else {
-                let extra_list = e.call(REFR_EXTRA_LIST, &args![reference]).u32();
-                e.call(WATER_LIGHT_REF_SET, &args![extra_list, owner, 1u32]);
-                e.call(SIMPLE_LIST_ADD_HEAD, &args![temporary, reference_slot]);
-            }
-            node = list_node_next(e, node);
-        }
-        e.call(SIMPLE_LIST_CLEAR, &args![list]);
-        let mut walk = temporary;
-        while !walk.is_null() {
-            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, walk));
-            if e.mem.u32(slot) == 0 {
-                break;
-            }
-            let slot = typed_call!(leaf::FAMILY, 0x0068_15c0, leaf::same_word(e, walk));
-            e.call(SIMPLE_LIST_ADD_HEAD, &args![list, slot]);
-            walk = list_node_next(e, walk);
-        }
-        e.call(SIMPLE_LIST_CLEAR, &args![temporary]);
-        e.call(SIMPLE_LIST_DESTRUCT, &args![temporary]);
-    });
-}
-
 /// The entries of two decal, reflected or reflector lists, compared the way
 /// the three `Compare` methods do after their cast: the lists must have the
 /// same number of entries, and every entry of `other_list` must have an entry
@@ -3566,38 +3072,6 @@ pub fn extra_decal_refs_compare(e: &mut Engine, this: Ptr<ExtraDecalRefs>, other
     entry_lists_differ(e, this, cast.at(ExtraDecalRefs::DecalRefList), 0x1c)
 }
 
-// Typed from 004342b0
-/// `ExtraDecalRefs::Copy` (engine map name, `vt` slot): when `other` is an
-/// `ExtraDecalRefs`, deletes this list's entries (`004343c0`) and adds a copy
-/// (0x1c bytes, built with the `REF_DECAL_DATA` constructor) of each of the
-/// other list's entries at the head, so the order is reversed. Nothing
-/// happens when `other` is another class. The exception-unwinding frame is not
-/// translated.
-pub fn extra_decal_refs_copy(e: &mut Engine, this: Ptr<ExtraDecalRefs>, other: Ptr) {
-    let cast: Ptr<ExtraDecalRefs> = checked_cast_extra(e, other, EXTRA_DECAL_REFS_TYPE);
-    if cast.is_null() {
-        return;
-    }
-    typed_call!(FAMILY, 0x0043_43c0, fn_004343c0(e, this));
-    let mut node = cast.at(ExtraDecalRefs::DecalRefList);
-    while !node.is_null() && !list_node_is_empty(e, node) {
-        let item = list_node_item(e, node);
-        let memory = e.call(OPERATOR_NEW, &args![0x1cu32]).u32();
-        let copy = if memory != 0 {
-            e.call(REF_DECAL_DATA_CONSTRUCT, &args![memory]).u32()
-        } else {
-            0
-        };
-        e.call(MEMCPY, &args![copy, item, 0x1cu32]);
-        let list = this.at(ExtraDecalRefs::DecalRefList);
-        e.with_stack(4, |e, local| {
-            e.mem.set_u32(local.addr(), copy);
-            e.call(SIMPLE_LIST_ADD_HEAD, &args![list, local]);
-        });
-        node = list_node_next(e, node);
-    }
-}
-
 // Typed from 004343c0
 /// A method of `ExtraDecalRefs` (the engine map has no name for it): deletes
 /// every decal entry and empties the list (removes the head, then deletes
@@ -3630,46 +3104,6 @@ pub fn extra_decal_refs_get_ref_decal_data(
         }
     }
     Ptr::NULL
-}
-
-// Typed from 00434480
-/// A method of `ExtraDecalRefs` (the engine map has no name for it): sets the
-/// decal data of `reference`. When the list has no entry whose first word is
-/// `reference`, a 0x1c-byte entry is built (`REF_DECAL_DATA` constructor),
-/// given `reference` as its first word and added at the head of the list. The
-/// entry's `Intersect` is then set from the vector at `intersect` and its
-/// `Normal` from the vector at `normal`. The exception-unwinding frame is not
-/// translated.
-pub fn fn_00434480(
-    e: &mut Engine,
-    this: Ptr<ExtraDecalRefs>,
-    reference: u32,
-    intersect: Ptr,
-    normal: Ptr,
-) {
-    let mut entry = typed_call!(
-        FAMILY,
-        0x0043_4410,
-        extra_decal_refs_get_ref_decal_data(e, this, reference)
-    )
-    .addr();
-    if entry == 0 {
-        let memory = e.call(OPERATOR_NEW, &args![0x1cu32]).u32();
-        entry = if memory != 0 {
-            e.call(REF_DECAL_DATA_CONSTRUCT, &args![memory]).u32()
-        } else {
-            0
-        };
-        e.mem.set_u32(entry, reference);
-        let list = this.at(ExtraDecalRefs::DecalRefList);
-        e.with_stack(4, |e, local| {
-            e.mem.set_u32(local.addr(), entry);
-            e.call(SIMPLE_LIST_ADD_HEAD, &args![list, local]);
-        });
-    }
-    // REF_DECAL_DATA::Intersect (Xbox PDB) +0x04, ::Normal +0x10
-    copy_words(e, intersect.addr(), entry + 4);
-    copy_words(e, normal.addr(), entry + 0x10);
 }
 
 /// The destructor body of the classes that own the entries of the list at +0xc
@@ -3715,55 +3149,6 @@ pub fn extra_reflected_refs_compare(
         return true;
     }
     entry_lists_differ(e, this.cast(), cast.at(ExtraReflectedRefs::RefList), 8)
-}
-
-// Typed from 004346f0
-/// `ExtraReflectedRefs::Copy` (engine map name, `vt` slot): when `other` is an
-/// `ExtraReflectedRefs`, removes every entry from this list without deleting
-/// them (`ClearReferenceData`) and adds a copy (8 bytes) of each of the other
-/// list's entries at the head, so the order is reversed. Nothing happens when
-/// `other` is another class. The exception-unwinding frame is not translated.
-pub fn extra_reflected_refs_copy(e: &mut Engine, this: Ptr<ExtraReflectedRefs>, other: Ptr) {
-    let cast: Ptr<ExtraReflectedRefs> = checked_cast_extra(e, other, EXTRA_REFLECTED_REFS_TYPE);
-    if cast.is_null() {
-        return;
-    }
-    typed_call!(
-        FAMILY,
-        0x0043_4d90,
-        extra_reflected_refs_clear_reference_data(e, this)
-    );
-    copy_reference_entries(
-        e,
-        this.at(ExtraReflectedRefs::RefList),
-        cast.at(ExtraReflectedRefs::RefList),
-    );
-}
-
-/// The loop of the reflected and reflector `Copy` methods: adds at the head of
-/// `list` a copy (8 bytes, built like `REF_REFLECTED_DATA`: the list-node
-/// constructor `0096a2d0` clears it) of each entry of `source`.
-pub(crate) fn copy_reference_entries(
-    e: &mut Engine,
-    list: Ptr<BSSimpleList>,
-    source: Ptr<BSSimpleList>,
-) {
-    let mut node = source;
-    while !node.is_null() && !list_node_is_empty(e, node) {
-        let item = list_node_item(e, node);
-        let memory = e.call(OPERATOR_NEW, &args![8u32]).u32();
-        let copy = if memory != 0 {
-            e.call(SIMPLE_LIST_CONSTRUCT, &args![memory]).u32()
-        } else {
-            0
-        };
-        e.call(MEMCPY, &args![copy, item, 8u32]);
-        e.with_stack(4, |e, local| {
-            e.mem.set_u32(local.addr(), copy);
-            e.call(SIMPLE_LIST_ADD_HEAD, &args![list, local]);
-        });
-        node = list_node_next(e, node);
-    }
 }
 
 // Typed from 00434800
@@ -3931,30 +3316,6 @@ pub fn extra_reflector_refs_compare(
     entry_lists_differ(e, this.cast(), cast.at(ExtraReflectorRefs::RefList), 8)
 }
 
-// Typed from 00434c80
-/// `ExtraReflectorRefs::Copy` (engine map name, `vt` slot): when `other` is an
-/// `ExtraReflectorRefs`, removes every entry from this list without deleting
-/// them (`ExtraReflectedRefs::ClearReferenceData`, whose body is shared) and
-/// adds a copy (8 bytes) of each of the other list's entries at the head, so
-/// the order is reversed. Nothing happens when `other` is another class. The
-/// exception-unwinding frame is not translated.
-pub fn extra_reflector_refs_copy(e: &mut Engine, this: Ptr<ExtraReflectorRefs>, other: Ptr) {
-    let cast: Ptr<ExtraReflectorRefs> = checked_cast_extra(e, other, EXTRA_REFLECTOR_REFS_TYPE);
-    if cast.is_null() {
-        return;
-    }
-    typed_call!(
-        FAMILY,
-        0x0043_4d90,
-        extra_reflected_refs_clear_reference_data(e, this.cast())
-    );
-    copy_reference_entries(
-        e,
-        this.at(ExtraReflectorRefs::RefList),
-        cast.at(ExtraReflectorRefs::RefList),
-    );
-}
-
 // Typed from 00434d90
 /// `ExtraReflectedRefs::ClearReferenceData` (engine map name; the body is
 /// shared with `ExtraReflectorRefs`): removes the head of the list until it is
@@ -4118,22 +3479,6 @@ pub fn extra_lev_crea_modifier_compare(
         != s.get(e, this, ExtraLevCreaModifier::eModifier)
 }
 
-// Typed from 004350c0
-/// A method of `ExtraLevCreaModifier` (the engine map has no name for it): the
-/// modifier's multiplier. 1.0 for `LCM_NONE` (4); otherwise the float game
-/// setting the modifier selects in the table at `01184ab0` (one setting
-/// pointer per modifier), read through the setting accessor. Returned in ST0.
-pub fn fn_004350c0(e: &mut Engine, this: Ptr<ExtraLevCreaModifier>) -> f32 {
-    let s = store(e);
-    let modifier = s.get(e, this, ExtraLevCreaModifier::eModifier);
-    if modifier == LEV_CREA_MODIFIER_NONE {
-        return 1.0;
-    }
-    let setting = e.mem.u32(LEV_CREA_SETTING_TABLE + modifier.wrapping_mul(4));
-    let value = e.call(SETTING_FLOAT_VALUE, &args![setting]).u32();
-    e.mem.f32(value)
-}
-
 // Typed from 00435100
 /// A method of `ExtraLevCreaModifier` (the engine map has no name for it): 1
 /// for the modifier 0 (`LCM_EASY`), 0 for 4 (`LCM_NONE`) and -1 for any other.
@@ -4168,36 +3513,6 @@ pub fn extra_poison_compare(e: &mut Engine, this: Ptr<ExtraPoison>, other: Ptr) 
         return true;
     }
     s.get(e, cast, ExtraPoison::pPoison) != s.get(e, this, ExtraPoison::pPoison)
-}
-
-// Typed from 004351d0
-/// `ExtraLastFinishedSequence`'s constructor (the engine map has no name for
-/// it): extra-data type 0x41 and a copy of the C string given, in a new
-/// buffer of `strlen + 1` bytes (`operator new`, then the checked string copy
-/// `00406d30(destination, size, source)`). Returns `this`. The
-/// exception-unwinding frame is not translated.
-pub fn fn_004351d0(
-    e: &mut Engine,
-    this: Ptr<ExtraLastFinishedSequence>,
-    name: Ptr,
-) -> Ptr<ExtraLastFinishedSequence> {
-    let s = store(e);
-    construct_base(
-        e,
-        this.cast(),
-        TYPE_LAST_FINISHED_SEQUENCE,
-        EXTRA_LAST_FINISHED_SEQUENCE_VTABLE,
-    );
-    let size = e.call(STRLEN, &args![name]).u32().wrapping_add(1);
-    let buffer = e.call(OPERATOR_NEW, &args![size]).ptr();
-    s.set(
-        e,
-        this,
-        ExtraLastFinishedSequence::pLastSequenceName,
-        buffer,
-    );
-    e.call(STRING_COPY_CHECKED, &args![buffer, size, name]);
-    this
 }
 
 // Typed from 00435270
@@ -4316,14 +3631,6 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
             )
                 -> Ptr<_>
         ),
-        entry!(0x0043_02a0,
-            extra_dismembered_limbs_scalar_deleting_destructor(
-                Ptr<_>,
-                u32,
-            )
-                -> Ptr<_>
-        ),
-        entry!(0x0043_02d0, fn_004302d0(Ptr<_>)),
         entry!(0x0043_0390,
             fn_00430390(Ptr<_>, u32) -> Ptr<_>
         ),
@@ -4334,15 +3641,11 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_0410,
             extra_dismembered_limbs_dismember(Ptr<_>, Ptr<_>, u8, u8)
         ),
-        entry!(0x0043_05f0, fn_004305f0(Ptr<_>, u32, u8)),
         entry!(0x0043_0660,
             extra_dismembered_limbs_check_dismembered_limbs_identical(
                 Ptr<_>,
                 Ptr<_>,
             ) -> bool
-        ),
-        entry!(0x0043_0780,
-            fn_00430780(Ptr<_>, Ptr<_>) -> Ptr<_>
         ),
         entry!(0x0043_0830, fn_00430830(Ptr<_>) -> Ptr<_>),
         entry!(0x0043_0850,
@@ -4358,19 +3661,13 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
             extra_light_scalar_deleting_destructor(Ptr<_>, u32) -> Ptr<_>
         ),
         entry!(0x0043_0950, fn_00430950(Ptr<_>)),
-        entry!(0x0043_09e0,
-            refr_lock_get_lock_level(Ptr<_>, Ptr<_>) -> i32
-        ),
         entry!(0x0043_0a10, refr_lock_get_level(Ptr<_>, Ptr<_>) -> i32),
         entry!(0x0043_0a90, refr_lock_set_locked(Ptr<_>, bool)),
-        entry!(0x0043_0ae0, refr_lock_is_broken(Ptr<_>) -> bool),
-        entry!(0x0043_0b40, refr_lock_numeric_value_to_enum(i32) -> i32),
         entry!(0x0043_0bc0, fn_00430bc0(u32) -> i32),
         entry!(0x0043_0c70,
             extra_lock_extra_lock(Ptr<_>, Ptr<_>) -> Ptr<_>
         ),
         entry!(0x0043_0ca0, fn_00430ca0(Ptr<_>)),
-        entry!(0x0043_0ce0, extra_lock_compare(Ptr<_>, Ptr<_>) -> bool),
         entry!(0x0043_0dd0,
             extra_follower_extra_follower(Ptr<_>) -> Ptr<_>
         ),
@@ -4403,7 +3700,6 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_10d0,
             extra_guarded_ref_data_add_guard(Ptr<_>, Ptr<_>)
         ),
-        entry!(0x0043_1120, fn_00431120(Ptr<_>, u32, u32)),
         entry!(0x0043_11f0,
             fn_004311f0(Ptr<_>) -> Ptr<_>
         ),
@@ -4738,67 +4034,31 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_3790,
             fn_00433790(Ptr<_>) -> Ptr<_>
         ),
-        entry!(0x0043_3800,
-            extra_activate_ref_children_scalar_deleting_destructor(
-                Ptr<_>,
-                u32,
-            )
-                -> Ptr<_>
-        ),
-        entry!(0x0043_3830, fn_00433830(Ptr<_>)),
         entry!(0x0043_38b0,
             fn_004338b0(Ptr<_>) -> Ptr<_>
         ),
-        entry!(0x0043_3940,
-            extra_activate_ref_scalar_deleting_destructor(
-                Ptr<_>,
-                u32,
-            ) -> Ptr<_>
-        ),
-        entry!(0x0043_3970, fn_00433970(Ptr<_>)),
         entry!(0x0043_3a00,
             fn_00433a00(Ptr<_>, u32) -> Ptr<_>
         ),
         entry!(0x0043_3a20,
             extra_activate_ref_compare(Ptr<_>, Ptr<_>) -> bool
         ),
-        entry!(0x0043_3b70,
-            extra_activate_ref_copy(Ptr<_>, Ptr<_>)
-        ),
         entry!(0x0043_3ca0,
             fn_00433ca0(Ptr<_>) -> Ptr<_>
         ),
-        entry!(0x0043_3d10,
-            extra_decal_refs_scalar_deleting_destructor(
-                Ptr<_>,
-                u32,
-            ) -> Ptr<_>
-        ),
-        entry!(0x0043_3d40, fn_00433d40(Ptr<_>)),
         entry!(0x0043_3db0,
             extra_decal_refs_init_item(Ptr<_>, Ptr<_>)
-        ),
-        entry!(0x0043_3ed0,
-            extra_reflector_refs_init_item(Ptr<_>, Ptr<_>)
-        ),
-        entry!(0x0043_4050,
-            extra_lit_water_refs_init_item(Ptr<_>, Ptr<_>)
         ),
         entry!(0x0043_41e0,
             extra_decal_refs_compare(Ptr<_>, Ptr<_>) -> bool
         ),
-        entry!(0x0043_42b0, extra_decal_refs_copy(Ptr<_>, Ptr<_>)),
         entry!(0x0043_43c0, fn_004343c0(Ptr<_>)),
         entry!(0x0043_4410,
             extra_decal_refs_get_ref_decal_data(Ptr<_>, u32) -> Ptr<_>
         ),
-        entry!(0x0043_4480, fn_00434480(Ptr<_>, u32, Ptr<_>, Ptr<_>)),
         entry!(0x0043_4560, fn_00434560(Ptr<_>)),
         entry!(0x0043_4620,
             extra_reflected_refs_compare(Ptr<_>, Ptr<_>) -> bool
-        ),
-        entry!(0x0043_46f0,
-            extra_reflected_refs_copy(Ptr<_>, Ptr<_>)
         ),
         entry!(0x0043_4800, fn_00434800(Ptr<_>, u32)),
         entry!(0x0043_48a0, fn_004348a0(Ptr<_>, u32, u32)),
@@ -4812,9 +4072,6 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_4af0, fn_00434af0(Ptr<_>)),
         entry!(0x0043_4bb0,
             extra_reflector_refs_compare(Ptr<_>, Ptr<_>) -> bool
-        ),
-        entry!(0x0043_4c80,
-            extra_reflector_refs_copy(Ptr<_>, Ptr<_>)
         ),
         entry!(0x0043_4d90,
             extra_reflected_refs_clear_reference_data(Ptr<_>)
@@ -4840,16 +4097,12 @@ pub fn entries() -> Vec<(u32, AbiFn)> {
         entry!(0x0043_5070,
             extra_lev_crea_modifier_compare(Ptr<_>, Ptr<_>) -> bool
         ),
-        entry!(0x0043_50c0, fn_004350c0(Ptr<_>) -> f32),
         entry!(0x0043_5100, fn_00435100(Ptr<_>) -> i32),
         entry!(0x0043_5150,
             fn_00435150(Ptr<_>, Ptr<_>) -> Ptr<_>
         ),
         entry!(0x0043_5180,
             extra_poison_compare(Ptr<_>, Ptr<_>) -> bool
-        ),
-        entry!(0x0043_51d0,
-            fn_004351d0(Ptr<_>, Ptr<_>) -> Ptr<_>
         ),
         entry!(0x0043_5270,
             extra_last_finished_sequence_scalar_deleting_destructor(

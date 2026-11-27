@@ -575,7 +575,9 @@ fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0042_ce90, classes::flag_8_of_28(u32) -> bool),
         entry!(0x0042_dd70, classes::copy_byte_d_to_c(u32)),
     ];
-    all.extend(nodes::registered());
+    all.extend(nodes::objects::entries());
+    all.extend(nodes::objects_p2::entries());
+    all.extend(nodes::objects_p3::entries());
     all
 }
 
