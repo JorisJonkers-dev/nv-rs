@@ -826,6 +826,253 @@ class FunctionAddressTests(unittest.TestCase):
             backend.got_values(["known", "missing"], ["also_missing"], {"known": 0x1000})
 
 
+class GapUnitTests(unittest.TestCase):
+    """What the build does for the units that hold the real translation gaps (nv-rs#1000).
+
+    Every source here is written by the test; nothing is read from a decomp checkout.
+    """
+
+    def test_an_asm_block_becomes_the_trapping_stub(self):
+        text = "void f() { __asm { mov eax, 1 ; }\n  g(); }\nvoid h() { __asm mov eax, 2\n  k(); }\n"
+        rewritten, count = backend.rewrite_inline_asm(text)
+        self.assertEqual(count, 2)
+        self.assertNotIn("mov", rewritten)
+        self.assertIn("g(); }", rewritten)
+        self.assertIn("k(); }", rewritten)
+        self.assertEqual(rewritten.count(backend.ASM_STUB + "();"), 2)
+
+    def test_asm_in_a_comment_or_a_string_or_a_longer_word_is_left_alone(self):
+        text = '// __asm { x }\nconst char* s = "__asm";\nint __asm__x; void __asm__(int);\n'
+        self.assertEqual(backend.rewrite_inline_asm(text), (text, 0))
+
+    def test_the_marker_names_the_export_by_address(self):
+        text = "// @fnv 0x00a7fc00\nint* A::B(int x,\n   int y)\n{\n}\n"
+        rewritten, count = backend.annotate_function_exports(text)
+        self.assertEqual(count, 1)
+        self.assertIn('__attribute__((export_name("fnv_00a7fc00"))) int* A::B(', rewritten)
+
+    def test_markers_over_anything_but_a_definition_are_left_alone(self):
+        for head in ("template <class T> void f() {}", "extern int DAT_01;", "int f(int);",
+                     "int g_x = 3;", "struct S { int x; };", "A::A() {}", "A::~A() {}",
+                     "__declspec(noinline) A::~A() {}"):
+            text = "// @fnv 0x00a7fc00\n" + head + "\n"
+            self.assertEqual(backend.annotate_function_exports(text), (text, 0), head)
+
+    def test_a_variant_function_at_an_address_an_earlier_unit_exports_loses_the_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = Path(temp)
+            attribute = '__attribute__((export_name("fnv_00a7fc00"))) '
+            (copy / "a.cpp").write_text(attribute + "int f() { return 1; }\n")
+            (copy / "b.cpp").write_text(attribute + "int f() { return 2; }\n")
+            removed = backend.keep_first_export_of_each_address(copy, ["a.cpp", "b.cpp"])
+            self.assertEqual(removed, 1)
+            self.assertIn("export_name", (copy / "a.cpp").read_text())
+            self.assertNotIn("export_name", (copy / "b.cpp").read_text())
+
+    def test_a_decomp_declaration_that_contradicts_the_system_header_is_dropped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = Path(temp) / "copy"
+            copy.mkdir()
+            header = copy / "x.h"
+            header.write_text('extern "C" void* __stdcall TlsGetValue(unsigned int);\nint keep();\n')
+            system = Path(temp) / "sys.h"
+            system.write_text("")
+            stderr = (
+                "%s:3:1: error: conflicting types for 'TlsGetValue'\n"
+                "%s:1:50: note: previous declaration is here\n" % (system, header))
+            self.assertEqual(backend.drop_conflicting_declarations(stderr, copy), 1)
+            lines = header.read_text().split("\n")
+            self.assertEqual(lines[0], "#include <windows.h>")  # the system header came second
+            self.assertEqual(lines[1], "int keep();")
+            stderr = "%s:2:1: error: conflicting types for 'keep'\n" % header
+            self.assertEqual(backend.drop_conflicting_declarations(stderr, copy), 1)
+            self.assertEqual(header.read_text().split("\n")[1], "")
+
+    def test_a_definition_is_never_dropped_as_a_declaration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = Path(temp)
+            source = copy / "x.cpp"
+            source.write_text("int f() { return 1; }\n")
+            stderr = "%s:1:1: error: conflicting types for 'f'\n" % source
+            self.assertEqual(backend.drop_conflicting_declarations(stderr, copy), 0)
+            self.assertIn("return 1", source.read_text())
+
+    WAT = textwrap.dedent("""\
+        (module
+          (import "GOT.mem" "known" (global (;0;) (mut i32)))
+          (import "GOT.mem" "_ZTVmissing" (global (;1;) (mut i32)))
+          (func (;3;) (type 0)
+            call 4)
+          (func (;4;) (type 0))
+          (func (;5;) (type 0)
+            global.get 1)
+          (func (;6;) (type 0)
+            global.get 0)
+          (export "__nv_untranslated_asm" (func 4))
+          (export "fnv_00000003" (func 3))
+          (export "fnv_00000005" (func 5))
+          (export "fnv_00000006" (func 6))
+        )
+        """)
+
+    def test_exports_that_cannot_run_are_left_out_with_the_reason(self):
+        reasons = backend.exports_left_out(self.WAT, ["_ZTVmissing"])
+        self.assertEqual(sorted(reasons), ["fnv_00000003", "fnv_00000005"])
+        self.assertIn("inline assembly", reasons["fnv_00000003"])
+        self.assertIn("_ZTVmissing", reasons["fnv_00000005"])
+        self.assertNotIn("fnv_00000006", reasons)
+
+    def test_an_address_in_a_global_name_is_read_from_the_name(self):
+        for name in ("DAT_01017130", "_ZN12fnv_00b13c1012DAT_01017130E", "fnv_01017130"):
+            self.assertEqual(backend.symbol_address({}, name), 0x01017130, name)
+        self.assertIsNone(backend.symbol_address({}, "g_memoryManager"))
+
+    def test_a_lenient_binding_zeroes_the_unresolved_and_names_them(self):
+        mem, funcs, unresolved = backend.got_values(
+            ["known", "missing"], ["also_missing"], {"known": 0x1000}, lenient=True)
+        self.assertEqual((mem, funcs, unresolved), ([0x1000, 0], {"also_missing": 0}, ["missing", "also_missing"]))
+
+    def test_wasm2c_names_are_unmangled(self):
+        self.assertEqual(backend.unmangle("0x5FZN12fnv_00c8954015g_tlsE"), "_ZN12fnv_00c8954015g_tlsE")
+
+    def test_the_gap_list_selects_the_units_that_hold_its_addresses(self):
+        units = [{"source": "a.cpp", "functions": [{"address": "0x00c86060"}]},
+                 {"source": "b.cpp", "functions": [{"address": "0x00000001"}]},
+                 {"source": "c.cpp", "functions": [{"address": "0x00c86940"}, {"address": "0x00c9de40"}]}]
+        with tempfile.TemporaryDirectory() as temp:
+            gaps = Path(temp) / "gaps.txt"
+            gaps.write_text("# header\n00c86940 x.rs eax\n00c86060 y.rs registers\n00dead00 z.rs eax\n")
+            addresses = backend.read_gap_addresses(gaps)
+        self.assertEqual(addresses, [0x00c86940, 0x00c86060, 0x00dead00])
+        self.assertEqual(backend.gap_units(units, addresses), ["a.cpp", "c.cpp"])
+
+    def test_units_are_built_in_the_order_they_were_named(self):
+        units = [{"source": "a.cpp"}, {"source": "b.cpp"}, {"source": "c.cpp"}]
+        chosen = backend.select_units(units, ["c.cpp", "a.cpp", "c.cpp", "missing.cpp"])
+        self.assertEqual([u["source"] for u in chosen], ["c.cpp", "a.cpp"])
+
+    def test_the_manifest_carries_wide_exports_and_the_tsv_says_so(self):
+        exports = [
+            {"name": "w", "cname": "w2c_mod_w", "params": ["u32"] * 9, "result": "u64"},
+            {"name": "d", "cname": "w2c_mod_d", "params": ["f32"], "result": "f64"},
+            {"name": "x", "cname": "w2c_mod_x", "params": ["u32"] * 13, "result": "u32"},
+        ]
+        symbols = {"w": 0x1000, "d": 0x2000, "x": 0x3000}
+        result = backend.export_manifest(exports, [], symbols)
+        for index, entry in enumerate(result):
+            entry["wrapper"] = "decomp_call_%d" % index
+        self.assertEqual([e["arity"] for e in result], [9, 1, None])
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp)
+            report = {"library": "x", "counts": {"compiled": 0, "skipped": 0}, "compiled": [], "skipped": []}
+            backend.write_build_outputs(out, report, result, [], [])
+            tsv = (out / "exports.tsv").read_text().splitlines()
+        self.assertIn("export 00001000 decomp_call_0 9 u64", tsv)
+        self.assertIn("export 00002000 decomp_call_1 1 f64", tsv)
+        self.assertFalse([line for line in tsv if "00003000" in line])
+
+    def test_the_wrapper_hands_back_edx_and_st0_and_takes_words(self):
+        with tempfile.TemporaryDirectory() as temp:
+            shim = Path(temp) / "shim.c"
+            exports = [
+                {"name": "w", "cname": "w2c_mod_w", "params": ["u32", "f32"], "result": "u64",
+                 "address": 0x1000, "arity": 2},
+                {"name": "d", "cname": "w2c_mod_d", "params": [], "result": "f64",
+                 "address": 0x2000, "arity": 0},
+            ]
+            for index, entry in enumerate(exports):
+                entry["wrapper"] = "decomp_call_%d" % index
+            backend.generate_shim(shim, [], exports, [], "w2c_mod* inst", host=backend.detect_host("Linux", "x86-64"))
+            text = shim.read_text()
+        self.assertIn("uint32_t decomp_last_edx(void)", text)
+        self.assertIn("double decomp_last_st0(void)", text)
+        self.assertIn("u32 decomp_call_0(u32 a0, u32 a1)", text)
+        self.assertIn(".u=a1}).f", text)  # the f32 parameter is the word's bits
+        self.assertIn("decomp_edx = (u32)(v >> 32)", text)
+        self.assertIn("decomp_st0 = v", text)
+        self.assertIn("decomp_edx = 0; decomp_st0 = 0.0;", text)
+
+    def test_an_import_with_no_parameters_makes_a_valid_stub(self):
+        imports = [{"module": "env", "field": "_Z3foov", "decl": "void w2c_env_0x5FZ3foov(struct w2c_env*)",
+                    "name": "w2c_env_0x5FZ3foov", "params": [], "result": "void", "function": True}]
+        with tempfile.TemporaryDirectory() as temp:
+            shim = Path(temp) / "shim.c"
+            backend.generate_shim(shim, imports, [], [], "w2c_mod* inst", host=backend.detect_host("Linux", "x86-64"))
+            text = shim.read_text()
+        self.assertIn("w2c_env_0x5FZ3foov(struct w2c_env* e) {", text)
+        self.assertIn("u32 a[] = {0};", text)
+        self.assertNotIn("a[] = NULL", text)
+
+    def test_a_module_without_data_relocations_does_not_call_them(self):
+        with tempfile.TemporaryDirectory() as temp:
+            shim = Path(temp) / "shim.c"
+            backend.generate_shim(shim, [], [], [], "w2c_mod* inst",
+                                  host=backend.detect_host("Linux", "x86-64"), startup=[])
+            text = shim.read_text()
+        self.assertNotIn("apply_data_relocs", text)
+        self.assertNotIn("call_ctors", text)
+
+    def test_the_mingw_math_header_loses_its_x87_assembly(self):
+        text = ("#define _MATH_H_\nfloat fabsf (float x) { float res = 0.0F;\n"
+                '__asm__ __volatile__ ("fabs;" : "=t" (res) : "0" (x));\nreturn res; }\n'
+                'int c(double _x) { unsigned short sw;\n'
+                '__asm__ __volatile__ ("fxam;"\n"fstsw %%ax": "=a" (sw) : "t" (_x));\nreturn sw; }\n')
+        rewritten = backend.standin_math(text)
+        self.assertNotIn("__asm__", rewritten)
+        self.assertIn("res = __builtin_fabs(x);", rewritten)
+        self.assertIn("sw = __nv_fxam(_x);", rewritten)
+        self.assertIn("__nv_fxam(long double", rewritten)
+
+    def test_the_decomp_declarations_clang_refuses_are_removed_from_the_copy(self):
+        text = ('extern "C" void* __cdecl _alloca(unsigned int);\n'
+                'extern "C" void _ReadWriteBarrier();\n'
+                'extern "C" void __cdecl operator delete(void*, unsigned int);\n'
+                "typedef unsigned int C8size_t;\n"
+                "__declspec(naked) void __fastcall F(int);\n"
+                "FNV_FORCEINLINE long InterlockedDecrement(volatile long* value)\n")
+        rewritten = backend.rewrite_source(text)
+        self.assertNotIn("_alloca", rewritten)
+        self.assertNotIn("_ReadWriteBarrier", rewritten)
+        self.assertIn("void __cdecl operator delete(void*, __SIZE_TYPE__);", rewritten)
+        self.assertNotIn('extern "C" void __cdecl operator delete', rewritten)
+        self.assertIn("typedef __SIZE_TYPE__ C8size_t;", rewritten)
+        self.assertNotIn("naked", rewritten)
+        self.assertIn("Fnv_InterlockedDecrement(", rewritten)
+
+
+class GapUnitToolchainTests(unittest.TestCase):
+    """Builds two synthetic units that hold an asm block and a variant, when the toolchain is there."""
+
+    @unittest.skipUnless(os.environ.get("NV_BACKEND_TOOLCHAIN_TEST") == "1",
+                         "set NV_BACKEND_TOOLCHAIN_TEST=1 inside the nix shell")
+    def test_an_asm_function_is_left_out_and_a_plain_one_is_exported_by_address(self):
+        with tempfile.TemporaryDirectory() as temp:
+            decomp = Path(temp) / "decomp"
+            (decomp / "build").mkdir(parents=True)
+            (decomp / "include").mkdir()
+            (decomp / "src").mkdir()
+            (decomp / "src" / "gap.cpp").write_text(textwrap.dedent("""\
+                // @fnv 0x00401000
+                int Plain(int a) { return a + 1; }
+
+                // @fnv 0x00401010
+                int __declspec(naked) WithAsm(int a) { __asm { mov eax, a ; ret } }
+                """))
+            units = {"units": [{"source": "src/gap.cpp", "functions": [
+                {"address": "0x00401000", "symbol": "?Plain@@YAHH@Z", "size": 3},
+                {"address": "0x00401010", "symbol": "?WithAsm@@YAHH@Z", "size": 3}]}]}
+            (decomp / "build" / "units.json").write_text(json.dumps(units))
+            out = Path(temp) / "out"
+            report = backend.build(decomp, out)
+            exported = {e["address"] for e in report["exports"]}
+            self.assertIn(0x00401000, exported)
+            self.assertNotIn(0x00401010, exported)
+            self.assertEqual([e["address"] for e in report["left_out_of_exports"]], [0x00401010])
+            tsv = (out / "exports.tsv").read_text()
+            self.assertIn("export 00401000 ", tsv)
+            self.assertNotIn("export 00401010 ", tsv)
+
+
 class NoBackendTests(unittest.TestCase):
     def test_a_missing_library_loads_as_none(self):
         with tempfile.TemporaryDirectory() as temp:

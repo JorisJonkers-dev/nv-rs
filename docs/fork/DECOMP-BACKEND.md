@@ -181,10 +181,10 @@ Without both variables, or without a built backend, nothing is registered and th
 as before. The switch is separate from the `Diff` peer on purpose: the differential cases keep
 comparing the translation with the backend.
 
-The switch is inert until nv-rs#1000 lands: the backend cannot yet build the units that hold the
-gaps, so no export exists at a gap address and no `Diff` case has run against a real backend for
-them. #1000 also widens the call to return `EAX`, `EDX` and `ST0`, after which the `registers`
-rows can be reconsidered.
+With the gap units built (nv-rs#1000, below), 14 of the 72 `eax` rows have an export and are
+registered; the rest are in units that do not build yet or were left out with a recorded reason.
+The backend call hands back `EAX`, `EDX` and `ST0`. The library's exports are read from
+`exports.tsv` beside it.
 
 Two refusals, each one `backend-gaps:` line on stderr and nothing registered:
 
@@ -205,6 +205,46 @@ why. On success it prints `backend-gaps: N of M real gaps registered` once. The 
 `real gaps on the backend` command runs `cargo test -p engine-core --lib typed::backend_gaps` with
 both variables.
 
-Status: the backend could not be built for the gap units on the machine this was written on (see the
-pull request): the wasm toolchain rejects the units' inline x86 assembly, and the few that compile
-stop at unresolved GOT symbols.
+## Gap units (nv-rs#1000)
+
+`build --gaps crates/engine-core/src/typed/real_gaps.txt` also builds the units that define a
+function at one of the list's addresses (`--unit` still names units; the order given is the order
+built, and the first unit that defines a symbol keeps it). Everything below changes the private
+build copy and the generated shim only.
+
+- Clang's view of the decomp. The mingw `math.h` is copied with its x87 inline assembly (`fabs`,
+  `fxam`, `fucom`) replaced by the same results in C; the memory-barrier macro is a fence; the
+  `__m128` and `_mm_*` names the decomp declares are defined in a small module of plain C over the
+  `__m128` layout (`add`, `sub`, `mul`, `div`, `min`, `max`, the compares, `shuffle`, `unpack`,
+  `movemask`, `load`/`store` and so on; `rcp` and `rsqrt` return the exact reciprocal where the
+  hardware gives a 12-bit estimate, so a function that calls them can differ in its low bits).
+  Declarations the decomp makes of a Win32 or CRT function with a type MSVC accepts and clang does
+  not (`TlsGetValue(unsigned int)`, `memcpy` with an `unsigned int` size) are repaired from the
+  compiler's own diagnostics: the contradicting line is blanked, or, when the system header came
+  second, replaced by `#include <windows.h>`. A unit that fails in the shared working copy is
+  tried again alone in a fresh copy, because a repair for one unit can break another.
+- Inline assembly. MSVC `__asm` blocks (and `__declspec(naked)`, which wasm lacks) are replaced in
+  the copy by a call to a stub that traps. After linking, every exported function that calls the
+  stub is left out of `exports.tsv` and `manifest.json`, and `report.json` lists it under
+  `left_out_of_exports` with the reason. The same list holds a function that reads a GOT global
+  the decomp's symbol table has no address for (a vtable or RTTI object of a unit that is not in
+  the build, a thread-local wrapper): its binding would be zero, so the function is not exported.
+- Export names. Clang mangles for Itanium on wasm and the decomp's table holds MSVC names, so a
+  name cannot say which function is which. The `// @fnv 0xADDR` line above each definition does:
+  the line that follows gets `export_name("fnv_<addr>")`. Constructors and destructors (emitted
+  twice) and templates are not named; a variant of a source that holds the same address loses
+  the name in the later unit. Globals the decomp spells with their address (`DAT_01017130`,
+  also inside an Itanium name) are bound from the name.
+- Duplicate symbols. A later unit that defines a symbol an earlier one defines is not linked;
+  `report.json` names the symbol and the unit that kept it.
+- Results. A wrapper takes guest words (an `f32` parameter is the word's bits) and takes up to 12
+  of them. It returns `EAX`; `decomp_last_edx()` and `decomp_last_st0()` return the rest of the
+  last call's result: the high word of a `u64` and the value of an `f32` or `f64`. `exports.tsv`
+  says which with a fourth word on the `export` line (`f32`, `f64` or `u64`), and the Rust peer
+  puts it in the `Ret` (`eax`, `edx`, `st0`).
+
+What the wider result does not change: of the 24 `registers` rows, 13 are in the C runtime or
+the exception model (`00ec....`, `00ed....`) and are in no unit of the decomp; 7 take a register
+input; the other 4 name a stale register or an `MXCSR` value. None of them is held back only by
+the one-word result, so none moves to `eax`.
+

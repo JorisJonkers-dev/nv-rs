@@ -9,7 +9,7 @@
 //! registered and the engine behaves as before.
 //!
 //! The switch is `NV_BACKEND_GAPS=1` together with `NV_BACKEND_LIBRARY`, the library the backend
-//! build wrote (the `.tsv` beside it holds its exports). It is a separate switch so the private
+//! build wrote (the `exports.tsv` beside it holds its exports). It is a separate switch so the private
 //! run's differential cases, which use the backend as a peer, keep comparing the translation.
 //!
 //! Only a gap the backend can answer in full is registered: the export returns one word, so a gap
@@ -143,8 +143,12 @@ fn apply_with(
     }
     static PEER: OnceLock<Result<BackendPeer<backend_peer::LibBackend>, String>> = OnceLock::new();
     let peer = PEER.get_or_init(|| {
-        backend_peer::load(&library)
-            .ok_or_else(|| format!("{} or the .tsv beside it did not load", library.display()))
+        backend_peer::load(&library).ok_or_else(|| {
+            format!(
+                "{} or the exports.tsv beside it did not load",
+                library.display()
+            )
+        })
     });
     match peer {
         Ok(peer) => match register_checked(e, peer, &registerable()) {
@@ -230,7 +234,7 @@ mod tests {
                 address,
                 wrapper: format!("decomp_call_{address:x}"),
                 arity: 2,
-                float: false,
+                kind: backend_peer::ResultKind::Word,
             })
             .collect();
         BackendPeer::new(
