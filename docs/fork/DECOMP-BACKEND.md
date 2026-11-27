@@ -233,7 +233,7 @@ build copy and the generated shim only.
   name cannot say which function is which. The `// @fnv 0xADDR` line above each definition does:
   the line that follows gets `export_name("fnv_<addr>")`. Constructors and destructors (emitted
   twice) and templates are not named; a variant of a source that holds the same address loses
-  the name in the later unit. Globals the decomp spells with their address (`DAT_01017130`,
+  the name in the later unit. Globals the decomp spells with their address (for example the one at 0x01017130,
   also inside an Itanium name) are bound from the name.
 - Duplicate symbols. A later unit that defines a symbol an earlier one defines is not linked;
   `report.json` names the symbol and the unit that kept it.
