@@ -725,8 +725,12 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             groups.setdefault(row["family"], []).append(row)
     # A batch takes whole families: the queue keeps siblings together on purpose.
     selected, offered = {}, 0
+    try:
+        most_families = int(env.get("NV_PORT_FAMILIES", "0"))
+    except ValueError:
+        most_families = 0
     for family, family_rows in groups.items():
-        if offered >= count:
+        if offered >= count or (most_families > 0 and len(selected) >= most_families):
             break
         selected[family] = family_rows
         offered += len(family_rows)

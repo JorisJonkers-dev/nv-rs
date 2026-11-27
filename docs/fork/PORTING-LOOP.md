@@ -137,7 +137,8 @@ with model, seconds, status and outcome) are environment; see the script's docst
 `NV_PORT_MODEL_SLOTS` (default 20) is how many families run at once: each family still goes worker,
 `Diff` through the family lab, then review, but families run in a thread pool. Claims, the report and the
 merge stay single-threaded in result, and the report lists families in queue order. `NV_PORT_MODEL_SLOTS=1`
-runs one family at a time. A failure that ends the batch stops families not yet started.
+runs one family at a time. `NV_PORT_FAMILIES` (default unlimited) caps how many families a batch takes, so a count of rows
+does not end up in one large family. A failure that ends the batch stops families not yet started.
 
 `NV_PORT_PROVIDER_LIMIT` (default 4) bounds concurrent worker and review runs per provider, the part of the
 model name before `/`, with one lock set per provider under `NV_PORT_SLOT_DIR`. It stacks with `NV_PORT_SLOTS`,

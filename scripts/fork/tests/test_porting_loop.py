@@ -375,6 +375,17 @@ class PortingLoop(unittest.TestCase):
         self.assertEqual(record["rate"]["model_runs"], 8)
         self.assertGreater(record["rate"]["wall_seconds"], 0)
 
+    def test_a_family_limit_bounds_how_many_families_a_batch_takes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            env = dict(environment(root), NV_PORT_FAMILIES="1")
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=10, name="few", env=env,
+                                          today=datetime.date(2026, 11, 26), call=Recording())
+            record = porting_loop.batch_record(root, "few")
+        self.assertEqual(code, 0)
+        self.assertEqual([f["family"] for f in record["families"]], ["fade"])
+
     def test_one_model_slot_keeps_families_sequential(self):
         spans, _ = self.run_four_families(1)
         spans.sort()
