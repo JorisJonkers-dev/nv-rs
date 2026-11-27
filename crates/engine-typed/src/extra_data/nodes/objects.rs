@@ -2,7 +2,7 @@
 //! The extra data node classes' functions of the extradataobjects unit (nv-rs#952, step 1).
 
 use super::layouts::*;
-use super::{low_half, round_to_f32, store, FAMILY};
+use super::{low_half, store, FAMILY};
 use engine_core::prelude::*;
 use engine_core::types::*;
 use engine_core::AbiFn;
