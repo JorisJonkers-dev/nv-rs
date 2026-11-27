@@ -213,12 +213,29 @@ class Slot:
                     continue
                 self.handle = handle
                 return self
-            time.sleep(2)
+            time.sleep(self.POLL)
         return self
+
+    POLL = 2
 
     def __exit__(self, *_):
         if self.handle:
             self.handle.close()
+
+
+def provider_of(model):
+    """The part of a model name before the first slash; a bare name is its own provider."""
+    return (model or "unknown").split("/", 1)[0] or "unknown"
+
+
+def provider_slot(env, model):
+    """A lock bounding concurrent runs of one provider (NV_PORT_PROVIDER_LIMIT, default 4)."""
+    try:
+        limit = int(env.get("NV_PORT_PROVIDER_LIMIT", "4"))
+    except ValueError:
+        limit = 4
+    base = env.get("NV_PORT_SLOT_DIR", str(Path.home() / ".cache" / "nv-workers" / "slots"))
+    return Slot(Path(base) / f"provider-{provider_of(model)}", max(1, limit))
 
 
 ALLOWED_PATHS = ("crates/engine-typed/", "crates/engine/tests/typed_*.rs")
@@ -297,7 +314,7 @@ def work(env):
         }
         started = time.time()
         with Slot(env.get("NV_PORT_SLOT_DIR", str(Path.home() / ".cache" / "nv-workers" / "slots")),
-                  int(env.get("NV_PORT_SLOTS", "2"))):
+                  int(env.get("NV_PORT_SLOTS", "2"))), provider_slot(env, model):
             result = gateway(env, payload)
         if not is_limited(result):
             break
@@ -374,7 +391,8 @@ def review(env):
     for client, model in options:
         payload.update({"client": client, "model": model})
         started = time.time()
-        result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
+        with provider_slot(env, model):
+            result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
         if not is_limited(result):
             break
         mark_limited(env, model, json.dumps(result))

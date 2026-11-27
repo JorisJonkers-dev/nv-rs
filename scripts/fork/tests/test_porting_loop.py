@@ -10,6 +10,7 @@ import contextlib
 import datetime
 import hashlib
 import io
+import json
 import os
 import shlex
 import shutil
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -157,6 +159,7 @@ def environment(tmp):
         "NV_PORT_PR": "pr-tool --open",
         "NV_PORT_CLOSE": "close-tool --close",
         "NV_PORT_ROOT": str(tmp),
+        "NV_PORT_MODEL_SLOTS": "1",
     }
 
 
@@ -284,6 +287,126 @@ class PortingLoop(unittest.TestCase):
         self.assertIn("lights", body)
         self.assertIn("## Skipped families", body)
         self.assertIn("crt", body)
+
+    def test_rate_lines_show_the_measured_seconds_and_hourly_rate(self):
+        lines = porting_loop.rate_lines({
+            "model_runs": 5, "build_seconds": 120.4, "diff_seconds": 30.5,
+            "wall_seconds": 7200.0, "delivered": 6,
+        })
+        self.assertEqual(lines, [
+            "", "## Rate", "",
+            "- Model runs: 5",
+            "- Build seconds: 120.4",
+            "- Diff seconds: 30.5",
+            "- Wall seconds: 7200.0",
+            "- Verified functions per hour: 3.00",
+        ])
+
+    def test_rate_lines_do_not_divide_by_a_zero_wall_time(self):
+        lines = porting_loop.rate_lines({
+            "model_runs": 2, "build_seconds": 1.0, "diff_seconds": 2.0,
+            "wall_seconds": 0.0, "delivered": 6,
+        })
+        self.assertEqual(lines[:3], ["", "## Rate", ""])
+        self.assertIn("- Verified functions per hour: 0.00", lines)
+
+    def test_the_pr_body_adds_a_rate_section_only_when_the_report_has_one(self):
+        report = {
+            "families": [
+                {"family": "fade", "passed": 3, "failed": 1, "review": "accepted"},
+            ],
+            "classes": {"real": 2},
+            "rejected": ["crt"],
+            "skipped": ["lights"],
+            "stale": ["crt"],
+        }
+        without = porting_loop.pr_body("batch-1", report)
+        self.assertEqual(without, "\n".join([
+            "# Porting batch batch-1", "", "## Pass counts", "",
+            "- Diff cases: 3 passed; 1 failed",
+            "- fade: 3 passed, 1 failed (accepted)",
+            "", "## Attempts", "", "- fade: 1 attempts",
+            "", "## Failure classes", "", "- real: 2",
+            "", "## Rejected families", "", "- crt",
+            "", "## Skipped families", "", "- lights",
+            "", "- Claims reclaimed after expiry: crt",
+            "", "The checker hash and the review result are recorded in the batch report.", "",
+        ]))
+        rate = {
+            "model_runs": 4, "build_seconds": 10.0, "diff_seconds": 20.0,
+            "wall_seconds": 7200.0, "delivered": 6,
+        }
+        with_rate = porting_loop.pr_body("batch-1", dict(report, rate=rate))
+        self.assertEqual(with_rate, without.replace(
+            "\n\n## Rejected families",
+            "\n" + "\n".join(porting_loop.rate_lines(rate)) + "\n\n## Rejected families",
+            1,
+        ))
+
+    def run_four_families(self, slots):
+        queue = "\n".join(["# rank\taddress\tstate\tdone\tfamily\tname"] + [
+            f"{i}\t0040{i}000\topen\tno\tfam{i}\tfn{i}" for i in range(1, 5)] + [""])
+        spans, lock = [], threading.Lock()
+
+        class Sleeping(Recording):
+            def __call__(inner, argv, cwd=None, env=None, log=None):
+                if str(argv[0]) == "worker-tool":
+                    started = time.time()
+                    time.sleep(0.2)
+                    with lock:
+                        spans.append((started, time.time()))
+                return Recording.__call__(inner, argv, cwd=cwd, env=env, log=log)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            env = dict(environment(root), NV_PORT_MODEL_SLOTS=str(slots))
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=10, name="par", env=env,
+                                          today=datetime.date(2026, 11, 26),
+                                          call=Sleeping(queue=queue))
+            record = porting_loop.batch_record(root, "par")
+        self.assertEqual(code, 0)
+        return spans, record
+
+    def test_families_run_concurrently_in_the_given_model_slots(self):
+        spans, record = self.run_four_families(4)
+        self.assertLess(max(s for s, _ in spans), min(e for _, e in spans))
+        self.assertEqual([f["family"] for f in record["families"]], ["fam1", "fam2", "fam3", "fam4"])
+        self.assertEqual(record["rate"]["model_runs"], 8)
+        self.assertGreater(record["rate"]["wall_seconds"], 0)
+
+    def test_a_family_limit_bounds_how_many_families_a_batch_takes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            env = dict(environment(root), NV_PORT_FAMILIES="1")
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=10, name="few", env=env,
+                                          today=datetime.date(2026, 11, 26), call=Recording())
+            record = porting_loop.batch_record(root, "few")
+        self.assertEqual(code, 0)
+        self.assertEqual([f["family"] for f in record["families"]], ["fade"])
+
+    def test_families_claimed_by_another_batch_are_not_offered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            claims = Path(tmp) / "claims"
+            env = dict(environment(root), NV_PORT_CLAIM_DIR=str(claims), NV_PORT_FAMILIES="1")
+            porting_loop.claim(root, "fade", "other-batch", directory=str(claims))
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=10, name="held", env=env,
+                                          today=datetime.date(2026, 11, 26), call=Recording())
+            record = porting_loop.batch_record(root, "held")
+        self.assertEqual(code, 0)
+        self.assertEqual([f["family"] for f in record["families"]], ["lights"])
+        self.assertEqual(record["skipped"], ["fade"])
+
+    def test_one_model_slot_keeps_families_sequential(self):
+        spans, _ = self.run_four_families(1)
+        spans.sort()
+        for (_, end), (start, _) in zip(spans, spans[1:]):
+            self.assertLessEqual(end, start)
+        self.assertEqual(porting_loop.model_slots({"NV_PORT_MODEL_SLOTS": "x"}), 20)
+        self.assertEqual(porting_loop.model_slots({"NV_PORT_MODEL_SLOTS": "0"}), 1)
 
     def test_a_batch_uses_the_daemon_a_worktree_per_family_and_two_configured_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -730,6 +853,32 @@ class PortingLoop(unittest.TestCase):
                                 today=datetime.date(2026, 11, 26), out=out,
                                 call=Recording(queue=queue))
             self.assertIn("2026-11-26 | 1", out.read_text(encoding="utf-8"))
+
+    def test_weekly_reports_delivered_verified_functions_per_hour(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            addresses = [f"{0x00401000 + i * 0x10:08X}" for i in range(14)]
+            queue = ["# rank\taddress\tstate\tdone\tfamily\tname"]
+            queue += [f"{i}\t{address}\treference-verified\tyes\tfade\tf{i}"
+                      for i, address in enumerate(addresses, 1)]
+            queue += [
+                "15\t00403000\ttyped\tyes\tcrt\tc", "",
+            ]
+            for address in addresses:
+                porting_loop.record_delivery(
+                    root, "2026-11-25", "batch-1", address, "fade")
+            out = root / "weekly.md"
+            porting_loop.weekly(
+                root=root, days=7, env=environment(root),
+                today=datetime.date(2026, 11, 26), out=out,
+                call=Recording(queue="\n".join(queue)),
+            )
+            text = out.read_text(encoding="utf-8")
+            self.assertIn("2026-11-25 | 14", text)
+            self.assertIn("- Total: 14", text)
+            self.assertIn("- Verified functions per hour: 0.08", text)
+            self.assertLess(text.index("- Total: 14"),
+                            text.index("- Verified functions per hour: 0.08"))
 
     def test_weekly_reports_a_queue_failure_without_a_traceback(self):
         with tempfile.TemporaryDirectory() as tmp:
