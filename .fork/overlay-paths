@@ -163,3 +163,4 @@ scripts/estimate-measure/
 scripts/ledger/
 scripts/mmio-measure/
 scripts/vorbis-record/
+crates/engine-core/src/lamp_distance.rs
