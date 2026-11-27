@@ -70,6 +70,7 @@ UNCOVERED_DATA_FILES = {
     "crates/engine-platform/src/vorbisfile.rs": "NV_VORBIS_TEST_DIR",
     "crates/engine/tests/jip_call_arity.rs": "NV_PROBE",
     "crates/host/tests/live_movement_capture.rs": "NV_CAPTURE",
+    "crates/engine/tests/typed_navmesh_edges.rs": "NV_DATA",
     "crates/nvse/src/compiler_tests.rs": "NV_COMPILE_PLUGINS",
     "crates/nvse/src/docs_tests.rs": "NV_XNVSE_DLL",
     "crates/nvse/src/newlang/compile_tests.rs": "NV_XNVSE_NEW_COMPILER_TESTS",
