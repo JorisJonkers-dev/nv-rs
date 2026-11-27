@@ -2613,10 +2613,16 @@ mod forms {
     /// With `NV_TYPED` silent the lock-free family is in its K1 form and lives as stage 1 does.
     #[test]
     fn the_family_moves_by_default() {
-        use engine_core::typed::{default_mode, Mode, MOVED_BY_DEFAULT};
+        use engine_core::typed::{switch_for, Mode};
         assert!(lockfree::LOCKFREE.stage2, "the family has a stage-2 form");
-        assert!(MOVED_BY_DEFAULT.contains(&("lockfree", Mode::Moved)));
-        assert_eq!(default_mode(&lockfree::LOCKFREE), Mode::Moved);
+        // No switch, and `NV_TYPED=all`, both give the moved form through the path a run takes
+        // (`switch_for`: none is the default); a run compared with the original's record has it off.
+        for given in [None, Some("all")] {
+            let e = engine(switch_for(given, false).unwrap_or(""));
+            assert_eq!(e.typed_mode(lockfree::FAMILY), Mode::Moved, "{given:?}");
+        }
+        let compared = engine(switch_for(None, true).expect("off"));
+        assert_eq!(compared.typed_mode(lockfree::FAMILY), Mode::Off);
         for spec in ["", "all", "off,all"] {
             let e = engine(spec);
             assert_eq!(e.typed_mode(lockfree::FAMILY), Mode::Moved, "{spec:?}");
@@ -2690,17 +2696,16 @@ mod forms {
     }
 
     /// The race campaign's part for the family's real threads (ADR-0015; nv-rs#946): the caller and
-    /// three helpers, each on its own OS thread and its own engine, work one map in K2 at once: each
-    /// thread's own interface (the family's per-thread TLS entry), inserts into and removes from the
-    /// same four buckets, finds by the map. The game's own lock, the interlocked operations, the
-    /// thread id and the TLS slot are stood in by real ones (the lock a spin lock on the map's lock
-    /// word, the interlocked operations atomic, a TLS value and an id per thread), so what is
-    /// raced is the family's code. Run for several rounds with the threads' starts shifted, then the
-    /// map's answers are checked against what each thread did, and the slab is empty after the map's
-    /// destruction. One pool per process: this is the binary's one `fork_join` test.
-    #[test]
-    fn the_family_in_k2_holds_under_real_threads() {
-        use engine_core::typed::Mode;
+    /// three helpers, each on its own OS thread and its own engine, work one map in the form `spec`
+    /// at once: each thread's own interface (the family's per-thread TLS entry), inserts into and
+    /// removes from the same four buckets, finds by the map. The game's own lock, the interlocked
+    /// operations, the thread id and the TLS slot are stood in by real ones (the lock a spin lock on
+    /// the map's lock word, the interlocked operations atomic, a TLS value and an id per thread), so
+    /// what is raced is the family's code. Run for several rounds with the threads' starts shifted,
+    /// then the map's answers are checked against what each thread did, and the slab is empty after
+    /// the map's destruction. The helper pool is one per process (`fork_join` stops a second run),
+    /// so each form runs in a child process of its own: see `race_in_child`.
+    fn race(spec: &str, mode: engine_core::typed::Mode) {
         use std::cell::Cell;
         use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -2719,8 +2724,8 @@ mod forms {
             e.mem.atomic_u32(a).expect("a mapped, aligned word")
         }
 
-        let mut e = engine("lockfree:freed");
-        assert_eq!(e.typed_mode(lockfree::FAMILY), Mode::Freed);
+        let mut e = engine(spec);
+        assert_eq!(e.typed_mode(lockfree::FAMILY), mode, "{spec:?}");
         e.register(LOCK_ENTER, |e, a| {
             while atomic(e, a[0])
                 .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
@@ -2890,6 +2895,56 @@ mod forms {
         e.call(0x0044_c3f0, &[map]);
         let census = e.moved().expect("made").slab.census();
         assert!(census.is_empty(), "left in the slab: {census:?}");
+    }
+
+    /// Runs [`race`] for `spec` in a child process (this binary, the test `race_child`), so each
+    /// form has the helper pool to itself.
+    fn race_in_child(spec: &str) {
+        let exe = std::env::current_exe().expect("the test binary");
+        let out = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "forms::race_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("NV_LOCKFREE_RACE_SPEC", spec)
+            .output()
+            .expect("the child ran");
+        assert!(
+            out.status.success(),
+            "{spec:?}: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // A wrong test name would run no test and still exit 0.
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("race_child ... ok"),
+            "{spec:?}: the child ran no test"
+        );
+    }
+
+    /// The child of [`race_in_child`]: a no-op unless `NV_LOCKFREE_RACE_SPEC` names the form.
+    #[test]
+    fn race_child() {
+        use engine_core::typed::Mode;
+        match std::env::var("NV_LOCKFREE_RACE_SPEC").as_deref() {
+            Ok("default") => race("", Mode::Moved),
+            Ok("lockfree:freed") => race("lockfree:freed", Mode::Freed),
+            _ => {}
+        }
+    }
+
+    /// The default form (K1, what ships) holds under real threads.
+    #[test]
+    fn the_default_family_holds_under_real_threads() {
+        race_in_child("default");
+    }
+
+    /// K2 (`lockfree:freed`) holds under real threads.
+    #[test]
+    fn the_family_in_k2_holds_under_real_threads() {
+        race_in_child("lockfree:freed");
     }
 }
 

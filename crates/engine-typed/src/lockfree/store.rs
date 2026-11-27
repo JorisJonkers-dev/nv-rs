@@ -36,7 +36,8 @@ pub(crate) mod tag {
     pub const SCAN_COPY: u16 = 8;
 }
 
-/// The family's store: stage 1's unless `NV_TYPED` puts the family in a stage-2 form. Reads and
+/// The family's store: the slab's in the family's default form (K1, `typed::MOVED_BY_DEFAULT`),
+/// stage 1's (the guest heap) under `NV_TYPED=lockfree` or `lockfree:off`. Reads and
 /// writes through it reach a guest object or a moved one, whichever the address names.
 #[inline(always)]
 pub(crate) fn store(e: &Engine) -> Store {
@@ -184,11 +185,17 @@ const SWAP_LINK: u32 = 0x0044_91c0;
 /// The calls by address a moved form does in place, as steps of the thread host's time slice
 /// (measured in the stage 1 run: the calls the exe's own code makes under each, in order). The link
 /// compare-and-swap: itself, its wrapper `0043b460`, the interlocked import and `0040fbe0`.
+/// Each address by the name the repository gives it: `004491c0` the link compare-and-swap (`SWAP_LINK`);
+/// `0043b460` the interlocked compare-exchange wrapper; `00fdf1bc` the `InterlockedCompareExchange`
+/// import slot; `0040fbe0` the error report (cdecl, variable arguments), the last step of the
+/// measured sequence.
 pub(crate) const SWAP_LINK_STEPS: [u32; 4] = [SWAP_LINK, 0x0043_b460, 0x00fd_f1bc, 0x0040_fbe0];
-/// `operator new` and the allocator's call under it, `operator delete` and the allocator's.
+/// `operator new` (`00401000`) and the allocator's call under it (`MemoryManager::Allocate`,
+/// `00aa3e40`), `operator delete` and the allocator's (`MemoryManager::Deallocate`, `00aa4060`).
 pub(crate) const NEW_STEPS: [u32; 2] = [super::OPERATOR_NEW, 0x00aa_3e40];
 pub(crate) const DELETE_STEPS: [u32; 2] = [super::OPERATOR_DELETE, 0x00aa_4060];
-/// The interlocked increment's wrapper and its import.
+/// The interlocked increment's wrapper (`0040b460`, the counter helper) and its import
+/// (`00fdf1c0`, the `InterlockedIncrement` slot).
 pub(crate) const INCREMENT_STEPS: [u32; 2] = [0x0040_b460, 0x00fd_f1c0];
 /// `NiPointer<T>::operator=` from an object (`thiscall(holder, object)`), the object's release
 /// (`NiRefObject::DecRefCount`, Xbox PDB; `thiscall`) and its count taken (`thiscall`), a holder's

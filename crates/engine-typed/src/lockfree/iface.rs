@@ -915,6 +915,9 @@ const SCAN_LINE: u32 = 0x362;
 /// `memcpy` (`cdecl(to, from, bytes)`).
 const MEMCPY: u32 = 0x0040_1460;
 /// What `memcpy` takes of the time slice (itself and the C runtime's copy under it), done in place on a moved block.
+/// `00401460` is the game's `memcpy` wrapper and `00ec44d0` the runtime's `_memcpy`. The wrapper has
+/// no branch (it forwards at once, `crt::mem::memcpy_wrapper`), so the measured run took its only
+/// path; the runtime's copy is one step here whichever path it takes inside.
 const MEMCPY_STEPS: [u32; 2] = [MEMCPY, 0x00ec_44d0];
 /// Referenced-node slots a thread.
 const SLOTS_PER_THREAD: u32 = 3;

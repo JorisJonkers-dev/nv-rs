@@ -455,7 +455,7 @@ too; the float check `0040eb10`; the priority `00526ae0`; `TESTopic`'s editor id
 `NV_TYPED=topic_order:off` changes more than the topic order, and a trace loses the two CRT calls under each
 `00404dc0` while it is on.
 Then `lockfree` (`crates/engine-typed`, a crate above the core that provides its family): the
-lock-free maps, their interfaces, iterators and holder, stage 1 (objects stay in guest memory); its
+lock-free maps, their interfaces, iterators and holder, stage 1 unless moved by default (K1 since nv-rs#946, "Moved families"; `NV_TYPED=lockfree` is stage 1, objects in guest memory); its
 differential tests are `crates/engine/tests/typed_lockfree.rs`. And `culling` (same crate): the culling
 walk, stage 1, its float maths native since 2026-11-11 (the bounds' and planes' sums of products and the merge in
 `f64` rounded at the stores, a single operation on two floats in plain `f32`, the main-thread-only fade-node culler in
