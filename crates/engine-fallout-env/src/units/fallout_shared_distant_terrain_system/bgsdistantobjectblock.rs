@@ -2908,14 +2908,12 @@ mod tests {
         e.mem.set_f32(lights + AV_WORLD_TRANSLATE + 4, 6144.0);
         let tes = e.mem.alloc(0x10);
         e.mem.set_u32(TES_SINGLETON_011DEA10, tes);
-        let loaded = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let seen = loaded.clone();
+        // the word after the singleton says whether the cell is loaded
+        e.mem.set_u32(tes + 4, 1);
         e.register(TES_CELL_AT_00451900, |_, a| {
             ret(if a[1] == 1 && a[2] == 1 { 0x7700 } else { 0 })
         });
-        e.register(TES_IS_CELL_LOADED_004511E0, move |_, _| {
-            ret(u32::from(seen.load(std::sync::atomic::Ordering::Relaxed)))
-        });
+        e.register(TES_IS_CELL_LOADED_004511E0, |e, a| ret(e.mem.u32(a[0] + 4)));
         far_lights::set(true);
         // By night, with the cell loaded: hidden, its alpha untouched.
         e.mem.set_f32(unlit + 0x28, 7.0);
@@ -2924,7 +2922,7 @@ mod tests {
         assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 1]]);
         assert_eq!(e.mem.f32(unlit + 0x28), 7.0);
         // The cell unloads: within ten frames the shape is shown again.
-        loaded.store(false, std::sync::atomic::Ordering::Relaxed);
+        e.mem.set_u32(tes + 4, 0);
         e.call_log = Some(vec![]);
         for _ in 0..10 {
             far_lights_frame(&mut e, 1.0);
@@ -2932,7 +2930,7 @@ mod tests {
         assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 0]]);
         assert_eq!(e.mem.f32(unlit + 0x28), 1.0);
         // A cell that is not the shape's own does not hide it.
-        loaded.store(true, std::sync::atomic::Ordering::Relaxed);
+        e.mem.set_u32(tes + 4, 1);
         e.mem.set_f32(lights + AV_WORLD_TRANSLATE, 10240.0);
         e.call_log = Some(vec![]);
         for _ in 0..10 {
