@@ -90,6 +90,11 @@ def backend_commands(root=REPO):
             argv += ("--test", target)
         commands.append(("gated typed families against the backend",
                          argv + ("--", "--ignored", "--nocapture"), extra))
+    # The translations that are really incomplete, run on the backend itself (nv-rs#930).
+    commands.append(("real gaps on the backend",
+                     ("cargo", "test", "-p", "engine-core", "--lib", "typed::backend_gaps",
+                      "--", "--nocapture"),
+                     {**extra, "NV_BACKEND_GAPS": "1"}))
     return commands
 
 

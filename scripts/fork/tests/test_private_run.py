@@ -44,6 +44,7 @@ def gate_line(kind, name="some::test", variable="NV_EXE"):
 # refuses a new one until it is added here or to UNCOVERED_DATA_FILES (with a reason in docs/fork/TESTING.md).
 COVERED_DATA_FILES = frozenset({
     "crates/engine-core/src/exe.rs",
+    "crates/engine-core/src/typed/backend_gaps.rs",
     "crates/engine-core/src/typed/backend_peer.rs",
     "crates/engine-core/src/units/crt/cvt.rs",
     "crates/engine-core/src/units/crt/fdiv.rs",
@@ -282,7 +283,11 @@ class WiringTests(unittest.TestCase):
 
     def test_every_typed_family_suite_runs_with_the_backend(self):
         commands = private_run.backend_commands(self.ROOT)
-        self.assertEqual(len(commands), 2, "ordinary and data-gated typed suites")
+        self.assertEqual(len(commands), 3, "ordinary, data-gated typed suites and the real gaps")
+        gaps = commands[2]
+        self.assertIn("typed::backend_gaps", gaps[1])
+        self.assertIn("NV_BACKEND_LIBRARY", gaps[2])
+        self.assertEqual(gaps[2]["NV_BACKEND_GAPS"], "1")
         argv = commands[0][1]
         targets = {argv[i + 1] for i, word in enumerate(argv) if word == "--test"}
         components = (self.ROOT / ".fork" / "components.toml").read_text()

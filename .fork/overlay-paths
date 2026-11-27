@@ -124,6 +124,9 @@ crates/engine/tests/draw_pass_state.rs
 crates/engine/tests/diff_reference_peer.rs
 # The local backend as the fourth reference peer (JorisJonkers-dev/nv-rs#928).
 crates/engine-core/src/typed/backend_peer.rs
+# The translations that are really incomplete run on the backend (JorisJonkers-dev/nv-rs#930).
+crates/engine-core/src/typed/backend_gaps.rs
+crates/engine-core/src/typed/real_gaps.txt
 crates/fos/
 crates/host/src/thread_races.rs
 crates/host/tests/support/
