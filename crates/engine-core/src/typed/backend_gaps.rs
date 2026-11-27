@@ -251,7 +251,7 @@ mod tests {
             assert!(r.is_err(), "{bad:?} was accepted");
         }
         assert_eq!(
-            parse_list("# c\n\n00c55010 a.rs\n"),
+            parse_list("# c\n\n 00c55010 a.rs\n"),
             vec![(0x00c5_5010, "a.rs".into())]
         );
     }
