@@ -112,7 +112,7 @@ jobs:
       - name: Measure this commit
         run: |
           set -euo pipefail
-          # shellcheck disable=SC2086
+          mkdir -p out
           # The whole output goes to a file: the tail alone left a crashed test binary unnamed (nv-rs#1030). When the
           # run fails, the lines that name the failing tests, panics and signals are printed from the file.
           status=0
