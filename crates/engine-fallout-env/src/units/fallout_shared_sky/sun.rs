@@ -2704,6 +2704,31 @@ mod tests {
         assert_eq!(light_way(&off), [-disc_place(&off)[0], 50.0, 30.0]);
     }
 
+    /// The light is installed on wgpu whatever the start (the player can switch the sun shadows on
+    /// while playing), and turns only while the shadows draw: with them off every frame has the
+    /// exe's light, as on a run without the seam; it follows the switch on and off.
+    #[test]
+    fn the_installed_light_turns_only_while_the_shadows_draw() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static DRAWING: AtomicBool = AtomicBool::new(false);
+        let mut exe = update_rig(3, 23.0);
+        with_masser(&mut exe, 75.0, 35.0);
+        run(&mut exe);
+        let exes = light_way(&exe);
+
+        let mut u = update_rig(3, 23.0);
+        with_masser(&mut u, 75.0, 35.0);
+        want_light_from_sky(&mut u.e, || DRAWING.load(Ordering::Relaxed));
+        run(&mut u);
+        assert_eq!(light_way(&u), exes, "shadows off: the exe's light");
+        DRAWING.store(true, Ordering::Relaxed);
+        run(&mut u);
+        assert_ne!(light_way(&u), exes, "switched on: the sky's light");
+        DRAWING.store(false, Ordering::Relaxed);
+        run(&mut u);
+        assert_eq!(light_way(&u), exes, "switched off: the exe's light again");
+    }
+
     /// The dusk hand-over the maintainer reported, through `Update` itself: at 19:30 the disc is
     /// drawn at a quarter (the base quad's alpha, the brightness the seam is given) and Masser shows
     /// half (angle 50 between its fades 45 and 55): the light is the blend of the two with the

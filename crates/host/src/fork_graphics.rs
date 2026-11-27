@@ -365,11 +365,30 @@ pub fn session(
     let mut live = fork_gfx::Live::new(builtin::specs(), builtin::presets());
     live.set_file(read.file.map(|(_, f)| f));
     live.set_overrides(read.override_preset, read.overrides);
+    // The parts as the settings resolve at the start (what the run started with).
+    let first = live
+        .update(&Place::default())
+        .map_or_else(|| choice.clone(), |r| apply(choice.clone(), r).0);
+    let mut last_parts = d3d9_wgpu::scene_light::Parts {
+        ambient_occlusion: first.ambient_occlusion,
+        sun_shadows: first.sun_shadows,
+    };
     d3d9_wgpu::gfx_overlay::Session::new(
         live,
         path,
         Box::new(move |r: &Resolved| {
             let (c, l) = apply(choice.clone(), r);
+            // The panel's switches of the new lighting's parts turn them while the game runs (where
+            // wgpu draws; Shift+F11 turns the same switch): only when the panel's values for them
+            // changed, so another setting does not undo a Shift+F11.
+            let parts = d3d9_wgpu::scene_light::Parts {
+                ambient_occlusion: c.ambient_occlusion,
+                sun_shadows: c.sun_shadows,
+            };
+            if parts != last_parts {
+                last_parts = parts;
+                d3d9_wgpu::scene_light::set_wanted(parts);
+            }
             d3d9_wgpu::scene_light::set_quality(l.ao_quality);
             d3d9_wgpu::scene_light::set_live_strength(Some(c.ambient_occlusion_strength));
             set_ambient_shares(l.ambient);
