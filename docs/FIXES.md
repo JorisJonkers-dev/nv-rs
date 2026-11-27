@@ -2265,8 +2265,11 @@ or 1, like every row): the thread with the value packet's POISON check, for test
   read by nobody; run beside each other main and the draw each add one to the same count, and the join (byte by byte, main's
   when main changed it) keeps one, not two. No render and no constant depends on it.
 
-  The own blocks of the pass objects are taken sorted by address (`take_pass_objects`), which keeps the packet's block
-  lists cheap to build for the several thousand blocks of a pass table.
+  The own blocks of the pass objects are taken sorted by address, and only for the pass types of the world draw's lists (the
+  draw begins no other pass; a pass table has some 700 passes, the lists a few dozen types): the first version took all of
+  them, 447 KB and several thousand blocks a cut, and the stepped job took 1.7 ms and the join 1.4 ms more a frame; with the
+  lists' types 62 KB a cut, the job 0.3 ms and the join 0.5 ms more than before step two (`NV_DRAW_THREAD`'s waits line, 1200
+  frames); the stream is the same bytes either way.
 
   Gate (recorded runs of `nv-rs-dev scene bench --suite quick`, 1500 frames, `NV_REPEATABLE`, `NV_SOUND=out`; a fixed
   environment, argv and working directory for every run, since the game's heap addresses move with them; the baseline is
@@ -2281,7 +2284,9 @@ or 1, like every row): the thread with the value packet's POISON check, for test
   serial run's; this commit is separate, and the later gates are against it. With the draw thread's POISON
   (`NV_DRAW_THREAD=poison`: the packet's guest bytes scribbled while the draw runs) the baseline stops at its first posted
   draw with a read through the scribbled counted map (`6e6e6e6e`); with the readers fixed 1500 frames run through with no
-  stop. Removing the two joins: the stepped draw thread's stream has more commands (7704 `SetTextureStageState`, 7704
+  stop and, after the ambient entry's enabled byte (`own::fog_ambient`, written in guest memory) was set through the
+  packet, none of the packet's bytes written past it (`written 0`, from 2402); the poisoned stream is the unpoisoned one.
+  Removing the two joins: the stepped draw thread's stream has more commands (7704 `SetTextureStageState`, 7704
   `SetSamplerState`, 2766 `SetRenderState`: main's setters, run beside a posted draw, send values their cache already holds,
   `capture::beside`), and the device state at each of the 826 179 draws is the same as before (`record_compare --digests`).
   The join counter after the removal: `posted 1201, joined 1200 (0 inside the same world pass)`, the joins by point
