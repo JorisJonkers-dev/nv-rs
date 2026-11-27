@@ -209,11 +209,15 @@ pub enum Mode {
 }
 
 /// The families whose default form is a stage-2 one (nv-rs#946): past the gates of the dual run, K1,
-/// the save check and K2, the family's objects live in host memory unless `NV_TYPED` says otherwise.
+/// the save check and the real-thread test, the family's objects live in host memory unless
+/// `NV_TYPED` says otherwise. The default is K1 ([`Mode::Moved`]): the guest heap, and with it every
+/// address the game's other objects get and every step of the stepped threads' time slice, stays as
+/// stage 1 has it, so the Direct3D 9 stream is stage 1's (K2's guest allocator takes other paths
+/// when its heap holds fewer blocks, so the stepped threads there hand over at other points).
 /// The rollback is stage 1, `NV_TYPED=<family>` (on, objects in the game's heap), or `<family>:off`
-/// (the translation); `<family>:moved` is K1 and `<family>:dual` the dual run. Every name is a
+/// (the translation); `<family>:freed` is K2 and `<family>:dual` the dual run. Every name is a
 /// family with a stage-2 form ([`Family::stage2`]), which a test checks.
-pub const MOVED_BY_DEFAULT: &[(&str, Mode)] = &[("lockfree", Mode::Freed)];
+pub const MOVED_BY_DEFAULT: &[(&str, Mode)] = &[("lockfree", Mode::Moved)];
 
 /// The form `family` has when `NV_TYPED` is silent about it: [`Mode::Off`] before its gate, its
 /// [`MOVED_BY_DEFAULT`] form when it has one, else [`Mode::On`].
@@ -435,6 +439,27 @@ impl Engine {
             } else {
                 self.slice_left -= 1;
             }
+        }
+    }
+
+    /// The time slice's steps of calls by address that a moved form does in place (a link's
+    /// compare-and-swap, a vector constructor, the allocator): one step for each of `addrs`, in the
+    /// order stage 1's calls run in, each as [`Engine::typed_slice_step`], so the stepped threads
+    /// hand over at the same points in every form of a family (nv-rs#946).
+    #[doc(hidden)]
+    #[inline]
+    pub fn typed_charge(&mut self, addrs: &[u32]) {
+        for &addr in addrs {
+            self.typed_slice_step(addr);
+        }
+    }
+
+    /// [`Engine::typed_charge`] of `count` calls of the same `addr` (a vector constructor's elements).
+    #[doc(hidden)]
+    #[inline]
+    pub fn typed_charge_n(&mut self, addr: u32, count: u32) {
+        for _ in 0..count {
+            self.typed_slice_step(addr);
         }
     }
 
@@ -1135,15 +1160,15 @@ mod tests {
         };
         let table: &[&Family] = &[&MOVER, &PAST_GATE];
         let parse = |s: Option<&str>| parse_switch(s, table);
-        assert_eq!(MOVED_BY_DEFAULT, [("lockfree", Freed)]);
-        assert_eq!(default_mode(&MOVER), Freed);
+        assert_eq!(MOVED_BY_DEFAULT, [("lockfree", Moved)]);
+        assert_eq!(default_mode(&MOVER), Moved);
         assert_eq!(default_mode(&PAST_GATE), On);
         assert_eq!(default_mode(&STAND_IN), Off);
-        assert_eq!(parse(None), Ok(vec![Freed, On]));
-        assert_eq!(parse(Some("all")), Ok(vec![Freed, On]));
-        // Rolling back: stage 1, K1, the dual run, the translation.
+        assert_eq!(parse(None), Ok(vec![Moved, On]));
+        assert_eq!(parse(Some("all")), Ok(vec![Moved, On]));
+        // Rolling back: stage 1, K2, the dual run, the translation.
         assert_eq!(parse(Some("lockfree")), Ok(vec![On, On]));
-        assert_eq!(parse(Some("lockfree:moved")), Ok(vec![Moved, On]));
+        assert_eq!(parse(Some("lockfree:freed")), Ok(vec![Freed, On]));
         assert_eq!(parse(Some("lockfree:dual")), Ok(vec![Dual, On]));
         assert_eq!(parse(Some("lockfree:off")), Ok(vec![Off, On]));
         assert_eq!(parse(Some("off")), Ok(vec![Off, Off]));

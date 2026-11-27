@@ -759,7 +759,7 @@ is a comma-separated list, read left to right:
 
 | Item | Means |
 | --- | --- |
-| (unset or empty) | The default: a family is on when it is past its gate, in its stage-2 form (K2) when it moves by default (`typed::MOVED_BY_DEFAULT`: `lockfree`) |
+| (unset or empty) | The default: a family is on when it is past its gate, in its stage-2 form (K1) when it moves by default (`typed::MOVED_BY_DEFAULT`: `lockfree`) |
 | `off` | Every family off: the game runs the translations |
 | `all` | Back to the default (the stage-2 form for a family that moves by default) |
 | `<family>` | That family on in stage 1 (objects in the game's heap), past its gate or not; the rollback of a family that moves by default |
@@ -1096,7 +1096,13 @@ uses is `engine_core::typed::moved`, tested with a made-up family, so a family r
   address after it (the Direct3D model's objects, which the recorded stream names by address) stay as they
   were, and two repeatable runs compare with `cmp`; without (K2, `<family>:freed`) the guest bytes are freed,
   and the recorded streams compare with handles renamed (`d3d9-stream`'s `wire::compare_renamed`; the
-  `record_compare` example). `Dual` (`<family>:dual`) keeps the guest objects the truth and mirrors each one in
+  `record_compare` example). Where a moved form does in place what stage 1 calls by address (the link's
+  compare-and-swap, the vector constructor and its elements' constructors, the interlocked increment, `memcpy`,
+  the holders' set and release, and in K2 `operator new` and `operator delete`), it takes the same steps of the
+  thread host's time slice (`Engine::typed_charge`, the lists in `lockfree/store.rs`), so the stepped threads
+  hand over at stage 1's points: a test (`forms` in `typed_lockfree.rs`) compares the address of every step of a
+  map's life in stage 1, K1 and K2. K2 cannot be exact in the game: the allocator's own calls under
+  `operator new` depend on the heap's contents (K2's heap holds fewer blocks), so its steps differ now and then. `Dual` (`<family>:dual`) keeps the guest objects the truth and mirrors each one in
   the slab: every access is made on both and compared (a word inside a mirrored block compares as the same
   place in its mirror, so pointer fields need no types), the first 20 differences are printed with the place
   and the function running, and the status line counts comparisons and differences (`Dual run: ..`). A dual run
@@ -1139,10 +1145,11 @@ interface manager (+0x14), its spare word +0x1c; the vtable, the bucket count, t
 for the untyped wrappers. The queues share the interface manager's functions and keep theirs in the game's
 memory: an object is made in the store of its root, so a queue's manager stays guest.
 
-The lock-free maps move by default (nv-rs#946): with no `NV_TYPED` (or `all`) the family is in K2, its
-objects in host memory and the guest bytes freed; `typed::MOVED_BY_DEFAULT` lists such families and
+The lock-free maps move by default (nv-rs#946): with no `NV_TYPED` (or `all`) the family is in K1, its
+objects in host memory and the guest heap as stage 1 leaves it (so the stepped threads' time slice and every guest
+address are stage 1's, and the Direct3D 9 stream is); `typed::MOVED_BY_DEFAULT` lists such families and
 `typed::default_mode` gives each its form. The rollbacks are `NV_TYPED=lockfree` (stage 1, the heap as the game
-leaves it), `lockfree:moved` (K1), `lockfree:dual` (both forms live, every access compared) and
+leaves it), `lockfree:freed` (K2, the guest bytes freed: the allocator's own calls differ, so the stream may), `lockfree:dual` (both forms live, every access compared) and
 `lockfree:off` (the translation). A recorded run (`NV_TRACE_OUT`, `NV_TRACE_LIST`) keeps every family off.
 Untyped code that reads a moved map's bytes sees what stage 1 leaves there (the save check in
 `typed_lockfree.rs`); what it cannot read is listed in ADR-0014. The race campaign for the family's real

@@ -236,7 +236,7 @@ mod tests {
             assert!(f.stage2, "{name} moves by default and has no stage-2 form");
         }
         let lockfree = families.iter().position(|f| f.name == "lockfree").unwrap();
-        assert_eq!(defaults[lockfree], Mode::Freed);
+        assert_eq!(defaults[lockfree], Mode::Moved);
         let off = parse_switch(Some("off"), &families).unwrap();
         assert!(off.iter().all(|m| *m == Mode::Off));
         let one_off = parse_switch(Some("shader:off"), &families).unwrap();

@@ -5,3 +5,5 @@ docs/adr/0014-typed-migration-in-two-stages.md  # the lockfree family has moved 
 crates/engine/tests/typed_lockfree.rs  # the default form, the save check and K2 under real threads (nv-rs#946)
 crates/engine-typed/src/lockfree/store.rs  # a comment that named stage 1 the default (nv-rs#946)
 crates/engine-typed/src/lib.rs  # the default-table test has the lockfree family in its moved form (nv-rs#946)
+crates/engine-typed/src/lockfree/iface.rs  # the scan's copy takes the time-slice steps of its memcpy in place (nv-rs#946)
+crates/engine-typed/src/lockfree/manager.rs  # the interface count takes the steps of its interlocked increment in place (nv-rs#946)

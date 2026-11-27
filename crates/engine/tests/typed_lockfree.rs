@@ -2042,6 +2042,12 @@ mod forms {
     const LOG_BYTES: u32 = 0x1_0000;
     const NEW: u32 = 0x0040_1000;
     const DELETE: u32 = 0x0040_1030;
+    const ALLOCATE: u32 = 0x00aa_3e40;
+    const DEALLOCATE: u32 = 0x00aa_4060;
+    std::thread_local! {
+        /// The address of each step of the time slice, in order ([`Run::new`]).
+        static STEPS: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
     /// The map's moved fields (`LockFreeMap`'s K1 stub).
     const MOVED_FIELDS: [u32; 4] = [4, 0xc, 0x10, 0x14];
 
@@ -2140,12 +2146,18 @@ mod forms {
             e.mem.set_u32(W_TLS, a[1]);
             ret(1)
         });
+        // The allocator's own call under each, as the exe's `operator new` and `operator delete`
+        // make it (the steps of the time slice that K2's moved blocks must still take).
+        e.register(ALLOCATE, |_, _| ret(0));
+        e.register(DEALLOCATE, |_, _| ret(0));
         e.register(NEW, |e, a| {
+            e.call(ALLOCATE, &[]);
             let p = e.mem.alloc(a[0].max(1));
             log(e, 1, a[0], p);
             ret(p)
         });
         e.register(DELETE, |e, a| {
+            e.call(DEALLOCATE, &[]);
             if a[0] != 0 {
                 log(e, 2, 0, a[0]);
                 e.mem.free(a[0]);
@@ -2164,6 +2176,8 @@ mod forms {
         poison_held: bool,
         dual: Option<(u64, u64)>,
         slab_after: Vec<(u8, u16, u64, u64)>,
+        /// The steps of the thread host's time slice the life took ([`Run::new`] counts them).
+        steps: Vec<u32>,
     }
 
     /// The family's map, its moved fields at each look, and the rest of a life's bookkeeping.
@@ -2179,6 +2193,17 @@ mod forms {
     impl Run {
         fn new(spec: &str) -> Run {
             let mut e = engine(spec);
+            // The time slice is on, as under the stepped host, and never used up: each call by
+            // address and each direct call of a typed function is one step, in every form
+            // (nv-rs#946: the stepped threads hand over after so many steps, so a form that makes
+            // fewer calls changes where they do).
+            STEPS.with(|s| s.borrow_mut().clear());
+            e.slice_hook = Some(|e, addr| {
+                STEPS.with(|s| s.borrow_mut().push(addr));
+                e.slice_left = 0;
+            });
+            e.slice_len = 0;
+            e.slice_left = 0;
             let objects = (0..8).map(|_| ref_object(&mut e, 1)).collect();
             let map = e.mem.alloc(0x40);
             Run {
@@ -2255,6 +2280,7 @@ mod forms {
                 .collect();
             let heap = logged(&self.e);
             Life {
+                steps: STEPS.with(|s| std::mem::take(&mut *s.borrow_mut())),
                 answers: self.answers,
                 references,
                 heap,
@@ -2507,6 +2533,37 @@ mod forms {
             let form = life(spec);
             assert_eq!(form.answers, stage1.answers, "{spec}: the answers");
             assert_eq!(form.references, stage1.references, "{spec}: the references");
+            if spec != "lockfree:dual" {
+                // (The dual run takes the time slice out while it does both halves of an access.)
+                // The stepped threads hand over after so many steps (calls by address and direct
+                // calls of typed functions): a form that takes fewer, or others, changes where.
+                let first = form
+                    .steps
+                    .iter()
+                    .zip(&stage1.steps)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(form.steps.len().min(stage1.steps.len()));
+                let around = |v: &[u32]| -> Vec<String> {
+                    v[first.saturating_sub(6)..(first + 6).min(v.len())]
+                        .iter()
+                        .map(|a| format!("{a:08x}"))
+                        .collect()
+                };
+                assert_eq!(
+                    form.steps.len(),
+                    stage1.steps.len(),
+                    "{spec}: steps of the time slice; first difference at {first}: form {:?}, stage 1 {:?}",
+                    around(&form.steps),
+                    around(&stage1.steps)
+                );
+                assert_eq!(
+                    form.steps,
+                    stage1.steps,
+                    "{spec}: first difference at step {first}: form {:?}, stage 1 {:?}",
+                    around(&form.steps),
+                    around(&stage1.steps)
+                );
+            }
             assert!(form.poison_held, "{spec}: the poison held");
             assert!(
                 form.slab_after.is_empty(),
@@ -2550,43 +2607,44 @@ mod forms {
         every_form(tree_life, 20);
     }
 
-    // The family moves by default (nv-rs#946): with no switch it is in K2, and the rollbacks are
+    // The family moves by default (nv-rs#946): with no switch it is in K1, and the rollbacks are
     // the switch's other forms.
 
-    /// With `NV_TYPED` silent the lock-free family is in its K2 form and lives as stage 1 does.
+    /// With `NV_TYPED` silent the lock-free family is in its K1 form and lives as stage 1 does.
     #[test]
     fn the_family_moves_by_default() {
         use engine_core::typed::{default_mode, Mode, MOVED_BY_DEFAULT};
         assert!(lockfree::LOCKFREE.stage2, "the family has a stage-2 form");
-        assert!(MOVED_BY_DEFAULT.contains(&("lockfree", Mode::Freed)));
-        assert_eq!(default_mode(&lockfree::LOCKFREE), Mode::Freed);
+        assert!(MOVED_BY_DEFAULT.contains(&("lockfree", Mode::Moved)));
+        assert_eq!(default_mode(&lockfree::LOCKFREE), Mode::Moved);
         for spec in ["", "all", "off,all"] {
             let e = engine(spec);
-            assert_eq!(e.typed_mode(lockfree::FAMILY), Mode::Freed, "{spec:?}");
+            assert_eq!(e.typed_mode(lockfree::FAMILY), Mode::Moved, "{spec:?}");
         }
-        // The rollbacks: stage 1, K1, the dual run and the translation.
+        // The rollbacks: stage 1, K2, the dual run and the translation.
         for (spec, mode) in [
             ("lockfree", Mode::On),
-            ("lockfree:moved", Mode::Moved),
+            ("lockfree:freed", Mode::Freed),
             ("lockfree:dual", Mode::Dual),
             ("lockfree:off", Mode::Off),
             ("off", Mode::Off),
         ] {
             assert_eq!(engine(spec).typed_mode(lockfree::FAMILY), mode, "{spec}");
         }
-        // The default's life is K2's and stage 1's answers.
+        // The default's life is K1's: stage 1's answers, guest heap and steps of the time slice.
         let stage1 = counted_life("lockfree");
         let default = counted_life("");
         assert_eq!(default.answers, stage1.answers);
         assert_eq!(default.references, stage1.references);
-        assert!(default.heap.is_empty(), "K2 makes no guest block");
+        assert_eq!(default.heap, stage1.heap, "K1 makes stage 1's guest blocks");
+        assert_eq!(default.steps, stage1.steps, "and takes stage 1's steps");
         assert!(default.slab_after.is_empty());
         let default = words_life("");
         assert_eq!(default.answers, words_life("lockfree").answers);
     }
 
     /// The save check: what untyped code reads of a map (its vtable, bucket count, count and lock,
-    /// so a save or a co-save that walks the object) is the same bytes in K2 as in stage 1, at
+    /// so a save or a co-save that walks the object) is the same bytes in K1 and K2 as in stage 1, at
     /// every look through a map's life; the moved fields and the spare word hold the poison and the
     /// record's handle, which no save reads (ADR-0014, "Not decided here").
     #[test]

@@ -11,8 +11,8 @@ use super::layout::{
     BucketHead, HashListNode, Holder, InterfaceManager, LockFreeMap, MapInterface, Marked, NodeSlot,
 };
 use super::store::{
-    alloc, clear_word, free, holder_set, map_get, map_store, pointer_from_holder, store, store_for,
-    swap_link, tag,
+    alloc, clear_word, free, holder_set, in_place, map_get, map_store, pointer_from_holder, store,
+    store_for, swap_link, tag,
 };
 use super::{
     field_ptr, holder, node, FAMILY, SCOPE_BEGIN, SCOPE_CONTEXT, SCOPE_END, SCOPE_MODE, SOURCE_FILE,
@@ -914,6 +914,8 @@ pub fn insert_word_in_bucket(
 const SCAN_LINE: u32 = 0x362;
 /// `memcpy` (`cdecl(to, from, bytes)`).
 const MEMCPY: u32 = 0x0040_1460;
+/// What `memcpy` takes of the time slice (itself and the C runtime's copy under it), done in place on a moved block.
+const MEMCPY_STEPS: [u32; 2] = [MEMCPY, 0x00ec_44d0];
 /// Referenced-node slots a thread.
 const SLOTS_PER_THREAD: u32 = 3;
 
@@ -964,6 +966,9 @@ fn scan_deleted_with(e: &mut Engine, this: Ptr<MapInterface>, delete: Delete) {
         if let Store::Moved { .. } = s {
             // The other half of the hazard order: the slots read after this thread's unlinks.
             fence(Ordering::SeqCst);
+        }
+        if in_place(s, copy.addr()) || in_place(s, referenced.addr()) {
+            e.typed_charge(&MEMCPY_STEPS);
         }
         s.copy(e, copy.addr(), referenced.addr(), slots, |e| {
             e.call(MEMCPY, &args![copy, referenced, slots << 2]);
