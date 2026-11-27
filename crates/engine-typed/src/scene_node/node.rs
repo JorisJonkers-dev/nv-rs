@@ -32,7 +32,7 @@ use super::lists::{
 };
 use super::FAMILY;
 use crate::lights::{self, scene_frustum, scene_light, ShadowSceneLight};
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use crate::{culling, render, scene};
 use engine_core::ptr::Ptr;
 use engine_core::types::NiTPointerList;
@@ -482,9 +482,9 @@ pub fn light_value_at(
     excluded: u32,
 ) -> f32 {
     let sum = if float_precision() {
-        light_sum::<f32>(e, this.addr(), [x, y, z], count.addr(), excluded)
+        light_sum::<Single>(e, this.addr(), [x, y, z], count.addr(), excluded)
     } else {
-        light_sum::<f64>(e, this.addr(), [x, y, z], count.addr(), excluded)
+        light_sum::<Double>(e, this.addr(), [x, y, z], count.addr(), excluded)
     };
     let sun = e.mem.u32(this.addr().wrapping_add(SUN_LIGHT));
     let ni_light = ni_light_of(e, sun);

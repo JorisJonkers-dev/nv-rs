@@ -11,7 +11,7 @@ use super::{
     FLOAT_MAX,
 };
 use crate::culling::layout::NiPoint3;
-use crate::native::{float_precision, to_float, Real};
+use crate::native::{float_precision, to_float, Double, Real, Single};
 use engine_core::ptr::Ptr;
 use engine_core::typed::leaf;
 use engine_core::x87::fistp_chop64;
@@ -452,9 +452,9 @@ pub(crate) fn xy<R: Real>(e: &Engine, p: Ptr<NiPoint3>) -> [R; 2] {
 #[inline(always)]
 pub(crate) fn side(e: &Engine, a: Ptr<NiPoint3>, b: Ptr<NiPoint3>, o: Ptr<NiPoint3>) -> f32 {
     if float_precision() {
-        cross_2d::<f32>(xy(e, a), xy(e, b), xy(e, o))
+        float(cross_2d::<Single>(xy(e, a), xy(e, b), xy(e, o)))
     } else {
-        float(cross_2d::<f64>(xy(e, a), xy(e, b), xy(e, o)))
+        float(cross_2d::<Double>(xy(e, a), xy(e, b), xy(e, o)))
     }
 }
 
@@ -489,9 +489,9 @@ pub(crate) fn barycentric(
     store: impl FnOnce(&mut Engine, f32) -> f32,
 ) -> bool {
     let height = if float_precision() {
-        barycentric_height::<f32>(e, corners, p)
+        barycentric_height::<Single>(e, corners, p)
     } else {
-        barycentric_height::<f64>(e, corners, p)
+        barycentric_height::<Double>(e, corners, p)
     };
     let Some(height) = height else {
         return false;

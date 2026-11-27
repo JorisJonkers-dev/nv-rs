@@ -8,7 +8,7 @@
 use super::layout::Point2;
 use super::{float, get, FAMILY};
 use crate::culling::layout::NiPoint3;
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use engine_core::ptr::{Field, Ptr};
 use engine_core::typed::leaf;
 use engine_core::{args, typed_call, Engine};
@@ -106,9 +106,9 @@ fn squares_xyz<R: Real>(e: &Engine, p: Ptr<NiPoint3>) -> R {
 #[inline(always)]
 pub(crate) fn squared_xy<S>(e: &Engine, p: Ptr<S>, x: Field<S, f32>, y: Field<S, f32>) -> f32 {
     if float_precision() {
-        squares_xy::<f32, S>(e, p, x, y)
+        float(squares_xy::<Single, S>(e, p, x, y))
     } else {
-        float(squares_xy::<f64, S>(e, p, x, y))
+        float(squares_xy::<Double, S>(e, p, x, y))
     }
 }
 
@@ -116,9 +116,9 @@ pub(crate) fn squared_xy<S>(e: &Engine, p: Ptr<S>, x: Field<S, f32>, y: Field<S,
 #[inline(always)]
 pub(crate) fn squared_xyz(e: &Engine, p: Ptr<NiPoint3>) -> f32 {
     if float_precision() {
-        squares_xyz::<f32>(e, p)
+        float(squares_xyz::<Single>(e, p))
     } else {
-        float(squares_xyz::<f64>(e, p))
+        float(squares_xyz::<Double>(e, p))
     }
 }
 
