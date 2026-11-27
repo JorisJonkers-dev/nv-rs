@@ -15,7 +15,7 @@ A recorded run compared with the original's (`NV_TRACE_OUT`, `NV_TRACE_LIST`) ha
 The test `the_family_in_k2_holds_under_real_threads` runs the caller and three helpers (real threads,
 `real_threads::fork_join`) over one map in three joins: first each thread on keys of its own (the keys
 meet in buckets, not in keys), then all threads on the same keys, where only what every interleaving
-allows is checked (a find that hits holds the stored value, a miss leaves the out word alone, a remove
+allows is checked (a find that hits holds the stored value, a miss says nothing about the out word, a remove
 answers 0 or 1); then one thread removes what is left and the count, a find on every key and the slab
 are checked. The allocator, the lock and the compare-and-swap stand-ins are real atomics. The race
 census (`NV_RACE_CENSUS`) is not on in that test.

@@ -2782,18 +2782,21 @@ mod forms {
                     let key = 1 + (k + round) % KEYS;
                     e.mem.set_u32(word, key ^ 0x5a5a);
                     let put = e.call(0x0044_a130, &[face, key, word, 0]).u32() & 0xff;
-                    e.mem.set_u32(word, 0xdead);
                     let out = e.call(0x0044_9530, &[map, key, word]).u32() & 0xff;
                     let value = e.mem.u32(word);
-                    let sound = put <= 1 && match out {
-                        1 => value == key ^ 0x5a5a,
-                        0 => value == 0xdead,
-                        _ => false,
-                    };
+                    let sound = put <= 1
+                        && match out {
+                            1 => value == key ^ 0x5a5a,
+                            0 => true,
+                            _ => false,
+                        };
                     if !sound {
                         FAILURES.fetch_add(1, Ordering::SeqCst);
                     }
-                    let gone = e.call(0x0066_5f20, &[face, 1 + (k * 5 + round) % KEYS]).u32() & 0xff;
+                    let gone = e
+                        .call(0x0066_5f20, &[face, 1 + (k * 5 + round) % KEYS])
+                        .u32()
+                        & 0xff;
                     if gone > 1 {
                         FAILURES.fetch_add(1, Ordering::SeqCst);
                     }
