@@ -27,6 +27,7 @@ import json
 import os
 import re
 import subprocess
+import zlib
 import sys
 import time
 from pathlib import Path
@@ -103,7 +104,16 @@ Give short findings, then end with exactly one line: `VERDICT: ACCEPT` or `VERDI
 
 
 def settings(env, prefix, default):
-    return (env.get(f"{prefix}_CLIENT", default[0]), env.get(f"{prefix}_MODEL", default[1]))
+    """(client, model). `<prefix>_MODELS` is a comma list the family name picks from, to spread load."""
+    client = env.get(f"{prefix}_CLIENT", default[0])
+    models = [m.strip() for m in env.get(f"{prefix}_MODELS", "").split(",") if m.strip()]
+    if models and f"{prefix}_MODEL" not in env:
+        return client, models[zlib.crc32(env.get("NV_PORT_FAMILY", "").encode()) % len(models)]
+    return client, env.get(f"{prefix}_MODEL", default[1])
+
+
+def family_of(model):
+    return model.split("/")[-1].split("-")[0]
 
 
 def run(cmd, cwd, env=None, check=False):
@@ -232,6 +242,11 @@ def review(env):
     family, batch = env["NV_PORT_FAMILY"], env["NV_PORT_BATCH"]
     client, model = settings(env, "NV_PORT_REVIEW", DEFAULT_REVIEWER)
     wclient, wmodel = settings(env, "NV_PORT_WORKER", DEFAULT_WORKER)
+    if family_of(model) == family_of(wmodel) and env.get("NV_PORT_REVIEW_MODELS"):
+        others = [m.strip() for m in env["NV_PORT_REVIEW_MODELS"].split(",")
+                  if m.strip() and family_of(m.strip()) != family_of(wmodel)]
+        if others:
+            model = others[0]
     if (client, model) == (wclient, wmodel):
         print("reviewer must differ from the worker", file=sys.stderr)
         return 2
