@@ -76,6 +76,16 @@ pub mod far_lights {
         APPLIED.store(factor.to_bits(), Ordering::Relaxed);
     }
 
+    /// Frames between two looks at which cells the shapes stand in: a cell loads or unloads over many frames, so
+    /// looking at every tenth is as good as at every one, for a tenth of the calls.
+    const CELL_LOOK_FRAMES: u32 = 10;
+    static FRAMES: AtomicU32 = AtomicU32::new(0);
+
+    /// Counts a frame and says whether this one looks at the cells of the shapes ([`CELL_LOOK_FRAMES`]).
+    pub(super) fn cell_look_due() -> bool {
+        FRAMES.fetch_add(1, Ordering::Relaxed) % CELL_LOOK_FRAMES == 0
+    }
+
     /// Whether a frame has to look at the far lights at all: the setting on, or shapes still shown from when
     /// it was (so a frame with the setting off and nothing shown makes no call of its own).
     pub fn wanted() -> bool {
@@ -86,6 +96,7 @@ pub mod far_lights {
     pub(super) fn reset() {
         set(false);
         APPLIED.store(NONE, Ordering::Relaxed);
+        FRAMES.store(0, Ordering::Relaxed);
     }
 
     /// How much of the night it is at `hour`, 0 by day to 1 by night, from the sky's transition hours: 0
@@ -959,6 +970,36 @@ fn far_lights_shapes(e: &mut Engine, base: u32) -> Vec<u32> {
         .collect()
 }
 
+/// The `TES` singleton pointer, `TES::GetCell` by grid position (`00451900`) and `TES::IsCellLoaded` (`004511e0`).
+const TES_SINGLETON_011DEA10: u32 = 0x011d_ea10;
+const TES_CELL_AT_00451900: u32 = 0x0045_1900;
+const TES_IS_CELL_LOADED_004511E0: u32 = 0x0045_11e0;
+/// `NiAVObject::m_kWorld.m_Translate` (x at +0x8c, y at +0x90).
+const AV_WORLD_TRANSLATE: u32 = 0x8c;
+
+/// Whether the cell a far-lights shape stands in (the shape sits at its cell's centre) is loaded: the game then
+/// draws that cell's real lamps, so the shape's points would be drawn on top of them. A shape whose position is not
+/// known yet counts as not loaded.
+fn far_lights_cell_loaded(e: &mut Engine, shape: u32) -> bool {
+    let (x, y) = (
+        e.mem.f32(shape + AV_WORLD_TRANSLATE),
+        e.mem.f32(shape + AV_WORLD_TRANSLATE + 4),
+    );
+    let tes: u32 = e.global(TES_SINGLETON_011DEA10);
+    if tes == 0 || !x.is_finite() || !y.is_finite() {
+        return false;
+    }
+    // source: cell-size-units
+    #[allow(clippy::cast_possible_truncation)] // a cell number of a world fits an i32
+    let (cx, cy) = ((x / 4096.0).floor() as i32, (y / 4096.0).floor() as i32);
+    let cell = e
+        .call(TES_CELL_AT_00451900, &args![tes, cx as u32, cy as u32])
+        .u32();
+    cell != 0
+        && e.call(TES_IS_CELL_LOADED_004511E0, &args![tes, cell, 0u32])
+            .bool()
+}
+
 /// A far-lights shape shown at `factor` ([`far_lights`]): hidden at 0 (`00450f90(1)`), else shown with its
 /// shader property's alpha at the factor.
 fn show_far_lights(e: &mut Engine, shape: u32, factor: f32) {
@@ -1004,7 +1045,13 @@ fn prepare_far_lights(e: &mut Engine, target: u32) {
             &args![target, 0u32, 0u32, value],
         );
     }
-    show_far_lights(e, target, far_lights::applied());
+    let factor = far_lights::applied();
+    let factor = if factor > 0.0 && far_lights_cell_loaded(e, target) {
+        0.0
+    } else {
+        factor
+    };
+    show_far_lights(e, target, factor);
 }
 
 /// The far lights' part of a frame ([`far_lights`], called by the sky's update with the [`far_lights::night_factor`]
@@ -1012,7 +1059,10 @@ fn prepare_far_lights(e: &mut Engine, target: u32) {
 /// every block on `BlocksLoaded` gives its far-lights shapes the new one.
 pub fn far_lights_frame(e: &mut Engine, night: f32) {
     let factor = if far_lights::on() { night } else { 0.0 };
-    if !far_lights::changes(factor) {
+    // the shapes of cells the game has loaded are left out (its real lamps are there): looked at again every few
+    // frames while shown, as cells load and unload
+    let look = factor > 0.0 && far_lights::cell_look_due();
+    if !far_lights::changes(factor) && !look {
         return;
     }
     let mut node = BLOCKS_LOADED;
@@ -1021,7 +1071,12 @@ pub fn far_lights_frame(e: &mut Engine, night: f32) {
         let block = e.mem.u32(at);
         if block != 0 {
             for shape in far_lights_shapes(e, block) {
-                show_far_lights(e, shape, factor);
+                let shown = if factor > 0.0 && far_lights_cell_loaded(e, shape) {
+                    0.0
+                } else {
+                    factor
+                };
+                show_far_lights(e, shape, shown);
             }
         }
         node = typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node));
@@ -2835,6 +2890,54 @@ mod tests {
         far_lights_frame(&mut e, 1.0);
         assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 1]]);
         assert!(!far_lights::wanted());
+        far_lights::reset();
+    }
+
+    #[test]
+    fn a_far_lights_shape_in_a_loaded_cell_is_left_out_and_comes_back_when_the_cell_unloads() {
+        let _one = FAR_LIGHTS_TESTS.lock().unwrap_or_else(|p| p.into_inner());
+        far_lights::reset();
+        let mut e = engine();
+        let (block, _first, lights, unlit) = block_with_far_lights(&mut e);
+        e.mem.set_u32(BLOCKS_LOADED, block);
+        e.mem.set_u32(BLOCKS_LOADED + 4, 0);
+        e.register(LIST_NODE_ITEM, |_, a| ret(a[0]));
+        e.register(LIST_NODE_NEXT, |e, a| ret(e.mem.u32(a[0] + 4)));
+        // The shape stands at the centre of cell (1, 1); the cell there is loaded.
+        e.mem.set_f32(lights + AV_WORLD_TRANSLATE, 6144.0);
+        e.mem.set_f32(lights + AV_WORLD_TRANSLATE + 4, 6144.0);
+        let tes = e.mem.alloc(0x10);
+        e.mem.set_u32(TES_SINGLETON_011DEA10, tes);
+        // the word after the singleton says whether the cell is loaded
+        e.mem.set_u32(tes + 4, 1);
+        e.register(TES_CELL_AT_00451900, |_, a| {
+            ret(if a[1] == 1 && a[2] == 1 { 0x7700 } else { 0 })
+        });
+        e.register(TES_IS_CELL_LOADED_004511E0, |e, a| ret(e.mem.u32(a[0] + 4)));
+        far_lights::set(true);
+        // By night, with the cell loaded: hidden, its alpha untouched.
+        e.mem.set_f32(unlit + 0x28, 7.0);
+        e.call_log = Some(vec![]);
+        far_lights_frame(&mut e, 1.0);
+        assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 1]]);
+        assert_eq!(e.mem.f32(unlit + 0x28), 7.0);
+        // The cell unloads: within ten frames the shape is shown again.
+        e.mem.set_u32(tes + 4, 0);
+        e.call_log = Some(vec![]);
+        for _ in 0..10 {
+            far_lights_frame(&mut e, 1.0);
+        }
+        assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 0]]);
+        assert_eq!(e.mem.f32(unlit + 0x28), 1.0);
+        // A cell that is not the shape's own does not hide it.
+        e.mem.set_u32(tes + 4, 1);
+        e.mem.set_f32(lights + AV_WORLD_TRANSLATE, 10240.0);
+        e.call_log = Some(vec![]);
+        for _ in 0..10 {
+            far_lights_frame(&mut e, 1.0);
+        }
+        assert_eq!(calls(&e, SET_HIDDEN_00450F90), vec![vec![lights, 0]]);
+        e.mem.set_u32(TES_SINGLETON_011DEA10, 0);
         far_lights::reset();
     }
 

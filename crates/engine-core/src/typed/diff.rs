@@ -51,7 +51,9 @@
 //! - memory after the call, every mapped page, and which pages are mapped: bytes outside the stack
 //!   for locals are compared byte by byte, and a difference names its first address and both bytes;
 //! - whether and how the run stopped: a run where both stop alike fails unless the test says that
-//!   input stops ([`Diff::expect_stops`]), since it compared nothing past the stop;
+//!   input stops ([`Diff::expect_stops`]), since it compared nothing past the stop, or the test
+//!   draws its world at random and says so ([`Diff::tolerate_garbage_stops`]), which also demands a
+//!   number of runs that go through without a stop;
 //! - the heap's top and free bytes, the control word and the clock after the call.
 //!
 //! With [`Diff::float_ulps`], the words that read as floats compare within a number of ulps
@@ -453,6 +455,8 @@ pub struct Diff {
     all_words: bool,
     max_cases: usize,
     stop_cases: Option<StopCases>,
+    /// [`Diff::tolerate_garbage_stops`]: the runs that must go through without a stop.
+    garbage_stops: Option<usize>,
     stack_bytes: u32,
     nan_payloads: bool,
     max_calls: usize,
@@ -481,6 +485,7 @@ impl Diff {
             all_words: all_words_from_env(),
             max_cases: 512,
             stop_cases: None,
+            garbage_stops: None,
             stack_bytes: 64,
             max_calls: DEFAULT_MAX_CALLS,
             nan_payloads: false,
@@ -669,6 +674,16 @@ impl Diff {
         self
     }
 
+    /// For a world drawn at random, where a run may stop on a null pointer field or on the call budget
+    /// on both sides alike: such a stop is not a failure (the two stops are still compared), but at
+    /// least `min_through` runs must go through without one, or the test compared nothing real. A stop at
+    /// an address other than 0 that the setup lacks a double for still fails. Use the exact
+    /// [`Diff::expect_stops`] where the stopping inputs are known.
+    pub fn tolerate_garbage_stops(mut self, min_through: usize) -> Diff {
+        self.garbage_stops = Some(min_through);
+        self
+    }
+
     /// The most calls one run may make (100,000 by default, the direct `typed_call!`s noted with
     /// them): past it the run stops with "call budget spent", so a wrong version that loops for
     /// good shows as a stop on its side, not as a log that grows until the machine runs out.
@@ -764,6 +779,7 @@ impl Diff {
     #[must_use = "the report says whether they agreed: call `assert_same`"]
     pub fn run(&self) -> Report {
         let mut report = Report {
+            min_through: self.garbage_stops.unwrap_or(0),
             control_words: self.words_to_run(),
             ..Report::default()
         };
@@ -802,7 +818,9 @@ impl Diff {
         match (&translation.stop, &typed.stop) {
             (Some(a), Some(b)) if a == b => {
                 report.stopped += 1;
-                if !expected || a.starts_with("open function") {
+                let garbage = self.garbage_stops.is_some()
+                    && (!a.starts_with("open function") || a.starts_with("open function 00000000"));
+                if (!expected || a.starts_with("open function")) && !garbage {
                     report.note(
                         case,
                         word,
@@ -2164,6 +2182,8 @@ pub struct Report {
     pub skipped_runs: usize,
     /// Of those, the runs where both sides stopped alike.
     pub stopped: usize,
+    /// [`Diff::tolerate_garbage_stops`]: the runs that must go through without a stop (0: no demand).
+    pub min_through: usize,
     /// Of those, the runs whose direct branch ran too (none without debug assertions).
     pub direct_runs: usize,
     /// The `typed_call!`s that went direct on those runs. 0 for a function with one means no family
@@ -2246,6 +2266,13 @@ impl Report {
         assert!(self.runs > 0, "nothing ran: no case was generated");
         assert!(self.found == 0, "{self}");
         assert!(
+            self.runs.saturating_sub(self.stopped) >= self.min_through,
+            "only {} of {} runs went through without a stop, {} needed: the world reaches no real path ({self})",
+            self.runs.saturating_sub(self.stopped),
+            self.runs,
+            self.min_through
+        );
+        assert!(
             self.unnamed.is_empty(),
             "typed_call! at {:08x?} went by address: no family this test names holds it, so the \
              function it names ran nowhere. Name its family with `.family(..)`, or list the address \
@@ -2256,7 +2283,10 @@ impl Report {
 
     /// Whether something ran, nothing differed and every `typed_call!`'s function ran.
     pub fn is_same(&self) -> bool {
-        self.runs > 0 && self.found == 0 && self.unnamed.is_empty()
+        self.runs > 0
+            && self.found == 0
+            && self.runs.saturating_sub(self.stopped) >= self.min_through
+            && self.unnamed.is_empty()
     }
 }
 
@@ -3086,6 +3116,55 @@ mod tests {
             })
             .run();
         assert_eq!((report.runs, report.stopped, report.found), (2, 1, 1));
+    }
+
+    /// A garbage stop is let through when enough runs go through without one, and not otherwise.
+    #[test]
+    fn garbage_stops_are_tolerated_only_beside_runs_that_go_through() {
+        let diff = |min: usize| {
+            Diff::new(crate::entry!(0x0040_2000, reads(u32) -> u32))
+                .translation(crate::entry!(0x0040_2000, reads(u32) -> u32).1)
+                .inputs(&[Input::Of(&[0x0200_0000, 0x0300_0000])])
+                .control_words(&[OTHER_THREADS])
+                .setup(|e, case| {
+                    e.map(0x0200_0000, 4);
+                    case.words()
+                })
+                .tolerate_garbage_stops(min)
+                .run()
+        };
+        let report = diff(1);
+        assert!(report.is_same(), "{report}");
+        assert_eq!((report.runs, report.stopped), (2, 1));
+        let report = diff(2);
+        assert!(!report.is_same(), "{report}");
+    }
+
+    /// Control: tolerating garbage stops does not excuse a real difference, whether in the result of a run
+    /// that goes through or in a stop only one side takes.
+    #[test]
+    fn tolerating_garbage_stops_still_catches_a_real_difference() {
+        fn one(_: &mut Engine, _: u32) -> u32 {
+            1
+        }
+        fn two(_: &mut Engine, _: u32) -> u32 {
+            2
+        }
+        let report = Diff::new(crate::entry!(0x0040_2000, two(u32) -> u32))
+            .translation(crate::entry!(0x0040_2000, one(u32) -> u32).1)
+            .inputs(&[Input::Of(&[1])])
+            .control_words(&[OTHER_THREADS])
+            .tolerate_garbage_stops(0)
+            .run();
+        assert!(!report.is_same(), "{report}");
+        // One side stops where the other does not.
+        let report = Diff::new(crate::entry!(0x0040_2000, one(u32) -> u32))
+            .translation(crate::entry!(0x0040_2000, reads(u32) -> u32).1)
+            .inputs(&[Input::Of(&[0x0300_0000])])
+            .control_words(&[OTHER_THREADS])
+            .tolerate_garbage_stops(0)
+            .run();
+        assert!(!report.is_same(), "{report}");
     }
 
     /// A callee with no double stops both sides at its address, and no flag excuses it.

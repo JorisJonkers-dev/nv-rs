@@ -20,7 +20,7 @@ again in each worktree before any of its work is accepted.
 Usage:
     python3 -I scripts/fork/porting_loop.py batch [--count N] [--name NAME]
     python3 -I scripts/fork/porting_loop.py shakedown [--count 100]
-    python3 -I scripts/fork/porting_loop.py weekly [--days 7] [--out FILE]
+    python3 -I scripts/fork/porting_loop.py weekly [--days 7] [--out FILE] [--since DATE]
 """
 import argparse
 import concurrent.futures
@@ -522,8 +522,7 @@ def rate_lines(rate):
         "## Rate",
         "",
         f"- Model runs: {rate['model_runs']}",
-        f"- Build seconds: {rate['build_seconds']:.1f}",
-        f"- Diff seconds: {rate['diff_seconds']:.1f}",
+        f"- Lab seconds (build and Diff together): {rate['lab_seconds']:.1f}",
         f"- Wall seconds: {wall:.1f}",
         f"- Verified functions per hour: {per_hour:.2f}",
     ]
@@ -785,8 +784,8 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             "skipped": list(skipped), "stale": list(stale),
             "rejected": list(rejected), "branch": batch_branch,
             "rate": {
-                "model_runs": tally["runs"], "build_seconds": tally["lab"],
-                "diff_seconds": tally["lab"], "wall_seconds": time.time() - started_at,
+                "model_runs": tally["runs"], "lab_seconds": tally["lab"],
+                "wall_seconds": time.time() - started_at,
                 "delivered": sum(len(f["delivered"]) for f in accepted),
             },
         }
@@ -1074,10 +1073,22 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             release_claim(held, root, env)
 
 
-def weekly(root=REPO, days=7, env=None, today=None, out=None, call=call):
-    """Delivered verified functions per day, from the queue and the committed log."""
+def weekly(root=REPO, days=7, env=None, today=None, out=None, call=call, since=None):
+    """Delivered verified functions per day, from the queue and the committed log.
+
+    With `since`, also compare its rate with the same number of days before it.
+    """
     root = Path(root)
     today = today or datetime.date.today()
+    if isinstance(since, str):
+        try:
+            since = datetime.date.fromisoformat(since)
+        except ValueError:
+            print("failed: --since must be an ISO date (YYYY-MM-DD)", file=sys.stderr)
+            return 1
+    if since is not None and since > today:
+        print("failed: --since must not be after today", file=sys.stderr)
+        return 1
     env = dict(os.environ if env is None else env)
     try:
         rows = queue(root, env, call)
@@ -1086,7 +1097,7 @@ def weekly(root=REPO, days=7, env=None, today=None, out=None, call=call):
         return 1
     verified = {r["address"] for r in rows if r["state"] == "reference-verified"}
     first = today - datetime.timedelta(days=days - 1)
-    counts = {}
+    counts = {}  # every log date, so a before/after window need not be in the table's
     records = deliveries(root)
     dropped = 0
     for record in records:
@@ -1098,26 +1109,43 @@ def weekly(root=REPO, days=7, env=None, today=None, out=None, call=call):
             date = datetime.date.fromisoformat(record["date"])
         except (KeyError, ValueError):
             continue
-        if first <= date <= today:
-            counts[date.isoformat()] = counts.get(date.isoformat(), 0) + 1
+        counts[date] = counts.get(date, 0) + 1
     # A function first seen as verified now is credited to today. The count is
     # derived from the queue, so a clean checkout still gets the same table.
     known = {record.get("address") for record in records}
     for address in verified - known:
-        key = today.isoformat()
-        counts[key] = counts.get(key, 0) + 1
+        counts[today] = counts.get(today, 0) + 1
+    visible = {date: n for date, n in counts.items() if first <= date <= today}
+    total = sum(visible.values())
     lines = [
         "<!-- SPDX-License-Identifier: GPL-3.0-only -->",
         "# Weekly porting rate", "",
         "| date | delivered verified functions |",
         "| --- | --- |",
     ]
-    lines += [f"| {date} | {counts[date]} |" for date in sorted(counts)]
+    lines += [f"| {date.isoformat()} | {visible[date]} |" for date in sorted(visible)]
     lines += ["", f"- Window: {first.isoformat()} to {today.isoformat()}",
-              f"- Total: {sum(counts.values())}",
+              f"- Total: {total}",
               f"- Verified functions per hour: "
-              f"{sum(counts.values()) / (days * 24) if days > 0 else 0.0:.2f}",
-              f"- Delivery records without a queue row: {dropped}", ""]
+              f"{total / (days * 24) if days > 0 else 0.0:.2f}",
+              f"- Delivery records without a queue row: {dropped}"]
+    if since is not None:
+        span = (today - since).days + 1
+
+        def total_between(start, end):
+            return sum(n for date, n in counts.items() if start <= date <= end)
+
+        before = total_between(since - datetime.timedelta(days=span),
+                               since - datetime.timedelta(days=1))
+        after = total_between(since, today)
+        lines += [
+            "", f"## Rate before and after {since.isoformat()}", "",
+            f"- Before: {before} verified functions in {span} days "
+            f"({before / (span * 24):.2f} per hour)",
+            f"- After: {after} verified functions in {span} days "
+            f"({after / (span * 24):.2f} per hour)",
+        ]
+    lines.append("")
     text = "\n".join(lines)
     if out is not None:
         out = Path(out)
@@ -1141,9 +1169,11 @@ def main(argv=None):
     week_parser = modes.add_parser("weekly", help="report delivered verified functions per day")
     week_parser.add_argument("--days", type=int, default=7)
     week_parser.add_argument("--out", type=Path)
+    week_parser.add_argument("--since", type=datetime.date.fromisoformat, default=None,
+                             help="ISO date to compare the delivery rate before and after")
     args = parser.parse_args(argv)
     if args.mode == "weekly":
-        return weekly(root=args.root, days=args.days, out=args.out)
+        return weekly(root=args.root, days=args.days, out=args.out, since=args.since)
     return batch(root=args.root, count=args.count, name=args.name,
                  shakedown=args.mode == "shakedown")
 

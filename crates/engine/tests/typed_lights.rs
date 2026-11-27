@@ -3141,6 +3141,10 @@ mod scene_light {
                     _ => (NAN, f(7)),
                 };
                 words(e, 0x011f_9444, &[near, far, f(3), far]);
+                // The fork's `light.lamp_distance` scales the dimmer's fade distances: the game's (1) and
+                // 8 on the case that gives the near distance 50 (its far is the swept float), so a
+                // lamp beyond the game's far distance is kept by both versions alike.
+                engine_core::lamp_distance::set(if case.word(16) == 2 { 8.0 } else { 1.0 });
                 e.mem.set_u32(0x011f_9410, f(5));
                 e.mem.set_u32(0x011a_d834, HALF);
                 let tls = e.tls();
