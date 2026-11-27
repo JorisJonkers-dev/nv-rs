@@ -171,8 +171,10 @@ jobs:
       # runner's CPU is part of the result: it is in the summary.
       - name: Runner CPU
         if: ${{ runner.os == 'Linux' }}
+        env:
+          JOB_NAME: ${{ matrix.name }}
         run: |
-          echo "CPU of ${{ matrix.name }}: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs), $(nproc) vCPU" >>"$GITHUB_STEP_SUMMARY"
+          echo "CPU of $JOB_NAME: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs), $(nproc) vCPU" >>"$GITHUB_STEP_SUMMARY"
       - name: Test ${{ matrix.component }}
         env:
           SCRIPT: ${{ matrix.script }}
