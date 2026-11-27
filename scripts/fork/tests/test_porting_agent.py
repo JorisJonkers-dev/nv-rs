@@ -159,6 +159,33 @@ class AgentTest(unittest.TestCase):
         same = dict(self.env, NV_PORT_REVIEW_CLIENT="pi-free", NV_PORT_REVIEW_MODEL="free/deepseek-v4.1-flash")
         self.assertEqual(porting_agent.review(same), 2)
 
+    def test_parse_verdict_accepts_format_variants(self):
+        pv = porting_agent.parse_verdict
+        for text in ("VERDICT: ACCEPT", "**VERDICT:** accept", "verdict: Accept.", "> `VERDICT: ACCEPT`",
+                     "- **Verdict**: ACCEPT", "x\nVERDICT: REJECT\nVERDICT: ACCEPT\n"):
+            self.assertEqual(pv(text), "ACCEPT", text)
+        self.assertEqual(pv("# VERDICT: reject"), "REJECT")
+        for text in ("", None, "I would accept this", "VERDICT: ACCEPTABLE", "the verdict: unclear"):
+            self.assertEqual(pv(text), "NONE", repr(text))
+
+    def test_review_without_a_verdict_asks_the_next_reviewer_once(self):
+        (self.wt / "f.rs").write_text("a")
+        git(self.wt, "add", "-A")
+        git(self.wt, "commit", "-qm", "feat: f")
+        env = dict(self.env, NV_PORT_REVIEW_MODELS="opencode:a/glm-x,pi-free:free/minimax-m3,pi-free:free/qwen3.6-35b-a3b")
+        asked = []
+
+        def run(env_, payload, sandbox=None):
+            asked.append(payload["model"])
+            return {"status": "ok", "output": "VERDICT: ACCEPT" if len(asked) == 2 else "looks fine"}
+
+        with mock.patch.object(porting_agent, "gateway", run):
+            self.assertEqual(porting_agent.review(env), 0)
+        self.assertEqual(len(asked), 2)
+        asked.clear()
+        with mock.patch.object(porting_agent, "gateway", lambda *a, **k: {"status": "ok", "output": "fine"}):
+            self.assertEqual(porting_agent.review(env), 1)
+
     def test_a_limited_model_falls_over_to_the_next_and_cools_down(self):
         env = dict(self.env, NV_PORT_WORKER_MODELS="free/deepseek-v4.1-flash,opencode:opencode-go/hy4-flash-free",
                    NV_PORT_FAMILY="small")

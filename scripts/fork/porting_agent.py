@@ -41,7 +41,7 @@ except ImportError:  # Windows: the slot lock is not taken
 FORK = Path(__file__).resolve().parent
 REPO = FORK.parent.parent
 RULEBOOK = Path("docs") / "fork" / "PORTING-RULEBOOK.md"
-VERDICT = re.compile(r"^\s*VERDICT:\s*(ACCEPT|REJECT)\b", re.MULTILINE | re.IGNORECASE)
+VERDICT = re.compile(r"^[\s>*_`#-]*VERDICT[\s*_`]*[:=-][\s*_`]*(ACCEPT|REJECT)(?![A-Za-z])", re.MULTILINE | re.IGNORECASE)
 DEFAULT_WORKER = ("pi-free", "free/deepseek-v4.1-flash")
 DEFAULT_REVIEWER = ("pi-free", "free/glm-5.3-flash")
 MAX_DIFF = 60000
@@ -143,7 +143,14 @@ The commit's diff:
 
 {diff}
 
-Give short findings, then end with exactly one line: `VERDICT: ACCEPT` or `VERDICT: REJECT`.
+Give short findings, then end with the required last line, on its own line with nothing after it:
+VERDICT: ACCEPT
+or
+VERDICT: REJECT
+An answer without that last line counts as a rejection. Example of a complete answer:
+
+Every row has a marker, a registration and a case that compares real inputs. No checker file changed.
+VERDICT: ACCEPT
 """
 
 
@@ -410,6 +417,12 @@ def work(env):
     return 0
 
 
+def parse_verdict(text):
+    """ACCEPT, REJECT or NONE: the last `VERDICT: x` line, in any case and with markdown around it."""
+    found = VERDICT.findall(text or "")
+    return found[-1].upper() if found else "NONE"
+
+
 def review(env):
     worktree = Path(env["NV_PORT_WORKTREE"])
     family, batch = env["NV_PORT_FAMILY"], env["NV_PORT_BATCH"]
@@ -429,22 +442,28 @@ def review(env):
     payload = {"workflow": f"porting-review-{batch}-{family}"[:80], "client": options[0][0], "model": options[0][1],
                "mode": "read-only", "prompt": prompt, "repo": str(worktree),
                "time_limit_s": int(env.get("NV_PORT_TIME_LIMIT", "1500")), "escalate": False}
-    started, result = time.time(), {}
+    started, result, text, verdict, answers = time.time(), {}, "", "NONE", 0
     for client, model in options:
         payload.update({"client": client, "model": model})
         started = time.time()
         with provider_slot(env, model):
             result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
-        if not is_limited(result):
+        if is_limited(result):
+            mark_limited(env, model, json.dumps(result))
+            print(f"{model} is limited; trying the next reviewer", file=sys.stderr)
+            continue
+        text = result.get("summary") or result.get("output") or ""
+        verdict = parse_verdict(text)
+        metrics(env, {"role": "reviewer", "family": family, "batch": batch, "client": client, "model": model,
+                      "seconds": round(time.time() - started, 1), "status": result.get("status"),
+                      "verdict": verdict, "usage": result.get("usage") or result.get("tokens")})
+        if verdict != "NONE":
             break
-        mark_limited(env, model, json.dumps(result))
-        print(f"{model} is limited; trying the next reviewer", file=sys.stderr)
-    text = result.get("summary") or result.get("output") or ""
-    verdicts = VERDICT.findall(text)
-    verdict = verdicts[-1].upper() if verdicts else "NONE"
-    metrics(env, {"role": "reviewer", "family": family, "batch": batch, "client": client, "model": model,
-                  "seconds": round(time.time() - started, 1), "status": result.get("status"),
-                  "verdict": verdict, "usage": result.get("usage") or result.get("tokens")})
+        # No verdict line (empty or off-format answer): ask the next reviewer of another family once.
+        print(f"{model} gave no verdict; trying the next reviewer", file=sys.stderr)
+        answers += 1
+        if answers >= 2:
+            break
     print(text[-3000:])
     return 0 if result.get("status") == "ok" and verdict == "ACCEPT" else 1
 
