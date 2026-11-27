@@ -1,0 +1,1 @@
+crates/engine-core/src/engine.rs  # a helper engine with a placed stack keeps its locals on that one stack whichever game thread is current, instead of stopping when the Havok helper is posted from another thread (nv-rs#997); drop when upstream does the same
