@@ -388,3 +388,144 @@ fn the_last_camera_is_the_draws_own_while_the_extra_passes_start() {
     capture::end(&mut e);
     assert_eq!(e.mem.u32(LAST_CAMERA), 0xcccc, "main started last");
 }
+
+/// The pass set of the cut is the passes the draw begins, not the table read by type (nv-rs#992 step 2): the pass
+/// table `011fdff8` is the shadow light shader's, indexed by type; lighting 3.0 reads it at a place of its own for a
+/// type (`pass_case`), and the sky, leaf and tall grass shaders read words of their own object. A word of the table that
+/// is not a pass (the `0x11` that `00b78a40`'s tests keep in it) is left alone, not walked.
+#[test]
+fn the_pass_objects_are_those_the_listed_passes_begin_and_a_non_pointer_entry_is_left_alone() {
+    let Passes {
+        mut e,
+        pass,
+        stages,
+        caches,
+        ..
+    } = passes();
+    // A sentinel in the entry of type 0 and an unmapped pointer in type 1's, a pass of type 7's entry that is not a pass
+    // (a stage count of 0x40).
+    e.mem.set_u32(PASS_TABLE, 0x11);
+    e.mem.set_u32(PASS_TABLE + 4, 0x7f00_0000);
+    let fake = e.mem.alloc(0x80);
+    e.mem.set_u32(fake + 0x18, 0x40);
+    e.mem.set_u32(PASS_TABLE + 4 * 7, fake);
+    assert!(capture::begin(&e));
+    statics::take_pass_objects(&mut e, None);
+    for (what, addr, len) in [
+        ("the pass of type 9", pass + 0x30, 4),
+        ("its stage 0", stages[0] + 8, 4),
+        ("its cache", caches[0], 0xb8),
+    ] {
+        assert!(capture::owns(&e, addr, len), "{what} is not taken");
+    }
+    assert!(
+        !capture::owns(&e, fake + 0x30, 4),
+        "a word that is not a pass is walked as one"
+    );
+    capture::end(&mut e);
+}
+
+/// A shader's own pass word (the leaf shader's +0x384) is a pass the draw begins that the table does not name: the
+/// listed passes' shaders give it, the table by type does not.
+#[test]
+fn a_pass_the_listed_shader_holds_is_taken_though_no_table_entry_names_it() {
+    let Passes { mut e, pass, .. } = passes();
+    let own_pass = e.mem.alloc(0x80);
+    e.mem.set_u32(own_pass + 0x24, 0);
+    let block = e.mem.alloc(0x20);
+    e.mem.set_u32(own_pass + 0x30, block);
+    let shader = e.mem.alloc(0x400);
+    e.mem.set_u32(shader, 0x010b_9190);
+    e.mem.set_u32(shader + 0x384, own_pass);
+    let geometry = e.mem.alloc(0x100);
+    e.mem.set_u32(geometry + 0xc0, shader);
+    let render_pass = e.mem.alloc(0x40);
+    // A listed pass of type 9 (the table's) with this geometry.
+    e.mem.set_u32(render_pass, geometry);
+    e.mem.set_u16(render_pass + 4, 9);
+    assert!(capture::begin(&e));
+    statics::take_pass_objects(&mut e, Some(&[render_pass]));
+    assert!(
+        capture::owns(&e, pass + 0x30, 4),
+        "the table's pass for the type"
+    );
+    assert!(
+        capture::owns(&e, own_pass + 0x30, 4),
+        "the shader's own pass"
+    );
+    assert!(capture::owns(&e, block, 0x14), "its render state block");
+    capture::end(&mut e);
+}
+
+/// The sun query's set-up reads the shader's counted maps through the packet: `00b7a870` (here a stand-in that sets them as
+/// the typed code does, into the packet) leaves them there while the guest keeps the old ones; a bare guest read would call the
+/// old maps.
+#[test]
+fn the_sun_query_calls_the_counted_maps_the_set_up_made() {
+    let mut e = Engine::new();
+    for (base, len) in [(0x011f_4000u32, 0x1000u32), (0x011f_9000, 0x7000)] {
+        if !e.mem.is_mapped(base) {
+            e.map(base, len);
+        }
+    }
+    let shader = e.mem.alloc(0x100);
+    let mut slots = [0u32; 0x10];
+    slots[0x24 / 4] = 0x0f00_0024;
+    e.put_vtable(0x0f00_3000, &slots);
+    let objects = [0u32; 4].map(|_| e.mem.alloc(8));
+    for o in objects {
+        e.mem.set_u32(o, 0x0f00_3000);
+    }
+    let [old_first, old_second, new_first, new_second] = objects;
+    e.mem.set_u32(shader + 0x34, old_first);
+    e.mem.set_u32(shader + 0x30, old_second);
+    // Non-capturing stand-ins: their data sits in guest memory (a log of the called objects at LOG).
+    const DATA: u32 = 0x011f_9100;
+    e.mem.set_u32(DATA, shader);
+    e.mem.set_u32(DATA + 4, new_first);
+    e.mem.set_u32(DATA + 8, new_second);
+    e.register(0x0f00_0024, |e, a| {
+        let n = e.mem.u32(DATA + 0x10);
+        e.mem.set_u32(DATA + 0x14 + 4 * n, a[0]);
+        e.mem.set_u32(DATA + 0x10, n + 1);
+        engine_core::Ret::default()
+    });
+    e.register(0x00b5_5560, |e, _| engine_core::Ret {
+        eax: e.mem.u32(DATA),
+        ..engine_core::Ret::default()
+    });
+    e.register(0x00b7_a870, |e, _| {
+        let shader = e.mem.u32(DATA);
+        let (first, second) = (e.mem.u32(DATA + 4), e.mem.u32(DATA + 8));
+        capture::set_own_at(e, shader + 0x34, first);
+        capture::set_own_at(e, shader + 0x30, second);
+        engine_core::Ret::default()
+    });
+    for f in [
+        0x00c4_ed70u32,
+        0x004e_9bb0,
+        0x00ba_8ec0,
+        0x00b9_94f0,
+        0x00c4_edb0,
+        0x00ba_8cd0,
+    ] {
+        e.register(f, |_, _| engine_core::Ret::default());
+    }
+    let acc = e.mem.alloc(0x200);
+    let query = e.mem.alloc(8);
+    e.mem.set_u32(acc + 0x48, query);
+    let geometry = e.mem.alloc(0x100);
+    assert!(capture::begin(&e));
+    capture::own(&e, shader, 0x28, 0x38);
+    e.call(0x00b6_4bf0, &[acc, geometry, 0, 0]);
+    assert_eq!(
+        [
+            e.mem.u32(DATA + 0x10),
+            e.mem.u32(DATA + 0x14),
+            e.mem.u32(DATA + 0x18)
+        ],
+        [2, new_first, new_second],
+        "the query called the maps the guest still holds"
+    );
+    capture::end(&mut e);
+}

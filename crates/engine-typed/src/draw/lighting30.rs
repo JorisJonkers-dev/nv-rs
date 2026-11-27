@@ -1754,7 +1754,7 @@ const PASS_TABLE: u32 = 0x0120_0ec0;
 /// its own case, `0x17f` to `0x2ed` through the bytes `00c0b970` into the table `00c0b7c0`; decoded from the exe):
 /// the shader's field whose word goes into its counted pointer +0x28, the pass's place in the pass table, and
 /// whether the pass is read after the assignment rather than before it.
-fn pass_case(pass_type: u32) -> Option<(u32, u32, bool)> {
+pub(crate) fn pass_case(pass_type: u32) -> Option<(u32, u32, bool)> {
     Some(match pass_type {
         0xa => (0x7c, 0x4, false),
         0xb => (0x8c, 0x8, false),

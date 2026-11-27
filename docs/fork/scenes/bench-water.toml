@@ -1,0 +1,26 @@
+# Places with water in view under an open sky (the Colorado at Cottonwood Cove, Lake Mead's Boulder Beach, Hoover Dam's
+# river from the south): the draw gate's scenes for the sun query and the water shader, which the quick suite has none of.
+# Run with `nv-rs-scene bench --places docs/fork/scenes/bench-water.toml`.
+version = 1
+[[place]]
+name = "cottonwood-cove"
+world = "WastelandNV"
+x = 63127
+y = -89233
+z = 114
+heading = 90
+[[place]]
+name = "boulder-beach"
+world = "WastelandNV"
+x = 53808
+y = 38384
+z = 3850
+heading = 60
+[[place]]
+name = "hoover-dam-from-the-south"
+world = "WastelandNV"
+ref = "VHDMapMarkerREF"
+dx = -6000
+dy = -12000
+dz = 600
+look_at = "VHDMapMarkerREF"
