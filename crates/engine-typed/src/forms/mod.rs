@@ -107,6 +107,7 @@ pub mod actor_base;
 pub mod actor_base_data;
 pub mod ai_form;
 pub mod animation;
+pub mod array;
 pub mod attributes;
 pub mod conditions;
 pub mod debug_string;
@@ -130,7 +131,7 @@ pub static FORMS: Family = Family {
     id: FAMILY,
     past_gate: true,
     threads: Threads::Both,
-    stage2: false,
+    stage2: true,
     funcs,
 };
 
@@ -138,6 +139,15 @@ pub static FORMS: Family = Family {
 #[rustfmt::skip]
 fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
+        entry!(0x0047_0110, array::destructor(u32)),
+        entry!(0x0047_0140, array::add(u32, u32) -> u32),
+        entry!(0x0047_01d0, array::construct(u32, u32, u32) -> u32),
+        entry!(0x0047_05e0, array::construct_base(u32, u32, u32) -> u32),
+        entry!(0x0048_6b80, array::remove_at(u32, u32) -> u32),
+        entry!(0x0061_bd20, array::set_at(u32, u32, u32)),
+        entry!(0x0086_3db0, array::clear(u32)),
+        entry!(0x0086_4240, array::set_at_grow(u32, u32, u32) -> u32),
+        entry!(0x0086_4280, array::set_size(u32, u32)),
         entry!(0x0048_3370, tesform::construct(u32) -> u32),
         entry!(0x0048_35e0, tesform::handler_loading_file(u32) -> u32),
         entry!(0x0048_3600, tesform::scalar_deleting_destructor(u32, u32) -> u32),
