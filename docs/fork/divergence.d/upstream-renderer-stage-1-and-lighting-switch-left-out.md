@@ -1,7 +1,7 @@
-### Upstream renderer stage 1 and the lighting switch, left out
+### Upstream renderer stage 1 and the lighting switch, brought in late
 - Files: the entry `.fork/allowed-divergence.d/upstream-1099-1108-renderer-left-out`: the kept draw records (`d3d9-stream/src/kept.rs` and its command, wire and test parts, `engine-typed/src/draw/keep.rs`, `engine-core/src/draw_items.rs`, `engine-platform/src/d3d9items.rs`), the lighting worker and its tests (`d3d9-wgpu/src/lighting_ahead.rs`, the `lighting_*` tests, `host/src/scene_light.rs`), and the launcher and test lines that go with them
 - Upstream approach: slaterain/nv-rs#1108 records the world's still lit objects as kept items and draws them again (`NV_DRAW_ITEMS`, off by default); #1099 makes Shift+F11 switch sun shadows and ambient occlusion while playing, with a worker thread that builds their pipelines and surfaces ahead
-- Fork approach: neither is replayed. Both rewrite the renderer's device, the scene-light pass, the frame-rate code and the host's start-up in the places where the fork has its own graphics settings overlay, AO quality, sun lookup, detached world draw and draw blocks. The fork keeps its own
-- Decision: kept out until a design joins them with the fork's draw thread and overlay; tracked in two issues (linked from the sync pull request). Upstream's README commit #1111 was also left out, as it rewrites a page the fork replaces, and removes the jip test of the README's JIP LN row that the fork's README still needs
-- Reason: a 3,000 line and a 5,300 line renderer change cannot be merged line by line with the fork's renderer work without breaking its threading
-- Evidence: the sync pull request's per-commit table; the conflicts in `d3d9-wgpu/src/device.rs`, `scene_light.rs`, `engine-core/src/mem.rs`, `engine-typed/src/draw/drivers.rs`, `render/stage.rs` and `host/src/lib.rs`
+- Fork approach: both are now in the fork, each as its own commit joined with the fork's work (`lighting-switch-with-the-graphics-overlay`, `draw-items-with-the-detached-draw`). The entry stays because these files still differ from upstream's newest versions (upstream moved on after the commits)
+- Decision: keep the entry until a sync makes the files equal to upstream's; drop it then
+- Reason: they were left out of the sync of 2026-11-27 because they collide with the fork's renderer work; they are brought in late as ordinary commits
+- Evidence: docs/fork/LIGHTING-SWITCH.md and docs/fork/DRAW-ITEMS.md; the pull requests' recordings
