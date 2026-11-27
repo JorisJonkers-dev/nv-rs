@@ -3116,6 +3116,28 @@ mod tests {
         assert_eq!((report.runs, report.stopped, report.found), (2, 1, 1));
     }
 
+    /// A garbage stop is let through when enough runs go through without one, and not otherwise.
+    #[test]
+    fn garbage_stops_are_tolerated_only_beside_runs_that_go_through() {
+        let diff = |min: usize| {
+            Diff::new(crate::entry!(0x0040_2000, reads(u32) -> u32))
+                .translation(crate::entry!(0x0040_2000, reads(u32) -> u32).1)
+                .inputs(&[Input::Of(&[0x0200_0000, 0x0300_0000])])
+                .control_words(&[OTHER_THREADS])
+                .setup(|e, case| {
+                    e.map(0x0200_0000, 4);
+                    case.words()
+                })
+                .tolerate_garbage_stops(min)
+                .run()
+        };
+        let report = diff(1);
+        assert!(report.is_same(), "{report}");
+        assert_eq!((report.runs, report.stopped), (2, 1));
+        let report = diff(2);
+        assert!(!report.is_same(), "{report}");
+    }
+
     /// A callee with no double stops both sides at its address, and no flag excuses it.
     #[test]
     fn an_untranslated_callee_fails_even_when_stops_are_expected() {

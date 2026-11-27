@@ -163,3 +163,12 @@ scripts/estimate-measure/
 scripts/ledger/
 scripts/mmio-measure/
 scripts/vorbis-record/
+crates/engine-core/src/typed/form_array.rs
+crates/engine-typed/src/forms/array.rs
+crates/engine/tests/typed_form_array.rs
+crates/engine-typed/src/extra_data/nodes/layouts.rs
+crates/engine-typed/src/extra_data/nodes/mod.rs
+crates/engine-typed/src/extra_data/nodes/objects.rs
+crates/engine-typed/src/extra_data/nodes/objects_p2.rs
+crates/engine-typed/src/extra_data/nodes/objects_p3.rs
+crates/engine/tests/typed_extra_nodes.rs

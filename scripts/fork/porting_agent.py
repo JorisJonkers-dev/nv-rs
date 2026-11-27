@@ -18,6 +18,7 @@ Configuration (environment, nothing machine-specific in this file):
     NV_PORT_SLOTS                                  concurrent writing runs (default 2)
     NV_PORT_TIME_LIMIT                             seconds per model run (default 1500)
     NV_PORT_METRICS                                JSON lines file the runs are logged to
+    NV_PORT_FAILURE_FILE                           previous attempt's failure, added to the work prompt
 
 Usage:
     python3 -I scripts/fork/porting_agent.py work
@@ -78,6 +79,7 @@ The rulebook every batch follows:
 
 {rulebook}
 
+{previous}
 End your last message with one line per function: `TYPED <address>` or `SKIPPED <address>: <reason>`.
 """
 
@@ -144,6 +146,12 @@ def mark_limited(env, model, text):
         print(f"cooldown not written: {exc}", file=sys.stderr)
 
 
+def is_foreign_only(result):
+    """A failed run whose only fault is the gateway noticing another run's worktree, with work staged."""
+    return (result.get("status") == "failed" and result.get("reason") == "foreign-worktree-change"
+            and bool(result.get("worktree")) and bool(result.get("staged_files")))
+
+
 def is_limited(result):
     return result.get("status") != "ok" and bool(LIMITED.search(json.dumps(result)))
 
@@ -205,12 +213,38 @@ class Slot:
                     continue
                 self.handle = handle
                 return self
-            time.sleep(2)
+            time.sleep(self.POLL)
         return self
+
+    POLL = 2
 
     def __exit__(self, *_):
         if self.handle:
             self.handle.close()
+
+
+def provider_of(model):
+    """The part of a model name before the first slash; a bare name is its own provider."""
+    return (model or "unknown").split("/", 1)[0] or "unknown"
+
+
+def provider_slot(env, model):
+    """A lock bounding concurrent runs of one provider (NV_PORT_PROVIDER_LIMIT, default 4)."""
+    try:
+        limit = int(env.get("NV_PORT_PROVIDER_LIMIT", "4"))
+    except ValueError:
+        limit = 4
+    base = env.get("NV_PORT_SLOT_DIR", str(Path.home() / ".cache" / "nv-workers" / "slots"))
+    return Slot(Path(base) / f"provider-{provider_of(model)}", max(1, limit))
+
+
+ALLOWED_PATHS = ("crates/engine-typed/", "crates/engine/tests/typed_*.rs")
+
+
+def allowed_path(name):
+    """A worker's change belongs to the typed crate or a typed_* Diff suite; the rest is stray."""
+    return name.startswith("crates/engine-typed/") or (
+        name.startswith("crates/engine/tests/typed_") and name.endswith(".rs") and "/" not in name[len("crates/engine/tests/"):])
 
 
 def gateway(env, payload, sandbox=None):
@@ -228,6 +262,25 @@ def gateway(env, payload, sandbox=None):
 
 def read_rows(env):
     return Path(env["NV_PORT_QUEUE_FILE"]).read_text(encoding="utf-8")
+
+
+def previous_failure(env):
+    """The failure file the loop wrote before a retry, as a prompt section.
+
+    The loop bounds the file to failing case names and the first 40 error lines;
+    a missing or empty file simply leaves the section out. The text is data from
+    the repository's own test output, not decompiled material.
+    """
+    path = env.get("NV_PORT_FAILURE_FILE")
+    if not path:
+        return ""
+    try:
+        text = Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    if not text:
+        return ""
+    return "Your previous attempt failed with this output:\n\n" + text + "\n\n"
 
 
 def template_family(worktree):
@@ -249,7 +302,8 @@ def work(env):
     base = run(["git", "rev-parse", "HEAD"], worktree, check=True).stdout.strip()
     prompt = WORK_PROMPT.format(
         family=family, batch=batch, rows=read_rows(env), template=template_family(worktree),
-        rulebook=(worktree / RULEBOOK).read_text(encoding="utf-8"))
+        rulebook=(worktree / RULEBOOK).read_text(encoding="utf-8"),
+        previous=previous_failure(env))
     result, payload, started = {}, {}, time.time()
     for client, model in candidates(env, "NV_PORT_WORKER", DEFAULT_WORKER):
         payload = {
@@ -260,7 +314,7 @@ def work(env):
         }
         started = time.time()
         with Slot(env.get("NV_PORT_SLOT_DIR", str(Path.home() / ".cache" / "nv-workers" / "slots")),
-                  int(env.get("NV_PORT_SLOTS", "2"))):
+                  int(env.get("NV_PORT_SLOTS", "2"))), provider_slot(env, model):
             result = gateway(env, payload)
         if not is_limited(result):
             break
@@ -276,12 +330,23 @@ def work(env):
         Path(env["NV_PORT_QUEUE_FILE"] + ".worker").write_text(f"{payload.get('model', '')}\n", encoding="utf-8")
     except OSError:
         pass
+    if is_foreign_only(result):
+        # Another run's throwaway worktree appeared in the shared repository during this run; the
+        # worker's own worktree is untouched, so its work is taken (the Diff run and review still judge it).
+        result = {**result, "status": "ok"}
+        record["reason"] = "foreign-worktree-change"
     if result.get("status") != "ok" or not result.get("worktree"):
         metrics(env, {**record, "outcome": "gateway-failed"})
         print(f"worker run failed: {json.dumps(result)[:600]}", file=sys.stderr)
         return 1
     gw = Path(result["worktree"])
-    patch = run(["git", "diff", "--cached", "--binary", base], gw)
+    run(["git", "add", "-A"], gw)
+    names = run(["git", "diff", "--cached", "--name-only", base], gw).stdout.split()
+    stray = [n for n in names if not allowed_path(n)]
+    if stray:
+        record["stray"] = stray
+        print(f"dropping files outside the family's module and test: {stray}", file=sys.stderr)
+    patch = run(["git", "diff", "--cached", "--binary", base, "--", *ALLOWED_PATHS], gw)
     clean(env, payload, worktree)
     if patch.returncode or not patch.stdout.strip():
         metrics(env, {**record, "outcome": "empty"})
@@ -326,7 +391,8 @@ def review(env):
     for client, model in options:
         payload.update({"client": client, "model": model})
         started = time.time()
-        result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
+        with provider_slot(env, model):
+            result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
         if not is_limited(result):
             break
         mark_limited(env, model, json.dumps(result))
@@ -339,6 +405,44 @@ def review(env):
                   "verdict": verdict, "usage": result.get("usage") or result.get("tokens")})
     print(text[-3000:])
     return 0 if result.get("status") == "ok" and verdict == "ACCEPT" else 1
+
+
+def probe(env, runner=None, hour=3600):
+    """Run one cheap read-only prompt per configured model; park the ones that fail for an hour.
+
+    Returns {model: ok}. A model that answers is taken out of the cooldown file.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    runner = runner or gateway
+    pairs = []
+    for prefix, default in (("NV_PORT_WORKER", DEFAULT_WORKER), ("NV_PORT_REVIEW", DEFAULT_REVIEWER)):
+        for pair in candidates({**env, "NV_PORT_FAMILY": ""}, prefix, default):
+            if pair not in pairs:
+                pairs.append(pair)
+
+    def one(pair):
+        client, model = pair
+        result = runner(env, {"workflow": "porting-probe", "client": client, "model": model,
+                              "mode": "read-only", "prompt": "Reply with exactly: OK",
+                              "time_limit_s": int(env.get("NV_PORT_PROBE_TIME", "120")),
+                              "escalate": False})
+        return model, result.get("status") == "done" or result.get("status") == "ok"
+
+    with ThreadPoolExecutor(max_workers=max(1, len(pairs))) as pool:
+        outcome = dict(pool.map(one, pairs))
+    state = cooling(env)
+    for model, ok in outcome.items():
+        if ok:
+            state.pop(model, None)
+        else:
+            state[model] = time.time() + hour
+    path = cooldown_path(env)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state), encoding="utf-8")
+    except OSError as exc:
+        print(f"cooldown not written: {exc}", file=sys.stderr)
+    return outcome
 
 
 def rates(path):
@@ -369,6 +473,10 @@ def rates(path):
 def main(argv=None, env=None):
     argv = sys.argv[1:] if argv is None else argv
     env = dict(os.environ if env is None else env)
+    if argv == ["probe"]:
+        for model, ok in sorted(probe(env).items()):
+            print(("ok   " if ok else "down ") + model)
+        return 0
     if argv == ["rates"]:
         for model, row in sorted(rates(env.get("NV_PORT_METRICS", "metrics.jsonl")).items()):
             print(model, json.dumps(row, sort_keys=True))
