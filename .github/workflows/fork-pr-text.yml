@@ -1,0 +1,128 @@
+# Fork-only (JorisJonkers-dev/nv-rs). The checks that read a pull request's TITLE or DESCRIPTION, in their own small
+# workflow so that editing either needs no new run of the pipeline (fork-ci.yml, which runs for commits only).
+# Each is a check of its own; none is named "Pipeline Complete", so an edit can never replace the required check of the
+# commits. See docs/fork/CI.md ("Title and description checks").
+#
+#   PR text / Title and commit messages   the title, the description and every commit are conventional and credit no agent
+#   PR text / Upstream trailer            a replay pull request ends its description with the newest Upstream-Commit
+#   PR text / Progress counts             a count that goes down needs a `Progress-Drop: <reason>` line in the description
+#   PR text / Base branch                 fails when the pull request was retargeted: the merge with the new base was not built
+#
+# Required status: only "Pipeline Complete" is required today. Until the owner adds the first three names above to the
+# ruleset "Fork line" these checks show a red cross without blocking the merge; after that they block it.
+name: PR text
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+# A newer event for the same pull request replaces the run still going: only the newest title and description count.
+concurrency:
+  group: pr-text-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  title-and-commits:
+    name: PR text / Title and commit messages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.50.3
+          path: .github-workflows
+          persist-credentials: false
+      - name: Check the title, the description and every commit
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
+          python3 .github-workflows/scripts/pr_title_check.py --range "${base}..${HEAD_SHA}"
+
+  upstream-trailer:
+    name: PR text / Upstream trailer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # A pull request that replays upstream commits ends its description with the newest Upstream-Commit trailer, so a
+      # squash merge (its message is the description) keeps the replay point (scripts/fork/sync_trailer.py).
+      - name: The replay point survives the merge
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$BODY" >"$RUNNER_TEMP/pr-body.md"
+          python3 -I scripts/fork/sync_trailer.py "$BASE" "$HEAD" "$RUNNER_TEMP/pr-body.md"
+
+  progress:
+    name: PR text / Progress counts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The same count check as "Progress counts" in fork-ci.yml, with the description's Progress-Drop line applied.
+      - name: Check the counts
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/progress-target"
+          cargo run --locked --quiet --release --manifest-path scripts/ledger/Cargo.toml -- --tsv "$RUNNER_TEMP/ledger.tsv" >/dev/null
+          git checkout -- docs/LEDGER.md
+          tool=(cargo run --locked --quiet --release --manifest-path scripts/fork/progress/Cargo.toml --)
+          "${tool[@]}" fetch --sources "$RUNNER_TEMP/pins"
+          baseline=()
+          if git show "$BASE:docs/media/fork-progress.json" >"$RUNNER_TEMP/baseline.json" 2>/dev/null; then
+            baseline=(--baseline "$RUNNER_TEMP/baseline.json")
+          fi
+          allow=()
+          printf '%s\n' "$BODY" | tr -d '\r' >"$RUNNER_TEMP/pr-body.md"
+          if grep -qE '^Progress-Drop: *[^ ]' "$RUNNER_TEMP/pr-body.md"; then allow=(--allow-drop); fi
+          # The upstream replay (this repository's own sync branch) carries upstream's changes as they are: its drops
+          # are reported, not refused.
+          if [ "$HEAD_REF" = sync/upstream ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then allow=(--allow-drop); fi
+          "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" "${baseline[@]}" "${allow[@]}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # GitHub sends no event that could start fork-ci.yml again when only the base branch changes, and a workflow cannot
+  # tell a title edit from a retarget before it runs. So a retarget is reported here, as a failed check that says what to do.
+  base-branch:
+    name: PR text / Base branch
+    if: ${{ github.event.action == 'edited' && github.event.changes.base }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: The pipeline has not seen the new base branch
+        env:
+          OLD_BASE: ${{ github.event.changes.base.ref.from }}
+          NEW_BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "::error title=Base branch changed::This pull request now targets '$NEW_BASE' (it targeted '$OLD_BASE'). The build and tests of commit ${HEAD_SHA:0:7} ran against the old base, so their result says nothing about the merge with the new one. Push a new commit (for example an empty one: git commit --allow-empty -m 'chore: rerun checks') to build against '$NEW_BASE'."
+          exit 1

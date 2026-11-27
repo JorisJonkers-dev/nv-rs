@@ -144,13 +144,22 @@ part of the pipeline.
   the two pull-request-only jobs and the build when only documentation changed). Its summary lists each component's
   result, the longest job of the component and the duration, then every job with queue and run time, the job that finished
   last (the critical path of this run) and the failed steps. A Linux twin that failed is shown as "failed (informational)".
-  On a title or description edit (pull_request `edited`) only the checks that read them run (hygiene, PR title, the
-  replay point of Verify sync, Progress counts); the builds and code checks skip, and `Pipeline Complete` passes only
-  when the newest run of the commits on the same head commit passed (`scripts/fork/edit_run_gate.py`), so an
-  edit neither restarts the whole pipeline nor turns a red pull request green. While that run is still going the gate
-  waits (polling, up to 170 minutes) instead of failing: a failed `Pipeline Complete` from an edit stayed on the head
-  commit and blocked the merge until someone re-ran it. If the pull request's head moved on meanwhile it passes.
-  A change of the base branch is also an `edited` event; it runs the whole pipeline.
+  A title or description edit does not start this workflow at all (see below), so only the run of the commits ever
+  creates a `Pipeline Complete` check run.
+- **Title and description checks (`fork-pr-text.yml`, workflow "PR text"):** run on opened, edited, reopened and
+  synchronize, in a few minutes, as checks of their own:
+  `PR text / Title and commit messages` (title, description and every commit are conventional and credit no coding
+  agent), `PR text / Upstream trailer` (a replay pull request ends its description with the newest `Upstream-Commit:`
+  line, `scripts/fork/sync_trailer.py`) and `PR text / Progress counts` (a dropped count needs a `Progress-Drop:` line).
+  The pipeline keeps the parts that read commits: `Commit messages` (every commit is conventional) and the count check,
+  which there only reports a drop. Fixing a title or description therefore never needs a new commit and never leaves a
+  red `Pipeline Complete` behind.
+  Only `Pipeline Complete` is required in the ruleset "Fork line". Until the owner adds the three `PR text / ...`
+  names, they show as failed without blocking the merge; after that they block it. Both states are safe: no required
+  check is ever waiting for a run that does not happen.
+- **Changing the base branch** sends the same `edited` event as a title edit, and GitHub has no filter that starts a
+  workflow only for that. The pipeline does not rebuild on it. `PR text / Base branch` fails with a message that tells
+  the author to push a commit (an empty one is enough) so that the pipeline builds the merge with the new base.
 - **Test-count check (acceptance for a change to the map):** the component summaries together must equal what
   `cargo test --workspace` ran (upstream's log: 57,444 passed, 53 ignored). A feature a job misses would silently skip tests;
   the counts reveal it.
