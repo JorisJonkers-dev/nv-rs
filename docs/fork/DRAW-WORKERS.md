@@ -29,9 +29,9 @@ ratios inside one run are. Switches of the second run: `--env NV_RENDER_THREAD=1
   the world pass: main waits for 9.6 of the job's 9.45 ms (join wait 11 520 ms over 1200 joins, job 11 341 ms). Main
   does about nothing between the post and the join, so nothing overlaps: the draw thread moves the draw's time from the
   "world draw" stage to the join, and the frame's critical path is the job.
-- The job takes longer on the helper (9.45 ms) than the same draw takes on main (5.8 ms): the helper runs beside the
-  render thread and main under load, takes the device lock per call, and starts with cold caches. Not yet split into
-  causes.
+- The job takes longer on the helper (9.45 ms) than the same draw takes on main (5.8 ms): the cause is not known
+  (suspects: the device lock taken per call beside the render thread, load on a shared machine, cold caches); it has
+  not been split.
 - Even with `00b63a90` answered without a join (it only sums the batch renderers' group counts at +0x54), the next
   joins are `00874920` (refraction normals, water scenes) and `00875110` (the screens and overlay accumulate into the
   world accumulator), a few hundred microseconds of main work later.
