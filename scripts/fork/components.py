@@ -34,6 +34,15 @@ STEERING = {
     "scripts/fork/components.py", "scripts/fork/run-component.sh", "scripts/fork/libtest_summary.py",
     "scripts/fork/clippy_annotations.py", "scripts/fork/linux_probe.py", "scripts/fork/gpu_gate.py", "scripts/fork/vkd3d_gate.py",
 }
+# Platform-relevant code: a pull request that changes it runs the Windows jobs too (otherwise a pull request runs Linux
+# only; pushes to the integration branch, the schedule and a manual run run every OS). The typed families run their Diff
+# cases against the original code, some only on Windows, so every crate they read or write is on the list.
+PLATFORM_CRATES = ("engine-core", "engine-typed", "engine-bs", "engine-fallout-*", "d3d9-*", "engine-platform", "fork-window")
+# The macOS job builds the window, device and platform layers and the facade: only these (or a cfg on macos) matter to it.
+MACOS_CRATES = ("d3d9-*", "engine-platform", "fork-window", "fork-api", "fork-play", "fork-gfx")
+MACOS_CFG = re.compile(r'cfg(?:_attr)?!?\([^\n]*\bmacos\b|target_os\s*=\s*"macos"|target_vendor\s*=\s*"apple"')
+PLATFORM_FILES = ("crates/engine/tests/typed_",)
+PLATFORM_CFG = re.compile(r'cfg(?:_attr)?!?\([^\n]*\b(?:windows|macos)\b|target_os\s*=\s*"(?:windows|macos)"')
 DOCS = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
 # Estimates, from the cold Windows runs of 2026-11-13 (docs/fork/CI.md): seconds per 100 000 lines.
 S_LIB, S_TEST, S_EXT = 4.6, 18.0, 35.0
@@ -284,6 +293,49 @@ class Model:
                 everything, reason = True, reason or f"{f} is outside every crate"
         return everything, reason, crates, by_path
 
+    def platform_relevant(self, files, macos=False):
+        """Does a change touch code that only Windows can verify (macos=True: only macOS): a platform crate, a typed family's
+        test file, or a Rust file that has a cfg on windows or macos?"""
+        crates, cfg = (MACOS_CRATES, MACOS_CFG) if macos else (PLATFORM_CRATES, PLATFORM_CFG)
+        for f in files:
+            if f.startswith(PLATFORM_FILES) and not macos:
+                return True
+            d = max((d for d in self.dirs if d != "." and f.startswith(d + "/")), key=len, default=None)
+            if d and any(fnmatch.fnmatch(self.dirs[d], g) for g in crates):
+                return True
+            path = os.path.join(self.root, f)
+            if f.endswith(".rs") and os.path.isfile(path):
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    if cfg.search(fh.read()):
+                        return True
+        return False
+
+    def job_tests(self, c, job):
+        """The integration-test binaries a job runs, as (crate, test)."""
+        out = set()
+        for run in (job or {}).get("args", []):
+            for crate in self.flags(run, "-p"):
+                out.update((crate, t) for t in self.flags(run, "--test"))
+            for o in (job or {}).get("optional_tests", []):
+                crate, _, t = o.partition("/")
+                if crate in self.flags(run, "-p"):
+                    out.add((crate, t))
+        return out
+
+    def split_tests(self, files):
+        """(the files that remain, {(crate, test)}): a changed integration-test file that a component job lists by name
+        reaches that job only, not every job that links the crate. Library code changes still reach all of them."""
+        named = {t for c in self.comps.values() for job in c.get("job", []) for t in self.job_tests(c, job)}
+        rest, tests = [], set()
+        for f in files:
+            m = re.match(r"^(.+?)/tests/([^/]+?)(?:\.rs|/.*)?$", f)
+            crate = self.dirs.get(m.group(1)) if m else None
+            if crate and (crate, m.group(2)) in named:
+                tests.add((crate, m.group(2)))
+            else:
+                rest.append(f)
+        return rest, tests
+
     # ---- jobs -------------------------------------------------------------------------------------------------
 
     def job_crates(self, c, job):
@@ -307,8 +359,9 @@ class Model:
         flags = self.missing_features(self.flags(run, "-p"))
         return f"cargo test --locked {run}" + (f" --features {','.join(flags)}" if flags else "")
 
-    def entries(self, comp, seeds=None):
-        """Matrix entries of one component. seeds: the changed crates of a pull request (None: run everything)."""
+    def entries(self, comp, seeds=None, tests=(), windows=True):
+        """Matrix entries of one component. seeds: the changed crates of a pull request (None: run everything); tests: the
+        changed (crate, test) files that select a job by name; windows: False leaves the Windows jobs out."""
         c = self.comps[comp]
         linux_ready = bool(c["crates"]) and set(c["crates"]) <= self.linux_ok
         # os, label, informational
@@ -321,9 +374,15 @@ class Model:
                 targets = [("ubuntu-latest", "Linux", False)]
             else:
                 targets.append(("ubuntu-latest", "Linux, informational", not linux_ready))
+        if not windows:
+            targets = [t for t in targets if t[0] != "windows-latest"]
+        elif seeds is not None:
+            # A pull request that runs Windows does not also run the informational Linux twin: it cannot fail the run and
+            # only finds out which crates could move to Linux, which the push to the integration branch and the schedule do.
+            targets = [t for t in targets if not t[2]] or targets
         result = []
         for job in (c.get("job") or [None]):
-            if seeds is not None and not (self.closure_of(self.job_crates(c, job)) & seeds):
+            if seeds is not None and not (self.closure_of(self.job_crates(c, job)) & seeds) and not (self.job_tests(c, job) & set(tests)):
                 continue
             if "commands" in c:
                 cmds = list(c["commands"])
@@ -360,22 +419,24 @@ class Model:
                     out.append(f"{m} -> target")
         return "\n".join(out[1:] or out)
 
-    def plan(self, run_all=True, files=()):
-        by_path, reason, seeds = set(), "every component runs on this event", None
+    def plan(self, run_all=True, files=(), all_os=True):
+        """all_os: False (a pull request without platform-relevant changes) leaves the Windows jobs out."""
+        by_path, reason, seeds, tests = set(), "every component runs on this event", None, set()
         if not run_all:
+            files, tests = self.split_tests(files)
             everything, why, changed, by_path = self.affected(files)
             if everything:
                 reason = why
             else:
                 seeds = changed
-                reason = f"{len(changed)} changed crate(s) and {len(by_path)} component path(s) in {len(files)} changed file(s)"
+                reason = f"{len(changed)} changed crate(s), {len(tests)} changed test file(s) and {len(by_path)} component path(s) in {len(files)} other changed file(s)"
         include, status = [], []
         for name, c in self.comps.items():
             force = seeds is None or c.get("pr") == "always" or name in by_path
-            got = self.entries(name, None if force else seeds)
+            got = self.entries(name, None if force else seeds, tests, all_os)
             include += got
             status.append({"component": name, "tested": bool(got), "jobs": len(got),
-                           "why": "" if got else "no crate of its test closure changed"})
+                           "why": "" if got else "no crate of its test closure changed" if all_os or not self.entries(name, None if force else seeds, tests) else "Windows only, and no platform code changed"})
         return {"include": include, "components": status, "reason": reason}
 
 
@@ -508,7 +569,7 @@ def cmd_affected(model, a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected", "fixture"])
+    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected", "fixture", "platform"])
     ap.add_argument("--toml", default=".fork/components.toml")
     ap.add_argument("--metadata", help="a saved `cargo metadata --no-deps` instead of running cargo")
     ap.add_argument("--timings")
@@ -519,6 +580,8 @@ def main():
     ap.add_argument("--os", default="ubuntu-latest", help="affected: the runner OS whose commands --commands prints")
     ap.add_argument("--commands", action="store_true", help="affected: print the test commands of the affected jobs of --os (one per line)")
     ap.add_argument("--crates", action="store_true", help="affected: print only the changed crates (one per line)")
+    ap.add_argument("--all-os", action="store_true", help="matrix: run the Windows jobs of a pull request too (the label ci:all-os)")
+    ap.add_argument("--macos", action="store_true", help="platform: ask about macOS instead of Windows")
     ap.add_argument("--write", action="store_true", help="fixture: write the stored workspace graph instead of checking it")
     a = ap.parse_args()
     if a.cmd == "fixture":
@@ -538,6 +601,10 @@ def main():
         cmd_graph(model, a)
     elif a.cmd == "affected":
         cmd_affected(model, a)
+    elif a.cmd == "platform":
+        # `true` when a change reaches code that only Windows or macOS can verify (see platform_relevant).
+        files = read_list(a.files_from) if a.files_from else [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
+        print("true" if model.platform_relevant(files, a.macos) else "false")
     else:
         files = []
         if a.event == "pull_request":
@@ -547,7 +614,9 @@ def main():
                 files = [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
             else:
                 sys.exit("pull_request needs --base or --files-from")
-        json.dump(model.plan(a.event != "pull_request", files), sys.stdout, indent=1)
+        # A pull request runs Windows only for platform-relevant changes or with the label ci:all-os (--all-os).
+        all_os = a.event != "pull_request" or a.all_os or model.platform_relevant(files)
+        json.dump(model.plan(a.event != "pull_request", files, all_os), sys.stdout, indent=1)
         print()
 
 

@@ -53,6 +53,7 @@ jobs:
       code: ${{ steps.diff.outputs.code }}
       native: ${{ steps.diff.outputs.native }}
       census: ${{ steps.diff.outputs.census }}
+      macos: ${{ steps.os.outputs.macos }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,6 +98,22 @@ jobs:
           census = [f for f in diff("ACDMRT") if f.startswith(census_files[0]) or f == census_files[1]]
           print("census=" + ("true" if census else "false"))
           ' >>"$GITHUB_OUTPUT"
+      # The macOS job runs on a push to fork, the schedule and a manual run, and on a pull request only when the change
+      # reaches code the job builds for macOS (d3d9-*, engine-platform, fork-window, the facade, or a cfg on macos), or
+      # the pull request has the label ci:all-os when its run starts (a label added later counts from the next push).
+      - id: os
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ] || jq -e 'index("ci:all-os")' <<<"$LABELS" >/dev/null; then
+            echo "macos=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          rustup toolchain install
+          echo "macos=$(python3 -I scripts/fork/components.py platform --macos --base "$BASE" --head "$HEAD")" >>"$GITHUB_OUTPUT"
 
   hygiene:
     name: Hygiene
@@ -170,6 +187,13 @@ jobs:
       - name: Script self-tests
         if: ${{ !cancelled() }}
         run: mise exec -- task scripts
+      # Cheap and tree-wide, so it also runs when the builds are skipped (the component `repo-checks` runs it on every
+      # build too). Its target directory is outside the checkout: the test reads every file git does not ignore.
+      - name: Repository hygiene (nvinspect)
+        if: ${{ !cancelled() }}
+        run: |
+          rustup toolchain install
+          CARGO_TARGET_DIR="$RUNNER_TEMP/target-hygiene" cargo test --locked -p nvinspect --test repo_hygiene
       - name: Extender move inventory
         if: ${{ !cancelled() }}
         run: python3 -I scripts/fork/extender_move_inventory.py --check
@@ -219,11 +243,12 @@ jobs:
 
   # The engine on macOS (Apple silicon, wgpu on Metal; nv-rs#378): the crates the Toolbox links and the window and
   # device layers build, and their tests that need no game run. The game's window on macOS is nv-rs#379; until then
-  # the device layer stays off screen there. Skipped when only documentation changed.
+  # the device layer stays off screen there. On a pull request it runs only for macOS-relevant changes or with the label
+  # ci:all-os; pushes to fork, the schedule and manual runs always run it.
   macos:
     name: macOS
     needs: changes
-    if: ${{ needs.changes.outputs.native == 'true' }}
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     runs-on: macos-latest
     timeout-minutes: 120
     env:
@@ -580,13 +605,13 @@ jobs:
 
       # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
       # its override label is set), "Catalogue results" and the Linux tagged-engine-test job on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
-      # when only documentation changed.
+      # when no macOS code changed (the `os` step of `changes`).
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "commit-messages", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "commit-messages", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.macos == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.

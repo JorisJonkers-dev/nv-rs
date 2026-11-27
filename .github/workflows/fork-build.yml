@@ -55,6 +55,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           set -euo pipefail
           # Fails when a workspace crate belongs to no component, a requires list is wrong or a test file is in no job.
@@ -62,7 +63,10 @@ jobs:
           # Fails when the stored workspace graph of the scripts' tests differs from the workspace.
           python3 -I scripts/fork/components.py fixture
           if [ "$EVENT" = pull_request ]; then
-            python3 -I scripts/fork/components.py matrix --event pull_request --base "$BASE" --head "$HEAD" >matrix.json
+            # Windows jobs run on a pull request only for platform-relevant changes (components.py) or with the label ci:all-os.
+            all_os=""
+            if jq -e 'index("ci:all-os")' <<<"$LABELS" >/dev/null; then all_os="--all-os"; fi
+            python3 -I scripts/fork/components.py matrix --event pull_request --base "$BASE" --head "$HEAD" $all_os >matrix.json
           else
             python3 -I scripts/fork/components.py matrix --event "$EVENT" >matrix.json
           fi
@@ -228,6 +232,8 @@ jobs:
   # Which crates build on Linux (informational); its candidate list is what .fork/linux-ok.txt is promoted from.
   probe:
     name: Linux probe
+    # Informational and only feeds .fork/linux-ok.txt: pushes, the schedule and manual runs.
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     continue-on-error: true

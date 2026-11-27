@@ -84,6 +84,20 @@ dependencies (the check says exactly which are missing). A crate in two componen
   users (`vendor/wgpu-hal` reaches the crates that use `wgpu`) or a file that steers the build (`.fork/components.toml`,
   `fork-build.yml` and the scripts it runs) run everything; a file outside every crate and every ignored area runs
   everything too, never nothing.
+- **Which OS a pull request runs:** Linux for every component that runs. The Windows jobs (and the Windows-only
+  components, `integration` and `launcher-and-ledger`) run on a pull request only when the change is platform-relevant
+  (`components.py platform`): a file of `engine-core`, `engine-typed`, `engine-bs`, `engine-fallout-*`, `d3d9-*`,
+  `engine-platform` or `fork-window`, a typed family's test file (`crates/engine/tests/typed_*.rs`), or a Rust file with a
+  `cfg` on `windows` or `macos`; or when the pull request carries the label `ci:all-os` as its run starts (a label added
+  afterwards counts from the next push; adding it does not start a run). A Linux twin that is informational is left out
+  when the Windows job of the same component runs. The macOS job runs on a pull request only for `d3d9-*`, `engine-platform`,
+  `fork-window`, `fork-api`, `fork-play`, `fork-gfx`, a `cfg` on macOS, or the label. Pushes to `fork`, the schedule and a
+  manual run run every OS, so `fork` stays fully verified.
+- **A changed test file selects its own job:** a file `crates/<crate>/tests/<name>.rs` that a component job lists with
+  `--test <name>` reaches that job only (the mapping is `.fork/components.toml`, the same one the coverage plan reads); a
+  change to the crate's source or to a dependency reaches every job that links it.
+- The Linux probe runs on pushes, the schedule and manual runs only. "Repository checks" also runs the `nvinspect`
+  hygiene test, so it runs when the builds are skipped.
 - Measured on the last 300 upstream commits (simulation of the rule): 253 of 283 code commits reach the five slow typed
   jobs, because `engine` depends on nearly everything. So "affected only" helps the other 11 % and the small components; the slow
   path is shortened by the split, not by selection.
