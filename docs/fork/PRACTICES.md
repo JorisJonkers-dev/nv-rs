@@ -2,9 +2,9 @@
 
 | Practice | Where | Notes |
 | --- | --- | --- |
-| One required check, `Pipeline Complete` | `.github/workflows/fork-ci.yml`, `.github/rulesets/fork-line.json` | It gathers the result of every job: the build, the repository checks (`task check`, a parallel job) and the two reusable workflows (hygiene, PR title) |
+| One required check, `Pipeline Complete` | `.github/workflows/fork-ci.yml`, `.github/rulesets/fork-line.json` | It gathers the result of every job: the build, the repository checks (`task check`, a parallel job) and the hygiene workflow |
 | Branch protection | `.github/rulesets/fork-line.json`, `scripts/fork/apply-ruleset.sh`, `scripts/fork/switch-to-fork.sh` | The estate's ruleset: no deletion, no force push, linear history, pull requests only, squash for people and rebase for the sync, `Pipeline Complete` required. No bypass actors |
-| Conventional Commits | `pr-title` job, `scripts/fork/hooks/commit-msg` | The pull request title is the squash commit, so it is what release-please reads |
+| Conventional Commits | `PR title is a Conventional Commit` check (pr-text.yml), `scripts/fork/hooks/commit-msg` | The pull request title is the squash commit, so it is what release-please reads |
 | Following upstream | `scripts/fork/replay-upstream.sh`, `.github/workflows/fork-sync.yml`, `scripts/fork/verify-sync.sh` | Replays each upstream commit with the same change and a Conventional Commit message; see KEEPING-IN-SYNC.md |
 | Release notes and tags | `release-please-config.json`, `.release-please-manifest.json`, `.github/workflows/release.yml` | `release-type: simple`: it never edits `Cargo.toml` or `Cargo.lock`, so `distribution/DEPENDENCY-LOCK.sha256` stays valid |
 | Secret scanning | `.gitleaks.toml`, `task secrets` | Every commit, in CI and locally |
