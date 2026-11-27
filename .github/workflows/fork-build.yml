@@ -53,19 +53,22 @@ jobs:
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           set -euo pipefail
           # Fails when a workspace crate belongs to no component, a requires list is wrong or a test file is in no job.
           python3 -I scripts/fork/components.py check
           # Fails when the stored workspace graph of the scripts' tests differs from the workspace.
           python3 -I scripts/fork/components.py fixture
-          if [ "$EVENT" = pull_request ]; then
-            python3 -I scripts/fork/components.py matrix --event pull_request --base "$BASE" --head "$HEAD" >matrix.json
-          else
-            python3 -I scripts/fork/components.py matrix --event "$EVENT" >matrix.json
-          fi
+          # A pull request and a push to fork run what the change reaches; the schedule, a manual run and a push with no
+          # usable base (a new branch, a force push) run every component.
+          if [ -n "$BASE" ] && ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE=""; fi
+          # Windows jobs run on a pull request only for platform-relevant changes (components.py) or with the label ci:all-os.
+          all_os=""
+          if jq -e 'index("ci:all-os")' <<<"$LABELS" >/dev/null; then all_os="--all-os"; fi
+          python3 -I scripts/fork/components.py matrix --event "$EVENT" ${BASE:+--base "$BASE"} --head "$HEAD" $all_os >matrix.json
           echo "matrix=$(jq -c '{include: .include}' matrix.json)" >>"$GITHUB_OUTPUT"
           echo "has_jobs=$(jq '.include | length > 0' matrix.json)" >>"$GITHUB_OUTPUT"
           {
@@ -104,6 +107,9 @@ jobs:
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
+      # At most 16 of this run's jobs at a time (a full run has up to 54): the runs of other pull requests get the other
+      # runners instead of queueing behind this one. The long typed jobs are first in the matrix (components.py).
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       PY: ${{ matrix.os == 'windows-latest' && 'python' || 'python3' }}
@@ -228,6 +234,8 @@ jobs:
   # Which crates build on Linux (informational); its candidate list is what .fork/linux-ok.txt is promoted from.
   probe:
     name: Linux probe
+    # Informational and only feeds .fork/linux-ok.txt: the schedule and manual runs.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     continue-on-error: true

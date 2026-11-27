@@ -93,7 +93,7 @@ class CensusWorkflowTests(unittest.TestCase):
         self.assertIn("docs/fork/COMPONENT-CENSUS.md", env)
         self.assertIn("chore(catalogue): update the generated reports [skip ci]", WORKFLOW)
         reports = job("reports")
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/fork'", reports)
+        self.assertIn("github.ref == 'refs/heads/fork' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')", reports)
 
     def test_the_artifact_publishes_every_report_at_the_path_the_reports_job_copies(self):
         # Model upload-artifact: files are stored relative to the common root of the upload paths.

@@ -72,6 +72,8 @@ jobs:
       actions: read
     strategy:
       fail-fast: false
+      # Coverage is not on the critical path (the longest job is about 12 minutes, the typed jobs about 18): three at a time.
+      max-parallel: 3
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       COMPONENT: ${{ matrix.component }}
