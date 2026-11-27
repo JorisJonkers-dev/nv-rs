@@ -257,7 +257,7 @@ fn the_cut_takes_the_pass_objects_and_group_c_entries() {
     } = passes();
     assert!(capture::begin(&e));
     statics::take_pass_state(&mut e);
-    statics::take_pass_objects(&mut e);
+    statics::take_pass_objects(&mut e, None);
     for (what, addr, len) in [
         ("render state block pointer", pass + 0x30, 4),
         ("render state block header", block, 0x14),
@@ -296,7 +296,7 @@ fn the_draw_reads_the_pass_objects_as_cut_while_main_begins_the_same_pass() {
     } = passes();
     assert!(capture::begin(&e));
     statics::take_pass_state(&mut e);
-    statics::take_pass_objects(&mut e);
+    statics::take_pass_objects(&mut e, None);
     let packet = capture::detach(&e).expect("the packet");
     // Main, first: its pass begin through the setters it shares with the draw, and the untyped ones by address.
     capture::set_own_at(&mut e, stages[0] + 8, 0x7001u32);

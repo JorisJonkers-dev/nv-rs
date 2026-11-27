@@ -295,10 +295,14 @@ const MAX_STATES: u32 = 256;
 /// the entries of its lists (`00e7f430` sets and moves them: the sun query's set-up writes them for pass type 9), and
 /// each stage's filter mode, number, texture and count (+0 to +0xc, +0x60) with its state cache (+0x10: `00e7de90`,
 /// `00e7def0` and the stage's own set-ups write its sampler banks). The blocks are taken in address order, which keeps
-/// the packet's lists cheap to build.
-pub fn take_pass_objects(e: &mut Engine) {
+/// the packet's lists cheap to build. `types`: only the passes of these pass types (the world draw's lists' types: the
+/// draw begins no other; a pass table has some 700 passes, the lists a few dozen types), else every pass.
+pub fn take_pass_objects(e: &mut Engine, types: Option<&engine_core::AddrSet<u32>>) {
     let mut blocks: Vec<(u32, u32, u32)> = Vec::new();
     for i in 0..PASS_TYPES {
+        if types.is_some_and(|t| !t.contains(&i)) {
+            continue;
+        }
         let Some(pass) = peek(e, PASS_TABLE + 4 * i).filter(|&a| a != 0) else {
             continue;
         };
