@@ -107,6 +107,7 @@ pub mod actor_base;
 pub mod actor_base_data;
 pub mod ai_form;
 pub mod animation;
+pub mod array;
 pub mod attributes;
 pub mod conditions;
 pub mod debug_string;

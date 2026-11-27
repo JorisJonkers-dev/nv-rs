@@ -42,6 +42,7 @@ mod backend_gaps;
 mod backend_peer;
 #[cfg(any(test, feature = "test-support"))]
 pub mod diff;
+pub mod form_array;
 pub mod leaf;
 pub mod moved;
 

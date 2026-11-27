@@ -109,7 +109,7 @@ macro_rules! image {
 /// its tests read (a family left out here is never registered; the repository hygiene test
 /// `every_declared_family_is_provided` finds a `pub static .. : Family` of any crate that no list
 /// or `provide` call names).
-pub static FAMILIES: [&engine_core::typed::Family; 33] = [
+pub static FAMILIES: [&engine_core::typed::Family; 34] = [
     &crate::lockfree::LOCKFREE,
     &crate::culling::CULLING,
     &crate::pathing::PATHING,
@@ -141,6 +141,7 @@ pub static FAMILIES: [&engine_core::typed::Family; 33] = [
     &crate::navmesh_edges::NAVMESH_EDGES,
     &crate::ai::AI,
     &crate::forms::FORMS,
+    &crate::forms::array::FORM_ARRAY,
     &crate::extra_data::EXTRA_DATA,
     &crate::scene_node::SCENE_NODE,
 ];
@@ -166,7 +167,7 @@ mod tests {
     use engine_core::typed::{parse_switch, Family, Mode};
 
     /// This crate's families, in the order `units::funcs` provides them.
-    fn families() -> [&'static Family; 33] {
+    fn families() -> [&'static Family; 34] {
         crate::FAMILIES
     }
 
@@ -221,6 +222,7 @@ mod tests {
                 "navmesh_edges",
                 "ai",
                 "forms",
+                "formarray",
                 "extra_data",
                 "scene_node"
             ]
@@ -242,11 +244,11 @@ mod tests {
         assert!(off.iter().all(|m| *m == Mode::Off));
         let one_off = parse_switch(Some("shader:off"), &families).unwrap();
         assert_eq!(one_off[3], Mode::Off);
-        assert!(one_off.iter().filter(|m| **m != Mode::Off).count() == 32);
+        assert!(one_off.iter().filter(|m| **m != Mode::Off).count() == 33);
         // `NV_TYPED=geometry:off` still turns the geometry family (index 12) off, and only it.
         let geometry_off = parse_switch(Some("geometry:off"), &families).unwrap();
         assert_eq!(geometry_off[12], Mode::Off);
-        assert!(geometry_off.iter().filter(|m| **m != Mode::Off).count() == 32);
+        assert!(geometry_off.iter().filter(|m| **m != Mode::Off).count() == 33);
     }
 
     /// No two of this crate's families (with the core's) hold the same address, past their gate or not:
