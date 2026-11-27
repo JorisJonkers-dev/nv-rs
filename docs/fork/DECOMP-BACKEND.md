@@ -216,8 +216,10 @@ build copy and the generated shim only.
   `fxam`, `fucom`) replaced by the same results in C; the memory-barrier macro is a fence; the
   `__m128` and `_mm_*` names the decomp declares are defined in a small module of plain C over the
   `__m128` layout (`add`, `sub`, `mul`, `div`, `min`, `max`, the compares, `shuffle`, `unpack`,
-  `movemask`, `load`/`store` and so on; `rcp` and `rsqrt` return the exact reciprocal where the
-  hardware gives a 12-bit estimate, so a function that calls them can differ in its low bits).
+  `movemask`, `load`/`store` and so on; `rcp` and `rsqrt` return the processor's 12-bit estimate,
+  computed from the tables of `crates/engine-core/src/estimate/tables.rs` read at build time, the
+  same model the engine's `estimate` module uses off x86, so a function that calls them gives the
+  estimate's bits and not the exact reciprocal's).
   Declarations the decomp makes of a Win32 or CRT function with a type MSVC accepts and clang does
   not (`TlsGetValue(unsigned int)`, `memcpy` with an `unsigned int` size) are repaired from the
   compiler's own diagnostics: the contradicting line is blanked, or, when the system header came

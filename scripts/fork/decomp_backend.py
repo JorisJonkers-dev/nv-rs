@@ -428,8 +428,58 @@ def exports_left_out(wat, unresolved=()):
 # The SSE intrinsics the decomp declares and calls (`extern "C" LocalM128 _mm_add_ps(...)`), as plain
 # functions over MSVC's `__m128` layout, linked into the module. The arithmetic is IEEE single
 # precision, so add, sub, mul, div, min, max, sqrt and the compares are exact; `rcp` and `rsqrt`
-# are the exact reciprocal where the hardware gives a 12-bit estimate, and `getcsr` reports the
-# default control state. A function that calls an estimate differs from the original in its low bits.
+# return the processor's 12-bit estimate from the tables of `engine-core`'s `estimate` module
+# (`ESTIMATE_TABLES`, read from that file at build time), and `getcsr` reports the default control
+# state.
+
+# The estimate model of `crates/engine-core/src/estimate.rs` in C, over the tables of
+# `estimate/tables.rs`: the result depends on the exponent and the top 12 mantissa bits only.
+ESTIMATE_TABLES = Path(__file__).resolve().parents[2] / "crates/engine-core/src/estimate/tables.rs"
+ESTIMATE_MODEL = r"""
+#define NV_SIGN 0x80000000u
+#define NV_EXP 0x7f800000u
+#define NV_MAN 0x007fffffu
+static unsigned int nv_from_entry(unsigned short entry, unsigned int sign, int shift) {
+  int exponent = (int)(entry >> 12) + 120 + shift;
+  if (exponent < 1) return sign;
+  return sign | ((unsigned int)exponent << 23) | ((unsigned int)(entry & 0xfff) << 11);
+}
+static unsigned int nv_rcp_bits(unsigned int x) {
+  unsigned int sign = x & NV_SIGN, exponent = x & NV_EXP;
+  if (exponent == NV_EXP) return (x & NV_MAN) ? (x | 0x00400000u) : sign;
+  if (exponent == 0) return sign | NV_EXP;
+  int field = (int)(exponent >> 23);
+  return nv_from_entry(nv_rcp_table[(x & NV_MAN) >> 11], sign, 127 - field);
+}
+static unsigned int nv_rsqrt_bits(unsigned int x) {
+  unsigned int sign = x & NV_SIGN, exponent = x & NV_EXP;
+  if (exponent == NV_EXP) return (x & NV_MAN) ? (x | 0x00400000u) : (sign ? 0xffc00000u : 0);
+  if (exponent == 0) return sign | NV_EXP;
+  if (sign) return 0xffc00000u;
+  int field = (int)(exponent >> 23);
+  int odd = field & 1;
+  int half = odd ? 0 : 4096, reference = odd ? 127 : 128;
+  return nv_from_entry(nv_rsqrt_table[half + ((x & NV_MAN) >> 11)], 0, (reference - field) / 2);
+}
+"""
+
+
+def estimate_source(tables=None):
+    """The C that answers `_mm_rcp_*` and `_mm_rsqrt_*` as the measured processor does."""
+    text = Path(tables or ESTIMATE_TABLES).read_text()
+    out = []
+    for name, count in (("RCP", 4096), ("RSQRT", 8192)):
+        match = re.search(r"const %s: \[u16; (\d+)\] = \[(.*?)\];" % name, text, re.S)
+        if not match or int(match.group(1)) != count:
+            raise ValueError("estimate tables: %s table not found with %d entries" % (name, count))
+        values = re.findall(r"0x[0-9a-fA-F]+", match.group(2))
+        if len(values) != count:
+            raise ValueError("estimate tables: %s has %d entries, not %d" % (name, len(values), count))
+        out.append("static const unsigned short nv_%s_table[%d] = {%s};\n"
+                   % (name.lower(), count, ",".join(values)))
+    return "".join(out) + ESTIMATE_MODEL
+
+
 SSE_SOURCE = r"""
 typedef union __attribute__((aligned(16))) { float f[4]; unsigned int u[4]; unsigned long long q[2]; } m128;
 #define OP(name, expr) m128 name(m128 a, m128 b) { m128 r; \
@@ -460,10 +510,10 @@ CMPS(_mm_cmple_ss, a.f[i] <= b.f[i]) CMPS(_mm_cmpgt_ss, a.f[i] > b.f[i])
 CMPS(_mm_cmpge_ss, a.f[i] >= b.f[i]) CMPS(_mm_cmpneq_ss, !(a.f[i] == b.f[i]))
 m128 _mm_sqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = __builtin_sqrtf(a.f[i]); return r; }
 m128 _mm_sqrt_ss(m128 a) { m128 r = a; r.f[0] = __builtin_sqrtf(a.f[0]); return r; }
-m128 _mm_rcp_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = 1.0f / a.f[i]; return r; }
-m128 _mm_rcp_ss(m128 a) { m128 r = a; r.f[0] = 1.0f / a.f[0]; return r; }
-m128 _mm_rsqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = 1.0f / __builtin_sqrtf(a.f[i]); return r; }
-m128 _mm_rsqrt_ss(m128 a) { m128 r = a; r.f[0] = 1.0f / __builtin_sqrtf(a.f[0]); return r; }
+m128 _mm_rcp_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.u[i] = nv_rcp_bits(a.u[i]); return r; }
+m128 _mm_rcp_ss(m128 a) { m128 r = a; r.u[0] = nv_rcp_bits(a.u[0]); return r; }
+m128 _mm_rsqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.u[i] = nv_rsqrt_bits(a.u[i]); return r; }
+m128 _mm_rsqrt_ss(m128 a) { m128 r = a; r.u[0] = nv_rsqrt_bits(a.u[0]); return r; }
 m128 _mm_setzero_ps(void) { m128 r = {{0, 0, 0, 0}}; return r; }
 m128 _mm_set_ps1(float v) { m128 r = {{v, v, v, v}}; return r; }
 m128 _mm_set1_ps(float v) { m128 r = {{v, v, v, v}}; return r; }
@@ -547,7 +597,7 @@ def make_standins(out, tools):
         "  float m128_f32[4]; unsigned __int64 m128_u64[2]; };\n")
     (standins / "nv_runtime.c").write_text(
         "__attribute__((noreturn, noinline)) void %s(void) { __builtin_trap(); }\n"
-        "void _ReadWriteBarrier(void) { __atomic_signal_fence(__ATOMIC_SEQ_CST); }\n%s" % (ASM_STUB, SSE_SOURCE))
+        "void _ReadWriteBarrier(void) { __atomic_signal_fence(__ATOMIC_SEQ_CST); }\n%s" % (ASM_STUB, estimate_source() + SSE_SOURCE))
     return standins
 
 

@@ -1087,5 +1087,56 @@ class NoBackendTests(unittest.TestCase):
             self.assertEqual(result[0]["reason"], "backend is not built")
 
 
+class EstimateStandinTests(unittest.TestCase):
+    """The `_mm_rcp_*` and `_mm_rsqrt_*` stand-ins answer as the 12-bit estimate does."""
+
+    def test_the_tables_are_read_from_the_engines_estimate_module(self):
+        source = backend.estimate_source()
+        self.assertIn("nv_rcp_table[4096]", source)
+        self.assertIn("nv_rsqrt_table[8192]", source)
+        self.assertIn("0x6ffe,0x6ffc", source)  # the first two entries of estimate/tables.rs
+
+    def test_a_table_of_the_wrong_size_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "tables.rs"
+            path.write_text("const RCP: [u16; 4096] = [0x1];\nconst RSQRT: [u16; 8192] = [0x1];\n")
+            with self.assertRaises(ValueError):
+                backend.estimate_source(path)
+
+    def test_the_standins_call_the_estimate_not_the_exact_reciprocal(self):
+        self.assertIn("nv_rcp_bits(a.u[i])", backend.SSE_SOURCE)
+        self.assertNotIn("1.0f / a.f[i]", backend.SSE_SOURCE)
+
+    @unittest.skipUnless(shutil.which("cc") and os.uname().machine == "x86_64", "needs cc on x86-64")
+    def test_the_c_model_is_the_instruction_on_the_measured_processor(self):
+        program = backend.estimate_source() + textwrap.dedent("""
+            #include <stdio.h>
+            #include <string.h>
+            #include <xmmintrin.h>
+            static unsigned host_rcp(unsigned x) { float f; memcpy(&f, &x, 4);
+              __m128 r = _mm_rcp_ss(_mm_set_ss(f)); unsigned h; memcpy(&h, &r, 4); return h; }
+            static unsigned host_rsqrt(unsigned x) { float f; memcpy(&f, &x, 4);
+              __m128 r = _mm_rsqrt_ss(_mm_set_ss(f)); unsigned h; memcpy(&h, &r, 4); return h; }
+            int main(void) {
+              unsigned probe[] = {0x40000000u, 0x40400000u, 0x3f333333u, 0x4640e6b6u, 0x3f800000u, 0x3ffff000u};
+              for (int i = 0; i < 6; i++)
+                if (host_rcp(probe[i]) != nv_rcp_bits(probe[i]) || host_rsqrt(probe[i]) != nv_rsqrt_bits(probe[i])) {
+                  puts("other"); return 0; }
+              unsigned bad = 0;
+              for (unsigned long long k = 0; k < (1ull << 32); k += 4099) {
+                unsigned x = (unsigned)k;
+                if (host_rcp(x) != nv_rcp_bits(x) || host_rsqrt(x) != nv_rsqrt_bits(x)) bad++; }
+              puts(bad ? "differ" : "same"); return 0; }
+        """)
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp) / "t.c").write_text(program)
+            subprocess.run(["cc", "-O1", "-o", str(Path(temp) / "t"), str(Path(temp) / "t.c")], check=True)
+            answer = subprocess.run([str(Path(temp) / "t")], capture_output=True, text=True,
+                                    check=True).stdout.strip()
+        if answer == "other":
+            self.skipTest("not the processor the estimate tables were measured on")
+        self.assertEqual(answer, "same")
+
+
 if __name__ == "__main__":
     unittest.main()
