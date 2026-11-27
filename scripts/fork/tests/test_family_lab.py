@@ -49,11 +49,18 @@ class FamilyLab(unittest.TestCase):
                 "engine-fallout-magic",
                 "engine-gamebryo",
             ],
+            # The light-walk and ShadowSceneLight cases (slaterain/nv-rs#1079, #1082, #1088) also call the
+            # environment, magic, interface, misc and script crates.
             "lights": [
                 "engine-bs",
                 "engine-fallout-cell",
+                "engine-fallout-env",
                 "engine-fallout-facegen",
                 "engine-fallout-forms",
+                "engine-fallout-interface",
+                "engine-fallout-magic",
+                "engine-fallout-misc",
+                "engine-fallout-script",
                 "engine-fallout-unplaced-b",
                 "engine-gamebryo",
             ],

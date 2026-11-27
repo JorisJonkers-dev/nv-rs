@@ -84,6 +84,7 @@ asked for; they never print a gate `skipped:` line that could be mistaken for a 
 - `crates/nvse/src/docs_tests.rs` — needs `NV_XNVSE_DLL`, the shipped `nvse_1_4.dll`.
 - `crates/nvse/src/newlang/compile_tests.rs` — needs `NV_XNVSE_NEW_COMPILER_TESTS`, a folder of xNVSE's own compiler tests.
 - `crates/engine/tests/jip_call_arity.rs` — needs `NV_PROBE`, a sweep's address list rather than game data.
+- `crates/engine/tests/typed_navmesh_edges.rs` — its `real_navmeshes` test (ignored) needs `NV_DATA`, the player's own `FalloutNV.esm`; the private run does not drive it.
 - `crates/engine-platform/src/vorbisfile.rs` — needs `NV_VORBIS_TEST_DIR`, a folder of the game's `.ogg` files.
 
 `scripts/fork/tests/test_private_run.py` builds a small tree from scratch to prove that each group is covered, that a
