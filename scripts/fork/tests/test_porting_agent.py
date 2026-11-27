@@ -194,6 +194,20 @@ class AgentTest(unittest.TestCase):
         porting_agent.probe(env, runner=lambda e, p, sandbox=None: {"status": "ok"})
         self.assertEqual(porting_agent.cooling(env), {})
 
+    def test_a_foreign_worktree_notice_with_staged_work_is_taken(self):
+        gw = Path(self.tmp.name) / "gw"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)], check=True,
+                       env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
+        (gw / "new.rs").write_text("x\n")
+        result = {"status": "failed", "reason": "foreign-worktree-change", "worktree": str(gw),
+                  "staged_files": ["new.rs"]}
+        self.assertTrue(porting_agent.is_foreign_only(result))
+        self.assertFalse(porting_agent.is_foreign_only({**result, "staged_files": []}))
+        self.assertFalse(porting_agent.is_foreign_only({**result, "reason": "timeout"}))
+        with mock.patch.object(porting_agent, "gateway", lambda *a, **k: result):
+            self.assertEqual(porting_agent.work(self.env), 0)
+        self.assertTrue((self.wt / "new.rs").is_file())
+
     def test_template_family_is_the_smallest_suite(self):
         self.assertEqual(porting_agent.template_family(self.wt), "small")
 

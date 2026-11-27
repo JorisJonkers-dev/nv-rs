@@ -146,6 +146,12 @@ def mark_limited(env, model, text):
         print(f"cooldown not written: {exc}", file=sys.stderr)
 
 
+def is_foreign_only(result):
+    """A failed run whose only fault is the gateway noticing another run's worktree, with work staged."""
+    return (result.get("status") == "failed" and result.get("reason") == "foreign-worktree-change"
+            and bool(result.get("worktree")) and bool(result.get("staged_files")))
+
+
 def is_limited(result):
     return result.get("status") != "ok" and bool(LIMITED.search(json.dumps(result)))
 
@@ -298,11 +304,17 @@ def work(env):
         Path(env["NV_PORT_QUEUE_FILE"] + ".worker").write_text(f"{payload.get('model', '')}\n", encoding="utf-8")
     except OSError:
         pass
+    if is_foreign_only(result):
+        # Another run's throwaway worktree appeared in the shared repository during this run; the
+        # worker's own worktree is untouched, so its work is taken (the Diff run and review still judge it).
+        result = {**result, "status": "ok"}
+        record["reason"] = "foreign-worktree-change"
     if result.get("status") != "ok" or not result.get("worktree"):
         metrics(env, {**record, "outcome": "gateway-failed"})
         print(f"worker run failed: {json.dumps(result)[:600]}", file=sys.stderr)
         return 1
     gw = Path(result["worktree"])
+    run(["git", "add", "-A"], gw)
     patch = run(["git", "diff", "--cached", "--binary", base], gw)
     clean(env, payload, worktree)
     if patch.returncode or not patch.stdout.strip():
