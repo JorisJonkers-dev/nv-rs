@@ -322,6 +322,23 @@ class AffectedOnly(unittest.TestCase):
         self.assertEqual(len(names(["crates/esm/src/lib.rs"])), 2)  # a dependency reaches both
 
 
+class Grouping(unittest.TestCase):
+    META = workspace({"a": [], "b": [], "c": []})
+
+    def test_components_of_a_group_share_one_windows_job_and_linux_stays_per_component(self):
+        m = model([comp("x", ["a"], group="small"), comp("y", ["b"], group="small"), comp("z", ["c"], group="small", runs_on="both")], self.META)
+        inc = m.plan()["include"]
+        win = [e for e in inc if e["os"] == "windows-latest"]
+        self.assertEqual([e["name"] for e in win], ["Component: small (Windows)"])
+        self.assertEqual(win[0]["script"], "cargo test --locked -p a\ncargo test --locked -p b\ncargo test --locked -p c")
+        self.assertEqual([e["name"] for e in inc if e["os"] != "windows-latest"], ["Component: z (Linux, informational)"])
+
+    def test_a_group_holds_only_the_components_the_change_reaches(self):
+        m = model([comp("x", ["a"], group="small"), comp("y", ["b"], group="small")], self.META)
+        win = m.plan(False, ["crates/b/src/lib.rs"])["include"]
+        self.assertEqual([e["script"] for e in win], ["cargo test --locked -p b"])
+
+
 class Realistic(unittest.TestCase):
     def test_a_typed_test_file_reaches_only_its_job_and_the_typed_crates_reach_every_typed_job(self):
         m = real_model()

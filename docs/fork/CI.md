@@ -76,8 +76,13 @@ dependencies (the check says exactly which are missing). A crate in two componen
 
 ## Which components run
 
-- **Push to `fork`, the nightly schedule (03:17 UTC) and a manual run:** every component.
-- **Pull request:** a documentation-only or fork-owned-only change skips the build (the `changes` job). Otherwise a
+- **The nightly schedule (03:17 UTC) and a manual run:** every component, every OS, the macOS and Linux tagged-engine tests, and
+  "Catalogue results" with the report commit. This is the only full run of `fork`. When it fails, the job "Nightly failure
+  issue" opens one issue labelled `nightly-failure` (or comments on the open one).
+- **Push to `fork`:** the same selection as a pull request (the changed files between the push's `before` and its head), on every
+  OS: Windows is not left out. A push with no usable base runs everything. The catalogue, the tagged-engine tests and the
+  report commit are nightly only, because they need every test log.
+- **Pull request (and push):** a documentation-only or fork-owned-only change skips the build (the `changes` job). Otherwise a
   component runs when a crate of its **test closure** changed (the crates, their dev-dependencies and all their normal
   dependencies), or one of its `paths` (the launcher and ledger also own `distribution/`); `pr = "always"` components
   (`repo-checks`) always run. Changes to `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, a vendored crate's
@@ -91,12 +96,15 @@ dependencies (the check says exactly which are missing). A crate in two componen
   `cfg` on `windows` or `macos`; or when the pull request carries the label `ci:all-os` as its run starts (a label added
   afterwards counts from the next push; adding it does not start a run). A Linux twin that is informational is left out
   when the Windows job of the same component runs. The macOS job runs on a pull request only for `d3d9-*`, `engine-platform`,
-  `fork-window`, `fork-api`, `fork-play`, `fork-gfx`, a `cfg` on macOS, or the label. Pushes to `fork`, the schedule and a
-  manual run run every OS, so `fork` stays fully verified.
+  `fork-window`, `fork-api`, `fork-play`, `fork-gfx`, a `cfg` on macOS, or the label. The schedule and a manual run run everything on
+  every OS, and a push to `fork` runs every OS for what its commits reach.
 - **A changed test file selects its own job:** a file `crates/<crate>/tests/<name>.rs` that a component job lists with
   `--test <name>` reaches that job only (the mapping is `.fork/components.toml`, the same one the coverage plan reads); a
   change to the crate's source or to a dependency reaches every job that links it.
-- The Linux probe runs on pushes, the schedule and manual runs only. "Repository checks" also runs the `nvinspect`
+- **Small components share a Windows job:** a component with `group = "..."` in `.fork/components.toml` runs in the group's one
+  Windows job (`Component: small crates (Windows)`, `Component: medium crates (Windows)`), only the members the change reaches,
+  one after the other: a Windows job costs about 50 s before its first test. Linux jobs stay one per component.
+- The Linux probe runs in the schedule and manual runs only. "Repository checks" also runs the `nvinspect`
   hygiene test, so it runs when the builds are skipped.
 - Measured on the last 300 upstream commits (simulation of the rule): 253 of 283 code commits reach the five slow typed
   jobs, because `engine` depends on nearly everything. So "affected only" helps the other 11 % and the small components; the slow
@@ -113,7 +121,7 @@ stale before the change lands. The pipeline handles the two reports alike:
   the pull request changes `research/component-census/` or the report itself: such a pull request fails
   when its committed report does not match a fresh run. A pull request that changes only engine code does
   not fail on a stale census.
-- **On a push to `fork`,** "Catalogue results" renders the census and the coverage reports in a clean
+- **In the nightly run,** "Catalogue results" renders the census and the coverage reports in a clean
   worktree of the tested commit and uploads them. After `Pipeline Complete` passes, "Catalogue reports"
   commits the changed files as raul-progress-bot with
   `chore(catalogue): update the generated reports [skip ci]`, so the commit does not start another run.
@@ -121,7 +129,7 @@ stale before the change lands. The pipeline handles the two reports alike:
   The copy into that commit covers every file in `REPORT_FILES`, including the census; an empty report
   stops the push instead of blanking the copy on `fork`. The progress bot knows the same list, so a
   progress commit replayed on top of a reports commit is not confused by the census file.
-- Between a merge and that bot commit, `fork` can still hold the previous report. The merge push
+- Between a merge and that bot commit, `fork` can still hold the previous report. The nightly run
   regenerates the census rather than checking the committed copy, so a stale report fixes itself on
   that push instead of blocking merges. A pull request that changes `research/component-census/` is
   still checked and fails unless its committed report matches the tool.

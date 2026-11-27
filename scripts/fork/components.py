@@ -437,7 +437,26 @@ class Model:
             include += got
             status.append({"component": name, "tested": bool(got), "jobs": len(got),
                            "why": "" if got else "no crate of its test closure changed" if all_os or not self.entries(name, None if force else seeds, tests) else "Windows only, and no platform code changed"})
-        return {"include": include, "components": status, "reason": reason}
+        return {"include": self.grouped(include), "components": status, "reason": reason}
+
+    def grouped(self, include):
+        """Components that name a `group` share one Windows job per group (checkout, toolchain and cache restore cost about
+        50 s a job, more than the tests of a small crate): their commands run one after the other in it. Linux jobs stay one per
+        component (they start in 20 s) and a split job (`job`) stays as it is."""
+        out, groups = [], {}
+        for e in include:
+            g = self.comps[e["component"]].get("group")
+            if not g or e["os"] != "windows-latest" or e["informational"] or e["shard"] or "Windows" not in e["name"] or " / " in e["name"]:
+                out.append(e)
+            elif g not in groups:
+                groups[g] = dict(e, name=f"Component: {g} (Windows)", component=g, cache=f"group-{g}")
+                out.append(groups[g])
+            else:
+                m = groups[g]
+                m["script"] += "\n" + e["script"]
+                m["timeout"] = max(m["timeout"], e["timeout"])
+                m["workspaces"] = "\n".join(dict.fromkeys(m["workspaces"].split("\n") + e["workspaces"].split("\n")))
+        return out
 
 
 def load(toml_path=".fork/components.toml", metadata=None, linux_ok=".fork/linux-ok.txt", overlay=".fork/overlay-paths"):
@@ -606,17 +625,15 @@ def main():
         files = read_list(a.files_from) if a.files_from else [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
         print("true" if model.platform_relevant(files, a.macos) else "false")
     else:
+        # The schedule and a manual run (and a push or pull request with no base to compare with) run everything; a pull
+        # request and a push to the integration branch run what the change reaches.
+        full = a.event in ("schedule", "workflow_dispatch") or not (a.files_from or (a.base and a.base.strip("0")))
         files = []
-        if a.event == "pull_request":
-            if a.files_from:
-                files = read_list(a.files_from)
-            elif a.base:
-                files = [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
-            else:
-                sys.exit("pull_request needs --base or --files-from")
-        # A pull request runs Windows only for platform-relevant changes or with the label ci:all-os (--all-os).
-        all_os = a.event != "pull_request" or a.all_os or model.platform_relevant(files)
-        json.dump(model.plan(a.event != "pull_request", files, all_os), sys.stdout, indent=1)
+        if not full:
+            files = read_list(a.files_from) if a.files_from else [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
+        # A pull request runs Windows only for platform-relevant changes or with the label ci:all-os (--all-os); a push runs every OS.
+        all_os = a.event != "pull_request" or a.all_os or full or model.platform_relevant(files)
+        json.dump(model.plan(full, files, all_os), sys.stdout, indent=1)
         print()
 
 
