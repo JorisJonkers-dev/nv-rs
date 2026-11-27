@@ -51,6 +51,21 @@ const CALLEES: [u32; 112] = [
     0x009a4320, 0x00a59d30, 0x00a5b690, 0x00aa1070, 0x00aa10f0, 0x00ec4835, 0x00ec61c0, 0x00ec62c0,
 ];
 
+/// The list and array primitives the cases that `node_real` leave to their translations.
+const REAL_CONTAINERS: [u32; 11] = [
+    0x006a_7ad0,
+    0x007c_b2e0,
+    0x0071_9b20,
+    0x0084_54f0,
+    0x0063_f7b0,
+    0x005a_e380,
+    0x0090_5330,
+    0x005f_65d0,
+    0x0047_0470,
+    0x0047_02f0,
+    0x0096_a2d0,
+];
+
 /// Typed calls into other families, which go by address here.
 const OTHER_FAMILIES: &[u32] = &[
     0x0041_6870,
@@ -115,7 +130,7 @@ fn cast(e: &mut Engine, a: &[u32]) -> Ret {
 }
 
 /// The world, made on each engine from the case's world word.
-fn world(e: &mut Engine, salt: u32) {
+fn world(e: &mut Engine, salt: u32, real: bool) {
     e.map(CONTROL, 0x1000);
     e.map(ARENA, ARENA_LEN);
     e.map(WORLD_VT, 0x100);
@@ -137,7 +152,11 @@ fn world(e: &mut Engine, salt: u32) {
     e.register(OPERATOR_DELETE, noted);
     e.register(DYNAMIC_CAST, cast);
     for addr in CALLEES {
-        e.register(addr, noted);
+        // The containers' own translations run when the case asks (`node_real`): a loop that empties
+        // a list through them ends, where a counting stand-in never empties it.
+        if !(real && REAL_CONTAINERS.contains(&addr)) {
+            e.register(addr, noted);
+        }
     }
     e.mem.set_u32(CAST_OK, salt & 1);
 }
@@ -159,10 +178,68 @@ enum A {
     This(u32),
     /// A pointer argument: a block of this many bytes, or null.
     Obj(u32),
+    /// A block of this many bytes, never null (or null when the flag says so, as `Obj`), whose fields
+    /// the fills make real: a count that is small, a pointer that points at a block.
+    Shaped(u32, &'static [Fill], bool),
     /// A word from this list.
     Word(&'static [u32]),
     Flag,
     Float,
+}
+
+/// One field of a shaped block.
+#[derive(Clone, Copy)]
+enum Fill {
+    /// A word at this offset, taken from the list by the seed.
+    Small(u32, &'static [u32]),
+    /// A pointer at this offset to a block of this many bytes the seed draws.
+    Ptr(u32, u32),
+    /// A `BSSimpleArray` at this offset (`pBuffer` +4, `iSize` +8, `iReservedSize` +0xc) of pointers
+    /// to blocks of this many bytes: 0 to 3 of them by the seed, and room for 4.
+    Array(u32, u32),
+    /// A `BSSimpleList` head node at this offset (item, next) whose item and chain are blocks of this
+    /// many bytes: 0 to 3 further nodes by the seed.
+    List(u32, u32),
+}
+
+fn fill(e: &mut Engine, block: u32, fills: &[Fill], seed: u32) {
+    for (k, f) in fills.iter().enumerate() {
+        let m = mix(seed, 0x1000 + k as u32);
+        match *f {
+            Fill::Small(off, values) => e
+                .mem
+                .set_u32(block + off, values[m as usize % values.len()]),
+            Fill::Ptr(off, size) => {
+                let target = object(e, size, m);
+                e.mem.set_u32(block + off, target);
+            }
+            Fill::Array(off, elem) => {
+                let count = m % 4;
+                let buffer = e.mem.alloc(16);
+                for i in 0..4 {
+                    let item = object(e, elem, mix(m, i));
+                    e.mem.set_u32(buffer + i * 4, item);
+                }
+                e.mem.set_u32(block + off + 4, buffer);
+                e.mem.set_u32(block + off + 8, count);
+                e.mem.set_u32(block + off + 12, 4);
+            }
+            Fill::List(off, size) => {
+                let mut tail = block + off;
+                let item = object(e, size, m);
+                e.mem.set_u32(tail, item);
+                e.mem.set_u32(tail + 4, 0);
+                for i in 0..m % 4 {
+                    let node = e.mem.alloc(8);
+                    let item = object(e, size, mix(m, 0x10 + i));
+                    e.mem.set_u32(node, item);
+                    e.mem.set_u32(node + 4, 0);
+                    e.mem.set_u32(tail + 4, node);
+                    tail = node;
+                }
+            }
+        }
+    }
 }
 
 const SEEDS: &[u32] = &[1, 2, 3, 4, 5, 6];
@@ -170,27 +247,41 @@ const OPTIONAL_SEEDS: &[u32] = &[0, 1, 2, 3, 4, 5];
 
 trait NodeCase {
     fn node(self, args: &[A]) -> Diff;
+    fn node_real(self, args: &[A]) -> Diff;
 }
 
 impl NodeCase for Diff {
     fn node(self, args: &[A]) -> Diff {
+        node_world(self, args, false)
+    }
+
+    fn node_real(self, args: &[A]) -> Diff {
+        node_world(self, args, true)
+    }
+}
+
+fn node_world(diff: Diff, args: &[A], real: bool) -> Diff {
+    {
         let inputs: Vec<Input> = args
             .iter()
             .map(|a| match a {
                 A::This(_) => Input::Of(SEEDS),
                 A::Obj(_) => Input::Of(OPTIONAL_SEEDS),
+                A::Shaped(_, _, nullable) => {
+                    Input::Of(if *nullable { OPTIONAL_SEEDS } else { SEEDS })
+                }
                 A::Word(pool) => Input::Of(pool),
                 A::Flag => Input::Flag,
                 A::Float => Input::F32,
             })
             .collect();
         let args = args.to_vec();
-        self.family(&EXTRA_DATA)
+        diff.family(&EXTRA_DATA)
             .goes_by_address(OTHER_FAMILIES)
             .inputs(&inputs)
             .setup(move |e, case| {
                 let words = case.words();
-                world(e, words.iter().fold(0, |a, w| mix(a, *w)));
+                world(e, words.iter().fold(0, |a, w| mix(a, *w)), real);
                 let salt = words.iter().fold(7, |a, w| mix(a, *w));
                 let mut call = Vec::new();
                 for (i, a) in args.iter().enumerate() {
@@ -200,6 +291,13 @@ impl NodeCase for Diff {
                             0
                         }
                         A::This(size) | A::Obj(size) => object(e, *size, mix(salt, words[i])),
+                        A::Shaped(_, _, true) if words[i] == 0 => 0,
+                        A::Shaped(size, fills, _) => {
+                            let seed = mix(salt, words[i]);
+                            let block = object(e, *size, seed);
+                            fill(e, block, fills, seed);
+                            block
+                        }
                         A::Word(_) | A::Flag | A::Float => words[i],
                     });
                 }
@@ -269,7 +367,7 @@ fn n_004302a0() {
         )
             -> Ptr<_>
     ))
-    .node(&[A::This(0x40), A::Flag])
+    .node_real(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x004302d0, 0x00430390, 0x004303c0])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -283,7 +381,7 @@ fn n_004302d0() {
         0x0043_02d0,
         extra_data::nodes::objects::fn_004302d0(Ptr<_>)
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00430390, 0x004303c0])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -350,7 +448,7 @@ fn n_004305f0() {
         0x0043_05f0,
         extra_data::nodes::objects::fn_004305f0(Ptr<_>, u32, u8)
     ))
-    .node(&[
+    .node_real(&[
         A::This(0x40),
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
         A::Word(&[0, 1, 2, 5, 0x14]),
@@ -377,7 +475,7 @@ fn n_00430780() {
         0x0043_0780,
         extra_data::nodes::objects::fn_00430780(Ptr<_>, Ptr<_>) -> Ptr<_>
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430830])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -458,7 +556,7 @@ fn n_004309e0() {
         0x0043_09e0,
         extra_data::nodes::objects::refr_lock_get_lock_level(Ptr<_>, Ptr<_>) -> i32
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430a10, 0x00430b40])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -496,7 +594,7 @@ fn n_00430ae0() {
         0x0043_0ae0,
         extra_data::nodes::objects::refr_lock_is_broken(Ptr<_>) -> bool
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::This(0x40)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -506,7 +604,7 @@ fn n_00430ae0() {
 #[test]
 fn n_00430b40() {
     Diff::new(entry!(0x0043_0b40, extra_data::nodes::objects::refr_lock_numeric_value_to_enum(i32) -> i32))
-        .node(&[A::Word(&[0, 1, 2, 5, 0x14, 0x15, 0xffff_ffff])])
+        .node_real(&[A::Word(&[0, 1, 2, 5, 0x14, 0x15, 0xffff_ffff])])
         .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -551,7 +649,7 @@ fn n_00430ce0() {
         0x0043_0ce0,
         extra_data::nodes::objects::extra_lock_compare(Ptr<_>, Ptr<_>) -> bool
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430b40])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -664,7 +762,7 @@ fn n_00431120() {
         0x0043_1120,
         extra_data::nodes::objects::fn_00431120(Ptr<_>, u32, u32)
     ))
-    .node(&[
+    .node_real(&[
         A::This(0x40),
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
@@ -1993,7 +2091,7 @@ fn n_00433750() {
         0x0043_3750,
         extra_data::nodes::objects::fn_00433750(Ptr<_>)
     ))
-    .node(&[A::This(0x50)])
+    .node_real(&[A::This(0x50)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -2023,7 +2121,7 @@ fn n_00433800() {
             _,
         >
     ))
-    .node(&[A::This(0x40), A::Flag])
+    .node_real(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x00433750, 0x00433830])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2037,7 +2135,7 @@ fn n_00433830() {
         0x0043_3830,
         extra_data::nodes::objects::fn_00433830(Ptr<_>)
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00433750])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2066,7 +2164,7 @@ fn n_00433940() {
         )
             -> Ptr<_>
     ))
-    .node(&[A::This(0x40), A::Flag])
+    .node_real(&[A::This(0x40), A::Flag])
     .translation_calls_plainly(&[0x00433750, 0x00433970])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2080,7 +2178,7 @@ fn n_00433970() {
         0x0043_3970,
         extra_data::nodes::objects::fn_00433970(Ptr<_>)
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00433750])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2120,7 +2218,7 @@ fn n_00433b70() {
         0x0043_3b70,
         extra_data::nodes::objects::extra_activate_ref_copy(Ptr<_>, Ptr<_>)
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00433750])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2148,7 +2246,7 @@ fn n_00433d10() {
             u32,
         ) -> Ptr<_>
     ))
-    .node(&[A::This(0x40), A::Flag])
+    .node_real(&[A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false), A::Flag])
     .translation_calls_plainly(&[0x00433d40, 0x004343c0])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2162,7 +2260,7 @@ fn n_00433d40() {
         0x0043_3d40,
         extra_data::nodes::objects::fn_00433d40(Ptr<_>)
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false)])
     .translation_calls_plainly(&[0x004343c0])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2189,7 +2287,7 @@ fn n_00433ed0() {
         0x0043_3ed0,
         extra_data::nodes::objects::extra_reflector_refs_init_item(Ptr<_>, Ptr<_>)
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -2202,7 +2300,7 @@ fn n_00434050() {
         0x0043_4050,
         extra_data::nodes::objects::extra_lit_water_refs_init_item(Ptr<_>, Ptr<_>)
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -2226,7 +2324,10 @@ fn n_004342b0() {
         0x0043_42b0,
         extra_data::nodes::objects::extra_decal_refs_copy(Ptr<_>, Ptr<_>)
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[
+        A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false),
+        A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], true),
+    ])
     .translation_calls_plainly(&[0x004343c0])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2240,7 +2341,7 @@ fn n_004343c0() {
         0x0043_43c0,
         extra_data::nodes::objects::fn_004343c0(Ptr<_>)
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -2267,12 +2368,11 @@ fn n_00434480() {
         extra_data::nodes::objects::fn_00434480(Ptr<_>, u32, Ptr<_>, Ptr<_>)
     ))
     .node(&[
-        A::This(0x40),
+        A::Shaped(0x14, &[Fill::List(0x0c, 0x1c)], false),
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
         A::Obj(0x50),
         A::Obj(0x50),
     ])
-    .translation_calls_plainly(&[0x00434410])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -2309,7 +2409,7 @@ fn n_004346f0() {
         0x0043_46f0,
         extra_data::nodes::objects::extra_reflected_refs_copy(Ptr<_>, Ptr<_>)
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00434d90])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2414,7 +2514,7 @@ fn n_00434c80() {
         0x0043_4c80,
         extra_data::nodes::objects::extra_reflector_refs_copy(Ptr<_>, Ptr<_>)
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00434d90])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -2428,7 +2528,7 @@ fn n_00434d90() {
         0x0043_4d90,
         extra_data::nodes::objects::extra_reflected_refs_clear_reference_data(Ptr<_>)
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::This(0x40)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -2543,7 +2643,7 @@ fn n_004350c0() {
         0x0043_50c0,
         extra_data::nodes::objects::fn_004350c0(Ptr<_>) -> f32
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::This(0x40)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -2589,7 +2689,7 @@ fn n_004351d0() {
         0x0043_51d0,
         extra_data::nodes::objects::fn_004351d0(Ptr<_>, Ptr<_>) -> Ptr<_>
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -3035,6 +3135,7 @@ fn n_00435c40() {
     .node(&[A::This(0x40)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
+    .translation_calls_plainly(&[0x00438a60])
     .run()
     .assert_same();
 }
@@ -3072,8 +3173,8 @@ fn n_00435d40() {
         0x0043_5d40,
         extra_data::nodes::objects_p2::extra_friend_hits_add_hit(Ptr<_>)
     ))
-    .node(&[A::This(0x40)])
-    .translation_calls_plainly(&[0x00435e40])
+    .node_real(&[A::This(0x40)])
+    .translation_calls_plainly(&[0x00435dd0, 0x00435e40])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -3083,7 +3184,7 @@ fn n_00435d40() {
 #[test]
 fn n_00435dd0() {
     Diff::new(entry!(0x0043_5dd0, extra_data::nodes::objects_p2::fn_00435dd0() -> f32))
-        .node(&[])
+        .node_real(&[])
         .tolerate_garbage_stops(3)
         .max_calls(2000)
         .run()
@@ -3107,7 +3208,7 @@ fn n_00435e00() {
         0x0043_5e00,
         extra_data::nodes::objects_p2::fn_00435e00(Ptr<_>) -> f32
     ))
-    .node(&[A::This(0x50)])
+    .node_real(&[A::This(0x50)])
     .translation_calls_plainly(&[0x00435dd0])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -3121,7 +3222,7 @@ fn n_00435e20() {
         0x0043_5e20,
         extra_data::nodes::objects_p2::extra_friend_hits_get_hit_count(Ptr<_>) -> u32
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::This(0x40)])
     .translation_calls_plainly(&[0x00435e40])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -3135,9 +3236,10 @@ fn n_00435e40() {
         0x0043_5e40,
         extra_data::nodes::objects_p2::extra_friend_hits_remove_old_hits(Ptr<_>)
     ))
-    .node(&[A::This(0x40)])
+    .node_real(&[A::This(0x40)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
+    .translation_calls_plainly(&[0x00435e00])
     .run()
     .assert_same();
 }
@@ -3503,7 +3605,7 @@ fn n_00436b20() {
             Ptr<_>,
         ) -> Ptr<_>
     ))
-    .node(&[A::This(0x40), A::Obj(0x50), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00430830, 0x00436780])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -3736,7 +3838,7 @@ fn n_00437440() {
 #[test]
 fn n_004374e0() {
     Diff::new(entry!(0x0043_74e0, extra_data::nodes::objects_p2::extra_say_topic_info_once_a_day_scalar_deleting_destructor(Ptr<_>, u32) -> Ptr<_>))
-        .node(&[A::This(0x40), A::Flag])
+        .node_real(&[A::This(0x40), A::Flag])
         .translation_calls_plainly(&[0x004375c0])
         .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -3854,7 +3956,7 @@ fn n_00437850() {
         0x0043_7850,
         extra_data::nodes::objects_p2::fn_00437850(Ptr<_>, u32, bool)
     ))
-    .node(&[
+    .node_real(&[
         A::This(0x40),
         A::Word(&[0, 1, 2, 0x10, 0xffff_ffff]),
         A::Flag,
@@ -3933,7 +4035,7 @@ fn n_00437ab0() {
         )
             -> bool
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[0x00437b90, 0x00437bb0, 0x00437bd0, 0x00437bf0])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -3999,7 +4101,7 @@ fn n_00437c10() {
 #[test]
 fn n_00437c40() {
     Diff::new(entry!(0x0043_7c40, extra_data::nodes::objects_p2::extra_follower_swim_breadcrumbs_extra_follower_swim_breadcrumbs(Ptr<_>) -> Ptr<_>))
-        .node(&[A::This(0x40)])
+        .node_real(&[A::This(0x40)])
         .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -4077,7 +4179,7 @@ fn n_00437f90() {
         0x0043_7f90,
         extra_data::nodes::objects_p2::extra_securitron_face_apply_face(Ptr<_>, Ptr<_>)
     ))
-    .node(&[A::This(0x40), A::Obj(0x50)])
+    .node_real(&[A::This(0x40), A::Obj(0x50)])
     .translation_calls_plainly(&[
         0x00438170, 0x004381b0, 0x004381d0, 0x00438210, 0x00438220, 0x00438230,
     ])
@@ -4106,7 +4208,7 @@ fn n_004381b0() {
         0x0043_81b0,
         extra_data::nodes::objects_p2::fixed_string_destruct(Ptr<_>)
     ))
-    .node(&[A::This(0x50)])
+    .node_real(&[A::This(0x50)])
     .translation_calls_plainly(&[0x004381d0, 0x00438210])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -4120,7 +4222,7 @@ fn n_004381d0() {
         0x0043_81d0,
         extra_data::nodes::objects_p2::fixed_string_release(Ptr<_>)
     ))
-    .node(&[A::This(0x50)])
+    .node_real(&[A::This(0x50)])
     .translation_calls_plainly(&[0x00438210])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
@@ -4269,7 +4371,7 @@ fn n_00438470() {
         0x0043_8470,
         extra_data::nodes::objects_p3::bs_string_t_set(Ptr<_>, Ptr<_>) -> bool
     ))
-    .node(&[A::This(0x50), A::Obj(0x50)])
+    .node_real(&[A::This(0x50), A::Obj(0x50)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
@@ -4327,7 +4429,7 @@ fn n_00438610() {
         0x0043_8610,
         extra_data::nodes::objects_p3::fn_00438610(Ptr<_>, Ptr<_>) -> u32
     ))
-    .node(&[A::This(0x50), A::Obj(0x50)])
+    .node_real(&[A::This(0x50), A::Obj(0x50)])
     .tolerate_garbage_stops(3)
     .max_calls(2000)
     .run()
