@@ -1573,6 +1573,35 @@ def link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes):
     raise RuntimeError("wasm-ld: no unit is left after dropping duplicates")
 
 
+def drop_duplicate_exports(tools, out, objects, runtime, wasm, chosen, outcomes):
+    """Drop the later unit when two linked functions end up with one export name.
+
+    The `@fnv` annotation names an export by address; a unit that holds the same address twice
+    (or a variant `keep_first_export_of_each_address` did not see) makes the module invalid. The
+    unit is reported with the name, and the rest is linked again. Returns the objects linked.
+    """
+    reader = wabt_tool(tools, "wasm2wat")
+    if not reader:
+        return objects
+    for _ in range(len(objects)):
+        probe = run([reader, wasm])
+        match = re.search(r'duplicate export "fnv_([0-9a-fA-F]+)"', probe.stderr)
+        if not probe.returncode or not match:
+            return objects
+        marker = re.compile(r"@fnv 0x0*%s\b" % match.group(1).lstrip("0"), re.I)
+        holders = [(unit, outcome) for unit, outcome in zip(chosen, outcomes)
+                   if outcome["ok"] and marker.search(
+                       (Path(out) / "copy" / unit["source"]).read_text(errors="surrogateescape"))]
+        if not holders:
+            return objects
+        unit, outcome = holders[-1]
+        outcome["ok"] = False
+        outcome["reason"] = "duplicate export fnv_%s" % match.group(1)
+        objects = [o for o in objects if o.name != outcome["object"]]
+        objects = link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes)
+    return objects
+
+
 def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
           compiler=None, allow_fallback=False, force_fallback=False):
     """Build a native library and write report.json/report.md into the output folder."""
@@ -1626,6 +1655,7 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
         raise RuntimeError("asm stub: " + stub.stderr.strip()[-500:])
     wasm = out / "mod.wasm"
     objects = link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes)
+    objects = drop_duplicate_exports(tools, out, objects, runtime, wasm, chosen, outcomes)
     symbols = collect_symbols({}, chosen)
     for key, value in collect_symbols(manifest, all_units).items():
         symbols.setdefault(key, value)

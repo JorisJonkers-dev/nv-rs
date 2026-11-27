@@ -1116,6 +1116,28 @@ class NoBackendTests(unittest.TestCase):
             self.assertEqual(result[0]["reason"], "backend is not built")
 
 
+class DuplicateExportTests(unittest.TestCase):
+    def test_the_later_unit_holding_the_address_is_dropped_and_the_rest_relinked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp)
+            (out / "copy").mkdir()
+            (out / "copy" / "a.cpp").write_text("// @fnv 0x00c711d0\nvoid f();\n")
+            (out / "copy" / "b.cpp").write_text("void g();\n")
+            chosen = [{"source": "a.cpp"}, {"source": "b.cpp"}]
+            outcomes = [{"ok": True, "reason": "", "object": "a.o"}, {"ok": True, "reason": "", "object": "b.o"}]
+            objects = [Path("a.o"), Path("b.o")]
+            replies = [mock.Mock(returncode=1, stderr='x: error: duplicate export "fnv_00c711d0"'),
+                       mock.Mock(returncode=0, stderr="")]
+            with mock.patch.object(backend, "wabt_tool", return_value="wasm2wat"), \
+                    mock.patch.object(backend, "run", side_effect=replies), \
+                    mock.patch.object(backend, "link_without_duplicates",
+                                      side_effect=lambda t, o, r, w, c, oc: o):
+                left = backend.drop_duplicate_exports({}, out, objects, "rt", "m.wasm", chosen, outcomes)
+            self.assertEqual([Path("b.o")], left)
+            self.assertFalse(outcomes[0]["ok"])
+            self.assertIn("duplicate export fnv_00c711d0", outcomes[0]["reason"])
+
+
 class SseHeaderTests(unittest.TestCase):
     def test_the_intrinsic_headers_define_the_type_once_and_declare_the_functions(self):
         with tempfile.TemporaryDirectory() as temp:
