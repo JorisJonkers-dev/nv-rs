@@ -146,8 +146,10 @@ part of the pipeline.
   last (the critical path of this run) and the failed steps. A Linux twin that failed is shown as "failed (informational)".
   On a title or description edit (pull_request `edited`) only the checks that read them run (hygiene, PR title, the
   replay point of Verify sync, Progress counts); the builds and code checks skip, and `Pipeline Complete` passes only
-  when the newest finished run of the commits on the same head commit passed (`scripts/fork/edit_run_gate.py`), so an
-  edit neither restarts the whole pipeline nor turns a red pull request green.
+  when the newest run of the commits on the same head commit passed (`scripts/fork/edit_run_gate.py`), so an
+  edit neither restarts the whole pipeline nor turns a red pull request green. While that run is still going the gate
+  waits (polling, up to 170 minutes) instead of failing: a failed `Pipeline Complete` from an edit stayed on the head
+  commit and blocked the merge until someone re-ran it. If the pull request's head moved on meanwhile it passes.
   A change of the base branch is also an `edited` event; it runs the whole pipeline.
 - **Test-count check (acceptance for a change to the map):** the component summaries together must equal what
   `cargo test --workspace` ran (upstream's log: 57,444 passed, 53 ignored). A feature a job misses would silently skip tests;

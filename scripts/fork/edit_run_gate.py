@@ -5,12 +5,16 @@ An edit run checks only the title and the description; its builds and code check
 a red pull request green, its Pipeline Complete takes the code's result from the newest run of the same workflow on
 the same head commit whose "Repository checks" job ran (a run of the commits, not another edit run):
 - that run's Pipeline Complete passed: exit 0;
-- it failed, was cancelled or has not finished: exit 1 (when it finishes later, its own Pipeline Complete is the newer
-  check on the commit and counts);
-- no such run: exit 1.
+- it failed or was cancelled: exit 1;
+- it has not finished (or has not appeared yet, for up to GRACE seconds): WAIT and look again, up to LIMIT seconds. A
+  gate that fails here leaves a red "Pipeline Complete" on the head commit that no later run replaces, and the required
+  check stays red until someone re-runs it, so this gate must never fail only because another run is still going;
+- the pull request's head moved on, or the pull request closed, meanwhile: exit 0, the edit belongs to a commit nobody
+  merges any more.
 
 Environment: GH_TOKEN, REPO (owner/name), HEAD_SHA, RUN_ID (this run, left out), PR_NUMBER, HEAD_REF and
-HEAD_REPO (runs of other pull requests on the same commit are left out).
+HEAD_REPO (runs of other pull requests on the same commit are left out). Optional: GATE_POLL, GATE_LIMIT, GATE_GRACE
+(seconds; defaults below).
 """
 import json
 import os
@@ -21,6 +25,9 @@ import time
 WORKFLOW = "fork-ci.yml"
 CODE_JOB = "Repository checks"
 GATE_JOB = "Pipeline Complete"
+POLL = 60  # seconds between looks while the commits' run is going
+LIMIT = 170 * 60  # the longest wait; a little more than the longest job of the pipeline (120 minutes)
+GRACE = 10 * 60  # how long the commits' run may take to appear before "no run" is an answer
 
 
 def api(path, tries=3, run=subprocess.run, wait=time.sleep):
@@ -50,7 +57,8 @@ def all_jobs(get_page, run_id, per_page=50):
 
 
 def verdict(runs):
-    """runs: newest first, each {"id", "jobs": [{"name", "status", "conclusion"}]}. Returns (passed, message)."""
+    """runs: newest first, each {"id", "jobs": [{"name", "status", "conclusion"}]}.
+    Returns (state, message), state "pass", "fail" or "wait" (the answer is not there yet)."""
     for run in runs:
         jobs = {j["name"]: j for j in run["jobs"]}
         code = jobs.get(CODE_JOB)
@@ -58,11 +66,11 @@ def verdict(runs):
             continue  # another edit run
         gate = jobs.get(GATE_JOB)
         if gate is None or gate.get("status") != "completed":
-            return False, f"run {run['id']} of the commits has not finished; its own {GATE_JOB} decides"
+            return "wait", f"run {run['id']} of the commits has not finished"
         if gate.get("conclusion") == "success":
-            return True, f"run {run['id']} of the commits passed"
-        return False, f"run {run['id']} of the commits: {GATE_JOB} {gate.get('conclusion')}"
-    return False, "no run of the commits on this head commit"
+            return "pass", f"run {run['id']} of the commits passed"
+        return "fail", f"run {run['id']} of the commits: {GATE_JOB} {gate.get('conclusion')}"
+    return "wait", "no run of the commits on this head commit yet"
 
 
 def of_this_pull_request(run, number, head_ref, head_repo):
@@ -75,9 +83,7 @@ def of_this_pull_request(run, number, head_ref, head_repo):
     return run.get("head_branch") == head_ref and (run.get("head_repository") or {}).get("full_name") == head_repo
 
 
-def main():
-    repo, sha, me = os.environ["REPO"], os.environ["HEAD_SHA"], int(os.environ["RUN_ID"])
-    number, head_ref, head_repo = int(os.environ["PR_NUMBER"]), os.environ["HEAD_REF"], os.environ["HEAD_REPO"]
+def look(repo, sha, me, number, head_ref, head_repo):
     listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?head_sha={sha}&event=pull_request&per_page=50")
     mine = (r for r in listed["workflow_runs"] if r["id"] != me and of_this_pull_request(r, number, head_ref, head_repo))
     runs = sorted(mine, key=lambda r: r["run_started_at"], reverse=True)
@@ -87,9 +93,37 @@ def main():
         full.append({"id": r["id"], "jobs": jobs})
         if any(j["name"] == CODE_JOB and j.get("conclusion") != "skipped" for j in jobs):
             break  # the newest run of the commits is all verdict() needs
-    passed, message = verdict(full)
-    print(message if passed else f"::error title=Pipeline::{message}")
-    return 0 if passed else 1
+    return verdict(full)
+
+
+def superseded(repo, number, sha):
+    """True when the pull request closed or its head is no longer the commit this edit run belongs to."""
+    pr = api(f"repos/{repo}/pulls/{number}")
+    return pr.get("state") != "open" or pr["head"]["sha"] != sha
+
+
+def main(clock=time.monotonic, wait=time.sleep):
+    repo, sha, me = os.environ["REPO"], os.environ["HEAD_SHA"], int(os.environ["RUN_ID"])
+    number, head_ref, head_repo = int(os.environ["PR_NUMBER"]), os.environ["HEAD_REF"], os.environ["HEAD_REPO"]
+    poll, limit, grace = (int(os.environ.get(k, d)) for k, d in (("GATE_POLL", POLL), ("GATE_LIMIT", LIMIT), ("GATE_GRACE", GRACE)))
+    start = clock()
+    while True:
+        state, message = look(repo, sha, me, number, head_ref, head_repo)
+        if state == "pass":
+            print(message)
+            return 0
+        if state == "fail":
+            print(f"::error title=Pipeline::{message}")
+            return 1
+        if superseded(repo, number, sha):
+            print(f"the pull request moved on from {sha[:9]} while waiting ({message}); nothing left to decide")
+            return 0
+        waited = clock() - start
+        if waited >= limit or (message.startswith("no run") and waited >= grace):
+            print(f"::error title=Pipeline::{message} after {int(waited)} seconds")
+            return 1
+        print(f"waiting: {message} ({int(waited)} s)", flush=True)
+        wait(poll)
 
 
 if __name__ == "__main__":
