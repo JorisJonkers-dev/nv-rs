@@ -23,6 +23,7 @@ Usage:
     python3 -I scripts/fork/porting_loop.py weekly [--days 7] [--out FILE]
 """
 import argparse
+import concurrent.futures
 import datetime
 import fnmatch
 import hashlib
@@ -33,6 +34,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -502,6 +505,14 @@ def claim_age(env):
     return seconds
 
 
+def model_slots(env):
+    """Families run at once (NV_PORT_MODEL_SLOTS, default 20)."""
+    try:
+        return max(1, int(env.get("NV_PORT_MODEL_SLOTS", "20")))
+    except ValueError:
+        return 20
+
+
 def rate_lines(rate):
     """Markdown section summarising the measured rate of one batch."""
     wall = rate["wall_seconds"]
@@ -728,6 +739,18 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
     skipped, stale, rejected = [], [], []
     attempt_log, attempt_counts = [], {}
     success = False
+    report_lock = threading.Lock()
+    abort = threading.Event()  # a failure that ends the batch stops the families not yet started
+    tally = {"runs": 0, "lab": 0.0}
+    started_at = time.time()
+
+    def count_run():
+        with report_lock:
+            tally["runs"] += 1
+
+    def count_lab(seconds):
+        with report_lock:
+            tally["lab"] += seconds
 
     def make_report(status):
         families = []
@@ -750,22 +773,31 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             "checker": checker_hash(root),
             "skipped": list(skipped), "stale": list(stale),
             "rejected": list(rejected), "branch": batch_branch,
+            "rate": {
+                "model_runs": tally["runs"], "build_seconds": tally["lab"],
+                "diff_seconds": tally["lab"], "wall_seconds": time.time() - started_at,
+                "delivered": sum(len(f["delivered"]) for f in accepted),
+            },
         }
 
     def fail(message):
-        write_json(root, name, make_report("failed"))
+        abort.set()
+        with report_lock:
+            write_json(root, name, make_report("failed"))
         print(f"failed: {message}", file=sys.stderr)
         return 1
 
     try:
-        for family, family_rows in selected.items():
+        def run_family(family, family_rows):
+            if abort.is_set():
+                return None
             attempt_counts.setdefault(family, 0)
             previous = claim_time(root, family, claim_dir)
             held = claim(root, family, name, max_age=age, directory=claim_dir, env=env)
             if held is None:
                 skipped.append(family)
                 print(f"skip {family}: another worker holds the claim", file=sys.stderr)
-                continue
+                return None
             owned.append(held)
             now = as_utc(datetime.datetime.now(datetime.timezone.utc))
             if previous is not None and (now - previous).total_seconds() > age:
@@ -804,12 +836,16 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                 failure_file.unlink(missing_ok=True)
                 attempt_counts[family] = 0
 
+                last_attempt = {}
+
                 def record_attempt(number, kind, detail, passed=0, failed=0, lab_exit=None):
-                    attempt_log.append({
+                    entry = {
                         "family": family, "attempt": number, "failure_class": kind,
                         "detail": detail, "passed": passed, "failed": failed,
                         "lab_exit": lab_exit,
-                    })
+                    }
+                    last_attempt["entry"] = entry
+                    attempt_log.append(entry)
 
                 finished = None
                 for attempt in range(1, attempts + 1):
@@ -834,6 +870,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                         attempt_env["NV_PORT_FAILURE_FILE"] = str(failure_file)
                     else:
                         attempt_env.pop("NV_PORT_FAILURE_FILE", None)
+                    count_run()
                     worker_code, worker_output = call(
                         worker, cwd=worktree, env=attempt_env,
                         log=logdir / (slug(family) + ".worker.log"),
@@ -852,11 +889,13 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                     if not ok:
                         return fail(f"{family}: {why}")
                     # family_lab.py sends its cargo arguments to the build daemon itself.
+                    lab_started = time.time()
                     lab_code, output = call(
                         [sys.executable, str(worktree / "scripts" / "fork" / "family_lab.py"),
                          "run", family],
                         cwd=worktree, env=attempt_env, log=logdir / (slug(family) + ".diff.log"),
                     )
+                    count_lab(time.time() - lab_started)
                     counts = diff_counts(output, family)
                     if lab_code or counts["failed"]:
                         kind = "lab" if lab_code else "diff"
@@ -878,11 +917,12 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                     restore(worktree, chunk_base, env, call)
                     break
                 attempt_env, counts, lab_code = finished
+                count_run()
                 review_code, _ = call(reviewer, cwd=worktree, env=attempt_env,
                                       log=logdir / (slug(family) + ".review.log"))
                 review = "accepted" if review_code == 0 else "rejected"
                 if review == "rejected":
-                    attempt_log[-1].update({
+                    last_attempt["entry"].update({
                         "failure_class": "review", "detail": f"review exited {review_code}",
                     })
                 if review == "accepted":
@@ -912,6 +952,15 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                     "passed": done_passed, "failed": done_failed,
                     "lab_exit": done_lab, "review": "accepted",
                 })
+            return None
+
+        order = list(selected)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=model_slots(env)) as pool:
+            results = list(pool.map(lambda item: run_family(*item), selected.items()))
+        failed_code = next((code for code in results if code), None)
+        if failed_code:
+            return failed_code
+        accepted.sort(key=lambda f: order.index(f["family"]))
 
         report = make_report("closed unmerged" if shakedown else "open")
         write_json(root, name, report)

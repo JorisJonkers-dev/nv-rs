@@ -10,6 +10,7 @@ import contextlib
 import datetime
 import hashlib
 import io
+import json
 import os
 import shlex
 import shutil
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -157,6 +159,7 @@ def environment(tmp):
         "NV_PORT_PR": "pr-tool --open",
         "NV_PORT_CLOSE": "close-tool --close",
         "NV_PORT_ROOT": str(tmp),
+        "NV_PORT_MODEL_SLOTS": "1",
     }
 
 
@@ -322,6 +325,7 @@ class PortingLoop(unittest.TestCase):
             "# Porting batch batch-1", "", "## Pass counts", "",
             "- Diff cases: 3 passed; 1 failed",
             "- fade: 3 passed, 1 failed (accepted)",
+            "", "## Attempts", "", "- fade: 1 attempts",
             "", "## Failure classes", "", "- real: 2",
             "", "## Rejected families", "", "- crt",
             "", "## Skipped families", "", "- lights",
@@ -338,6 +342,46 @@ class PortingLoop(unittest.TestCase):
             "\n" + "\n".join(porting_loop.rate_lines(rate)) + "\n\n## Rejected families",
             1,
         ))
+
+    def run_four_families(self, slots):
+        queue = "\n".join(["# rank\taddress\tstate\tdone\tfamily\tname"] + [
+            f"{i}\t0040{i}000\topen\tno\tfam{i}\tfn{i}" for i in range(1, 5)] + [""])
+        spans, lock = [], threading.Lock()
+
+        class Sleeping(Recording):
+            def __call__(inner, argv, cwd=None, env=None, log=None):
+                if str(argv[0]) == "worker-tool":
+                    started = time.time()
+                    time.sleep(0.2)
+                    with lock:
+                        spans.append((started, time.time()))
+                return Recording.__call__(inner, argv, cwd=cwd, env=env, log=log)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            env = dict(environment(root), NV_PORT_MODEL_SLOTS=str(slots))
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=10, name="par", env=env,
+                                          today=datetime.date(2026, 11, 26),
+                                          call=Sleeping(queue=queue))
+            record = porting_loop.batch_record(root, "par")
+        self.assertEqual(code, 0)
+        return spans, record
+
+    def test_families_run_concurrently_in_the_given_model_slots(self):
+        spans, record = self.run_four_families(4)
+        self.assertLess(max(s for s, _ in spans), min(e for _, e in spans))
+        self.assertEqual([f["family"] for f in record["families"]], ["fam1", "fam2", "fam3", "fam4"])
+        self.assertEqual(record["rate"]["model_runs"], 8)
+        self.assertGreater(record["rate"]["wall_seconds"], 0)
+
+    def test_one_model_slot_keeps_families_sequential(self):
+        spans, _ = self.run_four_families(1)
+        spans.sort()
+        for (_, end), (start, _) in zip(spans, spans[1:]):
+            self.assertLessEqual(end, start)
+        self.assertEqual(porting_loop.model_slots({"NV_PORT_MODEL_SLOTS": "x"}), 20)
+        self.assertEqual(porting_loop.model_slots({"NV_PORT_MODEL_SLOTS": "0"}), 1)
 
     def test_a_batch_uses_the_daemon_a_worktree_per_family_and_two_configured_commands(self):
         with tempfile.TemporaryDirectory() as tmp:

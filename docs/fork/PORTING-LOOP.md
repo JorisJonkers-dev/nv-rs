@@ -131,3 +131,19 @@ and names, never decompiled code. Models, the gateway command, the writing-run s
 with model, seconds, status and outcome) are environment; see the script's docstring.
 
 `porting_agent.py probe` asks every configured model one cheap question and parks the ones that fail for an hour (they sort last in the rotation); run it before a batch.
+
+## Parallel families and the rate report
+
+`NV_PORT_MODEL_SLOTS` (default 20) is how many families run at once: each family still goes worker,
+`Diff` through the family lab, then review, but families run in a thread pool. Claims, the report and the
+merge stay single-threaded in result, and the report lists families in queue order. `NV_PORT_MODEL_SLOTS=1`
+runs one family at a time. A failure that ends the batch stops families not yet started.
+
+`NV_PORT_PROVIDER_LIMIT` (default 4) bounds concurrent worker and review runs per provider, the part of the
+model name before `/`, with one lock set per provider under `NV_PORT_SLOT_DIR`. It stacks with `NV_PORT_SLOTS`,
+the global bound on writing runs.
+
+The batch record and the pull request body carry a `## Rate` section: model runs, seconds in the family lab
+runs (build and `Diff` run as one command, so both figures are that time), wall seconds, and verified functions
+per hour (delivered addresses over wall hours). `weekly` prints verified functions per hour for its window next
+to the per-day table.
