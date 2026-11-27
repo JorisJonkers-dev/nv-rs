@@ -1204,9 +1204,9 @@ pub fn setup_switches(e: &mut Engine, this: Ptr, pass_type: u32) {
         own::set_constant_byte(e, FLAGS_B + (j - 1), u8::from((mask >> j) & 1 != 0));
     }
     let base = this.addr();
-    let first = e.global::<u32>(base.wrapping_add(0x34));
+    let first = own::constant_map(e, base, 0x34);
     e.vcall(first, 0x24, &[]);
-    let second = e.global::<u32>(base.wrapping_add(0x30));
+    let second = own::constant_map(e, base, 0x30);
     e.vcall(second, 0x24, &[]);
     if entry_on(e, SWITCH_FOG_ENTRY) {
         let index = u32::from(packet::fog_index(e));
@@ -1452,8 +1452,8 @@ pub fn bone_setup(
         return 0;
     }
     let switch = capture::own_at::<u32>(e, BONE_SWITCH);
-    let switched = switch != 0 && e.global::<u8>(switch.wrapping_add(8)) != 0;
-    if !switched && e.global::<u32>(t.wrapping_add(0x34)) != e.global::<u32>(t.wrapping_add(0x70)) {
+    let switched = switch != 0 && own::entry_is_enabled(e, switch);
+    if !switched && own::constant_map(e, t, 0x34) != e.global::<u32>(t.wrapping_add(0x70)) {
         return 0;
     }
     let renderer = e.global::<u32>(packet::RENDERER);
