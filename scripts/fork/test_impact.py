@@ -102,6 +102,17 @@ def run(cmd, **kw):
     return subprocess.run(cmd, check=False, **kw)
 
 
+def linux_skips(path=".fork/linux-skip.txt"):
+    """`-- --skip NAME ...` for the tests that only pass on Windows (run-component.sh skips the same on Linux)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            names = [ln.split("#")[0].strip() for ln in fh]
+    except OSError:
+        return []
+    names = [n for n in names if n]
+    return ["--"] + [x for n in names for x in ("--skip", n)] if names else []
+
+
 def collect(args):
     with open(args.job, encoding="utf-8") as fh:
         job = json.load(fh)
@@ -113,7 +124,8 @@ def collect(args):
         for label, cargo_args in binaries(cmd):
             # Profile data of an earlier binary is gone, so the report is this binary's alone.
             run(["cargo", "llvm-cov", "clean", "--profraw-only"])
-            status = run(["cargo", "llvm-cov", "--no-report", "--no-fail-fast"] + cargo_args).returncode
+            skips = linux_skips() if sys.platform.startswith("linux") else []
+            status = run(["cargo", "llvm-cov", "--no-report", "--no-fail-fast"] + cargo_args + skips).returncode
             rep = run(["cargo", "llvm-cov", "report", "--lcov", "--output-path", lcov])
             files = None
             if rep.returncode == 0 and os.path.isfile(lcov):

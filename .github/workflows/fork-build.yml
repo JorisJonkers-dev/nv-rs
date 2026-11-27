@@ -41,6 +41,10 @@ jobs:
     name: Plan components
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # actions: read for the test-impact map, an artifact of the last successful run of fork-test-impact.yml on fork.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has_jobs: ${{ steps.plan.outputs.has_jobs }}
@@ -60,6 +64,8 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.sha }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           # Fails when a workspace crate belongs to no component, a requires list is wrong or a test file is in no job.
@@ -72,7 +78,21 @@ jobs:
           # Windows jobs run on a pull request only for platform-relevant changes (components.py) or with the label ci:all-os.
           all_os=""
           if jq -e 'index("ci:all-os")' <<<"$LABELS" >/dev/null; then all_os="--all-os"; fi
-          python3 -I scripts/fork/components.py matrix --event "$EVENT" ${BASE:+--base "$BASE"} --head "$HEAD" $all_os >matrix.json
+          # Test impact (docs/fork/CI.md): with the nightly's map a job runs only when a changed file is one its tests execute.
+          # No map, an old or foreign one, a new file, a Cargo or toolchain change or the label ci:all-tests run by crate or all.
+          impact=""
+          if [ "$EVENT" != schedule ] && [ "$EVENT" != workflow_dispatch ]; then
+            run_id="$(gh run list -R "$REPO" --workflow fork-test-impact.yml --branch fork --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)"
+            if [ -n "$run_id" ] && gh run download "$run_id" -R "$REPO" -n test-impact -D impact-map 2>/dev/null && [ -s impact-map/test-impact.json ]; then
+              impact="--impact impact-map/test-impact.json"
+            else
+              echo "::notice title=test impact::no map available, selecting by crate"
+            fi
+          fi
+          all_tests=""
+          if jq -e 'index("ci:all-tests")' <<<"$LABELS" >/dev/null; then all_tests="--all-tests"; fi
+          # shellcheck disable=SC2086 # the options are a word list
+          python3 -I scripts/fork/components.py matrix --event "$EVENT" ${BASE:+--base "$BASE"} --head "$HEAD" $all_os $impact $all_tests >matrix.json
           # A job whose test binaries an archive job compiled for its group runs as a partition (needs the archive); the rest
           # compile for themselves, as component jobs.
           {
@@ -87,6 +107,8 @@ jobs:
             echo "### Components in this run"
             echo
             echo "Reason: $(jq -r .reason matrix.json)"
+            echo
+            echo "Test impact: $(jq -r '.impact | if .used then "used (\(.mapped_files) changed source file(s) by the map, \(.crate_level_files) by crate): \(.reason)" else "not used: \(.reason // "no map")" end' matrix.json)"
             echo
             echo "| Component | This run | Jobs |"
             echo "| --- | --- | ---: |"

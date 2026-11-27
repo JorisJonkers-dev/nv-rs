@@ -392,15 +392,19 @@ class Model:
         component names it as its own path."""
         exists = exists or (lambda f: os.path.isfile(os.path.join(self.root, f)))
         known = set(impact["known"])
+        # A file that no measured job executed (types and constants only, a cfg that the Linux build leaves out, a file of
+        # an unmeasured component) cannot select a job by the map: it selects by crate.
+        executed = {f for j in impact["jobs"].values() for f in j["files"]}
         mapped, rest = set(), []
         for f in files:
-            ok = f in known and f.endswith(".rs") and not f.startswith("vendor/") and os.path.basename(f) != "build.rs" \
+            ok = f in known and f in executed and f.endswith(".rs") and not f.startswith("vendor/") and os.path.basename(f) != "build.rs" \
                 and exists(f) and not any(f.startswith(p) for c in self.comps.values() for p in c.get("paths", [])) \
                 and any(f.startswith(d + "/") for d in self.dirs if d != ".")
             if ok:
                 try:
                     with open(os.path.join(self.root, f), encoding="utf-8", errors="replace") as fh:
-                        ok = not IMPACT_MACRO.search(fh.read())
+                        text = fh.read()
+                        ok = not IMPACT_MACRO.search(text) and not PLATFORM_CFG.search(text) and "cfg(target_" not in text
                 except OSError:
                     ok = False
             if ok:
@@ -410,11 +414,9 @@ class Model:
         return mapped, rest
 
     def required_os(self, c):
-        """The OS of the component's required job: the one whose tests the nightly measures."""
-        linux_ready = bool(c["crates"]) and set(c["crates"]) <= self.linux_ok
-        if c["runs_on"] == "both" and (c.get("linux") == "required" or (linux_ready and c.get("windows") != "required")):
-            return "ubuntu-latest"
-        return "windows-latest"
+        """The OS the nightly measures a component on: Linux, where the general suite runs (the tests are platform-agnostic).
+        A component that is Windows only is not measured (None); a job that cannot pass on Linux is left out of the map."""
+        return None if c["runs_on"] == "windows" else "ubuntu-latest"
 
     def impact_jobs(self):
         """What the nightly measures: one entry per job (a shard is not a job), the test commands without the
@@ -434,9 +436,11 @@ class Model:
                 if not cmds:
                     continue
                 osn = self.required_os(c)
+                if osn is None or (job or {}).get("os") == "windows":
+                    continue
                 key = self.job_key(name, job)
                 out.append({"key": key, "component": name, "os": osn, "cache": name,
-                            "name": f"Impact: {key} ({'Windows' if osn == 'windows-latest' else 'Linux'})",
+                            "name": f"Impact: {key}",
                             "workspaces": self.workspaces(cmds), "runs": cmds})
         return out
 
