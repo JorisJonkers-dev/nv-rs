@@ -35,14 +35,15 @@ STEERING = {
     "scripts/fork/clippy_annotations.py", "scripts/fork/linux_probe.py", "scripts/fork/gpu_gate.py", "scripts/fork/vkd3d_gate.py",
 }
 # Platform-relevant code: a pull request that changes it runs the Windows jobs too (otherwise a pull request runs Linux
-# only; pushes to the integration branch, the schedule and a manual run run every OS). The typed families run their Diff
-# cases against the original code, some only on Windows, so every crate they read or write is on the list.
-PLATFORM_CRATES = ("engine-core", "engine-typed", "engine-bs", "engine-fallout-*", "d3d9-*", "engine-platform", "fork-window")
-# The macOS job builds the window, device and platform layers and the facade: only these (or a cfg on macos) matter to it.
+# only; pushes to the integration branch run the Windows twins only for it, the schedule and a manual run run every OS).
+# Only code that Windows alone can verify counts: a file with a cfg on windows, macos or unix, the Windows device, window
+# and platform layers, the launcher and Play (their Windows build), and the toolchain and Cargo files. General engine code
+# (engine-core, engine-typed, engine-bs, engine-fallout-*) runs on Linux; its Windows twins run in the nightly.
+PLATFORM_CRATES = ("d3d9-*", "engine-platform", "fork-window", "nv-launcher", "fork-play")
+PLATFORM_FILES = {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rust-toolchain", "deny.toml"}  # by file name, in any directory
 MACOS_CRATES = ("d3d9-*", "engine-platform", "fork-window", "fork-api", "fork-play", "fork-gfx")
 MACOS_CFG = re.compile(r'cfg(?:_attr)?!?\([^\n]*\bmacos\b|target_os\s*=\s*"macos"|target_vendor\s*=\s*"apple"')
-PLATFORM_FILES = ("crates/engine/tests/typed_",)
-PLATFORM_CFG = re.compile(r'cfg(?:_attr)?!?\([^\n]*\b(?:windows|macos)\b|target_os\s*=\s*"(?:windows|macos)"')
+PLATFORM_CFG = re.compile(r'cfg(?:_attr)?!?\([^\n]*\b(?:windows|macos|unix)\b|target_os\s*=\s*"(?:windows|macos|linux)"|target_family\s*=\s*"(?:windows|unix)"')
 DOCS = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
 # Estimates, from the cold Windows runs of 2026-11-13 (docs/fork/CI.md): seconds per 100 000 lines.
 S_LIB, S_TEST, S_EXT = 4.6, 18.0, 35.0
@@ -296,11 +297,11 @@ class Model:
         return everything, reason, crates, by_path
 
     def platform_relevant(self, files, macos=False):
-        """Does a change touch code that only Windows can verify (macos=True: only macOS): a platform crate, a typed family's
-        test file, or a Rust file that has a cfg on windows or macos?"""
+        """Does a change touch code that only Windows can verify (macos=True: only macOS): a platform crate, a Cargo or toolchain
+        file, or a Rust file that has a cfg on windows, unix or macos?"""
         crates, cfg = (MACOS_CRATES, MACOS_CFG) if macos else (PLATFORM_CRATES, PLATFORM_CFG)
         for f in files:
-            if f.startswith(PLATFORM_FILES) and not macos:
+            if (os.path.basename(f) in PLATFORM_FILES or f.startswith(GLOBAL_PREFIXES)) and not macos:
                 return True
             d = max((d for d in self.dirs if d != "." and f.startswith(d + "/")), key=len, default=None)
             if d and any(fnmatch.fnmatch(self.dirs[d], g) for g in crates):
