@@ -312,7 +312,7 @@ pub(crate) fn fog_ambient_inline(e: &mut Engine) {
         capture::set_own_at(e, AMBIENT.wrapping_add(4 * index), word);
     }
     let enable = capture::own_at::<u32>(e, AMBIENT_ENABLE);
-    e.set_global(enable.wrapping_add(8), 1u8);
+    capture::set_own_at(e, enable.wrapping_add(8), 1u8);
     capture::set_own_at(e, AMBIENT_SET, 1u8);
     capture::set_own_at(e, AMBIENT_FOG, 1u8);
 }
