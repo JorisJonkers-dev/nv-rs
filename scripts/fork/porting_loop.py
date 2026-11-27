@@ -24,6 +24,7 @@ Usage:
 """
 import argparse
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -460,6 +461,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
     today = today or datetime.date.today()
     env = dict(os.environ if env is None else env)
     name = name or ("shakedown" if shakedown else today.isoformat())
+    base = env.get("NV_PORT_BASE", "").strip() or BASE  # e.g. origin/fork when the local branch is stale
     try:
         worker = configured(env, "NV_PORT_WORKER")
         reviewer = configured(env, "NV_PORT_REVIEW")
@@ -481,7 +483,10 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
         return 1
     verified = {r["address"] for r in all_rows if r["state"] == "reference-verified"}
     groups = {}
+    excluded = [x.strip() for x in env.get("NV_PORT_EXCLUDE", "").split(",") if x.strip()]
     for row in all_rows:
+        if any(fnmatch.fnmatchcase(row["family"], pattern) for pattern in excluded):
+            continue
         if row["done"] == "no" and row["state"] != "retired":
             groups.setdefault(row["family"], []).append(row)
     # A batch takes whole families: the queue keeps siblings together on purpose.
@@ -543,7 +548,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                 encoding="utf-8",
             )
             child = family_env(env, family_rows, name, worktree, queue_file, shakedown)
-            code, output = call(["git", "worktree", "add", "-b", branch, str(worktree), BASE],
+            code, output = call(["git", "worktree", "add", "-b", branch, str(worktree), base],
                                 cwd=root, env=env)
             if code:
                 return fail(f"worktree add for {family}: {output.strip()}")
@@ -599,7 +604,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             rule_wt = paths(root, name) / "rulebook"
             rule_branch = f"porting/shakedown/{slug(name)}-{token}"
             code, output = call(["git", "worktree", "add", "-b", rule_branch,
-                                 str(rule_wt), BASE], cwd=root, env=env)
+                                 str(rule_wt), base], cwd=root, env=env)
             if code:
                 return fail(f"shakedown worktree add: {output.strip()}")
             created.append((rule_wt, rule_branch))
@@ -629,7 +634,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
         elif accepted:
             batch_wt = paths(root, name) / "branch"
             code, output = call(["git", "worktree", "add", "-b", batch_branch,
-                                 str(batch_wt), BASE], cwd=root, env=env)
+                                 str(batch_wt), base], cwd=root, env=env)
             if code:
                 return fail(f"batch worktree add: {output.strip()}")
             created.append((batch_wt, batch_branch))

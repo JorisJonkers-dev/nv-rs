@@ -288,6 +288,18 @@ class PortingLoop(unittest.TestCase):
             self.assertEqual(record["functions"], 2)
             self.assertEqual([f["family"] for f in record["families"]], ["fade"])
 
+    def test_excluded_families_are_never_taken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording()
+            with mock.patch.object(porting_loop.private_integrity, "check", return_value=(True, "ok")):
+                porting_loop.batch(root=root, count=9, name="ex", env={**environment(root), "NV_PORT_BASE": "origin/fork",
+                                   "NV_PORT_EXCLUDE": "fa*"},
+                                   today=datetime.date(2026, 11, 26), call=recorder)
+            record = porting_loop.batch_record(root, "ex")
+            self.assertNotIn("fade", [f["family"] for f in record["families"]])
+            self.assertTrue(any("origin/fork" in " ".join(c[0]) for c in recorder.calls))
+
     def test_an_existing_family_claim_is_skipped_and_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = tree(tmp)
