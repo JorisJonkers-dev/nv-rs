@@ -4140,6 +4140,18 @@ mod tests {
     use super::*;
     use crate::args;
 
+    /// A Havok step is posted to `nv-havok` only from the main game thread: the helper cannot
+    /// yield to another game thread, so a step that waits for a lock another thread holds would
+    /// stop the run. From any other game thread the step runs inline.
+    #[test]
+    fn a_havok_step_is_posted_only_from_the_main_thread() {
+        let mut e = Engine::new_untyped();
+        e.kernel.threads.current = 0;
+        assert!(havok_post_ready(&e));
+        e.kernel.threads.current = 17;
+        assert!(!havok_post_ready(&e));
+    }
+
     /// A device function's slot is its byte offset into the ranges laid end to end: every address
     /// of each range has its own slot, the second range's follow the first's, and an address
     /// outside them (just before, at an end, between) has none.
