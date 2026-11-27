@@ -404,6 +404,20 @@ impl Host {
         RENDERER_CHOSEN.store(true, std::sync::atomic::Ordering::Relaxed);
         // The new lighting ([`want_new_lighting`]): set now the renderer is chosen.
         want_new_lighting(&mut engine, choice, engine_platform::d3d9real::backends());
+        // The world's still lit objects drawn from kept records (`engine_core::draw_items`, off by default):
+        // set before the game makes its device, whose backend is then made for them.
+        engine_core::draw_items::set_mode(choice.draw_items);
+        if choice.draw_items != engine_core::draw_items::Mode::Off {
+            fork_log::info!(target: "host",
+                "nv-rs: the world's still lit objects drawn from kept records: {:?} (sDrawItems, NV_DRAW_ITEMS)",
+                choice.draw_items
+            );
+            if choice.is_on(&fixes::DRAW_THREAD) {
+                fork_log::info!(target: "host",
+                    "nv-rs: draw items stay plain while the world is drawn on a thread of its own (NV_DRAW_THREAD): a draw is kept only where no value packet is open"
+                );
+            }
+        }
         // `NV_SOUND=out`: the game's sound on the player's default device, from when the game
         // makes its DirectSound device on; `NV_SOUND_RECORD=FILE.wav` also records what goes
         // to the device, with a log of what started when (`FILE.log`). Off by default.

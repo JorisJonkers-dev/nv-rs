@@ -42,6 +42,12 @@ export NV_BUILD_LOCK=~/.cache/nv-workers/cargo.lock
 export NV_BUILD_TARGET_DIR=~/.cache/cargo-targets/nv-rs-gw
 ```
 
+`NV_BUILD_SLOTS` (default 3) is the number of builds the daemon runs at once, from one queue. Each slot has its own
+target directory `<NV_BUILD_TARGET_DIR>-slot<i>` and its own lock `<NV_BUILD_LOCK>.<i>`, and runs cargo with
+`NV_BUILD_JOBS` jobs under the `NV_BUILD_MEM` cap. `NV_BUILD_SLOTS=1` behaves as before (the plain target
+directory and lock). `status` reports the slots, the queued count, the running jobs per slot and each job's start
+and end time.
+
 `NV_BUILD_CAPPED` and `NV_BUILD_FLOCK` name the wrapper executables (found on PATH
 by default, absent on Windows for `flock`). The memory cap applies only when
 `capped` is available: if neither `capped` nor `NV_BUILD_CAPPED` is found, the daemon

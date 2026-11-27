@@ -49,6 +49,15 @@ with open(LOG, "a", encoding="utf-8") as log:
     log.write("end " + sys.argv[-1] + "\\n")
 """
 
+CARGO_SLEEP = """
+import os, sys, time
+LOG = @LOG@
+with open(LOG, "a", encoding="utf-8") as log:
+    log.write("start " + sys.argv[-1] + " " + str(time.time()) + "\\n"); log.flush()
+    time.sleep(0.3)
+    log.write("end " + sys.argv[-1] + " " + str(time.time()) + "\\n")
+"""
+
 CARGO_LIMITS = """
 import os, sys
 LOG = @LOG@
@@ -100,9 +109,19 @@ class BuildDaemon(unittest.TestCase):
             "NV_BUILD_LOCK": str(root / "cargo.lock"),
             "NV_BUILD_TARGET_DIR": str(root / "target"),
             "NV_BUILD_WRAPPER": "sccache-stub",
+            "NV_BUILD_SLOTS": "1",
         })
         self.state = daemon.ensure_daemon(self.env)
         self.addCleanup(self._stop)
+
+    def restart(self, **env):
+        """Stop the daemon and start one with these variables (a different slot count)."""
+        self._stop()
+        deadline = time.time() + 15
+        while daemon.reachable(self.state) and time.time() < deadline:
+            time.sleep(0.05)
+        self.env.update(env)
+        self.state = daemon.ensure_daemon(self.env)
 
     def _stop(self):
         try:
@@ -185,13 +204,12 @@ class BuildDaemon(unittest.TestCase):
         self.assertIn("NV_BUILD_CAPPED", " ".join(config.warnings))
         self.assertEqual(config.warnings, config.describe()["warnings"])
         stream = io.StringIO()
-        stats = {"active": 0, "max_active": 0, "completed": 0, "failed": 0,
-                 "served": []}
+        stats = daemon.new_stats()
         proc = mock.Mock(stdout=io.StringIO(""), wait=lambda: 0)
         with mock.patch.object(daemon.subprocess, "Popen", return_value=proc):
             daemon.handle(stream, {"kind": "build", "argv": [],
                                    "cwd": str(self.tmp.name)},
-                          config, stats, threading.Event())
+                          config, stats, threading.Event(), 0)
         self.assertIn("warning", stream.getvalue().lower())
         self.assertIn("NV_BUILD_CAPPED", stream.getvalue())
 
@@ -208,6 +226,84 @@ class BuildDaemon(unittest.TestCase):
         self.assertNotIn("NV_BUILD_JOBS", env)
         self.assertEqual(env["CARGO_BUILD_JOBS"], "2")
         self.assertEqual(env["PATH"], os.defpath)
+
+    def test_multiple_slots_run_jobs_in_parallel(self):
+        """With 3 slots, three jobs' start/end intervals should overlap."""
+        self.restart(NV_BUILD_SLOTS="3")
+        env = dict(self.env)
+        stub(self.cargo, CARGO_SLEEP, self.log)
+        procs = []
+        for label in ("J1", "J2", "J3"):
+            env_label = dict(env, NV_BUILD_LABEL=label)
+            procs.append(subprocess.Popen(
+                [sys.executable, str(ENTRY), "run", "--", "check", "--", label],
+                env=env_label, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            ))
+        for proc in procs:
+            out, err = proc.communicate(timeout=30)
+            self.assertEqual(proc.returncode, 0, err)
+        lines = self.lines()
+        starts = [l for l in lines if l.startswith("start ")]
+        ends = [l for l in lines if l.startswith("end ")]
+        self.assertEqual(len(starts), 3)
+        self.assertEqual(len(ends), 3)
+        # Parse timestamps: "start J1 123456.789"
+        start_times = {}
+        end_times = {}
+        for s in starts:
+            _, label, ts = s.split()
+            start_times[label] = float(ts)
+        for e in ends:
+            _, label, ts = e.split()
+            end_times[label] = float(ts)
+        # With 3 slots, all three should overlap in time
+        # Check that max start < min end (they ran concurrently)
+        self.assertLess(max(start_times.values()), min(end_times.values()))
+
+    def test_single_slot_runs_jobs_sequentially(self):
+        """With 1 slot, jobs should not overlap."""
+        env = dict(self.env)
+        stub(self.cargo, CARGO_SLEEP, self.log)
+        procs = []
+        for label in ("J1", "J2", "J3"):
+            env_label = dict(env, NV_BUILD_LABEL=label)
+            procs.append(subprocess.Popen(
+                [sys.executable, str(ENTRY), "run", "--", "check", "--", label],
+                env=env_label, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            ))
+        for proc in procs:
+            out, err = proc.communicate(timeout=30)
+            self.assertEqual(proc.returncode, 0, err)
+        lines = self.lines()
+        starts = [l for l in lines if l.startswith("start ")]
+        ends = [l for l in lines if l.startswith("end ")]
+        self.assertEqual(len(starts), 3)
+        self.assertEqual(len(ends), 3)
+        # Parse timestamps
+        start_times = {}
+        end_times = {}
+        for s in starts:
+            _, label, ts = s.split()
+            start_times[label] = float(ts)
+        for e in ends:
+            _, label, ts = e.split()
+            end_times[label] = float(ts)
+        # With 1 slot, each job ends before the next starts
+        # Sort by start time
+        labels_by_start = sorted(start_times.keys(), key=lambda k: start_times[k])
+        for i in range(len(labels_by_start) - 1):
+            self.assertLessEqual(end_times[labels_by_start[i]], start_times[labels_by_start[i+1]])
+
+    def test_status_reports_slots_and_queue(self):
+        """Status should include slots info and running jobs per slot."""
+        stub(self.cargo, CARGO_LIMITS, self.log)
+        self.restart(NV_BUILD_SLOTS="3")
+        state = self.state
+        status = daemon.request(state, {"kind": "status", "token": state["token"]})["status"]
+        self.assertEqual(status["config"]["slots"], 3)
+        self.assertEqual(status["queued"], 0)
+        self.assertIn("slot_active", status)
+        self.assertIn("slot_max_active", status)
 
 
 if __name__ == "__main__":

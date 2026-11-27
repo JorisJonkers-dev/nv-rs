@@ -33,7 +33,7 @@
 
 use super::FAMILY;
 use crate::{crt, dispatch, save};
-use engine_core::typed::leaf;
+use engine_core::typed::{form_array, leaf};
 use engine_core::x87::x87_quiet_bits;
 use engine_core::{args, typed_call, Engine, Ptr};
 
@@ -213,7 +213,7 @@ fn find_in_form_list(e: &mut Engine, form: u32) -> Option<(u32, u32)> {
             0x0087_7a30,
             leaf::array_element(e, list, index)
         );
-        if e.mem.u32(item) == form {
+        if form_array::slot(e, list, index, item) == form {
             return Some((list, index));
         }
         index = index.wrapping_add(1);
@@ -485,6 +485,18 @@ fn new_object(e: &mut Engine, size: u32, construct: u32, words: &[u32]) -> u32 {
     e.call(construct, &all).u32()
 }
 
+/// The form array: `operator new(0x18)`, its record attached in the stage-2 forms (before its
+/// constructor, which makes the element block in the record's store), `construct(block, 0x20, 1)`.
+fn new_array(e: &mut Engine) -> u32 {
+    let block = e.call(OPERATOR_NEW, &args![0x18u32]).u32();
+    if block == 0 {
+        return 0;
+    }
+    super::array::attach(e, block);
+    e.call(FORM_LIST_CONSTRUCT, &args![block, 0x20u32, 1u32])
+        .u32()
+}
+
 // Typed from 00483a50
 /// The form map (0x2008d buckets), the editor id map (0xfa1 buckets, keys copied) and the form
 /// array (capacity 0x20), each made when it does not exist yet.
@@ -507,7 +519,7 @@ pub fn create_registries(e: &mut Engine) {
         e.mem.set_u32(EDITOR_ID_MAP, map);
     }
     if e.mem.u32(FORM_LIST) == 0 {
-        let list = new_object(e, 0x18, FORM_LIST_CONSTRUCT, &[0x20, 1]);
+        let list = new_array(e);
         e.mem.set_u32(FORM_LIST, list);
     }
 }
