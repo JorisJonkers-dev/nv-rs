@@ -73,6 +73,7 @@ pub mod followers;
 pub mod init_item;
 pub mod links;
 pub mod load;
+pub mod nodes;
 pub mod packages;
 pub mod records;
 pub mod rooms;
@@ -103,7 +104,7 @@ pub static EXTRA_DATA: Family = Family {
 /// The family's functions, by exe address.
 #[rustfmt::skip]
 fn funcs() -> Vec<(u32, AbiFn)> {
-    vec![
+    let mut all = vec![
         entry!(0x0041_03d0, copy::add_extra_copy(u32, u32)),
         entry!(0x0041_1ec0, copy::copy_list(u32, u32)),
         entry!(0x0041_1f20, copy::is_copyable_extra(u32, u32) -> bool),
@@ -573,7 +574,9 @@ fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x0042_ce50, classes::set_flag_8_of_28(u32, u8)),
         entry!(0x0042_ce90, classes::flag_8_of_28(u32) -> bool),
         entry!(0x0042_dd70, classes::copy_byte_d_to_c(u32)),
-    ]
+    ];
+    all.extend(nodes::registered());
+    all
 }
 
 // ---- What the family's files share ----------------------------------------------------------
