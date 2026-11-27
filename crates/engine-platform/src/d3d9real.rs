@@ -4416,6 +4416,25 @@ mod tests {
     /// The sun shadows' switch is the run's: the tests that turn it on hold this.
     static SUN_SWITCH: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// The sun light from the sky turns the game's light only while [`sun_shadows_drawn`] answers
+    /// true. With the default settings (sun shadows off) it answers false on wgpu, so the
+    /// installed hook leaves the exe's light alone; it turns true with the shadows on (the run's
+    /// choice or Shift+F11) and false again when wgpu is not drawing.
+    #[test]
+    fn the_sun_light_from_the_sky_waits_for_the_sun_shadows() {
+        let _switch = SUN_SWITCH.lock().unwrap_or_else(|p| p.into_inner());
+        let before = d3d9_wgpu::sun_shadow::enabled();
+        TEST_WGPU_DRAWS.with(|d| d.set(Some(true)));
+        d3d9_wgpu::sun_shadow::enable(false);
+        assert!(!sun_shadows_drawn(), "the default: the exe's light");
+        d3d9_wgpu::sun_shadow::enable(true);
+        assert!(sun_shadows_drawn());
+        TEST_WGPU_DRAWS.with(|d| d.set(Some(false)));
+        assert!(!sun_shadows_drawn(), "the real Direct3D 9 took over");
+        TEST_WGPU_DRAWS.with(|d| d.set(None));
+        d3d9_wgpu::sun_shadow::enable(before);
+    }
+
     /// The player's switch of the new lighting reaches the device right after the game's
     /// `Present`, as one `SetTransform` of the switch's state carrying the parts, once; nothing when
     /// no switch is due (in this binary the run-wide switch is never allowed: a `Present` records
