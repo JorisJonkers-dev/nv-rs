@@ -709,6 +709,90 @@ Pinned so mods and saves keep working; a change fails `--check`.
 | `set_texture_transform_key` | `loaded data` | `+0x64` | read | `crates/jip/src/commands/nif_nodes.rs:350` |
 | `swap_texture_ex` | `loaded data` | `+0x64` | read | `crates/jip/src/commands/nif_nodes.rs:350` |
 
+## extra data
+
+| Command | Field | Offset | Access | Source |
+| --- | --- | --- | --- | --- |
+| `set_ref_extra_data` | `node next` | `+0x8` | read | `crates/jip/src/commands/jip_fn_extra_data.rs:436` |
+| `set_ref_extra_data` | `node next` | `+0x8` | read | `crates/jip/src/commands/jip_fn_extra_data.rs:488` |
+| `set_ref_extra_data` | `node next` | `+0x8` | read | `crates/jip/src/commands/jip_fn_extra_data.rs:508` |
+| `init_mini_map` | `chain head` | `+0x4` | read | `crates/jip/src/commands/jip_fn_minimap.rs:438` |
+| `update_mini_map` | `chain head` | `+0x4` | read | `crates/jip/src/commands/jip_fn_minimap_seams.rs:241` |
+| `get_calculated_weapon_damage` | `node payload word` | `+0xc` | read | `crates/jip/src/game_patches/gb.rs:738` |
+| `is_ref_in_list` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:497` |
+| `is_ref_in_list` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:498` |
+| `get_door_teleport_rot` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:591` |
+| `get_door_teleport_x` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:591` |
+| `get_door_teleport_y` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:591` |
+| `get_door_teleport_z` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:591` |
+| `set_door_teleport` | `node payload word` | `+0xc` | write | `crates/nvse/src/commands/misc_ref.rs:743` |
+| `set_door_teleport` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:746` |
+| `set_open_key` | `node payload word` | `+0xc` | write | `crates/nvse/src/commands/misc_ref.rs:816` |
+| `set_open_key` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:820` |
+| `is_owned` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:857` |
+| `ownership` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:857` |
+| `get_owning_faction_required_rank` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:867` |
+| `get_parent_cell_owning_faction_required_rank` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:867` |
+| `is_owned` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:867` |
+| `ownership` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref.rs:867` |
+| `set_owning_faction_required_rank` | `node payload word` | `+0xc` | write | `crates/nvse/src/commands/misc_ref.rs:958` |
+| `is_owned` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref_more.rs:263` |
+| `ownership` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref_more.rs:263` |
+| `get_heading_angle_x` | `node payload word` | `+0xc` | read | `crates/nvse/src/commands/misc_ref_more.rs:617` |
+| `break_execute` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `continue_execute` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `equip_me` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `foreach_alt_execute` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `foreach_execute` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `get_equipped_object` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `get_equipped_weapon_mod_flags` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `get_first_ref_for_item` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `get_inv_refs_for_item` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `get_next_ref_for_item` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `get_sold_item_inv_ref` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `is_equipped` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `loop_execute` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `remove_me_ir` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `set_equipped_current_health` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `set_equipped_weapon_mod_flags` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `unequip_me` | `type bitmap` | `+0x8` | read | `crates/nvse/src/invref.rs:267` |
+| `break_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `continue_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `copy_ir` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `copy_ir_alt` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `create_temp_ref` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `foreach_alt_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `foreach_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `get_first_ref_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `get_inv_refs_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `get_next_ref_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `get_sold_item_inv_ref` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `loop_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:331` |
+| `break_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `continue_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `copy_ir` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `copy_ir_alt` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `create_temp_ref` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `foreach_alt_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `foreach_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `get_first_ref_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `get_inv_refs_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `get_next_ref_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `get_sold_item_inv_ref` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `loop_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:332` |
+| `break_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `continue_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `copy_ir` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `copy_ir_alt` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `create_temp_ref` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `foreach_alt_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `foreach_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `get_first_ref_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `get_inv_refs_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `get_next_ref_for_item` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `get_sold_item_inv_ref` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+| `loop_execute` | `chain head` | `+0x4` | read | `crates/nvse/src/invref.rs:334` |
+
 ## geometry
 
 | Command | Field | Offset | Access | Source |
