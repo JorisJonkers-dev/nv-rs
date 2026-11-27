@@ -338,7 +338,7 @@ args = ["-p engine --test typed_interface"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed forms"
-args = ["-p engine --test typed_forms"]
+args = ["-p engine --test typed_forms --test typed_extra_nodes"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
