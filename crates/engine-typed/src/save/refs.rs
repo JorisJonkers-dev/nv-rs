@@ -9,7 +9,7 @@ use super::FAMILY;
 use crate::dispatch;
 use crate::pathing;
 use engine_core::ptr::Ptr;
-use engine_core::typed::leaf;
+use engine_core::typed::{form_map, leaf};
 use engine_core::{args, typed_call, Engine};
 
 /// The data handler (`011c3f2c`): the `this` of the created-id test.
@@ -69,9 +69,10 @@ fn equal(e: &mut Engine, this: Ptr, slot: u32, key: u32, existing: u32) -> u8 {
 /// The word map's slots are called directly, any other by address through the vtable.
 pub fn set_at(e: &mut Engine, this: Ptr, key: u32, value: u32) {
     let t = this.addr();
+    let s = form_map::store(e, t);
     let bucket = hash(e, this, key).wrapping_mul(4);
-    let table = e.mem.u32(t.wrapping_add(8));
-    let mut node = e.mem.u32(table.wrapping_add(bucket));
+    let table = form_map::table(e, s, t);
+    let mut node = s.load(e, table.wrapping_add(bucket));
     while node != 0 {
         let existing = e.mem.u32(node.wrapping_add(4));
         let slot = crate::slot_target(e, t, 8);
@@ -95,13 +96,13 @@ pub fn set_at(e: &mut Engine, this: Ptr, key: u32, value: u32) {
             e.vcall(t, 0xc, &args![node, key, value]);
         }
     }
-    let table = e.mem.u32(t.wrapping_add(8));
-    let next = e.mem.u32(table.wrapping_add(bucket));
+    let table = form_map::table(e, s, t);
+    let next = s.load(e, table.wrapping_add(bucket));
     e.mem.set_u32(node, next);
-    let table = e.mem.u32(t.wrapping_add(8));
-    e.mem.set_u32(table.wrapping_add(bucket), node);
-    let count = e.mem.u32(t.wrapping_add(0xc));
-    e.mem.set_u32(t.wrapping_add(0xc), count.wrapping_add(1));
+    let table = form_map::table(e, s, t);
+    s.store(e, table.wrapping_add(bucket), node);
+    let count = form_map::count(e, s, t);
+    form_map::set_count(e, s, t, count.wrapping_add(1));
 }
 
 // Typed from 00844a70

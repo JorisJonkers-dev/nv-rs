@@ -50,6 +50,7 @@ use crate::game::{
 };
 use crate::Jip;
 use engine_core::prelude::*;
+use engine_core::typed::form_map;
 use nvse::cosave::{Chunk, OutOfRange, Reader};
 use nvse::plugins::{msg, Message, Records};
 use std::collections::BTreeMap;
@@ -672,15 +673,15 @@ pub fn resolved_ref_id(e: &Engine, id: u32) -> u32 {
     }
 }
 
-/// A walk of one of the game's `NiTMap`s of ids: the entry of `id`, 0 for none.
+/// A walk of one of the game's `NiTMap`s of ids: the entry of `id`, 0 for none. The bucket is read
+/// through `form_map::bucket`, which finds the table of a map the forms family moved.
 fn map_entry(e: &Engine, map: u32, id: u32) -> u32 {
     let map = Ptr::<NiTPointerMap>::new(map);
     let count = e.get(map, NiTPointerMap::m_uiHashSize);
     if count == 0 {
         return 0;
     }
-    let buckets = e.get(map, NiTPointerMap::m_ppkHashTable);
-    let mut entry = e.mem.u32(buckets + 4 * (id % count));
+    let mut entry = form_map::bucket(e, map.addr(), id % count);
     while entry != 0 && e.get(Ptr::<NiTMapItem>::new(entry), NiTMapItem::m_key) != id {
         entry = e.get(Ptr::<NiTMapItem>::new(entry), NiTMapItem::m_pkNext);
     }

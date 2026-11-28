@@ -33,7 +33,7 @@
 
 use super::FAMILY;
 use crate::{crt, dispatch, save};
-use engine_core::typed::{form_array, leaf};
+use engine_core::typed::{form_array, form_map, leaf};
 use engine_core::x87::x87_quiet_bits;
 use engine_core::{args, typed_call, Engine, Ptr};
 
@@ -485,6 +485,22 @@ fn new_object(e: &mut Engine, size: u32, construct: u32, words: &[u32]) -> u32 {
     e.call(construct, &all).u32()
 }
 
+/// The form map: `operator new(0x10)`, its record attached in the stage-2 forms (before its
+/// constructor, which makes the bucket table in the record's store), the constructor `(block,
+/// 0x2008d)`.
+fn new_map(e: &mut Engine) -> u32 {
+    let block = e.call(OPERATOR_NEW, &args![0x10u32]).u32();
+    if block == 0 {
+        return 0;
+    }
+    form_map::attach(e, block);
+    typed_call!(
+        FAMILY,
+        0x0048_6930,
+        form_map_construct(e, block, 0x0002_008d)
+    )
+}
+
 /// The form array: `operator new(0x18)`, its record attached in the stage-2 forms (before its
 /// constructor, which makes the element block in the record's store), `construct(block, 0x20, 1)`.
 fn new_array(e: &mut Engine) -> u32 {
@@ -502,16 +518,7 @@ fn new_array(e: &mut Engine) -> u32 {
 /// array (capacity 0x20), each made when it does not exist yet.
 pub fn create_registries(e: &mut Engine) {
     if e.mem.u32(FORM_MAP) == 0 {
-        let block = e.call(OPERATOR_NEW, &args![0x10u32]).u32();
-        let map = if block == 0 {
-            0
-        } else {
-            typed_call!(
-                FAMILY,
-                0x0048_6930,
-                form_map_construct(e, block, 0x0002_008d)
-            )
-        };
+        let map = new_map(e);
         e.mem.set_u32(FORM_MAP, map);
     }
     if e.mem.u32(EDITOR_ID_MAP) == 0 {
@@ -1546,7 +1553,6 @@ const SLOT_COPY_FROM: u32 = 0x108;
 const STRING_CONSTRUCT: u32 = 0x0040_c0e0;
 const STRING_DESTROY: u32 = 0x0040_37d0;
 const FORMAT_STRING: u32 = 0x0040_6f60;
-const ALLOCATE_BUCKETS: u32 = 0x00aa_1070;
 const MAP_BASE_DESTROY: u32 = 0x0048_6a60;
 const STRING_MAP_BASE_DESTROY: u32 = 0x0048_6c80;
 const CHAR_KEY_MAP_BASE_DESTROY: u32 = 0x0048_6dc0;
@@ -2066,18 +2072,7 @@ pub fn form_map_scalar_deleting_destructor(e: &mut Engine, this: u32, flags: u32
 /// The map base's constructor `(buckets)`: its vtable, the bucket count (+4), no items (+0x0c) and
 /// a zeroed array of `buckets` words (+8, the count read again after the allocation).
 pub fn map_base_construct(e: &mut Engine, this: u32, buckets: u32) -> u32 {
-    e.mem.set_u32(this, MAP_BASE_VTABLE);
-    e.mem.set_u32(this.wrapping_add(4), buckets);
-    e.mem.set_u32(this.wrapping_add(0xc), 0);
-    let array = e.call(ALLOCATE_BUCKETS, &args![buckets << 2]).u32();
-    e.mem.set_u32(this.wrapping_add(8), array);
-    let bytes = e.mem.u32(this.wrapping_add(4)).wrapping_shl(2);
-    typed_call!(
-        crt::FAMILY,
-        0x0040_3d30,
-        crt::mem::memset_wrapper(e, Ptr::new(array), 0, bytes)
-    );
-    this
+    super::map::construct_body(e, this, MAP_BASE_VTABLE, buckets)
 }
 
 // Typed from 00486a00

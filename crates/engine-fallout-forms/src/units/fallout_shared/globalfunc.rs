@@ -3646,12 +3646,12 @@ pub fn fn_004b9b20(e: &mut Engine, this: Ptr<NiTMap>, key: u32, out: Ptr) -> boo
 }
 
 // Translated from 004b9ba0 (decompiled, FalloutNV.exe 1.4.0.525)
-/// The first item of the map: the first non-empty bucket's head, or 0.
+/// The first item of the map: the first non-empty bucket's head, or 0 (the heads are read through
+/// `form_map::bucket`, which finds the table of a map the forms family moved, nv-rs#951).
 pub fn fn_004b9ba0(e: &mut Engine, this: Ptr<NiTMap>) -> u32 {
     let size = e.get(this, NiTMap::m_uiHashSize);
-    let table = e.get(this, NiTMap::m_ppkHashTable);
     for index in 0..size {
-        let head = e.mem.u32(table.wrapping_add(index.wrapping_mul(4)));
+        let head = engine_core::typed::form_map::bucket(e, this.addr(), index);
         if head != 0 {
             return head;
         }

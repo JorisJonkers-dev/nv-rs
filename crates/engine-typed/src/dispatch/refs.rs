@@ -7,7 +7,7 @@ use crate::anim_keys::narrow;
 use crate::culling::layout::NiPoint3;
 use crate::pathing;
 use engine_core::ptr::Ptr;
-use engine_core::typed::leaf;
+use engine_core::typed::{form_map, leaf};
 use engine_core::{args, typed_call, Engine};
 
 /// The game's `Sleep` wrapper (`0040fca0`).
@@ -649,8 +649,8 @@ pub fn list_find(e: &mut Engine, this: Ptr, wanted: Ptr<u32>, start: u32) -> u32
 // Typed from 00853130
 // Typed from 00a1e380
 /// A map's lookup (`thiscall(this, key, out)`, `NiTMapBase::GetAt`): the key's bucket from the map's
-/// hash (vtable `+4`), then the bucket's chain (the table at `+8`; a node is the next node, its key
-/// and its value), each node's key compared with the map's compare (vtable `+8`); the value of the
+/// hash (vtable `+4`), then the bucket's chain (the table at `+8`, read through `form_map::bucket`
+/// where the forms family moved the map; a node is the next node, its key and its value), each node's key compared with the map's compare (vtable `+8`); the value of the
 /// first equal one stored through `out`, answering 1, else 0 with `out` untouched. The save's
 /// references map is one of these with 37 buckets: a quicksave in Goodsprings makes about 230,000
 /// lookups over about 2.8 million nodes, all on the main thread in the save's one frame, so the hash
@@ -682,8 +682,7 @@ pub fn map_lookup(e: &mut Engine, this: Ptr, key: u32, out: Ptr<u32>) -> u8 {
         _ => e.vcall(t, 4, &args![key]).u32(),
     };
     let equal_slot = crate::slot_target(e, t, 8);
-    let table = e.mem.u32(t.wrapping_add(8));
-    let mut node = e.mem.u32(table.wrapping_add(hash.wrapping_mul(4)));
+    let mut node = form_map::bucket(e, t, hash);
     while node != 0 {
         let existing = e.mem.u32(node.wrapping_add(4));
         let equal = match equal_slot {

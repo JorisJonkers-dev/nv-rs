@@ -20,7 +20,8 @@ const SLOT_BUCKET_OF_KEY: u32 = 0x04;
 /// stored through `key` and `value`, then the iterator moves to the entry's next, or, at the end
 /// of the chain, to the first entry of a later non-empty bucket (the current key's bucket index
 /// comes from virtual slot +4 of the map), or to null after the last bucket. The key is read
-/// from the entry again for the slot call, as the exe does.
+/// from the entry again for the slot call, as the exe does. The bucket heads are read through
+/// `form_map::bucket`, which finds the table of a map the forms family moved (nv-rs#951).
 pub fn fn_006b7f20(e: &mut Engine, this: Ptr, iterator: Ptr, key: Ptr, value: Ptr) {
     let entry = e.mem.u32(iterator.addr());
     let entry_key = e.mem.u32(entry.wrapping_add(4));
@@ -42,8 +43,7 @@ pub fn fn_006b7f20(e: &mut Engine, this: Ptr, iterator: Ptr, key: Ptr, value: Pt
             e.mem.set_u32(iterator.addr(), 0);
             return;
         }
-        let buckets = e.mem.u32(this.addr().wrapping_add(8));
-        let first = e.mem.u32(buckets.wrapping_add(index.wrapping_mul(4)));
+        let first = engine_core::typed::form_map::bucket(e, this.addr(), index);
         if first != 0 {
             e.mem.set_u32(iterator.addr(), first);
             return;
