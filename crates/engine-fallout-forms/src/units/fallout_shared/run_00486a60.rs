@@ -16,12 +16,14 @@ const FREE_BUCKETS: u32 = 0x00aa_10f0;
 /// The destructor body of an `NiTMapBase` instance (the class from the
 /// vtable's RTTI; the engine map gives it no name; no stack word): the
 /// vtable `0101ca98`, the map emptied (`00438af0`), then its bucket array
-/// (+8) freed (`00aa10f0`).
+/// (+8) freed (`00aa10f0`). The bucket array of a map the forms family moved (nv-rs#951) is a
+/// block of its own; `form_map::release_table` frees it and takes the map's record away.
 pub fn fn_00486a60(e: &mut Engine, this: Ptr) {
     e.mem.set_u32(this.addr(), MAP_VTABLE);
     e.call(MAP_REMOVE_ALL, &args![this]);
-    let buckets = e.mem.u32(this.addr() + 8);
-    e.call(FREE_BUCKETS, &args![buckets]);
+    engine_core::typed::form_map::release_table(e, this.addr(), |e, buckets| {
+        e.call(FREE_BUCKETS, &args![buckets]);
+    });
 }
 
 /// This unit's translated functions, by exe address.

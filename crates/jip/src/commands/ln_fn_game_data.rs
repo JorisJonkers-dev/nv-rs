@@ -27,6 +27,7 @@ use super::{
 use crate::cosave::lookup_form;
 use crate::utility::str_compare_ci;
 use engine_core::prelude::*;
+use engine_core::typed::form_map;
 use nvse::commands::Read;
 use nvse::{handled, CommandArgs};
 
@@ -130,10 +131,10 @@ fn cell_array(e: &Engine) -> Vec<u32> {
 /// Every form of `AllFormsMap`, bucket by bucket (null values included).
 fn all_forms(e: &Engine) -> Vec<u32> {
     let map = e.mem.u32(ALL_FORMS);
-    let (buckets, table) = (e.mem.u32(map + 4), e.mem.u32(map + 8));
+    let buckets = e.mem.u32(map + 4);
     let mut out = Vec::new();
     for b in 0..buckets {
-        let mut item = e.mem.u32(table + 4 * b);
+        let mut item = form_map::bucket(e, map, b);
         while item != 0 {
             out.push(e.mem.u32(item + 8));
             item = e.mem.u32(item);

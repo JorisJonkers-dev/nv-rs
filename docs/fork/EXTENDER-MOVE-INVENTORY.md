@@ -499,9 +499,9 @@ Pinned so mods and saves keep working; a change fails `--check`.
 | `set_map_marker_travel` | `form id` | `+0xc` | read | `crates/jip/src/commands/mod.rs:363` |
 | `set_map_marker_type` | `form id` | `+0xc` | read | `crates/jip/src/commands/mod.rs:363` |
 | `set_map_marker_visible` | `form id` | `+0xc` | read | `crates/jip/src/commands/mod.rs:363` |
-| `add_script_variable` | `form type` | `+0x4` | read | `crates/jip/src/cosave.rs:749` |
-| `has_variable_added` | `form type` | `+0x4` | read | `crates/jip/src/cosave.rs:749` |
-| `remove_script_variable` | `form type` | `+0x4` | read | `crates/jip/src/cosave.rs:749` |
+| `add_script_variable` | `form type` | `+0x4` | read | `crates/jip/src/cosave.rs:750` |
+| `has_variable_added` | `form type` | `+0x4` | read | `crates/jip/src/cosave.rs:750` |
+| `remove_script_variable` | `form type` | `+0x4` | read | `crates/jip/src/cosave.rs:750` |
 | `add_primitive` | `form id` | `+0xc` | read | `crates/jip/src/overrides.rs:373` |
 | `assign_keyword` | `form id` | `+0xc` | read | `crates/jip/src/overrides.rs:373` |
 | `get_container` | `form id` | `+0xc` | read | `crates/jip/src/overrides.rs:373` |
