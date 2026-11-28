@@ -679,6 +679,26 @@ static TOTALS: std::sync::Mutex<capture::Report> = std::sync::Mutex::new(capture
     kept_main: 0,
 });
 
+thread_local! {
+    /// The frame `cut_for_thread` refused for its reflection copy under POISON: the serial cut that follows on this
+    /// thread opens no packet (taken by [`cut`]).
+    static SKIP_SERIAL_CUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the draw's second half copies the water reflection first (nv-rs#1002): the frame then draws on main (and
+/// under POISON without a packet: [`cut`]).
+///
+/// The copy runs an image-space effect (`00b97550`) beside the render target set-up. Its constant maps
+/// (`run_00c04030`: the rendering pass `011f91e0` and the current pass `0126f74c`, own words the packet holds, read
+/// from guest memory) and the renderer's held target stack (`00b6b6c0`, `011fa020`) are translations that read state
+/// the packet owns: the first posted draw of a water scene read a stale pass record's geometry (`read of unmapped
+/// memory`; POISON: the scribble). And the renderer's target mode and group words (+0x200, +0x208) are written by
+/// main's own target set-ups (`00874b50`) while a posted draw would run. Typing the chain and giving each side its
+/// own target state is later work; until then these frames draw serially.
+fn copies_reflection(e: &mut Engine, acc: Ptr<BSShaderAccumulator>) -> bool {
+    packet::copy_reflection(e, acc) && super::drivers::has_listed_pass(e, acc, 0x288, 0x2ce)
+}
+
 /// The cut, as the world draw's first half starts with a scene renderer and a camera: with `NV_DRAW_THREAD` set
 /// the packet is opened and filled ([`fill`]); with `poison`, scribbled. A packet still open (a draw that did not
 /// end) is closed first.
@@ -688,6 +708,11 @@ pub fn cut(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulator>) {
         return;
     }
     join(e);
+    // POISON's gate is the detachable draw: the frame `cut_for_thread` refused for its reflection copy draws serially
+    // without a packet.
+    if SKIP_SERIAL_CUT.with(std::cell::Cell::take) {
+        return;
+    }
     if !capture::begin(e) {
         return;
     }
@@ -739,6 +764,7 @@ pub fn cut_for_thread(
     stepped: bool,
 ) -> Option<capture::Detached> {
     let mode = capture::mode();
+    SKIP_SERIAL_CUT.with(|s| s.set(false));
     if mode == capture::Mode::Off || (mode == capture::Mode::Poison && !stepped) {
         return None;
     }
@@ -760,6 +786,11 @@ pub fn cut_for_thread(
     // accessors; another mode's draw is a translation reading the lists in place, so such a frame draws on main.
     if packet::render_mode(e, acc) != 0 {
         let _ = capture::end(e);
+        return None;
+    }
+    if copies_reflection(e, acc) {
+        let _ = capture::end(e);
+        SKIP_SERIAL_CUT.with(|s| s.set(mode == capture::Mode::Poison));
         return None;
     }
     let mut words = Vec::new();

@@ -1,0 +1,3 @@
+docs/FIXES.md  # the draw thread's water frames draw on main (nv-rs#1002)
+crates/engine-typed/src/draw/cut.rs  # a frame that copies the water reflection is not handed to the drawing thread, and POISON cuts none for it (nv-rs#1002)
+crates/engine/tests/typed_shader.rs  # its test (nv-rs#1002)
