@@ -257,10 +257,10 @@ a virtual call through a host double traps in the module (`call_indirect` reache
 the module holds); a callee the module holds is called inside it, so the host double never sees the
 call (and an overridable address cannot be ignored), so the world must not reach one; the peer
 enters its function without `Engine::call`, so it notes the entry in the call log itself. Cases so
-far: 00d4ded0, 00ba71d0 and 00ba74a0 (a particle shader with no targets), and 00c806b0 (a null node, so the
+far: 00d4ded0, 00ba71d0 and 00ba74a0 (a particle shader with no targets), 00c65a80 (no body, or a fixed body, which only updates the node), and 00c806b0 (a null node, so the
 ray test the module holds leaves the best record alone). The cases share one loaded module, so each holds a
 process-wide lock until its test ends (run in parallel they corrupted each other's memory).
 A fourth limit: a callee the module holds (found with 00b15280 and 00488400, whose callees `00b16cd0`,
 `004858f0` the backend runs inside the module or inlines) is not in the backend's call log, so a world whose
 path reaches one differs in outgoing calls by construction; those gaps need a world that stops before the
-call, or a log of the module's inner calls. The other 23 registered gaps have no case yet.
+call, or a log of the module's inner calls. With 42 units built, 31 of the 72 `eax` gap rows export; the other 26 exported ones have no case yet (most need a stream, collector or allocator the module cannot call back into).
