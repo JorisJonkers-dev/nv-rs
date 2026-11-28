@@ -1,0 +1,119 @@
+# Fork-only. The test-impact map (docs/fork/CI.md, "Test impact"): for each CI job, the source files its tests execute,
+# measured nightly with cargo-llvm-cov one test binary at a time. The plan step of fork-build.yml downloads the latest
+# map made on `fork` and runs a job on a pull request only when a changed file is one its tests execute; a missing,
+# old or foreign map, a new file, a Cargo or toolchain change or the label ci:all-tests run everything.
+# Also runs on a pull request that changes the collector, so its first map is made by the pull request's own run
+# (never used by other runs: they read maps of `fork` only).
+name: Test impact
+
+on:
+  schedule:
+    - cron: '37 4 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/fork-test-impact.yml
+      - scripts/fork/test_impact.py
+      - scripts/fork/components.py
+
+concurrency:
+  group: test-impact-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: always
+  CARGO_TERM_PROGRESS_WHEN: never
+  LLVM_COV_VERSION: 0.9.1
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: Plan test impact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - id: plan
+        run: |
+          set -euo pipefail
+          python3 -I scripts/fork/components.py check
+          echo "matrix=$(python3 -I scripts/fork/components.py impact-plan | jq -c .)" >>"$GITHUB_OUTPUT"
+
+  measure:
+    name: ${{ matrix.name }}
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install && rustup component add llvm-tools
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ matrix.workspaces }}
+          shared-key: impact-${{ matrix.cache }}-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+      - name: Install cargo-llvm-cov
+        run: |
+          if ! command -v cargo-llvm-cov >/dev/null || [ "$(cargo llvm-cov --version | cut -d' ' -f2)" != "$LLVM_COV_VERSION" ]; then
+            cargo install --locked "cargo-llvm-cov@$LLVM_COV_VERSION"
+          fi
+      - name: Measure the job's test binaries
+        env:
+          JOB: ${{ toJSON(matrix) }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$JOB" >"$RUNNER_TEMP/job.json"
+          python3 -I scripts/fork/test_impact.py collect --job "$RUNNER_TEMP/job.json" --out "$RUNNER_TEMP/impact"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: impact-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/impact/
+          if-no-files-found: warn
+          retention-days: 3
+
+  map:
+    name: Test impact map
+    needs: measure
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: impact-*
+          path: ${{ runner.temp }}/parts
+          merge-multiple: true
+      - name: Merge
+        run: |
+          set -euo pipefail
+          python3 -I scripts/fork/test_impact.py merge --dir "$RUNNER_TEMP/parts" --commit "$GITHUB_SHA" --out test-impact.json | tee -a "$GITHUB_STEP_SUMMARY"
+          ls -l test-impact.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-impact
+          path: test-impact.json
+          retention-days: 7
+          if-no-files-found: error

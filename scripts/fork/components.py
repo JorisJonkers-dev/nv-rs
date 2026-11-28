@@ -9,10 +9,14 @@ Reads .fork/components.toml and `cargo metadata --no-deps` (offline: it works wh
   components.py graph [--timings FILE]    layers, crates, what `cargo test -p` compiles for each component, an
                                           ESTIMATE of the compile cost and (if a timing file is given) the measured
                                           test seconds
-  components.py matrix --event EVENT [--base SHA --head SHA | --files-from FILE]
+  components.py matrix --event EVENT [--base SHA --head SHA | --files-from FILE] [--impact FILE] [--all-tests]
                                           JSON for the workflow matrix: {"include": [...], "components": [...],
-                                          "reason": "..."}; EVENT pull_request runs only the affected components,
-                                          any other event runs all of them
+                                          "reason": "...", "impact": {...}}; EVENT pull_request runs only the affected
+                                          components, any other event runs all of them. With --impact (the nightly's
+                                          test-impact.json, scripts/fork/test_impact.py) a job runs only when a changed
+                                          source file is one its tests execute; a missing, old or foreign map, or
+                                          --all-tests, falls back (docs/fork/CI.md, "Test impact").
+  components.py impact-plan               JSON for the nightly collection: one entry per job with the test commands
 
 Stdlib only; Python 3.11 or newer (tomllib).
 """
@@ -25,6 +29,7 @@ import re
 import subprocess
 import sys
 import tomllib
+from datetime import datetime, timedelta, timezone
 
 # A change to one of these can change what every component does: every component runs.
 GLOBAL_FILES = {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml"}
@@ -50,6 +55,15 @@ DOCS = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
 S_LIB, S_TEST, S_EXT = 4.6, 18.0, 35.0
 WINDOWS_TIMEOUT, LINUX_TIMEOUT = 180, 90
 
+# Test impact (scripts/fork/test_impact.py): the nightly map from each job to the source files its tests execute.
+IMPACT_VERSION = 1
+IMPACT_MAX_AGE_DAYS = 3
+# A file with a macro in it can change the code of every file that calls the macro, and the line attribution of an
+# expansion is not the definition's: such a file is selected by crate, as without a map.
+IMPACT_MACRO = re.compile(r"\bmacro_rules!|#\[\s*proc_macro")
+# Not measured by the nightly (they need the Nix shell, a display or a sound server): selected by crate, as without a map.
+IMPACT_SKIP = {"rendering", "platform", "ds-mix", "window-layer"}
+
 
 def sh(*cmd):
     done = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -65,6 +79,28 @@ def read_list(path):
             return [x for x in (line.split("#")[0].strip() for line in fh) if x]
     except FileNotFoundError:
         return []
+
+
+def impact_usable(impact, is_ancestor, now=None, max_age_days=IMPACT_MAX_AGE_DAYS):
+    """(map, reason): the test-impact map when it can be trusted for this commit, else (None, why not). is_ancestor(sha)
+    tells whether the map's commit is an ancestor of the commit under test."""
+    if not impact:
+        return None, "no test-impact map (the nightly has not made one, or it could not be read)"
+    if not isinstance(impact, dict) or impact.get("version") != IMPACT_VERSION or not isinstance(impact.get("jobs"), dict) \
+            or not isinstance(impact.get("known"), list) or not impact.get("commit") or not impact.get("generated"):
+        return None, "the test-impact map has an unknown format"
+    try:
+        made = datetime.fromisoformat(str(impact["generated"]).replace("Z", "+00:00"))
+        if made.tzinfo is None:
+            made = made.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None, "the test-impact map has no readable date"
+    now = now or datetime.now(timezone.utc)
+    if now - made > timedelta(days=max_age_days):
+        return None, f"the test-impact map is older than {max_age_days} days ({impact['generated']})"
+    if not is_ancestor(impact["commit"]):
+        return None, f"the test-impact map was made at {str(impact['commit'])[:10]}, which this commit does not descend from"
+    return impact, f"test-impact map of {str(impact['commit'])[:10]} ({impact['generated']})"
 
 
 class Model:
@@ -346,6 +382,70 @@ class Model:
                 rest.append(f)
         return rest, tests
 
+    @staticmethod
+    def job_key(comp, job):
+        """The name of a job in the test-impact map: the component, or `component / job` (without shard and OS)."""
+        return comp if job is None else f"{comp} / {job['name']}"
+
+    def impact_split(self, files, impact, exists=None):
+        """(mapped, rest): the changed files the test-impact map can select by, and the files that are selected by crate.
+        A file is mapped only when the nightly saw it (a new file is not in the map), it still exists (a deleted or renamed
+        file is not), it is Rust source of a workspace crate, it is not a build script or a file that defines a macro, and no
+        component names it as its own path."""
+        exists = exists or (lambda f: os.path.isfile(os.path.join(self.root, f)))
+        known = set(impact["known"])
+        # A file that no measured job executed (types and constants only, a cfg that the Linux build leaves out, a file of
+        # an unmeasured component) cannot select a job by the map: it selects by crate.
+        executed = {f for j in impact["jobs"].values() for f in j["files"]}
+        mapped, rest = set(), []
+        for f in files:
+            ok = f in known and f in executed and f.endswith(".rs") and not f.startswith("vendor/") and os.path.basename(f) != "build.rs" \
+                and exists(f) and not any(f.startswith(p) for c in self.comps.values() for p in c.get("paths", [])) \
+                and any(f.startswith(d + "/") for d in self.dirs if d != ".")
+            if ok:
+                try:
+                    with open(os.path.join(self.root, f), encoding="utf-8", errors="replace") as fh:
+                        text = fh.read()
+                        ok = not IMPACT_MACRO.search(text) and not PLATFORM_CFG.search(text) and "cfg(target_" not in text
+                except OSError:
+                    ok = False
+            if ok:
+                mapped.add(f)
+            else:
+                rest.append(f)
+        return mapped, rest
+
+    def required_os(self, c):
+        """The OS the nightly measures a component on: Linux, where the general suite runs (the tests are platform-agnostic).
+        A component that is Windows only is not measured (None); a job that cannot pass on Linux is left out of the map."""
+        return None if c["runs_on"] == "windows" else "ubuntu-latest"
+
+    def impact_jobs(self):
+        """What the nightly measures: one entry per job (a shard is not a job), the test commands without the
+        compile settings, on the OS of the required job. Jobs that need the Nix shell or a display are not measured."""
+        out = []
+        for name, c in self.comps.items():
+            if name in IMPACT_SKIP:
+                continue
+            for job in (c.get("job") or [None]):
+                if "commands" in c:
+                    cmds = list(c["commands"])
+                elif job is None:
+                    cmds = [self.test_command(" ".join(f"-p {x}" for x in c["crates"]))] + list(c.get("extra", []))
+                else:
+                    cmds = [self.test_command(r + self.optional_tests(job, r)) for r in job["args"]]
+                cmds = [x for x in cmds if x.startswith("cargo test ")]
+                if not cmds:
+                    continue
+                osn = self.required_os(c)
+                if osn is None or (job or {}).get("os") == "windows":
+                    continue
+                key = self.job_key(name, job)
+                out.append({"key": key, "component": name, "os": osn, "cache": name,
+                            "name": f"Impact: {key}",
+                            "workspaces": self.workspaces(cmds), "runs": cmds})
+        return out
+
     # ---- jobs -------------------------------------------------------------------------------------------------
 
     def job_crates(self, c, job):
@@ -369,11 +469,12 @@ class Model:
         flags = self.missing_features(self.flags(run, "-p"))
         return f"cargo test --locked {run}" + (f" --features {','.join(flags)}" if flags else "")
 
-    def entries(self, comp, seeds=None, tests=(), windows=True, windows_full=True):
+    def entries(self, comp, seeds=None, tests=(), windows=True, windows_full=True, mapped=frozenset(), mapped_crates=frozenset(), impact_jobs=None):
         """Matrix entries of one component. seeds: the changed crates of a pull request (None: run everything); tests: the
         changed (crate, test) files that select a job by name; windows: False leaves the Windows jobs out; windows_full: False
         leaves out the Windows twin of a component with `windows = "nightly"` (it runs in the full run and on a push that
-        changes platform code only)."""
+        changes platform code only). mapped: changed files the test-impact map selects by (impact_jobs: its jobs), mapped_crates:
+        their crates, which select a job the map has no entry for."""
         c = self.comps[comp]
         linux_ready = bool(c["crates"]) and set(c["crates"]) <= self.linux_ok
         # os, label, informational
@@ -397,8 +498,14 @@ class Model:
             targets = [t for t in targets if not t[2]] or targets
         result = []
         for job in (c.get("job") or [None]):
-            if seeds is not None and not (self.closure_of(self.job_crates(c, job)) & seeds) and not (self.job_tests(c, job) & set(tests)):
-                continue
+            if seeds is not None:
+                closure = self.closure_of(self.job_crates(c, job))
+                hit = bool(closure & seeds) or bool(self.job_tests(c, job) & set(tests))
+                if not hit and mapped:
+                    data = (impact_jobs or {}).get(self.job_key(comp, job))
+                    hit = bool(mapped & set(data["files"])) if data else bool(closure & mapped_crates)
+                if not hit:
+                    continue
             job_targets = targets
             if (job or {}).get("os") == "windows":
                 # A job that stays on Windows (it needs it: cfg(windows) code, or a family that only Windows reproduces bit for bit).
@@ -485,29 +592,39 @@ class Model:
                     out.append(f"{m} -> target")
         return "\n".join(out[1:] or out)
 
-    def plan(self, run_all=True, files=(), all_os=True, windows_full=None):
+    def plan(self, run_all=True, files=(), all_os=True, windows_full=None, impact=None, exists=None):
         """all_os: False (a pull request without platform-relevant changes) leaves the Windows jobs out. windows_full: whether
-        the Windows twins of `windows = "nightly"` components run (default: when everything runs)."""
+        the Windows twins of `windows = "nightly"` components run (default: when everything runs). impact: a usable
+        test-impact map: a job whose tests the map knows runs only when a changed file is one it executes."""
         if windows_full is None:
             windows_full = run_all
         by_path, reason, seeds, tests = set(), "every component runs on this event", None, set()
+        mapped, mapped_crates, info = set(), set(), {"used": False, "mapped_files": 0, "crate_level_files": 0}
         if not run_all:
             files, tests = self.split_tests(files)
+            if impact:
+                mapped, files = self.impact_split(files, impact, exists)
+                mapped_crates = self.affected(sorted(mapped))[2]
+                info = {"used": True, "mapped_files": len(mapped), "crate_level_files": len(files)}
             everything, why, changed, by_path = self.affected(files)
             if everything:
                 reason = why
+                mapped = set()
             else:
                 seeds = changed
-                reason = f"{len(changed)} changed crate(s), {len(tests)} changed test file(s) and {len(by_path)} component path(s) in {len(files)} other changed file(s)"
+                reason = f"{len(changed)} changed crate(s), {len(tests)} changed test file(s), {len(mapped)} changed source file(s) selected by the test-impact map and {len(by_path)} component path(s) in {len(files)} other changed file(s)"
+        job_data = (impact or {}).get("jobs") or {}
         include, status = [], []
         for name, c in self.comps.items():
             force = seeds is None or c.get("pr") == "always" or name in by_path
-            got = self.entries(name, None if force else seeds, tests, all_os, windows_full)
+            args = (None if force else seeds, tests)
+            kw = {"mapped": mapped, "mapped_crates": mapped_crates, "impact_jobs": job_data}
+            got = self.entries(name, *args, all_os, windows_full, **kw)
             include += got
             status.append({"component": name, "tested": bool(got), "jobs": len(got),
-                           "why": "" if got else "no crate of its test closure changed" if all_os or not self.entries(name, None if force else seeds, tests) else "Windows only, and no platform code changed"})
+                           "why": "" if got else "no crate of its test closure changed" if all_os or not self.entries(name, *args, **kw) else "Windows only, and no platform code changed"})
         include, builds = self.archived(self.grouped(include))
-        return {"include": include, "builds": builds, "components": status, "reason": reason}
+        return {"include": include, "builds": builds, "components": status, "reason": reason, "impact": info}
 
     def grouped(self, include):
         """Components that name a `group` share one Windows job per group (checkout, toolchain and cache restore cost about
@@ -658,7 +775,7 @@ def cmd_affected(model, a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected", "fixture", "platform", "windows-crates"])
+    ap.add_argument("cmd", choices=["check", "graph", "matrix", "affected", "fixture", "platform", "windows-crates", "impact-plan"])
     ap.add_argument("--toml", default=".fork/components.toml")
     ap.add_argument("--metadata", help="a saved `cargo metadata --no-deps` instead of running cargo")
     ap.add_argument("--timings")
@@ -670,6 +787,9 @@ def main():
     ap.add_argument("--commands", action="store_true", help="affected: print the test commands of the affected jobs of --os (one per line)")
     ap.add_argument("--crates", action="store_true", help="affected: print only the changed crates (one per line)")
     ap.add_argument("--all-os", action="store_true", help="matrix: run the Windows jobs of a pull request too (the label ci:all-os)")
+    ap.add_argument("--impact", help="matrix: the nightly's test-impact.json (scripts/fork/test_impact.py); a job runs only when a changed file is one its tests execute")
+    ap.add_argument("--impact-max-age-days", type=int, default=IMPACT_MAX_AGE_DAYS, help="matrix: an older map is not used")
+    ap.add_argument("--all-tests", action="store_true", help="matrix: run every component (the label ci:all-tests)")
     ap.add_argument("--macos", action="store_true", help="platform: ask about macOS instead of Windows")
     ap.add_argument("--write", action="store_true", help="fixture: write the stored workspace graph instead of checking it")
     a = ap.parse_args()
@@ -693,6 +813,9 @@ def main():
     elif a.cmd == "windows-crates":
         # The crates whose Windows build must stay required (windows = "required", or Windows only): the narrow Windows clippy.
         print(" ".join(f"-p {x}" for x in model.windows_crates()))
+    elif a.cmd == "impact-plan":
+        json.dump({"include": model.impact_jobs()}, sys.stdout, indent=1)
+        print()
     elif a.cmd == "platform":
         # `true` when a change reaches code that only Windows or macOS can verify (see platform_relevant).
         files = read_list(a.files_from) if a.files_from else [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
@@ -700,7 +823,7 @@ def main():
     else:
         # The schedule and a manual run (and a push or pull request with no base to compare with) run everything; a pull
         # request and a push to the integration branch run what the change reaches.
-        full = a.event in ("schedule", "workflow_dispatch") or not (a.files_from or (a.base and a.base.strip("0")))
+        full = a.event in ("schedule", "workflow_dispatch") or a.all_tests or not (a.files_from or (a.base and a.base.strip("0")))
         files = []
         if not full:
             files = read_list(a.files_from) if a.files_from else [f for f in sh("git", "diff", "--name-only", f"{a.base}...{a.head}").split("\n") if f]
@@ -709,7 +832,22 @@ def main():
         # The Windows twin of a `windows = "nightly"` component runs in the full run, and on a push to the integration branch
         # whose change is platform-relevant; a pull request gets its Linux job only (or the twin with the label ci:all-os).
         win_full = full or a.all_os or (a.event == "push" and model.platform_relevant(files))
-        json.dump(model.plan(full, files, all_os, win_full), sys.stdout, indent=1)
+        impact, why = None, "every component runs on this event" if full else "no --impact given"
+        if a.impact and not full:
+            try:
+                with open(a.impact, encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+            except (OSError, ValueError):
+                loaded = None
+            impact, why = impact_usable(loaded, lambda sha: subprocess.run(["git", "merge-base", "--is-ancestor", sha, a.head], capture_output=True, check=False).returncode == 0,
+                                        max_age_days=a.impact_max_age_days)
+            if not impact:
+                print(f"::notice title=test impact::not used, selecting by crate: {why}", file=sys.stderr)
+        elif a.all_tests:
+            why = "the label ci:all-tests"
+        plan = model.plan(full, files, all_os, win_full, impact)
+        plan["impact"]["reason"] = why
+        json.dump(plan, sys.stdout, indent=1)
         print()
 
 
