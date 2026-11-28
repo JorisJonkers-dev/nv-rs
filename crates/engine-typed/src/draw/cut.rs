@@ -35,7 +35,7 @@
 use super::{capture, detach, packet, shapes};
 use crate::shader::layout::BSShaderAccumulator;
 use engine_core::ptr::Ptr;
-use engine_core::{AddrSet, Engine};
+use engine_core::{typed_call, AddrSet, Engine};
 
 /// An object's world transform (`m_kWorld`): rotation, translate, scale.
 pub(crate) const WORLD: (u32, u32) = (0x68, 0x9c);
@@ -696,7 +696,12 @@ thread_local! {
 /// main's own target set-ups (`00874b50`) while a posted draw would run. Typing the chain and giving each side its
 /// own target state is later work; until then these frames draw serially.
 fn copies_reflection(e: &mut Engine, acc: Ptr<BSShaderAccumulator>) -> bool {
-    packet::copy_reflection(e, acc) && super::drivers::has_listed_pass(e, acc, 0x288, 0x2ce)
+    packet::copy_reflection(e, acc)
+        && typed_call!(
+            super::FAMILY,
+            0x00b6_3120,
+            super::drivers::has_listed_pass(e, acc, 0x288, 0x2ce)
+        )
 }
 
 /// The cut, as the world draw's first half starts with a scene renderer and a camera: with `NV_DRAW_THREAD` set
