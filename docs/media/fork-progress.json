@@ -76,7 +76,7 @@
     "features.done": 5,
     "features.reference": 92,
     "native.families": 39,
-    "native.stage2_families": 2,
+    "native.stage2_families": 3,
     "native.typed": 3124
   },
   "engine_port": {
@@ -135,6 +135,7 @@
     ],
     "stage2_families": [
       "formarray",
+      "formmap",
       "lockfree"
     ]
   },
