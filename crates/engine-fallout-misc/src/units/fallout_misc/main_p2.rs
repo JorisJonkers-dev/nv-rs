@@ -3125,9 +3125,11 @@ pub fn fn_00875110(
 ) {
     let this_addr = this.addr();
     // The drawing thread's job may still walk the world accumulator (+0x88): the screens' and the overlay's blocks
-    // below accumulate into it. No earlier join covers every frame: the sun query's (`006426a0`) needs a sky, the
-    // water pass's (`008746d0`, `00875e40`) water, and the refraction normals' (`00b63a90`, `00874920`) `005b9b00`
-    // (`measure/draw-thread/PLAN-C.md`, "Latent race in #551"). Off, or with nothing posted, one load.
+    // below accumulate into it, registering passes in the renderers whose pass map, pass group array and active list
+    // the job reads (they are not own blocks: nv-rs#939's census, docs/fork/DRAW-WORKERS.md), and `00b6c0d0` draws
+    // them. The check `00b63a90` no longer joins (nv-rs#939); the refraction normals' (`00874920`, run only when
+    // the check counts something) and the water pass's joins stay (`008746d0`, `00875e40`). Off, or with nothing
+    // posted, one load.
     engine_core::draw_thread::finish_at(e, 0x0087_5110);
     let root = e.call(GET_ROOT, &args![]).u32();
     let target = e.call(GET_SCENE_TARGET, &args![root]).u32();
