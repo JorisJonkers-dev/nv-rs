@@ -1,3 +1,3 @@
-crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs  # a far block's FarLights shape left out of the far-building prepare, hidden unless light.far_lights, faded by the night factor
+crates/engine-fallout-env/src/units/fallout_shared_distant_terrain_system/bgsdistantobjectblock.rs  # a far block's FarLights shape left out of the far-building prepare, hidden unless light.far_lights, faded by the night factor, left out while its cell is loaded
 crates/engine-fallout-env/src/units/fallout_shared_sky/sky.rs  # the sky's update hands the night factor to the far lights while light.far_lights is on or they are shown
 crates/engine/src/lib.rs  # far_lights re-exported for the host's graphics settings

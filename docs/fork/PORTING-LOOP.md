@@ -10,6 +10,7 @@ It is fork tooling; it does not change the engine. The rules it enforces are in
 python3 -I scripts/fork/porting_loop.py batch --count 20 --name 2026-11-26
 python3 -I scripts/fork/porting_loop.py shakedown --count 100
 python3 -I scripts/fork/porting_loop.py weekly --days 7 --out target/porting-loop/weekly.md
+python3 -I scripts/fork/porting_loop.py weekly --days 7 --since 2026-11-20
 ```
 
 ## What one batch does
@@ -113,7 +114,12 @@ prints a table of delivered verified functions per day for the last `--days`
 days ending today. A verified address with no log entry is credited to the day
 it is first seen; a log entry whose address is no longer in the queue is
 reported as a dropped record. A clean checkout or a fresh clone keeps the
-committed log and the same report.
+committed log and the same report. With `--since DATE` (an ISO date), the report also gains a
+`## Rate before and after DATE` section: the span from DATE through today and the same number
+of days immediately before DATE, each with its verified-function count, span in days and rate
+per hour (count divided by days times 24). Both spans are counted from the same delivery records
+as the daily table, including records older than the table's `--days` window. Without `--since`
+the report is unchanged.
 
 ## Worker and reviewer commands
 
@@ -144,7 +150,7 @@ does not end up in one large family. A failure that ends the batch stops familie
 model name before `/`, with one lock set per provider under `NV_PORT_SLOT_DIR`. It stacks with `NV_PORT_SLOTS`,
 the global bound on writing runs.
 
-The batch record and the pull request body carry a `## Rate` section: model runs, seconds in the family lab
-runs (build and `Diff` run as one command, so both figures are that time), wall seconds, and verified functions
+The batch record and the pull request body carry a `## Rate` section: model runs, family lab seconds
+(build and `Diff` run as one command, so one figure covers both), wall seconds, and verified functions
 per hour (delivered addresses over wall hours). `weekly` prints verified functions per hour for its window next
-to the per-day table.
+to the per-day table, and `--since` adds the before-and-after comparison described above.

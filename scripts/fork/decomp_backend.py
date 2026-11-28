@@ -77,7 +77,8 @@ class ToolchainUnavailable(RuntimeError):
     """The clang/wasm2c toolchain is neither installed nor fetchable on this host."""
 
 
-SIZE_T_OPS = re.compile(r"(operator\s+(?:new|delete)(?:\[\])?\s*\((?:[^(),]*, ?)?)unsigned int")
+SIZE_T_OPS = re.compile(r"(operator\s+(?:new|delete)(?:\[\])?\s*\((?:[^(),]*, ?)?)(?:unsigned int|unsigned(?!\s+(?:int|long|short|char|__int64)\b))")
+SIZE_T_FIRST = re.compile(r"(operator\s+(?:new|delete)(?:\[\])?\s*\()(?:unsigned int|unsigned(?!\s+(?:int|long|short|char|__int64)\b))(?=\s+\w+\s*,)")
 NAMED_ENUM = re.compile(r"\benum(\s+)(?!class\b|struct\b)([A-Za-z_]\w*)(\s*)([;{])")
 IMPORT_RE = re.compile(r"/\* import: '([^']+)' '([^']+)' \*/\s*\n\s*([^\n;]+);")
 EXPORT_RE = re.compile(r"/\* export: '([^']+)' \*/\s*\n\s*([^\n;]+);")
@@ -107,10 +108,43 @@ SIZE_T_TYPEDEF = re.compile(r"typedef unsigned int (\w*size_t);")
 NAKED = re.compile(r"__declspec\(naked\)\s*")
 
 
+CRITICAL_SECTION_CALL = re.compile(r"\b(?:Enter|Leave|TryEnter|Initialize|Delete)CriticalSection\(")
+
+
+def cast_critical_sections(text):
+    """Cast the argument of each `EnterCriticalSection(...)` and `LeaveCriticalSection(...)` call.
+
+    The decomp passes an `int[6]`, a `void*` or its own struct; the Win32 prototype takes the
+    struct pointer, which MSVC's own declaration (`void*`) hid. A declaration is left alone.
+    """
+    out, at = [], 0
+    for match in CRITICAL_SECTION_CALL.finditer(text):
+        if match.start() < at:
+            continue
+        line = text[text.rfind("\n", 0, match.start()) + 1:match.start()]
+        if "__stdcall" in line or "WINAPI" in line:
+            continue
+        depth, end = 1, match.end()
+        while end < len(text) and depth:
+            depth += (text[end] == "(") - (text[end] == ")")
+            end += 1
+        if depth:
+            continue
+        out.append(text[at:match.end()])
+        out.append("(struct _RTL_CRITICAL_SECTION*)(" + text[match.end():end - 1] + ")")
+        out.append(")")
+        at = end
+    out.append(text[at:])
+    return "".join(out)
+
+
 def rewrite_source(text):
     """Apply the build-copy-only rewrites: CRT size_t spelling, MSVC enum width and clang gaps."""
     text = SIZE_T_OPS.sub(lambda m: m.group(1) + "__SIZE_TYPE__", text)
+    # A placement form's first parameter is the size too (the pattern above stops at the second).
+    text = SIZE_T_FIRST.sub(lambda m: m.group(1) + "__SIZE_TYPE__", text)
     text = INTRINSIC_DECLS.sub("", text)
+    text = cast_critical_sections(text)
     text = NAKED.sub("", text)
     text = INTERLOCKED_DEF.sub(r"\1Fnv_\2(", text)
     text = SIZE_T_TYPEDEF.sub(r"typedef __SIZE_TYPE__ \1;", text)
@@ -288,12 +322,62 @@ def drop_conflicting_declarations(stderr, copy):
                 continue
             path = Path(file)
             lines = path.read_text(errors="surrogateescape").split("\n")
-            if not (0 < number <= len(lines)) or not DECLARATION_LINE.match(lines[number - 1]):
+            if not (0 < number <= len(lines)):
                 continue
+            if not DECLARATION_LINE.match(lines[number - 1]):
+                # A declaration after other statements on the line (`typedef X Vec;extern "C" T N[4];`):
+                # blank only the `extern "C"` declaration that names the symbol.
+                name = re.search(r"'(\w+)'", group["msg"])
+                if not name or system_second:
+                    continue
+                pattern = re.compile(r'extern\s+"C"[^;{}]*\b%s\b[^;{}]*;' % re.escape(name.group(1)))
+                changed = pattern.sub("", lines[number - 1], count=1)
+                if changed == lines[number - 1]:
+                    continue
+                lines[number - 1] = changed
+                path.write_text("\n".join(lines), errors="surrogateescape")
+                blanked += 1
+                break
             lines[number - 1] = "#include <windows.h>" if system_second else ""
             path.write_text("\n".join(lines), errors="surrogateescape")
             blanked += 1
             break
+    return blanked
+
+
+LOCAL_M128_END = re.compile(r"^\s*\}\s*__m128\s*,\s*LocalM128\s*;\s*$")
+
+
+def drop_duplicate_local_m128(stderr, copy):
+    """Blank a second definition of the decomp's `LocalM128` union in the private copy.
+
+    Some units define the type twice (one definition per namespace block) and declare `_mm_setr_ps`
+    with each, so clang sees two functions that differ only in their return type. The definition
+    nearest above the later declaration goes (`typedef union ... } __m128, LocalM128;`, line
+    numbers stay), so both declarations and the code between use the first. Returns how many
+    definitions were blanked.
+    """
+    blanked = 0
+    for line in stderr.splitlines():
+        found = DIAGNOSTIC.match(line)
+        if (not found or found["kind"] != "error"
+                or "differ only in their return type" not in found["msg"]
+                or not _inside(found["file"], copy)):
+            continue
+        path = Path(found["file"])
+        lines = path.read_text(errors="surrogateescape").split("\n")
+        end = next((i for i in range(int(found["line"]) - 1, -1, -1)
+                    if LOCAL_M128_END.match(lines[i])), None)
+        if end is None:
+            continue
+        start = next((i for i in range(end, -1, -1) if lines[i].lstrip().startswith("typedef union")), None)
+        if start is None:
+            continue
+        for i in range(start, end + 1):
+            lines[i] = ""
+        path.write_text("\n".join(lines), errors="surrogateescape")
+        blanked += 1
+        break
     return blanked
 
 
@@ -428,8 +512,58 @@ def exports_left_out(wat, unresolved=()):
 # The SSE intrinsics the decomp declares and calls (`extern "C" LocalM128 _mm_add_ps(...)`), as plain
 # functions over MSVC's `__m128` layout, linked into the module. The arithmetic is IEEE single
 # precision, so add, sub, mul, div, min, max, sqrt and the compares are exact; `rcp` and `rsqrt`
-# are the exact reciprocal where the hardware gives a 12-bit estimate, and `getcsr` reports the
-# default control state. A function that calls an estimate differs from the original in its low bits.
+# return the processor's 12-bit estimate from the tables of `engine-core`'s `estimate` module
+# (`ESTIMATE_TABLES`, read from that file at build time), and `getcsr` reports the default control
+# state.
+
+# The estimate model of `crates/engine-core/src/estimate.rs` in C, over the tables of
+# `estimate/tables.rs`: the result depends on the exponent and the top 12 mantissa bits only.
+ESTIMATE_TABLES = Path(__file__).resolve().parents[2] / "crates/engine-core/src/estimate/tables.rs"
+ESTIMATE_MODEL = r"""
+#define NV_SIGN 0x80000000u
+#define NV_EXP 0x7f800000u
+#define NV_MAN 0x007fffffu
+static unsigned int nv_from_entry(unsigned short entry, unsigned int sign, int shift) {
+  int exponent = (int)(entry >> 12) + 120 + shift;
+  if (exponent < 1) return sign;
+  return sign | ((unsigned int)exponent << 23) | ((unsigned int)(entry & 0xfff) << 11);
+}
+static unsigned int nv_rcp_bits(unsigned int x) {
+  unsigned int sign = x & NV_SIGN, exponent = x & NV_EXP;
+  if (exponent == NV_EXP) return (x & NV_MAN) ? (x | 0x00400000u) : sign;
+  if (exponent == 0) return sign | NV_EXP;
+  int field = (int)(exponent >> 23);
+  return nv_from_entry(nv_rcp_table[(x & NV_MAN) >> 11], sign, 127 - field);
+}
+static unsigned int nv_rsqrt_bits(unsigned int x) {
+  unsigned int sign = x & NV_SIGN, exponent = x & NV_EXP;
+  if (exponent == NV_EXP) return (x & NV_MAN) ? (x | 0x00400000u) : (sign ? 0xffc00000u : 0);
+  if (exponent == 0) return sign | NV_EXP;
+  if (sign) return 0xffc00000u;
+  int field = (int)(exponent >> 23);
+  int odd = field & 1;
+  int half = odd ? 0 : 4096, reference = odd ? 127 : 128;
+  return nv_from_entry(nv_rsqrt_table[half + ((x & NV_MAN) >> 11)], 0, (reference - field) / 2);
+}
+"""
+
+
+def estimate_source(tables=None):
+    """The C that answers `_mm_rcp_*` and `_mm_rsqrt_*` as the measured processor does."""
+    text = Path(tables or ESTIMATE_TABLES).read_text()
+    out = []
+    for name, count in (("RCP", 4096), ("RSQRT", 8192)):
+        match = re.search(r"const %s: \[u16; (\d+)\] = \[(.*?)\];" % name, text, re.S)
+        if not match or int(match.group(1)) != count:
+            raise ValueError("estimate tables: %s table not found with %d entries" % (name, count))
+        values = re.findall(r"0x[0-9a-fA-F]+", match.group(2))
+        if len(values) != count:
+            raise ValueError("estimate tables: %s has %d entries, not %d" % (name, len(values), count))
+        out.append("static const unsigned short nv_%s_table[%d] = {%s};\n"
+                   % (name.lower(), count, ",".join(values)))
+    return "".join(out) + ESTIMATE_MODEL
+
+
 SSE_SOURCE = r"""
 typedef union __attribute__((aligned(16))) { float f[4]; unsigned int u[4]; unsigned long long q[2]; } m128;
 #define OP(name, expr) m128 name(m128 a, m128 b) { m128 r; \
@@ -460,10 +594,12 @@ CMPS(_mm_cmple_ss, a.f[i] <= b.f[i]) CMPS(_mm_cmpgt_ss, a.f[i] > b.f[i])
 CMPS(_mm_cmpge_ss, a.f[i] >= b.f[i]) CMPS(_mm_cmpneq_ss, !(a.f[i] == b.f[i]))
 m128 _mm_sqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = __builtin_sqrtf(a.f[i]); return r; }
 m128 _mm_sqrt_ss(m128 a) { m128 r = a; r.f[0] = __builtin_sqrtf(a.f[0]); return r; }
-m128 _mm_rcp_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = 1.0f / a.f[i]; return r; }
-m128 _mm_rcp_ss(m128 a) { m128 r = a; r.f[0] = 1.0f / a.f[0]; return r; }
-m128 _mm_rsqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.f[i] = 1.0f / __builtin_sqrtf(a.f[i]); return r; }
-m128 _mm_rsqrt_ss(m128 a) { m128 r = a; r.f[0] = 1.0f / __builtin_sqrtf(a.f[0]); return r; }
+m128 _mm_rcp_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.u[i] = nv_rcp_bits(a.u[i]); return r; }
+m128 _mm_rcp_ss(m128 a) { m128 r = a; r.u[0] = nv_rcp_bits(a.u[0]); return r; }
+m128 _mm_rsqrt_ps(m128 a) { m128 r; for (int i = 0; i < 4; i++) r.u[i] = nv_rsqrt_bits(a.u[i]); return r; }
+m128 _mm_rsqrt_ss(m128 a) { m128 r = a; r.u[0] = nv_rsqrt_bits(a.u[0]); return r; }
+void _mm_stream_ps(float* p, m128 a) { p[0] = a.f[0]; p[1] = a.f[1]; p[2] = a.f[2]; p[3] = a.f[3]; }
+void _mm_prefetch(const char* p, int hint) { (void)p; (void)hint; }
 m128 _mm_setzero_ps(void) { m128 r = {{0, 0, 0, 0}}; return r; }
 m128 _mm_set_ps1(float v) { m128 r = {{v, v, v, v}}; return r; }
 m128 _mm_set1_ps(float v) { m128 r = {{v, v, v, v}}; return r; }
@@ -492,6 +628,36 @@ void _mm_setcsr(unsigned int v) { (void)v; }
 """
 
 
+# MSVC's built-in `__m128` and the intrinsics a unit calls without declaring them, spelled as
+# the compiler's own header does: `<xmmintrin.h>` and the fallback header a unit gets when clang
+# does not know the type (`sse_types.h`). `_INCLUDED_MM2` is the guard the decomp's own copies of
+# the union test, so the type is defined once either way. The functions are those of `nv_sse.c`.
+SSE_DECLS = (
+    "#ifndef _INCLUDED_MM2\n#define _INCLUDED_MM2\n"
+    "#define _MM_SHUFFLE(z, y, x, w) (((z) << 6) | ((y) << 4) | ((x) << 2) | (w))\n"
+    "union __declspec(intrin_type) __declspec(align(16)) __m128 {\n"
+    "  float m128_f32[4]; unsigned __int64 m128_u64[2]; };\n"
+    "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+    + "".join("__m128 %s(__m128, __m128);\n" % name for name in (
+        "_mm_add_ps _mm_sub_ps _mm_mul_ps _mm_div_ps _mm_min_ps _mm_max_ps _mm_add_ss _mm_sub_ss "
+        "_mm_mul_ss _mm_div_ss _mm_min_ss _mm_max_ss _mm_and_ps _mm_andnot_ps _mm_or_ps _mm_xor_ps "
+        "_mm_cmpeq_ps _mm_cmplt_ps _mm_cmple_ps _mm_cmpgt_ps _mm_cmpge_ps _mm_cmpneq_ps "
+        "_mm_cmpeq_ss _mm_cmplt_ss _mm_cmple_ss _mm_cmpgt_ss _mm_cmpge_ss _mm_cmpneq_ss "
+        "_mm_move_ss _mm_unpacklo_ps _mm_unpackhi_ps _mm_movelh_ps _mm_movehl_ps").split())
+    + "".join("__m128 %s(__m128);\n" % name for name in (
+        "_mm_sqrt_ps _mm_sqrt_ss _mm_rcp_ps _mm_rcp_ss _mm_rsqrt_ps _mm_rsqrt_ss").split())
+    + "__m128 _mm_setzero_ps(void);\n__m128 _mm_set_ps1(float);\n__m128 _mm_set1_ps(float);\n"
+    "__m128 _mm_set_ps(float, float, float, float);\n__m128 _mm_setr_ps(float, float, float, float);\n"
+    "__m128 _mm_set_ss(float);\n__m128 _mm_load_ss(const float*);\n__m128 _mm_load_ps(const float*);\n"
+    "__m128 _mm_loadu_ps(const float*);\n__m128 _mm_load_ps1(const float*);\n"
+    "__m128 _mm_load1_ps(const float*);\nvoid _mm_store_ss(float*, __m128);\n"
+    "void _mm_store_ps(float*, __m128);\nvoid _mm_storeu_ps(float*, __m128);\n"
+    "void _mm_stream_ps(float*, __m128);\nfloat _mm_cvtss_f32(__m128);\nint _mm_movemask_ps(__m128);\n"
+    "__m128 _mm_shuffle_ps(__m128, __m128, int);\nvoid _mm_prefetch(const char*, int);\n"
+    "#ifdef __cplusplus\n}\n#endif\n#endif\n"
+)
+
+
 def make_standins(out, tools):
     """Write the small mingw-w64/SSE stand-ins the wasm units compile against."""
     standins = Path(out) / "standins"
@@ -512,28 +678,48 @@ def make_standins(out, tools):
         intrin = intrin.replace('#define __buildint(a) __asm__ __volatile__("int {$}" #a :)',
                                 "#define __buildint(a) __builtin_trap()")
         # The x86 barrier asm names `eax`, which wasm has no register for; a fence is the same ordering.
+        # A unit calls `::_ReadWriteBarrier()`; the macro's asm cannot take the scope operator, so
+        # the name is the function `nv_runtime.c` defines (a fence).
+        intrin = intrin.replace(
+            '#define _ReadWriteBarrier() __asm__ __volatile__ ("" ::: "memory")\n', "")
         intrin = re.sub(r"#define __buildmemorybarrier\(\) \\\n\{ \\\n.*?\n\}\n",
                         "#define __buildmemorybarrier() { __atomic_thread_fence(__ATOMIC_SEQ_CST); }\n",
                         intrin, flags=re.S)
-        intrin = "\n".join(line for line in intrin.split("\n")
-                           if not re.match(r"\s*(?:__INTRINSICS_USEINLINE|__build\w*\(.*\)\s*;?\s*$)", line))
+        # A definition the header marks for inlining is emitted by every unit that includes it; a
+        # weak one lets the units link together instead of dropping all but the first. A marker
+        # that precedes an asm wrapper (`__build...`) has nothing to attach to and goes.
+        lines, kept = intrin.split("\n"), []
+        for number, line in enumerate(lines):
+            if re.match(r"\s*(?:__MINGW_EXTENSION\s+)?__INTRINSICS_USEINLINE\s*$", line):
+                follows_wrapper = number + 1 < len(lines) and re.match(r"\s*__build\w*\(", lines[number + 1])
+                if not follows_wrapper:
+                    kept.append("__attribute__((__weak__))")
+            elif not re.match(r"\s*(?:__INTRINSICS_USEINLINE|__build\w*\(.*\)\s*;?\s*$)", line):
+                kept.append(line)
+        intrin = "\n".join(kept)
         (standins / "psdk_inc" / "intrin-impl.h").write_text(intrin)
         math = Path(mingw) / "math.h"
         if math.is_file():
             (standins / "math.h").write_text(standin_math(math.read_text(errors="surrogateescape")))
     # The decomp spells its own `__m128` union and declares the `_mm_*` functions it calls; the
     # headers stay empty so clang's x86-only ones are not used, and nv_sse.c defines the functions.
-    vector = "#pragma once\n"
+    # `intrin.h` stays empty: windows.h includes it, and a unit that declares its own
+    # `extern "C" LocalM128 _mm_add_ps(...)` would then see two spellings. The headers a unit
+    # includes to get the intrinsics define them.
+    (standins / "intrin.h").write_text("#pragma once\n")
     for name in ("xmmintrin.h", "emmintrin.h", "pmmintrin.h", "immintrin.h", "mmintrin.h",
-                 "intrin.h", "x86intrin.h"):
-        (standins / name).write_text(vector)
+                 "x86intrin.h"):
+        (standins / name).write_text("#pragma once\n" + SSE_DECLS)
     (standins / "wasm_prelude.h").write_text(
         "#pragma once\nextern \"C\" unsigned long __readfsdword(unsigned long);\n")
     # Included in every unit: the stub the rewritten `__asm` blocks call, and the barrier clang
     # reads as an intrinsic that mingw's empty intrin.h stand-in no longer provides.
     (standins / "nv_asm.h").write_text(
         "#pragma once\n"
-        "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+        + "".join("#ifndef %s\n#define %s\n#endif\n" % (n, n) for n in (
+            "_In_", "_In_opt_", "_Out_", "_Out_opt_", "_Inout_", "_Inout_opt_", "_Ret_maybenull_",
+            "_Success_(x)", "_Check_return_"))
+        + "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
         "__attribute__((noreturn, noinline)) void %s(void);\n"
         "#ifdef __cplusplus\n}\n#endif\n"
         "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
@@ -541,13 +727,10 @@ def make_standins(out, tools):
         "#ifdef __cplusplus\n}\n#endif\n"
         % ASM_STUB)
     # MSVC's built-in `__m128`, for units that use it without declaring it.
-    (standins / "sse_types.h").write_text(
-        "#pragma once\n"
-        "union __declspec(intrin_type) __declspec(align(16)) __m128 {\n"
-        "  float m128_f32[4]; unsigned __int64 m128_u64[2]; };\n")
+    (standins / "sse_types.h").write_text("#pragma once\n" + SSE_DECLS)
     (standins / "nv_runtime.c").write_text(
         "__attribute__((noreturn, noinline)) void %s(void) { __builtin_trap(); }\n"
-        "void _ReadWriteBarrier(void) { __atomic_signal_fence(__ATOMIC_SEQ_CST); }\n%s" % (ASM_STUB, SSE_SOURCE))
+        "void _ReadWriteBarrier(void) { __atomic_signal_fence(__ATOMIC_SEQ_CST); }\n%s" % (ASM_STUB, estimate_source() + SSE_SOURCE))
     return standins
 
 
@@ -932,11 +1115,13 @@ def compile_unit(tools, copy, standins, source, obj, cxx=False):
         if not result.returncode:
             return True, ""
         attempts.append(result)
-        blanked = drop_conflicting_declarations(result.stderr, copy)
+        blanked = (drop_duplicate_local_m128(result.stderr, copy)
+                   or drop_conflicting_declarations(result.stderr, copy))
         # The stand-in type is the last repair: a blanked declaration can clear the same error.
         wants_sse = (not blanked and not sse_types
                      and ("unknown type name '__m128'" in result.stderr
-                          or "no type named '__m128'" in result.stderr))
+                          or "no type named '__m128'" in result.stderr
+                          or "use of undeclared identifier '_mm_" in result.stderr))
         sse_types = sse_types or wants_sse
         if not blanked and not wants_sse:
             break
@@ -1425,6 +1610,35 @@ def link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes):
     raise RuntimeError("wasm-ld: no unit is left after dropping duplicates")
 
 
+def drop_duplicate_exports(tools, out, objects, runtime, wasm, chosen, outcomes):
+    """Drop the later unit when two linked functions end up with one export name.
+
+    The `@fnv` annotation names an export by address; a unit that holds the same address twice
+    (or a variant `keep_first_export_of_each_address` did not see) makes the module invalid. The
+    unit is reported with the name, and the rest is linked again. Returns the objects linked.
+    """
+    reader = wabt_tool(tools, "wasm2wat")
+    if not reader:
+        return objects
+    for _ in range(len(objects)):
+        probe = run([reader, wasm])
+        match = re.search(r'duplicate export "fnv_([0-9a-fA-F]+)"', probe.stderr)
+        if not probe.returncode or not match:
+            return objects
+        marker = re.compile(r"@fnv 0x0*%s\b" % match.group(1).lstrip("0"), re.I)
+        holders = [(unit, outcome) for unit, outcome in zip(chosen, outcomes)
+                   if outcome["ok"] and marker.search(
+                       (Path(out) / "copy" / unit["source"]).read_text(errors="surrogateescape"))]
+        if not holders:
+            return objects
+        unit, outcome = holders[-1]
+        outcome["ok"] = False
+        outcome["reason"] = "duplicate export fnv_%s" % match.group(1)
+        objects = [o for o in objects if o.name != outcome["object"]]
+        objects = link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes)
+    return objects
+
+
 def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
           compiler=None, allow_fallback=False, force_fallback=False):
     """Build a native library and write report.json/report.md into the output folder."""
@@ -1478,6 +1692,7 @@ def build(decomp, out, units=None, limit=None, toolchain=None, download=None,
         raise RuntimeError("asm stub: " + stub.stderr.strip()[-500:])
     wasm = out / "mod.wasm"
     objects = link_without_duplicates(tools, objects, runtime, wasm, chosen, outcomes)
+    objects = drop_duplicate_exports(tools, out, objects, runtime, wasm, chosen, outcomes)
     symbols = collect_symbols({}, chosen)
     for key, value in collect_symbols(manifest, all_units).items():
         symbols.setdefault(key, value)

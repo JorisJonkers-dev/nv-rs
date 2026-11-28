@@ -32,7 +32,7 @@ use super::base_process::{
     runtime_cast, save_load_game, save_log_enabled, saving_record, use_save_game_blocks,
 };
 use super::{low_process, FAMILY};
-use crate::native::{float_precision, to_float, Real};
+use crate::native::{float_precision, to_float, Double, Real, Single};
 use crate::{ai_queries, crt, interface, slot_target};
 use engine_core::ptr::Ptr;
 use engine_core::typed::leaf;
@@ -480,7 +480,7 @@ pub fn process_combat_one_hour(e: &mut Engine, this: Ptr, actor: u32, _unused: u
     let mut rounds = combat_rounds(e, |e, value| {
         let factor = e.mem.f64(ONE_HOUR_FACTOR);
         if float_precision() {
-            f64::from(f32::narrow(value) * f32::narrow(factor))
+            (Single::narrow(value) * Single::narrow(factor)).wide()
         } else {
             value * factor
         }
@@ -1106,9 +1106,9 @@ fn update_reach_object(e: &mut Engine, process: u32, actor: u32, package: u32) {
     let two = e.mem.f64(0x0101_1590);
     // `FDIV qword` at the thread's precision.
     let half = if float_precision() {
-        f64::from(f32::load(reach) / f32::narrow(two))
+        (Single::load(reach) / Single::narrow(two)).wide()
     } else {
-        f64::load(reach) / two
+        (Double::load(reach) / Double::narrow(two)).wide()
     };
     if distance <= half {
         procedure_done(e, process, actor);

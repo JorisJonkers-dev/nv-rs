@@ -8,7 +8,7 @@ use super::layout::{
 use super::point::{length_xy_squared, subtract};
 use super::{double_global, float_global, low_word, real, FAMILY};
 use crate::culling::layout::NiPoint3;
-use crate::native::{float_precision, Real};
+use crate::native::{float_precision, Double, Real, Single};
 use engine_core::ptr::Ptr;
 use engine_core::typed::leaf;
 use engine_core::x87::fistp_chop64;
@@ -146,9 +146,9 @@ pub fn scaled_cost(e: &mut Engine, this: Ptr, node: Ptr<SortNode>) -> u32 {
     let nineteen = double_global(e, NINETEEN);
     let scale = e.get(this, Scale::value);
     let v = if float_precision() {
-        scaled_key::<f32>(key, nineteen, scale)
+        scaled_key::<Single>(key, nineteen, scale)
     } else {
-        scaled_key::<f64>(key, nineteen, scale)
+        scaled_key::<Double>(key, nineteen, scale)
     };
     low_word(fistp_chop64(v))
 }
@@ -199,9 +199,9 @@ pub fn is_goal(e: &mut Engine, this: Ptr<AStarSearch>, node: Ptr) -> bool {
                 let t2 = e.call(REQUEST_RADIUS, &args![request]).f64();
                 // FLD xy; FCOMPP against the limit: on when below.
                 let below = if float_precision() {
-                    within_radius::<f32>(xy, t, quarter, t2)
+                    within_radius::<Single>(xy, t, quarter, t2)
                 } else {
-                    within_radius::<f64>(xy, t, quarter, t2)
+                    within_radius::<Double>(xy, t, quarter, t2)
                 };
                 if !below {
                     return false;

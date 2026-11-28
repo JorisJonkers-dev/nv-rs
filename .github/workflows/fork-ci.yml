@@ -53,6 +53,7 @@ jobs:
       code: ${{ steps.diff.outputs.code }}
       native: ${{ steps.diff.outputs.native }}
       census: ${{ steps.diff.outputs.census }}
+      macos: ${{ steps.os.outputs.macos }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,8 +66,8 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          # A push to the fork branch always runs the builds: it verifies the result and fills the caches.
-          if [ "$EVENT" = push ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+          # The nightly run and a manual run always run the builds in full. A push to fork, like a pull request, runs what its commits change.
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
             { echo "code=true"; echo "native=true"; echo "census=false"; } >>"$GITHUB_OUTPUT"; echo "building (push, or no base to compare with)"; exit 0
           fi
           # On a pull request the Rust builds verify UPSTREAM's code. A change that only touches documentation or the fork's own
@@ -81,7 +82,7 @@ jobs:
           overlay = [o for o in overlay if o]
           # Files that steer the builds count when they are MODIFIED (an existing, verified behaviour changes); a newly added
           # file cannot change what an earlier run verified, and the push to the fork branch runs the full builds anyway.
-          steering = re.compile(r"^(\.fork/(linux-ok\.txt|components\.toml)|\.github/workflows/fork-build\.yml|scripts/fork/(linux_probe|components|libtest_summary|clippy_annotations)\.py|scripts/fork/run-component\.sh)$")
+          steering = re.compile(r"^(\.fork/(linux-ok\.txt|components\.toml)|\.github/workflows/fork-build\.yml|scripts/fork/(linux_probe|components|libtest_summary|clippy_annotations|test_archive)\.py|scripts/fork/run-component\.sh)$")
           docs = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
           fork_owned = lambda f: any(f == o or (o.endswith("/") and f.startswith(o)) for o in overlay)
           code = [f for f in diff("ACDMRT") if not (docs.match(f) or fork_owned(f))]
@@ -97,6 +98,22 @@ jobs:
           census = [f for f in diff("ACDMRT") if f.startswith(census_files[0]) or f == census_files[1]]
           print("census=" + ("true" if census else "false"))
           ' >>"$GITHUB_OUTPUT"
+      # The macOS job runs in the nightly run and a manual run, and on a pull request or a push to fork only when the change
+      # reaches code the job builds for macOS (d3d9-*, engine-platform, fork-window, the facade, or a cfg on macos), or
+      # the pull request has the label ci:all-os when its run starts (a label added later counts from the next push).
+      - id: os
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null || jq -e 'index("ci:all-os")' <<<"$LABELS" >/dev/null; then
+            echo "macos=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          rustup toolchain install
+          echo "macos=$(python3 -I scripts/fork/components.py platform --macos --base "$BASE" --head "$HEAD")" >>"$GITHUB_OUTPUT"
 
   hygiene:
     name: Hygiene
@@ -170,6 +187,13 @@ jobs:
       - name: Script self-tests
         if: ${{ !cancelled() }}
         run: mise exec -- task scripts
+      # Cheap and tree-wide, so it also runs when the builds are skipped (the component `repo-checks` runs it on every
+      # build too). Its target directory is outside the checkout: the test reads every file git does not ignore.
+      - name: Repository hygiene (nvinspect)
+        if: ${{ !cancelled() }}
+        run: |
+          rustup toolchain install
+          CARGO_TARGET_DIR="$RUNNER_TEMP/target-hygiene" cargo test --locked -p nvinspect --test repo_hygiene
       - name: Extender move inventory
         if: ${{ !cancelled() }}
         run: python3 -I scripts/fork/extender_move_inventory.py --check
@@ -219,11 +243,12 @@ jobs:
 
   # The engine on macOS (Apple silicon, wgpu on Metal; nv-rs#378): the crates the Toolbox links and the window and
   # device layers build, and their tests that need no game run. The game's window on macOS is nv-rs#379; until then
-  # the device layer stays off screen there. Skipped when only documentation changed.
+  # the device layer stays off screen there. On a pull request it runs only for macOS-relevant changes or with the label
+  # ci:all-os; pushes to fork, the schedule and manual runs always run it.
   macos:
     name: macOS
     needs: changes
-    if: ${{ needs.changes.outputs.native == 'true' }}
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     runs-on: macos-latest
     timeout-minutes: 120
     env:
@@ -262,7 +287,7 @@ jobs:
       # dependencies switch on nvse's test support. A failed or missing log here lowers covered, and the ratchet of
       # "Catalogue results" then fails the run.
       - name: Tests of the catalogue's packages
-        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/testlog"
@@ -272,7 +297,7 @@ jobs:
       # In this job, not one of its own: one macOS runner per run (a second one waited in the queue for this one), one
       # cache, and the crates.io and platform crates built above are reused. Same events as the step above.
       - name: Tagged engine tests
-        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         run: scripts/fork/tagged-engine-tests.sh "$RUNNER_TEMP/testlog/test-macos-engine.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
@@ -286,7 +311,7 @@ jobs:
   # none of those engine functions could be covered. Pushes, the schedule and manual runs only.
   linux-engine:
     name: Linux (tagged engine tests)
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -442,7 +467,7 @@ jobs:
   catalogue:
     name: Catalogue results
     needs: [changes, build, macos, linux-engine]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -580,13 +605,13 @@ jobs:
 
       # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
       # its override label is set), "Catalogue results" and the Linux tagged-engine-test job on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
-      # when only documentation changed.
+      # when no macOS code changed (the `os` step of `changes`).
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "commit-messages", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "commit-messages", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and ($ev != "schedule" and $ev != "workflow_dispatch")) or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.macos == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.
@@ -605,9 +630,9 @@ jobs:
   reports:
     name: Catalogue reports
     needs: [catalogue, pipeline-complete]
-    # Explicit result checks: the implicit success() is false on a push, because the pull-request-only jobs upstream of
+    # Explicit result checks: the implicit success() is false here, because the pull-request-only jobs upstream of
     # Pipeline Complete are skipped there.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/fork' && needs.pipeline-complete.result == 'success' && needs.catalogue.outputs.reports == 'changed' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/fork' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.pipeline-complete.result == 'success' && needs.catalogue.outputs.reports == 'changed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -680,3 +705,30 @@ jobs:
           "${git[@]}" commit --quiet -m "chore(catalogue): update the generated reports [skip ci]"
           "${git[@]}" push --quiet "$remote" "HEAD:refs/heads/fork"
           echo "Pushed $(git rev-parse --short HEAD)." >>"$GITHUB_STEP_SUMMARY"
+
+  # The nightly run is the only full run of fork. When it fails, one open issue (label nightly-failure) collects it: a new
+  # issue the first night, a comment with the run's link on each night after, until someone closes the issue.
+  nightly-issue:
+    name: Nightly failure issue
+    needs: [pipeline-complete]
+    if: ${{ always() && github.event_name == 'schedule' && needs.pipeline-complete.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ needs.pipeline-complete.result }}
+        run: |
+          set -euo pipefail
+          body="The nightly full run of the pipeline finished with \`$RESULT\`: $RUN_URL ($GITHUB_SHA)"
+          open="$(gh issue list --label nightly-failure --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --label nightly-failure --assignee ExtraToast --title "Nightly full pipeline run failed" --body "$body"
+          fi

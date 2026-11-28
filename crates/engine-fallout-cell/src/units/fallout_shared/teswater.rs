@@ -92,8 +92,6 @@ use engine_core::extend::stewie;
 /// not only the land and the references the water names (nv-rs#848). `Game` (the default) is the exe's
 /// choice, unchanged.
 pub mod placed_reflections {
-    use std::sync::atomic::{AtomicU8, Ordering};
-
     /// How placed outdoor water reflects.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Level {
@@ -105,7 +103,34 @@ pub mod placed_reflections {
         High,
     }
 
-    static LEVEL: AtomicU8 = AtomicU8::new(0);
+    // The level is one value for the process in a build, and one per thread under test: the tests run in
+    // parallel, and one that sets a level must not change the scenes the others run (nv-rs#1030).
+    #[cfg(not(test))]
+    static LEVEL: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+    #[cfg(test)]
+    thread_local! {
+        static LEVEL: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    }
+
+    #[cfg(not(test))]
+    fn store(v: u8) {
+        LEVEL.store(v, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn store(v: u8) {
+        LEVEL.with(|l| l.set(v));
+    }
+
+    #[cfg(not(test))]
+    fn load() -> u8 {
+        LEVEL.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    fn load() -> u8 {
+        LEVEL.with(|l| l.get())
+    }
 
     /// Sets the level from the next frame on.
     pub fn set(level: Level) {
@@ -114,12 +139,12 @@ pub mod placed_reflections {
             Level::Low => 1,
             Level::High => 2,
         };
-        LEVEL.store(v, Ordering::Relaxed);
+        store(v);
     }
 
     /// The level now.
     pub fn get() -> Level {
-        match LEVEL.load(Ordering::Relaxed) {
+        match load() {
             1 => Level::Low,
             2 => Level::High,
             _ => Level::Game,

@@ -961,8 +961,10 @@ fn group_count(e: &Engine, renderer: u32, offset: u32) -> u32 {
 /// Unnamed in the engine map: the summed 16-bit counts of the geometry
 /// group at +0x54 of every batch renderer (the exe adds them two at a
 /// time, then the odd one).
+///
+/// No join with a posted world draw (nv-rs#939): group 6's holder is main's alone while a world draw is posted (the cut
+/// leaves it in guest memory, `engine_typed::draw::detach::MAIN_ONLY_GROUPS`), so the count is read where main left it.
 pub fn fn_00b63a90(e: &mut Engine, this: Ptr<BSShaderAccumulator>) -> u32 {
-    engine_core::draw_thread::finish_at(e, 0x00b6_3a90);
     let base = this.addr();
     let count = batch_count(e, base);
     let mut even = 0u32;

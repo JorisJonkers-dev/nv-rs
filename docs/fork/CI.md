@@ -76,17 +76,82 @@ dependencies (the check says exactly which are missing). A crate in two componen
 
 ## Which components run
 
-- **Push to `fork`, the nightly schedule (03:17 UTC) and a manual run:** every component.
-- **Pull request:** a documentation-only or fork-owned-only change skips the build (the `changes` job). Otherwise a
+- **The nightly schedule (03:17 UTC) and a manual run:** every component, every OS, the macOS and Linux tagged-engine tests, and
+  "Catalogue results" with the report commit. This is the only full run of `fork`. When it fails, the job "Nightly failure
+  issue" opens one issue labelled `nightly-failure` (or comments on the open one).
+- **Push to `fork`:** the same selection as a pull request (the changed files between the push's `before` and its head), on every
+  OS: Windows is not left out. A push with no usable base runs everything. The catalogue, the tagged-engine tests and the
+  report commit are nightly only, because they need every test log.
+- **Pull request (and push):** a documentation-only or fork-owned-only change skips the build (the `changes` job). Otherwise a
   component runs when a crate of its **test closure** changed (the crates, their dev-dependencies and all their normal
   dependencies), or one of its `paths` (the launcher and ledger also own `distribution/`); `pr = "always"` components
   (`repo-checks`) always run. Changes to `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, a vendored crate's
   users (`vendor/wgpu-hal` reaches the crates that use `wgpu`) or a file that steers the build (`.fork/components.toml`,
   `fork-build.yml` and the scripts it runs) run everything; a file outside every crate and every ignored area runs
   everything too, never nothing.
+- **Which OS a pull request runs:** Linux for every component that runs. The Windows jobs (and the Windows-only
+  components, `integration` and `launcher-and-ledger`) run on a pull request only when the change is platform-relevant
+  (`components.py platform`): a file of `d3d9-*`, `engine-platform`, `fork-window`, `nv-launcher` or `fork-play` (the Windows
+  device, window, platform, launcher and Play builds); a Rust file with a `cfg` on `windows`, `unix`, `macos` or
+  `target_os`; a Cargo or toolchain file (`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `deny.toml`, `.cargo/`); or when the
+  pull request carries the label `ci:all-os` as its run starts (a label added
+  afterwards counts from the next push; adding it does not start a run). General engine code (`engine-core`, `engine-typed`, `engine-bs`, `engine-fallout-*`, the typed families' test
+  files) is not platform code: it runs on Linux, and its Windows twins run in the nightly. A Linux twin that is informational is left out
+  when the Windows job of the same component runs. The macOS job runs on a pull request only for `d3d9-*`, `engine-platform`,
+  `fork-window`, `fork-api`, `fork-play`, `fork-gfx`, a `cfg` on macOS, or the label. The schedule and a manual run run everything on
+  every OS, and a push to `fork` runs every OS for what its commits reach.
+- **A changed test file selects its own job:** a file `crates/<crate>/tests/<name>.rs` that a component job lists with
+  `--test <name>` reaches that job only (the mapping is `.fork/components.toml`, the same one the coverage plan reads); a
+  change to the crate's source or to a dependency reaches every job that links it.
+- **The typed jobs gate on Linux:** the `integration` component is `runs_on = "both"`, `windows = "nightly"`: its typed Diff jobs
+  (the same split, one definition) run on Linux on every pull request and push, because a Diff test compares two Rust
+  implementations and needs no Windows. The Windows twin of every job is required as well, but runs only in the full run (the
+  nightly, a manual run, the label `ci:all-tests`) and on a push to `fork` that changes platform-relevant code; on a pull request
+  it runs with the label `ci:all-os`. A job with `os = "windows"` (the aggregator: host and Play, the doctests) stays on Windows
+  and follows the Windows rule of a pull request. Move a family back to Windows only by naming `os = "windows"` on its job and
+  listing why here: none is known.
+- **Small components share a Windows job:** a component with `group = "..."` in `.fork/components.toml` runs in the group's one
+  Windows job (`Component: small crates (Windows)`, `Component: medium crates (Windows)`), only the members the change reaches,
+  one after the other: a Windows job costs about 50 s before its first test. Linux jobs stay one per component.
+- **Slots and wall time:** the component matrix runs at most 16 jobs of a run at a time (`max-parallel`), the coverage matrix 3, and the
+  long typed jobs start first. A new commit on a pull request cancels the run still going (`concurrency` of `fork-ci.yml`), which
+  frees its runners. `typed interface` is three shards of its one test binary, so it is no longer the tail of the run.
+- The Linux probe runs in the schedule and manual runs only. "Repository checks" also runs the `nvinspect`
+  hygiene test, so it runs when the builds are skipped.
 - Measured on the last 300 upstream commits (simulation of the rule): 253 of 283 code commits reach the five slow typed
   jobs, because `engine` depends on nearly everything. So "affected only" helps the other 11 % and the small components; the slow
   path is shortened by the split, not by selection.
+
+## Compile once, run sharded
+
+**Opt-in (`archive = true` on a component), and off for `integration`.** Measured on the typed jobs (run 46066259144 against
+46059551659): the engine tests compile in about 4 to 6 minutes, but the archive of 46 binaries was 16.9 GB (each links the
+engine): upload 192 s, then 94 to 151 s of download in each of the 20 jobs. The phase took 27 min instead of 19.5 and
+used 199 runner minutes instead of 169. Stripping symbols and running in place did not change the download enough (a second run,
+119 s download). Turn it on for a component whose compile is much longer than moving its binaries.
+
+The jobs of a component with `archive = true` that run `-p <one crate> --test ...` commands with the same `--config` (the typed Diff jobs of
+`integration`: 20 of them, each of which used to compile the engine closure for about 8 minutes) share one build:
+
+- `scripts/fork/components.py matrix` gives the matrix entries an `archive` id and lists the builds (`builds`). A group is the
+  jobs of one component, OS, crate and `config`; a group of one job compiles for itself.
+- The `archive` job (`Build: integration engine tests (Ubuntu|Windows)`) runs `scripts/fork/test_archive.py build`: one
+  `cargo test --no-run` for the union of the group's test binaries, with the group's `--config`, and uploads every
+  executable (test binaries and binaries, at their workspace paths) with `archive.json` as the artifact `archive-<id>`
+  (retention one day, compression level 1).
+- The `partition` jobs download it and `run-component.sh` (`ARCHIVE` set)
+  runs each `--test` binary in place from the downloaded folder, from its package folder as cargo does, with the log format of `cargo test`: the job summary,
+  the test logs and the catalogue read the same lines. No partition job compiles. `SHARD=i/n` splits the tests of all of a
+  job's binaries together, so a sharded job may name several `--test` binaries (`check_jobs` only requires that it be an
+  archivable job: one crate, only `--test` runs).
+- The binaries run where they were built: the same runner image and checkout path (`env!("CARGO_MANIFEST_DIR")` is absolute).
+- `scripts/fork/tagged-engine-tests.sh` (macOS and Linux tagged engine tests) builds with the same `test_archive.py`.
+- A job that cannot be archived (`--lib`, `--doc`, several crates: the aggregator) compiles for itself, as a `component` job.
+- The archive job's rust-cache key is `engine-closure-<os>`, not the component's, so every group of the engine closure
+  restores the same crates.io dependencies.
+
+`Clippy (whole workspace)` runs on Linux (docs/fork/LINUX.md: green). `Clippy (Windows crates)` lints only the crates of the
+components that stay `windows = "required"` (`components.py windows-crates`), and runs when the run has Windows jobs.
 
 ## Generated reports
 
@@ -99,7 +164,7 @@ stale before the change lands. The pipeline handles the two reports alike:
   the pull request changes `research/component-census/` or the report itself: such a pull request fails
   when its committed report does not match a fresh run. A pull request that changes only engine code does
   not fail on a stale census.
-- **On a push to `fork`,** "Catalogue results" renders the census and the coverage reports in a clean
+- **In the nightly run,** "Catalogue results" renders the census and the coverage reports in a clean
   worktree of the tested commit and uploads them. After `Pipeline Complete` passes, "Catalogue reports"
   commits the changed files as raul-progress-bot with
   `chore(catalogue): update the generated reports [skip ci]`, so the commit does not start another run.
@@ -107,7 +172,7 @@ stale before the change lands. The pipeline handles the two reports alike:
   The copy into that commit covers every file in `REPORT_FILES`, including the census; an empty report
   stops the push instead of blanking the copy on `fork`. The progress bot knows the same list, so a
   progress commit replayed on top of a reports commit is not confused by the census file.
-- Between a merge and that bot commit, `fork` can still hold the previous report. The merge push
+- Between a merge and that bot commit, `fork` can still hold the previous report. The nightly run
   regenerates the census rather than checking the committed copy, so a stale report fixes itself on
   that push instead of blocking merges. A pull request that changes `research/component-census/` is
   still checked and fails unless its committed report matches the tool.
