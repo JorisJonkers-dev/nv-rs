@@ -286,13 +286,23 @@ mod tests {
             register(7, 0x7fff_0001, 0x00aa_8430);
             tx.send(()).unwrap();
             while let Ok(work) = go_rx.recv() {
-                let t = std::time::Instant::now();
                 if work {
+                    // Spin until the thread's own processor time has grown by 25 ms, however long a loaded machine
+                    // takes to give it that: the bound is on processor time, not on the wall clock. The deadline only
+                    // stops a clock that never moves from hanging the test.
+                    let t = std::time::Instant::now();
+                    let base = cpu_ns(7, 0x7fff_0001);
                     let mut x = 0u64;
-                    while t.elapsed() < std::time::Duration::from_millis(60) {
+                    while t.elapsed() < std::time::Duration::from_secs(30) {
                         x = std::hint::black_box(
                             x.wrapping_mul(6364136223846793005).wrapping_add(1),
                         );
+                        if base
+                            .zip(cpu_ns(7, 0x7fff_0001))
+                            .is_none_or(|(b, a)| a - b >= 25_000_000)
+                        {
+                            break;
+                        }
                     }
                 } else {
                     std::thread::sleep(std::time::Duration::from_millis(60));
@@ -320,7 +330,7 @@ mod tests {
         worker.join().unwrap();
         if cfg!(any(windows, target_os = "linux")) {
             let (worked, slept) = (worked.unwrap(), slept.unwrap());
-            assert!(worked > 20_000_000, "60 ms of work showed {worked} ns");
+            assert!(worked > 20_000_000, "25 ms of work showed {worked} ns");
             assert!(slept < 20_000_000, "60 ms of sleep showed {slept} ns");
         } else {
             assert_eq!((worked, slept), (None, None));
