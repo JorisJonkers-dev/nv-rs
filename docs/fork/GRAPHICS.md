@@ -114,6 +114,7 @@ hands the lit shaders a share of that fill (`crates/engine-fallout-env/src/units
 | `lamp_distance` | how far away lamps, street lights and lit signs still light their surroundings, as a multiple of the game's light fade distance (Options, light fade); every point light alike, shadows untouched | 1 | live |
 | `sky_dome` | how much of the fill follows the sky, 0 (the game's flat light) to 1; needs sun shadows | 0 | live |
 | `shade_fill` | how much more sky light reaches surfaces the sun or moon does not, 0 to 2; needs `sky_dome` | 0 | live |
+| `land_lights` | `false`, `true`: a land quad's lights past the first three (up to nine more) are drawn in extra passes added to the picture; off, the game's three | `false` (`modern`: `true`) | live |
 | `far_lights` | `false`, `true`: a far-view block's light-point shape (marked `FarLights`) drawn by night, faded over the sunset and sunrise; off, never drawn | `false` (`modern`: `true`) | live |
 
 `lamp_distance` 16 under `modern` (nv-rs#911): measured at Primm by night (the Beautiful set, 142 plugins), the game
@@ -123,9 +124,12 @@ past 6,000 units were dropped, so only the nearest two or three lamps of a stree
 16,000 to 24,000 units. With 5x5 loaded cells (`uGridsToLoad` 5) the loaded area ends 14,500 units from the middle cell's
 centre on the diagonal and at most about 17,400 units from the camera, so no lamp the game has loaded is dropped and only
 lamps in the far corners are dimmed a little. With the light fade slider or `uGridsToLoad` raised the same scale reaches
-further or falls short. Two limits stay, both the game's: a land quad (2048 units square) is drawn with at most three point
-lights (`AddLandscapePasses_2x`, `00bdf3e0`: the `LANDnO4` passes take the first three active lights of the quad;
-nv-rs#912), and a lamp in a cell that is not loaded has no light; only the far view's light points (`far_lights`) show it.
+further or falls short. A land quad (2048 units square) is drawn by the game with the sun and at most three point
+lights (`AddLandscapePasses_2x`, `00bdf3e0`: the `LANDnO4` pass takes the first three active lights of the quad, in the list's
+order); `light.land_lights` (on under `modern`, nv-rs#912) draws the lights past the third (up to nine more) in extra passes of
+the same shader, three to a pass, added to the picture. The land pixel shader adds the ambient colour and fogs its result in every
+pass, so for these passes the ambient, the sun's colour and the fog colour are set to zero: they add only their point lights.
+One limit stays, the game's: a lamp in a cell that is not loaded has no light; only the far view's light points (`far_lights`) show it.
 
 Which light kinds get the longer reach (nv-rs#1040): all of them. The scale is applied in `ShadowSceneLight::TestFrustumCull`
 to every light the culler sees, with no branch on the kind, so the fade distances of street lamps, lit signs and neon, campfires,

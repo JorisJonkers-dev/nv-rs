@@ -25,6 +25,7 @@ moon_specular = 2.0
 # has loaded is dropped (nv-rs#911).
 lamp_distance = 16.0
 far_lights = true
+land_lights = true
 sky_dome = 1.0
 shade_fill = 0.2
 

@@ -616,7 +616,8 @@ fn keepable(e: &Engine, pass_type: u32, geometry: u32, shader: u32) -> bool {
     !matches!(
         pass_type,
         0xfc | 0xfd | 0x102 | 0xca | 0xd1 | 4 | 5 | 0x250 | 0x251
-    ) && e.mem.u32(geometry.wrapping_add(0xbc)) == 0
+    ) && !(engine_core::land_lights::wanted() && engine_core::land_lights::is_land(pass_type))
+        && e.mem.u32(geometry.wrapping_add(0xbc)) == 0
         && crate::slot_target(e, shader, slot::GEOMETRY_A) == 0x00b7_d200
         && crate::slot_target(e, shader, slot::GEOMETRY_B) == 0x00b7_dab0
         && crate::slot_target(e, shader, slot::GEOMETRY_DONE) == 0x00b7_c320
@@ -707,6 +708,8 @@ fn standard_set_up_and_draw(
             e.set_global(RESTORE_OWED, 0u8);
         }
         call_third(e);
+        // Fork (nv-rs#912): the extra land passes' terms and states.
+        crate::draw::land_extra::before_draw(e, pass_type, e.get(pass, RenderPass::ucSortFlag));
     }
     shader_draw(e, shader, geometry, 0u32, buffer, state);
     render_immediate(e, geometry.addr(), holder);

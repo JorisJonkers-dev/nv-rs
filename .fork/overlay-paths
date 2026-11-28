@@ -165,6 +165,8 @@ scripts/ledger/
 scripts/mmio-measure/
 scripts/vorbis-record/
 crates/engine-core/src/lamp_distance.rs
+crates/engine-core/src/land_lights.rs
+crates/engine-typed/src/draw/land_extra.rs
 crates/engine-core/src/typed/form_array.rs
 crates/engine-core/src/typed/form_map.rs
 crates/engine-typed/src/forms/array.rs
