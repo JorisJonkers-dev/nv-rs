@@ -30,10 +30,10 @@ pub static S680707DEA67C970E: Family = Family {
 #[rustfmt::skip]
 fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
-        entry!(0x0086_ff40, globals::byte_at_0118abb0() -> u8),
-        entry!(0x0052_5420, globals::byte_at_011dea2a() -> u8),
-        entry!(0x0087_05c0, globals::byte_at_01189184() -> u8),
-        entry!(0x0087_09f0, globals::byte_at_011f91a4() -> u8),
+        entry!(0x0086_ff40, globals::world_update_flag() -> u8),
+        entry!(0x0052_5420, globals::havok_step_flag() -> u8),
+        entry!(0x0087_05c0, globals::scene_flag() -> u8),
+        entry!(0x0087_09f0, globals::interface_draw_flag() -> u8),
         entry!(0x0071_3d90, globals::semaphore_pool_in_use() -> u8),
     ]
 }

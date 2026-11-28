@@ -40,8 +40,8 @@ fn byte(e: &mut Engine, case: &Case, at: u32) {
 
 /// `0086ff40`: the world update flag at `0118abb0`.
 #[test]
-fn byte_at_0118abb0() {
-    Diff::new(entry!(0x0086_ff40, globals::byte_at_0118abb0() -> u8))
+fn world_update_flag() {
+    Diff::new(entry!(0x0086_ff40, globals::world_update_flag() -> u8))
         .family(&s680707dea67c970e::S680707DEA67C970E)
         .family(&leaf::LEAVES)
         .inputs(&[Input::Of(BYTES)])
@@ -55,8 +55,8 @@ fn byte_at_0118abb0() {
 
 /// `00525420`: the Havok step flag at `011dea2a`.
 #[test]
-fn byte_at_011dea2a() {
-    Diff::new(entry!(0x0052_5420, globals::byte_at_011dea2a() -> u8))
+fn havok_step_flag() {
+    Diff::new(entry!(0x0052_5420, globals::havok_step_flag() -> u8))
         .family(&s680707dea67c970e::S680707DEA67C970E)
         .family(&leaf::LEAVES)
         .inputs(&[Input::Of(BYTES)])
@@ -70,8 +70,8 @@ fn byte_at_011dea2a() {
 
 /// `008705c0`: the scene flag at `01189184`.
 #[test]
-fn byte_at_01189184() {
-    Diff::new(entry!(0x0087_05c0, globals::byte_at_01189184() -> u8))
+fn scene_flag() {
+    Diff::new(entry!(0x0087_05c0, globals::scene_flag() -> u8))
         .family(&s680707dea67c970e::S680707DEA67C970E)
         .family(&leaf::LEAVES)
         .inputs(&[Input::Of(BYTES)])
@@ -85,8 +85,8 @@ fn byte_at_01189184() {
 
 /// `008709f0`: the interface draw flag at `011f91a4`.
 #[test]
-fn byte_at_011f91a4() {
-    Diff::new(entry!(0x0087_09f0, globals::byte_at_011f91a4() -> u8))
+fn interface_draw_flag() {
+    Diff::new(entry!(0x0087_09f0, globals::interface_draw_flag() -> u8))
         .family(&s680707dea67c970e::S680707DEA67C970E)
         .family(&leaf::LEAVES)
         .inputs(&[Input::Of(BYTES)])

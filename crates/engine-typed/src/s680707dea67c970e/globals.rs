@@ -18,25 +18,25 @@ const SEMAPHORE_POOL_IN_USE: u32 = 0x011d_fa19;
 
 // Typed from 0086ff40
 /// The byte at `0118abb0`, read as the exe reads it (`cdecl`, no arguments).
-pub fn byte_at_0118abb0(e: &mut Engine) -> u8 {
+pub fn world_update_flag(e: &mut Engine) -> u8 {
     e.global::<u8>(WORLD_UPDATE_FLAG)
 }
 
 // Typed from 00525420
 /// The byte at `011dea2a` (`cdecl`, no arguments).
-pub fn byte_at_011dea2a(e: &mut Engine) -> u8 {
+pub fn havok_step_flag(e: &mut Engine) -> u8 {
     e.global::<u8>(HAVOK_STEP_FLAG)
 }
 
 // Typed from 008705c0
 /// The byte at `01189184` (`cdecl`, no arguments).
-pub fn byte_at_01189184(e: &mut Engine) -> u8 {
+pub fn scene_flag(e: &mut Engine) -> u8 {
     e.global::<u8>(SCENE_FLAG)
 }
 
 // Typed from 008709f0
 /// The byte at `011f91a4` (`cdecl`, no arguments).
-pub fn byte_at_011f91a4(e: &mut Engine) -> u8 {
+pub fn interface_draw_flag(e: &mut Engine) -> u8 {
     e.global::<u8>(INTERFACE_DRAW_FLAG)
 }
 
