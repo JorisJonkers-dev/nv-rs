@@ -6,14 +6,14 @@
 #
 # Copies the units of scripts/fork/systemd/ to ~/.config/systemd/user, writes ~/.config/nv-factory/env (the clone's
 # path, kept when it exists) and reloads the user manager. With --enable it also enables and starts the service and the
-# two timers. --uninstall stops and disables them and removes the files. --dry-run prints what would be done.
+# three timers. --uninstall stops and disables them and removes the files. --dry-run prints what would be done.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 units=(nv-factory.slice nv-factory.service nv-factory-watchdog.service nv-factory-watchdog.timer
-       nv-factory-summary.service nv-factory-summary.timer)
-active=(nv-factory.service nv-factory-watchdog.timer nv-factory-summary.timer)
+       nv-factory-summary.service nv-factory-summary.timer nv-factory-fuzz.service nv-factory-fuzz.timer)
+active=(nv-factory.service nv-factory-watchdog.timer nv-factory-summary.timer nv-factory-fuzz.timer)
 target="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 envfile="${XDG_CONFIG_HOME:-$HOME/.config}/nv-factory/env"
 enable=0 dry=0 remove=0

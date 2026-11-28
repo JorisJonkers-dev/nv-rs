@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=Porting factory: the scheduled fuzz run of one family
+Documentation=file://%h/Projects/JorisJonkers-dev/nv-rs/docs/fork/PORTING-LOOP.md
+
+[Service]
+Type=oneshot
+Slice=nv-factory.slice
+EnvironmentFile=-%E/nv-factory/env
+# A run is 10 minutes of fuzzing; the build before it and the minimisation after it get the rest. The exit status
+# says it: 0 clean, 1 a finding, 3 the run itself failed (each of those opens an issue with --repo).
+TimeoutStartSec=3h
+ExecStart=/usr/bin/env python3 -I ${NV_FACTORY_REPO}/scripts/fork/fuzz_schedule.py run --seconds 600 --repo JorisJonkers-dev/nv-rs
+Nice=10
+SuccessExitStatus=1

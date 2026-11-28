@@ -31,3 +31,30 @@ fn byte_is_positive() {
         .run()
         .assert_same();
 }
+
+/// The fuzz targets' entry (`scripts/fork/fuzz_gate.py`): the bytes fill the object's words from `this + 0x30` (the byte
+/// the predicate reads is the ninth), and the two sides must agree on it.
+pub fn replay_bytes(data: &[u8]) {
+    let data = data.to_vec();
+    Diff::new(entry!(0x004a_4020, flag::byte_is_positive(Ptr) -> bool))
+        .family(&f004a4020::F004A4020)
+        .family(&leaf::LEAVES)
+        .inputs(&[Input::Of(OBJECTS)])
+        .setup(move |e, case: &Case| {
+            e.map(0x0300_0000, 0x2000);
+            for (i, byte) in data.iter().take(16).enumerate() {
+                e.mem.set_u8(case.word(0) + 0x30 + i as u32, *byte);
+            }
+            vec![case.word(0)]
+        })
+        .run()
+        .assert_same();
+}
+
+/// The bytes the fuzz targets replay, on both sides of the sign of the ninth byte.
+#[test]
+fn replay_bytes_agrees() {
+    replay_bytes(&[]);
+    replay_bytes(&[0, 0, 0, 0, 0, 0, 0, 0, 0x7f]);
+    replay_bytes(&[0, 0, 0, 0, 0, 0, 0, 0, 0x80, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+}

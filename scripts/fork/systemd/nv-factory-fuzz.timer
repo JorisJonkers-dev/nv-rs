@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=Porting factory: one family's fuzz run every night
+
+[Timer]
+# The family whose last run is the oldest goes first, so every family is reached in turn.
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
