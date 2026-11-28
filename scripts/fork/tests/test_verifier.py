@@ -193,6 +193,40 @@ class Running(Repo):
                          {"exit": 3, "peak_bytes": None, "sccache_hits": None, "sccache_misses": None})
         self.assertEqual(verifier.parse_stats("")["exit"], None)
 
+    def test_a_relative_workdir_and_cache_reach_docker_as_absolute_paths_and_are_created(self):
+        docker = Docker()
+        with tempfile.TemporaryDirectory() as cwd:
+            import os
+            old = os.getcwd()
+            os.chdir(cwd)
+            try:
+                verifier.verify(self.root, self.seed, ["x"], runner=docker, workdir="w/deep", cache="c")
+            finally:
+                os.chdir(old)
+            argv = next(c for c, _ in docker.calls if c[:2] == ["docker", "run"])
+            mounts = [a for a in argv if a.endswith(":/sccache")]
+            self.assertEqual(mounts, [f"{Path(cwd).resolve()}/c:/sccache"])
+            self.assertTrue((Path(cwd) / "w" / "deep").is_dir())
+
+    def test_a_refused_copy_never_removes_a_path_the_run_did_not_make(self):
+        docker = Docker()
+        keep = []
+
+        def refuse(argv, cwd=".", input=None):
+            if argv[0] == "cp":
+                dest = Path(argv[-1])
+                dest.mkdir(parents=True)
+                (dest / "precious").write_text("x", encoding="utf-8")
+                keep.append(dest)
+                return 1, "no"
+            return docker(argv, cwd, input)
+
+        with mock.patch.object(verifier.shutil, "rmtree") as rmtree, self.assertRaises(verifier.VerifierError):
+            verifier.verify(self.root, self.seed, ["x"], runner=refuse, workdir=self.work)
+        for call in rmtree.call_args_list:  # only clone_seed's own cleanup of its failed copy
+            self.assertEqual(call.args[0], keep[0])
+        self.assertEqual(rmtree.call_count, 1)
+
     def test_the_workdir_holds_only_the_cache_after_a_run(self):
         record = self.verify(Docker())
         self.assertEqual(record["workdir_bytes_after"], 0)

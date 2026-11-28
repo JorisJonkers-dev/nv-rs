@@ -162,18 +162,19 @@ def parse_stats(output):
 def verify(root, seed, command, memory="12g", cache=None, runner=run, workdir=None):
     """One verifier run; returns the record. Whatever it made is removed, also when it fails."""
     root = Path(root)
-    work = Path(workdir) if workdir else Path.home() / ".cache" / "nv-workers" / "verifier"
-    cache = Path(cache) if cache else work / "sccache"
+    work = (Path(workdir) if workdir else Path.home() / ".cache" / "nv-workers" / "verifier").resolve()
+    work.mkdir(parents=True, exist_ok=True)
+    cache = Path(cache).resolve() if cache else work / "sccache"
     cache.mkdir(parents=True, exist_ok=True)
     tag, built = ensure_image(root, runner)
     name = f"nv-rs-verifier-{uuid.uuid4().hex[:8]}"
     target = work / f"target-{name}"
-    before = used_bytes(work if work.exists() else work.parent)
+    before = used_bytes(work)
     record = {"image": tag, "image_built": built, "container": name}
+    started = time.time()
+    clone_seed(seed, target, runner)  # a refused or failed copy removes only what it made itself
+    record["clone_seconds"] = round(time.time() - started, 2)
     try:
-        started = time.time()
-        clone_seed(seed, target, runner)
-        record["clone_seconds"] = round(time.time() - started, 2)
         started = time.time()
         code, output = runner(docker_run_args(root, tag, name, target, cache, memory, command))
         record["run_seconds"] = round(time.time() - started, 2)
