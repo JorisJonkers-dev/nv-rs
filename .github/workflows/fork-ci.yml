@@ -13,6 +13,10 @@ name: Pipeline
 on:
   pull_request:
     types: [opened, reopened, synchronize]
+  # A merge queue tests the exact merged result (docs/fork/PORTING-LOOP.md, the integrator). The checks that read the
+  # pull request itself (title, labels, hygiene) are skipped there: they ran on the pull request.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [fork]
   workflow_dispatch:
@@ -61,7 +65,7 @@ jobs:
           persist-credentials: false
       - id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD: ${{ github.sha }}
           EVENT: ${{ github.event_name }}
         run: |
@@ -104,7 +108,7 @@ jobs:
       - id: os
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD: ${{ github.sha }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
@@ -384,7 +388,7 @@ jobs:
       - name: Did a layout constant change
         id: layout
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail

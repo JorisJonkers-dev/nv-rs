@@ -305,6 +305,44 @@ class BuildDaemon(unittest.TestCase):
         self.assertIn("slot_active", status)
         self.assertIn("slot_max_active", status)
 
+    def _handled_start(self, request):
+        """The job_starts entry the daemon records for one request run against a stub cargo."""
+        with mock.patch.object(daemon.shutil, "which", return_value=None):
+            config = daemon.Config({})
+        stats, stream = daemon.new_stats(), io.StringIO()
+        proc = mock.Mock(stdout=io.StringIO(""), wait=lambda: 0)
+        with mock.patch.object(daemon.subprocess, "Popen", return_value=proc):
+            daemon.handle(stream, dict(request, kind="build", argv=[],
+                                              cwd=str(self.tmp.name)),
+                          config, stats, threading.Event(), 0)
+        self.output = stream.getvalue()
+        return stats["job_starts"][-1]
+
+    def test_a_started_job_records_how_long_it_waited_in_the_queue(self):
+        entry = self._handled_start({"label": "w", "queued_at": time.time() - 5})
+        self.assertGreaterEqual(entry["waited"], 5)
+        self.assertLess(entry["waited"], 60)
+        self.assertRegex(self.output, r"build daemon: waited [5-9]\.\d+s in the queue")
+
+    def test_a_job_queued_in_the_future_has_zero_wait(self):
+        self.assertEqual(self._handled_start({"queued_at": time.time() + 100})["waited"], 0.0)
+
+    def test_a_job_without_a_queue_time_has_no_wait_figure(self):
+        self.assertIsNone(self._handled_start({"label": "old client"})["waited"])
+        self.assertNotIn("waited", self.output)
+        self.assertIsNone(self._handled_start({"queued_at": True})["waited"])
+        self.assertIsNone(self._handled_start({"queued_at": "soon"})["waited"])
+
+    def test_a_client_stamps_the_time_it_queued_the_build(self):
+        stub(self.cargo, CARGO_LIMITS, self.log)
+        before = time.time()
+        self.assertEqual(daemon.submit(["check"], cwd=str(self.tmp.name), env=self.env,
+                                       label="stamped"), 0)
+        status = daemon.daemon_status(self.env)
+        entry = [j for j in status["job_starts"] if j["label"] == "stamped"][-1]
+        self.assertIsNotNone(entry["waited"])
+        self.assertGreaterEqual(entry["start"], before)
+
 
 if __name__ == "__main__":
     unittest.main()

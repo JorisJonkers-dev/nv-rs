@@ -155,6 +155,44 @@ The batch record and the pull request body carry a `## Rate` section: model runs
 per hour (delivered addresses over wall hours). `weekly` prints verified functions per hour for its window next
 to the per-day table, and `--since` adds the before-and-after comparison described above.
 
+## Counters
+
+The `## Rate` section and the batch record's `rate` object also carry these counters, so a change to
+the prompt, the number of slots or the models can be judged by numbers:
+
+| Counter | Source |
+| --- | --- |
+| families attempted, accepted | the loop |
+| retries | attempts after the first, per family chunk |
+| wall seconds, lab seconds | the loop |
+| build wait seconds | the `build daemon: waited Ns in the queue` line the daemon prints for each cargo job it starts; an older daemon prints none and counts as zero |
+| model wait seconds | the time the worker and reviewer commands waited for a write slot or a provider slot (`wait_seconds` in the metrics file) |
+| rate-limit hits per provider | metrics rows with outcome `limited`, grouped by the part of the model name before `/` |
+| cost per accepted family | the summed `cost` of the batch's metrics rows divided by accepted families; `n/a` when none was accepted |
+
+`NV_PORT_METRICS` names the metrics file. When it is unset the loop uses
+`target/porting-loop/<name>/metrics.jsonl` and starts it empty, so the counters never mix two runs of
+the same batch name.
+
+### Measured on one workstation
+
+Numbers that set the verifier's throughput (16 cores, 46 GB, one family: `facegen_sizes`, two cases; the build
+daemon's target directory; times exclude the wait for the daemon's lock, which was 87 s behind other builds):
+
+| Run | Wall | Peak memory |
+| --- | --- | --- |
+| lab run in a throwaway container with a 12 GB cap, first build in that checkout | 54.8 s | 5.6 GB |
+| the same run again, nothing changed | 0.8 s | 0.12 GB |
+| the same run after one typed source file changed | 4.2 s | 2.5 GB |
+| `cargo llvm-cov` lab run through the daemon, instrumented build already warm | 16 s | not measured |
+| the same after the report options changed (the whole dependency tree instrumented again, includes queue time) | 412 s | not measured |
+
+The container mounted the toolchain read-only and the build directory and lock file read-write, so it queued
+with the daemon's own jobs. The coverage report of the lab crate lists the typed crate's sources (241 files, the
+family's own files fully hit) only when `--ignore-filename-regex` is given: by default `cargo llvm-cov` drops files
+outside the lab crate's own workspace, which leaves the typed crate out of the report. `--dep-coverage` does not help:
+with it the report came out empty.
+
 ## The fast-path gate
 
 `scripts/fork/port_check.py <family>` is the one entry point for the per-attempt checks; it prints one JSON
@@ -200,3 +238,22 @@ without a module path is left to it.
   engine-core with `test-support`, and a target that includes the suite and calls `replay_bytes`. It is built with
   the pinned nightly (`FUZZ_NIGHTLY` in the script, passed as `cargo +<nightly> fuzz run`); the repository's pin is
   left alone. The generated crate has not been compiled yet: the scheduled family runs (#1094) are its first build.
+
+## The full gate
+
+`port_check.py <family> --full --review FILE` runs once per candidate, before it joins a batch, not on every
+retry. It is the fast path plus three checks:
+
+| Check | What runs | Rule ids |
+| --- | --- | --- |
+| coverage | `cargo llvm-cov` through the build daemon: the family's lab crate (`family_lab.py generate`, then `llvm-cov test --no-report --test typed_<family> --dep-coverage <each touched crate>` and `llvm-cov report` with an ignore pattern for the toolchain, the registry and test files) and, for every other touched crate, `llvm-cov -p <crate>`; the lcov files are merged. Every changed executable line of a crate source (`crates/*/src`) must have been run. | `coverage`, `coverage-missing`, `coverage-missing-baseline` |
+| quality | on the changed lines of crate sources outside test modules: `unsafe` without a `SAFETY:` comment on or in the three lines above, `.unwrap()` and `.expect(` unless the line says `// port-check: allow unwrap (reason)`, a function longer than 150 lines; `ruff check` on the changed files of `scripts/fork` | `quality-unsafe`, `quality-unwrap`, `quality-size`, `ruff` |
+| review | the JSON verdict of the two reviews: `{"verdict": "pass" or "fail", "findings": [{"file", "line", "issue", "fix"}]}` | `review` (fail), `review-absent` |
+
+A run with no coverage data is a failure (`coverage-missing-baseline`), as is changed code in a file the run did
+not measure (`coverage-missing`): the gate never reads "nothing measured" as covered. The factory's gate is stricter
+than the CI gate in `.fork/coverage-gate.toml` (70%, fork-owned crates), which is unchanged. `review-absent` (the
+verdict is missing or unreadable, for example after a rate limit) means requeue with a backoff; `review` means send
+the findings back to the implementer. `cargo-llvm-cov` must be on `PATH`, and the `cargo` found first must be the
+toolchain's own when `PATH` has a version-manager shim of `cargo` before it.
+
