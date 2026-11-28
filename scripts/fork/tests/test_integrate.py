@@ -90,7 +90,7 @@ class Parsing(unittest.TestCase):
         self.assertEqual(integrate.parse_task("feat/a"), ("feat/a", None))
 
     def test_bad_branches_and_issues_are_refused(self):
-        for bad in ("-x", "a b", "a:x", ":3", "a;b"):
+        for bad in ("-x", "a b", "a:x", ":3", "a;b", "a\n", "a:\u0663"):
             with self.assertRaises(integrate.IntegrateError, msg=bad):
                 integrate.parse_task(bad)
 
@@ -160,7 +160,7 @@ class Stacking(Repo):
         self.assertEqual(git(self.work, "rev-parse", "batch/n1^{tree}"), first)
 
     def test_bad_arguments_exit_with_two(self):
-        for args in (["--task=-x"], ["--max", "0"]):
+        for args in (["--task=-x"], ["--max", "0"], ["--gate", "'unclosed"], ["--gate", " "]):
             self.assertEqual(self.run_main(*args)[0], 2)
         out = io.StringIO()
         self.assertEqual(integrate.main(["--name", "a b"], root=self.work, runner=Gh(), out=out), 2)
@@ -261,6 +261,12 @@ class Publishing(Repo):
         self.run_main("--task", "feat/a:11", "--push", "--pr", runner=gh)
         self.assertTrue(any(c[1:4] == ["pr", "edit", "7"] for c in gh.calls))
         self.assertFalse(any(c[1:3] == ["pr", "create"] for c in gh.calls))
+
+    def test_gh_printing_null_for_no_pull_request_means_there_is_none(self):
+        gh = Gh(existing="null\n")
+        self.run_main("--task", "feat/a:11", "--push", "--pr", runner=gh)
+        self.assertTrue(any(c[1:3] == ["pr", "create"] for c in gh.calls))
+        self.assertFalse(any(c[1:3] == ["pr", "edit"] for c in gh.calls))
 
     def test_a_failing_pull_request_tool_is_an_error(self):
         self.assertEqual(self.run_main("--task", "feat/a:11", "--push", "--pr", runner=Gh(code=1))[0], 2)

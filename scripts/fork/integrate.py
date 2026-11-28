@@ -47,9 +47,9 @@ def run(argv, cwd):
 def parse_task(text):
     """`branch:issue` as (branch, issue number or None)."""
     branch, _, issue = text.partition(":")
-    if not BRANCH.match(branch) or branch.startswith("-"):
+    if not BRANCH.fullmatch(branch) or branch.startswith("-"):
         raise IntegrateError(f"not a branch name: {text!r}")
-    if issue and not issue.isdigit():
+    if issue and not re.fullmatch(r"[0-9]+", issue):
         raise IntegrateError(f"not an issue number: {text!r}")
     return branch, int(issue) if issue else None
 
@@ -126,7 +126,7 @@ def open_pr(root, runner, name, base, body, assignee):
     """Open the batch pull request, or update the one the branch already has; returns gh's answer."""
     branch = f"batch/{name}"
     code, existing = runner(["gh", "pr", "list", "--head", branch, "--json", "number", "--jq", ".[0].number"], root)
-    number = existing.strip() if not code else ""
+    number = existing.strip() if not code and existing.strip() != "null" else ""
     title = f"feat(engine): porting batch {name}"
     if number:
         argv = ["gh", "pr", "edit", number, "--title", title, "--body", body]
@@ -154,10 +154,15 @@ def main(argv=None, root=".", runner=run, out=sys.stdout):
     parser.add_argument("--out", help="also write the result to this file")
     args = parser.parse_args(argv)
     try:
-        if not BRANCH.match(args.name) or args.max < 1:
+        if not BRANCH.fullmatch(args.name) or args.max < 1:
             raise IntegrateError("--name must be a plain name and --max at least 1")
         tasks = [parse_task(t) for t in args.task]
-        gate = shlex.split(args.gate) if args.gate else None
+        try:
+            gate = shlex.split(args.gate) if args.gate is not None else None
+        except ValueError as exc:
+            raise IntegrateError(f"--gate is not a command: {exc}") from exc
+        if gate == []:
+            raise IntegrateError("--gate is empty")
         accepted, dropped, deferred = stack(root, runner, args.name, args.base, tasks, gate, args.max)
         result = {"batch": f"batch/{args.name}", "accepted": accepted, "dropped": dropped, "deferred": deferred,
                   "pr": None}
