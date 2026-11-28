@@ -154,3 +154,41 @@ The batch record and the pull request body carry a `## Rate` section: model runs
 (build and `Diff` run as one command, so one figure covers both), wall seconds, and verified functions
 per hour (delivered addresses over wall hours). `weekly` prints verified functions per hour for its window next
 to the per-day table, and `--since` adds the before-and-after comparison described above.
+
+## Counters
+
+The `## Rate` section and the batch record's `rate` object also carry these counters, so a change to
+the prompt, the number of slots or the models can be judged by numbers:
+
+| Counter | Source |
+| --- | --- |
+| families attempted, accepted | the loop |
+| retries | attempts after the first, per family chunk |
+| wall seconds, lab seconds | the loop |
+| build wait seconds | the `build daemon: waited Ns in the queue` line the daemon prints for each cargo job it starts; an older daemon prints none and counts as zero |
+| model wait seconds | the time the worker and reviewer commands waited for a write slot or a provider slot (`wait_seconds` in the metrics file) |
+| rate-limit hits per provider | metrics rows with outcome `limited`, grouped by the part of the model name before `/` |
+| cost per accepted family | the summed `cost` of the batch's metrics rows divided by accepted families; `n/a` when none was accepted |
+
+`NV_PORT_METRICS` names the metrics file. When it is unset the loop uses
+`target/porting-loop/<name>/metrics.jsonl` and starts it empty, so the counters never mix two runs of
+the same batch name.
+
+### Measured on one workstation
+
+Numbers that set the verifier's throughput (16 cores, 46 GB, one family: `facegen_sizes`, two cases; the build
+daemon's target directory; times exclude the wait for the daemon's lock, which was 87 s behind other builds):
+
+| Run | Wall | Peak memory |
+| --- | --- | --- |
+| lab run in a throwaway container with a 12 GB cap, first build in that checkout | 54.8 s | 5.6 GB |
+| the same run again, nothing changed | 0.8 s | 0.12 GB |
+| the same run after one typed source file changed | 4.2 s | 2.5 GB |
+| `cargo llvm-cov` lab run through the daemon, instrumented build already warm | 16 s | not measured |
+| the same after the report options changed (the whole dependency tree instrumented again, includes queue time) | 412 s | not measured |
+
+The container mounted the toolchain read-only and the build directory and lock file read-write, so it queued
+with the daemon's own jobs. The coverage report of the lab crate lists every crate source it ran (241 files, the
+family's own files fully hit), but only when `--ignore-filename-regex` is given: by default `cargo llvm-cov` drops
+files outside the lab crate's own workspace, which leaves the typed crate out of the report.
+

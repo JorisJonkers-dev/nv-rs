@@ -1158,6 +1158,136 @@ class PortingLoop(unittest.TestCase):
         self.assertIn("attempt 1: diff", body)
         self.assertIn("attempt 2: none", body)
 
+    def test_rate_lines_show_the_counters_when_the_rate_has_them(self):
+        lines = porting_loop.rate_lines({
+            "model_runs": 5, "lab_seconds": 1.0, "wall_seconds": 3600.0, "delivered": 2,
+            "attempted": 3, "accepted": 2, "retries": 1, "build_wait_seconds": 4.25,
+            "model_wait_seconds": 9.0, "rate_limit_hits": {"free": 2, "opencode": 1},
+            "cost_per_accepted": 0.0125,
+        })
+        self.assertIn("- Families attempted, accepted: 3, 2", lines)
+        self.assertIn("- Retries: 1", lines)
+        self.assertIn("- Waiting for the build daemon (seconds): 4.2", lines)
+        self.assertIn("- Waiting for a model (seconds): 9.0", lines)
+        self.assertIn("- Rate-limit hits: free 2, opencode 1", lines)
+        self.assertIn("- Cost per accepted family (USD): 0.0125", lines)
+
+    def test_rate_lines_say_so_when_nothing_was_limited_or_accepted(self):
+        lines = porting_loop.rate_lines({
+            "model_runs": 1, "lab_seconds": 1.0, "wall_seconds": 10.0, "delivered": 0,
+            "attempted": 1, "accepted": 0, "retries": 0, "build_wait_seconds": 0.0,
+            "model_wait_seconds": 0.0, "rate_limit_hits": {}, "cost_per_accepted": None,
+        })
+        self.assertIn("- Rate-limit hits: none", lines)
+        self.assertIn("- Cost per accepted family (USD): n/a", lines)
+
+    def test_build_wait_sums_the_queue_lines_of_a_lab_run(self):
+        output = (
+            "build daemon: waited 1.5s in the queue\nCompiling x\n"
+            "build daemon: waited 2s in the queue\n  build daemon: waited 9.0s in the queue\n"
+            "build daemon: waited soon in the queue\n")
+        self.assertEqual(porting_loop.build_wait(output), 3.5)
+
+    def test_build_wait_is_zero_for_output_from_a_daemon_that_does_not_report_it(self):
+        self.assertEqual(porting_loop.build_wait("Compiling x\n" + PASSING), 0)
+        self.assertEqual(porting_loop.build_wait(""), 0)
+        self.assertEqual(porting_loop.build_wait(None), 0)
+
+    def test_metrics_summary_counts_one_batch_per_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "m.jsonl"
+            rows = [
+                {"batch": "b", "model": "free/x-1", "outcome": "limited", "wait_seconds": 1.5},
+                {"batch": "b", "model": "free/y-1", "outcome": "limited"},
+                {"batch": "b", "model": "opencode/z", "outcome": "limited"},
+                {"batch": "b", "model": "bare", "outcome": "limited"},
+                {"batch": "b", "outcome": "limited"},
+                {"batch": "b", "model": "free/x-1", "outcome": "committed",
+                 "wait_seconds": 2, "cost": 0.25},
+                {"batch": "b", "cost": True, "wait_seconds": "late"},
+                {"batch": "other", "model": "free/x-1", "outcome": "limited", "cost": 5},
+                "a string row",
+            ]
+            path.write_text("\n".join(json.dumps(r) for r in rows) + "\nnot json\n", encoding="utf-8")
+            got = porting_loop.metrics_summary(path, "b")
+        self.assertEqual(got["rate_limit_hits"], {"free": 2, "opencode": 1, "bare": 1, "unknown": 1})
+        self.assertEqual(got["model_wait_seconds"], 3.5)
+        self.assertEqual(got["cost_usd"], 0.25)
+
+    def test_metrics_summary_of_a_missing_file_is_empty(self):
+        got = porting_loop.metrics_summary("/nonexistent/metrics.jsonl", "b")
+        self.assertEqual(got, {"model_wait_seconds": 0.0, "rate_limit_hits": {}, "cost_usd": 0.0})
+
+    def test_metrics_summary_of_a_file_that_is_not_text_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "m.jsonl"
+            path.write_bytes(b'{"batch": "b"}\n\xff\xfe\n')
+            got = porting_loop.metrics_summary(path, "b")
+        self.assertEqual(got, {"model_wait_seconds": 0.0, "rate_limit_hits": {}, "cost_usd": 0.0})
+
+    def test_a_batch_counts_attempts_retries_waits_limits_and_cost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            recorder = Recording()
+            metrics_file = root / "metrics.jsonl"
+            metrics_file.write_text("\n".join(json.dumps(r) for r in [
+                {"batch": "count", "model": "free/a-1", "outcome": "limited", "wait_seconds": 2.0},
+                {"batch": "count", "model": "free/a-1", "outcome": "committed", "cost": 0.5},
+                {"batch": "count", "model": "free/b-1", "outcome": "committed", "cost": 0.5},
+            ]) + "\n", encoding="utf-8")
+
+            def runner(argv, cwd=None, env=None, log=None):
+                text = " ".join(map(str, argv))
+                if "family_lab.py" in text:
+                    queued = "build daemon: waited 1.25s in the queue\n"
+                    if "fade" in str(cwd) and env.get("NV_PORT_ATTEMPT") == "1":
+                        return 0, queued + FAILING_CASES
+                    return 0, queued + PASSING
+                return recorder(argv, cwd, env, log)
+
+            with mock.patch.object(porting_loop.private_integrity, "check",
+                                   return_value=(True, "ok")):
+                env = dict(environment(root), NV_PORT_METRICS=str(metrics_file))
+                code = porting_loop.batch(root=root, count=3, name="count", env=env,
+                                          today=datetime.date(2026, 11, 26), call=runner)
+            self.assertEqual(code, 0)
+            rate = porting_loop.batch_record(root, "count")["rate"]
+        self.assertEqual((rate["attempted"], rate["accepted"], rate["retries"]), (2, 2, 1))
+        self.assertEqual(rate["build_wait_seconds"], 3 * 1.25)  # three lab runs: fade twice, lights once
+        self.assertEqual(rate["model_wait_seconds"], 2.0)
+        self.assertEqual(rate["rate_limit_hits"], {"free": 1})
+        self.assertEqual(rate["cost_usd"], 1.0)
+        self.assertEqual(rate["cost_per_accepted"], 0.5)
+
+    def test_a_batch_without_a_metrics_file_gets_its_own_and_reports_zero_cost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            stale = porting_loop.paths(root, "own") / "metrics.jsonl"
+            stale.parent.mkdir(parents=True)
+            stale.write_text(json.dumps({"batch": "own", "cost": 9}) + "\n", encoding="utf-8")
+            with mock.patch.object(porting_loop.private_integrity, "check",
+                                   return_value=(True, "ok")):
+                code = porting_loop.batch(root=root, count=1, name="own", env=environment(root),
+                                          today=datetime.date(2026, 11, 26), call=Recording())
+            self.assertEqual(code, 0)
+            record = porting_loop.batch_record(root, "own")
+        self.assertEqual(record["rate"]["cost_usd"], 0.0)
+        self.assertEqual(record["rate"]["retries"], 0)
+        self.assertEqual(record["rate"]["build_wait_seconds"], 0.0)
+
+    def test_a_batch_that_accepts_nothing_has_no_cost_per_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tree(tmp)
+            with mock.patch.object(porting_loop.private_integrity, "check",
+                                   return_value=(True, "ok")):
+                porting_loop.batch(root=root, count=3, name="none", env=environment(root),
+                                   today=datetime.date(2026, 11, 26),
+                                   call=Recording(lab_code=1))
+            rate = porting_loop.batch_record(root, "none")["rate"]
+        self.assertEqual(rate["accepted"], 0)
+        self.assertIsNone(rate["cost_per_accepted"])
+        self.assertGreater(rate["attempted"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
