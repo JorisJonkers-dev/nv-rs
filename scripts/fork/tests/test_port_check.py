@@ -340,6 +340,14 @@ class Gate(unittest.TestCase):
         results = port_check.run_checks(self.root, "fx", "base", False, Runner(real_git=True))
         self.assertEqual(self.ids(results)[-3:], ["verify-sync", "clippy", "differential"])
 
+    def test_a_verify_sync_failure_names_both_ways_out(self):
+        runner = Runner({"verify-sync.sh": (1, "DIVERGED from upstream, outside the overlay:\ncrates/a/src/b.rs\n")}, real_git=True)
+        results = port_check.run_checks(self.root, "fx", "base", False, runner)
+        found = next(found for name, found, _ in results if name == "verify-sync")
+        self.assertEqual(found[0]["message"], "crates/a/src/b.rs")
+        self.assertIn(".fork/overlay-paths", found[0]["fix"])
+        self.assertIn(".fork/allowed-divergence.d/", found[0]["fix"])
+
     def test_an_unknown_family_stops_the_gate_at_once(self):
         for name in ("nope", "../x", ""):
             results = port_check.run_checks(self.root, name, "base", False, Runner(real_git=True))

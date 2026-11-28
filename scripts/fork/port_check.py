@@ -240,7 +240,9 @@ def run_checks(root, family, base, static, runner, metadata=None):
     if not static:
         plan += [
             ("verify-sync", lambda: from_tool("verify-sync", *runner(["bash", FORK / "verify-sync.sh"], root),
-                                              "list the new fork-only file in .fork/overlay-paths", ".fork/overlay-paths")),
+                                              "list a new fork-only file in .fork/overlay-paths; for an edit to a file upstream has too, "
+                                              "add a file under .fork/allowed-divergence.d/ (`path  # reason`)",
+                                              ".fork/overlay-paths")),
             ("clippy", lambda: check_clippy(root, base, runner)),
             ("differential", lambda: check_differential(root, family, runner)),
         ]
