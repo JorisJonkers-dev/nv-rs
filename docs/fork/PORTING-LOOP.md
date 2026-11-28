@@ -184,3 +184,23 @@ missing (`tool-missing`) or that cannot compare against `--base` (`git`) fails i
 cargo-free approximation of `repo_hygiene`, which still runs in CI; a bare call of a registered function
 without a module path is left to it.
 
+
+## The integrator
+
+`scripts/fork/integrate.py` is the queue until the repository has a merge queue, and it is a script, not a model:
+the same inputs give the same batch.
+
+```sh
+python3 -I scripts/fork/integrate.py --name 2026-11-28 --task feat/a:1101 --task feat/b:1102 \
+    --gate "python3 -I scripts/fork/port_check.py FAMILY --static" --push --pr --assignee LOGIN
+```
+
+Each task branch (`branch[:issue]`, at most `--max`, default 4, in the order given) is merged onto `batch/<name>`
+and the gate command runs on the stacked result. A branch that conflicts, or whose gate fails, is taken off again
+and listed with its reason and the gate's output; the rest lands. Because every addition is gated, the first
+failing addition is the culprit, so a failing batch needs no separate bisection run. Before the push the batch is
+rebased onto the base (`--base`, default `origin/fork`) and the gate runs again when the rebase changed the tree;
+a rebase that conflicts or a gate that then fails stops the run with nothing pushed. The push is a lease-checked
+force, because the batch branch belongs to the integrator. `--pr` opens one pull request (or edits the one the
+branch has) whose body carries `Closes #N` for every accepted task. The result is JSON on stdout (and `--out`).
+Exit status 0: at least one task accepted or nothing to do; 1: every task dropped; 2: a git, gh or usage failure.
