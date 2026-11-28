@@ -179,3 +179,6 @@ crates/engine-typed/src/extra_data/nodes/objects.rs
 crates/engine-typed/src/extra_data/nodes/objects_p2.rs
 crates/engine-typed/src/extra_data/nodes/objects_p3.rs
 crates/engine/tests/typed_extra_nodes.rs
+crates/engine-typed/src/s36e3734a7b8ae1e9/globals.rs
+crates/engine-typed/src/s36e3734a7b8ae1e9/mod.rs
+crates/engine/tests/typed_s36e3734a7b8ae1e9.rs

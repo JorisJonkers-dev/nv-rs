@@ -32,6 +32,19 @@ rules here are edited by hand when a batch shows a gap in them.
    before any batch is scaled up. Its rulebook update is committed on its own
    shakedown branch, never merged as part of a working batch.
 
+9. Model rotation follows the shakedown and first batches' evidence. `hy4-flash` is the reliable worker;
+   `minimax-m3`, `qwen3.6-35b-a3b` and `deepseek-v4.1-flash` are the spread. Models that stalled
+   (`nemotron` ultra: no output for the whole timeout) are left out of the worker rotation, and so is any model
+   whose run ends in a 524, a zero-token answer or a 402: a 402 means a non-free model slipped into the list,
+   and a free-only rotation is checked with `model-gateway models --free` before a batch. A 429 or a
+   "free deployment limited" answer moves the family to the next model and parks the limited one.
+10. A worker's output is limited to the typed crate and the typed suites (`crates/engine-typed/src`,
+    `crates/engine/tests/typed_*.rs`). The loop drops any other path from a run before it commits.
+11. A suite uses the Diff harness's real types (`Case`, `Diff`, `Input` from `engine_core::typed::diff`, the
+    `leaf` family and the family's own module); a Diff failure such as `cannot find type Case in this scope` is
+    a missing `use`, not a reason to write a harness. The worker prompt carries one complete typed function with
+    its registration and Diff case from an existing family, `facegen::sizes`, as the pattern to copy.
+
 ## Shakedown
 
 <!-- shakedown:start -->

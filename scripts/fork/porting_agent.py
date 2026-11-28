@@ -46,7 +46,7 @@ except ImportError:  # Windows only
 FORK = Path(__file__).resolve().parent
 REPO = FORK.parent.parent
 RULEBOOK = Path("docs") / "fork" / "PORTING-RULEBOOK.md"
-VERDICT = re.compile(r"^\s*VERDICT:\s*(ACCEPT|REJECT)\b", re.MULTILINE | re.IGNORECASE)
+VERDICT = re.compile(r"^[\s>*_`#-]*VERDICT[\s*_`]*[:=-][\s*_`]*(ACCEPT|REJECT)(?![A-Za-z])", re.MULTILINE | re.IGNORECASE)
 DEFAULT_WORKER = ("pi-free", "free/deepseek-v4.1-flash")
 DEFAULT_REVIEWER = ("pi-free", "free/glm-5.3-flash")
 MAX_DIFF = 60000
@@ -73,6 +73,48 @@ How a function is typed:
 - Add a Diff case for each typed function to the family's suite `crates/engine/tests/typed_{family}.rs`
   (create the suite from an existing one if the family has none). A case runs the typed version and
   the translation on the same inputs and compares them.
+- Use the Diff harness's real types and nothing else: `engine_core::typed::diff::{{Case, Diff, Input}}`,
+  `engine_core::typed::leaf`, `engine_core::prelude::*` and the family's own `engine_typed::<family>`
+  module (`cannot find type Case in this scope` means the `use` line is missing). Copy the `use` block and
+  the `Diff::new(entry!(..))` chain from an existing suite; do not invent a harness, helper type or macro.
+  A typed function takes `(e: &mut Engine, <args>)`, returns the exe's result and is registered once in the
+  family's `funcs` with `entry!(<address>, module::name(Ptr) -> u32)`. A complete small pair (typed function,
+  then its suite case, then the registration):
+
+```rust
+// crates/engine-typed/src/facegen/sizes.rs
+// Typed from 0065c490
+/// The bytes of a model's loaded EGT texture data (`thiscall`) ...
+pub fn egt_size(e: &mut Engine, this: Ptr) -> u32 {{
+    walk(e, this, 0xc, 0x58, 0x58, |e, record| {{
+        let (begin, end) = ends(e, record.wrapping_add(0x10));
+        end.wrapping_sub(begin).wrapping_mul(3)
+    }})
+}}
+// crates/engine-typed/src/facegen/mod.rs, in FACEGEN's funcs
+entry!(0x0065_c490, sizes::egt_size(Ptr) -> u32),
+// crates/engine/tests/typed_facegen_sizes.rs
+use engine as _;
+use engine_core::prelude::*;
+use engine_core::typed::diff::{{Case, Diff, Input}};
+use engine_core::typed::leaf;
+use engine_typed::facegen::{{self, sizes}};
+#[test]
+fn facegen_egt_size() {{
+    Diff::new(entry!(0x0065_c490, sizes::egt_size(Ptr) -> u32))
+        .family(&facegen::FACEGEN)
+        .family(&leaf::LEAVES)
+        .inputs(&[Input::Of(&CASES)])
+        .setup(|e, case| vec![model(e, case, 0xc, 0x58, 0x10)])
+        .run()
+        .assert_same();
+}}
+```
+  `.setup` builds guest memory for the case and returns the argument words (`Ptr` arguments are
+  addresses from `e.mem.alloc`); `Input::Word`, `Flag`, `F32`, `F64` and `Of(&[..])` generate the others.
+- Your output is limited to the typed crate (`crates/engine-typed/src/<family>`, its `mod.rs` registration)
+  and the typed suites `crates/engine/tests/typed_*.rs`. Any other path you change is dropped
+  from your run before it is committed.
 - Never edit the checker: crates/engine-core/src/typed/diff.rs, crates/engine-core/src/typed/mod.rs,
   crates/engine-core/src/x87.rs, crates/engine/tests/diff_reference_peer.rs or anything under
   scripts/ledger. Never weaken, delete or skip a test. Never run cargo; builds are run for you.
@@ -106,7 +148,14 @@ The commit's diff:
 
 {diff}
 
-Give short findings, then end with exactly one line: `VERDICT: ACCEPT` or `VERDICT: REJECT`.
+Give short findings, then end with the required last line, on its own line with nothing after it:
+VERDICT: ACCEPT
+or
+VERDICT: REJECT
+An answer without that last line counts as a rejection. Example of a complete answer:
+
+Every row has a marker, a registration and a case that compares real inputs. No checker file changed.
+VERDICT: ACCEPT
 """
 
 
@@ -399,6 +448,12 @@ def work(env):
     return 0
 
 
+def parse_verdict(text):
+    """ACCEPT, REJECT or NONE: the last `VERDICT: x` line, in any case and with markdown around it."""
+    found = VERDICT.findall(text or "")
+    return found[-1].upper() if found else "NONE"
+
+
 def review(env):
     worktree = Path(env["NV_PORT_WORKTREE"])
     family, batch = env["NV_PORT_FAMILY"], env["NV_PORT_BATCH"]
@@ -418,22 +473,28 @@ def review(env):
     payload = {"workflow": f"porting-review-{batch}-{family}"[:80], "client": options[0][0], "model": options[0][1],
                "mode": "read-only", "prompt": prompt, "repo": str(worktree),
                "time_limit_s": int(env.get("NV_PORT_TIME_LIMIT", "1500")), "escalate": False}
-    started, result = time.time(), {}
+    started, result, text, verdict, answers = time.time(), {}, "", "NONE", 0
     for client, model in options:
         payload.update({"client": client, "model": model})
         started = time.time()
         with provider_slot(env, model):
             result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
-        if not is_limited(result):
+        if is_limited(result):
+            mark_limited(env, model, json.dumps(result))
+            print(f"{model} is limited; trying the next reviewer", file=sys.stderr)
+            continue
+        text = result.get("summary") or result.get("output") or ""
+        verdict = parse_verdict(text)
+        metrics(env, {"role": "reviewer", "family": family, "batch": batch, "client": client, "model": model,
+                      "seconds": round(time.time() - started, 1), "status": result.get("status"),
+                      "verdict": verdict, "usage": result.get("usage") or result.get("tokens")})
+        if verdict != "NONE":
             break
-        mark_limited(env, model, json.dumps(result))
-        print(f"{model} is limited; trying the next reviewer", file=sys.stderr)
-    text = result.get("summary") or result.get("output") or ""
-    verdicts = VERDICT.findall(text)
-    verdict = verdicts[-1].upper() if verdicts else "NONE"
-    metrics(env, {"role": "reviewer", "family": family, "batch": batch, "client": client, "model": model,
-                  "seconds": round(time.time() - started, 1), "status": result.get("status"),
-                  "verdict": verdict, "usage": result.get("usage") or result.get("tokens")})
+        # No verdict line (empty or off-format answer): ask the next reviewer of another family once.
+        print(f"{model} gave no verdict; trying the next reviewer", file=sys.stderr)
+        answers += 1
+        if answers >= 2:
+            break
     print(text[-3000:])
     return 0 if result.get("status") == "ok" and verdict == "ACCEPT" else 1
 
