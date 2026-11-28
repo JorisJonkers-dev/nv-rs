@@ -61,13 +61,15 @@ jobs:
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD: ${{ github.sha }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # A merge group runs what a pull request would: the change against the base of the queue's merge.
+          if [ "$EVENT" = merge_group ]; then EVENT=pull_request; fi
           # Fails when a workspace crate belongs to no component, a requires list is wrong or a test file is in no job.
           python3 -I scripts/fork/components.py check
           # Fails when the stored workspace graph of the scripts' tests differs from the workspace.

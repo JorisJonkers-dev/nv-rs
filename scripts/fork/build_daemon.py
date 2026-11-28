@@ -258,10 +258,17 @@ def handle(stream, req, config, stats, stop, slot_index=0):
         running = stats["slot_active"].get(slot_index, 0) + 1
         stats["slot_active"][slot_index] = running
         stats["slot_max_active"][slot_index] = max(stats["slot_max_active"].get(slot_index, 0), running)
+        started = time.time()
+        queued_at = req.get("queued_at")
+        waited = (max(0.0, started - queued_at)
+                  if isinstance(queued_at, (int, float)) and not isinstance(queued_at, bool) else None)
         stats["job_starts"] = stats["job_starts"][-199:] + [
-            {"label": label, "slot": slot_index, "start": time.time()}]
+            {"label": label, "slot": slot_index, "start": started, "waited": waited}]
     for warning in config.warnings:
         send_frame(stream, {"kind": "out", "data": warning + "\n"})
+    if waited is not None:
+        # In the client's output, so a caller reads its queue time without asking a busy daemon.
+        send_frame(stream, {"kind": "out", "data": f"build daemon: waited {waited:.1f}s in the queue\n"})
     code = 2
     try:
         argv = req.get("argv") or []
@@ -438,6 +445,7 @@ def submit(argv, cwd=None, label=None, env=None):
         "kind": "build", "token": state["token"], "argv": list(argv),
         "cwd": str(cwd or Path.cwd()),
         "label": str(label or env.get("NV_BUILD_LABEL", "client")),
+        "queued_at": time.time(),
         "env": pass_env(env),
     }
     return int(request(state, message).get("exit", 1))

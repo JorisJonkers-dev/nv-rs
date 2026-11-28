@@ -384,7 +384,7 @@ def work(env):
         family=family, batch=batch, rows=read_rows(env), template=template_family(worktree),
         rulebook=(worktree / RULEBOOK).read_text(encoding="utf-8"),
         previous=previous_failure(env))
-    result, payload, started = {}, {}, time.time()
+    result, payload, started, waited = {}, {}, time.time(), 0.0
     for client, model in candidates(env, "NV_PORT_WORKER", DEFAULT_WORKER):
         payload = {
             "workflow": f"porting-{batch}-{family}"[:80], "client": client, "model": model,
@@ -392,18 +392,22 @@ def work(env):
             "check": "python3 -I scripts/fork/private_integrity.py --check",
             "time_limit_s": int(env.get("NV_PORT_TIME_LIMIT", "1500")), "escalate": False,
         }
-        started = time.time()
+        queued = time.time()
         with Slot(env.get("NV_PORT_SLOT_DIR", str(Path.home() / ".cache" / "nv-workers" / "slots")),
                   int(env.get("NV_PORT_SLOTS", "2"))), provider_slot(env, model):
+            started = time.time()
+            waited = started - queued
             result = gateway(env, payload)
         if not is_limited(result):
             break
         mark_limited(env, model, json.dumps(result))
         metrics(env, {"role": "worker", "family": family, "batch": batch, "client": client,
-                      "model": model, "outcome": "limited", "status": result.get("status")})
+                      "model": model, "outcome": "limited", "status": result.get("status"),
+                      "wait_seconds": round(waited, 1)})
         print(f"{model} is limited; trying the next model", file=sys.stderr)
     record = {"role": "worker", "family": family, "batch": batch, "client": client, "model": model,
-              "seconds": round(time.time() - started, 1), "status": result.get("status"),
+              "seconds": round(time.time() - started, 1), "wait_seconds": round(waited, 1),
+              "status": result.get("status"),
               "reason": result.get("reason") or result.get("code"),
               "usage": result.get("usage") or result.get("tokens"), "cost": result.get("cost_usd")}
     try:
@@ -473,21 +477,26 @@ def review(env):
     payload = {"workflow": f"porting-review-{batch}-{family}"[:80], "client": options[0][0], "model": options[0][1],
                "mode": "read-only", "prompt": prompt, "repo": str(worktree),
                "time_limit_s": int(env.get("NV_PORT_TIME_LIMIT", "1500")), "escalate": False}
-    started, result, text, verdict, answers = time.time(), {}, "", "NONE", 0
+    started, result, text, verdict, answers, waited = time.time(), {}, "", "NONE", 0, 0.0
     for client, model in options:
         payload.update({"client": client, "model": model})
-        started = time.time()
+        queued = time.time()
         with provider_slot(env, model):
+            started = time.time()
+            waited = started - queued
             result = gateway(env, payload, sandbox=env.get("NV_PORT_REVIEW_SANDBOX", "sbx"))
         if is_limited(result):
             mark_limited(env, model, json.dumps(result))
+            metrics(env, {"role": "reviewer", "family": family, "batch": batch, "client": client,
+                          "model": model, "outcome": "limited", "status": result.get("status"),
+                          "wait_seconds": round(waited, 1)})
             print(f"{model} is limited; trying the next reviewer", file=sys.stderr)
             continue
         text = result.get("summary") or result.get("output") or ""
         verdict = parse_verdict(text)
         metrics(env, {"role": "reviewer", "family": family, "batch": batch, "client": client, "model": model,
-                      "seconds": round(time.time() - started, 1), "status": result.get("status"),
-                      "verdict": verdict, "usage": result.get("usage") or result.get("tokens")})
+                      "seconds": round(time.time() - started, 1), "wait_seconds": round(waited, 1),
+                      "status": result.get("status"), "verdict": verdict, "usage": result.get("usage") or result.get("tokens")})
         if verdict != "NONE":
             break
         # No verdict line (empty or off-format answer): ask the next reviewer of another family once.
@@ -552,6 +561,9 @@ def rates(path):
         entry = table.setdefault(row.get("model", "?"), {"runs": 0, "committed": 0, "limited": 0,
                                                          "reviews": 0, "accepted": 0, "seconds": 0.0})
         if row.get("role") == "reviewer":
+            if row.get("outcome") == "limited":
+                entry["limited"] += 1
+                continue
             entry["reviews"] += 1
             entry["accepted"] += row.get("verdict") == "ACCEPT"
             continue

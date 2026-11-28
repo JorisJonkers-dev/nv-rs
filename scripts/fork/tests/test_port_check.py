@@ -7,6 +7,7 @@ No cargo and no network: the external tools are stand-ins, git runs on a tempora
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -197,7 +198,7 @@ class Scans(unittest.TestCase):
         self.assertEqual(port_check.scan_family_ids(self.root), [])
 
 
-class Repo(unittest.TestCase):
+class GitRepoCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -216,12 +217,14 @@ class Repo(unittest.TestCase):
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "work")
 
+
+class Repo(GitRepoCase):
     def test_changed_files_are_the_branch_against_its_base(self):
         self.commit("crates/engine-typed/src/new.rs", "fn a() {}\n")
         self.assertEqual(port_check.changed_files(self.root, "base", port_check.run),
                          ["crates/engine-typed/src/new.rs"])
         self.commit("docs/a name with spaces.md", "x\n")
-        self.assertIn("docs/a name with spaces.md", port_check.changed_files(self.root, "base", port_check.run))
+        self.assertIn("docs/a name with spaces.md", port_check.changed_files(self.root, "base", port_check.run) or [])
         self.assertIsNone(port_check.changed_files(self.root, "no-such-ref", port_check.run))
 
     def test_touched_packages_come_from_the_manifests_of_changed_crates(self):
@@ -319,7 +322,7 @@ class Gate(unittest.TestCase):
 
     def test_the_static_gate_needs_no_cargo_and_no_network(self):
         runner = Runner(real_git=True)
-        results = port_check.run_checks(self.root, "fx", "base", True, runner)
+        results = port_check.run_checks(self.root, "fx", "base", "static", runner)
         self.assertEqual(self.ids(results), ["family", "components", "private-integrity", "public-text",
                                              "typed-calls", "family-ids", "fmt"])
         joined = " ".join(" ".join(c) for c in runner.calls)
@@ -329,15 +332,15 @@ class Gate(unittest.TestCase):
 
     def test_a_saved_cargo_metadata_goes_to_components_check(self):
         runner = Runner(real_git=True)
-        port_check.run_checks(self.root, "fx", "base", True, runner, "graph.json")
+        port_check.run_checks(self.root, "fx", "base", "static", runner, metadata="graph.json")
         components = next(c for c in runner.calls if c[1].endswith("components.py"))
         self.assertEqual(components[2:], ["check", "--metadata", "graph.json"])
         plain = Runner(real_git=True)
-        port_check.run_checks(self.root, "fx", "base", True, plain)
+        port_check.run_checks(self.root, "fx", "base", "static", plain)
         self.assertEqual(next(c for c in plain.calls if c[1].endswith("components.py"))[2:], ["check"])
 
     def test_the_fast_gate_adds_verify_sync_clippy_and_the_differential_cases(self):
-        results = port_check.run_checks(self.root, "fx", "base", False, Runner(real_git=True))
+        results = port_check.run_checks(self.root, "fx", "base", "fast", Runner(real_git=True))
         self.assertEqual(self.ids(results)[-3:], ["verify-sync", "clippy", "differential"])
 
     def test_a_verify_sync_failure_names_both_ways_out(self):
@@ -350,18 +353,18 @@ class Gate(unittest.TestCase):
 
     def test_an_unknown_family_stops_the_gate_at_once(self):
         for name in ("nope", "../x", ""):
-            results = port_check.run_checks(self.root, name, "base", False, Runner(real_git=True))
+            results = port_check.run_checks(self.root, name, "base", "fast", Runner(real_git=True))
             self.assertEqual(self.ids(results), ["family"])
             self.assertEqual(results[0][1][0]["rule"], "family-suite")
 
     def test_the_verdict_lists_checks_and_every_failure(self):
         found = [port_check.finding("r", "f.rs", 1, "m", "x")]
-        got = port_check.verdict("fx", False, [("a", [], 0.123), ("b", found, 1.0)])
+        got = port_check.verdict("fx", "fast", [("a", [], 0.123), ("b", found, 1.0)])
         self.assertEqual(got, {"family": "fx", "mode": "fast", "pass": False,
                                "checks": [{"id": "a", "ok": True, "seconds": 0.12}, {"id": "b", "ok": False, "seconds": 1.0}],
                                "failures": found})
-        self.assertTrue(port_check.verdict("fx", True, [("a", [], 0)])["pass"])
-        self.assertEqual(port_check.verdict("fx", True, [])["mode"], "static")
+        self.assertTrue(port_check.verdict("fx", "static", [("a", [], 0)])["pass"])
+        self.assertEqual(port_check.verdict("fx", "static", [])["mode"], "static")
 
     def test_end_to_end_a_planted_violation_fails_with_file_line_and_fix(self):
         git(self.root, "checkout", "-qb", "work")
@@ -403,6 +406,276 @@ class Gate(unittest.TestCase):
         repo = HERE.parent.parent.parent
         self.assertEqual(port_check.scan_typed_calls(repo), [])
         self.assertEqual(port_check.scan_family_ids(repo), [])
+
+
+LIB = "crates/engine-typed/src/facegen/more.rs"
+SOURCE = "pub fn a(e: u32) -> u32 {\n    let x = e + 1;\n    x\n}\n// done\n"
+
+
+def lcov(file, hits):
+    """An lcov file with one record: hits maps a line to its hit count."""
+    return f"SF:{file}\n" + "".join(f"DA:{n},{h}\n" for n, h in hits.items()) + "end_of_record\n"
+
+
+class Measuring(Runner):
+    """A runner whose llvm-cov commands write the lcov text they are given for their --output-path."""
+
+    def __init__(self, text=None, code=0, **kwargs):
+        super().__init__(**kwargs)
+        self.text, self.code = text, code
+
+    def __call__(self, argv, cwd):
+        argv = [str(a) for a in argv]
+        if "llvm-cov" in argv:
+            self.calls.append(argv)
+            if self.text is not None and "--output-path" in argv:
+                Path(argv[argv.index("--output-path") + 1]).write_text(self.text, encoding="utf-8")
+            return self.code, "error: tests failed\n" if self.code else ""
+        return super().__call__(argv, cwd)
+
+
+class Diffs(unittest.TestCase):
+    def test_ranges_are_the_new_side_of_each_hunk(self):
+        diff = ("+++ b/a.rs\n@@ -1,2 +1,3 @@\n@@ -9 +10 @@\n@@ -20,2 +30,0 @@\n+++ /dev/null\n@@ -1 +1 @@\n"
+                "+++ b/b.rs\n@@ -0,0 +1,2 @@\n")
+        self.assertEqual(port_check.parse_ranges(diff), {"a.rs": {1, 2, 3, 10}, "b.rs": {1, 2}})
+        self.assertEqual(port_check.parse_ranges("@@ -1 +1 @@\n"), {})
+
+    def test_a_changed_file_whose_name_has_spaces_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            git(tmp, "init", "-q", "-b", "base")
+            write(tmp, "a b.rs", "x\n")
+            git(tmp, "add", "-A")
+            git(tmp, "commit", "-qm", "base")
+            git(tmp, "checkout", "-qb", "work")
+            write(tmp, "a b.rs", "x\ny\n")
+            git(tmp, "commit", "-qam", "work")
+            self.assertEqual(port_check.changed_ranges(tmp, "base", port_check.run), {"a b.rs": {2}})
+
+    def test_only_crate_sources_are_measured(self):
+        ranges = {"crates/a/src/x.rs": {1}, "crates/a/tests/t.rs": {1}, "scripts/x.rs": {1}, "crates/a/benches/b.rs": {1}}
+        self.assertEqual(port_check.library_ranges(ranges), {"crates/a/src/x.rs": {1}})
+
+    def test_a_line_is_code_unless_blank_comment_or_brackets(self):
+        for text, expected in (("", False), ("   ", False), ("// x", False), ("  }", False), ("  );", False),
+                               ("let a = 1;", True), ("  x", True), ("}  // end", False), ("} else {", True)):
+            self.assertEqual(port_check.looks_like_code(text), expected, text)
+
+
+class Measure(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_lcov_files_merge_with_the_most_hits_and_unreadable_ones_are_skipped(self):
+        a = write(self.root, "a.info", lcov("/x/crates/c/src/f.rs", {1: 0, 2: 3}))
+        b = write(self.root, "b.info", lcov("/y/crates/c/src/f.rs", {1: 2, 3: 0}) + lcov("/y/crates/c/src/g.rs", {1: 1}))
+        merged = port_check.merge_lcov([a, self.root / "missing.info", b])
+        self.assertEqual(merged, {"crates/c/src/f.rs": {1: 2, 2: 3, 3: 0}, "crates/c/src/g.rs": {1: 1}})
+        self.assertIsNone(port_check.merge_lcov([self.root / "missing.info"]))
+        self.assertIsNone(port_check.merge_lcov([]))
+
+    def test_changed_executable_lines_no_test_ran_are_findings(self):
+        write(self.root, LIB, SOURCE)
+        measured = {LIB: {1: 4, 2: 0, 3: 1}}
+        found = port_check.coverage_gaps(self.root, {LIB: {1, 2, 3, 5}}, measured)
+        self.assertEqual([(f["rule"], f["file"], f["line"]) for f in found], [("coverage", LIB, 2)])
+        self.assertEqual(port_check.coverage_gaps(self.root, {LIB: {1, 3, 4, 5}}, measured), [])
+
+    def test_changed_code_in_an_unmeasured_file_is_a_missing_baseline_of_its_own(self):
+        write(self.root, LIB, SOURCE)
+        found = port_check.coverage_gaps(self.root, {LIB: {4, 5, 2, 99}}, {})
+        self.assertEqual([(f["rule"], f["line"]) for f in found], [("coverage-missing", 2)])
+
+    def test_a_file_with_a_record_but_no_executable_line_is_not_measured_either(self):
+        write(self.root, LIB, SOURCE)
+        found = port_check.coverage_gaps(self.root, {LIB: {2}}, {LIB: {}})
+        self.assertEqual([f["rule"] for f in found], ["coverage-missing"])
+
+    def test_changed_comments_in_an_unmeasured_file_need_no_coverage(self):
+        write(self.root, LIB, SOURCE)
+        self.assertEqual(port_check.coverage_gaps(self.root, {LIB: {4, 5}}, {}), [])
+
+    def test_the_lab_crate_is_measured_in_two_steps_and_so_is_every_other_touched_crate(self):
+        out = self.root / "out"
+        commands = port_check.coverage_commands(self.root, "fx", ["engine-typed", "engine-core"], out)
+        self.assertEqual([str(lcov) for _, lcov in commands], [str(out / "lab.info"), str(out / "engine-core.info")])
+        (run, report), (other,) = ([[str(a) for a in argv] for argv in steps] for steps, _ in commands)
+        self.assertEqual(run[2:7], ["run", "--", "llvm-cov", "test", "--no-report"])
+        self.assertIn("typed_fx", run)
+        self.assertEqual([run[i + 1] for i, a in enumerate(run) if a == "--dep-coverage"], ["engine-typed", "engine-core"])
+        self.assertEqual(report[4:6], ["llvm-cov", "report"])
+        self.assertNotIn("--dep-coverage", report)
+        for argv in (report, other):
+            self.assertEqual(argv[argv.index("--ignore-filename-regex") + 1], port_check.COVERAGE_IGNORE)
+        self.assertEqual(other[-2:], ["-p", "engine-core"])
+
+
+class Full(GitRepoCase):
+    def setUp(self):
+        super().setUp()
+        self.abs = f"{self.root}/{LIB}"
+
+    def test_a_clean_covered_change_passes(self):
+        self.commit(LIB, SOURCE)
+        runner = Measuring(lcov(self.abs, {1: 2, 2: 2, 3: 2}), real_git=True)
+        self.assertEqual(port_check.check_coverage(self.root, "fx", "base", runner), [])
+        calls = [c for c in runner.calls if "llvm-cov" in c]
+        self.assertEqual([c[c.index("llvm-cov") + 1] for c in calls], ["test", "report"])
+        self.assertTrue(any("family_lab.py" in " ".join(c) and "generate" in c for c in runner.calls))
+
+    def test_an_uncovered_changed_line_names_its_file_and_line(self):
+        self.commit(LIB, SOURCE)
+        found = port_check.check_coverage(self.root, "fx", "base", Measuring(lcov(self.abs, {1: 2, 2: 0, 3: 2}), real_git=True))
+        self.assertEqual([(f["rule"], f["file"], f["line"]) for f in found], [("coverage", LIB, 2)])
+
+    def test_no_lcov_data_is_a_failure_not_a_pass(self):
+        self.commit(LIB, SOURCE)
+        found = port_check.check_coverage(self.root, "fx", "base", Measuring(None, real_git=True))
+        self.assertEqual([f["rule"] for f in found], ["coverage-missing-baseline"])
+
+    def test_a_failing_coverage_run_is_a_failure_with_its_output(self):
+        self.commit(LIB, SOURCE)
+        found = port_check.check_coverage(self.root, "fx", "base", Measuring(None, code=101, real_git=True))
+        self.assertEqual((found[0]["rule"], found[0]["message"]), ("coverage", "error: tests failed"))
+
+    def test_a_failing_lab_generation_stops_the_coverage_check(self):
+        self.commit(LIB, SOURCE)
+        runner = Measuring(None, real_git=True, answers={"family_lab.py": (2, "no suite\n")})
+        found = port_check.check_coverage(self.root, "fx", "base", runner)
+        self.assertEqual(found[0]["rule"], "coverage")
+        self.assertFalse([c for c in runner.calls if "llvm-cov" in c])
+
+    def test_a_change_with_no_crate_source_needs_no_measurement(self):
+        self.commit("docs/a.md", "x\n")
+        runner = Measuring(None, real_git=True)
+        self.assertEqual(port_check.check_coverage(self.root, "fx", "base", runner), [])
+        self.assertFalse([c for c in runner.calls if "llvm-cov" in c])
+
+    def test_an_unknown_base_fails_the_coverage_and_quality_checks(self):
+        self.assertEqual(port_check.check_coverage(self.root, "fx", "nope", Runner(real_git=True))[0]["rule"], "git")
+        self.assertEqual(port_check.check_quality(self.root, "nope", Runner(real_git=True))[0]["rule"], "git")
+
+    def test_quality_fails_when_only_the_python_diff_fails(self):
+        self.commit(LIB, SOURCE)
+
+        class Flaky(Runner):
+            def __call__(self, argv, cwd):
+                if "*.py" in argv:
+                    return 1, "fatal"
+                return super().__call__(argv, cwd)
+
+        found = port_check.check_quality(self.root, "base", Flaky(real_git=True))
+        self.assertEqual([f["rule"] for f in found], ["git"])
+
+    def quality(self, text):
+        write(self.root, LIB, text)
+        return port_check.scan_quality(self.root, {LIB: set(range(1, len(text.splitlines()) + 1))})
+
+    def test_unsafe_needs_a_safety_comment_above_or_on_the_line(self):
+        found = self.quality("fn a() {\n    unsafe { f() }\n}\n")
+        self.assertEqual([(f["rule"], f["line"]) for f in found], [("quality-unsafe", 2)])
+        self.assertEqual(self.quality("fn a() {\n    // SAFETY: f is fine\n    unsafe { f() }\n}\n"), [])
+        self.assertEqual(self.quality("fn a() {\n    unsafe { f() } // SAFETY: fine\n}\n"), [])
+        self.assertEqual(self.quality("// not unsafe at all\nfn a() {}\n"), [])
+
+    def test_unwrap_and_expect_are_findings_unless_allowed_or_in_tests(self):
+        found = self.quality("fn a() {\n    x.unwrap();\n    y.expect(\"m\");\n    z.unwrap(); // port-check: allow unwrap (never empty)\n}\n")
+        self.assertEqual([(f["rule"], f["line"]) for f in found], [("quality-unwrap", 2), ("quality-unwrap", 3)])
+        self.assertEqual(self.quality("fn a() {}\n#[cfg(test)]\nmod t {\n    fn b() { x.unwrap(); }\n}\n"), [])
+
+    def test_only_changed_lines_are_judged(self):
+        write(self.root, LIB, "fn a() {\n    x.unwrap();\n}\n")
+        self.assertEqual(port_check.scan_quality(self.root, {LIB: {1}}), [])
+
+    def test_a_function_over_the_limit_that_a_change_touches_is_too_long(self):
+        body = "fn big() {\n" + "    step();\n" * 150 + "}\n"
+        write(self.root, LIB, body + "fn small() {}\ntrait T {\n    fn decl();\n}\n")
+        found = port_check.scan_quality(self.root, {LIB: {50}})
+        self.assertEqual([(f["rule"], f["line"]) for f in found], [("quality-size", 1)])
+        self.assertEqual(port_check.scan_quality(self.root, {LIB: {153}}), [])
+
+    def test_function_spans_handle_declarations_and_nesting(self):
+        lines = ["trait T {", "    fn decl();", "}", "fn a() {", "    if x {", "        y();", "    }", "}", "fn b() { z(); }"]
+        self.assertEqual(port_check.function_spans(lines), [(4, 8), (9, 9)])
+
+    def test_braces_in_strings_do_not_move_a_functions_end(self):
+        lines = ['fn a() {', '    let s = "}}} {";', "    let c = '{';", "}", "fn b() {}"]
+        self.assertEqual(port_check.function_spans(lines), [(1, 4), (5, 5)])
+
+    def test_a_signature_over_several_lines_is_one_function(self):
+        lines = ["fn a(", "    x: u32,", ") -> u32 {", "    x", "}"]
+        self.assertEqual(port_check.function_spans(lines), [(1, 5)])
+        self.assertEqual(port_check.function_spans(["fn open() {", "    x();"]), [])
+
+    def test_quality_runs_ruff_on_changed_scripts_only(self):
+        self.commit("scripts/fork/x.py", "x = 1\n")
+        runner = Runner(real_git=True)
+        self.assertEqual(port_check.check_quality(self.root, "base", runner), [])
+        self.assertEqual(runner.calls[-2], ["ruff", "check", "--output-format", "concise", "scripts/fork/x.py"])
+        self.assertEqual(runner.calls[-1], ["pyright", "scripts/fork/x.py"])
+        failing = Runner({"ruff": (1, "scripts/fork/x.py:1:1: F401 unused\n")}, real_git=True)
+        found = port_check.check_quality(self.root, "base", failing)
+        self.assertEqual((found[0]["rule"], found[0]["file"], found[0]["line"]), ("ruff", "scripts/fork/x.py", 1))
+        typed = Runner({"pyright": (1, 'scripts/fork/x.py:3:5 - error: "split" is not a known attribute of "None"\n')},
+                       real_git=True)
+        found = port_check.check_quality(self.root, "base", typed)
+        self.assertEqual((found[0]["rule"], found[0]["file"], found[0]["line"]), ("pyright", "scripts/fork/x.py", 3))
+        self.commit("other/y.py", "x = 1\n")
+        quiet = Runner(real_git=True)
+        self.assertEqual(port_check.check_quality(self.root, "base", quiet), [])
+        self.assertEqual(sum(1 for c in quiet.calls if c[0] == "ruff"), 1)
+
+    @unittest.skipUnless(shutil.which("pyright"), "pyright is not installed")
+    def test_the_real_pyright_fails_on_a_member_access_of_an_optional(self):
+        bad = "def f(text: str | None):\n    return text.split()\n"
+        self.commit("scripts/fork/opt.py", bad)
+        found = port_check.check_quality(self.root, "base", port_check.run)
+        self.assertEqual([(f["rule"], f["line"]) for f in found if f["rule"] == "pyright"], [("pyright", 2)])
+        self.commit("scripts/fork/opt.py", bad.replace("text.split()", "(text or '').split()"))
+        self.assertEqual([f for f in port_check.check_quality(self.root, "base", port_check.run)
+                          if f["rule"] == "pyright"], [])
+
+    def test_a_pass_verdict_passes_and_a_fail_verdict_lists_its_findings(self):
+        path = write(self.root, "v.json", json.dumps({"verdict": "pass", "findings": []}))
+        self.assertEqual(port_check.check_review(path), [])
+        write(self.root, "v.json", json.dumps({"verdict": "fail", "findings": [
+            {"file": "a.rs", "line": 4, "issue": "off by one", "fix": "use <"}, "junk", {"issue": "late"}]}))
+        found = port_check.check_review(path)
+        self.assertEqual([(f["rule"], f["file"], f["line"], f["message"], f["fix"]) for f in found],
+                         [("review", "a.rs", 4, "off by one", "use <"), ("review", "?", 1, "late", "")])
+
+    def test_a_fail_verdict_without_findings_still_fails(self):
+        path = write(self.root, "v.json", json.dumps({"verdict": "fail"}))
+        self.assertEqual(port_check.check_review(path)[0]["rule"], "review")
+
+    def test_a_missing_or_unreadable_verdict_is_absent_never_a_pass(self):
+        for text in (None, "not json", "[]", json.dumps({"verdict": "maybe"}), json.dumps({"verdict": "pass", "findings": 3}), "{}"):
+            path = write(self.root, "v.json", text) if text is not None else self.root / "none.json"
+            self.assertEqual(port_check.check_review(path)[0]["rule"], "review-absent", text)
+        self.assertEqual(port_check.check_review(None)[0]["rule"], "review-absent")
+
+    def test_the_full_gate_adds_coverage_quality_and_review_to_the_fast_path(self):
+        results = port_check.run_checks(self.root, "fx", "base", "full", Measuring(None, real_git=True))
+        self.assertEqual([name for name, _, _ in results][-4:], ["differential", "coverage", "quality", "review"])
+
+    def test_end_to_end_a_full_run_reports_an_uncovered_line_an_unwrap_and_a_missing_review(self):
+        git(self.root, "checkout", "-qb", "feature")
+        self.commit(LIB, "pub fn a(e: Option<u32>) -> u32 {\n    let x = e.unwrap();\n    x\n}\n")
+        stream = io.StringIO()
+        runner = Measuring(lcov(self.abs, {1: 1, 2: 1, 3: 0}), real_git=True)
+        code = port_check.main(["fx", "--full", "--base", "base"], root=self.root, runner=runner, out=stream)
+        got = json.loads(stream.getvalue())
+        self.assertEqual((code, got["mode"], got["pass"]), (1, "full", False))
+        by_rule = {f["rule"]: f for f in got["failures"]}
+        self.assertEqual((by_rule["coverage"]["file"], by_rule["coverage"]["line"]), (LIB, 3))
+        self.assertEqual(by_rule["quality-unwrap"]["line"], 2)
+        self.assertIn("review-absent", by_rule)
+
+    def test_the_modes_are_exclusive(self):
+        with self.assertRaises(SystemExit):
+            port_check.main(["fx", "--static", "--full"], root=self.root, runner=Runner(), out=io.StringIO())
 
 
 if __name__ == "__main__":
