@@ -47,6 +47,9 @@ INCLUDE = re.compile(r'include!\(\s*"([^"]+)"')
 CRATE = re.compile(r"crates/(engine-[^/]+)/")
 PART_PATH = re.compile(r"\b(engine_[a-z0-9]+(?:_[a-z0-9]+)*)::")
 NOT_PARTS = {"engine-core", "engine-typed"}
+# Parts a suite's cases reach through a vtable slot, which no address in the text names: found by running the whole suite
+# in the lab and reading what it stopped at (`open function ...: not translated yet`).
+SUITE_PARTS = {"draw": ("engine-fallout-interface",)}
 SOURCE_CACHE = {}
 
 
@@ -176,6 +179,7 @@ def assembly_for(path):
     if "engine::dead_lights::install" in text:
         # The guard hook calls these two translations directly, without an address in the suite.
         crates.update(["engine-bs", "engine-fallout-unplaced-b"])
+    crates.update(SUITE_PARTS.get(path.stem.removeprefix("typed_"), ()))
     # A callee reached through a vtable has no address in the text. When a case stops at
     # an open function, name the crate here and rerun; the full CI suite is still the proof.
     extra = os.environ.get("NV_FAMILY_LAB_PARTS", "")

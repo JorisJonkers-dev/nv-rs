@@ -91,6 +91,10 @@ class FamilyLab(unittest.TestCase):
         for name in ("draw", "shader"):
             self.assertIn("engine-platform", family_lab.assembly_for(TESTS / f"typed_{name}.rs"), name)
 
+    def test_the_draw_suite_assembles_the_part_its_vtable_cases_reach(self):
+        self.assertIn("engine-fallout-interface", family_lab.assembly_for(TESTS / "typed_draw.rs"))
+        self.assertNotIn("engine-fallout-interface", family_lab.assembly_for(TESTS / "typed_fade.rs"))
+
     def test_the_labs_manifest_patches_the_crates_the_workspace_patches(self):
         root = '[workspace]\nmembers = []\n\n[patch.crates-io]\nwgpu-hal = { path = "vendor/wgpu-hal" }  # vendored\nnot-a-path = "1"\n\n[profile.dev]\nx = { path = "no" }\n'
         with tempfile.TemporaryDirectory() as tmp:
