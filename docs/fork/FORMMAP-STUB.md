@@ -46,3 +46,34 @@ the jip co-save's id map walk and the walk of every form use it. The base destru
 destroyed) in stage 1, default, dual, K1 and K2: same answers and same bytes untyped code reads, K1 makes the same guest
 allocations and takes the same time-slice steps as stage 1, dual compares with 0 differences, poison held while the map lives,
 nothing left in the slab.
+
+## The editor id map (`011c54c8`)
+
+The editor id map is a case insensitive string map of 0x14 bytes: the form map's four words and the flag byte at +0x10 (whether
+the map owns copies of its keys). `create_registries` attaches the record (the first 0x10 bytes; +0x10 stays in the block) before
+the constructor chain `00486ab0` .. `00486fa0`, whose body makes the table in the record's store. The flag byte is not a
+spare word candidate: it is read by `00470200` and by the destructor walk `00486ca0`, and it is one byte.
+
+Does the stub-field choice hold for the string map? Yes. Readers and writers of this map by its bytes, read on 2026-11-28:
+
+| Code | Reads or writes |
+| --- | --- |
+| `00853130` lookup (`GetFormByEditorID` `00483a00`), `00405430` remove, `00438af0` clear | +4, +8 (the count only written) |
+| `00470200` `SetAt` (the data handler's `register_loaded_form`, the topic loader `0061a040`) | +4, +8, +0x10, count written (+0xc) |
+| `00486ca0` (frees the owned keys), `00486dc0` (frees the table) | +4, +8, +0x10 |
+| jip `editor_id_lookup_at` | +4, +8 |
+| jip `set_editor_id` (`gl_lights.rs`, the light form's setter) | +8, and the count **written** (+0xc) |
+| `tesform.rs`, `tesdatahandler.rs` 4514/8378, `run_00619f20.rs` 140 | the pointer only, then `00470200` or `00853130` |
+
+Nothing reads +0xc to use it (the one other touch is jip's setter incrementing the count, which now goes through
+`form_map::count` and `set_count`: a write that would have put the count over the record's handle). So the table is the moved
+field and the count the spare word here too; the stub is the form map's (`form_map::STUB`) and the map family is one family.
+
+What changed: `00470200` reads and writes through `form_map::store`, `table`, `count` and `set_count` (maps with no record take
+the guest path word for word, so the other users of `00470200`, such as the effect item's setting map, are unchanged);
+`00486ca0` reads each bucket's head through `form_map::bucket`; `00486dc0` frees the table through `form_map::release_table`;
+jip's lookup reads the head through `bucket`; jip's setter goes through the store. Evidence:
+`the_editor_id_map_lives_alike_in_every_form` in `typed_form_map.rs` runs the map's life (set with texts that share buckets, a text
+set again in another case, lookups by `00853130` and `00483a00`, removals at the head, middle, tail and absent, clear, refill,
+destruction with items by the chain `00486c30` .. `00486dc0` and by `00483b80`) in stage 1, default, dual, K1 and K2 with the
+same checks as the form map's.

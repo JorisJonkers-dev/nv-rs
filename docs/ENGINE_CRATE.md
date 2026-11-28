@@ -1168,7 +1168,9 @@ the life of the array is alike in every form, K1 with the guest heap and time-sl
 The `formmap` family has a stage-2 form for the form map (`011c54c0`, nv-rs#951): its bucket table lives in the slab and the
 map stays a K1 stub (`engine_core::typed::form_map`: +8 holds poison, the item count +0xc is the spare word holding the record).
 Readers of a map by its bytes use `form_map::bucket`. `NV_TYPED=formmap:dual`, `formmap:moved` and `formmap:freed` choose the
-form; not moved by default. The choice of the spare word is in [`docs/fork/FORMMAP-STUB.md`](fork/FORMMAP-STUB.md).
+form; not moved by default. The editor id map (`011c54c8`, a string map of the same layout) is moved the same way (its record
+attached by `create_registries`; `00470200`, the destructor chain `00486ca0`/`00486dc0` and jip's editor id readers go through the
+map's store). The choice of the spare word, and why it holds for the string map, is in [`docs/fork/FORMMAP-STUB.md`](fork/FORMMAP-STUB.md).
 
 ## Checking against the real exe
 

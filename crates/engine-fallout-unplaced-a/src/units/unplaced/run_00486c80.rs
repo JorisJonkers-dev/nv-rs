@@ -39,8 +39,7 @@ pub fn fn_00486ca0(e: &mut Engine, this: Ptr) {
     if e.mem.u8(base + 0x10) != 0 {
         let mut bucket = 0u32;
         while bucket < e.mem.u32(base + 4) {
-            let buckets = e.mem.u32(base + 8);
-            let mut item = e.mem.u32(buckets.wrapping_add(bucket.wrapping_mul(4)));
+            let mut item = engine_core::typed::form_map::bucket(e, base, bucket);
             while item != 0 {
                 let current = item;
                 item = e.mem.u32(current);
@@ -65,12 +64,16 @@ pub fn fn_00486d60(e: &mut Engine, this: Ptr) {
 
 // Translated from 00486dc0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The `NiTMapBase` destructor body (`ECX`, plain `RET`): stores its vtable, removes every
-/// item (`00438af0`) and frees the bucket array at +8 (`00aa10f0`).
+/// item (`00438af0`) and frees the bucket array at +8 (`00aa10f0`). The editor id map the forms
+/// family moved (nv-rs#951) has its table in a block of its own: `form_map::release_table` frees
+/// it and takes the map's record away, and the walk of `00486ca0` reads buckets through
+/// `form_map::bucket`.
 pub fn fn_00486dc0(e: &mut Engine, this: Ptr) {
     e.mem.set_u32(this.addr(), MAP_BASE_VTABLE);
     e.call(REMOVE_ALL, &args![this]);
-    let buckets = e.mem.u32(this.addr() + 8);
-    e.call(FREE, &args![buckets]);
+    engine_core::typed::form_map::release_table(e, this.addr(), |e, buckets| {
+        e.call(FREE, &args![buckets]);
+    });
 }
 
 /// This unit's translated functions, by exe address.
