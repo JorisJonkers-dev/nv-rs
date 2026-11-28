@@ -240,3 +240,35 @@ verdict is missing or unreadable, for example after a rate limit) means requeue 
 the findings back to the implementer. `cargo-llvm-cov` must be on `PATH`, and the `cargo` found first must be the
 toolchain's own when `PATH` has a version-manager shim of `cargo` before it.
 
+
+## The sandboxed verifier
+
+`scripts/fork/verifier.py` runs one verification in a throwaway container.
+
+```sh
+python3 -I scripts/fork/verifier.py image
+python3 -I scripts/fork/verifier.py run --seed ~/.cache/cargo-targets/nv-rs-shared -- \
+    cargo test --manifest-path target/family-lab/FAMILY/Cargo.toml --test typed_FAMILY
+```
+
+- The image `nv-rs-verifier:<hash>` is the Rust image of the pinned channel plus cargo-nextest, cargo-llvm-cov and
+  sccache from pinned release archives (SHA-256 checked). The hash covers the Dockerfile text, `Cargo.lock` and
+  `rust-toolchain.toml`, so a change to any of them gives a new tag and a rebuild. cargo-fuzz needs the pinned nightly
+  and belongs to the scheduled fuzz runs.
+- The seed target is copied with `cp --reflink=always`: on btrfs that is copy-on-write and costs no disk until a file
+  is written. The seed is only read; the copy is removed after the run, also when the run fails.
+- The container has `--rm`, `--memory` and `--memory-swap` equal (12g by default), no network, the repository at its
+  own absolute path, one fixed sccache directory, the host's cargo registry read-only and the host's cargo `config.toml`
+  (which names the registry source the cache directories belong to).
+- The record (JSON) has the seconds of the copy and of the run, the exit status, the peak memory of the container,
+  sccache's hits and misses, the disk used before and after, and the bytes the verifier's own directory holds.
+
+Measured on one workstation, family `facegen_sizes`, a 71 GB seed of about 34,000 files:
+
+| Run | Copy | Run | Peak memory | sccache | Left behind |
+| --- | --- | --- | --- | --- | --- |
+| first, empty sccache directory | 4.1 s | 55 s | 4.7 GB | 0 hits, 13 misses | 0.2 GB (the sccache directory) |
+| second, same command, fresh copy of the seed | 4.5 s | 8.6 s | 2.2 GB | 13 hits, 0 misses | 0.1 GB (more cache) |
+
+No container and no copy of the seed remained after either run. The seed was not rebuilt between the runs: the second
+run is faster only because sccache held the compiles of the first.
