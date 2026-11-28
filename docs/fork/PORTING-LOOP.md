@@ -192,3 +192,33 @@ with the daemon's own jobs. The coverage report of the lab crate lists the typed
 family's own files fully hit) only when `--ignore-filename-regex` is given: by default `cargo llvm-cov` drops files
 outside the lab crate's own workspace, which leaves the typed crate out of the report. `--dep-coverage` does not help:
 with it the report came out empty.
+
+## The fast-path gate
+
+`scripts/fork/port_check.py <family>` is the one entry point for the per-attempt checks; it prints one JSON
+verdict and exits 0 only on a pass.
+
+```sh
+python3 -I scripts/fork/port_check.py facegen --static            # no cargo, no network: what a worker may run
+python3 -I scripts/fork/port_check.py facegen --base origin/fork  # the verifier's fast path
+```
+
+| Check | What runs | Rule ids |
+| --- | --- | --- |
+| family | the family's suite `crates/engine/tests/typed_<family>.rs` exists | `family-suite` |
+| components | `components.py check` | `components` |
+| private-integrity | `private_integrity.py --check` | `private-integrity` |
+| public-text | `public_text.py` | `public-text` |
+| typed-calls | a qualified plain call of a function registered with `// Typed from` (outside `entry!`, `typed_call!` and `.call(`) and a `typed_call!` whose address is not a hexadecimal literal | `typed-call-plain`, `typed-call-address` |
+| family-ids | `pub const FAMILY: FamilyId = FamilyId::new(N)` ids are unique and below 64 | `family-id-unique`, `family-id-cap` |
+| fmt | `rustfmt --check` on the changed Rust files | `fmt` |
+| verify-sync | `verify-sync.sh` (full mode only) | `verify-sync` |
+| clippy | `cargo clippy -D warnings` on the touched crates, through the build daemon (full mode only) | `clippy` |
+| differential | `family_lab.py run <family>` (full mode only) | `diff` |
+
+`--static` runs the first seven; `--metadata FILE` hands `components.py check` a saved `cargo metadata --no-deps`, so
+nothing runs cargo. A failure carries `rule`, `file`, `line`, `message` and `fix`. A tool that is
+missing (`tool-missing`) or that cannot compare against `--base` (`git`) fails its check. The scans are a
+cargo-free approximation of `repo_hygiene`, which still runs in CI; a bare call of a registered function
+without a module path is left to it.
+
