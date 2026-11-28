@@ -222,6 +222,43 @@ missing (`tool-missing`) or that cannot compare against `--base` (`git`) fails i
 cargo-free approximation of `repo_hygiene`, which still runs in CI; a bare call of a registered function
 without a module path is left to it.
 
+
+## The fuzz gate
+
+`scripts/fork/fuzz_gate.py` has three commands.
+
+- `check <family>` is the per-attempt part. It runs the family's saved regression cases (the tests named
+  `regression_*` in `crates/engine/tests/typed_<family>.rs`) through the family lab, and fails on a failing case
+  (`fuzz-regression`) or on a corpus or crash artifact tracked in git (`fuzz-corpus`). The deterministic comparison
+  sweep is the suite's own `Diff` cases and float sweep, which `port_check.py` already runs.
+- `to-test <family> <input>` turns one minimised crash input (at most 512 bytes; `cargo fuzz tmin` first) into a
+  byte-literal test named after the input's hash and appends it to the suite; the same input is added once. The suite
+  defines `pub fn replay_bytes(&[u8])`, which decodes the bytes as the fuzz target does and runs the comparison.
+- `scaffold <family> <dir>` writes the family's fuzz crate: its own workspace (like `fuzz/`), a path dependency on
+  engine-core with `test-support`, and a target that includes the suite and calls `replay_bytes`. It is built with
+  the pinned nightly (`FUZZ_NIGHTLY` in the script, passed as `cargo +<nightly> fuzz run`); the repository's pin is
+  left alone. The generated crate has not been compiled yet: the scheduled family runs (#1094) are its first build.
+
+## The integrator
+
+`scripts/fork/integrate.py` is the queue until the repository has a merge queue, and it is a script, not a model:
+the same inputs give the same batch.
+
+```sh
+python3 -I scripts/fork/integrate.py --name 2026-11-28 --task feat/a:1101 --task feat/b:1102 \
+    --gate "python3 -I scripts/fork/port_check.py FAMILY --static" --push --pr --assignee LOGIN
+```
+
+Each task branch (`branch[:issue]`, at most `--max`, default 4, in the order given) is merged onto `batch/<name>`
+and the gate command runs on the stacked result. A branch that conflicts, or whose gate fails, is taken off again
+and listed with its reason and the gate's output; the rest lands. Because every addition is gated, the first
+failing addition is the culprit, so a failing batch needs no separate bisection run. Before the push the batch is
+rebased onto the base (`--base`, default `origin/fork`) and the gate runs again when the rebase changed the tree;
+a rebase that conflicts or a gate that then fails stops the run with nothing pushed. The push is a lease-checked
+force, because the batch branch belongs to the integrator. `--pr` opens one pull request (or edits the one the
+branch has) whose body carries `Closes #N` for every accepted task. The result is JSON on stdout (and `--out`).
+Exit status 0: at least one task accepted or nothing to do; 1: every task dropped; 2: a git, gh or usage failure.
+
 ## The full gate
 
 `port_check.py <family> --full --review FILE` runs once per candidate, before it joins a batch, not on every
@@ -240,3 +277,35 @@ verdict is missing or unreadable, for example after a rate limit) means requeue 
 the findings back to the implementer. `cargo-llvm-cov` must be on `PATH`, and the `cargo` found first must be the
 toolchain's own when `PATH` has a version-manager shim of `cargo` before it.
 
+
+## The sandboxed verifier
+
+`scripts/fork/verifier.py` runs one verification in a throwaway container.
+
+```sh
+python3 -I scripts/fork/verifier.py image
+python3 -I scripts/fork/verifier.py run --seed ~/.cache/cargo-targets/nv-rs-shared -- \
+    cargo test --manifest-path target/family-lab/FAMILY/Cargo.toml --test typed_FAMILY
+```
+
+- The image `nv-rs-verifier:<hash>` is the Rust image of the pinned channel plus cargo-nextest, cargo-llvm-cov and
+  sccache from pinned release archives (SHA-256 checked). The hash covers the Dockerfile text, `Cargo.lock` and
+  `rust-toolchain.toml`, so a change to any of them gives a new tag and a rebuild. cargo-fuzz needs the pinned nightly
+  and belongs to the scheduled fuzz runs.
+- The seed target is copied with `cp --reflink=always`: on btrfs that is copy-on-write and costs no disk until a file
+  is written. The seed is only read; the copy is removed after the run, also when the run fails.
+- The container has `--rm`, `--memory` and `--memory-swap` equal (12g by default), no network, the repository at its
+  own absolute path, one fixed sccache directory, the host's cargo registry read-only and the host's cargo `config.toml`
+  (which names the registry source the cache directories belong to).
+- The record (JSON) has the seconds of the copy and of the run, the exit status, the peak memory of the container,
+  sccache's hits and misses, the disk used before and after, and the bytes the verifier's own directory holds.
+
+Measured on one workstation, family `facegen_sizes`, a 71 GB seed of about 34,000 files:
+
+| Run | Copy | Run | Peak memory | sccache | Left behind |
+| --- | --- | --- | --- | --- | --- |
+| first, empty sccache directory | 4.1 s | 55 s | 4.7 GB | 0 hits, 13 misses | 0.2 GB (the sccache directory) |
+| second, same command, fresh copy of the seed | 4.5 s | 8.6 s | 2.2 GB | 13 hits, 0 misses | 0.1 GB (more cache) |
+
+No container and no copy of the seed remained after either run. The seed was not rebuilt between the runs: the second
+run is faster only because sccache held the compiles of the first.
