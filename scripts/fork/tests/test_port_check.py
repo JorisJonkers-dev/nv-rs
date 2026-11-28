@@ -113,6 +113,35 @@ class Helpers(unittest.TestCase):
         self.assertEqual((got[0]["file"], got[0]["line"], got[0]["message"], got[0]["fix"]),
                          ("crates/a/src/b.rs", 12, "last line", "fix"))
 
+    RUSTC = (
+        "   Compiling typed-lab-draw v0.0.0\n"
+        "error[E0425]: cannot find value `x` in this scope\n"
+        "   --> tests/typed_draw.rs:572:9\n"
+        "    |\n572 |     x\n    |     ^ not found\n\n"
+        "warning: build failed, waiting for other jobs to finish...\n"
+        'error: could not compile `typed-lab-draw` (test "typed_draw") due to 1 previous error\n')
+
+    def test_from_tool_names_the_compiler_error_and_its_place_not_the_summary_line(self):
+        got = port_check.from_tool("r", 101, self.RUSTC, "fix", "d")
+        self.assertEqual((got[0]["file"], got[0]["line"]), ("tests/typed_draw.rs", 572))
+        self.assertEqual(got[0]["message"], "error[E0425]: cannot find value `x` in this scope")
+
+    def test_from_tool_takes_a_clippy_lint_and_skips_the_summary_lines(self):
+        output = ("warning: build failed, waiting for other jobs to finish...\n"
+                  "error: this `if` has identical blocks\n  --> crates/a/src/b.rs:7:5\n"
+                  "error: could not compile `a` (lib) due to 1 previous error\n")
+        got = port_check.from_tool("clippy", 101, output, "fix", "d")
+        self.assertEqual((got[0]["file"], got[0]["line"], got[0]["message"]),
+                         ("crates/a/src/b.rs", 7, "error: this `if` has identical blocks"))
+
+    def test_a_diagnostic_without_a_place_keeps_the_default_file(self):
+        got = port_check.from_tool("r", 101, "error: linking with `cc` failed\nerror: could not compile `a`\n", "fix", "d.toml")
+        self.assertEqual((got[0]["file"], got[0]["line"], got[0]["message"]), ("d.toml", 1, "error: linking with `cc` failed"))
+
+    def test_the_labs_own_path_is_the_suites_path_in_the_repository(self):
+        found = port_check.check_differential(Path("/r"), "draw", lambda argv, cwd: (101, self.RUSTC))
+        self.assertEqual((found[0]["file"], found[0]["line"]), ("crates/engine/tests/typed_draw.rs", 572))
+
     def test_from_tool_falls_back_to_the_default_file_and_the_exit_status(self):
         got = port_check.from_tool("r", 2, "", "fix", "d.toml")
         self.assertEqual((got[0]["file"], got[0]["line"], got[0]["message"]), ("d.toml", 1, "exit status 2"))

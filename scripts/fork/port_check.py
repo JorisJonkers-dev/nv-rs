@@ -37,6 +37,9 @@ QUALIFIED_CALL = re.compile(r"\b([A-Za-z_]\w*)::([A-Za-z_]\w*)\s*(?:::\s*<[^>]*>
 TYPED_CALL = re.compile(r"typed_call!\s*[(\[{]\s*([A-Za-z_][\w:]*)\s*,\s*([^,\s)\]}]+)")
 FAMILY_CONST = re.compile(r"^\s*pub const FAMILY: FamilyId = FamilyId::new\((\d+)\)")
 LOCATION = re.compile(r"([A-Za-z0-9_./-]+\.[A-Za-z]+):(\d+)")
+DIAGNOSTIC = re.compile(r"^(?:error|warning)(?:\[[A-Za-z0-9]+\])?: .+$", re.MULTILINE)
+SUMMARY = re.compile(r"could not compile|aborting due to|build failed|waiting for other jobs|generated \d+ warning|emitted")
+ARROW = re.compile(r"^\s*--> ([^\s:]+):(\d+)", re.MULTILINE)
 FMT_DIFF = re.compile(r"^Diff in (\S+?):(\d+):?", re.MULTILINE)
 CRATE_PATH = re.compile(r"^crates/([^/]+)/")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -160,6 +163,11 @@ def from_tool(rule, code, output, fix, default_file):
     if code == 127:
         return [finding("tool-missing", default_file, 1, output.strip()[:300] or "tool not found",
                         "install the tool or run the gate where it exists")]
+    diagnostic = next((d for d in DIAGNOSTIC.finditer(output) if not SUMMARY.search(d.group(0))), None)
+    if diagnostic is not None:  # the compiler's own error, with its place: the last line only says how many there were
+        arrow = ARROW.search(output, diagnostic.end())
+        file, line = (arrow.group(1), arrow.group(2)) if arrow else (default_file, 1)
+        return [finding(rule, file, line, diagnostic.group(0)[:300], fix)]
     where = LOCATION.search(output)
     file, line = (where.group(1), where.group(2)) if where else (default_file, 1)
     lines = [x for x in output.strip().splitlines() if x.strip()]
@@ -236,7 +244,11 @@ def check_differential(root, family, runner):
     if failed:
         return [finding("diff", suite, 1, f"case {name} differs from the original", "make the typed code return what the original does")
                 for name in failed]
-    return from_tool("diff", code, output, "read the lab output above the first error", suite)
+    found = from_tool("diff", code, output, "read the lab output above the first error", suite)
+    for item in found:  # the lab crate's `tests/typed_X.rs` is the suite, line for line
+        if item["file"] == f"tests/typed_{family}.rs":
+            item["file"] = suite
+    return found
 
 
 def parse_ranges(diff):
