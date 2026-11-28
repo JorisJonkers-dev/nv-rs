@@ -113,7 +113,7 @@ class Selection(unittest.TestCase):
 
 class Collector(unittest.TestCase):
     def test_executed_files_are_those_with_a_hit_in_the_repository(self):
-        lcov = "SF:/r/crates/a/src/x.rs\nDA:1,0\nDA:2,3\nend_of_record\nSF:/r/crates/a/src/cold.rs\nDA:1,0\nend_of_record\nSF:/home/u/.cargo/registry/dep.rs\nDA:1,9\nend_of_record\n"
+        lcov = "SF:/r/crates/a/src/x.rs\nDA:1,0\nDA:2,3\nend_of_record\nSF:/r/crates/a/src/cold.rs\nDA:1,0\nend_of_record\nSF:/cache/registry/dep.rs\nDA:1,9\nend_of_record\n"
         self.assertEqual(test_impact.executed_files(lcov, "/r"), {"crates/a/src/x.rs"})
 
     def test_a_test_command_is_one_run_per_binary(self):
