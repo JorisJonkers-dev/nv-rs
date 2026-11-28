@@ -417,7 +417,8 @@ class BuildDaemon(unittest.TestCase):
                 raise RuntimeError("boom")
             return real(stream, req, config, stats, stop, slot_index)
 
-        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(daemon, "handle", flaky):
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(daemon, "handle", flaky), \
+                mock.patch.object(sys, "stderr", new=io.StringIO()) as log:
             thread = threading.Thread(target=daemon.serve, daemon=True)
             thread.start()
             state = None
@@ -434,9 +435,53 @@ class BuildDaemon(unittest.TestCase):
             answer = daemon.request(state, {"kind": "build", "token": state["token"], "argv": ["quick", "two"],
                                             "cwd": str(self.tmp.name), "env": {}})
             self.assertEqual(answer["exit"], 0)
+            with mock.patch.object(sys, "stderr", new=io.StringIO()):
+                refused = daemon.request(state, {"kind": "build", "token": "wrong", "argv": ["quick"]})
+            self.assertEqual(refused["exit"], 2)
             daemon.request(state, {"kind": "stop", "token": state["token"]})
             thread.join(10)
         self.assertIn("ran two", self.log.read_text(encoding="utf-8"))
+        self.assertIn("request failed: RuntimeError('boom')", log.getvalue())
+
+    def test_a_worker_survives_a_log_that_cannot_be_written(self):
+        runtime = Path(self.tmp.name) / "inproc2"
+        stub(self.cargo, CARGO_CHATTY, self.log)
+        env = dict(self.env, NV_BUILD_DAEMON_DIR=str(runtime))
+        real, calls = daemon.handle, []
+
+        def flaky(stream, req, config, stats, stop, slot_index=0):
+            calls.append(req)
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return real(stream, req, config, stats, stop, slot_index)
+
+        class Broken(io.StringIO):
+            def write(self, text):
+                raise BrokenPipeError
+
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(daemon, "handle", flaky), \
+                mock.patch.object(sys, "stderr", new=Broken()):
+            thread = threading.Thread(target=daemon.serve, daemon=True)
+            thread.start()
+            state = None
+            for _ in range(100):
+                state = daemon.read_state(runtime)
+                if state and daemon.reachable(state):
+                    break
+                time.sleep(0.05)
+            if state is None:
+                self.fail("the daemon did not start")
+            with self.assertRaises(RuntimeError):
+                daemon.request(state, {"kind": "build", "token": state["token"], "argv": ["quick", "one"],
+                                       "cwd": str(self.tmp.name), "env": {}})
+            answer = daemon.request(state, {"kind": "build", "token": state["token"], "argv": ["quick", "two"],
+                                            "cwd": str(self.tmp.name), "env": {}})
+            self.assertEqual(answer["exit"], 0)
+            daemon.request(state, {"kind": "stop", "token": state["token"]})
+            thread.join(10)
+
+    def test_a_rejected_token_whose_client_has_gone_is_not_an_error(self):
+        self.assertFalse(daemon.send_if_connected(mock.Mock(write=mock.Mock(side_effect=ConnectionResetError)), {}))
 
     def test_a_build_that_cannot_start_reports_why_to_the_client(self):
         sent = []

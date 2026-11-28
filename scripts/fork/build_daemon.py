@@ -348,8 +348,7 @@ def serve():
             req = recv_frame(stream)
             if req is None or req.get("token") != state["token"]:
                 if req is not None:
-                    send_frame(stream, {"kind": "done", "exit": 2,
-                                        "error": "build daemon token rejected"})
+                    send_if_connected(stream, {"kind": "done", "exit": 2, "error": "build daemon token rejected"})
                 close_quietly(stream, conn)
                 return
             if req.get("kind") in ("status", "stop"):
@@ -374,7 +373,10 @@ def serve():
             try:
                 handle(stream, req, config, stats, stop, slot_index)
             except Exception as exc:  # one request must never end the worker
-                print(f"build daemon: request failed: {exc!r}", file=sys.stderr, flush=True)
+                try:
+                    print(f"build daemon: request failed: {exc!r}", file=sys.stderr, flush=True)
+                except (OSError, ValueError):
+                    pass  # the log is gone too: the worker still must not end
             finally:
                 jobs.task_done()
                 close_quietly(stream, conn)
