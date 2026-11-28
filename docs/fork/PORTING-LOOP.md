@@ -345,10 +345,14 @@ over the entries. `check` fails when the set no longer matches its hash: that is
   Scoring uses hidden differential cases that are kept outside the repository.
 - `scripts/fork/blind_workspace.py build SET ADDRESS WORKSPACE` makes a checkout blind for one function: the function's
   accepted code becomes a stub (its `// Typed from` marker, its signature and `todo!()`; the documentation above it is
-  removed), and every suite that names the address is moved out of the checkout into `$NV_BENCH_HIDDEN/ADDRESS/` under its
-  own file name, outside any repository the attempt can read. `factory_queue.py verify --hidden $NV_BENCH_HIDDEN/ADDRESS`
-  scores the attempt on those cases (the family is the first suite's name without `typed_`). It prints the manifest and
-  keeps it beside the hidden files. The attempt writes its own suite, as a real port does.
+  removed), and the tests that exercise it are cut out of the suite that holds them: top-level `#[test]` items that name
+  the address as a literal or call the function by name. The rest of the family's suite (its other cases, helpers and
+  call sites) stays, so the family lab and `port_check.py` still run and a blind attempt writes one function's tests, not
+  a family's. The hidden copy, `$NV_BENCH_HIDDEN/ADDRESS/typed_FAMILY.rs`, holds the suite's imports, constants and
+  helpers with the cut-out tests, and is outside any repository the attempt can read.
+  `factory_queue.py verify --hidden $NV_BENCH_HIDDEN/ADDRESS` scores the attempt on it. The manifest (printed, and kept
+  beside the hidden file) lists the tests cut out and how many lines of the suite still name the address (a table row,
+  say). Tests in more than one suite are refused: the queue scores one hidden suite per family.
 - `record` appends one line to a versioned, append-only log: correct rate with a 95% Wilson interval, functions per hour,
   dollars per accepted function and retries per success, with the label of the run (model and route as the operator names
   them), the hash of the prompt, the number of implementers and the hash of the set. A function with no result counts as

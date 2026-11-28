@@ -13,10 +13,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
-from test_port_benchmark import frozen_set
-
 import blind_workspace as bw
 import port_benchmark as pb
+from test_port_benchmark import frozen_set
 
 SOURCE = """\
 use x;
@@ -102,6 +101,102 @@ class Stubbing(unittest.TestCase):
             bw.stub("// Typed from 00401000\nfn a();\n", "00401000")
 
 
+def suite_text(address: str, function: str) -> str:
+    """A suite shaped like the real ones: imports, a helper, a table, a macro, tests of other functions and of this one."""
+    literal = f"0x{address[:4]}_{address[4:]}"
+    return f"""//! The suite.
+use engine_core::Engine;
+
+const TABLE: &[u32] = &[
+    1,
+    2, // a bracket in a comment ]
+];
+
+fn helper(e: &mut Engine) -> u32 {{
+    let s = "}}{{";
+    e.mem.u32(0)
+}}
+
+macro_rules! twice {{
+    ($e:expr) => {{ ($e, $e) }};
+}}
+
+// ---- the others ----
+
+#[test]
+fn other() {{
+    Diff::new(entry!(0x0040_9990, fam::other() -> u32))
+        .run()
+        .assert_same();
+}}
+
+/// By literal.
+#[test]
+fn by_literal() {{
+    Diff::new(entry!({literal}, fam::{function}() -> u32))
+        .run()
+        .assert_same();
+}}
+
+#[test]
+fn by_name() {{
+    let _ = {function}(e);
+}}
+
+#[test]
+fn unrelated_{function}x() {{ helper(e); }}
+
+const AFTER: u32 = {literal}; // a table row naming the address
+"""
+
+
+class Items(unittest.TestCase):
+    def test_the_items_are_the_text_and_attributes_and_comments_go_with_the_item_below(self) -> None:
+        text = suite_text("00400000", "f0")
+        chunks = bw.items(text)
+        self.assertEqual("".join(chunks), text)
+        self.assertEqual(len(chunks), 9)
+        self.assertTrue(chunks[5].startswith("\n/// By literal.\n#[test]\nfn by_literal"))
+        self.assertTrue(chunks[0].endswith("use engine_core::Engine;\n"))
+
+    def test_text_that_does_not_end_in_an_item_is_one_last_chunk(self) -> None:
+        self.assertEqual(bw.items("fn a() {}\n// a note\n"), ["fn a() {}\n", "// a note\n"])
+        self.assertEqual(bw.items(""), [])
+
+    def test_unbalanced_brackets_are_refused(self) -> None:
+        for text in ("fn a() {\n", "fn a() {}\n}\n", "const A: [u32; 1 = [1];\n"):
+            with self.assertRaisesRegex(ValueError, "do not balance"):
+                bw.items(text)
+
+
+class Splitting(unittest.TestCase):
+    def test_only_the_tests_that_name_the_address_or_the_function_are_cut_out(self) -> None:
+        text = suite_text("00400000", "f0")
+        kept, hidden, names = bw.split_suite(text, "00400000", "f0")
+        self.assertEqual(names, ["by_literal", "by_name"])
+        for needle in ("fn other()", "fn helper", "macro_rules! twice", "const TABLE", "unrelated_f0x", "const AFTER"):
+            self.assertIn(needle, kept)
+        for needle in ("fn helper", "macro_rules! twice", "const TABLE", "const AFTER", "use engine_core::Engine"):
+            self.assertIn(needle, hidden)
+        self.assertNotIn("fn by_literal", kept)
+        self.assertNotIn("fn by_name", kept)
+        self.assertIn("fn by_literal", hidden)
+        self.assertIn("fn by_name", hidden)
+        self.assertNotIn("fn other()", hidden)  # the hidden suite holds the items and only the tests of the function
+        self.assertNotIn("unrelated_f0x", hidden)
+        self.assertEqual(kept.count("#[test]"), 2)
+
+    def test_a_test_with_no_function_name_is_listed_by_a_question_mark(self) -> None:
+        _, _, names = bw.split_suite("#[test]\nconst X: u32 = 0x0040_0000;\n", "00400000", "f0")
+        self.assertEqual(names, ["?"])
+
+    def test_a_suite_without_such_tests_is_returned_whole(self) -> None:
+        text = suite_text("00400000", "f0")
+        kept, hidden, names = bw.split_suite(text, "00400004", "g")
+        self.assertEqual((kept, names), (text, []))
+        self.assertNotIn("fn other", hidden)
+
+
 class Building(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -109,41 +204,63 @@ class Building(unittest.TestCase):
         self.root = Path(self.tmp.name) / "work"
         self.frozen = frozen_set(self.root)
         self.hidden = Path(self.tmp.name) / "hidden"
-        self.address = self.frozen["entries"][0]["address"]
-        self.entry = self.frozen["entries"][0]
+        self.entry = next(e for e in self.frozen["entries"] if len(e["suites"]) == 1)
+        self.address = self.entry["address"]
+        source = (self.root / self.entry["source"]).read_text(encoding="utf-8")
+        self.function = source.split(f"// Typed from {self.address}\npub fn ", 1)[1].split("(", 1)[0]
+        self.suite = self.root / self.entry["suites"][0]
+        self.suite.write_text(suite_text(self.address, self.function), encoding="utf-8")
 
-    def test_build_stubs_the_function_and_moves_the_suites_out(self) -> None:
+    def test_build_stubs_the_function_and_cuts_only_its_tests_out(self) -> None:
         manifest = bw.build(self.frozen, self.address, self.root, self.hidden)
         source = (self.root / self.entry["source"]).read_text(encoding="utf-8")
         self.assertIn(f'todo!("port {self.address}")', source)
-        for suite in self.entry["suites"]:
-            self.assertFalse((self.root / suite).exists())
-            self.assertTrue((self.hidden / self.address / Path(suite).name).is_file())
+        kept = self.suite.read_text(encoding="utf-8")
+        self.assertIn("fn other()", kept)
+        self.assertIn("fn helper", kept)
+        self.assertNotIn("fn by_literal", kept)
+        hidden = (self.hidden / self.address / self.suite.name).read_text(encoding="utf-8")
+        self.assertIn("fn by_literal", hidden)
+        self.assertNotIn("fn other()", hidden)
         self.assertEqual(manifest["address"], self.address)
-        self.assertEqual(manifest["hidden"], [Path(s).name for s in self.entry["suites"]])
-        self.assertEqual(manifest["family"], Path(self.entry["suites"][0]).stem.removeprefix("typed_"))
+        self.assertEqual(manifest["function"], self.function)
+        self.assertEqual(manifest["tests"], ["by_literal", "by_name"])
+        self.assertEqual(manifest["hidden"], [self.suite.name])
+        self.assertEqual(manifest["suite"], self.entry["suites"][0])
+        self.assertEqual(manifest["mentions_left"], 1)  # the table row
+        self.assertEqual(manifest["family"], self.suite.stem.removeprefix("typed_"))
         saved = json.loads((self.hidden / self.address / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(saved, manifest)
+
+    def test_a_suite_listed_twice_is_cut_once(self) -> None:
+        entry = dict(self.entry, suites=[self.entry["suites"][0]] * 2)
+        frozen = dict(self.frozen, entries=[entry])
+        with mock.patch.object(pb, "hide", return_value=[]):
+            manifest = bw.build(frozen, self.address, self.root, self.hidden)
+        self.assertEqual(manifest["tests"], ["by_literal", "by_name"])
 
     def test_the_address_may_be_written_with_a_prefix_or_capitals(self) -> None:
         manifest = bw.build(self.frozen, "0x" + self.address.upper(), self.root, self.hidden)
         self.assertEqual(manifest["address"], self.address)
 
     def test_the_hidden_directory_must_be_outside_the_workspace(self) -> None:
+        before = self.suite.read_text(encoding="utf-8")
         for hidden in (self.root / "hidden", self.root, self.root.parent):
             with self.assertRaisesRegex(ValueError, "outside the workspace"):
                 bw.build(self.frozen, self.address, self.root, hidden)
-        self.assertTrue((self.root / self.entry["suites"][0]).exists())  # nothing was touched
+        self.assertEqual(self.suite.read_text(encoding="utf-8"), before)  # nothing was touched
 
     def test_a_bad_set_or_address_is_refused_before_anything_moves(self) -> None:
+        before = self.suite.read_text(encoding="utf-8")
         with self.assertRaises(ValueError):
             bw.build(self.frozen, "00000001", self.root, self.hidden)
         broken = dict(self.frozen, hash="0" * 64)
         with self.assertRaises(ValueError):
             bw.build(broken, self.address, self.root, self.hidden)
-        self.assertTrue((self.root / self.entry["suites"][0]).exists())
+        self.assertEqual(self.suite.read_text(encoding="utf-8"), before)
 
     def test_entries_that_cannot_be_hidden_safely_are_refused(self) -> None:
+        before = self.suite.read_text(encoding="utf-8")
         changes: list[dict[str, Any]] = [{"suites": []}, {"suites": ["a/typed_x.rs", "b/typed_x.rs"]},
                                          {"address": "../../etc/x"}]
         for change in changes:
@@ -151,13 +268,37 @@ class Building(unittest.TestCase):
             frozen = {"entries": [entry] * 1, "hash": ""}
             with mock.patch.object(pb, "hide", return_value=[]), self.assertRaisesRegex(ValueError, "eight-digit address"):
                 bw.build(frozen, str(entry["address"]), self.root, self.hidden)
-        self.assertTrue((self.root / self.entry["suites"][0]).exists())
+        self.assertEqual(self.suite.read_text(encoding="utf-8"), before)
 
-    def test_a_source_that_cannot_be_stubbed_moves_nothing(self) -> None:
+    def test_a_source_that_cannot_be_stubbed_changes_nothing(self) -> None:
+        before = self.suite.read_text(encoding="utf-8")
         (self.root / self.entry["source"]).write_text("nothing here\n", encoding="utf-8")
         with self.assertRaises(ValueError):
             bw.build(self.frozen, self.address, self.root, self.hidden)
-        self.assertTrue((self.root / self.entry["suites"][0]).exists())
+        self.assertEqual(self.suite.read_text(encoding="utf-8"), before)
+
+    def test_a_suite_with_no_test_of_the_function_is_refused(self) -> None:
+        self.suite.write_text("const X: u32 = 1;\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "nothing could score it"):
+            bw.build(self.frozen, self.address, self.root, self.hidden)
+        self.assertFalse(self.hidden.exists())
+
+    def test_tests_in_two_suites_are_refused(self) -> None:
+        other = self.root / "crates/engine/tests/typed_second.rs"
+        other.write_text(suite_text(self.address, self.function), encoding="utf-8")
+        entry = dict(self.entry, suites=[self.entry["suites"][0], "crates/engine/tests/typed_second.rs"])
+        frozen = dict(self.frozen, entries=[entry])
+        before = self.suite.read_text(encoding="utf-8")
+        with mock.patch.object(pb, "hide", return_value=[]), self.assertRaisesRegex(ValueError, "one hidden suite"):
+            bw.build(frozen, self.address, self.root, self.hidden)
+        self.assertEqual(self.suite.read_text(encoding="utf-8"), before)
+        self.assertFalse(self.hidden.exists())
+
+    def test_a_suite_that_cannot_be_split_changes_nothing(self) -> None:
+        self.suite.write_text("fn a() {\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "do not balance"):
+            bw.build(self.frozen, self.address, self.root, self.hidden)
+        self.assertFalse(self.hidden.exists())
 
 
 class Command(unittest.TestCase):
@@ -169,7 +310,11 @@ class Command(unittest.TestCase):
         self.set = Path(self.tmp.name) / "set.json"
         self.set.write_text(json.dumps(self.frozen), encoding="utf-8")
         self.env = {bw.ENV: str(Path(self.tmp.name) / "hidden")}
-        self.address = self.frozen["entries"][0]["address"]
+        entry = next(e for e in self.frozen["entries"] if len(e["suites"]) == 1)
+        self.address = entry["address"]
+        source = (self.root / entry["source"]).read_text(encoding="utf-8")
+        function = source.split(f"// Typed from {self.address}\npub fn ", 1)[1].split("(", 1)[0]
+        (self.root / entry["suites"][0]).write_text(suite_text(self.address, function), encoding="utf-8")
 
     def test_build_and_hidden(self) -> None:
         out = io.StringIO()
