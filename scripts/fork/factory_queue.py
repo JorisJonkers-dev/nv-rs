@@ -49,6 +49,7 @@ FAMILY_NAME = re.compile(r"^[A-Za-z0-9_]+$")
 DIFF_API = Path("crates") / "engine-core" / "src" / "typed" / "diff.rs"
 MACRO_DOC = Path("crates") / "engine-core" / "src" / "typed" / "mod.rs"
 API_LINE = re.compile(r"^\s*pub (?:fn|struct|enum)\b.*")
+STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
 MUTATIONS = (("wrapping_add(", "wrapping_sub("), ("wrapping_mul(", "wrapping_add("), (" == ", " != "),
              (" < ", " >= "), (" > ", " <= "), (" + ", " - "), (" & ", " | "), (" << ", " >> "))
 
@@ -148,7 +149,7 @@ def read_verdict(output: str) -> Verdict | None:
     """The gate's JSON verdict from its output; None when there is none or it is not a verdict."""
     start = output.find("{")
     try:
-        data: Any = json.loads(output[start:]) if start >= 0 else None
+        data: Any = json.JSONDecoder().raw_decode(output[start:])[0] if start >= 0 else None
     except ValueError:
         return None
     if not isinstance(data, dict):
@@ -168,14 +169,18 @@ def mutate_sources(worktree: Path, scratch: Path, only: list[str] | None = None)
         if only is not None and source.relative_to(worktree).as_posix() not in only:
             continue
         text = source.read_text(encoding="utf-8", errors="replace")
-        code = text.split("#[cfg(test)]", 1)[0]
-        for old, new in MUTATIONS:
-            at = code.find(old)
-            if at >= 0:
-                target = scratch / source.relative_to(worktree)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(text[:at] + new + text[at + len(old):], encoding="utf-8")
-                return f"{source.relative_to(worktree).as_posix()}: `{old.strip()}` -> `{new.strip()}`"
+        offset = 0
+        for line in text.split("#[cfg(test)]", 1)[0].splitlines(keepends=True):
+            masked = STRING.sub(lambda found: "_" * len(found.group(0)), line)  # same length: positions stay valid
+            code = masked.split("//", 1)[0]  # an operator in a comment or a string is no operator
+            for old, new in MUTATIONS:
+                at = code.find(old)
+                if at >= 0:
+                    target = scratch / source.relative_to(worktree)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(text[:offset + at] + new + text[offset + at + len(old):], encoding="utf-8")
+                    return f"{source.relative_to(worktree).as_posix()}: `{old.strip()}` -> `{new.strip()}`"
+            offset += len(line)
     return None
 
 
@@ -184,7 +189,7 @@ def planted_bug_control(worktree: Path, family: str, runner: Runner, base: str =
     scratch = Path(worktree) / "target" / "planted-bug"
     shutil.rmtree(scratch, ignore_errors=True)
     code, listing = runner(["git", "diff", "--name-only", f"{base}...HEAD"], cwd=worktree)
-    mutation = mutate_sources(Path(worktree), scratch, listing.split("\n") if not code else [])
+    mutation = mutate_sources(Path(worktree), scratch, None if code else listing.split("\n"))
     if mutation is None:
         return "skipped", "no operator to change in the typed sources"
     originals: dict[Path, str] = {}
@@ -193,11 +198,13 @@ def planted_bug_control(worktree: Path, family: str, runner: Runner, base: str =
             real = Path(worktree) / copy.relative_to(scratch)
             originals[real] = real.read_text(encoding="utf-8")
             real.write_text(copy.read_text(encoding="utf-8"), encoding="utf-8")
-        code, _ = runner([sys.executable, "scripts/fork/family_lab.py", "run", family], cwd=worktree)
+        code, output = runner([sys.executable, "scripts/fork/family_lab.py", "run", family], cwd=worktree)
     finally:
         for real, text in originals.items():
             real.write_text(text, encoding="utf-8")
         shutil.rmtree(scratch, ignore_errors=True)
+    if code and re.search(r"could not compile|error\[E[0-9]+\]", output):
+        return "skipped", f"{mutation} did not build, so it says nothing about the cases"
     return ("failed" if code else "survived"), mutation
 
 

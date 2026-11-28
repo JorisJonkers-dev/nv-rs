@@ -133,6 +133,33 @@ class Pieces(Base):
         self.assertIn("a.wrapping_sub(b)", copy)
         self.assertIn("wrapping_add", (self.worktree / "crates/engine-typed/src/fx/mod.rs").read_text(encoding="utf-8"))
 
+    def test_an_operator_in_a_comment_or_a_string_is_not_mutated(self) -> None:
+        source = self.worktree / "crates/engine-typed/src/fx/mod.rs"
+        source.write_text('// a == b\nconst S: &str = "x + y";\npub fn f(a: u32) -> bool { a < 2 }\n', encoding="utf-8")
+        mutation = fq.mutate_sources(self.worktree, self.root / "s")
+        self.assertIn("`<` -> `>=`", mutation or "")
+        copy = (self.root / "s/crates/engine-typed/src/fx/mod.rs").read_text(encoding="utf-8")
+        self.assertIn("// a == b", copy)
+        self.assertIn('"x + y"', copy)
+        self.assertIn("a >= 2", copy)
+
+    def test_a_verdict_with_text_around_it_is_still_read(self) -> None:
+        self.assertEqual((fq.read_verdict("warning\n" + PASS + "\ntrailing words") or {})["pass"], True)
+
+    def test_a_mutation_that_does_not_build_says_nothing_about_the_cases(self) -> None:
+        def broken(argv: list[str], cwd: str | Path = ".") -> tuple[int, str]:
+            return (0, "crates/engine-typed/src/fx/mod.rs\n") if argv[0] == "git" else (101, "error[E0308]: mismatched\n")
+
+        outcome, detail = fq.planted_bug_control(self.worktree, "fx", broken)
+        self.assertEqual(outcome, "skipped")
+        self.assertIn("did not build", detail)
+
+    def test_when_git_cannot_say_what_changed_any_typed_source_may_be_mutated(self) -> None:
+        def no_git(argv: list[str], cwd: str | Path = ".") -> tuple[int, str]:
+            return (1, "fatal") if argv[0] == "git" else (1, "case failed\n")
+
+        self.assertEqual(fq.planted_bug_control(self.worktree, "fx", no_git)[0], "failed")
+
     def test_code_after_the_test_module_is_not_mutated(self) -> None:
         source = self.worktree / "crates/engine-typed/src/fx/mod.rs"
         source.write_text("pub fn f() {}\n#[cfg(test)]\nmod t { fn g(a: u32) -> bool { a == 1 } }\n", encoding="utf-8")
@@ -160,11 +187,6 @@ class Pieces(Base):
 
         self.assertEqual(fq.planted_bug_control(self.worktree, "fx", other_files)[0], "skipped")
         self.assertEqual(fq.mutate_sources(self.worktree, self.root / "s", ["nothing.rs"]), None)
-
-        def no_git(argv: list[str], cwd: str | Path = ".") -> tuple[int, str]:
-            return (1, "fatal") if argv[0] == "git" else (1, "")
-
-        self.assertEqual(fq.planted_bug_control(self.worktree, "fx", no_git)[0], "skipped")
 
     def test_the_control_reports_a_survivor_and_a_skip(self) -> None:
         self.assertEqual(fq.planted_bug_control(self.worktree, "fx", self.survivor)[0], "survived")
