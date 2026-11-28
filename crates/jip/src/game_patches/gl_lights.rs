@@ -60,6 +60,7 @@ use super::super::slots::{self, Group};
 use crate::commands::jip_fn_utility::editor_id_lookup_at;
 use engine_core::extend::{Owner, SiteSlot, WrapSlot};
 use engine_core::prelude::*;
+use engine_core::typed::form_map;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
@@ -321,17 +322,17 @@ fn set_editor_id(e: &mut Engine, w: &[u32]) -> Ret {
     if map == 0 {
         return 1u32.into_ret();
     }
+    // The table and the count go through the forms family's store: both live in the family's
+    // record where the editor id map is moved (the count's guest word is then the record's handle).
+    let s = form_map::store(e, map);
     let node = e.call(MAP_NEW_NODE, &args![form]).u32();
     let bucket = e.vcall(map, 4, &args![text]).u32();
-    let at = e
-        .mem
-        .u32(map.wrapping_add(8))
-        .wrapping_add(bucket.wrapping_mul(4));
-    let head = e.mem.u32(at);
-    e.mem.set_u32(at, node);
+    let at = form_map::table(e, s, map).wrapping_add(bucket.wrapping_mul(4));
+    let head = s.load(e, at);
+    s.store(e, at, node);
     e.mem.set_u32(node, head);
-    let count = e.mem.u32(map.wrapping_add(0xc)).wrapping_add(1);
-    e.mem.set_u32(map.wrapping_add(0xc), count);
+    let count = form_map::count(e, s, map).wrapping_add(1);
+    form_map::set_count(e, s, map, count);
     e.vcall(map, 0xc, &args![node, text, form]);
     let key = e.mem.u32(node.wrapping_add(4));
     e.mem.set_u32(form.wrapping_add(FORM_EDITOR_ID), key);

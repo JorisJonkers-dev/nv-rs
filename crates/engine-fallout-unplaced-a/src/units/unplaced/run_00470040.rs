@@ -9,6 +9,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_core::typed::form_map;
 
 /// Destructor body of the container (`0046ffb0`): empties it (`00470470`).
 const CONTAINER_DESTRUCT: u32 = 0x0046_ffb0;
@@ -77,10 +78,12 @@ const MAP_NEW_NODE: u32 = 0x0084_4a70;
 /// through slot +0xC) goes at the head of the bucket and the count grows.
 pub fn fn_00470200(e: &mut Engine, this: Ptr, key: u32, value: u32) {
     let map = this.addr();
+    // The editor id map the forms family moved (nv-rs#951) has its table and count in the
+    // family's store; any other map is the guest map this always worked on.
+    let s = form_map::store(e, map);
     let bucket = e.vcall(map, MAP_HASH_SLOT, &args![key]).u32();
-    let mut node = e
-        .mem
-        .u32(e.mem.u32(map + 8).wrapping_add(bucket.wrapping_mul(4)));
+    let table = form_map::table(e, s, map);
+    let mut node = s.load(e, table.wrapping_add(bucket.wrapping_mul(4)));
     while node != 0 {
         let stored = e.mem.u32(node + 4);
         let equal = e.vcall(map, MAP_EQUAL_SLOT, &args![key, stored]).u32() as u8;
@@ -95,13 +98,15 @@ pub fn fn_00470200(e: &mut Engine, this: Ptr, key: u32, value: u32) {
     }
     let node = e.call(MAP_NEW_NODE, &args![this]).u32();
     e.vcall(map, MAP_SET_NODE_SLOT, &args![node, key, value]);
-    let slot = e.mem.u32(map + 8).wrapping_add(bucket.wrapping_mul(4));
-    let head = e.mem.u32(slot);
+    let table = form_map::table(e, s, map);
+    let slot = table.wrapping_add(bucket.wrapping_mul(4));
+    let head = s.load(e, slot);
     e.mem.set_u32(node, head);
-    let slot = e.mem.u32(map + 8).wrapping_add(bucket.wrapping_mul(4));
-    e.mem.set_u32(slot, node);
-    let count = e.mem.u32(map + 0xc).wrapping_add(1);
-    e.mem.set_u32(map + 0xc, count);
+    let table = form_map::table(e, s, map);
+    let slot = table.wrapping_add(bucket.wrapping_mul(4));
+    s.store(e, slot, node);
+    let count = form_map::count(e, s, map).wrapping_add(1);
+    form_map::set_count(e, s, map, count);
 }
 
 // Translated from 00470320 (decompiled, FalloutNV.exe 1.4.0.525)

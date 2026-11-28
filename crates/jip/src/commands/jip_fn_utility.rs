@@ -219,7 +219,9 @@ pub(crate) fn editor_id_lookup_at(e: &mut Engine, key: u32) -> u32 {
     let vtbl = e.mem.u32(map);
     let bucket = e.call(e.mem.u32(vtbl + 4), &args![map, key]).u32();
     let equal = e.mem.u32(vtbl + 8);
-    let mut entry = e.mem.u32(e.mem.u32(map + 8) + 4 * bucket);
+    // The bucket's head through the forms family's accessor: the table of the editor id map is a
+    // block of the family's own where the map is moved.
+    let mut entry = engine_core::typed::form_map::bucket(e, map, bucket);
     while entry != 0 {
         let other = e.mem.u32(entry + 4);
         if e.call(equal, &args![map, key, other]).u32() & 0xff != 0 {

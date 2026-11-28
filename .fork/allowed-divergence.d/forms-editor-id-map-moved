@@ -1,0 +1,4 @@
+crates/engine-fallout-unplaced-a/src/units/unplaced/run_00470040.rs  # the string map's SetAt reads and writes the table and the count through the map's store (nv-rs#951)
+crates/engine-fallout-unplaced-a/src/units/unplaced/run_00486c80.rs  # the string map's destructor chain walks buckets through form_map::bucket and frees a moved table through form_map::release_table (nv-rs#951)
+crates/jip/src/commands/jip_fn_utility.rs  # the editor id lookup reads a bucket's head through form_map::bucket (nv-rs#951)
+crates/jip/src/game_patches/gl_lights.rs  # the light editor id setter writes the table and the count through the map's store (nv-rs#951)

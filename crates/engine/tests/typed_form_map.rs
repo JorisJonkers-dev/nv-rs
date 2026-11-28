@@ -222,6 +222,25 @@ mod forms {
     const NEW_ITEM: u32 = 0xf010_0014;
     const SET_VALUE: u32 = 0xf010_000c;
     const DESTROY: u32 = 0xf010_0020;
+    /// The string maps' vtable slots (the editor id map `011c54c8`: hash and equality of the
+    /// case-folded text, a node's fill that copies the key, the clear that frees the copy, the
+    /// delete that frees the node), and the vtables of its constructor chain.
+    const TEXT_HASH: u32 = 0xf010_0030;
+    const TEXT_EQUAL: u32 = 0xf010_0034;
+    const TEXT_SET_NODE: u32 = 0xf010_0038;
+    const TEXT_CLEAR: u32 = 0xf010_003c;
+    const TEXT_DESTROY: u32 = 0xf010_0040;
+    const NO_CLEAR: u32 = 0xf010_0044;
+    const EDITOR_ID_VTABLES: [u32; 5] = [
+        0x0101_cab8,
+        0x0101_cad8,
+        0x0101_caf8,
+        0x0101_cb18,
+        0x0101_cb38,
+    ];
+    const EDITOR_ID_BUCKETS: u32 = 0xfa1;
+    const GET_FORM_BY_EDITOR_ID: u32 = 0x0048_3a00;
+    const MAP_SET_AT: u32 = 0x0047_0200;
     std::thread_local! {
         static STEPS: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
     }
@@ -294,6 +313,59 @@ mod forms {
             e.call(OPERATOR_DELETE, &[a[1]]);
             Ret::default()
         });
+        e.register(TEXT_HASH, |e, a| {
+            let sum: u32 = e
+                .mem
+                .cstr(a[1])
+                .iter()
+                .map(|b| u32::from(b.to_ascii_lowercase()))
+                .sum();
+            ret(sum % EDITOR_ID_BUCKETS)
+        });
+        e.register(TEXT_EQUAL, |e, a| {
+            ret(u32::from(
+                e.mem.cstr(a[1]).eq_ignore_ascii_case(&e.mem.cstr(a[2])),
+            ))
+        });
+        e.register(TEXT_SET_NODE, |e, a| {
+            let text = e.mem.cstr(a[2]);
+            let copy = e.call(OPERATOR_NEW, &[text.len() as u32 + 1]).u32();
+            e.mem.write(copy, &text);
+            e.mem.set_u8(copy + text.len() as u32, 0);
+            e.mem.set_u32(a[1] + 4, copy);
+            e.mem.set_u32(a[1] + 8, a[3]);
+            Ret::default()
+        });
+        e.register(TEXT_CLEAR, |e, a| {
+            let key = e.mem.u32(a[1] + 4);
+            if key != 0 {
+                e.call(FREE_TABLE, &[key]);
+                e.mem.set_u32(a[1] + 4, 0);
+            }
+            e.mem.set_u32(a[1] + 8, 0);
+            Ret::default()
+        });
+        e.register(NO_CLEAR, |_, _| Ret::default());
+        e.register(TEXT_DESTROY, |e, a| {
+            e.call(0x0048_6c30, &[a[0], a[1]]);
+            ret(a[0])
+        });
+        for (i, vtable) in EDITOR_ID_VTABLES.into_iter().enumerate() {
+            let mut slots = vec![0; 0x18 / 4 + 1];
+            slots[0] = TEXT_DESTROY;
+            slots[1] = TEXT_HASH;
+            slots[2] = TEXT_EQUAL;
+            slots[3] = TEXT_SET_NODE;
+            // The pointer map's and the bucket map's clear leave the keys to the string map's.
+            slots[4] = if i == 2 || i == 3 {
+                NO_CLEAR
+            } else {
+                TEXT_CLEAR
+            };
+            slots[5] = NEW_ITEM;
+            slots[6] = DELETE;
+            e.put_vtable(vtable, &slots);
+        }
         e.register(ALLOCATE, |_, _| ret(0));
         e.register(DEALLOCATE, |_, _| ret(0));
         e.register(OPERATOR_NEW, |e, a| {
@@ -499,5 +571,192 @@ mod forms {
         assert!(k2.heap.len() < stage1.heap.len());
         assert!(k2.poison_held);
         assert!(mine(&k2.slab_after).is_empty());
+    }
+
+    /// A guest text, made before the map exists so its address does not depend on the form.
+    fn text(e: &mut Engine, s: &str) -> u32 {
+        let at = e.mem.alloc(s.len() as u32 + 1);
+        e.mem.write(at, s.as_bytes());
+        e.mem.set_u8(at + s.len() as u32, 0);
+        at
+    }
+
+    /// The text at `at`, folded to a word (FNV-1a): what the items read by bucket compare.
+    fn word_of(e: &Engine, at: u32) -> u32 {
+        e.mem.cstr(at).iter().fold(0x811c_9dc5u32, |h, b| {
+            (h ^ u32::from(*b)).wrapping_mul(0x0100_0193)
+        })
+    }
+
+    fn read_text_items(e: &Engine, map: u32) -> Vec<[u32; 3]> {
+        let mut out = Vec::new();
+        for b in 0..EDITOR_ID_BUCKETS {
+            let mut item = form_map::bucket(e, map, b);
+            while item != 0 {
+                out.push([b, word_of(e, e.mem.u32(item + 4)), e.mem.u32(item + 8)]);
+                item = e.mem.u32(item);
+            }
+        }
+        out
+    }
+
+    /// The editor id map's life: made by `create_registries` (`00483a50`, record attached before
+    /// the constructor `00486ab0`), filled by `SetAt` (`00470200`) with texts that share buckets
+    /// (the hash sums the folded bytes, so anagrams and digit permutations collide), a text set
+    /// again in another case, looked up (`00483a00`, `00853130`), removed from, cleared, filled
+    /// again and destroyed with items in it, through the destructor chain `00486c30` ..
+    /// `00486dc0` (`via_registries` false), or by `00483b80` (clear, then slot 0).
+    fn editor_life(spec: &str, via_registries: bool) -> Life {
+        let mut e = engine(spec);
+        STEPS.with(|s| s.borrow_mut().clear());
+        let moved_form = spec.ends_with(":moved") || spec.ends_with(":freed");
+        let names: Vec<String> = (0..120u32).map(|i| format!("Edid{i:03}")).collect();
+        let keys: Vec<u32> = names.iter().map(|n| text(&mut e, n)).collect();
+        // The same texts in another case, the permutations that share their bucket, a text absent.
+        let upper: Vec<u32> = names
+            .iter()
+            .map(|n| text(&mut e, &n.to_uppercase()))
+            .collect();
+        let anagrams: Vec<u32> = (0..12u32)
+            .map(|i| text(&mut e, &format!("dEid{i:03}")))
+            .collect();
+        let absent = text(&mut e, "NoSuchId");
+        e.mem.set_u32(FORM_MAP_GLOBAL, 1);
+        e.mem.set_u32(FORM_LIST, 1);
+        e.slice_hook = Some(|e, addr| {
+            STEPS.with(|s| s.borrow_mut().push(addr));
+            e.slice_left = 0;
+        });
+        e.slice_len = 0;
+        e.slice_left = 0;
+        let mut answers = Vec::new();
+        let mut bytes = Vec::new();
+        let mut items = Vec::new();
+        let mut poison_held = true;
+        e.call(0x0048_3a50, &[]);
+        let map = e.mem.u32(EDITOR_ID_MAP);
+        assert_ne!(map, 0, "the editor id map is made");
+        let mut look = |e: &mut Engine, answers: &mut Vec<u32>| {
+            bytes.push([e.mem.u32(map), e.mem.u32(map + BUCKETS)]);
+            let s = form_map::store(e, map);
+            answers.push(form_map::count(e, s, map));
+            items.push(read_text_items(e, map));
+            if moved_form {
+                poison_held &= e.mem.u32(map + TABLE) == poison(form_map::FAMILY, TABLE);
+            }
+        };
+        look(&mut e, &mut answers);
+        for (i, key) in keys.iter().enumerate() {
+            e.call(MAP_SET_AT, &[map, *key, 0x5000 + i as u32]);
+        }
+        // Texts sharing a bucket with another; the same text in another case keeps one item and
+        // takes the new value.
+        for (i, key) in anagrams.iter().enumerate() {
+            e.call(MAP_SET_AT, &[map, *key, 0x6000 + i as u32]);
+        }
+        e.call(MAP_SET_AT, &[map, upper[3], 0x7777]);
+        look(&mut e, &mut answers);
+        let out = e.mem.alloc(4);
+        for key in keys
+            .iter()
+            .step_by(7)
+            .chain(&upper)
+            .chain(&anagrams)
+            .chain(&[absent])
+        {
+            e.mem.set_u32(out, 0xdead);
+            let found = e.call(0x0085_3130, &[map, *key, out]).u32() & 0xff;
+            answers.push(found);
+            answers.push(e.mem.u32(out));
+            answers.push(e.call(GET_FORM_BY_EDITOR_ID, &[*key]).u32());
+        }
+        // The head of a chain, its middle, its tail, a text that is not there.
+        for key in [keys[0x10], upper[44], anagrams[5], absent, keys[0x10]] {
+            answers.push(e.call(0x0040_5430, &[map, key]).u32() & 0xff);
+        }
+        look(&mut e, &mut answers);
+        e.call(0x0043_8af0, &[map]);
+        look(&mut e, &mut answers);
+        for key in keys.iter().take(5) {
+            e.call(MAP_SET_AT, &[map, *key, 1]);
+        }
+        look(&mut e, &mut answers);
+        if via_registries {
+            e.mem.set_u32(FORM_MAP_GLOBAL, 0);
+            e.mem.set_u32(FORM_LIST, 0);
+            e.call(0x0048_3b80, &[]);
+        } else {
+            // With items in it: the string map's walk frees each key, the maps' removals follow.
+            e.call(0x0048_6c30, &[map, 1]);
+            e.mem.set_u32(EDITOR_ID_MAP, 0);
+        }
+        let heap = logged(&e);
+        let moved = e.moved();
+        Life {
+            steps: STEPS.with(|s| std::mem::take(&mut *s.borrow_mut())),
+            answers,
+            bytes,
+            items,
+            heap,
+            poison_held,
+            dual: moved.map(|m| m.dual.counts(form_map::FAMILY)),
+            slab_after: moved.map_or(Vec::new(), |m| m.slab.census()),
+        }
+    }
+
+    #[test]
+    fn the_editor_id_map_lives_alike_in_every_form() {
+        for via_registries in [false, true] {
+            let stage1 = editor_life("formmap", via_registries);
+            assert!(stage1.poison_held);
+            assert!(stage1.items[1].len() > 100, "the map holds items");
+            assert!(
+                stage1.items[1].len()
+                    > stage1.items[1]
+                        .iter()
+                        .map(|i| i[0])
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len(),
+                "texts share buckets"
+            );
+            let default = editor_life("", via_registries);
+            assert_eq!(default.answers, stage1.answers);
+            assert_eq!(default.items, stage1.items);
+            assert_eq!(default.heap, stage1.heap);
+            assert_eq!(default.steps, stage1.steps);
+
+            let dual = editor_life("formmap:dual", via_registries);
+            assert_eq!(dual.answers, stage1.answers);
+            assert_eq!(dual.bytes, stage1.bytes);
+            assert_eq!(dual.items, stage1.items);
+            assert_eq!(dual.heap, stage1.heap);
+            let (compared, differed) = dual.dual.expect("a dual run counts");
+            assert!(compared > 100, "the dual run compared {compared} accesses");
+            assert_eq!(differed, 0, "the dual run found differences");
+
+            let k1 = editor_life("formmap:moved", via_registries);
+            assert_eq!(k1.answers, stage1.answers);
+            assert_eq!(k1.bytes, stage1.bytes);
+            assert_eq!(k1.items, stage1.items);
+            assert_eq!(
+                k1.heap, stage1.heap,
+                "K1 makes the guest heap's allocations"
+            );
+            assert_eq!(k1.steps, stage1.steps, "K1 takes stage 1's steps");
+            assert!(k1.poison_held, "the table word held its poison");
+            assert!(
+                mine(&k1.slab_after).is_empty(),
+                "left in the slab: {:?}",
+                mine(&k1.slab_after)
+            );
+
+            let k2 = editor_life("formmap:freed", via_registries);
+            assert_eq!(k2.answers, stage1.answers);
+            assert_eq!(k2.bytes, stage1.bytes);
+            assert_eq!(k2.items, stage1.items);
+            assert!(k2.heap.len() < stage1.heap.len());
+            assert!(k2.poison_held);
+            assert!(mine(&k2.slab_after).is_empty());
+        }
     }
 }

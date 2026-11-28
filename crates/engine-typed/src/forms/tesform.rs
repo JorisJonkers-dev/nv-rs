@@ -474,17 +474,6 @@ pub fn form_by_id(e: &mut Engine, form_id: u32) -> u32 {
     map_lookup(e, map, form_id)
 }
 
-/// `operator new(size)`, then `construct(block, words..)` when it gave a block: the new object or 0.
-fn new_object(e: &mut Engine, size: u32, construct: u32, words: &[u32]) -> u32 {
-    let block = e.call(OPERATOR_NEW, &args![size]).u32();
-    if block == 0 {
-        return 0;
-    }
-    let mut all = vec![block];
-    all.extend_from_slice(words);
-    e.call(construct, &all).u32()
-}
-
 /// The form map: `operator new(0x10)`, its record attached in the stage-2 forms (before its
 /// constructor, which makes the bucket table in the record's store), the constructor `(block,
 /// 0x2008d)`.
@@ -499,6 +488,19 @@ fn new_map(e: &mut Engine) -> u32 {
         0x0048_6930,
         form_map_construct(e, block, 0x0002_008d)
     )
+}
+
+/// The editor id map: `operator new(0x14)`, its record attached in the stage-2 forms (before its
+/// constructor, which makes the bucket table in the record's store), the constructor `(block,
+/// 0xfa1, 1)`. The record is the map's first 0x10 bytes; the flag byte at +0x10 stays in the block.
+fn new_editor_id_map(e: &mut Engine) -> u32 {
+    let block = e.call(OPERATOR_NEW, &args![0x14u32]).u32();
+    if block == 0 {
+        return 0;
+    }
+    form_map::attach(e, block);
+    e.call(EDITOR_ID_MAP_CONSTRUCT, &args![block, 0xfa1u32, 1u32])
+        .u32()
 }
 
 /// The form array: `operator new(0x18)`, its record attached in the stage-2 forms (before its
@@ -522,7 +524,7 @@ pub fn create_registries(e: &mut Engine) {
         e.mem.set_u32(FORM_MAP, map);
     }
     if e.mem.u32(EDITOR_ID_MAP) == 0 {
-        let map = new_object(e, 0x14, EDITOR_ID_MAP_CONSTRUCT, &[0xfa1, 1]);
+        let map = new_editor_id_map(e);
         e.mem.set_u32(EDITOR_ID_MAP, map);
     }
     if e.mem.u32(FORM_LIST) == 0 {
