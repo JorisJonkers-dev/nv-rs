@@ -55,13 +55,13 @@ def ported(root: Path) -> list[Entry]:
     for suite in sorted((root / SUITES).glob("typed_*.rs")):
         for literal in set(LITERAL.findall(suite.read_text(encoding="utf-8", errors="replace"))):
             suites.setdefault(normal(literal), []).append(suite.relative_to(root).as_posix())
-    found: list[Entry] = []
+    found: dict[str, Entry] = {}
     for source in sorted((root / TYPED).rglob("*.rs")):
         for address in sorted(set(MARKER.findall(source.read_text(encoding="utf-8", errors="replace")))):
-            if address.lower() in suites:
-                found.append({"address": address.lower(), "source": source.relative_to(root).as_posix(),
-                              "suites": suites[address.lower()]})
-    return found
+            if address.lower() in suites and address.lower() not in found:  # one entry per address: the first source
+                found[address.lower()] = {"address": address.lower(), "source": source.relative_to(root).as_posix(),
+                                          "suites": suites[address.lower()]}
+    return list(found.values())
 
 
 def select(root: Path, count: int) -> dict[str, Any]:
@@ -93,6 +93,9 @@ def check(frozen: dict[str, Any]) -> list[str]:
 
 def hide(frozen: dict[str, Any], address: str) -> list[str]:
     """The files a blind workspace for `address` must not contain: the accepted code and the tests that name it."""
+    problems = check(frozen)
+    if problems:
+        raise ValueError("; ".join(problems))
     for entry in frozen["entries"]:
         if entry["address"] == normal(address):
             return [entry["source"], *entry["suites"]]
@@ -113,20 +116,22 @@ def wilson(passed: int, total: int) -> tuple[float, float]:
 def summarise(frozen: dict[str, Any], results: list[Entry]) -> dict[str, Any]:
     """The measures of one run over the frozen set; a function with no result counts as not correct."""
     by_address = {str(r["address"]): r for r in results}
+    if len(by_address) != len(results):
+        raise ValueError("a function has two results")
     unknown = sorted(set(by_address) - {e["address"] for e in frozen["entries"]})
     if unknown:
         raise ValueError(f"results for functions outside the set: {', '.join(unknown)}")
     total = len(frozen["entries"])
     done = [by_address[e["address"]] for e in frozen["entries"] if e["address"] in by_address]
     passed = [r for r in done if r.get("passed") is True]
-    seconds = sum(float(r.get("seconds", 0)) for r in done)
+    seconds = sum(float(r.get("seconds") or 0) for r in done)
     low, high = wilson(len(passed), total)
     return {
         "functions": total, "attempted": len(done), "correct": len(passed), "correct_rate": len(passed) / total,
         "correct_low": low, "correct_high": high,
         "functions_per_hour": len(passed) / (seconds / 3600) if seconds > 0 else 0.0,
-        "cost_per_function": sum(float(r.get("cost", 0)) for r in done) / len(passed) if passed else None,
-        "retries_per_success": sum(int(r.get("retries", 0)) for r in done) / len(passed) if passed else None,
+        "cost_per_function": sum(float(r.get("cost") or 0) for r in done) / len(passed) if passed else None,
+        "retries_per_success": sum(float(r.get("retries") or 0) for r in done) / len(passed) if passed else None,
     }
 
 
@@ -202,7 +207,7 @@ def main(argv: list[str] | None = None, root: Path = REPO, out: Any = sys.stdout
         with Path(args.out).open("a", encoding="utf-8") as log:
             log.write(json.dumps(line, sort_keys=True) + "\n")
         print(json.dumps(line, sort_keys=True), file=out)
-    except (ValueError, OSError, KeyError) as exc:
+    except (ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
         print(f"port_benchmark: {exc}", file=sys.stderr)
         return 2
     return 0

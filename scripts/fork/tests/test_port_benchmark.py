@@ -94,6 +94,8 @@ class Selecting(unittest.TestCase):
         self.assertEqual(hidden, [entry["source"], *entry["suites"]])
         with self.assertRaises(ValueError):
             pb.hide(frozen, "deadbeef")
+        with self.assertRaises(ValueError):
+            pb.hide({"entries": [7]}, "deadbeef")
 
 
 class Scoring(unittest.TestCase):
@@ -120,6 +122,22 @@ class Scoring(unittest.TestCase):
         self.assertAlmostEqual(got["functions_per_hour"], 20 / (22 * 120 / 3600))
         self.assertAlmostEqual(got["cost_per_function"], 22 * 0.5 / 20)
         self.assertEqual(got["retries_per_success"], (10 + 6) / 20)  # the failed ports' retries count too
+
+    def test_an_address_in_two_typed_sources_is_one_function(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkout(root, 24)
+            (root / "crates/engine-typed/src/fam/zz.rs").write_text("// Typed from 00400010\npub fn again() {}\n", encoding="utf-8")
+            found = [e for e in pb.ported(root) if e["address"] == "00400010"]
+            self.assertEqual([e["source"] for e in found], ["crates/engine-typed/src/fam/a.rs"])
+
+    def test_two_results_for_one_function_are_refused_and_null_figures_count_as_zero(self) -> None:
+        frozen = self.frozen()
+        address = frozen["entries"][0]["address"]
+        with self.assertRaisesRegex(ValueError, "two results"):
+            pb.summarise(frozen, [result(address), result(address, passed=False)])
+        got = pb.summarise(frozen, [{"address": address, "passed": True, "retries": None, "seconds": None, "cost": None}])
+        self.assertEqual((got["correct"], got["cost_per_function"], got["retries_per_success"]), (1, 0.0, 0.0))
 
     def test_a_run_with_no_success_has_no_per_function_figures(self) -> None:
         frozen = self.frozen()
@@ -201,6 +219,17 @@ class Command(unittest.TestCase):
     def test_select_without_an_output_file_only_prints_the_set(self) -> None:
         code, out = self.go("select", "--count", "20")
         self.assertEqual((code, len(json.loads(out)["entries"])), (0, 20))
+
+    def test_results_of_the_wrong_shape_exit_with_two(self) -> None:
+        target = self.root / "set.json"
+        self.go("select", "--out", str(target))
+        results = self.root / "r.json"
+        results.write_text('{"not": "a list"}', encoding="utf-8")
+        prompt = self.root / "p.txt"
+        prompt.write_text("p", encoding="utf-8")
+        code, _ = self.go("record", str(target), str(results), "--label", "x", "--prompt", str(prompt), "--n-impl", "1",
+                          "--out", str(self.root / "log"))
+        self.assertEqual(code, 2)
 
     def test_the_script_runs_as_a_command(self) -> None:
         done = subprocess.run([sys.executable, "-I", str(HERE.parent / "port_benchmark.py"), "check", "/none"],
