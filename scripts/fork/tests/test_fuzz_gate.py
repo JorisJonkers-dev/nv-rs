@@ -89,6 +89,10 @@ class Check(Repo):
         silent = fuzz_gate.check(self.root, "fx", Lab((3, "")))
         self.assertEqual(silent["failures"][0]["message"], "exit status 3")
 
+    def test_a_failed_summary_fails_even_when_the_exit_status_is_zero(self):
+        got = fuzz_gate.check(self.root, "fx", Lab((0, "test result: FAILED. 1 passed; 1 failed; 0 ignored\n")))
+        self.assertEqual((got["pass"], got["failures"][0]["message"]), (False, "1 saved case(s) fail"))
+
     def test_a_missing_lab_is_a_failure(self):
         got = fuzz_gate.check(self.root, "fx", Lab((127, "python3: gone\n")))
         self.assertFalse(got["pass"])
@@ -139,6 +143,12 @@ class ToTest(Repo):
         self.assertEqual(self.suite.read_text(encoding="utf-8").count("#[test]"), 1)
         self.assertNotEqual(fuzz_gate.to_test(self.root, "fx", b"\x01\x03")[0], first[0])
 
+    def test_a_comment_that_mentions_a_name_does_not_count_as_the_test(self):
+        data = b"abc"
+        name = "regression_" + __import__("hashlib").sha256(data).hexdigest()[:12]
+        self.suite.write_text(SUITE + f"// fn {name}() was here\n", encoding="utf-8")
+        self.assertEqual(fuzz_gate.to_test(self.root, "fx", data), (name, True))
+
     def test_an_empty_or_unminimised_input_is_refused(self):
         with self.assertRaises(ValueError):
             fuzz_gate.to_test(self.root, "fx", b"")
@@ -174,10 +184,14 @@ class Scaffold(Repo):
         self.assertEqual((out / dep).resolve(), (self.root / "crates" / "engine-core").resolve())
         self.assertIn(f"cargo +{fuzz_gate.FUZZ_NIGHTLY} fuzz run fx", (out / "README.md").read_text(encoding="utf-8"))
 
-    def test_a_directory_outside_the_repository_uses_no_parent_paths(self):
+    def test_a_directory_outside_the_repository_still_reaches_the_crates(self):
+        (self.root / "crates" / "engine-core").mkdir(parents=True)
         with tempfile.TemporaryDirectory() as elsewhere:
-            fuzz_gate.scaffold(self.root, "fx", Path(elsewhere) / "x")
-            self.assertIn('path = "crates/engine-core"', (Path(elsewhere) / "x" / "Cargo.toml").read_text(encoding="utf-8"))
+            out = Path(elsewhere) / "x"
+            fuzz_gate.scaffold(self.root, "fx", out)
+            manifest = (out / "Cargo.toml").read_text(encoding="utf-8")
+            dep = (re.search(r'\[dependencies.engine-core\]\npath = "([^"]+)"', manifest) or self.fail("no dep")).group(1)
+            self.assertEqual((out / dep).resolve(), (self.root / "crates" / "engine-core").resolve())
 
     def test_a_bad_family_name_is_refused(self):
         with self.assertRaises(ValueError):

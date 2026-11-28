@@ -23,6 +23,7 @@ fuzz/, so libfuzzer-sys never reaches the root workspace.
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -78,6 +79,8 @@ def check(root, family, runner=run):
     passed, failed = sum(p for p, _ in totals), sum(f for _, f in totals)
     failures += [finding("fuzz-regression", rel, 1, f"saved case {name} fails", "fix the typed code; never edit the case")
                  for name in FAILED_CASE.findall(output)]
+    if failed and not failures:  # a FAILED summary counts even when the exit status says 0
+        failures.append(finding("fuzz-regression", rel, 1, f"{failed} saved case(s) fail", "fix the typed code; never edit the case"))
     if code and not failures:
         last = [x for x in output.strip().splitlines() if x.strip()]
         failures.append(finding("fuzz-regression", rel, 1, last[-1][:300] if last else f"exit status {code}",
@@ -100,7 +103,7 @@ def to_test(root, family, data, suite=None):
     path = Path(suite) if suite else suite_path(root, family)
     name = f"regression_{hashlib.sha256(data).hexdigest()[:12]}"
     text = path.read_text(encoding="utf-8")
-    if f"fn {name}()" in text:
+    if re.search(rf"^fn {name}\(\)", text, re.MULTILINE):
         return name, False
     test = (f"\n/// A case the fuzz run of the `{family}` family found (minimised); it must keep passing.\n"
             f"#[test]\nfn {name}() {{\n    let bytes: &[u8] = {byte_literal(data)};\n    replay_bytes(bytes);\n}}\n")
@@ -112,9 +115,7 @@ def scaffold(root, family, out):
     """Write the family's cargo-fuzz workspace under `out`; returns the files written."""
     suite_path(root, family)
     out = Path(out)
-    depth = len(out.resolve().relative_to(Path(root).resolve()).parts) if out.resolve().is_relative_to(
-        Path(root).resolve()) else 0
-    up = "../" * depth
+    up = os.path.relpath(Path(root).resolve(), out.resolve()).replace(os.sep, "/") + "/"
     files = {
         "Cargo.toml": (
             f'[package]\nname = "nv-rs-fuzz-{family}"\nversion = "0.0.0"\nedition = "2021"\npublish = false\n\n'
