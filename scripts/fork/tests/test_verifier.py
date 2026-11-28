@@ -236,6 +236,29 @@ class Running(Repo):
         self.assertEqual(verifier.tree_bytes(self.work), 5)
         self.assertEqual([p.name for p in self.work.iterdir()], ["sccache"])
 
+    def test_an_empty_exit_marker_or_unicode_digits_are_not_a_status(self):
+        got = verifier.parse_stats("VERIFIER_EXIT=\nVERIFIER_EXIT=\u0663\nVERIFIER_EXIT=7\n")
+        self.assertEqual(got["exit"], 7)
+        self.assertIsNone(verifier.parse_stats("VERIFIER_EXIT=\n")["exit"])
+
+    def test_a_file_that_vanishes_during_the_walk_is_skipped(self):
+        (self.work / "sccache").mkdir(parents=True)
+        (self.work / "sccache" / "a").write_bytes(b"123")
+        (self.work / "sccache" / "b").write_bytes(b"45")
+        real = verifier.os.lstat
+
+        def flaky(path):
+            if str(path).endswith("/b"):
+                raise FileNotFoundError(path)
+            return real(path)
+
+        with mock.patch.object(verifier.os, "lstat", flaky):
+            self.assertEqual(verifier.tree_bytes(self.work), 3)
+
+    def test_peak_memory_is_read_from_either_cgroup_layout(self):
+        self.assertIn("/sys/fs/cgroup/memory.peak", verifier.INNER)
+        self.assertIn("/sys/fs/cgroup/memory/memory.max_usage_in_bytes", verifier.INNER)
+
     def test_used_bytes_reads_the_filesystem(self):
         self.assertGreater(verifier.used_bytes(self.tmp.name), 0)
 

@@ -21,8 +21,10 @@ directory holds afterwards (the sccache directory: the copy is gone). The seed i
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -46,11 +48,12 @@ INNER = r"""
 "$@"
 rc=$?
 echo "VERIFIER_EXIT=$rc"
-echo "VERIFIER_PEAK=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null)"
+echo "VERIFIER_PEAK=$(cat /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null | head -n 1)"
 sccache --show-stats 2>/dev/null | sed -n 's/^\(Cache hits\|Cache misses\)  *\([0-9][0-9]*\)$/VERIFIER_SCCACHE \1=\2/p'
 exit $rc
 """
-STAT = re.compile(r"^VERIFIER_(EXIT|PEAK)=(\d*)$|^VERIFIER_SCCACHE (Cache hits|Cache misses)=(\d+)$", re.MULTILINE)
+STAT = re.compile(r"^VERIFIER_(EXIT)=([0-9]+)$|^VERIFIER_(PEAK)=([0-9]*)$|^VERIFIER_SCCACHE (Cache hits|Cache misses)=([0-9]+)$",
+                  re.MULTILINE)
 
 
 class VerifierError(Exception):
@@ -117,7 +120,16 @@ def used_bytes(path):
 
 def tree_bytes(path):
     """Bytes of the files under `path` (what the verifier's own directory holds, apart from the host's noise)."""
-    return sum(f.stat().st_size for f in Path(path).rglob("*") if f.is_file() and not f.is_symlink())
+    total = 0
+    for folder, _, names in os.walk(path):
+        for name in names:
+            try:
+                info = os.lstat(os.path.join(folder, name))
+            except OSError:
+                continue  # gone since the walk listed it
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
+    return total
 
 
 def clone_seed(seed, dest, runner=run):
@@ -149,11 +161,11 @@ def docker_run_args(root, tag, name, target, cache, memory, command):
 def parse_stats(output):
     """exit status, peak memory and sccache hit counts from the container's marker lines."""
     stats: dict[str, int | None] = {"exit": None, "peak_bytes": None, "sccache_hits": None, "sccache_misses": None}
-    for kind, number, label, count in STAT.findall(output):
-        if kind == "EXIT":
-            stats["exit"] = int(number)
-        elif kind == "PEAK":
-            stats["peak_bytes"] = int(number) if number else None
+    for exit_kind, exit_number, peak_kind, peak_number, label, count in STAT.findall(output):
+        if exit_kind:
+            stats["exit"] = int(exit_number)
+        elif peak_kind:
+            stats["peak_bytes"] = int(peak_number) if peak_number else None
         else:
             stats["sccache_hits" if label == "Cache hits" else "sccache_misses"] = int(count)
     return stats
