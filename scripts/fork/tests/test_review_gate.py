@@ -118,6 +118,14 @@ class Reviewing(unittest.TestCase):
         self.assertEqual(result["verdict"], "absent")
         self.assertEqual(len(result["reviewers"]), 1)
 
+    def test_the_ordinary_reviewer_is_chosen_so_that_an_adversarial_one_is_left(self) -> None:
+        pool = [{"client": "c", "model": "w", "family": "wfam"}, {"client": "c", "model": "x", "family": "xfam"},
+                {"client": "c", "model": "y", "family": "yfam"}]
+        state: dict[str, Any] = {"last_red": "c/y", "cooldown": {}}
+        gateway = Gateway()
+        result = rg.review_candidate(pool, "wfam", "d", "c", state, gateway, 0.0)
+        self.assertEqual((result["verdict"], gateway.asked), ("pass", ["y:ordinary", "x:red"]))
+
     def test_the_adversarial_reviewer_changes_from_one_candidate_to_the_next(self) -> None:
         state = fresh()
         first, second = Gateway(), Gateway()

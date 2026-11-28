@@ -148,7 +148,11 @@ def review_candidate(pool: list[Reviewer], writer_family: str, diff: str, contex
     verdicts: list[str] = []
     for kind in KINDS:
         got: dict[str, Any] | None = None
-        for reviewer in candidates(pool, kind, writer_family, [r["family"] for r in reviewers], state, stamp):
+        options = candidates(pool, kind, writer_family, [r["family"] for r in reviewers], state, stamp)
+        if kind == "ordinary":  # leave the adversarial review a reviewer of another family, when one can be left
+            leaves = [r for r in options if candidates(pool, "red", writer_family, [r["family"]], state, stamp)]
+            options = leaves or options
+        for reviewer in options:
             status, verdict = ask(kind, reviewer, diff, context, runner, f"{workflow}-{kind}")
             if status != "ok":
                 cooldown[key(reviewer)] = stamp + COOLDOWN_SECONDS
