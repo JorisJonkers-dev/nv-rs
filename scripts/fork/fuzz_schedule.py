@@ -149,7 +149,7 @@ def fuzz(root: Path, family: str, seconds: int, workdir: Path, container: Contai
         report["status"] = "finding"
         for crash in crashes[:MAX_CRASHES]:
             report["findings"].append(finding(family, minimised(crash)))
-    elif record.get("exit") == 0 and not record.get("container_left"):
+    elif record.get("exit") == 0 and record.get("container_left") is False:
         report["status"] = "clean"
     else:
         report["detail"] = str(record.get("output_tail", ""))[-300:] or f"exit status {record.get('exit')}"

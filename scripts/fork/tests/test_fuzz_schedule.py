@@ -211,6 +211,9 @@ class Fuzzing(Repo):
         self.assertEqual((silent["status"], silent["detail"]), ("failed", "exit status 137"))
         left = self.fuzz(Container({"exit": 0, "container_left": True}))
         self.assertEqual(left["status"], "failed")
+        unknown = Container({"exit": 0})
+        del unknown.record["container_left"]  # a record that does not say the container is gone is not a clean run
+        self.assertEqual(self.fuzz(unknown)["status"], "failed")
         gone = self.fuzz(Container(fail_run=verifier.VerifierError("docker is not running")))
         self.assertEqual((gone["status"], gone["detail"]), ("failed", "docker is not running"))
         os_error = self.fuzz(Container(fail_run=OSError("disk full")))
