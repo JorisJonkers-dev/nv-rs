@@ -14,6 +14,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 FORK = Path(__file__).resolve().parents[1]
@@ -82,6 +83,15 @@ with open(LOG, "a", encoding="utf-8") as log:
         log.write("compiled: typed_fade\\n")
 """
 
+CARGO_CHATTY = """
+import sys, time
+if "chatty" in sys.argv:
+    for i in range(400):
+        print("line", i, "x" * 2000, flush=True)
+        time.sleep(0.02)
+open(@LOG@, "a", encoding="utf-8").write("ran " + sys.argv[-1] + "\\n")
+"""
+
 WRAPPER_STUB = """
 import os, subprocess, sys
 LOG = @LOG@
@@ -124,10 +134,18 @@ class BuildDaemon(unittest.TestCase):
         self.state = daemon.ensure_daemon(self.env)
 
     def _stop(self):
-        try:
-            daemon.request(self.state, {"kind": "stop", "token": self.state["token"]})
-        except OSError:
-            pass
+        """Ask the daemon to stop; a daemon that does not answer (a wedged worker) is killed, never waited for."""
+        def ask():
+            try:
+                daemon.request(self.state, {"kind": "stop", "token": self.state["token"]})
+            except (OSError, RuntimeError):
+                pass
+
+        thread = threading.Thread(target=ask, daemon=True)
+        thread.start()
+        thread.join(5)
+        if thread.is_alive():
+            os.kill(self.state["pid"], 15)
 
     def lines(self):
         return self.log.read_text(encoding="utf-8").splitlines() if self.log.exists() else []
@@ -305,6 +323,55 @@ class BuildDaemon(unittest.TestCase):
         self.assertIn("slot_active", status)
         self.assertIn("slot_max_active", status)
 
+    def disconnect_mid_build(self, reset):
+        """Start a chatty build over a raw connection, read its first output, then drop the connection."""
+        import socket
+        import struct
+        sock = socket.create_connection(("127.0.0.1", self.state["port"]), timeout=30)
+        if reset:  # an abortive close: the next write on the daemon's side fails with a reset
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        stream = sock.makefile("rw", encoding="utf-8", newline="\n")
+        daemon.send_frame(stream, {"kind": "build", "token": self.state["token"], "argv": ["chatty"],
+                                   "cwd": str(self.tmp.name), "label": "gone", "env": {}})
+        seen = None
+        while seen is None or seen.get("kind") != "out" or "line" not in seen["data"]:
+            seen = daemon.recv_frame(stream)
+        stream.close()
+        sock.close()
+
+    def submit_with_deadline(self, argv, seconds=20):
+        result = []
+        thread = threading.Thread(target=lambda: result.append(
+            daemon.submit(argv, cwd=str(self.tmp.name), env=self.env)), daemon=True)
+        thread.start()
+        thread.join(seconds)
+        return result[0] if result else None
+
+    def test_a_client_that_disconnects_mid_build_does_not_stop_the_daemon(self):
+        stub(self.cargo, CARGO_CHATTY, self.log)
+        for reset in (False, True):
+            self.disconnect_mid_build(reset)
+            self.assertEqual(self.submit_with_deadline(["quick", f"after-{reset}"]), 0)
+        self.assertIn("ran after-False", self.log.read_text(encoding="utf-8"))
+        self.assertIn("ran after-True", self.log.read_text(encoding="utf-8"))
+
+    def test_the_build_of_a_vanished_client_is_stopped_to_free_the_slot(self):
+        stub(self.cargo, CARGO_CHATTY, self.log)
+        self.disconnect_mid_build(False)
+        started = time.time()
+        self.assertEqual(self.submit_with_deadline(["quick", "next"]), 0)
+        self.assertLess(time.time() - started, 7)  # the chatty build alone would take 8 s or more
+
+    def test_status_is_answered_while_a_build_runs(self):
+        stub(self.cargo, CARGO_CHATTY, self.log)
+        self.disconnect_mid_build(False)
+        answer = []
+        thread = threading.Thread(target=lambda: answer.append(daemon.daemon_status(self.env)), daemon=True)
+        thread.start()
+        thread.join(3)
+        self.assertEqual(len(answer), 1)
+        self.assertGreaterEqual(answer[0]["active"], 0)
+
     def _handled_start(self, request):
         """The job_starts entry the daemon records for one request run against a stub cargo."""
         with mock.patch.object(daemon.shutil, "which", return_value=None):
@@ -317,6 +384,109 @@ class BuildDaemon(unittest.TestCase):
                           config, stats, threading.Event(), 0)
         self.output = stream.getvalue()
         return stats["job_starts"][-1]
+
+    def test_a_client_that_is_gone_before_its_build_starts_gets_no_build(self):
+        with mock.patch.object(daemon.subprocess, "Popen") as popen:
+            stats, stream = daemon.new_stats(), mock.Mock()
+            stream.write.side_effect = BrokenPipeError
+            with mock.patch.object(daemon.shutil, "which", return_value=None):
+                config = daemon.Config({})
+            daemon.handle(stream, {"kind": "build", "argv": []}, config, stats, threading.Event(), 0)
+        popen.assert_not_called()
+        self.assertEqual((stats["dropped"], stats["completed"]), (1, 0))
+
+    def test_a_closed_stream_is_not_an_error_for_status_and_stop(self):
+        stream = io.StringIO()
+        stream.close()
+        stop = threading.Event()
+        config = mock.Mock(describe=dict)
+        daemon.handle(stream, {"kind": "status"}, config, daemon.new_stats(), stop)
+        daemon.handle(stream, {"kind": "stop"}, config, daemon.new_stats(), stop)
+        self.assertTrue(stop.is_set())
+
+    def test_one_failing_request_does_not_end_the_worker(self):
+        """The daemon runs in this process here, so its handler can be made to fail once."""
+        runtime = Path(self.tmp.name) / "inproc"
+        stub(self.cargo, CARGO_CHATTY, self.log)
+        env = dict(self.env, NV_BUILD_DAEMON_DIR=str(runtime))
+        real, calls = daemon.handle, []
+
+        def flaky(stream, req, config, stats, stop, slot_index=0):
+            calls.append(req.get("kind"))
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return real(stream, req, config, stats, stop, slot_index)
+
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(daemon, "handle", flaky):
+            thread = threading.Thread(target=daemon.serve, daemon=True)
+            thread.start()
+            state = None
+            for _ in range(100):
+                state = daemon.read_state(runtime)
+                if state and daemon.reachable(state):
+                    break
+                time.sleep(0.05)
+            if state is None:
+                self.fail("the daemon did not start")
+            with self.assertRaises(RuntimeError):  # the failed request's connection is simply closed
+                daemon.request(state, {"kind": "build", "token": state["token"], "argv": ["quick", "one"],
+                                       "cwd": str(self.tmp.name), "env": {}})
+            answer = daemon.request(state, {"kind": "build", "token": state["token"], "argv": ["quick", "two"],
+                                            "cwd": str(self.tmp.name), "env": {}})
+            self.assertEqual(answer["exit"], 0)
+            daemon.request(state, {"kind": "stop", "token": state["token"]})
+            thread.join(10)
+        self.assertIn("ran two", self.log.read_text(encoding="utf-8"))
+
+    def test_a_build_that_cannot_start_reports_why_to_the_client(self):
+        sent = []
+        with mock.patch.object(daemon.shutil, "which", return_value=None):
+            config = daemon.Config({})
+        with mock.patch.object(daemon.subprocess, "Popen", side_effect=FileNotFoundError("no cargo")), \
+                mock.patch.object(daemon, "send_frame", lambda stream, message: sent.append(message)):
+            daemon.handle(io.StringIO(), {"kind": "build", "argv": [], "cwd": str(self.tmp.name)}, config,
+                          daemon.new_stats(), threading.Event(), 0)
+        self.assertTrue(any("no cargo" in str(m.get("data", "")) for m in sent))
+        self.assertEqual(sent[-1], {"kind": "done", "exit": 2})
+
+    def test_the_command_line_without_a_command_prints_its_help(self):
+        with mock.patch.object(sys, "stderr", new=io.StringIO()) as err:
+            self.assertEqual(daemon.main(["build_daemon.py"]), 2)
+        self.assertIn("build", err.getvalue())
+
+    def test_a_lock_that_was_never_entered_exits_quietly(self):
+        lock = daemon.FileLock(Path(self.tmp.name) / "l.lock")
+        self.assertFalse(lock.__exit__(None, None, None))
+        with lock:
+            pass
+        self.assertTrue(getattr(lock.handle, "closed", False))
+
+    def test_closing_a_stream_whose_client_has_gone_is_not_an_error(self):
+        broken, fine = mock.Mock(), mock.Mock()
+        broken.close.side_effect = BrokenPipeError
+        daemon.close_quietly(broken, fine)
+        fine.close.assert_called_once()
+        gone = io.StringIO()
+        gone.close()
+        daemon.close_quietly(gone)
+
+    def test_a_build_nobody_reads_any_more_is_terminated(self):
+        proc = mock.Mock(stdout=iter(["one\n", "two\n", "three\n"]), wait=lambda: -15)
+        sent = []
+
+        def send(stream, message):
+            sent.append(message)
+            if len(sent) >= 2 and message.get("kind") == "out" and message["data"] == "two\n":
+                raise BrokenPipeError
+
+        with mock.patch.object(daemon.shutil, "which", return_value=None):
+            config = daemon.Config({})
+        with mock.patch.object(daemon.subprocess, "Popen", return_value=proc), \
+                mock.patch.object(daemon, "send_frame", send):
+            daemon.handle(io.StringIO(), {"kind": "build", "argv": [], "cwd": str(self.tmp.name)}, config,
+                          daemon.new_stats(), threading.Event(), 0)
+        proc.terminate.assert_called_once()
+        self.assertNotIn("three\n", [m.get("data") for m in sent])
 
     def test_a_started_job_records_how_long_it_waited_in_the_queue(self):
         entry = self._handled_start({"label": "w", "queued_at": time.time() - 5})
@@ -338,7 +508,7 @@ class BuildDaemon(unittest.TestCase):
         before = time.time()
         self.assertEqual(daemon.submit(["check"], cwd=str(self.tmp.name), env=self.env,
                                        label="stamped"), 0)
-        status = daemon.daemon_status(self.env)
+        status: dict[str, Any] = daemon.daemon_status(self.env)
         entry = [j for j in status["job_starts"] if j["label"] == "stamped"][-1]
         self.assertIsNotNone(entry["waited"])
         self.assertGreaterEqual(entry["start"], before)
