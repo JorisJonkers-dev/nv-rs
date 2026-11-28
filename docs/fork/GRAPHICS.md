@@ -127,6 +127,23 @@ further or falls short. Two limits stay, both the game's: a land quad (2048 unit
 lights (`AddLandscapePasses_2x`, `00bdf3e0`: the `LANDnO4` passes take the first three active lights of the quad;
 nv-rs#912), and a lamp in a cell that is not loaded has no light; only the far view's light points (`far_lights`) show it.
 
+Which light kinds get the longer reach (nv-rs#1040): all of them. The scale is applied in `ShadowSceneLight::TestFrustumCull`
+to every light the culler sees, with no branch on the kind, so the fade distances of street lamps, lit signs and neon, campfires,
+burning barrels and torches (flickering and pulsing placed lights), muzzle flashes, spell and effect lights, and the lights
+that moving actors carry are all multiplied alike. What differs is what the far view can show once a light is outside the loaded
+cells (`far_lights`, written by lodwright 0.21.0 and later, which gives a point to every placed light that stands when the game
+starts and reaches at least 256 units, steady, flickering or pulsing alike; the point itself does not flicker):
+
+| Light kind | Reach (`lamp_distance`) | Far point (`far_lights`) |
+| --- | --- | --- |
+| Steady placed lights: street lamps, signs, neon, lit windows | yes | yes |
+| Flickering and pulsing placed lights: campfires, burning barrels, torches, lanterns | yes | yes (since lodwright 0.21.0) |
+| Muzzle flashes, spell and effect lights | yes | no: not placed lights |
+| Lights carried by moving actors | yes | no: they move |
+
+The last two rows cannot be shot with the static scene tool, since nothing there fires or walks; the typed test
+`lights_test_frustum_cull` and `lamp_distance_scales_the_fade_and_one_keeps_the_game_s` cover the culler for any light.
+
 `far_lights` (`engine::far_lights`, `bgsdistantobjectblock.rs`): a far-object block file may hold, as a direct child of its
 root node after the block mesh, a shape carrying an extra data object named `FarLights`: small unlit points where the
 world's lamps stand, written by a far-view tool. The block's prepare leaves that shape out of the far-building treatment
