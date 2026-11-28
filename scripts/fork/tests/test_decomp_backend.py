@@ -917,6 +917,27 @@ class GapUnitTests(unittest.TestCase):
             self.assertEqual(backend.drop_conflicting_declarations(stderr, copy), 1)
             self.assertEqual(header.read_text().split("\n")[1], "")
 
+    def test_a_second_local_m128_definition_is_dropped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = Path(temp)
+            source = copy / "x.cpp"
+            source.write_text(
+                "typedef union { float a[4]; } __m128, LocalM128;\n"
+                "extern \"C\" LocalM128 f();\n"
+                "namespace n {\n"
+                "typedef union {\n"
+                "    float a[4];\n"
+                "} __m128, LocalM128;\n"
+                "extern \"C\" LocalM128 f();\n"
+                "}\n")
+            stderr = ("%s:7:22: error: functions that differ only in their return type cannot be "
+                      "overloaded\n" % source)
+            self.assertEqual(backend.drop_duplicate_local_m128(stderr, copy), 1)
+            lines = source.read_text().split("\n")
+            self.assertIn("LocalM128", lines[0])  # the first definition stays
+            self.assertEqual(lines[3:6], ["", "", ""])
+            self.assertEqual(len(lines), 9)  # line numbers stay
+
     def test_a_definition_is_never_dropped_as_a_declaration(self):
         with tempfile.TemporaryDirectory() as temp:
             copy = Path(temp)
