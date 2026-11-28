@@ -111,6 +111,7 @@ pub mod array;
 pub mod attributes;
 pub mod conditions;
 pub mod debug_string;
+pub mod map;
 pub mod object;
 pub mod package_data;
 pub mod package_list;

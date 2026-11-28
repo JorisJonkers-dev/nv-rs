@@ -166,8 +166,11 @@ scripts/mmio-measure/
 scripts/vorbis-record/
 crates/engine-core/src/lamp_distance.rs
 crates/engine-core/src/typed/form_array.rs
+crates/engine-core/src/typed/form_map.rs
 crates/engine-typed/src/forms/array.rs
+crates/engine-typed/src/forms/map.rs
 crates/engine/tests/typed_form_array.rs
+crates/engine/tests/typed_form_map.rs
 crates/engine-typed/src/extra_data/nodes/layouts.rs
 crates/engine-typed/src/extra_data/nodes/mod.rs
 crates/engine-typed/src/extra_data/nodes/objects.rs
