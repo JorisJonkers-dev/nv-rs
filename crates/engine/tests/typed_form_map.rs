@@ -248,10 +248,18 @@ mod forms {
     fn engine(spec: &str) -> Engine {
         let mut e = Engine::new_untyped_for_test();
         e.typed_apply_for_test(
-            &[&FORM_MAP, &FORM_ARRAY, &FORMS, &DISPATCH, &SAVE, &leaf::LEAVES],
+            &[
+                &FORM_MAP,
+                &FORM_ARRAY,
+                &FORMS,
+                &DISPATCH,
+                &SAVE,
+                &leaf::LEAVES,
+            ],
             spec,
         );
         e.map(LOG, LOG_BYTES);
+        e.map(FORM_MAP_GLOBAL & !0xfff, 0x1000);
         // The vtables: the pointer map's (the form map's) and the base's, slots as the doubles.
         let mut slots = vec![0; 0x18 / 4 + 1];
         slots[0] = DESTROY;

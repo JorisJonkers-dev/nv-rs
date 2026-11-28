@@ -28,9 +28,10 @@ const HASH_SLOT: u32 = 4;
 const EQUAL_SLOT: u32 = 8;
 const CLEAR_SLOT: u32 = 0x10;
 const DELETE_SLOT: u32 = 0x18;
-/// The allocator of the bucket table (`cdecl(bytes)`) and the CRT's `memset` wrapper that zeroes it.
+/// The allocator of the bucket table (`cdecl(bytes)`) and the CRT's `memset` wrapper and `memset` that zero it.
 const ALLOCATE_BUCKETS: u32 = 0x00aa_1070;
 const MEMSET_WRAPPER: u32 = 0x0040_3d30;
+const MEMSET: u32 = 0x00ec_61c0;
 
 const BUCKET_MAP_VTABLE: u32 = 0x0101_cb18;
 const POINTER_MAP_VTABLE: u32 = 0x0101_caf8;
@@ -191,7 +192,7 @@ pub(crate) fn construct_body(e: &mut Engine, this: u32, vtable: u32, buckets: u3
     form_map::set_table(e, s, this, table);
     let bytes = e.mem.u32(this.wrapping_add(BUCKETS)).wrapping_shl(2);
     if is_handle(table) {
-        e.typed_charge(&[MEMSET_WRAPPER]);
+        e.typed_charge(&[MEMSET_WRAPPER, MEMSET]);
     } else {
         typed_call!(
             crt::FAMILY,
