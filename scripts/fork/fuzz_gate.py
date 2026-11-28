@@ -12,7 +12,7 @@ on a binary corpus or crash artifact tracked in git. The deterministic compariso
 (`Diff` cases and the float sweep), which `port_check.py` already runs. One JSON verdict on stdout.
 
 `to-test` turns one minimised crash input into a byte-literal test appended to the family's suite, named after the
-input's hash, so the same input is never added twice. The suite is expected to define `replay_bytes(&[u8])`, which
+input's hash, so the same input is never added twice. The suite must define `pub fn replay_bytes(&[u8])`, which
 decodes the bytes the way the fuzz target does and runs the comparison. An input over 512 bytes is refused: minimise
 it first (`cargo fuzz tmin`). Binary corpora are never committed (repo_hygiene).
 
@@ -94,6 +94,12 @@ def byte_literal(data):
     return "&[\n" + "".join(f"        {row},\n" for row in rows) + "    ]"
 
 
+def require_replay(path):
+    """The suite must define `pub fn replay_bytes`: the fuzz target and the tests reach it from outside the module."""
+    if not re.search(r"^pub fn replay_bytes\(", Path(path).read_text(encoding="utf-8"), re.MULTILINE):
+        raise ValueError(f"{path} defines no `pub fn replay_bytes(&[u8])`")
+
+
 def to_test(root, family, data, suite=None):
     """Append the byte-literal test of `data` to the family's suite; returns (test name, whether it was new)."""
     if not data:
@@ -101,6 +107,7 @@ def to_test(root, family, data, suite=None):
     if len(data) > MAX_INPUT:
         raise ValueError(f"the input is {len(data)} bytes (limit {MAX_INPUT}): minimise it with cargo fuzz tmin")
     path = Path(suite) if suite else suite_path(root, family)
+    require_replay(path)
     name = f"regression_{hashlib.sha256(data).hexdigest()[:12]}"
     text = path.read_text(encoding="utf-8")
     if re.search(rf"^fn {name}\(\)", text, re.MULTILINE):
@@ -113,7 +120,7 @@ def to_test(root, family, data, suite=None):
 
 def scaffold(root, family, out):
     """Write the family's cargo-fuzz workspace under `out`; returns the files written."""
-    suite_path(root, family)
+    require_replay(suite_path(root, family))
     out = Path(out)
     up = os.path.relpath(Path(root).resolve(), out.resolve()).replace(os.sep, "/") + "/"
     files = {

@@ -21,7 +21,7 @@ import fuzz_gate
 
 ENV = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com", GIT_COMMITTER_NAME="t",
            GIT_COMMITTER_EMAIL="t@example.com", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
-SUITE = "// suite\nfn replay_bytes(_b: &[u8]) {}\n"
+SUITE = "// suite\npub fn replay_bytes(_b: &[u8]) {}\n"
 PASSING = "test result: ok. 2 passed; 0 failed; 0 ignored\n"
 FAILING = ("test fx::regression_aaaaaaaaaaaa ... FAILED\ntest fx::regression_bbbbbbbbbbbb ... ok\n"
            "test result: FAILED. 1 passed; 1 failed; 0 ignored\n")
@@ -149,6 +149,14 @@ class ToTest(Repo):
         self.suite.write_text(SUITE + f"// fn {name}() was here\n", encoding="utf-8")
         self.assertEqual(fuzz_gate.to_test(self.root, "fx", data), (name, True))
 
+    def test_a_suite_without_a_public_replay_function_is_refused(self):
+        for text in ("fn replay_bytes(_b: &[u8]) {}\n", "// pub fn replay_bytes(x)\n", "// none\n"):
+            self.suite.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "pub fn replay_bytes"):
+                fuzz_gate.to_test(self.root, "fx", b"\x01")
+            with self.assertRaisesRegex(ValueError, "pub fn replay_bytes"):
+                fuzz_gate.scaffold(self.root, "fx", self.root / "o")
+
     def test_an_empty_or_unminimised_input_is_refused(self):
         with self.assertRaises(ValueError):
             fuzz_gate.to_test(self.root, "fx", b"")
@@ -158,7 +166,7 @@ class ToTest(Repo):
 
     def test_a_suite_can_be_named_explicitly(self):
         other = self.root / "other.rs"
-        other.write_text("fn replay_bytes(_b: &[u8]) {}", encoding="utf-8")
+        other.write_text("pub fn replay_bytes(_b: &[u8]) {}", encoding="utf-8")
         fuzz_gate.to_test(self.root, "fx", b"\x09", suite=other)
         self.assertIn("#[test]", other.read_text(encoding="utf-8"))
         self.assertNotIn("#[test]", self.suite.read_text(encoding="utf-8"))

@@ -195,7 +195,7 @@ without a module path is left to it.
   sweep is the suite's own `Diff` cases and float sweep, which `port_check.py` already runs.
 - `to-test <family> <input>` turns one minimised crash input (at most 512 bytes; `cargo fuzz tmin` first) into a
   byte-literal test named after the input's hash and appends it to the suite; the same input is added once. The suite
-  defines `replay_bytes(&[u8])`, which decodes the bytes as the fuzz target does and runs the comparison.
+  defines `pub fn replay_bytes(&[u8])`, which decodes the bytes as the fuzz target does and runs the comparison.
 - `scaffold <family> <dir>` writes the family's fuzz crate: its own workspace (like `fuzz/`), a path dependency on
   engine-core with `test-support`, and a target that includes the suite and calls `replay_bytes`. It is built with
   the pinned nightly (`FUZZ_NIGHTLY` in the script, passed as `cargo +<nightly> fuzz run`); the repository's pin is
