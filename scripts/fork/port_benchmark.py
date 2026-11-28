@@ -16,7 +16,7 @@ blind workspace must not contain. Scoring uses hidden differential cases, kept o
 
 `record` turns one run's results (one entry per address: passed the hidden cases or not, retries, seconds, cost) into one
 line of a versioned, append-only log: correct rate with a 95% Wilson interval, functions per hour, dollars per accepted
-function and retries per success, with the label (the model and route, as the operator names them), the hash of the
+function and retries per success (retries and cost of failed ports are charged to the successes), with the label (the model and route, as the operator names them), the hash of the
 prompt and the number of implementers. `compare` reads the log and judges a run against the one before with the same
 label: a change is real only when the intervals do not overlap; one function's difference is noise.
 """
@@ -126,7 +126,7 @@ def summarise(frozen: dict[str, Any], results: list[Entry]) -> dict[str, Any]:
         "correct_low": low, "correct_high": high,
         "functions_per_hour": len(passed) / (seconds / 3600) if seconds > 0 else 0.0,
         "cost_per_function": sum(float(r.get("cost", 0)) for r in done) / len(passed) if passed else None,
-        "retries_per_success": sum(int(r.get("retries", 0)) for r in passed) / len(passed) if passed else None,
+        "retries_per_success": sum(int(r.get("retries", 0)) for r in done) / len(passed) if passed else None,
     }
 
 

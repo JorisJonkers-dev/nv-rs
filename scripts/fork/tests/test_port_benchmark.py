@@ -113,13 +113,13 @@ class Scoring(unittest.TestCase):
     def test_the_measures_count_what_passed_the_hidden_cases_and_what_was_never_attempted_as_failed(self) -> None:
         frozen = self.frozen()
         addresses = [e["address"] for e in frozen["entries"]]
-        results = [result(a, passed=i < 20, retries=1 if i < 10 else 0, seconds=120, cost=0.5)
+        results = [result(a, passed=i < 20, retries=1 if i < 10 else (3 if i >= 20 else 0), seconds=120, cost=0.5)
                    for i, a in enumerate(addresses[:22])]
         got = pb.summarise(frozen, results)
         self.assertEqual((got["functions"], got["attempted"], got["correct"], got["correct_rate"]), (25, 22, 20, 0.8))
         self.assertAlmostEqual(got["functions_per_hour"], 20 / (22 * 120 / 3600))
         self.assertAlmostEqual(got["cost_per_function"], 22 * 0.5 / 20)
-        self.assertEqual(got["retries_per_success"], 0.5)
+        self.assertEqual(got["retries_per_success"], (10 + 6) / 20)  # the failed ports' retries count too
 
     def test_a_run_with_no_success_has_no_per_function_figures(self) -> None:
         frozen = self.frozen()
