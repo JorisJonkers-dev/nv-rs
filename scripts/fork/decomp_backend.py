@@ -95,13 +95,15 @@ INTRINSIC_DECLS = re.compile(
 EXTERN_C_DELETE = re.compile(r'extern "C"([ \t]+void[ \t]+(?:__cdecl[ \t]+)?operator[ \t]+delete)')
 # `__if_not_exists` on a member of an incomplete template is an error in clang; the name it tests
 # is never there, so the guarded include is the intent.
-INCOMPLETE_MEMBER_TEST = re.compile(r"__if_not_exists\(TESDataHandlerArrayType::m_pBase\)")
+INCOMPLETE_MEMBER_TEST = re.compile(r"__if_not_exists\((TESDataHandlerArrayType|hkQuaternion)::(?:m_pBase|getImag)\)")
 
 
 # The decomp's non-MSVC `InterlockedIncrement`/`Decrement` definitions collide with the macros
 # winnt.h makes of them; the macros stay and the definitions are renamed out of the way.
 INTERLOCKED_DEF = re.compile(r"^(FNV_FORCEINLINE long )(Interlocked(?:Increment|Decrement))\(", re.M)
 SIZE_T_TYPEDEF = re.compile(r"typedef unsigned int (\w*size_t);")
+# MSVC's `unsigned __w64` is a pointer-sized unsigned type: the CRT's `size_t` under that spelling.
+W64_UNSIGNED_TYPEDEF = re.compile(r"typedef unsigned __w64 (\w+);")
 
 
 # A naked function is all assembly; wasm has no such attribute, and its body becomes the stub.
@@ -148,8 +150,9 @@ def rewrite_source(text):
     text = NAKED.sub("", text)
     text = INTERLOCKED_DEF.sub(r"\1Fnv_\2(", text)
     text = SIZE_T_TYPEDEF.sub(r"typedef __SIZE_TYPE__ \1;", text)
+    text = W64_UNSIGNED_TYPEDEF.sub(r"typedef __SIZE_TYPE__ \1;", text)
     text = EXTERN_C_DELETE.sub(r"\1", text)
-    text = INCOMPLETE_MEMBER_TEST.sub("__if_not_exists(TESDataHandlerArrayType_never_defined)", text)
+    text = INCOMPLETE_MEMBER_TEST.sub(lambda m: "__if_not_exists(%s_never_defined)" % m.group(1), text)
     text = text.replace("typedef unsigned int size_t;", "typedef __SIZE_TYPE__ size_t;")
     return NAMED_ENUM.sub(r"enum\1\2 : int\3\4", text)
 
@@ -346,6 +349,8 @@ def drop_conflicting_declarations(stderr, copy):
 
 
 LOCAL_M128_END = re.compile(r"^\s*\}\s*__m128\s*,\s*LocalM128\s*;\s*$")
+RETURN_OVERLOAD_DECLARATION = re.compile(
+    r"^(?P<head>\s*(?:extern\s+\"C\"\s+)?[\w:<>\*&\s]*?\b)(?P<name>\w+)\s*\(\s*\)\s*(?:throw\(\)\s*)?;\s*$")
 
 
 def drop_duplicate_local_m128(stderr, copy):
@@ -379,6 +384,159 @@ def drop_duplicate_local_m128(stderr, copy):
         blanked += 1
         break
     return blanked
+
+
+def _previous_declaration_is_outside(stderr, found_index, lines, copy):
+    """True when the note after the error at `found_index` names a file outside the build copy."""
+    for line in lines[found_index + 1:]:
+        note = DIAGNOSTIC.match(line)
+        if not note:
+            continue
+        if note["kind"] == "note":
+            return not _inside(note["file"], copy)
+        return False
+    return False
+
+
+def alias_local_m128_to_global(stderr, copy):
+    """Make a unit's `LocalM128` the stand-in's global `__m128` when their declarations collide.
+
+    A unit that defines its own `__m128, LocalM128` union and declares the `_mm_*` functions over it
+    clashes with the stand-in header's declarations of the same C functions (`differ only in their
+    return type`, the previous declaration being in the header). The definition nearest above the
+    first such error is replaced by `typedef ::__m128 __m128, LocalM128;` (line numbers stay), so
+    both declarations agree. Returns how many definitions were replaced.
+    """
+    lines = stderr.splitlines()
+    for index, line in enumerate(lines):
+        found = DIAGNOSTIC.match(line)
+        if (not found or found["kind"] != "error"
+                or "differ only in their return type" not in found["msg"]
+                or not _inside(found["file"], copy)
+                or not _previous_declaration_is_outside(stderr, index, lines, copy)):
+            continue
+        path = Path(found["file"])
+        text = path.read_text(errors="surrogateescape").split("\n")
+        end = next((i for i in range(int(found["line"]) - 1, -1, -1)
+                    if LOCAL_M128_END.match(text[i])), None)
+        if end is None:
+            continue
+        start = next((i for i in range(end, -1, -1) if text[i].lstrip().startswith("typedef union")), None)
+        if start is None:
+            continue
+        for i in range(start, end + 1):
+            text[i] = ""
+        text[start] = "typedef ::__m128 __m128, LocalM128;"
+        path.write_text("\n".join(text), errors="surrogateescape")
+        return 1
+    return 0
+
+
+C_DECLARATION = re.compile(r'^(?P<lead>\s*)extern\s+"C"\s+(?P<rest>[^{};=]*?\b(?P<name>\w+)\s*\([^{};]*\))\s*;\s*$')
+
+
+def _inside_namespace(text, number):
+    """True when line `number` (0-based) sits inside a `namespace` block (a brace count, as the decomp is plain)."""
+    stack = []
+    for line in text[:number]:
+        for position, char in enumerate(line):
+            if char == "{":
+                stack.append(bool(re.search(r"\bnamespace\b", line[:position])))
+            elif char == "}" and stack:
+                stack.pop()
+    return any(stack)
+
+
+def detach_namespaced_c_declaration(stderr, copy):
+    """Turn a namespace's one-line `extern "C"` declaration into a C++ one bound to the same symbol.
+
+    The decomp's merged sources declare the same C function in several namespaces with each
+    section's own types; clang treats them as one function and refuses the second. A declaration in
+    a namespace becomes `T name(args) __asm__("name");`, a function of that namespace that still
+    reaches the same symbol (line numbers stay). The diagnostic's own line or its note is the
+    candidate. Returns how many declarations were changed.
+    """
+    groups, current = [], None
+    for line in stderr.splitlines():
+        found = DIAGNOSTIC.match(line)
+        if not found:
+            continue
+        if found["kind"] == "error":
+            current = {"msg": found["msg"], "where": [(found["file"], int(found["line"]))]}
+            groups.append(current)
+        elif current is not None:
+            current["where"].append((found["file"], int(found["line"])))
+    for group in groups:
+        if not any(m in group["msg"] for m in ("conflicting types for", "differ only in their return type")):
+            continue
+        for file, number in group["where"]:
+            if not _inside(file, copy) or not Path(file).is_file():
+                continue
+            path = Path(file)
+            text = path.read_text(errors="surrogateescape").split("\n")
+            if not 0 < number <= len(text):
+                continue
+            declaration = C_DECLARATION.match(text[number - 1])
+            if not declaration or not _inside_namespace(text, number - 1):
+                continue
+            text[number - 1] = '%s%s __asm__("%s");' % (
+                declaration["lead"], declaration["rest"], declaration["name"])
+            path.write_text("\n".join(text), errors="surrogateescape")
+            return 1
+    return 0
+
+
+def rename_return_overloads(stderr, copy):
+    """Give a redeclaration that differs only in its return type its own name and the same symbol.
+
+    The decomp's merged sources declare one `extern "C"` function (`hkMemoryRouter_getInstance`)
+    again in each section with that section's own return type, which MSVC accepts and clang does
+    not. The later declaration becomes `T name_nvK() __asm__("name");` and the calls below it, up
+    to the next declaration of `name` or the end of the declaration's scope, use the new name, so each section keeps its own type and
+    every one still reaches the same symbol. Line numbers stay. Returns how many were renamed.
+    """
+    renamed = 0
+    done = set()
+    for line in stderr.splitlines():
+        found = DIAGNOSTIC.match(line)
+        if (not found or found["kind"] != "error"
+                or "differ only in their return type" not in found["msg"]
+                or not _inside(found["file"], copy)):
+            continue
+        key = (found["file"], int(found["line"]))
+        if key in done:
+            continue
+        done.add(key)
+        path = Path(found["file"])
+        text = path.read_text(errors="surrogateescape").split("\n")
+        number = int(found["line"]) - 1
+        if not 0 <= number < len(text):
+            continue
+        declaration = RETURN_OVERLOAD_DECLARATION.match(text[number])
+        if not declaration:
+            continue
+        name = declaration["name"]
+        suffix = "_nv%d" % (number + 1)
+        use = re.compile(r"\b%s\b" % re.escape(name))
+        end = len(text)
+        for i in range(number + 1, len(text)):
+            if re.match(r"^\s*(?:extern\s+(?:\"C\"\s+)?)?[\w:<>\*&\s]*\b%s\s*\(\s*\)\s*(?:throw\(\)\s*)?;\s*$"
+                        % re.escape(name), text[i]):
+                end = i
+                break
+        depth = 0
+        for i in range(number + 1, end):
+            depth += text[i].count("{") - text[i].count("}")
+            if depth < 0:  # the declaration's own scope closed
+                end = i
+                break
+        for i in range(number + 1, end):
+            text[i] = use.sub(name + suffix, text[i])
+        text[number] = '%s%s%s() __asm__("%s");' % (
+            declaration["head"], name, suffix, name)
+        path.write_text("\n".join(text), errors="surrogateescape")
+        renamed += 1
+    return renamed
 
 
 FNV_MARKER = re.compile(r"^// @fnv 0x([0-9a-fA-F]{1,8})\b")
@@ -1115,7 +1273,10 @@ def compile_unit(tools, copy, standins, source, obj, cxx=False):
         if not result.returncode:
             return True, ""
         attempts.append(result)
-        blanked = (drop_duplicate_local_m128(result.stderr, copy)
+        blanked = (alias_local_m128_to_global(result.stderr, copy)
+                   or detach_namespaced_c_declaration(result.stderr, copy)
+                   or rename_return_overloads(result.stderr, copy)
+                   or drop_duplicate_local_m128(result.stderr, copy)
                    or drop_conflicting_declarations(result.stderr, copy))
         # The stand-in type is the last repair: a blanked declaration can clear the same error.
         wants_sse = (not blanked and not sse_types

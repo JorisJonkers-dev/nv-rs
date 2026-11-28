@@ -223,7 +223,7 @@ build copy and the generated shim only.
   Declarations the decomp makes of a Win32 or CRT function with a type MSVC accepts and clang does
   not (`TlsGetValue(unsigned int)`, `memcpy` with an `unsigned int` size) are repaired from the
   compiler's own diagnostics: the contradicting line is blanked, or, when the system header came
-  second, replaced by `#include <windows.h>`. A second definition of the decomp's `LocalM128` union (one per namespace block, each with its own `_mm_setr_ps` declaration, so clang sees two functions that differ only in their return type) is blanked from the copy (`drop_duplicate_local_m128`); that builds `hkgeometryutility.cpp` and `blk_00dc0000_od_o2_nood_variant.cpp`. A unit that fails in the shared working copy is
+  second, replaced by `#include <windows.h>`. A second definition of the decomp's `LocalM128` union (one per namespace block, each with its own `_mm_setr_ps` declaration, so clang sees two functions that differ only in their return type) is blanked from the copy (`drop_duplicate_local_m128`); that builds `hkgeometryutility.cpp` and `blk_00dc0000_od_o2_nood_variant.cpp`. A unit's own `__m128, LocalM128` union that collides with the stand-in header's declarations of the same `_mm_*` functions becomes `typedef ::__m128 __m128, LocalM128;` (`alias_local_m128_to_global`); that builds `hkgeometryprocessing.cpp`, `blk_00ca0000_od_o2_nood_variant.cpp` and `blk_00e00000_od_o2_nood_variant.cpp`. A one-line `extern "C"` declaration inside a namespace that clang unifies with another section's of the same C name becomes a C++ declaration with an `__asm__("name")` label, so it keeps the symbol and drops the clash (`detach_namespaced_c_declaration`); a global one that differs only in its return type (`hkMemoryRouter_getInstance` with each section's own router type) gets a new name, the same label, and its calls up to the next declaration or the end of its scope are renamed (`rename_return_overloads`). `__if_not_exists(hkQuaternion::getImag)` on the forward-declared class is rewritten like the `TESDataHandlerArrayType` one, and `typedef unsigned __w64 X;` becomes the size type, which builds `hkpworld.cpp` and `blk_00cc0000_od_o2_nood_variant_rtm_variant.cpp`. A unit that fails in the shared working copy is
   tried again alone in a fresh copy, because a repair for one unit can break another.
 - Inline assembly. MSVC `__asm` blocks (and `__declspec(naked)`, which wasm lacks) are replaced in
   the copy by a call to a stub that traps. After linking, every exported function that calls the
@@ -257,10 +257,10 @@ a virtual call through a host double traps in the module (`call_indirect` reache
 the module holds); a callee the module holds is called inside it, so the host double never sees the
 call (and an overridable address cannot be ignored), so the world must not reach one; the peer
 enters its function without `Engine::call`, so it notes the entry in the call log itself. Cases so
-far: 00d4ded0, 00ba71d0 and 00ba74a0 (a particle shader with no targets), and 00c806b0 (a null node, so the
+far: 00d4ded0, 00ba71d0 and 00ba74a0 (a particle shader with no targets), 00c65a80 (no body, or a fixed body, which only updates the node), and 00c806b0 (a null node, so the
 ray test the module holds leaves the best record alone). The cases share one loaded module, so each holds a
 process-wide lock until its test ends (run in parallel they corrupted each other's memory).
 A fourth limit: a callee the module holds (found with 00b15280 and 00488400, whose callees `00b16cd0`,
 `004858f0` the backend runs inside the module or inlines) is not in the backend's call log, so a world whose
 path reaches one differs in outgoing calls by construction; those gaps need a world that stops before the
-call, or a log of the module's inner calls. The other 23 registered gaps have no case yet.
+call, or a log of the module's inner calls. With 42 units built, 31 of the 72 `eax` gap rows export; the other 26 exported ones have no case yet (most need a stream, collector or allocator the module cannot call back into).

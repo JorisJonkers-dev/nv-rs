@@ -161,3 +161,45 @@ fn run_00c806b0_answers_the_best_hit_word() {
         .run()
         .assert_same();
 }
+
+/// 00c65a80: the collision object's Havok-to-scene transform. Without a Havok body it does
+/// nothing; with a fixed body (motion type 5 with a world pointer) it only updates the node. The
+/// gap (the scale of the transform it builds for any other body, a stack word the exe never
+/// writes) is not reached.
+#[test]
+fn run_00c65a80_updates_the_node_of_a_fixed_body() {
+    use engine_havok::units::bshavok::bhkcollisionobject::bhk_collision_object_hk_to_ni_transform as hk_to_ni;
+    use engine_havok::units::bshavok::bhkcollisionobject::BhkCollisionObject as Collision;
+    fn through(e: &mut Engine, this: Ptr<Collision>) {
+        hk_to_ni(e, this)
+    }
+    let Some(peer) = backend() else { return };
+    Diff::new(entry!(0x00c6_5a80, through(Ptr<Collision>)))
+        .translation(entry!(0x00c6_5a80, hk_to_ni(Ptr<Collision>)).1)
+        .reference_peer(peer)
+        // 0: no body; 1: a body without a Havok object; 2: a fixed body, with and without a node.
+        .inputs(&[Input::Of(&[0, 1, 2, 3])])
+        .setup(|e, case| {
+            e.register(0x00a6_8bf0, nothing);
+            let this = e.mem.alloc(0x14);
+            let kind = case.word(0);
+            if kind >= 1 {
+                let body = e.mem.alloc(0x10);
+                e.mem.set_u32(this + 0x10, body);
+            }
+            if kind >= 2 {
+                let body = e.mem.u32(this + 0x10);
+                let object = e.mem.alloc(0x100);
+                e.mem.set_u8(object + 0xe8, 5);
+                e.mem.set_u32(object + 8, 1);
+                e.mem.set_u32(body + 8, object);
+            }
+            if kind == 2 {
+                let node = e.mem.alloc(0x10);
+                e.mem.set_u32(this + 8, node);
+            }
+            vec![this]
+        })
+        .run()
+        .assert_same();
+}
