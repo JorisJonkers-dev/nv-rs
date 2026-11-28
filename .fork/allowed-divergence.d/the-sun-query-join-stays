@@ -1,3 +1,5 @@
 docs/FIXES.md  # the drawing thread's reference states each side's state and why the sun query keeps its join (nv-rs#938)
 crates/engine-fallout-misc/src/units/fallout_misc/main_p2.rs  # a test of the world pass's join at its first half (nv-rs#938)
 crates/engine-fallout-unplaced-a/src/units/unplaced/run_006426a0.rs  # the sun query does not join a posted world draw, and its test (nv-rs#992)
+crates/engine-bs/src/units/bsshader/run_00b5fd60.rs  # a test that the accumulator's check does not join a posted world draw (nv-rs#939)
+crates/engine-typed/src/draw/detach.rs  # the cut leaves register group 6 in guest memory for the check's count (nv-rs#939)
