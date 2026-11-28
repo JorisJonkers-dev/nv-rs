@@ -45,6 +45,10 @@ verifier: Any = _verifier
 SECONDS = 600
 BUILD_ALLOWANCE = 3600
 MAX_CRASHES = 1
+# A dev build with no sanitizer: the release build with AddressSanitizer of the first family needed more than 20 GB (killed
+# at its cap), this one 6.5 GB and a minute. The code under test is safe Rust, so memory errors are not what it looks for;
+# the dev profile keeps overflow checks and debug assertions, which a differential run wants.
+BUILD_FLAGS = "--dev --sanitizer none"
 REPLAY = re.compile(r"^pub fn replay_bytes\(", re.MULTILINE)
 Report = dict[str, Any]
 Runner = Callable[[list[str]], tuple[int, str]]
@@ -108,9 +112,9 @@ def container_command(family: str, seconds: int, crate: Path) -> list[str]:
     everything again. The run's own exit status is the command's.
     """
     nightly = f"+{fuzz_gate.FUZZ_NIGHTLY}"
-    script = (f"cd {crate} && timeout {seconds + BUILD_ALLOWANCE} cargo {nightly} fuzz run {family} -- "
+    script = (f"cd {crate} && timeout {seconds + BUILD_ALLOWANCE} cargo {nightly} fuzz run {BUILD_FLAGS} --fuzz-dir {crate} {family} -- "
               f"-max_total_time={seconds} -rss_limit_mb=4096; status=$?; "
-              f"for f in artifacts/{family}/crash-*; do [ -f \"$f\" ] && timeout 900 cargo {nightly} fuzz tmin {family} \"$f\"; done; "
+              f"for f in artifacts/{family}/crash-*; do [ -f \"$f\" ] && timeout 900 cargo {nightly} fuzz tmin {BUILD_FLAGS} --fuzz-dir {crate} {family} \"$f\"; done; "
               "exit $status")
     return ["bash", "-c", script]
 

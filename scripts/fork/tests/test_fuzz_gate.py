@@ -211,6 +211,7 @@ class Scaffold(Repo):
         self.assertEqual((out / dep).resolve(), (self.root / "crates" / "engine-core").resolve())
         target = (out / "fuzz_targets" / "fx.rs").read_text(encoding="utf-8")
         self.assertIn("mod suite;", target)
+        self.assertIn("#![allow(dead_code, unused_imports)]", target)  # the suite's helpers and constants are for its tests
         self.assertIn("suite::replay_bytes(data)", target)
         self.assertNotIn("#[path", target)
         copy = (out / "fuzz_targets" / "suite.rs").read_text(encoding="utf-8")

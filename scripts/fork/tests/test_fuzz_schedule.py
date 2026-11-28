@@ -107,10 +107,12 @@ class Pieces(unittest.TestCase):
         crate = Path("/r/target/fuzz-families/fx")
         run = fs.container_command("fx", 600, crate)
         self.assertEqual(run[:2], ["bash", "-c"])
-        self.assertIn(f"cargo +{fuzz_gate.FUZZ_NIGHTLY} fuzz run fx -- -max_total_time=600", run[2])
+        # cargo-fuzz looks for `fuzz/` in the project root unless told where the family's crate is
+        self.assertIn(f"cargo +{fuzz_gate.FUZZ_NIGHTLY} fuzz run {fs.BUILD_FLAGS} --fuzz-dir {crate} fx -- -max_total_time=600", run[2])
         self.assertIn("timeout 4200 ", run[2])
         self.assertTrue(run[2].startswith(f"cd {crate} && "))
-        self.assertIn(f"cargo +{fuzz_gate.FUZZ_NIGHTLY} fuzz tmin fx", run[2])
+        self.assertIn(f"cargo +{fuzz_gate.FUZZ_NIGHTLY} fuzz tmin {fs.BUILD_FLAGS} --fuzz-dir {crate} fx", run[2])
+        self.assertIn("--dev --sanitizer none", run[2])  # the build that fits: see BUILD_FLAGS
         self.assertTrue(run[2].endswith("exit $status"))  # the run's own status, not the minimiser's
 
     @unittest.skipUnless(shutil.which("bash"), "needs bash")
@@ -176,7 +178,8 @@ class Fuzzing(Repo):
         root, seed, command, kw = container.calls[0]
         self.assertEqual((root, kw["memory"], kw["workdir"]), (self.root, "8g", self.work))
         self.assertTrue(seed.is_dir() and not list(seed.iterdir()))  # the empty seed: a fuzz build has no seed target
-        self.assertIn("fuzz run fx -- -max_total_time=60", command[2])
+        self.assertIn("fuzz run --dev --sanitizer none --fuzz-dir", command[2])
+        self.assertIn(" fx -- -max_total_time=60", command[2])
 
     def test_a_crash_is_minimised_and_becomes_a_byte_literal_test(self) -> None:
         container = Container(crash=PLANTED, minimised=PLANTED[:9])

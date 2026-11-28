@@ -251,6 +251,11 @@ memory, no network, the image's pinned nightly and cargo-fuzz.
   container, minimises each crash input in the same container (`cargo fuzz tmin`; the build directory goes with the
   container, so a second container would build again) and removes the crate. The state file (default
   `~/.cache/nv-workers/fuzz/state.json`) keeps each family's last run.
+- The build is `--dev --sanitizer none`: the release build with AddressSanitizer of the first family (`004a4020`, one
+  part crate) was killed at a 20 GB cap, the dev build takes about a minute and 6.5 GB. The code under test is safe
+  Rust, so memory errors are not what a differential run looks for, and the dev profile keeps overflow checks. First
+  results: a 20 s run of `004a4020` was clean in 80 s; with the predicate changed from `> 0` to `>= 0` the run found
+  the input (the empty one), minimised it and reported it as a byte-literal test, exit status 1.
 - The report (JSON on stdout) says `clean`, `finding` or `failed`, and the exit status says it: 0, 1, 3. A finding holds
   the minimised input as the byte-literal test `fuzz_gate.py to-test` would append, so the case becomes a permanent
   regression test and no corpus is committed. With `--repo OWNER/NAME` a finding opens an issue with the test in its

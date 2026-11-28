@@ -143,7 +143,7 @@ def scaffold(root, family, out, lab=family_lab):
             '[package.metadata]\ncargo-fuzz = true\n\n[workspace]\n\n[dependencies]\nlibfuzzer-sys = "0.4"\n\n'
             f'{dependencies}\n[[bin]]\nname = "{family}"\npath = "fuzz_targets/{family}.rs"\ntest = false\ndoc = false\n'),
         f"fuzz_targets/{family}.rs": (
-            "// SPDX-License-Identifier: GPL-3.0-only\n#![no_main]\n"
+            "// SPDX-License-Identifier: GPL-3.0-only\n#![no_main]\n#![allow(dead_code, unused_imports)]\n"
             f"//! Fuzz target of the `{family}` family: the bytes are replayed through the suite's own comparison.\n"
             "use libfuzzer_sys::fuzz_target;\n\nmod suite;\n\n"
             "fuzz_target!(|data: &[u8]| suite::replay_bytes(data));\n"),
