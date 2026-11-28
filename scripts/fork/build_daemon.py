@@ -115,11 +115,14 @@ class FileLock:
         return self
 
     def __exit__(self, *_):
-        if os.name == "nt":
+        handle = self.handle
+        if handle is None:  # never entered
+            return False
+        if os.name == "nt":  # pragma: no cover - Windows only
             import msvcrt
-            self.handle.seek(0)
-            msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
-        self.handle.close()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        handle.close()
         return False
 
 
@@ -235,7 +238,25 @@ STATS_LOCK = threading.Lock()
 def new_stats():
     """The counters the daemon keeps, shared by its slot threads under STATS_LOCK."""
     return {"active": 0, "max_active": 0, "completed": 0, "failed": 0, "served": [],
-            "slot_active": {}, "slot_max_active": {}, "job_starts": [], "job_ends": [], "queued": 0}
+            "slot_active": {}, "slot_max_active": {}, "job_starts": [], "job_ends": [], "queued": 0, "dropped": 0}
+
+
+def close_quietly(*handles):
+    """Close each handle; closing a buffered stream flushes it, which fails when the client has gone."""
+    for handle in handles:
+        try:
+            handle.close()
+        except (OSError, ValueError):
+            pass
+
+
+def send_if_connected(stream, message):
+    """Send a frame; False when the client has gone (closed connection, closed stream)."""
+    try:
+        send_frame(stream, message)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def handle(stream, req, config, stats, stop, slot_index=0):
@@ -244,11 +265,16 @@ def handle(stream, req, config, stats, stop, slot_index=0):
     if kind == "status":
         with STATS_LOCK:
             snapshot = json.loads(json.dumps(dict(stats, config=config.describe())))
-        send_frame(stream, {"kind": "done", "exit": 0, "status": snapshot})
+        send_if_connected(stream, {"kind": "done", "exit": 0, "status": snapshot})
         return
     if kind == "stop":
         stop.set()
-        send_frame(stream, {"kind": "done", "exit": 0})
+        send_if_connected(stream, {"kind": "done", "exit": 0})
+        return
+    # A client that is already gone gets no build: the first frame tells (clients ignore a frame they do not know).
+    if not send_if_connected(stream, {"kind": "start"}):
+        with STATS_LOCK:
+            stats["dropped"] += 1
         return
     label = str(req.get("label") or "client")
     with STATS_LOCK:
@@ -265,10 +291,10 @@ def handle(stream, req, config, stats, stop, slot_index=0):
         stats["job_starts"] = stats["job_starts"][-199:] + [
             {"label": label, "slot": slot_index, "start": started, "waited": waited}]
     for warning in config.warnings:
-        send_frame(stream, {"kind": "out", "data": warning + "\n"})
+        send_if_connected(stream, {"kind": "out", "data": warning + "\n"})
     if waited is not None:
         # In the client's output, so a caller reads its queue time without asking a busy daemon.
-        send_frame(stream, {"kind": "out", "data": f"build daemon: waited {waited:.1f}s in the queue\n"})
+        send_if_connected(stream, {"kind": "out", "data": f"build daemon: waited {waited:.1f}s in the queue\n"})
     code = 2
     try:
         argv = req.get("argv") or []
@@ -277,11 +303,13 @@ def handle(stream, req, config, stats, stop, slot_index=0):
         proc = subprocess.Popen(config.command(argv, slot_index), cwd=cwd, env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors="replace", bufsize=1)
-        for line in proc.stdout:
-            send_frame(stream, {"kind": "out", "data": line})
+        for line in proc.stdout or ():
+            if not send_if_connected(stream, {"kind": "out", "data": line}):
+                proc.terminate()  # nobody reads this build any more: free the slot
+                break
         code = proc.wait()
     except Exception as exc:
-        send_frame(stream, {"kind": "out", "data": f"build daemon: {exc}\n"})
+        send_if_connected(stream, {"kind": "out", "data": f"build daemon: {exc}\n"})
     finally:
         with STATS_LOCK:
             stats["job_ends"] = stats["job_ends"][-199:] + [
@@ -291,7 +319,7 @@ def handle(stream, req, config, stats, stop, slot_index=0):
             stats["completed"] += 1
             if code != 0:
                 stats["failed"] += 1
-        send_frame(stream, {"kind": "done", "exit": code})
+        send_if_connected(stream, {"kind": "done", "exit": code})
 
 
 def serve():
@@ -320,10 +348,13 @@ def serve():
             req = recv_frame(stream)
             if req is None or req.get("token") != state["token"]:
                 if req is not None:
-                    send_frame(stream, {"kind": "done", "exit": 2,
-                                        "error": "build daemon token rejected"})
-                stream.close()
-                conn.close()
+                    send_if_connected(stream, {"kind": "done", "exit": 2, "error": "build daemon token rejected"})
+                close_quietly(stream, conn)
+                return
+            if req.get("kind") in ("status", "stop"):
+                # Answered here, not queued: a busy or stuck worker must not hide the daemon's state.
+                handle(stream, req, config, stats, stop)
+                close_quietly(stream, conn)
                 return
             with STATS_LOCK:
                 stats["queued"] += 1
@@ -341,12 +372,14 @@ def serve():
                 stats["queued"] -= 1
             try:
                 handle(stream, req, config, stats, stop, slot_index)
-            except OSError:
-                pass
+            except Exception as exc:  # one request must never end the worker
+                try:
+                    print(f"build daemon: request failed: {exc!r}", file=sys.stderr, flush=True)
+                except (OSError, ValueError):
+                    pass  # the log is gone too: the worker still must not end
             finally:
                 jobs.task_done()
-                stream.close()
-                conn.close()
+                close_quietly(stream, conn)
 
     worker_threads = []
     for i in range(config.slots):
@@ -491,7 +524,7 @@ def main(argv):
             print("a cargo command is required", file=sys.stderr)
             return 2
         return submit(args)
-    print(__doc__.strip(), file=sys.stderr)
+    print((__doc__ or "").strip(), file=sys.stderr)
     return 2
 
 

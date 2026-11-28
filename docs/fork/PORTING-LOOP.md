@@ -278,6 +278,30 @@ the findings back to the implementer. `cargo-llvm-cov` must be on `PATH`, and th
 toolchain's own when `PATH` has a version-manager shim of `cargo` before it.
 
 
+## The implementer and verifier split
+
+`scripts/fork/factory_queue.py` separates writing from compiling.
+
+```sh
+python3 -I scripts/fork/factory_queue.py prompt FAMILY [--feedback FILE]   # what an implementer is given
+python3 -I scripts/fork/factory_queue.py submit FAMILY WORKTREE            # an implementer is done
+python3 -I scripts/fork/factory_queue.py verify [--hidden DIR]             # the verifier takes the next attempt
+python3 -I scripts/fork/factory_queue.py list
+```
+
+- An implementer works in its own worktree and checks it with `port_check.py FAMILY --static` only; it never runs cargo.
+  Its prompt carries the rules, a frozen source-only excerpt of the Diff harness API (public items of `diff.rs`, with the
+  hash of the file), the smallest typed suite as a worked example and the accepted `typed_call!` forms.
+- The queue is a directory of one JSON file per attempt, written atomically, so it survives a reboot. A claim is a file
+  made with `O_EXCL`; a claim older than the lease (a killed verifier) is taken over.
+- The verifier runs the fast gate from the attempt's own checkout, then the hidden differential cases (a directory the
+  implementers never see, `typed_<family>.rs` per family, run as `<family>_hidden`) and the planted-bug control: one
+  operator of the attempt's typed sources is changed in the working tree for one lab run and restored, and the family's
+  cases must fail on it. A control that survives goes back as a failure that names the change.
+- A failure goes back to the same attempt as one line per rule (`rule file:line: message -> fix: ...`); the implementer
+  resubmits it. After 3 failed retries the attempt is rejected. A gate that gives no readable verdict is the
+  verifier's fault: the attempt is queued again without using a retry, and rejected after 3 such failures.
+
 ## The sandboxed verifier
 
 `scripts/fork/verifier.py` runs one verification in a throwaway container.
