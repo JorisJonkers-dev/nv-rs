@@ -78,6 +78,38 @@ class FamilyLab(unittest.TestCase):
         for unrelated in ("engine-havok", "engine-fallout-pathfinding", "engine-fallout-script"):
             self.assertNotIn(unrelated, fade)
 
+    def test_a_part_the_suite_names_in_a_path_is_assembled_though_no_entry_reaches_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "typed_x.rs"
+            suite.write_text("use engine as _;\nfn f() { engine_platform::d3dx::matrix(); }\n", encoding="utf-8")
+            self.assertEqual(family_lab.assembly_for(suite), ["engine-platform"])
+            suite.write_text("use engine as _;\nuse engine_core::x;\nuse engine_typed::y;\nengine_nothing::z();\n"
+                             "engine::units::q();\n", encoding="utf-8")
+            self.assertEqual(family_lab.assembly_for(suite), [])
+
+    def test_the_draw_and_shader_suites_assemble_the_platform_part_they_call(self):
+        for name in ("draw", "shader"):
+            self.assertIn("engine-platform", family_lab.assembly_for(TESTS / f"typed_{name}.rs"), name)
+
+    def test_the_labs_manifest_patches_the_crates_the_workspace_patches(self):
+        root = '[workspace]\nmembers = []\n\n[patch.crates-io]\nwgpu-hal = { path = "vendor/wgpu-hal" }  # vendored\nnot-a-path = "1"\n\n[profile.dev]\nx = { path = "no" }\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "lab"
+            lines = family_lab.patch_lines(root, out)
+            self.assertEqual(lines[:2], ["", "[patch.crates-io]"])
+            self.assertEqual(len(lines), 3)  # only the path entry of the patch table
+            path = (re.search(r'path = "([^"]+)"', lines[2]) or self.fail(lines[2])).group(1)
+            self.assertEqual((out / path).resolve(), (REPO / "vendor" / "wgpu-hal").resolve())
+            self.assertEqual(family_lab.patch_lines("[workspace]\n", out), [])
+
+    def test_the_draw_lab_is_patched_and_locked_like_the_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "lab"
+            family_lab.generate(TESTS / "typed_draw.rs", out)
+            self.assertIn('wgpu-hal = { path = "', (out / "Cargo.toml").read_text(encoding="utf-8"))
+            self.assertEqual((out / "Cargo.lock").read_text(encoding="utf-8"), (REPO / "Cargo.lock").read_text(encoding="utf-8"))
+            self.assertIn("engine-platform =", (out / "Cargo.toml").read_text(encoding="utf-8"))
+
     def test_a_generated_target_keeps_every_diff_case_and_links_no_facade(self):
         source = TESTS / "typed_fade.rs"
         with tempfile.TemporaryDirectory() as tmp:

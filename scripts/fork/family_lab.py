@@ -45,6 +45,8 @@ FN = re.compile(r"^\s*(?:pub\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILI
 FN_NAME = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 INCLUDE = re.compile(r'include!\(\s*"([^"]+)"')
 CRATE = re.compile(r"crates/(engine-[^/]+)/")
+PART_PATH = re.compile(r"\b(engine_[a-z0-9]+(?:_[a-z0-9]+)*)::")
+NOT_PARTS = {"engine-core", "engine-typed"}
 SOURCE_CACHE = {}
 
 
@@ -166,6 +168,11 @@ def assembly_for(path):
         found = by_address.get(address)
         if found and found[0] != "engine-core":
             crates.add(found[0])
+    for named in PART_PATH.findall(text):
+        # A suite that calls a part crate by path needs it linked whether or not an entry reaches it.
+        crate = named.replace("_", "-")
+        if crate not in NOT_PARTS and (PARTS / crate).is_dir():
+            crates.add(crate)
     if "engine::dead_lights::install" in text:
         # The guard hook calls these two translations directly, without an address in the suite.
         crates.update(["engine-bs", "engine-fallout-unplaced-b"])
@@ -235,6 +242,28 @@ def rewrite_source(text, parts):
     return with_guard_helper(text)
 
 
+PATCH_ENTRY = re.compile(r'^([A-Za-z0-9_-]+)\s*=\s*\{\s*path\s*=\s*"([^"]+)"\s*\}\s*(?:#.*)?$')
+
+
+def patch_lines(root_manifest, out):
+    """The root manifest's `[patch.crates-io]` path entries, re-pointed at `out`: a crate outside the workspace gets none.
+
+    Without them the lab links the published wgpu-hal, which lacks what d3d9-wgpu calls, so no suite that reaches
+    `engine-platform` (draw, shader) can build in the lab.
+    """
+    lines = []
+    inside = False
+    for line in root_manifest.splitlines():
+        if line.startswith("["):
+            inside = line.strip() == "[patch.crates-io]"
+            continue
+        found = PATCH_ENTRY.match(line.strip()) if inside else None
+        if found:
+            path = Path(os.path.relpath(REPO / found.group(2), out)).as_posix()
+            lines.append(f'{found.group(1)} = {{ path = "{path}" }}')
+    return ["", "[patch.crates-io]", *lines] if lines else []
+
+
 def manifest(family, parts, out):
     """A standalone package: path dependencies, no workspace inheritance."""
     lines = [
@@ -256,6 +285,7 @@ def manifest(family, parts, out):
     for name, options in deps:
         path = Path(os.path.relpath(REPO / "crates" / name, out)).as_posix()
         lines.append(f'{name} = {{ path = "{path}"{", " + options if options else ""} }}')
+    lines += patch_lines((REPO / "Cargo.toml").read_text(encoding="utf-8"), out)
     lines += [
         "",
         "[[test]]",
@@ -276,7 +306,9 @@ def generate(path, out):
     (out / "tests").mkdir(parents=True, exist_ok=True)
     target = out / "tests" / path.name
     manifest_path = out / "Cargo.toml"
-    files = [(target, text), (manifest_path, manifest(family, parts, out))]
+    # The workspace's lock file pins the versions the crates build with; the lab crate has none of its own.
+    files = [(target, text), (manifest_path, manifest(family, parts, out)),
+             (out / "Cargo.lock", (REPO / "Cargo.lock").read_text(encoding="utf-8"))]
     # A suite can include a table beside it; the generated crate needs the same file.
     for name in INCLUDE.findall(text):
         included = path.parent / name
