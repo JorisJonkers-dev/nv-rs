@@ -2,13 +2,16 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """The fast-path gate of one porting attempt: one command, one JSON verdict.
 
-    python3 -I scripts/fork/port_check.py <family> [--static] [--base REF] [--metadata FILE] [--out FILE]
+    python3 -I scripts/fork/port_check.py <family> [--static | --full] [--base REF] [--metadata FILE] [--review FILE]
+                                             [--out FILE]
 
 The checks are the fork's own tools, run as they are (components.py check, private_integrity.py
 --check, public_text.py, verify-sync.sh), two source scans (a plain call of a registered typed
 function, the family ids), rustfmt on the changed files, clippy -D warnings on the touched crates
 and the family's differential cases. Cargo runs only through the build daemon; `--static` skips
-every check that needs cargo or the network, so a worker can run the rest without compiling.
+every check that needs cargo or the network, so a worker can run the rest without compiling. `--full`, once per
+candidate before it joins a batch, adds the changed-line coverage gate (every changed executable line run by a test,
+measured with cargo-llvm-cov through the build daemon), the quality scans and the review verdict (`--review FILE`).
 
 The verdict is JSON on stdout (and in --out): `pass`, the checks that ran and, for every failure,
 the rule id, file:line, what is wrong and the fix. A tool that is missing or prints nothing
@@ -24,6 +27,9 @@ from pathlib import Path
 
 FORK = Path(__file__).resolve().parent
 REPO = FORK.parent.parent
+sys.path.insert(0, str(FORK))
+import coverage_report
+
 FAMILY_NAME = re.compile(r"^[A-Za-z0-9_]+$")
 MARKER = re.compile(r"^\s*// Typed from ([0-9a-fA-F]{8})\b")
 FN_DEF = re.compile(r"\bfn\s+([A-Za-z_]\w*)")
@@ -33,6 +39,16 @@ FAMILY_CONST = re.compile(r"^\s*pub const FAMILY: FamilyId = FamilyId::new\((\d+
 LOCATION = re.compile(r"([A-Za-z0-9_./-]+\.[A-Za-z]+):(\d+)")
 FMT_DIFF = re.compile(r"^Diff in (\S+?):(\d+):?", re.MULTILINE)
 CRATE_PATH = re.compile(r"^crates/([^/]+)/")
+HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+STRING = re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)\'')
+UNSAFE = re.compile(r"\bunsafe\b")
+UNWRAP = re.compile(r"\.unwrap\(\)|\.expect\(")
+ALLOW = "port-check: allow"
+# cargo-llvm-cov leaves out files outside the workspace by default, which hides the typed crate when its lab crate
+# is measured; naming the ignore pattern ourselves keeps every crate source and drops only the toolchain, the
+# registry and test files.
+COVERAGE_IGNORE = r"/rustc/|\.cargo/registry|/tests/"
+FN_SIZE_LIMIT = 150
 FAMILY_LIMIT = 64
 TYPED_SOURCE = Path("crates") / "engine-typed" / "src"
 
@@ -217,7 +233,195 @@ def check_differential(root, family, runner):
     return from_tool("diff", code, output, "read the lab output above the first error", suite)
 
 
-def run_checks(root, family, base, static, runner, metadata=None):
+def parse_ranges(diff):
+    """{file: set of added or changed line numbers} from `git diff -U0` text (the new side of each hunk)."""
+    out, current = {}, None
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            current = line[6:].rstrip("\t") if line.startswith("+++ b/") else None  # git tabs a name with spaces
+        elif current and (hunk := HUNK.match(line)):
+            start, count = int(hunk.group(1)), int(hunk.group(2) or "1")
+            out.setdefault(current, set()).update(range(start, start + count))
+    return out
+
+
+def changed_ranges(root, base, runner, pattern="*.rs"):
+    """Changed lines per file against `base`, or None when git cannot say."""
+    code, output = runner(["git", "diff", "-U0", "--diff-filter=ACMR", f"{base}...HEAD", "--", pattern], root)
+    return None if code else parse_ranges(output)
+
+
+def library_ranges(ranges):
+    """The changed lines of crate sources: the code a test run measures (tests directories are not)."""
+    return {f: n for f, n in ranges.items() if f.startswith("crates/") and "/src/" in f}
+
+
+def looks_like_code(text):
+    """False for a blank line, a comment or a line of closing brackets only."""
+    return bool(re.search(r"[A-Za-z0-9_]", text.split("//", 1)[0]))
+
+
+def merge_lcov(paths):
+    """{file: {line: hits}} over several lcov files (the most hits wins); None when none could be read."""
+    merged = None
+    for path in paths:
+        part = coverage_report.parse_lcov(path)
+        if part is None:
+            continue
+        merged = merged or {}
+        for file, lines in part.items():
+            target = merged.setdefault(file, {})
+            for number, hits in lines.items():
+                target[number] = max(target.get(number, 0), hits)
+    return merged
+
+
+def coverage_gaps(root, ranges, measured):
+    """Findings for changed lines the tests did not run, and for changed code with no coverage data at all."""
+    out = []
+    for file, numbers in sorted(ranges.items()):
+        data = measured.get(file)
+        if not data:  # no record, or a record with no executable line at all
+            text = (root / file).read_text(encoding="utf-8", errors="replace").splitlines()
+            code = [n for n in sorted(numbers) if n <= len(text) and looks_like_code(text[n - 1])]
+            if code:
+                out.append(finding("coverage-missing", file, code[0],
+                                   "changed code in a file the coverage run did not measure",
+                                   "run the file's tests in the coverage run (name its crate or family)"))
+            continue
+        out += [finding("coverage", file, n, "changed executable line no test ran",
+                        "add a differential case or unit test that runs this line")
+                for n in sorted(numbers) if data.get(n) == 0]
+    return out
+
+
+def coverage_commands(root, family, packages, out_dir):
+    """[([argv, ...], lcov path)]: the family's lab crate, and every other touched crate on its own tests.
+
+    The lab crate is its own workspace, so cargo-llvm-cov instruments a crate it depends on only when that crate
+    is named with --dep-coverage, and a report made in the same command as --dep-coverage came out empty in
+    every run. The lab is therefore measured in two steps: run (no report), then report with the ignore pattern.
+    """
+    daemon = [sys.executable, FORK / "build_daemon.py", "run", "--", "llvm-cov"]
+    ignore = ["--ignore-filename-regex", COVERAGE_IGNORE]
+    lab = root / "target" / "family-lab" / family / "Cargo.toml"
+    named = [arg for package in packages for arg in ("--dep-coverage", package)]
+    steps = [daemon + ["test", "--no-report", "--manifest-path", lab, "--test", f"typed_{family}", *named],
+             daemon + ["report", "--manifest-path", lab, *ignore, "--lcov", "--output-path", out_dir / "lab.info"]]
+    commands = [(steps, out_dir / "lab.info")]
+    for package in packages:
+        if package != "engine-typed":
+            commands.append(([daemon + [*ignore, "--lcov", "--output-path", out_dir / f"{package}.info", "-p", package]],
+                             out_dir / f"{package}.info"))
+    return commands
+
+
+def check_coverage(root, family, base, runner):
+    """100% of the changed executable lines of crate sources run by a test; no measurement is a failure."""
+    ranges = changed_ranges(root, base, runner)
+    if ranges is None:
+        return [finding("git", ".", 1, f"cannot diff against {base}", "pass --base with a ref that exists")]
+    ranges = library_ranges(ranges)
+    if not ranges:
+        return []
+    out_dir = root / "target" / "port-check" / family
+    out_dir.mkdir(parents=True, exist_ok=True)
+    code, output = runner([sys.executable, FORK / "family_lab.py", "generate", family, root / "target" / "family-lab" / family], root)
+    if code:
+        return from_tool("coverage", code, output, "generate the family's lab crate first", f"crates/engine/tests/typed_{family}.rs")
+    packages = touched_packages(root, list(ranges))
+    paths = []
+    for steps, lcov in coverage_commands(root, family, packages, out_dir):
+        lcov.unlink(missing_ok=True)
+        for argv in steps:
+            code, output = runner(argv, root)
+            if code:
+                return from_tool("coverage", code, output, "make the covered tests pass; coverage needs a green run", "Cargo.toml")
+        paths.append(lcov)
+    measured = merge_lcov(paths)
+    if not measured:
+        return [finding("coverage-missing-baseline", ".", 1, "the coverage run produced no lcov data",
+                        "run cargo-llvm-cov on the touched crates; a gate with no measurement fails")]
+    return coverage_gaps(root, ranges, measured)
+
+
+def function_spans(lines):
+    """[(first line, last line)] of each `fn` in `lines` (1-based), by brace depth."""
+    spans = []
+    for index, text in enumerate(lines):
+        if not FN_DEF.search(text.split("//", 1)[0]):
+            continue
+        depth, seen = 0, False
+        for end in range(index, len(lines)):
+            code = STRING.sub('""', lines[end].split("//", 1)[0])
+            depth += code.count("{") - code.count("}")
+            seen = seen or "{" in code
+            if seen and depth <= 0:
+                spans.append((index + 1, end + 1))
+                break
+            if not seen and code.rstrip().endswith(";"):
+                break
+    return spans
+
+
+def scan_quality(root, ranges):
+    """unsafe without a SAFETY comment, unwrap or expect, and over-long functions, on changed non-test lines."""
+    out = []
+    for file, numbers in sorted(library_ranges(ranges).items()):
+        raw = (root / file).read_text(encoding="utf-8", errors="replace").splitlines()
+        limit = next((i for i, t in enumerate(raw) if t.strip().startswith("#[cfg(test)]")), len(raw))
+        for number in sorted(n for n in numbers if n <= limit):
+            text = raw[number - 1]
+            code = text.split("//", 1)[0]
+            if ALLOW in text:
+                continue
+            if UNSAFE.search(code) and not any("SAFETY:" in t for t in raw[max(0, number - 4):number]):
+                out.append(finding("quality-unsafe", file, number, "unsafe without a SAFETY comment",
+                                   "add `// SAFETY: why this is sound` on or above the line"))
+            if UNWRAP.search(code):
+                out.append(finding("quality-unwrap", file, number, "unwrap or expect in non-test code",
+                                   f"return the error, or allow it with `// {ALLOW} unwrap (reason)`"))
+        for first, last in function_spans(raw[:limit]):
+            if last - first + 1 > FN_SIZE_LIMIT and any(first <= n <= last for n in numbers):
+                out.append(finding("quality-size", file, first, f"function of {last - first + 1} lines (limit {FN_SIZE_LIMIT})",
+                                   "split it into smaller functions"))
+    return out
+
+
+def check_quality(root, base, runner):
+    """The quality scans on the diff, and ruff on the changed Python."""
+    ranges = changed_ranges(root, base, runner)
+    if ranges is None:
+        return [finding("git", ".", 1, f"cannot diff against {base}", "pass --base with a ref that exists")]
+    out = scan_quality(root, ranges)
+    python = changed_ranges(root, base, runner, "*.py")
+    if python is None:
+        return [finding("git", ".", 1, f"cannot diff against {base}", "pass --base with a ref that exists")]
+    files = sorted(f for f in python if f.startswith("scripts/fork/") and (root / f).is_file())
+    if files:
+        out += from_tool("ruff", *runner(["ruff", "check", "--output-format", "concise", *files], root),
+                         "fix what ruff names; do not silence it", files[0])
+    return out
+
+
+def check_review(path):
+    """The review verdict file: pass, or fail with findings; a missing or unreadable one is `review-absent`."""
+    absent = [finding("review-absent", str(path or "-"), 1, "no readable review verdict",
+                      "requeue the candidate for review with backoff")]
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        kind, found = data["verdict"], data.get("findings", [])
+        if kind not in ("pass", "fail") or not isinstance(found, list):
+            return absent
+    except (OSError, TypeError, ValueError, KeyError):
+        return absent
+    if kind == "pass":
+        return []
+    return [finding("review", str(f.get("file", "?")), f.get("line", 1) or 1, str(f.get("issue", "")), str(f.get("fix", "")))
+            for f in found if isinstance(f, dict)] or [finding("review", "-", 1, "review failed without findings", "ask for findings")]
+
+
+def run_checks(root, family, base, mode, runner, review=None, metadata=None):
     """[(check id, findings, seconds)] for the fast path, or for the cargo-free subset."""
     suite = root / "crates" / "engine" / "tests" / f"typed_{family}.rs"
     plan = [
@@ -237,7 +441,7 @@ def run_checks(root, family, base, static, runner, metadata=None):
         ("family-ids", lambda: scan_family_ids(root)),
         ("fmt", lambda: check_format(root, base, runner)),
     ]
-    if not static:
+    if mode != "static":
         plan += [
             ("verify-sync", lambda: from_tool("verify-sync", *runner(["bash", FORK / "verify-sync.sh"], root),
                                               "list a new fork-only file in .fork/overlay-paths; for an edit to a file upstream has too, "
@@ -245,6 +449,12 @@ def run_checks(root, family, base, static, runner, metadata=None):
                                               ".fork/overlay-paths")),
             ("clippy", lambda: check_clippy(root, base, runner)),
             ("differential", lambda: check_differential(root, family, runner)),
+        ]
+    if mode == "full":
+        plan += [
+            ("coverage", lambda: check_coverage(root, family, base, runner)),
+            ("quality", lambda: check_quality(root, base, runner)),
+            ("review", lambda: check_review(review)),
         ]
     results = []
     for name, check in plan:
@@ -255,11 +465,11 @@ def run_checks(root, family, base, static, runner, metadata=None):
     return results
 
 
-def verdict(family, static, results):
+def verdict(family, mode, results):
     """The JSON object for one run."""
     failures = [f for _, found, _ in results for f in found]
     return {
-        "family": family, "mode": "static" if static else "fast", "pass": not failures,
+        "family": family, "mode": mode, "pass": not failures,
         "checks": [{"id": name, "ok": not found, "seconds": round(seconds, 2)} for name, found, seconds in results],
         "failures": failures,
     }
@@ -268,12 +478,17 @@ def verdict(family, static, results):
 def main(argv=None, root=REPO, runner=run, out=sys.stdout):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("family")
-    parser.add_argument("--static", action="store_true", help="skip every check that needs cargo or the network")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--static", action="store_true", help="skip every check that needs cargo or the network")
+    modes.add_argument("--full", action="store_true", help="add coverage, quality and the review verdict")
+    parser.add_argument("--review", help="the review verdict JSON (--full)")
     parser.add_argument("--base", default="origin/fork", help="the ref the attempt is measured against")
     parser.add_argument("--metadata", help="a saved `cargo metadata --no-deps` for components.py, so no cargo is run")
     parser.add_argument("--out", help="also write the verdict to this file")
     args = parser.parse_args(argv)
-    result = verdict(args.family, args.static, run_checks(Path(root), args.family, args.base, args.static, runner, args.metadata))
+    mode = "static" if args.static else "full" if args.full else "fast"
+    result = verdict(args.family, mode, run_checks(Path(root), args.family, args.base, mode, runner, args.review,
+                                                   args.metadata))
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
