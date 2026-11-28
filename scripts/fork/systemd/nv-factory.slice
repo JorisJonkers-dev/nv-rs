@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=Porting factory memory slice
+
+[Slice]
+# All factory work, the verifier container and the implementers included, stays inside 40 GB of the machine's RAM.
+MemoryHigh=36G
+MemoryMax=40G
+MemorySwapMax=0

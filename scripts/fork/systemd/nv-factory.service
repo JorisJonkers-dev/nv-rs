@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=Porting factory: verify queued attempts, resume after a reboot
+Documentation=file://%h/Projects/JorisJonkers-dev/nv-rs/docs/fork/PORTING-LOOP.md
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Slice=nv-factory.slice
+# NV_FACTORY_REPO is the clone whose scripts run; it is set in ~/.config/nv-factory/env (see install-factory-service.sh).
+EnvironmentFile=-%E/nv-factory/env
+ExecStart=/usr/bin/env python3 -I ${NV_FACTORY_REPO}/scripts/fork/factory_service.py run
+# The queue is a directory of files: a restart or a reboot resumes from it. A crash waits before the next start.
+Restart=on-failure
+RestartSec=60
+Nice=5
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target
