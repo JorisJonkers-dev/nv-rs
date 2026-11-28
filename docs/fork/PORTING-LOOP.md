@@ -349,3 +349,22 @@ over the entries. `check` fails when the set no longer matches its hash: that is
   not correct.
 - `compare` judges each run against the previous one with the same label and set: better or worse only when the intervals
   do not overlap; a difference of one function is noise. A prompt or parallelism change must not lower the benchmark.
+
+## The two reviews
+
+`scripts/fork/review_gate.py` runs the two reviews of a candidate: an ordinary one, then an adversarial one (evidence for
+every finding), each a read-only `model-gateway run` capped at 3G with escalation off and a short answer that ends in the
+JSON verdict.
+
+```sh
+python3 -I scripts/fork/review_gate.py --pool POOL.json --writer-family FAMILY --diff DIFF \
+    --context TEXT --state STATE.json --out VERDICT.json
+```
+
+- The two reviewers are of two different families, neither the family that wrote the change, and the adversarial
+  reviewer is never the one of the previous adversarial review (the state file keeps it across candidates).
+- A reviewer that is rate limited, or answers without a readable verdict, goes on a 15-minute cooldown and is replaced by
+  another allowed one. With none left the verdict is `absent` (exit status 3): requeue the candidate with a backoff.
+  `fail` (exit status 1) goes back to the implementer, with the findings.
+- The verdict file is what `port_check.py --full --review` reads, plus the families used. The pool, a JSON list of
+  `{client, model, family}` entries of the free cost class, belongs to the machine and is not in the repository.
