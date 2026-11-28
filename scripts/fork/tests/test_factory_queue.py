@@ -33,6 +33,8 @@ class Script:
 
     def __call__(self, argv: list[str], cwd: str | Path = ".") -> tuple[int, str]:
         self.calls.append([str(a) for a in argv])
+        if argv[0] == "git":
+            return 0, "crates/engine-typed/src/fx/mod.rs\n"
         if str(argv[1]).endswith("port_check.py"):
             return self.gates.pop(0) if self.gates else (0, PASS)
         return (self.labs.pop(0) if self.labs else 0), "lab output\n"
@@ -104,6 +106,10 @@ class QueueTest(Base):
 
 
 class Pieces(Base):
+    @staticmethod
+    def survivor(argv: list[str], cwd: str | Path = ".") -> tuple[int, str]:
+        return (0, "crates/engine-typed/src/fx/mod.rs\n") if argv[0] == "git" else (0, "ok\n")
+
     def test_feedback_is_one_short_line_per_failure(self) -> None:
         lines = fq.feedback_lines(json.loads(FAIL))
         self.assertEqual(lines[0], "typed-call-plain crates/a.rs:7: plain call -> fix: use typed_call!")
@@ -138,6 +144,8 @@ class Pieces(Base):
         seen: list[str] = []
 
         def runner(argv: list[str], cwd: str | Path = ".") -> tuple[int, str]:
+            if argv[0] == "git":
+                return 0, "crates/engine-typed/src/fx/mod.rs\ndocs/x.md\n"
             seen.append(source.read_text(encoding="utf-8"))
             return 1, "case failed\n"
 
@@ -146,10 +154,22 @@ class Pieces(Base):
         self.assertEqual(source.read_text(encoding="utf-8"), before)
         self.assertFalse((self.worktree / "target" / "planted-bug").exists())
 
+    def test_the_control_only_changes_files_the_attempt_changed(self) -> None:
+        def other_files(argv: list[str], cwd: str | Path = ".") -> tuple[int, str]:
+            return (0, "crates/engine-typed/src/other/mod.rs\n") if argv[0] == "git" else (1, "")
+
+        self.assertEqual(fq.planted_bug_control(self.worktree, "fx", other_files)[0], "skipped")
+        self.assertEqual(fq.mutate_sources(self.worktree, self.root / "s", ["nothing.rs"]), None)
+
+        def no_git(argv: list[str], cwd: str | Path = ".") -> tuple[int, str]:
+            return (1, "fatal") if argv[0] == "git" else (1, "")
+
+        self.assertEqual(fq.planted_bug_control(self.worktree, "fx", no_git)[0], "skipped")
+
     def test_the_control_reports_a_survivor_and_a_skip(self) -> None:
-        self.assertEqual(fq.planted_bug_control(self.worktree, "fx", Script([]))[0], "survived")
+        self.assertEqual(fq.planted_bug_control(self.worktree, "fx", self.survivor)[0], "survived")
         (self.worktree / "crates/engine-typed/src/fx/mod.rs").write_text("pub fn f() {}\n", encoding="utf-8")
-        self.assertEqual(fq.planted_bug_control(self.worktree, "fx", Script([]))[0], "skipped")
+        self.assertEqual(fq.planted_bug_control(self.worktree, "fx", self.survivor)[0], "skipped")
 
     def test_hidden_cases_run_from_a_copy_that_is_removed_afterwards(self) -> None:
         hidden = self.root / "hidden"
@@ -216,6 +236,12 @@ class Verifying(Base):
         done = self.verify(Script([(0, PASS)], labs=[1]), hidden=hidden)
         self.assertEqual((done or {})["state"], "retry")
         self.assertIn("hidden-cases", (done or {})["feedback"][0])
+
+    def test_a_gate_that_failed_without_naming_a_rule_still_fails_the_attempt(self) -> None:
+        self.queue.submit("fx", self.worktree)
+        done = self.verify(Script([(1, json.dumps({"pass": False, "failures": []}))]))
+        self.assertEqual((done or {})["state"], "retry")
+        self.assertIn("named no rule", (done or {})["feedback"][0])
 
     def test_a_planted_bug_the_cases_do_not_see_goes_back_with_what_was_changed(self) -> None:
         self.queue.submit("fx", self.worktree)
@@ -304,6 +330,14 @@ class Command(Base):
         out = io.StringIO()
         code = fq.main(["--queue", str(self.root / "q2"), *args], root=self.root, runner=script or Script([]), out=out)
         return code, out.getvalue()
+
+    def test_queue_can_follow_the_subcommand_as_documented(self) -> None:
+        queue = str(self.root / "q4")
+        out = io.StringIO()
+        self.assertEqual(fq.main(["submit", "fx", str(self.worktree), "--queue", queue], root=self.root, out=out), 0)
+        out = io.StringIO()
+        self.assertEqual(fq.main(["list", "--queue", queue], root=self.root, out=out), 0)
+        self.assertEqual(json.loads(out.getvalue())[0]["family"], "fx")
 
     def test_submit_verify_and_list(self) -> None:
         code, out = self.go("submit", "fx", str(self.worktree))

@@ -159,9 +159,14 @@ def read_verdict(output: str) -> Verdict | None:
     return verdict
 
 
-def mutate_sources(worktree: Path, scratch: Path) -> str | None:
-    """Copy the attempt's typed sources to `scratch`, mutate one operator in the copy; the mutation, or None."""
+def mutate_sources(worktree: Path, scratch: Path, only: list[str] | None = None) -> str | None:
+    """Copy one of the attempt's typed sources to `scratch`, mutate one operator in the copy; the mutation, or None.
+
+    `only` limits the candidates to those paths (relative to the worktree): the files the attempt changed.
+    """
     for source in sorted((worktree / "crates" / "engine-typed" / "src").rglob("*.rs")):
+        if only is not None and source.relative_to(worktree).as_posix() not in only:
+            continue
         text = source.read_text(encoding="utf-8", errors="replace")
         code = text.split("#[cfg(test)]", 1)[0]
         for old, new in MUTATIONS:
@@ -174,11 +179,12 @@ def mutate_sources(worktree: Path, scratch: Path) -> str | None:
     return None
 
 
-def planted_bug_control(worktree: Path, family: str, runner: Runner) -> tuple[str, str]:
-    """('failed'|'survived'|'skipped', detail): the family's cases must fail on a copy with one operator changed."""
+def planted_bug_control(worktree: Path, family: str, runner: Runner, base: str = "origin/fork") -> tuple[str, str]:
+    """('failed'|'survived'|'skipped', detail): the family's cases must fail with one operator of the attempt changed."""
     scratch = Path(worktree) / "target" / "planted-bug"
     shutil.rmtree(scratch, ignore_errors=True)
-    mutation = mutate_sources(Path(worktree), scratch)
+    code, listing = runner(["git", "diff", "--name-only", f"{base}...HEAD"], cwd=worktree)
+    mutation = mutate_sources(Path(worktree), scratch, listing.split("\n") if not code else [])
     if mutation is None:
         return "skipped", "no operator to change in the typed sources"
     originals: dict[Path, str] = {}
@@ -229,12 +235,14 @@ def verify_next(queue: Queue, runner: Runner = run, hidden: Path | None = None, 
             queue.save(attempt)
             return attempt
         failures = feedback_lines(verdict)
+        if not verdict["pass"] and not failures:
+            failures = ["gate: the gate failed and named no rule -> fix: run port_check.py and read its output"]
         if verdict["pass"]:
             ok, detail = run_hidden(worktree, attempt["family"], hidden, runner)
             if not ok:
                 failures = [f"hidden-cases {attempt['family']}: a hidden differential case fails: {detail}"]
         if verdict["pass"] and not failures and control:
-            outcome, detail = planted_bug_control(worktree, attempt["family"], runner)
+            outcome, detail = planted_bug_control(worktree, attempt["family"], runner, base)
             if outcome == "survived":
                 failures = [(f"planted-bug {detail}: the family's cases still pass with this operator changed "
                              "-> fix: add cases that tell the two apart")]
@@ -297,17 +305,20 @@ def implementer_prompt(root: Path, family: str, feedback: list[str] | None = Non
 
 def main(argv: list[str] | None = None, root: Path = REPO, runner: Runner = run, out: Any = sys.stdout) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
-    parser.add_argument("--queue", default=str(Path.home() / ".cache" / "nv-workers" / "factory-queue"))
+    default_queue = str(Path.home() / ".cache" / "nv-workers" / "factory-queue")
+    parser.add_argument("--queue", default=default_queue)
     sub = parser.add_subparsers(dest="command", required=True)
-    one = sub.add_parser("submit")
+    shared = argparse.ArgumentParser(add_help=False)  # --queue after the subcommand too
+    shared.add_argument("--queue", default=argparse.SUPPRESS)
+    one = sub.add_parser("submit", parents=[shared])
     one.add_argument("family")
     one.add_argument("worktree")
-    check = sub.add_parser("verify")
+    check = sub.add_parser("verify", parents=[shared])
     check.add_argument("--hidden")
     check.add_argument("--base", default="origin/fork")
     check.add_argument("--no-control", action="store_true")
-    sub.add_parser("list")
-    ask = sub.add_parser("prompt")
+    sub.add_parser("list", parents=[shared])
+    ask = sub.add_parser("prompt", parents=[shared])
     ask.add_argument("family")
     ask.add_argument("--feedback")
     args = parser.parse_args(argv)
