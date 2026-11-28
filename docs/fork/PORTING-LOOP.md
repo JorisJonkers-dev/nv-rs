@@ -188,7 +188,6 @@ daemon's target directory; times exclude the wait for the daemon's lock, which w
 | the same after the report options changed (the whole dependency tree instrumented again, includes queue time) | 412 s | not measured |
 
 The container mounted the toolchain read-only and the build directory and lock file read-write, so it queued
-with the daemon's own jobs. The coverage report of the lab crate lists every crate source it ran (241 files, the
-family's own files fully hit), but only when `--ignore-filename-regex` is given: by default `cargo llvm-cov` drops
-files outside the lab crate's own workspace, which leaves the typed crate out of the report.
-
+with the daemon's own jobs. A coverage report of the lab crate lists the typed crate's sources (241 files, the
+family's own files fully hit) only when the crate is named with `--dep-coverage` and `--ignore-filename-regex` is
+given: by default `cargo llvm-cov` instruments and reports only the workspace of the lab crate itself.
