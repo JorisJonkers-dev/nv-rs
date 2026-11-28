@@ -141,8 +141,8 @@ def open_pr(root, runner, name, base, body, assignee):
     return output.strip()
 
 
-def main(argv=None, root=".", runner=run, out=sys.stdout):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+def main(argv=None, root=Path("."), runner=run, out=sys.stdout):
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--name", required=True)
     parser.add_argument("--task", action="append", default=[], help="branch[:issue]; the order is the merge order")
     parser.add_argument("--base", default="origin/fork")

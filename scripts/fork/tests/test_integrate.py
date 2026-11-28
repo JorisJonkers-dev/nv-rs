@@ -206,10 +206,10 @@ class Publishing(Repo):
 
     def test_a_gate_that_still_passes_after_the_rebase_lets_the_push_through(self):
         class Moving(Gh):
-            def __call__(inner, argv, cwd):
+            def __call__(_me, argv, cwd):
                 if argv[:2] == ["git", "fetch"]:
                     self.advance_fork("later.txt", "later\n")
-                return super(Moving, inner).__call__(argv, cwd)
+                return super(Moving, _me).__call__(argv, cwd)
 
         code, _ = self.run_main("--task", "feat/a:1", "--push", "--gate", f"{sys.executable} -c pass", runner=Moving())
         self.assertEqual(code, 0)
@@ -223,10 +223,10 @@ class Publishing(Repo):
                 "first = not os.path.exists(m); open(m, 'w').close(); sys.exit(0 if first else 1)\"")
 
         class Moving(Gh):
-            def __call__(inner, argv, cwd):
+            def __call__(_me, argv, cwd):
                 if argv[:2] == ["git", "fetch"]:
                     self.advance_fork("later.txt", "later\n")
-                return super(Moving, inner).__call__(argv, cwd)
+                return super(Moving, _me).__call__(argv, cwd)
 
         code, _ = self.run_main("--task", "feat/a:1", "--push", "--gate", gate, runner=Moving())
         self.assertEqual(code, 2)
@@ -234,10 +234,10 @@ class Publishing(Repo):
 
     def test_a_batch_that_cannot_rebase_is_an_error(self):
         class Conflicting(Gh):
-            def __call__(inner, argv, cwd):
+            def __call__(_me, argv, cwd):
                 if argv[:2] == ["git", "fetch"]:
                     self.advance_fork("a.txt", "different\n")
-                return super(Conflicting, inner).__call__(argv, cwd)
+                return super(Conflicting, _me).__call__(argv, cwd)
 
         code, _ = self.run_main("--task", "feat/a:1", "--push", runner=Conflicting())
         self.assertEqual(code, 2)
