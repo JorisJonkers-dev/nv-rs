@@ -2,9 +2,9 @@
 
 | Practice | Where | Notes |
 | --- | --- | --- |
-| One required check, `Pipeline Complete` | `.github/workflows/fork-ci.yml`, `.github/rulesets/fork-line.json` | It gathers the result of every job: the build, the repository checks (`task check`, a parallel job) and the two reusable workflows (hygiene, PR title) |
+| One required check, `Pipeline Complete` | `.github/workflows/fork-ci.yml`, `.github/rulesets/fork-line.json` | It gathers the result of every job: the build, the repository checks (`task check`, a parallel job) and the hygiene workflow |
 | Branch protection | `.github/rulesets/fork-line.json`, `scripts/fork/apply-ruleset.sh`, `scripts/fork/switch-to-fork.sh` | The estate's ruleset: no deletion, no force push, linear history, pull requests only, squash for people and rebase for the sync, `Pipeline Complete` required. No bypass actors |
-| Conventional Commits | `pr-title` job, `scripts/fork/hooks/commit-msg` | The pull request title is the squash commit, so it is what release-please reads |
+| Conventional Commits | `PR title is a Conventional Commit` check (pr-text.yml), `scripts/fork/hooks/commit-msg` | The pull request title is the squash commit, so it is what release-please reads |
 | Following upstream | `scripts/fork/replay-upstream.sh`, `.github/workflows/fork-sync.yml`, `scripts/fork/verify-sync.sh` | Replays each upstream commit with the same change and a Conventional Commit message; see KEEPING-IN-SYNC.md |
 | Release notes and tags | `release-please-config.json`, `.release-please-manifest.json`, `.github/workflows/release.yml` | `release-type: simple`: it never edits `Cargo.toml` or `Cargo.lock`, so `distribution/DEPENDENCY-LOCK.sha256` stays valid |
 | Secret scanning | `.gitleaks.toml`, `task secrets` | Every commit, in CI and locally |
@@ -18,6 +18,8 @@
 | Windows and Linux release builds | `.github/workflows/fork-release-build.yml` | Artefacts; publishes a release only for a release-please tag with `publish`, Linux and Windows independently (RELEASE-FILES.md). Packaging stays local (needs the player's `FalloutNV.exe`) |
 | Release files | `scripts/fork/release-files/`, `.fork/schemas/`, `.fork/capabilities.json`, `.github/workflows/fork-release-build.yml`, [`RELEASE-FILES.md`](RELEASE-FILES.md) | `capabilities.json` (built-in extender coverage, from the command tables) and `release-manifest.json` (version, upstream base, executable section hashes, play-patch entry), validated against checked-in schemas and attached to the release artefacts with `SHA256SUMS` and a build attestation |
 | Local build-and-test loop | `scripts/fork/local/nv-rs-dev`, [`LOCAL.md`](LOCAL.md) | `build`, `run`, `smoke`, `test`, `check` with the `play` profile, a shared target dir under `~/.cache/nv-rs` and a memory cap. Workers iterate with it instead of CI Release Builds; CI stays the merge gate. One cargo process, no whole-workspace build |
+| Build daemon | `scripts/fork/build_daemon.py`, [`FAMILY-LAB.md`](FAMILY-LAB.md) | Parallel workers queue builds and test runs through one process that owns cargo, under configured job and memory limits with one target dir and sccache; the one-family lab uses its client command |
+| Porting loop | `scripts/fork/porting_loop.py`, [`PORTING-LOOP.md`](PORTING-LOOP.md), [`PORTING-RULEBOOK.md`](PORTING-RULEBOOK.md) | Work only from the ledger queue, one family per worktree, builds through the daemon, an independent review and one pull request per batch with pass counts and failure classes; the shakedown is closed unmerged with a rulebook update and the weekly report counts delivered verified functions per day |
 | Local setup | `mise.toml`, `Taskfile.yml`, `scripts/fork/install-hooks.sh` | `mise install`, then `task check` |
 
 Not adopted on purpose: Dependabot (the estate uses Renovate), and a changed Rust toolchain

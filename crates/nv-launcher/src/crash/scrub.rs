@@ -17,8 +17,10 @@
 //!    backslashes doubled or not, `smb://` and `file://` addresses, or `/...` at the start of a
 //!    word): `<path>` and its last part only (`<path>\d3d9.dll`). A path goes on over a space
 //!    when one of the next five words holds its separator (`C:\Program Files (x86)\x\y.dll`).
-//! 4. E-mail addresses (`<e-mail>`) and IPv4 and IPv6 addresses (`<ip>`); versions, times and
-//!    code paths stay.
+//! 4. E-mail addresses (`<e-mail>`), IPv4 and IPv6 addresses (`<ip>`), and Steam accounts written
+//!    out (`<id>`): a Steam64 number (`7656119` and ten more digits) and a profile address's
+//!    account part (`steamcommunity.com/profiles/<id>`, `steamcommunity.com/id/<id>`); versions,
+//!    times and code paths stay.
 //! 5. Then, outside the placeholders: the user names and the computer's names become `<user>` and
 //!    `<computer>`, in any case: as a whole word or joined to digits, `_` or `-`
 //!    (`<user>2.esp`); joined to letters only inside a path or a mod's file name and only when
@@ -1141,13 +1143,53 @@ fn ipv6_at(text: &[char], i: usize) -> Option<usize> {
     Some(end)
 }
 
-/// E-mail and network addresses in a run.
+/// A Steam account's number written out at `text[i]`: a Steam64 id (`7656119` and ten more
+/// digits, as every account's is), not part of a longer word or number: where it ends.
+fn steam_id_at(text: &[char], i: usize) -> Option<usize> {
+    let joined = |c: &char| c.is_alphanumeric() || *c == '_';
+    let end = i + 17;
+    let digits = text.get(i..end)?;
+    let id = digits.iter().all(char::is_ascii_digit)
+        && digits.starts_with(&['7', '6', '5', '6', '1', '1', '9'])
+        && !(i > 0 && joined(&text[i - 1]))
+        && !text.get(end).is_some_and(joined);
+    id.then_some(end)
+}
+
+/// A Steam profile's address at `text[i]`, `steamcommunity.com/profiles/<number>` or
+/// `steamcommunity.com/id/<name>` (any case): where its account part starts and ends.
+fn steam_profile_at(text: &[char], i: usize) -> Option<(usize, usize)> {
+    let from = ["steamcommunity.com/profiles/", "steamcommunity.com/id/"]
+        .iter()
+        .find_map(|lead| {
+            let from = i + lead.len();
+            let at = text.get(i..from)?;
+            at.iter()
+                .zip(lead.chars())
+                .all(|(&c, l)| same(c, l))
+                .then_some(from)
+        })?;
+    let n = text[from..]
+        .iter()
+        .take_while(|&&c| c.is_alphanumeric() || c == '_' || c == '-')
+        .count();
+    (n > 0).then_some((from, from + n))
+}
+
+/// E-mail and network addresses and Steam accounts in a run.
 fn addresses(text: &[char], in_path: &[bool], _: Option<char>) -> Vec<Unit> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < text.len() {
-        if let Some(end) = email_at(text, i) {
+        if let Some((from, end)) = steam_profile_at(text, i) {
+            out.extend((i..from).map(|k| Unit::Char(text[k], in_path[k])));
+            out.push(Unit::Mark("<id>"));
+            i = end;
+        } else if let Some(end) = email_at(text, i) {
             out.push(Unit::Mark("<e-mail>"));
+            i = end;
+        } else if let Some(end) = steam_id_at(text, i) {
+            out.push(Unit::Mark("<id>"));
             i = end;
         } else if let Some(end) = ipv4_at(text, i).or_else(|| ipv6_at(text, i)) {
             out.push(Unit::Mark("<ip>"));
@@ -1211,6 +1253,53 @@ mod tests {
         // Another folder that only starts like it is not it; the name in it still goes.
         assert_eq!(s.text("/home/jtest2/x"), "<path>/x");
         assert_eq!(s.text("in /home/jtest2"), "in <path>/<user>2");
+    }
+
+    /// A Mac player, as [`Known::from_system`] finds one: a home in the Mac's users folder
+    /// (`/Users/<name>`, here `jtest`), nv-rs's own folder `~/Library/Application Support/nv-rs`,
+    /// the game in a Steam folder of the home: every one taken out, and another user's home too.
+    /// (The paths are put together here: the repository's hygiene test refuses a user's home
+    /// written out, made-up ones too.)
+    #[test]
+    fn a_mac_players_folders_go() {
+        let mac = |rest: &str| format!("/{}/{rest}", "Users");
+        let s = Scrubber::new(&Known {
+            roots: vec![
+                (
+                    mac("jtest/Library/Application Support/Steam/steamapps/common/Fallout New Vegas"),
+                    "<game>",
+                ),
+                (mac("jtest/Library/Application Support/nv-rs"), "<nv-rs-data>"),
+                (mac("jtest/Downloads/nv-rs-preview-macos-arm64"), "<nv-rs>"),
+                (mac("jtest"), "<home>"),
+            ],
+            words: vec![("jtest".into(), "<user>")],
+        });
+        let log = format!(
+            "Log: {}",
+            mac("jtest/Library/Application Support/nv-rs/logs/game.log")
+        );
+        assert_eq!(s.text(&log), "Log: <nv-rs-data>/logs/game.log");
+        assert_eq!(
+            s.text(&mac(
+                "jtest/Library/Application Support/Steam/steamapps/common/Fallout New Vegas/Data/x.esm"
+            )),
+            "<game>/Data/x.esm"
+        );
+        assert_eq!(
+            s.text(&format!(
+                "at {}",
+                mac("jtest/Downloads/nv-rs-preview-macos-arm64/app/nv-viewer")
+            )),
+            "at <nv-rs>/app/nv-viewer"
+        );
+        let desktop = mac("jtest/Desktop/notes");
+        assert_eq!(s.text(&desktop), "<home>/.../notes");
+        // Another user's home: no part of it stays but its last.
+        assert_eq!(s.text(&mac("someone/Documents/x")), "<path>/x");
+        for line in [s.text(&log), s.text(&desktop), s.text("jtest's Mac")] {
+            assert!(!line.contains("jtest"), "{line}");
+        }
     }
 
     /// Below the home folder (and OneDrive's) never the part right below it (a work OneDrive
@@ -1402,6 +1491,30 @@ mod tests {
         );
         // Versions with every number 255 or less, and code paths of hex letters, stay.
         let kept = "Vulkan version 1.3.250.0, driver 31.0.101.5, v1.0.0.1, face::add, d3d9::d3d9";
+        assert_eq!(s.text(kept), kept);
+    }
+
+    /// A Steam account written out, as a player might in an F12 note: its Steam64 number, or its
+    /// profile's address with the number or the account's own name.
+    #[test]
+    fn steam_accounts_written_out_go() {
+        let s = player();
+        assert_eq!(
+            s.text("my steam is 76561198012345678, add me"),
+            "my steam is <id>, add me"
+        );
+        assert_eq!(
+            s.text("https://steamcommunity.com/profiles/76561198012345678/ and steamcommunity.com/id/Some_Handle-2?l=en"),
+            "https://steamcommunity.com/profiles/<id>/ and steamcommunity.com/id/<id>?l=en"
+        );
+        // An account named like the user: `<id>`, in any case.
+        assert_eq!(
+            s.text("HTTPS://SteamCommunity.com/ID/jtest."),
+            "HTTPS://SteamCommunity.com/ID/<id>."
+        );
+        // Not an account: shorter or longer numbers, one joined to a letter, an address with no
+        // account part or another page.
+        let kept = "frame 76561198 at 1765611980123456789, x76561198012345678, steamcommunity.com/id/ and https://steamcommunity.com/market";
         assert_eq!(s.text(kept), kept);
     }
 
@@ -2114,6 +2227,10 @@ mod tests {
             (
                 "C:\\Program Files (x86)\\Steam\\userdata\\123456789",
                 "<path>\\<id>",
+            ),
+            (
+                "my steam is steamcommunity.com/profiles/76561198012345678, add me",
+                "my steam is steamcommunity.com/profiles/<id>, add me",
             ),
             (
                 "E:\\Steam\\steamapps\\common\\Fallout New Vegas\\Data\\Saves\\x.esp",

@@ -23,7 +23,7 @@ const SLOT_PIXEL_CONSTANTS: u32 = 0x1b4;
 /// or a variable name (+0x24).
 fn settable(e: &Engine, entry: u32) -> bool {
     entry != 0
-        && e.mem.u8(entry.wrapping_add(8)) != 0
+        && crate::draw::capture::own_at::<u8>(e, entry.wrapping_add(8)) != 0
         && (e.mem.u32(entry.wrapping_add(0x1c)) != 0xffff_ffff
             || e.mem.u32(entry.wrapping_add(0x24)) != 0)
 }
@@ -102,7 +102,7 @@ pub fn set_shader_constants(
                     };
                     let register = e.mem.u32(entry.wrapping_add(0x1c));
                     let data = e.mem.u32(entry.wrapping_add(0x30));
-                    let count = e.mem.u32(entry.wrapping_add(0x20));
+                    let count = crate::draw::capture::own_at::<u32>(e, entry.wrapping_add(0x20));
                     let device = e.mem.u32(base.wrapping_add(0x38));
                     // The data is often the draw's own constants (the shader statics): an image of the packet's copy.
                     let result = crate::draw::capture::own_image(
@@ -121,11 +121,17 @@ pub fn set_shader_constants(
                 _ => e.vcall(base, 0x90, &args![program, entry, word_10]).u32(),
             },
             KIND_ATTRIBUTE => {
-                let words = args![
-                    program, entry, word_2, word_3, word_4, word_5, word_6, word_7, word_8, word_9,
-                    word_10, word_11, 0u32
-                ];
-                e.vcall(base, 0x94, &words).u32()
+                // Thirteen words fit the call's inline word buffer. Pass the slice directly rather
+                // than binding it with `args!` first: both are stack words, so nothing allocates.
+                e.vcall(
+                    base,
+                    0x94,
+                    &[
+                        program, entry, word_2, word_3, word_4, word_5, word_6, word_7, word_8,
+                        word_9, word_10, word_11, 0,
+                    ],
+                )
+                .u32()
             }
             KIND_GLOBAL => e.vcall(base, 0x98, &args![program, entry, word_10]).u32(),
             KIND_OPERATOR => {

@@ -28,7 +28,7 @@ const ENTRY_DATA: u32 = 0x30;
 /// takes with the cache as the draw's own state, so it is read through the packet.
 #[inline(always)]
 fn device(e: &Engine, shader: u32) -> u32 {
-    let renderer = e.mem.u32(shader.wrapping_add(0x28));
+    let renderer = crate::draw::capture::own_at::<u32>(e, shader.wrapping_add(0x28));
     capture::own_at::<u32>(e, renderer.wrapping_add(RENDERER_DEVICE))
 }
 
@@ -69,7 +69,7 @@ pub fn set_constant(e: &mut Engine, this: Ptr, entry: Ptr, data: u32, count: u32
     };
     let mut count = count;
     if count == 0 {
-        count = e.mem.u32(entry.wrapping_add(ENTRY_COUNT));
+        count = capture::own_at::<u32>(e, entry.wrapping_add(ENTRY_COUNT));
         if count == 0 {
             count = 1;
         }

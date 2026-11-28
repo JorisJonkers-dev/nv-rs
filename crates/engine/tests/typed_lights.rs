@@ -12,6 +12,9 @@ use engine_core::prelude::*;
 use engine_core::typed::diff::{Case, Diff, Input};
 use engine_typed::lights::{self, walk};
 
+#[path = "typed_lights/scene_node.rs"]
+mod scene_node;
+
 const VT_FN: u32 = 0x00ff_2000;
 const VT_SLOTS: u32 = 0x200;
 const LOG: u32 = 0x0300_0000;
@@ -469,6 +472,96 @@ fn lights_parse_radius() {
         .assert_same();
 }
 
+/// The exe's constant bodies the walks answer in place: the object itself (nodes' `IsNode`, the
+/// geometries' `IsTriBasedGeom`), 0, and the point, directional and ambient lights' `GetRTTI`.
+const EXE_BODIES: [u32; 6] = [
+    0x0068_15c0,
+    0x00e6_8810,
+    0x00ac_bb70,
+    0x00a7_d790,
+    0x00a7_5c70,
+    0x00a9_b390,
+];
+
+/// The tree from `object` down with the exe's bodies in its objects' slots where their stand-ins'
+/// answers are what those bodies answer: `IsNode` the object itself (`006815c0`) or 0, and
+/// `IsTriBasedGeom` the object itself (`00e68810`) or 0 (`00acbb70`); any other answer keeps its
+/// stand-in.
+fn exe_bodies(e: &mut Engine, object: u32) {
+    if object == 0 {
+        return;
+    }
+    let vt = e.mem.u32(object);
+    for (slot, k, itself) in [(0xc, 0, 0x0068_15c0), (0x1c, 1, 0x00e6_8810)] {
+        match e.mem.u32(vt + VT_SLOTS + 4 * k) {
+            0 => e.mem.set_u32(vt + slot, 0x00ac_bb70),
+            a if a == object => e.mem.set_u32(vt + slot, itself),
+            _ => {}
+        }
+    }
+    if e.mem.u32(vt + VT_SLOTS) == object {
+        let base = e.mem.u32(object + 0xa0);
+        for i in 0..u32::from(e.mem.u16(object + 0xa6)) {
+            let child = e.mem.u32(base + 4 * i);
+            exe_bodies(e, child);
+        }
+    }
+}
+
+/// The walk world with the exe's bodies in the tree's slots, and the light's `NiLight` answering its
+/// RTTI with the point light's (`k` of 0 or 1), the directional light's (4) or the ambient light's
+/// (5) `GetRTTI`.
+fn exe_body_world(e: &mut Engine, case: &Case) -> Vec<u32> {
+    let w: [u32; 6] = core::array::from_fn(|i| case.word(i));
+    let (l, root) = walk_world(e, case, w, 6);
+    exe_bodies(e, root);
+    let ni = e.mem.u32(l + 0xf8);
+    let rtti = match w[0] {
+        4 => 0x00a7_5c70,
+        5 => 0x00a9_b390,
+        _ => 0x00a7_d790,
+    };
+    let vt = e.mem.u32(ni);
+    e.mem.set_u32(vt + 8, rtti);
+    vec![l, root]
+}
+
+#[test]
+fn lights_add_object_exe_bodies() {
+    Diff::new(entry!(0x00ba_0110, walk::add_object(Ptr<_>, u32)))
+        .common()
+        .ignore_calls(&EXE_BODIES)
+        .inputs(&walk_inputs())
+        .max_cases(256)
+        .setup(exe_body_world)
+        .run()
+        .assert_same();
+}
+
+#[test]
+fn lights_parse_frustum_exe_bodies() {
+    Diff::new(entry!(0x00b9_f5b0, walk::parse_frustum(Ptr<_>, u32)))
+        .common()
+        .ignore_calls(&EXE_BODIES)
+        .inputs(&walk_inputs())
+        .max_cases(256)
+        .setup(exe_body_world)
+        .run()
+        .assert_same();
+}
+
+#[test]
+fn lights_parse_radius_exe_bodies() {
+    Diff::new(entry!(0x00b9_f6a0, walk::parse_radius(Ptr<_>, u32)))
+        .common()
+        .ignore_calls(&EXE_BODIES)
+        .inputs(&walk_inputs())
+        .max_cases(256)
+        .setup(exe_body_world)
+        .run()
+        .assert_same();
+}
+
 #[test]
 fn lights_bound_rounding() {
     // Fixed inputs where the distances computed at the main thread's precision, each step stored as
@@ -809,6 +902,9 @@ mod lists {
             .family(&leaf::LEAVES)
             .ignore_calls(&[0x00b9_dbe0, 0x00ec_6040])
             .control_words(&BOTH)
+            // The luminance is `GetLuminanceToBound`'s native body: x87 and SSE may give a NaN
+            // luminance another sign or payload, which the sort's comparisons treat alike.
+            .allow_nan_payloads()
             .inputs(&[
                 Input::Of(&[0, 1, 2, 5, 9]),
                 Input::Of(&[0, 1, 2, 3, 4, 5, 6]),
@@ -999,7 +1095,7 @@ mod lists {
 mod queue {
     use super::{
         bits, block, geometry, light, logged, ni_light, object, set_logged_answer, stand_ins, tree,
-        words, HALF, LOG, ONE, OTHER_RTTI, RADIUS_FREE_RTTI, TWO, VT_FN,
+        words, HALF, LOG, ONE, OTHER_RTTI, RADIUS_FREE_RTTI, TWO, VT_FN, VT_SLOTS,
     };
     use engine_core::prelude::*;
     use engine_core::typed::diff::{memory_differences_beside_stack, Case, Diff, Input, Value};
@@ -1168,6 +1264,15 @@ mod queue {
             self.family(&lights::LIGHTS)
                 .family(&leaf::LEAVES)
                 .ignore_calls(&[0x00ec_6040])
+                // The scene node family's members the drain and the object walk call typed.
+                .goes_by_address(&[
+                    0x00b5_cd00,
+                    0x00b5_eca0,
+                    0x00b5_d930,
+                    0x00b5_ef90,
+                    0x00e7_4d40,
+                    0x00b5_aa40,
+                ])
                 .max_calls(50_000)
                 .float_sweep(64)
         }
@@ -1180,35 +1285,87 @@ mod queue {
         // the lights' and the object's places.
         Diff::new(entry!(0x00b5_dac0, queue::update_start(u32, u32, u32, u32) -> u8))
             .queue_common()
-            .inputs(&[
-                Input::Of(&[0, 1, 4, 5]),
-                Input::Of(&[0, 1, 2, 3]),
-                Input::Flag,
-                Input::Flag,
-                Input::Of(&[3, 0, 1, 7]),
-                Input::Of(&[0, 1, 2]),
-                Input::Flag,
-                Input::F32,
-                Input::F32Swept(ONE),
-            ])
+            .inputs(&START_INPUTS)
             .max_cases(400)
-            .setup(|e, case| {
-                queue_stand_ins(e);
-                let lights = lights_of(e, case, case.word(4) as usize, case.word(5) as usize, 7);
-                let node = scene_node(e, &lights);
-                let object = queued_object(e, case, case.word(0), 7);
-                let p = parent(e, case.word(1), &lights);
-                e.mem.set_u32(object + 0x18, p);
-                // The multibound cast: none, or the node itself with its first child indexed.
-                if case.word(6) == 1 && case.word(0) != 0 {
-                    set_logged_answer(e, 0x13, object);
-                    let first = e.mem.u32(e.mem.u32(object + 0xa0));
-                    set_logged_answer(e, 0x14, first);
-                }
-                vec![object, node, case.word(2), case.word(3)]
-            })
+            .setup(|e, case| start_world(e, case).0)
             .run()
             .assert_same();
+    }
+
+    const START_INPUTS: [Input; 9] = [
+        Input::Of(&[0, 1, 4, 5]),
+        Input::Of(&[0, 1, 2, 3]),
+        Input::Flag,
+        Input::Flag,
+        Input::Of(&[3, 0, 1, 7]),
+        Input::Of(&[0, 1, 2]),
+        Input::Flag,
+        Input::F32,
+        Input::F32Swept(ONE),
+    ];
+
+    /// The world of an object-half case: answers the call's words, the lights, the object and its
+    /// parent.
+    fn start_world(e: &mut Engine, case: &Case) -> (Vec<u32>, Vec<u32>, u32, u32) {
+        queue_stand_ins(e);
+        let lights = lights_of(e, case, case.word(4) as usize, case.word(5) as usize, 7);
+        let node = scene_node(e, &lights);
+        let object = queued_object(e, case, case.word(0), 7);
+        let p = parent(e, case.word(1), &lights);
+        e.mem.set_u32(object + 0x18, p);
+        // The multibound cast: none, or the node itself with its first child indexed.
+        if case.word(6) == 1 && case.word(0) != 0 {
+            set_logged_answer(e, 0x13, object);
+            let first = e.mem.u32(e.mem.u32(object + 0xa0));
+            set_logged_answer(e, 0x14, first);
+        }
+        (
+            vec![object, node, case.word(2), case.word(3)],
+            lights,
+            object,
+            p,
+        )
+    }
+
+    /// The object half with the exe's bodies in every slot the queue answers in place: the tree's
+    /// `IsNode` and `IsTriBasedGeom` (`006815c0`, `00e68810`, `00acbb70`), the lamps' `GetRTTI`
+    /// (the point light's `00a7d790` for the ordinary lamps, the directional light's `00a75c70` for
+    /// the radius-free ones: the same answers as their stand-ins' records) and an other parent's
+    /// (the ambient light's `00a9b390`: neither a room nor the other kind, as its stand-in). The
+    /// exe's bodies are left out of the calls, so a site gone back to the vtable shows as a call
+    /// the translation lacks; with the light table on too (its kind read).
+    #[test]
+    fn lights_update_start_exe_bodies() {
+        for table in [false, true] {
+            queue::force_light_table(Some(table));
+            let report =
+                Diff::new(entry!(0x00b5_dac0, queue::update_start(u32, u32, u32, u32) -> u8))
+                    .queue_common()
+                    .ignore_calls(&super::EXE_BODIES)
+                    .inputs(&START_INPUTS)
+                    .max_cases(400)
+                    .setup(|e, case| {
+                        let (call, lights, object, parent) = start_world(e, case);
+                        super::exe_bodies(e, object);
+                        for l in lights {
+                            let ni = e.mem.u32(l + 0xf8);
+                            let vt = e.mem.u32(ni);
+                            let free = e.mem.u32(vt + VT_SLOTS + 8) == RADIUS_FREE_RTTI;
+                            let body = if free { 0x00a7_5c70 } else { 0x00a7_d790 };
+                            e.mem.set_u32(vt + 8, body);
+                        }
+                        if parent != 0 {
+                            let vt = e.mem.u32(parent);
+                            if e.mem.u32(vt + VT_SLOTS + 8) == OTHER_RTTI {
+                                e.mem.set_u32(vt + 8, 0x00a9_b390);
+                            }
+                        }
+                        call
+                    })
+                    .run();
+            queue::force_light_table(None);
+            report.assert_same();
+        }
     }
 
     /// The inputs of the per-geometry update and its walk: a null node (the accumulator's, or the
@@ -1759,6 +1916,1484 @@ mod dead_lights {
                 }
                 dead::set_guard(&e, false);
             }
+        }
+    }
+}
+
+/// The light's own functions (`lights::scene_light`): each world builds the light, its `NiLight`
+/// (with the exe's `GetRTTI` bodies in its RTTI slot, or a stand-in answering a record chained to
+/// one), its lists and the globals the function reads, from the case's words so that each branch
+/// is taken in some case; the luminances run under both control words with swept floats.
+mod scene_light {
+    use super::{
+        bits, block, light, log, logged, object, ret, set_logged_answer, stand_ins, words,
+        EXE_BODIES, HALF, LOG, MINUS_ONE, ONE, OTHER_RTTI, RADIUS_FREE_RTTI, TWO, VT_FN, VT_SLOTS,
+    };
+    use engine_core::prelude::*;
+    use engine_core::typed::diff::{Case, Diff, Input};
+    use engine_core::typed::{MAIN_THREAD, OTHER_THREADS};
+    use engine_typed::lights::{self, scene_light};
+
+    const BOTH: [u16; 2] = [OTHER_THREADS, MAIN_THREAD];
+    const NAN: u32 = 0x7fc0_0000;
+    const TEN: u32 = 0x4120_0000;
+    const POINT_RTTI: u32 = 0x011f_4a98;
+    const AMBIENT_RTTI: u32 = 0x011f_5f6c;
+    /// The exe's `GetRTTI` bodies of the point, directional and ambient lights.
+    const POINT_BODY: u32 = 0x00a7_d790;
+    const DIRECTIONAL_BODY: u32 = 0x00a7_5c70;
+    const AMBIENT_BODY: u32 = 0x00a9_b390;
+
+    fn count_up(e: &mut Engine, a: &[u32]) -> Ret {
+        let n = e.mem.u32(a[0]).wrapping_add(1);
+        e.mem.set_u32(a[0], n);
+        ret(n)
+    }
+
+    fn count_down(e: &mut Engine, a: &[u32]) -> Ret {
+        let n = e.mem.u32(a[0]).wrapping_sub(1);
+        e.mem.set_u32(a[0], n);
+        ret(n)
+    }
+
+    /// A stand-in that logs its words under `TAG` and writes its answer word into the `NiPointer`
+    /// its second word points at (a list removal's out pointer).
+    fn out_writer<const TAG: u32>(e: &mut Engine, a: &[u32]) -> Ret {
+        for w in a {
+            log(e, TAG, *w);
+        }
+        let answer = e.mem.u32(LOG + 0x3f00 + 4 * (TAG & 0x3f));
+        e.mem.set_u32(a[1], answer);
+        ret(0)
+    }
+
+    /// The renderer's shadow map release: logs and, when `LOG + 0x3e00` names a word, clears it
+    /// (the light's map, which the typed code must read again).
+    fn release_map(e: &mut Engine, a: &[u32]) -> Ret {
+        for w in a {
+            log(e, 0x20, *w);
+        }
+        let at = e.mem.u32(LOG + 0x3e00);
+        if at != 0 {
+            e.mem.set_u32(at, 0);
+        }
+        ret(0)
+    }
+
+    /// The walk tests' stand-ins and the data these functions read: the imports' counts, the
+    /// deleting slot, the list item free, the exe's 0.0 and 1.0 doubles, `Unitize`'s minimum and
+    /// the spotlight's field of view.
+    fn world(e: &mut Engine) {
+        stand_ins(e);
+        for page in [
+            0x0101_2000,
+            0x0101_7000,
+            0x0102_4000,
+            0x011a_d000,
+            0x011f_5000,
+        ] {
+            e.map(page, 0x1000);
+        }
+        words(e, 0x0101_2060, &[0, 0, 0, 0, 0, 0x3ff0_0000]);
+        words(e, 0x0101_7cf8, &[0xa000_0000, 0x3eb0_c6f7]);
+        e.mem.set_u32(0x0102_49d8, 0x42b4_0000);
+        e.register(0x00fd_f1c0, count_up);
+        e.register(0x00fd_f1c4, count_down);
+        e.register(VT_FN + 4, logged::<0x17>);
+        e.register(0x00e6_e830, logged::<0x18>);
+    }
+
+    /// A counted object (its count at +4) of `size` bytes with its own vtable.
+    fn counted(e: &mut Engine, size: u32, count: u32) -> u32 {
+        let o = object(e, size, 0, 0, OTHER_RTTI);
+        e.mem.set_u32(o + 4, count);
+        o
+    }
+
+    /// An `NiLight` of `kind`: 0 none; 1, 2, 3 the point, ambient and directional lights' exe
+    /// `GetRTTI`; 4, 5 a stand-in answering a record whose base is the point or the ambient light's
+    /// record; 6 a stand-in answering an unrelated record. Its count 1, its place from the case's
+    /// floats at `f`, its radius `radius`.
+    fn ni_light_of(e: &mut Engine, case: &Case, kind: u32, f: usize, radius: u32) -> u32 {
+        if kind == 0 {
+            return 0;
+        }
+        let record = match kind {
+            4 => block(e, 8, &[0, POINT_RTTI]),
+            5 => block(e, 8, &[0, AMBIENT_RTTI]),
+            _ => OTHER_RTTI,
+        };
+        let l = object(e, 0x100, 0, 0, record);
+        let vt = e.mem.u32(l);
+        match kind {
+            1 => e.mem.set_u32(vt + 8, POINT_BODY),
+            2 => e.mem.set_u32(vt + 8, AMBIENT_BODY),
+            3 => e.mem.set_u32(vt + 8, DIRECTIONAL_BODY),
+            _ => {}
+        }
+        e.mem.set_u32(l + 4, 1);
+        words(e, l + 0x8c, &[bits(case, f), bits(case, f + 1), TWO]);
+        e.mem.set_u32(l + 0xe0, radius);
+        l
+    }
+
+    /// A shadow scene light with no planes, its `NiLight` `ni` and its `bCastShadow`.
+    fn plain_light(e: &mut Engine, ni: u32, cast: u8) -> u32 {
+        light(e, &[[0; 4]; 6], 0, ni, 0, cast)
+    }
+
+    trait Own {
+        fn own(self) -> Diff;
+    }
+
+    impl Own for Diff {
+        fn own(self) -> Diff {
+            self.family(&lights::LIGHTS)
+                .family(&leaf::LEAVES)
+                .ignore_calls(&EXE_BODIES)
+                .max_calls(20_000)
+        }
+    }
+
+    #[test]
+    fn lights_set_light() {
+        // The new light's kind; the old one (none, the same, another deleted by its release,
+        // another kept); bDynamicLight; floats for the new light's place.
+        Diff::new(entry!(0x00b9_dda0, scene_light::set_light(Ptr<_>, Ptr<_>)))
+            .own()
+            .inputs(&[
+                Input::Of(&[0, 1, 2, 3, 4, 5, 6]),
+                Input::Of(&[0, 1, 2, 3]),
+                Input::Flag,
+                Input::F32,
+                Input::F32Swept(ONE),
+            ])
+            .max_cases(400)
+            .setup(|e, case| {
+                world(e);
+                let new = ni_light_of(e, case, case.word(0), 3, TEN);
+                let old = match case.word(1) {
+                    0 => 0,
+                    1 => new,
+                    2 => counted(e, 0x40, 1),
+                    _ => counted(e, 0x40, 3),
+                };
+                let l = plain_light(e, old, 0);
+                e.mem.set_u8(l + 0xfc, case.word(2) as u8);
+                words(e, l + 0xd0, &[HALF]);
+                words(e, l + 0x100, &[7, 8, 9]);
+                words(e, l + 0xf4, &[0x0101_0101]);
+                vec![l, new]
+            })
+            .run()
+            .assert_same();
+    }
+
+    #[test]
+    fn lights_construct() {
+        // The block's old contents (a pattern or zeros); the field of view (90.0, a signalling NaN,
+        // which the exe's load and store quiet, minus infinity); the zero point's words.
+        Diff::new(entry!(
+            0x00b9_fda0,
+            scene_light::construct(Ptr<_>) -> Ptr<_>
+        ))
+        .own()
+        .ignore_calls(&[0x00a6_9940, 0x00ec_61c0])
+        .inputs(&[
+            Input::Flag,
+            Input::Of(&[0x42b4_0000, 0x7f80_0001, 0xff80_0000]),
+            Input::F32,
+            Input::F32Swept(MINUS_ONE),
+        ])
+        .max_cases(100)
+        .setup(|e, case| {
+            world(e);
+            let l = e.mem.alloc(0x260);
+            if case.word(0) != 0 {
+                for i in 0..0x98 {
+                    e.mem.set_u32(l + 4 * i, 0x5a5a_0000 | i);
+                }
+            }
+            e.mem.set_u32(0x0102_49d8, case.word(1));
+            words(e, 0x011f_426c, &[bits(case, 2), bits(case, 3), HALF]);
+            vec![l]
+        })
+        .run()
+        .assert_same();
+    }
+
+    /// A list at `list` of `n` items whose elements follow `pattern` (bit `i` clear: item `i`'s
+    /// element null; set: an object with count 1).
+    fn pointer_list(e: &mut Engine, list: u32, n: u32, pattern: u32) {
+        let items: Vec<u32> = (0..n).map(|_| e.mem.alloc(0xc)).collect();
+        for (i, &item) in items.iter().enumerate() {
+            let next = items.get(i + 1).copied().unwrap_or(0);
+            let previous = if i == 0 { 0 } else { items[i - 1] };
+            let element = if pattern >> i & 1 != 0 {
+                counted(e, 0x40, 1)
+            } else {
+                0
+            };
+            words(e, item, &[next, previous, element]);
+        }
+        let (head, tail) = (items.first().copied(), items.last().copied());
+        words(e, list, &[head.unwrap_or(0), tail.unwrap_or(0), n]);
+    }
+
+    fn pop_world(e: &mut Engine, case: &Case) -> Vec<u32> {
+        world(e);
+        let list = block(e, 0xc, &[]);
+        pointer_list(e, list, case.word(0), case.word(1));
+        let out = block(e, 4, &[0xdead_beef]);
+        vec![list, out]
+    }
+
+    #[test]
+    fn lights_pop_head() {
+        Diff::new(entry!(
+            0x00b9_e7c0,
+            scene_light::pop_head(Ptr<_>, Ptr<_>) -> Ptr<_>
+        ))
+        .own()
+        .inputs(&[Input::Of(&[1, 2, 3]), Input::Of(&[0, 1, 2, 5, 7])])
+        .setup(pop_world)
+        .run()
+        .assert_same();
+    }
+
+    #[test]
+    fn lights_pop_tail() {
+        Diff::new(entry!(
+            0x00b9_e850,
+            scene_light::pop_tail(Ptr<_>, Ptr<_>) -> Ptr<_>
+        ))
+        .own()
+        .inputs(&[Input::Of(&[1, 2, 3]), Input::Of(&[0, 1, 2, 4, 7])])
+        .setup(pop_world)
+        .run()
+        .assert_same();
+    }
+
+    #[test]
+    fn lights_set_held_1a0() {
+        // The held object (none, the given one, another deleted by its release, another kept); the
+        // given object (none, one).
+        Diff::new(entry!(0x00b9_cfd0, scene_light::set_held_1a0(Ptr<_>, u32)))
+            .own()
+            .inputs(&[Input::Of(&[0, 1, 2, 3]), Input::Flag])
+            .setup(|e, case| {
+                world(e);
+                let given = if case.word(1) != 0 {
+                    counted(e, 0x40, 2)
+                } else {
+                    0
+                };
+                let held = match case.word(0) {
+                    0 => 0,
+                    1 => given,
+                    2 => counted(e, 0x40, 1),
+                    _ => counted(e, 0x40, 3),
+                };
+                let this = block(e, 0x200, &[]);
+                e.mem.set_u32(this + 0x1a0, held);
+                vec![this, given]
+            })
+            .run()
+            .assert_same();
+    }
+
+    /// Radii: ordinary, zero, negative, NaN, huge, small.
+    const RADII: &[u32] = &[TEN, 0, MINUS_ONE, NAN, 0x7f00_0000, HALF];
+
+    #[test]
+    fn lights_luminance_to_bound() {
+        // The `NiLight`'s radius; the bound's radius; floats for the `NiLight`, the bound's centre
+        // and the scene node's lighting offset.
+        Diff::new(entry!(
+            0x00b9_dbe0,
+            scene_light::luminance_to_bound(Ptr<_>, Ptr<_>) -> f32
+        ))
+        .own()
+        .ignore_calls(&[0x00ec_6040])
+        .control_words(&BOTH)
+        // x87 and SSE pick different NaNs of two (the float rule accepts it).
+        .allow_nan_payloads()
+        .inputs(&[
+            Input::Of(RADII),
+            Input::Of(&[HALF, 0, TEN, NAN]),
+            Input::F32,
+            Input::F32Swept(ONE),
+            Input::F32Swept(TWO),
+            Input::F32Swept(HALF),
+            Input::F32Swept(MINUS_ONE),
+        ])
+        .max_cases(300)
+        .float_sweep(96)
+        .setup(|e, case| {
+            world(e);
+            let ni = ni_light_of(e, case, 6, 2, case.word(0));
+            let l = plain_light(e, ni, 0);
+            let node = e.mem.u32(0x011f_91c8);
+            words(e, node + 0x1e4, &[bits(case, 5), bits(case, 6), HALF]);
+            let bound = block(e, 0x10, &[bits(case, 4), bits(case, 3), ONE, case.word(1)]);
+            vec![l, bound]
+        })
+        .run()
+        .assert_same();
+    }
+
+    /// The colour components: ordinary, equal, zero, NaN.
+    const COLOURS: &[u32] = &[ONE, HALF, TEN, 0, NAN];
+    /// The colour of pattern 5: minus zero, minus zero, zero, where the largest component's
+    /// "less than" (not "at most") decides which zero comes out.
+    const ZEROS: [u32; 3] = [0x8000_0000, 0x8000_0000, 0];
+
+    /// A light for the luminances, from the case's words at `w`: its `NiLight`'s colour (two words
+    /// pick the pattern; 5 is [`ZEROS`]), dimmer and radius, its `bCastShadow` and `bPointLight`;
+    /// floats for the `NiLight`'s place at `f`. Answers the light and its `NiLight`.
+    fn luminance_light(e: &mut Engine, case: &Case, w: usize, f: usize) -> (u32, u32) {
+        let ni = ni_light_of(e, case, 6, f, case.word(w + 3));
+        let colour = |i: usize| {
+            if case.word(w) == 5 {
+                return ZEROS[i];
+            }
+            COLOURS[(case.word(w) as usize + i * case.word(w + 1) as usize) % COLOURS.len()]
+        };
+        words(e, ni + 0xd4, &[colour(0), colour(1), colour(2)]);
+        e.mem.set_u32(ni + 0xc4, case.word(w + 2));
+        let l = plain_light(e, ni, case.word(w + 4) as u8);
+        e.mem.set_u8(l + 0xf4, case.word(w + 5) as u8);
+        words(e, l + 0xc, &[0x4040_0000]);
+        (l, ni)
+    }
+
+    /// The luminances' words: the colour pattern (two words), the dimmer, the radius,
+    /// bCastShadow, bPointLight.
+    const LUMINANCE_INPUTS: [Input; 6] = [
+        Input::Of(&[0, 1, 2, 3, 4, 5]),
+        Input::Of(&[0, 1, 2]),
+        Input::Of(&[ONE, HALF, 0, NAN]),
+        Input::Of(RADII),
+        Input::Of(&[0, 1, 2]),
+        Input::Flag,
+    ];
+
+    #[test]
+    fn lights_luminance_at() {
+        // The `NiLight` left out (the light's own or none); the luminance words; floats for the
+        // `NiLight`'s place and the point.
+        let mut inputs = vec![Input::Flag];
+        inputs.extend(LUMINANCE_INPUTS);
+        inputs.extend([
+            Input::F32,
+            Input::F32Swept(ONE),
+            Input::F32Swept(TWO),
+            Input::F32Swept(HALF),
+            Input::F32Swept(MINUS_ONE),
+        ]);
+        Diff::new(entry!(
+            0x00b9_bc50,
+            scene_light::luminance_at(Ptr<_>, u32, u32, u32, u32) -> f32
+        ))
+        .own()
+        .ignore_calls(&[0x00ec_6040])
+        .control_words(&BOTH)
+        // x87 and SSE pick different NaNs of two (the float rule accepts it).
+        .allow_nan_payloads()
+        .inputs(&inputs)
+        .max_cases(600)
+        .float_sweep(128)
+        .setup(|e, case| {
+            world(e);
+            let (l, ni) = luminance_light(e, case, 1, 7);
+            let excluded = if case.word(0) != 0 { ni } else { 0 };
+            vec![l, bits(case, 9), bits(case, 10), bits(case, 11), excluded]
+        })
+        .run()
+        .assert_same();
+    }
+
+    #[test]
+    fn lights_facing_luminance() {
+        // The `NiLight` left out; culled or not; the luminance words; the direction point `b` (the
+        // point itself: a zero direction; a far point; from the case's floats; the light's own
+        // place, so that both unit vectors are the same and their dot rounds to just above 1.0; the
+        // point moved by 0.5 along x); floats for the `NiLight`'s place and the point `a`;
+        // `Unitize`'s minimum (the exe's, or 0.5: a direction of exactly that length is zeroed).
+        let mut inputs = vec![Input::Flag, Input::Flag];
+        inputs.extend(LUMINANCE_INPUTS);
+        inputs.extend([
+            Input::Of(&[0, 1, 2, 3, 4]),
+            Input::F32,
+            Input::F32Swept(ONE),
+            Input::F32Swept(TWO),
+            Input::F32Swept(HALF),
+            Input::F32Swept(MINUS_ONE),
+            Input::F32Swept(TEN),
+            Input::Of(&[0, 1]),
+        ]);
+        Diff::new(entry!(
+            0x00b9_bdf0,
+            scene_light::facing_luminance(Ptr<_>, u32, u32, u32, u32, u32, u32, u32) -> f32
+        ))
+        .own()
+        .ignore_calls(&[
+            0x00ec_6040,
+            0x0045_7990,
+            0x004a_0c10,
+            0x0040_4010,
+            0x0040_ebd0,
+        ])
+        .control_words(&BOTH)
+        .allow_nan_payloads()
+        .inputs(&inputs)
+        .max_cases(800)
+        .float_sweep(160)
+        .setup(|e, case| {
+            world(e);
+            // The C runtime's `sqrt` under the point length's root (its error path calls imports).
+            e.register(0x00ec_6054, |_, a| {
+                super::ret_f(super::f64_arg(a, 0).sqrt())
+            });
+            let (l, ni) = luminance_light(e, case, 2, 9);
+            let excluded = if case.word(0) != 0 { ni } else { 0 };
+            e.mem.set_u32(ni + 0x30, case.word(1));
+            let a = [bits(case, 11), bits(case, 12), bits(case, 13)];
+            let b = match case.word(8) {
+                0 => a,
+                1 => [0x447a_0000, MINUS_ONE, bits(case, 14)],
+                2 => [bits(case, 14), bits(case, 10), bits(case, 9)],
+                3 => [bits(case, 9), bits(case, 10), TWO],
+                _ => [(case.f32(11) + 0.5).to_bits(), a[1], a[2]],
+            };
+            if case.word(15) != 0 {
+                words(e, 0x0101_7cf8, &[0, 0x3fe0_0000]);
+            }
+            vec![l, a[0], a[1], a[2], b[0], b[1], b[2], excluded]
+        })
+        .run()
+        .assert_same();
+    }
+
+    #[test]
+    fn lights_set_cast_shadow() {
+        // The light's flag before and the one given; the render level (signed); the render flags'
+        // bit 0x10; the map (none, deleted by its release, kept, cleared by the renderer's
+        // release).
+        Diff::new(entry!(
+            0x00b9_dcb0,
+            scene_light::set_cast_shadow(Ptr<_>, u8)
+        ))
+        .own()
+        .inputs(&[
+            Input::Flag,
+            Input::Flag,
+            Input::Of(&[3, 2, 0xffff_ffff, 7]),
+            Input::Flag,
+            Input::Of(&[0, 1, 2, 3]),
+        ])
+        .setup(|e, case| {
+            world(e);
+            e.register(0x00b6_d4c0, release_map);
+            let l = plain_light(e, 0, case.word(0) as u8);
+            e.mem.set_u32(0x011f_91a8, 0x0abc_0000);
+            e.mem.set_u32(0x011f_91c0, case.word(2));
+            e.mem
+                .set_u8(0x011f_91d8, if case.word(3) != 0 { 0x13 } else { 0xef });
+            let map = match case.word(4) {
+                0 => 0,
+                1 => counted(e, 0x40, 1),
+                _ => counted(e, 0x40, 2),
+            };
+            e.mem.set_u32(l + 0x10c, map);
+            if case.word(4) == 3 {
+                e.mem.set_u32(LOG + 0x3e00, l + 0x10c);
+            }
+            let tls = e.tls();
+            e.mem.set_u32(tls + 0x2b4, 0x1234);
+            vec![l, case.word(1)]
+        })
+        .run()
+        .assert_same();
+    }
+
+    /// A geometry (count 1) with a lighting property of type `kind` (0 none) at +0xa8 whose +0x38
+    /// is set.
+    fn lit_geometry(e: &mut Engine, kind: u32) -> u32 {
+        let g = counted(e, 0x100, 1);
+        if kind != 0 {
+            let p = block(e, 0x40, &[]);
+            words(e, p + 0x1c, &[kind]);
+            words(e, p + 0x38, &[0x55]);
+            e.mem.set_u32(g + 0xa8, p);
+        }
+        g
+    }
+
+    /// The property types: none, the bounds of 1 to 12, outside them.
+    const KINDS: [u32; 6] = [0, 1, 12, 13, 0xffff_ffff, 4];
+
+    #[test]
+    fn lights_clear_fence() {
+        // The fence (none, the head, the second item); the list's geometries (by the pattern of
+        // types, a null element among them).
+        Diff::new(entry!(0x00b9_e770, scene_light::clear_fence(Ptr<_>)))
+            .own()
+            .inputs(&[Input::Of(&[0, 1, 2]), Input::Of(&[0, 1, 2, 3, 4, 5])])
+            .setup(|e, case| {
+                world(e);
+                let l = plain_light(e, 0, 0);
+                let geometries: Vec<u32> = (0..6usize)
+                    .map(|i| {
+                        if i == 3 {
+                            0
+                        } else {
+                            lit_geometry(e, KINDS[(i + case.word(1) as usize) % 6])
+                        }
+                    })
+                    .collect();
+                super::geometry_list(e, l, &geometries, 9);
+                let head = e.mem.u32(l + 0xe0);
+                let fence = match case.word(0) {
+                    0 => 0,
+                    1 => head,
+                    _ => e.mem.u32(head),
+                };
+                e.mem.set_u32(l + 0x138, fence);
+                vec![l]
+            })
+            .run()
+            .assert_same();
+    }
+
+    #[test]
+    fn lights_remove_tri_geom() {
+        // The geometry's property type; an item given or not; the geometry's count (0: its release
+        // deletes it); what the removal hands back (none, an object deleted by its release, one
+        // kept).
+        Diff::new(entry!(
+            0x00ba_01a0,
+            scene_light::remove_tri_geom(Ptr<_>, u32, u32)
+        ))
+        .own()
+        .inputs(&[
+            Input::Of(&KINDS),
+            Input::Flag,
+            Input::Of(&[0, 1]),
+            Input::Of(&[0, 1, 2]),
+        ])
+        .setup(|e, case| {
+            world(e);
+            e.register(0x00b7_17a0, logged::<0x19>);
+            e.register(0x00b9_efa0, out_writer::<0x1a>);
+            e.register(0x00b9_fcc0, out_writer::<0x1b>);
+            let l = plain_light(e, 0, 0);
+            let g = lit_geometry(e, case.word(0));
+            e.mem.set_u32(g + 4, case.word(2));
+            let item = if case.word(1) != 0 {
+                block(e, 0xc, &[0, 0, g])
+            } else {
+                0
+            };
+            let removed = match case.word(3) {
+                0 => 0,
+                1 => counted(e, 0x40, 1),
+                _ => counted(e, 0x40, 4),
+            };
+            set_logged_answer(e, 0x1a, removed);
+            set_logged_answer(e, 0x1b, removed);
+            vec![l, g, item]
+        })
+        .run()
+        .assert_same();
+    }
+
+    #[test]
+    fn lights_cull_geometries() {
+        // The `NiLight` culled or not; the callback set or not; the render flags' bit 0; the busy
+        // test's answer; the types' pattern (+0x68 of 1, 5, 6, 0x11, 0, -1, 2, and none at +0xc0);
+        // the geometries' +0xbc words.
+        Diff::new(entry!(
+            0x00b9_d020,
+            scene_light::cull_geometries(Ptr<_>, u32) -> bool
+        ))
+        .own()
+        .family(&engine_typed::culling::CULLING)
+        .inputs(&[
+            Input::Flag,
+            Input::Flag,
+            Input::Flag,
+            Input::Flag,
+            Input::Of(&[0, 1, 2, 3, 4, 5, 6, 7]),
+            Input::Flag,
+        ])
+        .max_cases(300)
+        .setup(|e, case| {
+            const TYPES: [u32; 7] = [1, 5, 6, 0x11, 0, 0xffff_ffff, 2];
+            world(e);
+            let ni = object(e, 0x100, 0, 0, OTHER_RTTI);
+            e.mem.set_u32(ni + 0x30, case.word(0));
+            let l = plain_light(e, ni, 0);
+            e.register(0x00c0_0000, logged::<0x1c>);
+            let callback = if case.word(1) != 0 { 0x00c0_0000 } else { 0 };
+            e.mem.set_u32(0x011f_91ec, callback);
+            e.mem
+                .set_u8(0x011a_d82c, if case.word(2) != 0 { 0x81 } else { 0x7e });
+            let renderer = block(e, 0x10, &[0, 0, 0x0bad_0000]);
+            e.mem.set_u32(0x011f_4748, renderer);
+            e.register(0x00aa_0ff0, logged::<0x1d>);
+            set_logged_answer(e, 0x1d, case.word(3));
+            e.register(0x00b7_a870, logged::<0x1e>);
+            e.register(0x00bb_d880, logged::<0x1f>);
+            e.register(VT_FN + 0x24, logged::<0x21>);
+            e.register(VT_FN + 0x44, logged::<0x22>);
+            let mut geometries: Vec<u32> = (0..7usize)
+                .map(|i| {
+                    let g = block(e, 0x100, &[]);
+                    // The cull's flags (+0x30): the application culls every third.
+                    e.mem.set_u32(g + 0x30, u32::from(i % 3 == 2));
+                    e.mem.set_u32(g + 0xbc, (i as u32 ^ case.word(5)) & 1);
+                    let k = (i + case.word(4) as usize) % 8;
+                    if k < 7 {
+                        let p = block(e, 0x80, &[]);
+                        e.mem.set_u32(p + 0x68, TYPES[k]);
+                        let first = object(e, 0x20, 0, 0, OTHER_RTTI);
+                        let second = object(e, 0x20, 0, 0, OTHER_RTTI);
+                        e.mem.set_u32(p + 0x34, first);
+                        e.mem.set_u32(p + 0x30, second);
+                        e.mem.set_u32(g + 0xc0, p);
+                    }
+                    g
+                })
+                .collect();
+            geometries.insert(2, 0);
+            super::geometry_list(e, l, &geometries, 99);
+            let culler = object(e, 0x40, 0, 0, OTHER_RTTI);
+            vec![l, culler]
+        })
+        .run()
+        .assert_same();
+    }
+
+    #[test]
+    fn lights_rtti_bodies_answer_their_records() {
+        // The exe's `GetRTTI` bodies the light's kind tests answer in place answer the same records
+        // through their translations.
+        let mut e = Engine::new();
+        world(&mut e);
+        for (body, record) in [
+            (POINT_BODY, POINT_RTTI),
+            (AMBIENT_BODY, AMBIENT_RTTI),
+            (DIRECTIONAL_BODY, RADIUS_FREE_RTTI),
+        ] {
+            let o = object(&mut e, 0x40, 0, 0, 0);
+            let vt = e.mem.u32(o);
+            e.mem.set_u32(vt + 8, body);
+            assert_eq!(e.vcall(o, 8, &[]).u32(), record, "{body:08x}");
+            assert_eq!(e.mem.u32(vt + VT_SLOTS + 8), 0);
+        }
+    }
+
+    /// The light's frustum functions (`lights::scene_frustum`). Cameras carry a plane-set word
+    /// (+0x40) that the culler's `SetFrustum` stand-in turns into one of the case's plane sets
+    /// (everything inside, nothing inside, every point on a plane, a box, a half-space that edges
+    /// cross, one whose crossings another plane rejects, the case's floats); their rotation,
+    /// position and frustum come from the case's floats, so that the volume test takes each of
+    /// its ways out. Floats run under both control words.
+    mod frustum {
+        use super::super::{ret_f, THIRD};
+        use super::*;
+        use engine_typed::lights::scene_frustum;
+
+        /// The plane sets (0x80 bytes each: six planes, then the mask) and the unit cross's
+        /// answers (three points) and its call count.
+        const PLANE_SETS: u32 = 0x0300_8000;
+        const CROSSES: u32 = 0x0300_9000;
+        /// The cube faces' plane sets, four bits a face.
+        const FACE_KINDS: u32 = CROSSES + 0x80;
+        const KIND: u32 = 0x40;
+        const QUARTER: u32 = 0x3e80_0000;
+        const NEG_ZERO: u32 = 0x8000_0000;
+
+        /// `NiCullingProcess::SetFrustum`'s stand-in: logs the culler and the frustum, copies the
+        /// plane set its camera's +0x40 names to the culler's +0x2c.
+        fn set_frustum(e: &mut Engine, a: &[u32]) -> Ret {
+            log(e, 0x30, a[0]);
+            log(e, 0x30, a[1]);
+            let camera = e.mem.u32(a[0] + 0xc);
+            let set = PLANE_SETS + 0x80 * (e.mem.u32(camera + KIND) & 7);
+            for i in 0..0x19 {
+                let w = e.mem.u32(set + 4 * i);
+                e.mem.set_u32(a[0] + 0x2c + 4 * i, w);
+            }
+            ret(0)
+        }
+
+        /// `BSCubeMapCamera::SetupTransformation`'s stand-in: logs, and gives the local camera
+        /// the face's plane set, a rotation and a far corner spread from the face.
+        fn cube_setup(e: &mut Engine, a: &[u32]) -> Ret {
+            log(e, 0x31, a[0]);
+            log(e, 0x31, a[1]);
+            let face = a[1] & 0xffff;
+            let kinds = e.mem.u32(FACE_KINDS);
+            e.mem.set_u32(a[0] + KIND, (kinds >> (4 * face)) & 7);
+            let s = if face & 1 != 0 { MINUS_ONE } else { ONE };
+            words(e, a[0] + 0x68, &[s, 0, 0, 0, ONE, 0, 0, 0, s]);
+            words(
+                e,
+                a[0] + 0xdc,
+                &[MINUS_ONE, ONE, ONE, MINUS_ONE, ONE, TEN, 0],
+            );
+            // The world translation `NiAVObject::Update` would make of the local one.
+            for i in 0..3 {
+                let w = e.mem.u32(a[0] + 0x58 + 4 * i);
+                e.mem.set_u32(a[0] + 0x8c + 4 * i, w);
+            }
+            ret(0)
+        }
+
+        /// `NiPoint3::UnitCross`'s stand-in: logs its words, writes the next of the case's three
+        /// answers to `out` and answers `out`.
+        fn unit_cross(e: &mut Engine, a: &[u32]) -> Ret {
+            for w in a {
+                log(e, 0x32, *w);
+            }
+            let n = e.mem.u32(CROSSES + 0x40);
+            e.mem.set_u32(CROSSES + 0x40, n + 1);
+            for i in 0..3 {
+                let w = e.mem.u32(CROSSES + 0xc * (n % 3) + 4 * i);
+                e.mem.set_u32(a[1] + 4 * i, w);
+            }
+            ret(a[1])
+        }
+
+        /// A stand-in that logs its words under `TAG` and answers its first word.
+        fn this_back<const TAG: u32>(e: &mut Engine, a: &[u32]) -> Ret {
+            for w in a {
+                log(e, TAG, *w);
+            }
+            ret(a.first().copied().unwrap_or(0))
+        }
+
+        /// The renderer's shadow map setter's stand-in: logs and puts the map in the light.
+        fn set_map(e: &mut Engine, a: &[u32]) -> Ret {
+            log(e, 0x33, a[0]);
+            log(e, 0x33, a[1]);
+            e.mem.set_u32(a[0] + 0x10c, a[1]);
+            ret(0)
+        }
+
+        /// `NiPointer` assignment's stand-in: logs and stores.
+        fn assign(e: &mut Engine, a: &[u32]) -> Ret {
+            log(e, 0x34, a[0]);
+            log(e, 0x34, a[1]);
+            e.mem.set_u32(a[0], a[1]);
+            ret(a[0])
+        }
+
+        /// The point maths' stand-ins (their families' own tests cover them): `Unitize` logs,
+        /// `operator*` writes the point times the scale to `out`, `Length` answers the root of the
+        /// squared length, `operator+=` adds, all in `f32`.
+        fn normalize(e: &mut Engine, a: &[u32]) -> Ret {
+            log(e, 0x29, a[0]);
+            ret(0)
+        }
+
+        fn times(e: &mut Engine, a: &[u32]) -> Ret {
+            for w in a {
+                log(e, 0x2a, *w);
+            }
+            for i in 0..3 {
+                let v = e.mem.f32(a[0] + 4 * i) * f32::from_bits(a[2]);
+                e.mem.set_f32(a[1] + 4 * i, v);
+            }
+            ret(a[1])
+        }
+
+        fn length(e: &mut Engine, a: &[u32]) -> Ret {
+            log(e, 0x2b, a[0]);
+            let [x, y, z] = [0, 4, 8].map(|i| e.mem.f32(a[0] + i));
+            ret_f(f64::from((x * x + y * y + z * z).sqrt()))
+        }
+
+        fn add_to(e: &mut Engine, a: &[u32]) -> Ret {
+            log(e, 0x2c, a[0]);
+            log(e, 0x2c, a[1]);
+            for i in 0..3 {
+                let v = e.mem.f32(a[0] + 4 * i) + e.mem.f32(a[1] + 4 * i);
+                e.mem.set_f32(a[0] + 4 * i, v);
+            }
+            ret(a[0])
+        }
+
+        /// The data these functions read and their callees' stand-ins.
+        fn fworld(e: &mut Engine) {
+            world(e);
+            for page in [
+                0x0101_6000,
+                0x0101_8000,
+                0x0102_0000,
+                0x0103_1000,
+                0x0103_2000,
+                0x0106_b000,
+                0x0106_c000,
+                0x0108_2000,
+                0x010b_7000,
+                0x011a_9000,
+                0x0120_0000,
+                0x0120_3000,
+                PLANE_SETS,
+                CROSSES,
+            ] {
+                e.map(page, 0x1000);
+            }
+            let double = |e: &mut Engine, at: u32, v: f64| {
+                let b = v.to_bits();
+                words(e, at, &[b as u32, (b >> 32) as u32]);
+            };
+            double(e, 0x0108_2cb0, 0.05);
+            double(e, 0x0103_1148, 0.01);
+            double(e, 0x010b_7ea0, -0.01);
+            double(e, 0x0101_6ff0, 1.5);
+            double(e, 0x0106_c948, 150.0);
+            double(e, 0x0102_0758, 10.0);
+            double(e, 0x0106_b178, 400.0);
+            double(e, 0x0101_8a90, 0.2);
+            e.mem.set_u32(0x0103_2adc, 0x4380_0000);
+            words(e, 0x011a_946c, &[0, 0, ONE]);
+            words(e, 0x011a_9bd0, &[HALF, QUARTER, 0, ONE]);
+            e.mem.set_u32(0x0101_62c0, 0x7f80_0001);
+            e.mem.set_u32(0x0120_31e4, 0x0abc_0010);
+            e.register(0x00a6_9400, this_back::<0x35>);
+            e.register(0x00a6_94a0, set_frustum);
+            e.register(0x00bd_8290, this_back::<0x36>);
+            e.register(0x00bd_7200, cube_setup);
+            e.register(0x00bd_74a0, logged::<0x37>);
+            e.register(0x00a5_9c60, logged::<0x38>);
+            e.register(0x00b4_f5c0, logged::<0x39>);
+            e.register(0x00a5_9d30, logged::<0x3a>);
+            e.register(0x00b6_d4c0, release_map);
+            e.register(0x00b6_d3f0, logged::<0x3b>);
+            e.register(0x00b5_aee0, set_map);
+            e.register(0x00ba_30f0, logged::<0x3c>);
+            e.register(0x00ba_3390, logged::<0x3d>);
+            e.register(0x0053_d1a0, unit_cross);
+            e.register(0x00a5_bdd0, logged::<0x3e>);
+            e.register(0x005b_f7b0, logged::<0x21>);
+            e.register(0x00b5_40f0, logged::<0x22>);
+            e.register(0x0066_b0d0, assign);
+            e.register(0x00aa_13e0, logged::<0x23>);
+            e.register(0x00a7_12f0, this_back::<0x24>);
+            e.register(0x00a7_01b0, logged::<0x25>);
+            e.register(0x00a6_faf0, logged::<0x26>);
+            e.register(0x0071_2e60, logged::<0x27>);
+            e.register(0x00a7_0080, logged::<0x28>);
+            e.register(0x004a_0c10, normalize);
+            e.register(0x0045_bb20, times);
+            e.register(0x0045_7990, length);
+            e.register(0x0063_c8a0, add_to);
+            e.register(0x00a7_4e10, logged::<0x2d>);
+        }
+
+        /// The plane sets from the case's floats at `f`: everything inside (0), nothing (1), on a
+        /// plane (2), a box of half size `f` (3), the half-space x > 0 with the rest open (4), x >
+        /// 0 with y below -1 shut (5), the case's floats (6, 7).
+        fn plane_sets(e: &mut Engine, case: &Case, f: usize) {
+            let open = [0, 0, 0, MINUS_ONE];
+            let s = bits(case, f) ^ NEG_ZERO;
+            let sets: [[[u32; 4]; 6]; 8] = [
+                [open; 6],
+                [[0, 0, 0, ONE]; 6],
+                [[0, 0, 0, 0]; 6],
+                [
+                    [ONE, 0, 0, s],
+                    [MINUS_ONE, 0, 0, s],
+                    [0, ONE, 0, s],
+                    [0, MINUS_ONE, 0, s],
+                    [0, 0, ONE, s],
+                    [0, 0, MINUS_ONE, s],
+                ],
+                [[ONE, 0, 0, 0], open, open, open, open, open],
+                [
+                    [ONE, 0, 0, 0],
+                    [0, MINUS_ONE, 0, ONE],
+                    open,
+                    open,
+                    open,
+                    open,
+                ],
+                super::super::planes(case, f + 1),
+                [
+                    [bits(case, f + 2), ONE, 0, bits(case, f + 3)],
+                    [0, bits(case, f + 1), ONE, HALF],
+                    open,
+                    [MINUS_ONE, HALF, bits(case, f + 2), 0],
+                    open,
+                    [THIRD, THIRD, THIRD, MINUS_ONE],
+                ],
+            ];
+            for (k, set) in (0u32..).zip(sets) {
+                for (i, p) in (0u32..).zip(set) {
+                    words(e, PLANE_SETS + 0x80 * k + 0x10 * i, &p);
+                }
+                e.mem.set_u32(PLANE_SETS + 0x80 * k + 0x60, 0x3f);
+            }
+        }
+
+        /// A camera (0x200 bytes) with plane set `kind`, at (`x`, `y`, 0.5) with the rotation
+        /// `turn` (0 identity, 1 a half turn about z, 2 from the case's floats at `f`), the far
+        /// distance `far` and the frustum's sides `side` and `up`.
+        #[allow(clippy::too_many_arguments)]
+        fn camera(
+            e: &mut Engine,
+            case: &Case,
+            kind: u32,
+            turn: u32,
+            f: usize,
+            at: [u32; 2],
+            far: u32,
+            side: u32,
+        ) -> u32 {
+            let c = block(e, 0x200, &[]);
+            e.mem.set_u32(c + KIND, kind);
+            let rotation = match turn {
+                0 => [ONE, 0, 0, 0, ONE, 0, 0, 0, ONE],
+                1 => [MINUS_ONE, 0, 0, 0, MINUS_ONE, 0, 0, 0, ONE],
+                _ => [
+                    bits(case, f),
+                    HALF,
+                    0,
+                    bits(case, f + 1),
+                    ONE,
+                    THIRD,
+                    0,
+                    MINUS_ONE,
+                    bits(case, f + 2),
+                ],
+            };
+            words(e, c + 0x68, &rotation);
+            words(e, c + 0x8c, &[at[0], at[1], HALF]);
+            words(
+                e,
+                c + 0xdc,
+                &[MINUS_ONE, side, HALF, MINUS_ONE, ONE, far, 0],
+            );
+            c
+        }
+
+        trait Frustum {
+            fn frustum(self) -> Diff;
+        }
+
+        impl Frustum for Diff {
+            fn frustum(self) -> Diff {
+                self.own()
+                    .ignore_calls(&[0x00a6_9940, 0x00a6_93e0])
+                    .control_words(&BOTH)
+                    .allow_nan_payloads()
+            }
+        }
+
+        /// The volume test's inputs: the two cameras' plane sets and rotations; floats for the
+        /// rotation, the box, the planes, the cameras' places, the far distance and the side.
+        fn volume_inputs() -> Vec<Input> {
+            vec![
+                Input::Of(&[0, 1, 2, 3, 4, 5, 6, 7]),
+                Input::Of(&[3, 4, 5, 0, 1, 2, 6, 7]),
+                Input::Of(&[0, 1, 2]),
+                Input::Of(&[0, 2, 1]),
+                Input::F32Swept(HALF),
+                Input::F32Swept(TWO),
+                Input::F32Swept(THIRD),
+                Input::F32Swept(MINUS_ONE),
+                Input::F32Swept(MINUS_ONE),
+                Input::F32Swept(TWO),
+                Input::F32Swept(0xc0a0_0000),
+                Input::F32Swept(QUARTER),
+                Input::F32,
+                Input::F32Swept(HALF),
+            ]
+        }
+
+        /// The two cameras of [`volume_inputs`].
+        fn volume_cameras(e: &mut Engine, case: &Case) -> (u32, u32) {
+            plane_sets(e, case, 5);
+            let far = bits(case, 12);
+            let first = camera(
+                e,
+                case,
+                case.word(0),
+                case.word(2),
+                4,
+                [bits(case, 9), bits(case, 11)],
+                TEN,
+                bits(case, 13),
+            );
+            let second = camera(
+                e,
+                case,
+                case.word(1),
+                case.word(3),
+                5,
+                [bits(case, 10), QUARTER],
+                far,
+                ONE,
+            );
+            (first, second)
+        }
+
+        #[test]
+        fn lights_volumes_meet() {
+            Diff::new(entry!(
+                0x00b9_c020,
+                scene_frustum::volumes_meet(Ptr<_>, Ptr<_>, Ptr<_>) -> bool
+            ))
+            .frustum()
+            .goes_by_address(&[0x00a6_94a0])
+            .inputs(&volume_inputs())
+            .max_cases(900)
+            .float_sweep(200)
+            .setup(|e, case| {
+                fworld(e);
+                let (first, second) = volume_cameras(e, case);
+                vec![0x0abc_0000, first, second]
+            })
+            .run()
+            .assert_same();
+        }
+
+        #[test]
+        fn lights_cube_face_meets() {
+            // The position (floats), the source camera's plane set, the faces' plane sets (a
+            // pattern of six), the face.
+            Diff::new(entry!(
+                0x00b9_de90,
+                scene_frustum::cube_face_meets(Ptr<_>, u32, u32, u32, u32, Ptr<_>, u16) -> bool
+            ))
+            .frustum()
+            .goes_by_address(&[0x00a6_94a0, 0x00a5_9c60])
+            .inputs(&[
+                Input::F32Swept(MINUS_ONE),
+                Input::F32Swept(HALF),
+                Input::F32,
+                Input::Of(&[0, 3, 4, 1, 5, 7]),
+                Input::Of(&[0x0054_3210, 0x0011_1111, 0x0076_5432, 0]),
+                Input::Of(&[0, 1, 2, 3, 4, 5, 0x1_0002]),
+                Input::F32Swept(TWO),
+                Input::F32Swept(THIRD),
+                Input::F32Swept(QUARTER),
+                Input::F32Swept(MINUS_ONE),
+            ])
+            .max_cases(500)
+            .float_sweep(120)
+            .setup(|e, case| {
+                fworld(e);
+                plane_sets(e, case, 6);
+                e.mem.set_u32(FACE_KINDS, case.word(4));
+                let source = block(e, 0x40, &[]);
+                let c = camera(e, case, case.word(3), 0, 6, [bits(case, 0), 0], TEN, ONE);
+                e.mem.set_u32(source + 0xc, c);
+                let tls = e.tls();
+                e.mem.set_u32(tls + 0x2b4, 0x1234);
+                vec![
+                    0x0abc_0000,
+                    bits(case, 0),
+                    bits(case, 1),
+                    bits(case, 2),
+                    0x5555,
+                    source,
+                    case.word(5),
+                ]
+            })
+            .run()
+            .assert_same();
+        }
+
+        /// A shadow scene light for `TestFrustumCull` from the case's words at `w`: the shadow
+        /// camera (none, or one with plane set `w + 1`), `bCastShadow`, `bCubeShadowMap`, the old
+        /// cull word, dimmer and shadow dimmer, the target, the elapsed time, the shadow map
+        /// (none, kept, cleared by the renderer's release), the shadow scene (none, with property
+        /// 2 or without), a geometry list of lit geometries.
+        fn cull_light(e: &mut Engine, case: &Case, w: usize, ni: u32) -> u32 {
+            let l = plain_light(e, ni, case.word(w + 2) as u8);
+            if case.word(w) != 0 {
+                let c = camera(e, case, case.word(w + 1), 0, 0, [0, HALF], TEN, ONE);
+                e.mem.set_u32(l + 0x140, c);
+            }
+            e.mem.set_u8(l + 0xed, case.word(w + 3) as u8);
+            e.mem.set_u16(l + 0x110, case.word(w + 4) as u16);
+            words(
+                e,
+                l + 0xd0,
+                &[case.word(w + 5), case.word(w + 6), case.word(w + 7)],
+            );
+            words(e, l + 0xdc, &[QUARTER]);
+            let map = match case.word(w + 8) {
+                0 => 0,
+                _ => counted(e, 0x40, 1),
+            };
+            e.mem.set_u32(l + 0x10c, map);
+            if case.word(w + 8) == 2 {
+                e.mem.set_u32(LOG + 0x3e00, l + 0x10c);
+            }
+            if case.word(w + 9) != 0 {
+                let scene = block(e, 0x100, &[]);
+                e.mem.set_u32(l + 0x128, scene);
+                if case.word(w + 9) == 1 {
+                    let property = block(e, 0x40, &[]);
+                    e.mem.set_u32(property + 0x3c, HALF);
+                    set_logged_answer(e, 0x3a, property);
+                }
+            }
+            let geometries: Vec<u32> = KINDS.iter().map(|&k| lit_geometry(e, k)).collect();
+            super::super::geometry_list(e, l, &geometries, 9);
+            l
+        }
+
+        #[test]
+        fn lights_test_frustum_cull() {
+            // The culler's planes (the case's floats and a box), their mask, the `NiLight`'s
+            // radius; the light (see `cull_light`); the render level and flags; the shader
+            // accumulator's object (none, scale 2); the fade distances and the fade time.
+            let mut inputs = vec![
+                Input::Of(&[0, 1]),
+                Input::Of(&[0x3f, 0x15, 0x2a, 0]),
+                Input::Of(&[TEN, HALF, 0, NAN, 0x4248_0000]),
+                // cull_light from word 3.
+                Input::Of(&[0, 1]),
+                Input::Of(&[0, 1, 3, 4]),
+                Input::Of(&[1, 0]),
+                Input::Of(&[1, 0]),
+                Input::Of(&[0, 0xff, 3]),
+                Input::Of(&[ONE, 0, HALF, NAN]),
+                Input::Of(&[0, ONE, HALF]),
+                Input::Of(&[ONE, 0]),
+                Input::Of(&[0, 1, 2]),
+                Input::Of(&[1, 0, 2]),
+                // The globals.
+                Input::Of(&[3, 0, 0xffff_ffff]),
+                Input::Flag,
+                Input::Flag,
+                Input::Of(&[0, 1, 2, 3]),
+            ];
+            inputs.extend([
+                Input::F32Swept(HALF),
+                Input::F32Swept(MINUS_ONE),
+                Input::F32Swept(TWO),
+                Input::F32Swept(0x4120_0000),
+                Input::F32Swept(0x4248_0000),
+                Input::F32Swept(QUARTER),
+                Input::F32Swept(ONE),
+                Input::F32Swept(MINUS_ONE),
+            ]);
+            Diff::new(entry!(
+                0x00b9_e970,
+                scene_frustum::test_frustum_cull(Ptr<_>, u32)
+            ))
+            .frustum()
+            .ignore_calls(&[0x00ec_6040])
+            .goes_by_address(&[0x00a6_94a0, 0x00a5_9c60, 0x00b4_f5c0, 0x00a5_9d30])
+            .inputs(&inputs)
+            .max_cases(1500)
+            .float_sweep(200)
+            .setup(|e, case| {
+                fworld(e);
+                plane_sets(e, case, 17);
+                e.mem.set_u32(FACE_KINDS, 0x0034_5012);
+                let f = |i: usize| bits(case, 17 + i);
+                let ni = ni_light_of(e, case, 6, 18, case.word(2));
+                words(e, ni + 0x8c, &[f(0), f(1), HALF]);
+                let culler = block(e, 0x90, &[]);
+                let planes = if case.word(0) == 0 {
+                    super::super::planes(case, 17)
+                } else {
+                    let s = f(2) ^ NEG_ZERO;
+                    [
+                        [ONE, 0, 0, s],
+                        [MINUS_ONE, 0, 0, s],
+                        [0, ONE, 0, s],
+                        [0, MINUS_ONE, 0, s],
+                        [0, 0, ONE, s],
+                        [0, 0, MINUS_ONE, s],
+                    ]
+                };
+                for (i, p) in (0u32..).zip(planes) {
+                    words(e, culler + 0x2c + 0x10 * i, &p);
+                }
+                e.mem.set_u32(culler + 0x8c, case.word(1));
+                let cc = camera(e, case, 3, 0, 18, [f(5), f(6)], TEN, ONE);
+                e.mem.set_u32(culler + 0xc, cc);
+                let l = cull_light(e, case, 3, ni);
+                e.mem.set_u32(0x011f_91c0, case.word(13));
+                e.mem
+                    .set_u8(0x011f_91d8, if case.word(14) != 0 { 0x10 } else { 0xef });
+                let accumulator = block(e, 0x40, &[]);
+                if case.word(15) != 0 {
+                    let object = block(e, 0x200, &[]);
+                    e.mem.set_u32(object + 0x110, TWO);
+                    e.mem.set_u32(accumulator + 8, object);
+                }
+                set_logged_answer(e, 0x39, accumulator);
+                let (near, far) = match case.word(16) {
+                    0 => (f(3), f(4)),
+                    1 => (f(3), 0),
+                    2 => (0x4248_0000, f(4)),
+                    _ => (NAN, f(7)),
+                };
+                words(e, 0x011f_9444, &[near, far, f(3), far]);
+                // The fork's `light.lamp_distance` scales the dimmer's fade distances: the game's (1) and
+                // 8 on the case that gives the near distance 50 (its far is the swept float), so a
+                // lamp beyond the game's far distance is kept by both versions alike.
+                engine_core::lamp_distance::set(if case.word(16) == 2 { 8.0 } else { 1.0 });
+                e.mem.set_u32(0x011f_9410, f(5));
+                e.mem.set_u32(0x011a_d834, HALF);
+                let tls = e.tls();
+                e.mem.set_u32(tls + 0x2b4, 0x1234);
+                vec![l, culler]
+            })
+            .run()
+            .assert_same();
+        }
+
+        #[test]
+        fn lights_setup_frustum_depth_map() {
+            // bCastShadow, bShadowSpotlight, the render level and flags; the light's map (none,
+            // kept); the cull word; the shadow dimmer (above, just above, just below 0.05, NaN);
+            // the accumulator (kept, none); the renderer's free map (one, none); the scene's bound;
+            // the extents' extra data; the shadow camera (a new one, kept); the script test; the
+            // scene's scale; the unit cross small first; the depth pass; floats.
+            Diff::new(entry!(
+                0x00b9_dfc0,
+                scene_frustum::setup_frustum_depth_map(Ptr<_>, u32, u32)
+            ))
+            .frustum()
+            .ignore_calls(&[0x00a7_1b70, 0x0040_4010, 0x0040_ebd0])
+            .goes_by_address(&[
+                0x00a5_9c60,
+                0x004a_0c10,
+                0x0045_bb20,
+                0x0045_7990,
+                0x0063_c8a0,
+                0x00a7_4e10,
+                // The map setter (the scene node family's): its stand-in stores the map.
+                0x00b5_aee0,
+            ])
+            .inputs(&[
+                Input::Flag,
+                Input::Flag,
+                Input::Of(&[3, 0]),
+                Input::Flag,
+                Input::Of(&[1, 0]),
+                Input::Of(&[0, 0xff]),
+                Input::Of(&[ONE, 0x3d4c_cccd, 0x3d4c_cccc, NAN]),
+                Input::Of(&[1, 0]),
+                Input::Flag,
+                Input::Of(&[1, 0]),
+                Input::Of(&[1, 0]),
+                Input::Of(&[0, 1]),
+                Input::Of(&[1, 0]),
+                Input::Of(&[0, 1]),
+                Input::Of(&[0, 1]),
+                Input::Of(&[0, 1]),
+                Input::F32Swept(HALF),
+                Input::F32Swept(MINUS_ONE),
+                Input::F32Swept(TWO),
+                Input::F32Swept(0x4120_0000),
+                Input::F32Swept(QUARTER),
+                Input::F32,
+                Input::F32Swept(THIRD),
+            ])
+            .max_cases(1200)
+            .float_sweep(200)
+            .setup(|e, case| {
+                fworld(e);
+                let f = |i: usize| bits(case, 16 + i);
+                let ni = ni_light_of(e, case, 6, 16, f(3));
+                e.mem.set_u32(ni + 0x30, 0x10);
+                words(e, ni + 0x68, &[ONE, 0, 0, 0, ONE, 0, 0, 0, ONE]);
+                let l = plain_light(e, ni, case.word(0) as u8);
+                e.mem.set_u8(l + 0x118, case.word(1) as u8);
+                e.mem.set_u32(0x011f_91c0, case.word(2));
+                e.mem
+                    .set_u8(0x011f_91d8, if case.word(3) != 0 { 0x10 } else { 0 });
+                if case.word(4) != 0 {
+                    let map = counted(e, 0x40, 2);
+                    e.mem.set_u32(l + 0x10c, map);
+                }
+                let free_map = if case.word(8) != 0 {
+                    counted(e, 0x40, 1)
+                } else {
+                    0
+                };
+                set_logged_answer(e, 0x3b, free_map);
+                e.mem.set_u16(l + 0x110, case.word(5) as u16);
+                e.mem.set_u32(l + 0xd4, case.word(6));
+                let accumulator = counted(e, 0x200, 2);
+                if case.word(7) == 1 {
+                    e.mem.set_u32(l + 0x20c, accumulator);
+                }
+                set_logged_answer(e, 0x22, accumulator);
+                let scene = block(e, 0x100, &[]);
+                words(e, scene + 0x8c, &[f(5), f(4), f(0)]);
+                e.mem.set_u32(
+                    scene + 0x98,
+                    if case.word(13) != 0 { TWO } else { 0x7f80_0001 },
+                );
+                if case.word(9) != 0 {
+                    let bound = block(e, 0x10, &[0, 0, 0, f(6)]);
+                    e.mem.set_u32(scene + 0x20, bound);
+                }
+                e.mem.set_u32(l + 0x128, scene);
+                if case.word(10) != 0 {
+                    let extra = block(e, 0x40, &[]);
+                    words(e, extra + 0xc, &[f(1), HALF, f(2)]);
+                    words(e, extra + 0x18, &[f(2), f(0), f(4)]);
+                    set_logged_answer(e, 0x3e, extra);
+                }
+                // Without extra data the camera's set-up would read it: the script test says no.
+                let script = if case.word(10) != 0 { case.word(12) } else { 0 };
+                set_logged_answer(e, 0x21, script);
+                let new_camera = block(e, 0x200, &[]);
+                words(
+                    e,
+                    new_camera + 0x68,
+                    &[ONE, 0, 0, 0, ONE, 0, 0, 0, ONE, f(0), f(1), HALF],
+                );
+                words(
+                    e,
+                    new_camera + 0xdc,
+                    &[MINUS_ONE, ONE, ONE, MINUS_ONE, ONE, f(3), 1],
+                );
+                if case.word(11) == 0 {
+                    set_logged_answer(e, 0x23, new_camera);
+                } else {
+                    e.mem.set_u32(l + 0x140, new_camera);
+                }
+                // The unit cross's answers: small first (the fallback up taken) or not.
+                let small = if case.word(14) != 0 {
+                    [0, 0x3c00_0000, 0]
+                } else {
+                    [f(0), ONE, 0]
+                };
+                words(e, CROSSES, &small);
+                words(e, CROSSES + 0xc, &[0, ONE, 0, HALF, 0, ONE]);
+                words(e, 0x011a_9484, &[f(6), f(1), MINUS_ONE]);
+                e.mem.set_u32(0x011f_91b0, case.word(15));
+                vec![l, 0x7777, case.word(13) + 2]
+            })
+            .run()
+            .assert_same();
+        }
+
+        #[test]
+        fn lights_render_frustum_depth_map() {
+            // The holder's old accumulator (none, the same, another); the accumulator's +0x1a0
+            // (none, one); the depth pass flag; bShowDebugTexture; floats for the light's place and
+            // the camera's rotation.
+            Diff::new(entry!(
+                0x00b9_f780,
+                scene_frustum::render_frustum_depth_map(Ptr<_>, u32, u32)
+            ))
+            .frustum()
+            .goes_by_address(&[0x00b6_c0d0, 0x004e_9bb0, 0x00ee_6de0])
+            .inputs(&[
+                Input::Of(&[0, 1, 2]),
+                Input::Flag,
+                Input::Flag,
+                Input::Flag,
+                Input::Of(&[0, 1, 0x7f]),
+                Input::F32Swept(HALF),
+                Input::F32Swept(MINUS_ONE),
+                Input::F32,
+                Input::F32Swept(THIRD),
+                Input::F32Swept(TWO),
+            ])
+            .max_cases(300)
+            .float_sweep(160)
+            .setup(|e, case| {
+                fworld(e);
+                for (addr, f) in [
+                    (
+                        0x00ba_3130u32,
+                        logged::<0x40> as fn(&mut Engine, &[u32]) -> Ret,
+                    ),
+                    (0x00b6_b260, logged::<0x41>),
+                    (0x00b6_b8d0, logged::<0x42>),
+                    (0x00b6_c0d0, logged::<0x43>),
+                    (0x004e_9bb0, logged::<0x44>),
+                    (0x00ee_6de0, logged::<0x45>),
+                    (0x00b6_b790, logged::<0x46>),
+                    (0x00ba_37a0, logged::<0x47>),
+                    (0x004e_ba20, logged::<0x48>),
+                    (0x00ba_3cb0, logged::<0x49>),
+                    (0x00b9_7550, logged::<0x4a>),
+                    (0x004e_ba90, logged::<0x4b>),
+                    (0x00ba_3a00, logged::<0x4c>),
+                    (0x004b_c320, logged::<0x4d>),
+                    (0x00b5_5560, logged::<0x4e>),
+                    (0x00bd_22c0, logged::<0x4f>),
+                    (VT_FN + 0xb4, logged::<0x50>),
+                    (VT_FN + 0xac, logged::<0x51>),
+                ] {
+                    e.register(addr, f);
+                }
+                let renderer = object(e, 0x40, 0, 0, OTHER_RTTI);
+                e.mem.set_u32(0x011f_4748, renderer);
+                let state = block(e, 0xa00, &[]);
+                for i in 0..0x20 {
+                    e.mem
+                        .set_u32(state + 0x980 + 4 * i, 0x3f00_0000 + 0x1_0000 * i);
+                }
+                e.mem.set_u32(0x011f_9508, state);
+                let inner = block(e, 0x60, &[]);
+                e.mem.set_u32(inner + 0x44, 0x0abc_0044);
+                let manager = block(e, 0x20, &[0, 0, inner]);
+                e.mem.set_u32(0x011f_91ac, manager);
+                e.mem.set_u32(0x011f_91a8, 0x0abc_0000);
+                set_logged_answer(e, 0x3b, 0x0abc_0300);
+                set_logged_answer(e, 0x41, 0x0abc_0100);
+                let ni = ni_light_of(e, case, 6, 5, TEN);
+                words(e, ni + 0x8c, &[bits(case, 5), bits(case, 6), bits(case, 7)]);
+                let l = plain_light(e, ni, 1);
+                let camera = block(e, 0x200, &[]);
+                words(
+                    e,
+                    camera + 0x68,
+                    &[
+                        bits(case, 8),
+                        HALF,
+                        0,
+                        bits(case, 9),
+                        ONE,
+                        THIRD,
+                        NEG_ZERO,
+                        MINUS_ONE,
+                        bits(case, 7),
+                    ],
+                );
+                e.mem.set_u32(l + 0x140, camera);
+                let accumulator = counted(e, 0x200, 3);
+                e.mem.set_u32(l + 0x20c, accumulator);
+                if case.word(1) != 0 {
+                    let held = counted(e, 0x40, 1);
+                    e.mem.set_u32(accumulator + 0x1a0, held);
+                }
+                let map = counted(e, 0x40, 1);
+                e.mem.set_u32(l + 0x10c, map);
+                let holder = block(e, 0x100, &[]);
+                let old = match case.word(0) {
+                    0 => 0,
+                    1 => accumulator,
+                    _ => counted(e, 0x40, 1),
+                };
+                e.mem.set_u32(holder + 0xc4, old);
+                e.mem.set_u32(0x011f_91b0, case.word(2));
+                e.mem.set_u8(l + 0x124, case.word(3) as u8);
+                e.mem.set_u8(l + 0x208, 1);
+                vec![l, holder, case.word(4)]
+            })
+            .run()
+            .assert_same();
         }
     }
 }

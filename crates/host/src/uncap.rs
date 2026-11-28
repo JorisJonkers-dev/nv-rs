@@ -18,12 +18,26 @@
 //! clock (what `QueryPerformanceCounter` answers), not from `GetTickCount`'s 15.625 ms ticks,
 //! so the game's time keeps pace with the real time however short the frames are. The rest is
 //! the translation's: a disabled timer and a fixed step (`fClamp`) run the translation itself;
-//! the step is at most 166 ms; `iLastTime` moves on as before; `fDeltaUnmodified` and the global
+//! the step is at most 166 ms; `iLastTime` moves on as before (the main timer's: see the fixed step below); `fDeltaUnmodified` and the global
 //! time multiplier as before. A timer's first step (or its first after being disabled or
 //! clamped) answers as the translation does from the tick count's milliseconds (at least 10, at most 166)
-//! without the sleep. Where the translation sleeps, the other threads get a `Sleep(0)` pass.
+//! without the sleep. Where the translation sleeps (a frame under 10 ms by the microsecond clock since the timer's last step, which the tick count's ms no longer say for the main timer), the other threads get a `Sleep(0)` pass: at high frame rates every such frame, not about one in three.
 //!
 //! The game was made for steps of 10 ms and more; shorter ones are what mods like NVTF give it.
+//!
+//! **The fixed simulation step.** The main timer (`TimeGlobal`, `011f6394`) does not report each
+//! frame's few milliseconds. It adds the frame's real time to an exact accumulator and reports a
+//! whole 1/60 s step only when one is due; the other frames report no time and only draw. The
+//! carried fraction is published for [`crate::phys_blend`], which draws bodies between Havok's
+//! steps instead of holding them still on those frames. So the game's seconds, a jump's height, a
+//! landing, the slow-motion ramp and a held body's pull are the same at 60, 144, 300 or 500 frames
+//! a second. A frame takes at most the translation's 166 ms (nine steps) and the time past it is
+//! dropped, as in the original: a stall does not fast-forward the game or burst on later
+//! frames. The timer's `iLastTime` (`00825c00`'s clock) moves with the reported steps, by their
+//! whole milliseconds, so it follows the game's 60 Hz clock smoothly at every frame rate; it is
+//! put back to the tick count when it lags it by more than the cap (after a stall, a disable).
+//! Menus run the same fixed step on the main timer. Havok keeps its own 16 ms step (`MAX_TIME`, `01267b38`) and accumulator
+//! (`012677b0`); the menu timers keep the uncapped step's own timing.
 //!
 //! **The high-frame-rate landing (`NV_HF_LANDING`).** A character's contact list reaches about a
 //! Havok unit (7 game units) below it. The first frame with the floor in it, the controller says
@@ -66,7 +80,9 @@ use engine::units::bshavok::bhkcharactercontroller::{
 use engine::units::fallout_ai::playercharacter_p3::{
     fn_0095f6c0, fn_00960520, player_character_update_drop_spring,
 };
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// `BSTimer`'s step (the translation: engine-bs `bstimer.rs`).
 pub const BS_TIMER_STEP: u32 = 0x00aa_4ee0;
@@ -81,17 +97,94 @@ const GLOBAL_TIME_MULTIPLIER: u32 = 0x011a_c3a0;
 /// The longest step the translation takes (`0xa6` ms), in microseconds.
 const LONGEST_STEP_US: u64 = 166_000;
 
+/// Simulation steps a second. The game's tick is 1/60 s; Havok's own 16 ms step (`MAX_TIME`) is
+/// unchanged and keeps its own accumulator (`012677b0`).
+const STEPS_PER_SECOND: u64 = 60;
+/// One simulation step in seconds.
+const FIXED_STEP_S: f64 = 1.0 / 60.0;
+/// Most whole steps one frame may take (the translation's 166 ms cap, in fixed steps).
+#[cfg(test)]
+const MOST_STEPS_A_FRAME: u64 = (LONGEST_STEP_US * STEPS_PER_SECOND) / 1_000_000;
+/// The tick count's own cap on a step, in milliseconds.
+const LONGEST_STEP_MS: u32 = 166;
+
+/// The main timer's fixed-step clock: whole steps already reported, and the time carried towards
+/// the next step in millionths of a step. The carried time is exact: the wall clock's microseconds
+/// are multiplied by [`STEPS_PER_SECOND`] before a whole step is taken out, so a rate that does not
+/// divide a second (144, 300, 500 frames) does not lose time at every frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FixedStep {
+    steps: u64,
+    carried: u64,
+}
+
+impl FixedStep {
+    /// A clock at the start of a step.
+    pub const fn new() -> Self {
+        Self {
+            steps: 0,
+            carried: 0,
+        }
+    }
+
+    /// Adds the microseconds a frame took. Answers the whole steps the game is to run and the
+    /// fraction of the next step already passed, for drawing between two steps. As in the
+    /// original, a frame takes at most the translation's 166 ms (nine whole steps): the time
+    /// past that is dropped, so a stall (a load, a hitch, a pause) neither fast-forwards the
+    /// game nor is paid back as a burst of steps on the frames after it.
+    pub fn advance(&mut self, elapsed_us: u64) -> (u32, f32) {
+        let elapsed_us = elapsed_us.min(LONGEST_STEP_US);
+        let scaled = self.carried + elapsed_us * STEPS_PER_SECOND;
+        let steps = scaled / 1_000_000;
+        self.carried = scaled % 1_000_000;
+        self.steps += steps;
+        (steps as u32, self.carried as f32 / 1e6)
+    }
+
+    /// The whole steps reported so far.
+    pub fn steps(&self) -> u64 {
+        self.steps
+    }
+}
+
+impl Default for FixedStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Main timers' fixed-step clocks, by run. The other timers step once a frame too and keep the
+/// uncapped step's own timing; only the main timer drives the game's clock.
+fn fixed_steps() -> MutexGuard<'static, HashMap<usize, FixedStep>> {
+    static STEPS: OnceLock<Mutex<HashMap<usize, FixedStep>>> = OnceLock::new();
+    STEPS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The fraction of a step already passed, in millionths, for the frame's drawing. `u32::MAX`
+/// when the uncapped step is not installed, so nothing changes for the other presets.
+static RENDER_ALPHA: AtomicU32 = AtomicU32::new(u32::MAX);
+
+/// The fraction of the next step already passed, when the uncapped step is installed.
+pub fn render_alpha() -> Option<f32> {
+    let raw = RENDER_ALPHA.load(Ordering::Relaxed);
+    (raw != u32::MAX).then(|| raw as f32 / 1e6)
+}
+
 /// The row in [`crate::fixes::FIXES`].
 pub const FIX: Fix = Fix {
     name: "uncapped frame rate",
     env: "NV_UNCAP",
     addresses: &[BS_TIMER_STEP],
-    summary: "BSTimer's step without its sleep, timed on the microsecond clock",
+    summary: "BSTimer's step at a fixed 1/60 s, timed on the microsecond clock",
     install,
 };
 
-/// Registers the uncapped step over `00aa4ee0`.
+/// Registers the uncapped step over `00aa4ee0` and opens the fraction used by the drawing.
 pub fn install(e: &mut Engine) {
+    RENDER_ALPHA.store(0, Ordering::Relaxed);
     e.register(BS_TIMER_STEP, uncapped_entry);
 }
 
@@ -319,12 +412,17 @@ pub fn uncapped_step(e: &mut Engine, this: Ptr<BSTimer>, now: u32) {
     let now_us = e.clock_now_us();
     let time = now.wrapping_sub(e.get(this, BSTimer::iFirstTime));
     let elapsed_ms = time.wrapping_sub(e.get(this, BSTimer::iLastTime));
-    // Where the original sleeps (a step under 10 ms by the tick count) the other threads get a
-    // pass, without a real sleep: about one frame in three at the original's pace.
-    if elapsed_ms < 10 && !paced {
+    let before = last_step_us(e, this);
+    // Where the original sleeps (a step under 10 ms) the other threads get a pass, without a
+    // real sleep: about one frame in three at the original's pace. The frame's own microseconds
+    // are used, since the main timer's `iLastTime` only moves on a reported step.
+    let frame_ms = match before {
+        Some(before) => (step_since(now_us, before) / 1000) as u32,
+        None => elapsed_ms,
+    };
+    if frame_ms < 10 && !paced {
         e.call(SLEEP_IMPORT, &args![0u32]);
     }
-    let before = last_step_us(e, this);
     set_last_step_us(e, this, Some(now_us));
     let elapsed_us = match before {
         Some(before) => step_since(now_us, before).min(LONGEST_STEP_US),
@@ -333,13 +431,52 @@ pub fn uncapped_step(e: &mut Engine, this: Ptr<BSTimer>, now: u32) {
         // none passed reads as a zero delta.
         None => u64::from(elapsed_ms.clamp(10, 166)) * 1000,
     };
+    // The main timer's seconds are whole fixed steps. Frames that only draw report no time; the
+    // wall time they took is carried towards the next step and published for the drawing.
+    let (seconds, alpha, last_time) = if this.addr() == MAIN_TIMER {
+        let mut clocks = fixed_steps();
+        let fixed = clocks.entry(e.kernel.id()).or_default();
+        match before {
+            None => {
+                // The first step (also after a disable or a fixed step) still answers as the
+                // translation does, and the count starts from it.
+                *fixed = FixedStep::new();
+                (elapsed_us as f64 / 1e6, 0.0, time)
+            }
+            Some(_) => {
+                let steps_before = fixed.steps();
+                let (steps, alpha) = fixed.advance(elapsed_us);
+                // The clock readers' time moves by the milliseconds of the steps reported (16 or
+                // 17 each, 1000 ms to 60 steps), only on frames that report one. A lag behind
+                // the tick count of more than the cap (a stall whose time was dropped) is closed.
+                let ms = |n: u64| (n * 1000 / STEPS_PER_SECOND) as u32;
+                let last = e
+                    .get(this, BSTimer::iLastTime)
+                    .wrapping_add(ms(fixed.steps()) - ms(steps_before));
+                let lag = time.wrapping_sub(last);
+                let last = if lag > LONGEST_STEP_MS && lag < 0x8000_0000 {
+                    time
+                } else {
+                    last
+                };
+                (if steps > 0 { FIXED_STEP_S } else { 0.0 }, alpha, last)
+            }
+        }
+    } else {
+        (elapsed_us as f64 / 1e6, 0.0, time)
+    };
+    if this.addr() == MAIN_TIMER {
+        RENDER_ALPHA.store((alpha * 1e6) as u32, Ordering::Relaxed);
+    }
     let zero_delta = match before {
-        Some(_) => elapsed_us == 0,
+        Some(_) => seconds == 0.0,
         None => elapsed_ms == 0,
     };
     e.set(this, BSTimer::bZeroDelta, zero_delta);
-    e.set(this, BSTimer::fDelta, (elapsed_us as f64 / 1e6) as f32);
-    e.set(this, BSTimer::iLastTime, time);
+    e.set(this, BSTimer::fDelta, seconds as f32);
+    // `iLastTime` is the clock the game's other readers see (`00825c00`): the other timers' is
+    // the tick count as before; the main timer's follows its reported steps (above).
+    e.set(this, BSTimer::iLastTime, last_time);
     // From here as the translation.
     let delta = e.get(this, BSTimer::fDelta);
     e.set(
@@ -485,6 +622,11 @@ fn ramp_entry(e: &mut Engine, _: &[u32]) -> Ret {
 /// time at any frame rate. Frames of 16 ms and more run the translation.
 fn time_multiplier_ramp(e: &mut Engine) {
     let last_step = e.mem.f32(MAIN_TIMER + BSTimer::fDeltaUnmodified.off);
+    // A frame with no fixed step has no time in which the multiplier can move. The translation
+    // never sees zero here: a real-time step reports at least 10 ms and a clamped one is positive.
+    if last_step == 0.0 {
+        return;
+    }
     if !(last_step > 0.0 && last_step < SETTLED_FRAME_S) {
         fn_00aa4e40(e);
         return;
@@ -872,7 +1014,9 @@ mod tests {
         assert_eq!(starts[2] - starts[1], 10_000);
         assert_eq!(starts[3] - starts[2], 35_000);
         assert_eq!(starts[4] - starts[3], 10_000);
-        assert_eq!(e.get(main, BSTimer::fDeltaUnmodified), 0.01);
+        // The main timer reports whole steps; a paced frame that only draws reports none.
+        let delta = e.get(main, BSTimer::fDeltaUnmodified);
+        assert!(delta == 0.0 || (delta - 1.0 / 60.0).abs() < 1e-6, "{delta}");
         // One pass per frame from the wait; the step itself adds one where the original would sleep.
         assert!(slept.borrow().len() >= 5);
         assert!(slept.borrow().iter().all(|&ms| ms == 0));
@@ -1051,5 +1195,296 @@ mod tests {
         assert_eq!(e.mem.f32(GLOBAL_TIME_MULTIPLIER), 0.25);
         e.call(TIME_MULTIPLIER_RAMP, &args![]);
         assert_eq!(e.mem.f32(GLOBAL_TIME_MULTIPLIER), 0.25);
+    }
+
+    /// A drawing-only frame has no seconds in which the multiplier can move; a whole step moves it
+    /// as the translation moves it in a 16 ms frame.
+    #[test]
+    fn a_drawing_only_frame_does_not_move_the_multiplier() {
+        let mut e = Engine::new();
+        e.map(MAIN_TIMER & !0xfff, 0x1000);
+        e.map(GLOBAL_TIME_MULTIPLIER & !0xfff, 0x1000);
+        e.mem.set_f32(GLOBAL_TIME_MULTIPLIER, 1.0);
+        e.mem.set_f32(TIME_MULTIPLIER_TARGET, 2.0);
+        e.mem.set_f32(TIME_MULTIPLIER_RATE, 0.01);
+        install_slow_motion(&mut e);
+        e.mem.set_u32(MAIN_TIMER + BSTimer::fDeltaUnmodified.off, 0);
+        e.call(TIME_MULTIPLIER_RAMP, &args![]);
+        assert_eq!(e.mem.f32(GLOBAL_TIME_MULTIPLIER), 1.0);
+        e.mem
+            .set_f32(MAIN_TIMER + BSTimer::fDeltaUnmodified.off, 1.0 / 60.0);
+        e.call(TIME_MULTIPLIER_RAMP, &args![]);
+        assert!((e.mem.f32(GLOBAL_TIME_MULTIPLIER) - 1.01).abs() < 1e-6);
+    }
+
+    /// The clock after a minute of wall time at each of the fixed frame rates. The wall time is
+    /// the whole microseconds the frames have advanced, so the bound is against what the frames
+    /// really took and not against an ideal rate no microsecond clock can hold.
+    #[test]
+    fn the_fixed_step_keeps_the_clock_at_every_frame_rate() {
+        for fps in [60, 144, 300, 500] {
+            let frame_us = 1_000_000 / fps;
+            let frames = 60_000_000 / frame_us;
+            let mut fixed = FixedStep::new();
+            for _ in 0..frames {
+                fixed.advance(frame_us);
+            }
+            let game_s = fixed.steps() as f64 / STEPS_PER_SECOND as f64;
+            let wall_s = frames as f64 * frame_us as f64 / 1e6;
+            assert!(
+                (game_s - wall_s).abs() <= 0.005 * wall_s,
+                "{fps} fps: {game_s} against {wall_s}"
+            );
+        }
+    }
+
+    /// Only whole steps move the game on. The time between them is carried as a fraction of the
+    /// next step, which is what the drawing uses, and never reaches a whole step.
+    #[test]
+    fn render_frames_carry_the_fraction_of_a_step() {
+        let mut fixed = FixedStep::new();
+        let (steps, alpha) = fixed.advance(2000);
+        assert_eq!((steps, alpha), (0, 0.12));
+        let (steps, alpha) = fixed.advance(4000);
+        assert_eq!(steps, 0);
+        assert!((alpha - 0.36).abs() < 1e-6, "{alpha}");
+        let (steps, alpha) = fixed.advance(2000);
+        assert_eq!(steps, 0);
+        assert!((alpha - 0.48).abs() < 1e-6, "{alpha}");
+        let (steps, alpha) = fixed.advance(6000);
+        assert_eq!(steps, 0);
+        assert!((alpha - 0.84).abs() < 1e-6, "{alpha}");
+        let (steps, alpha) = fixed.advance(4000);
+        assert_eq!((steps, alpha), (1, 0.08));
+        assert_eq!(fixed.steps(), 1);
+        // Several steps can be due in one long frame, and the fraction stays under one.
+        let (steps, alpha) = fixed.advance(50_000);
+        assert_eq!(steps, 3);
+        assert!((alpha - 0.08).abs() < 1e-6, "{alpha}");
+        assert_eq!(fixed.steps(), 4);
+    }
+
+    /// A gap longer than the translation's cap does not fast-forward the game: at most the whole
+    /// steps that fit in 166 ms come from one frame.
+    #[test]
+    fn a_long_pause_does_not_fast_forward() {
+        let mut fixed = FixedStep::new();
+        let (steps, _) = fixed.advance(60_000_000);
+        assert_eq!(u64::from(steps), MOST_STEPS_A_FRAME);
+        assert_eq!(MOST_STEPS_A_FRAME, 9);
+        assert_eq!(fixed.steps(), MOST_STEPS_A_FRAME);
+    }
+
+    /// As in the original game, the time past the cap is dropped: a 1 s stall gives at most the
+    /// capped steps, and the frames after it give none of the stall back.
+    #[test]
+    fn a_stall_gives_the_capped_steps_and_no_burst_after_it() {
+        let mut fixed = FixedStep::new();
+        let (first, _) = fixed.advance(1_000_000);
+        assert_eq!(u64::from(first), MOST_STEPS_A_FRAME);
+        // Frames with no time after it take nothing; ordinary frames take their own time only.
+        for _ in 0..20 {
+            let (steps, _) = fixed.advance(0);
+            assert_eq!(steps, 0);
+        }
+        let mut later = 0;
+        for _ in 0..60 {
+            later += fixed.advance(1_000_000 / 60).0;
+        }
+        assert!((59..=60).contains(&later), "{later}");
+        assert!(
+            fixed.steps() <= MOST_STEPS_A_FRAME + 60,
+            "{}",
+            fixed.steps()
+        );
+    }
+
+    /// The main timer's `iLastTime` (the clock `00825c00`'s readers see) moves smoothly at every
+    /// frame rate: only on a frame that reports a step, by that step's 16 or 17 ms, never in a
+    /// jump, and it stays within a step or so of the tick count. A stall closes the lag to the
+    /// tick count at once; a timer that was disabled starts again from the tick count. Another
+    /// timer's `iLastTime` is the tick count every frame as before.
+    #[test]
+    fn the_last_time_follows_the_reported_steps_smoothly() {
+        for fps in [60u64, 144, 300, 500] {
+            let frame_us = 1_000_000 / fps;
+            let (mut e, other, _) = timer_engine();
+            install(&mut e);
+            e.map(MAIN_TIMER & !0xfff, 0x1000);
+            let main: Ptr<BSTimer> = Ptr::new(MAIN_TIMER);
+            e.set(main, BSTimer::iFirstTime, 0);
+            e.set(main, BSTimer::iLastTime, 1000);
+            e.call(BS_TIMER_STEP, &[main.addr(), e.clock_ms]);
+            let mut moves = 0;
+            for n in 0..(2 * fps) {
+                e.advance_clock_us(frame_us);
+                let now = e.clock_ms;
+                let before = e.get(main, BSTimer::iLastTime);
+                e.call(BS_TIMER_STEP, &[main.addr(), now]);
+                e.call(BS_TIMER_STEP, &[other.addr(), now]);
+                let after = e.get(main, BSTimer::iLastTime);
+                let reported = e.get(main, BSTimer::fDelta) > 0.0;
+                if reported {
+                    moves += 1;
+                    let moved = after.wrapping_sub(before);
+                    assert!((16..=17).contains(&moved), "{fps} fps, frame {n}: {moved}");
+                } else {
+                    assert_eq!(after, before, "{fps} fps, frame {n}: a drawing-only frame");
+                }
+                assert!(
+                    now.wrapping_sub(after) <= 20,
+                    "{fps} fps: lag {}",
+                    now - after
+                );
+                assert_eq!(e.get(other, BSTimer::iLastTime), now);
+            }
+            assert!(
+                (119..=121).contains(&moves),
+                "{fps} fps: {moves} steps in 2 s"
+            );
+        }
+    }
+
+    /// After a stall (its time past the cap dropped) the main timer's `iLastTime` is put back to
+    /// the tick count, so the gap to it never passes the cap; the frames after it move smoothly.
+    #[test]
+    fn a_stall_closes_the_last_time_gap() {
+        let (mut e, _, _) = timer_engine();
+        install(&mut e);
+        e.map(MAIN_TIMER & !0xfff, 0x1000);
+        let main: Ptr<BSTimer> = Ptr::new(MAIN_TIMER);
+        e.set(main, BSTimer::iFirstTime, 0);
+        e.set(main, BSTimer::iLastTime, 1000);
+        e.call(BS_TIMER_STEP, &[main.addr(), e.clock_ms]);
+        e.advance_clock_us(1_000_000);
+        let now = e.clock_ms;
+        e.call(BS_TIMER_STEP, &[main.addr(), now]);
+        let after = e.get(main, BSTimer::iLastTime);
+        assert!(now - after <= LONGEST_STEP_MS, "gap {}", now - after);
+        assert_eq!(e.get(main, BSTimer::fDelta), FIXED_STEP_S as f32);
+        // Then ordinary frames: no burst, no jump.
+        let mut last = after;
+        for _ in 0..30 {
+            e.advance_clock_us(3000);
+            let now = e.clock_ms;
+            e.call(BS_TIMER_STEP, &[main.addr(), now]);
+            let moved = e.get(main, BSTimer::iLastTime) - last;
+            assert!(moved <= 17, "{moved}");
+            last = e.get(main, BSTimer::iLastTime);
+        }
+        // A disabled timer runs the translation and starts again from the tick count.
+        e.set(main, BSTimer::cDisableCounter, 1);
+        e.advance_clock_us(500_000);
+        let now = e.clock_ms;
+        e.call(BS_TIMER_STEP, &[main.addr(), now]);
+        e.set(main, BSTimer::cDisableCounter, 0);
+        e.advance_clock_us(5_000);
+        let now = e.clock_ms;
+        e.call(BS_TIMER_STEP, &[main.addr(), now]);
+        assert_eq!(e.get(main, BSTimer::iLastTime), now);
+    }
+
+    /// The slow-motion ramp over many frames: the multiplier after a second is the same at every
+    /// frame rate, since it only moves with the fixed steps.
+    #[test]
+    fn the_ramp_after_a_second_is_the_same_at_every_frame_rate() {
+        let mut results = Vec::new();
+        for fps in [60u64, 144, 300, 500] {
+            let frame_us = 1_000_000 / fps;
+            let mut e = Engine::new();
+            e.map(MAIN_TIMER & !0xfff, 0x1000);
+            e.map(GLOBAL_TIME_MULTIPLIER & !0xfff, 0x1000);
+            e.mem.set_f32(GLOBAL_TIME_MULTIPLIER, 1.0);
+            e.mem.set_f32(TIME_MULTIPLIER_TARGET, 100.0);
+            e.mem.set_f32(TIME_MULTIPLIER_RATE, 0.001);
+            install_slow_motion(&mut e);
+            let mut fixed = FixedStep::new();
+            for _ in 0..fps {
+                let (steps, _) = fixed.advance(frame_us);
+                let delta = if steps > 0 { 1.0f32 / 60.0 } else { 0.0 };
+                e.mem
+                    .set_f32(MAIN_TIMER + BSTimer::fDeltaUnmodified.off, delta);
+                e.call(TIME_MULTIPLIER_RAMP, &args![]);
+            }
+            results.push((fixed.steps(), e.mem.f32(GLOBAL_TIME_MULTIPLIER)));
+        }
+        for (steps, multiplier) in &results {
+            let expected = 1.001f64.powi(*steps as i32) as f32;
+            assert!(
+                (multiplier - expected).abs() < 1e-3,
+                "{steps}: {multiplier}"
+            );
+        }
+        assert!(
+            results.iter().all(|r| (59..=60).contains(&r.0)),
+            "{results:?}"
+        );
+    }
+
+    /// With the uncapped step installed, the game's clock sees the same sequence of seconds at
+    /// every frame rate: whole steps of 1/60 s, with zero-second frames between them. After a
+    /// minute of frames the clock is within 0.5 % of the wall time those frames took.
+    #[test]
+    fn the_step_is_the_same_at_every_frame_rate() {
+        for fps in [60, 144, 300, 500] {
+            let frame_us = 1_000_000 / fps;
+            let frames = 60_000_000 / frame_us;
+            let (mut e, _, _) = timer_engine();
+            install(&mut e);
+            e.map(MAIN_TIMER & !0xfff, 0x1000);
+            let timer: Ptr<BSTimer> = Ptr::new(MAIN_TIMER);
+            e.set(timer, BSTimer::iFirstTime, 0);
+            e.set(timer, BSTimer::iLastTime, 1000);
+            let mut seconds = Vec::new();
+            for n in 0..frames {
+                e.advance_clock_us(frame_us);
+                // The first step still answers as the translation does.
+                if n == 0 {
+                    e.set(timer, BSTimer::iLastTime, e.clock_ms - 10);
+                }
+                let now = e.clock_ms;
+                e.call(BS_TIMER_STEP, &[timer.addr(), now]);
+                seconds.push(e.get(timer, BSTimer::fDelta));
+            }
+            let steps: Vec<f32> = seconds
+                .iter()
+                .copied()
+                .filter(|&s| s > 0.0)
+                .take(6)
+                .collect();
+            assert!(steps.len() == 6, "{fps}: only {} steps", steps.len());
+            assert_eq!(steps[0], 0.01, "{fps}: the first step");
+            assert!(
+                steps[1..].iter().all(|&s| (s - 1.0 / 60.0).abs() < 1e-6),
+                "{fps}: {steps:?}"
+            );
+            let game_s: f64 = seconds.iter().map(|&s| f64::from(s)).sum();
+            let wall_s = frames as f64 * frame_us as f64 / 1e6;
+            assert!(
+                (game_s - wall_s).abs() <= 0.005 * wall_s,
+                "{fps}: {game_s} against {wall_s}"
+            );
+        }
+    }
+
+    /// Installing the uncapped step starts the fraction at zero. The main timer's step publishes
+    /// the time carried towards the next one; another timer's step does not move it.
+    #[test]
+    fn the_draw_fraction_is_published_by_the_main_timer() {
+        let (mut e, timer, _) = timer_engine();
+        install(&mut e);
+        assert_eq!(render_alpha(), Some(0.0));
+        e.map(MAIN_TIMER & !0xfff, 0x1000);
+        let main: Ptr<BSTimer> = Ptr::new(MAIN_TIMER);
+        e.set(main, BSTimer::iLastTime, 1000);
+        e.call(BS_TIMER_STEP, &[main.addr(), e.clock_ms]);
+        e.advance_clock_us(4000);
+        e.call(BS_TIMER_STEP, &[main.addr(), e.clock_ms]);
+        let alpha = render_alpha().unwrap();
+        assert!((alpha - 0.24).abs() < 1e-6, "{alpha}");
+        // Another timer's step does not move the main timer's fraction.
+        e.advance_clock_us(4000);
+        e.call(BS_TIMER_STEP, &[timer.addr(), e.clock_ms]);
+        assert_eq!(render_alpha(), Some(alpha));
     }
 }

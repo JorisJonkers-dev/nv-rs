@@ -17,7 +17,7 @@ use engine_core::prelude::*;
 use engine_core::typed::diff::{Case, Diff, Input, F32_VALUES};
 use engine_core::typed::{leaf, MAIN_THREAD, OTHER_THREADS};
 use engine_core::{entry, Engine};
-use engine_typed::draw::{self, lists, own, packed, packing, shapes, skin, thunks};
+use engine_typed::draw::{self, defined, lists, own, packed, packing, shapes, skin, thunks};
 use engine_typed::draw_f;
 use engine_typed::render::{self, stream};
 use engine_typed::{crt, culling, dispatch, pathing, shader};
@@ -236,7 +236,7 @@ fn stand_ins(e: &mut Engine) {
 }
 
 /// The dispatch family's functions the draw, render and shader families' typed code calls: `compose`,
-/// `invert_non_uniform`, `inverse_4x4`, `normalize`, the RTTI cast and the two immediate renders.
+/// `invert_non_uniform`, `inverse_4x4`, `normalize`, the RTTI cast, the two immediate renders and the node pool's lock.
 const DISPATCH_CALLED: &[u32] = &[
     0x0062_c250,
     0x004b_4880,
@@ -245,6 +245,7 @@ const DISPATCH_CALLED: &[u32] = &[
     0x0065_3290,
     0x00a8_0610,
     0x00a7_1d70,
+    0x0040_fbf0,
 ];
 
 trait Common {
@@ -2170,6 +2171,56 @@ fn matrix_inverse_thunk() {
     .assert_same();
 }
 
+/// The import slot `D3DXMatrixMultiply` jumps through. The translation calls it, and so does the
+/// typed thunk (through `d3dx_direct`, taking the steps of a call by address); the test compares
+/// those calls and the words written.
+const MATRIX_MULTIPLY_IMPORT: u32 = 0x00fd_f424;
+
+/// A word of a matrix built from scratch: the case's floats, unit and zero words, and NaN payloads
+/// whose order of addition the measured DLL distinguishes (the row three products are reversed).
+fn matrix_word(c: &Case, index: usize, other: usize) -> u32 {
+    const NANS: &[u32] = &[0x7fc0_0001, 0xffc0_0002, 0x7fc0_0003];
+    match index % 8 {
+        0 => c.f32(other).to_bits(),
+        1 => ONE,
+        2 => c.f32(1 - other).to_bits(),
+        3 => 0,
+        4 => NANS[index / 8 % NANS.len()],
+        5 => 0x7f80_0000,
+        6 => 0x0000_0001,
+        _ => 0x3f80_0001,
+    }
+}
+
+/// The matrices, the output and the alias choice, all built from scratch. The platform's measured
+/// `D3DXMatrixMultiply` stands in at the import slot for the translation's thunk.
+fn multiply_world(e: &mut Engine, c: &Case) -> Vec<u32> {
+    stand_ins(e);
+    e.register(MATRIX_MULTIPLY_IMPORT, |e, a| {
+        ret(engine_platform::d3dx::matrix_multiply(
+            e,
+            Ptr::new(a[0]),
+            Ptr::new(a[1]),
+            Ptr::new(a[2]),
+        ))
+    });
+    let m1 = e.mem.alloc(0x40);
+    let m2 = e.mem.alloc(0x40);
+    for i in 0..16usize {
+        e.mem
+            .set_u32(m1.wrapping_add(4 * i as u32), matrix_word(c, i, 0));
+        e.mem
+            .set_u32(m2.wrapping_add(4 * i as u32), matrix_word(c, i, 1));
+    }
+    // The output may be either input: both are read before a word of the output is written.
+    let out = match c.word(2) {
+        0 => m1,
+        1 => e.mem.alloc(0x40),
+        _ => m2,
+    };
+    vec![out, m1, m2]
+}
+
 #[test]
 fn matrix_multiply_thunk() {
     Diff::new(entry!(
@@ -2177,12 +2228,51 @@ fn matrix_multiply_thunk() {
         thunks::matrix_multiply(Ptr<()>, Ptr<()>, Ptr<()>) -> Ptr<()>
     ))
     .common()
+    .inputs(&[Input::F32, Input::F32, Input::Of(&[0, 1, 2])])
+    .float_sweep(24)
+    .setup(multiply_world)
+    .run()
+    .assert_same();
+}
+
+/// The constant map's texture-transform setter, in place of the draw family's by-address call.
+#[test]
+fn setup_texture_transform_matrix() {
+    Diff::new(entry!(
+        0x00e8_3550,
+        defined::setup_texture_transform_matrix(Ptr<()>, Ptr<()>, u8, u8, u32)
+    ))
+    .common()
     .inputs(&[
-        Input::Of(THUNK_WORDS),
-        Input::Of(THUNK_WORDS),
-        Input::Of(THUNK_WORDS),
+        Input::Of(&[0, 1]),
+        Input::Of(&[0, 1]),
+        Input::Of(&[0, 1]),
+        Input::Of(&[0, 2, 3, 4, 5]),
     ])
-    .setup(|e, c| thunk_world(e, c, 3))
+    .setup(|e, c| {
+        stand_ins(e);
+        // The two calls at the end go through their import slots on both sides; stand in there.
+        for at in [0x00fd_f428, 0x00fd_f42c] {
+            e.register(at, |e, a| {
+                mark(e, a);
+                ret(a[0])
+            });
+        }
+        let out = e.mem.alloc(0x40);
+        let matrix = if c.word(0) == 0 {
+            0
+        } else {
+            let m = e.mem.alloc(0x40);
+            for i in 0..16u32 {
+                e.mem.set_u32(
+                    m.wrapping_add(4 * i),
+                    c.word(1) ^ i.wrapping_mul(0x9e37_79b9),
+                );
+            }
+            m
+        };
+        vec![out, matrix, c.word(2), c.word(2), c.word(3)]
+    })
     .run()
     .assert_same();
 }
@@ -2662,4 +2752,112 @@ fn lists_pass_in_every_type() {
     .max_cases(240)
     .run()
     .assert_same();
+}
+
+/// `IsShadowPass` (`00b630f0`): the pass types at and beside each end of its three ranges, 0 and the top words.
+#[test]
+fn is_shadow_pass() {
+    Diff::new(entry!(0x00b6_30f0, lists::is_shadow_pass(u32) -> bool))
+        .family(&draw::DRAW)
+        .inputs(&[Input::Of(&[
+            0,
+            1,
+            0x1c3,
+            0x1c4,
+            0x1c5,
+            0x1c7,
+            0x1c8,
+            0x230,
+            0x231,
+            0x233,
+            0x234,
+            0x235,
+            0x283,
+            0x284,
+            0x286,
+            0x287,
+            0x288,
+            0x8000_0284,
+            0xffff_ffff,
+        ])])
+        .run()
+        .assert_same();
+}
+
+/// A shader property's slot 0x10c as the light set-ups take it (`setups::property_fade_of`): with the exe's fade
+/// (`00b66b80`) in the slot, the typed fade called directly (the draw family on) answers what the call through the
+/// slot answers with only the translations (the fade's translation), over the property's flags, its distance and
+/// the fade's near and far distances (`011f9454`, `011f9458`); with another function in the slot (a stand-in
+/// answering three times the distance), both engines answer what that function answers.
+#[test]
+fn property_fade_of_the_slot() {
+    const FADE_NEAR: u32 = 0x011f_9454;
+    const FADE_FAR: u32 = 0x011f_9458;
+    const OTHER_FADE: u32 = VT_FN + 0x10c;
+    let mut by_address = Engine::new_untyped_for_test();
+    let mut direct = Engine::new_untyped_for_test();
+    direct.typed_apply_for_test(&[&draw::DRAW, &leaf::LEAVES], "");
+    assert!(direct.typed_direct(draw::FAMILY, 0x00b6_6b80));
+    let mut properties = Vec::new();
+    for e in [&mut by_address, &mut direct] {
+        e.map(FADE_NEAR & !0xfff, 0x1000);
+        e.register(OTHER_FADE, |e, a| Ret {
+            st0: f64::from(f32::from_bits(e.mem.u32(a[0] + 0x34))) * 3.0,
+            ..Ret::default()
+        });
+        let real = vtable(e, &[(0x10c, 0x00b6_6b80)]);
+        let other = vtable(e, &[]);
+        properties.push([obj(e, 0x40, real), obj(e, 0x40, other)]);
+    }
+    let floats = [
+        0,
+        ONE,
+        HALF,
+        TWO,
+        0x4100_0000,
+        0xbf80_0000,
+        0x8000_0000,
+        0x7f80_0000,
+        0x7fc0_0000,
+        1,
+    ];
+    let mut compared = 0;
+    for flags in [0u32, 1, 3, 0xffff_fffe] {
+        for flags_24 in [0u32, 0x0080_0000, 0xff7f_ffff] {
+            for near in floats {
+                for far in floats {
+                    for distance in floats {
+                        let mut answers = Vec::new();
+                        for (e, of) in [
+                            (&mut by_address, properties[0]),
+                            (&mut direct, properties[1]),
+                        ] {
+                            set(e, FADE_NEAR, near);
+                            set(e, FADE_FAR, far);
+                            let mut answer = Vec::new();
+                            for property in of {
+                                set(e, property + 0x20, flags);
+                                set(e, property + 0x24, flags_24);
+                                set(e, property + 0x34, distance);
+                                answer.push(draw::setups::property_fade_of(e, property).to_bits());
+                            }
+                            answers.push(answer);
+                        }
+                        assert_eq!(
+                            answers[1], answers[0],
+                            "flags {flags:x} {flags_24:x}, near {near:x}, far {far:x}, distance {distance:x}"
+                        );
+                        let other = (f64::from(f32::from_bits(distance)) * 3.0) as f32;
+                        assert_eq!(
+                            answers[0][1],
+                            other.to_bits(),
+                            "the other slot's function, distance {distance:x}"
+                        );
+                        compared += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(compared, 4 * 3 * 1000);
 }

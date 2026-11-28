@@ -41,10 +41,72 @@ if [ "$(uname -s)" = Linux ] && [ -f .fork/linux-skip.txt ]; then
   done <.fork/linux-skip.txt
 fi
 
+# ARCHIVE: the folder of a test archive (scripts/fork/test_archive.py), already extracted into the checkout. A `cargo test -p P
+# --test A --test B` command of the job then runs the archived binaries A and B of P, from P's folder as cargo does, and
+# compiles nothing: the archive's build job compiled every binary of the group once. SHARD splits the one binary's tests
+# as below.
+archived_tests() {
+  local cmd="$1" crate="" tests=() w i found t rc=0 picked
+  declare -A exes cwds
+  read -ra w <<<"$cmd"
+  for ((i = 0; i < ${#w[@]}; i++)); do
+    case "${w[i]}" in
+      -p) crate="${w[i + 1]}" ;;
+      --test) tests+=("${w[i + 1]}") ;;
+    esac
+  done
+  for t in "${tests[@]}"; do
+    if ! found="$("${PY:-python3}" -I scripts/fork/test_archive.py find "$ARCHIVE" "$crate" "$t")"; then
+      echo "::error title=archive::the archive has no test binary $crate/$t"
+      return 1
+    fi
+    # Run in place from the archive's folder (a copy of the whole archive cost minutes); the artifact keeps no permissions.
+    exes[$t]="$ARCHIVE/${found%%$'\t'*}"
+    chmod +x "${exes[$t]}"
+    cwds[$t]="${found#*$'\t'}"
+  done
+  if [ -n "${SHARD:-}" ]; then
+    # SHARD=i/n: every n-th test of the job's binaries together, sorted by binary and name; the other shards run the rest.
+    picked="$(for t in "${tests[@]}"; do
+      (cd "${cwds[$t]}" && "${exes[$t]}" --list 2>/dev/null) | sed -n "s/^\(.*\): test$/$t \1/p"
+    done | LC_ALL=C sort | awk -v i="${SHARD%/*}" -v n="${SHARD#*/}" '(NR - 1) % n == i - 1')"
+    if [ -z "$picked" ]; then echo "::error title=shard::no tests listed for shard $SHARD"; return 1; fi
+    echo "shard $SHARD: $(wc -l <<<"$picked") tests"
+  fi
+  for t in "${tests[@]}"; do
+    local args=()
+    if [ -n "${SHARD:-}" ]; then
+      names="$(awk -v t="$t" '$1 == t { print $2 }' <<<"$picked")"
+      [ -n "$names" ] || continue
+      # shellcheck disable=SC2206 # the names are a word list
+      args=(--exact $names)
+    fi
+    echo "     Running tests/$t.rs (${exes[$t]})"
+    # shellcheck disable=SC2206 # the skips are a word list
+    args+=($skips)
+    (cd "${cwds[$t]}" && CARGO_MANIFEST_DIR="$PWD" CARGO_PKG_NAME="$crate" "${exes[$t]}" "${args[@]}") || rc=1
+  done
+  return "$rc"
+}
+
 rc=0
 while IFS= read -r cmd; do
   [ -n "$cmd" ] || continue
   case "$cmd" in
+    "cargo test "*" --test "*)
+      if [ -n "${ARCHIVE:-}" ] && [[ "$cmd" != *" --lib"* && "$cmd" != *" --doc"* ]]; then
+        echo "tests: $cmd (archived)"
+        start=$SECONDS
+        archived_tests "$cmd" 2>&1 | tee -a "$LOG" | group_binaries
+        status=${PIPESTATUS[0]}
+        echo "test $((SECONDS - start))" >>"$TIMINGS"
+        if [ "$status" -ne 0 ]; then
+          echo "::error title=tests failed::$cmd"
+          rc=1
+        fi
+        continue
+      fi
+      ;&
     "cargo test "*)
       if [[ "$cmd" != *" --doc"* && "$cmd" != *" --no-run"* ]]; then
         echo "::group::compile: $cmd"

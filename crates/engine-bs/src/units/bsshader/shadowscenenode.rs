@@ -810,11 +810,11 @@ pub fn shadow_scene_node_remove_object_recurse(
         let child = e.mem.u32(children.wrapping_add(4 * index));
         if child != 0 {
             if e.vcall(child, SLOT_IS_TRI_BASED_GEOM, &args![]).u32() != 0 {
-                shadow_scene_node_remove_geometry_from_property_lights(e, child);
+                e.call(0x00b5_b0e0, &args![child]);
             } else {
                 let child_node = e.vcall(child, SLOT_IS_NODE, &args![]).u32();
                 if child_node != 0 {
-                    shadow_scene_node_remove_object_recurse(e, this, child_node);
+                    e.call(0x00b5_b150, &args![this, child_node]);
                 }
             }
         }
@@ -831,7 +831,7 @@ pub fn shadow_scene_node_remove_object(e: &mut Engine, this: Ptr<ShadowSceneNode
     }
     let node = e.vcall(object, SLOT_IS_NODE, &args![]).u32();
     if node != 0 {
-        shadow_scene_node_remove_object_recurse(e, this, node);
+        e.call(0x00b5_b150, &args![this, node]);
     }
 }
 
@@ -1232,20 +1232,20 @@ pub fn fn_00b5ddb0(e: &mut Engine, this: Ptr<ShadowSceneNode>, each: u8, skip: u
         let light = item_element(e, item);
         item = item_next(e, item);
         if light != 0 {
-            fn_00b5d270(e, this, light);
+            e.call(0x00b5_d270, &args![this, light]);
         }
     }
     if skip == 0 {
-        fn_00b5d180(e, this);
+        e.call(0x00b5_d180, &args![this]);
     }
 }
 
 // Translated from 00b5eeb0 (decompiled, FalloutNV.exe 1.4.0.525)
 /// `ShadowSceneNode::AddObject` (Xbox PDB). `thiscall`, `RET 4` (an object): an object without
-/// flag 1 goes to `UpdateObjectLighting` (`00b5d9f0`) with 0.
+/// flag 1 goes to `UpdateObjectLighting` (`00b5d9f0`, by address as the exe calls it) with 0.
 pub fn shadow_scene_node_add_object(e: &mut Engine, this: Ptr<ShadowSceneNode>, object: u32) {
     if object != 0 && e.mem.u32(object.wrapping_add(AV_FLAGS)) & 1 == 0 {
-        shadow_scene_node_update_object_lighting(e, this, object, 0);
+        e.call(UPDATE_OBJECT_LIGHTING, &args![this, object, 0u32]);
     }
 }
 
@@ -1254,7 +1254,7 @@ pub fn shadow_scene_node_add_object(e: &mut Engine, this: Ptr<ShadowSceneNode>, 
 /// `RET 4` (the flags): the destructor (`00b5e5a0`), then the 0x200-byte block freed
 /// (`00aa1460`) when bit 0 is set; answers `this`.
 pub fn fn_00b5f980(e: &mut Engine, this: Ptr<ShadowSceneNode>, flags: u32) -> Ptr<ShadowSceneNode> {
-    fn_00b5e5a0(e, this);
+    e.call(0x00b5_e5a0, &args![this]);
     if flags & 1 != 0 {
         e.call(SIZED_FREE, &args![this, 0x200u32]);
     }
@@ -1301,6 +1301,8 @@ const LIGHT_RTTI_011F4A28: u32 = 0x011f_4a28;
 const NI_LIGHT_CONSTRUCT_00A7D670: u32 = 0x00a7_d670;
 /// `00439090` (`thiscall` on a point, `RET 4`: another point; `u8` result).
 const POINT_COMPARE_00439090: u32 = 0x0043_9090;
+/// `ShadowSceneNode::UpdateObjectLighting` (`00b5d9f0`), as `AddObject` calls it.
+const UPDATE_OBJECT_LIGHTING: u32 = 0x00b5_d9f0;
 /// The object-queue spin lock (`011f9ec0`: owner, `011f9ec4`: count).
 const OBJECT_QUEUE_LOCK: u32 = 0x011f_9ec0;
 const OBJECT_QUEUE_LOCK_COUNT: u32 = 0x011f_9ec4;
@@ -1634,15 +1636,12 @@ pub fn shadow_scene_node_add_all_lights_from_node_recurse(
         if child != 0 {
             let child_node = e.vcall(child, SLOT_IS_NODE, &args![]).u32();
             if child_node != 0 {
-                let n = shadow_scene_node_add_all_lights_from_node_recurse(
-                    e,
-                    this,
-                    child_node,
-                    x87_quiet(value),
-                );
+                let n = e
+                    .call(0x00b5_ca70, &args![this, child_node, x87_quiet(value)])
+                    .u32();
                 found = found.wrapping_add(n);
             } else if rtti_chain_has(e, child, LIGHT_RTTI_011F4A28) {
-                shadow_scene_node_add_light(e, this, child, 1);
+                e.call(0x00b5_c940, &args![this, child, 1u32]);
                 update_object(e, child);
                 let point = e
                     .call(CAST_00653290, &args![child, POINT_LIGHT_RTTI_011F4A98])
@@ -1687,7 +1686,7 @@ pub fn fn_00b5cbd0(e: &mut Engine, this: Ptr<ShadowSceneNode>, object: u32) -> u
     }
     e.call(SPIN_LOCK_LOCK, &args![QUEUE_LOCK, 0u32]);
     let shadow_light = new_shadow_scene_light(e);
-    fn_00b5af30(e, Ptr::new(shadow_light), object);
+    e.call(0x00b5_af30, &args![shadow_light, object]);
     e.call(LIGHT_00B9DCB0, &args![shadow_light, 1u32]);
     add_tail_held(e, this, LIGHT_QUEUE_ADD, shadow_light, true);
     unlock_queue(e);
@@ -1837,7 +1836,7 @@ pub fn fn_00b5cde0(e: &mut Engine, this: Ptr<ShadowSceneNode>, argument: u32) {
             let share = x87_load32(x87_store32(share));
             if share > low {
                 let active = e.get(this, ShadowSceneNode::kShadowLightActiveFence);
-                fn_00b5a8d0(e, Ptr::new(list), item, active);
+                e.call(0x00b5_a8d0, &args![list, item, active]);
                 time = x87_load32(e.global::<u32>(FADE_TIME_011AD834));
                 continue;
             }
@@ -1857,7 +1856,7 @@ pub fn fn_00b5cde0(e: &mut Engine, this: Ptr<ShadowSceneNode>, argument: u32) {
         if light == argument {
             e.call(LIST_00B702E0, &args![list, item, fading]);
         } else {
-            fn_00b5a8d0(e, Ptr::new(list), item, fading);
+            e.call(0x00b5_a8d0, &args![list, item, fading]);
         }
         time = x87_load32(e.global::<u32>(FADE_TIME_011AD834));
     }
@@ -2032,8 +2031,8 @@ pub fn fn_00b5d930(e: &mut Engine, this: Ptr<ShadowSceneNode>, light: u32) {
     let x = e.mem.u32(world);
     let y = e.mem.u32(world.wrapping_add(4));
     let z = e.mem.u32(world.wrapping_add(8));
-    fn_00b5a9d0(e, Ptr::new(light), x, y, z);
-    fn_00b5d300(e, this, light);
+    e.call(0x00b5_a9d0, &args![light, x, y, z]);
+    e.call(0x00b5_d300, &args![this, light]);
 }
 
 // Translated from 00b5d9f0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -2084,7 +2083,7 @@ pub fn fn_00b5eca0(e: &mut Engine, this: Ptr<ShadowSceneNode>, light: u32) -> u3
         if listed != 0 && e.mem.u32(listed.wrapping_add(LIGHT_SP_LIGHT)) == ni_light {
             let dynamic = e.mem.u8(light.wrapping_add(LIGHT_DYNAMIC));
             e.mem.set_u8(listed.wrapping_add(LIGHT_DYNAMIC), dynamic);
-            fn_00b5d300(e, this, listed);
+            e.call(0x00b5_d300, &args![this, listed]);
             return listed;
         }
     }
@@ -2100,19 +2099,21 @@ pub fn fn_00b5eca0(e: &mut Engine, this: Ptr<ShadowSceneNode>, light: u32) -> u3
                 )
                 .u32();
             let target = e.call(RENDERED_TEXTURE_STOP_OFFSCREEN, &args![map]).u32();
-            // The slot is read before `00b6d120` runs.
-            let function = e.mem.u32(e.mem.u32(target).wrapping_add(0xac));
+            // The vtable is read before `00b6d120` runs (`MOV ESI,[EBX]; ADD ESI,0xac`), the
+            // slot's word after it (`MOV EDX,[ESI]`).
+            let vtable = e.mem.u32(target);
             let renderer = e.global::<u32>(RENDERER_011F91A8);
             let value = e.call(RENDERER_00B6D120, &args![renderer]).u32();
+            let function = e.mem.u32(vtable.wrapping_add(0xac));
             e.call(function, &args![target, value]);
             map
         } else {
             let renderer = e.global::<u32>(RENDERER_011F91A8);
             e.call(RENDERER_00B6D3F0, &args![renderer]).u32()
         };
-        fn_00b5aee0(e, Ptr::new(light), map);
+        e.call(0x00b5_aee0, &args![light, map]);
     }
-    fn_00b5d300(e, this, light);
+    e.call(0x00b5_d300, &args![this, light]);
     0
 }
 
@@ -2122,7 +2123,7 @@ fn queue_removal_held(e: &mut Engine, this: Ptr<ShadowSceneNode>, light: u32) {
     e.with_stack(4, |e, slot| {
         e.mem.set_u32(slot.addr(), light);
         e.call(IMPORT_INTERLOCKED_INCREMENT, &args![light.wrapping_add(4)]);
-        fn_00b5cff0(e, this, slot);
+        e.call(0x00b5_cff0, &args![this, slot]);
         release(e, light);
     });
 }
@@ -2209,7 +2210,7 @@ pub fn shadow_scene_node_remove_queued_light_ov2(
     if found != 0 {
         e.with_stack(4, |e, slot| {
             e.mem.set_u32(slot.addr(), found);
-            shadow_scene_node_remove_queued_light(e, this, light_pointer, slot.addr());
+            e.call(0x00b5_d040, &args![this, light_pointer, slot]);
         });
     }
 }
@@ -2497,7 +2498,7 @@ fn array_append(e: &mut Engine, array: u32, value: u32, generic: bool) {
     let slot = if generic {
         e.call(ARRAY_RESERVE_00761540, &args![array]).u32()
     } else {
-        fn_00b5c360(e, Ptr::new(array))
+        e.call(0x00b5_c360, &args![array]).u32()
     };
     let buffer = e.mem.u32(array.wrapping_add(4));
     e.mem.set_u32(buffer.wrapping_add(4 * slot), value);
@@ -3111,7 +3112,7 @@ pub fn fn_00b5ddf0(e: &mut Engine, this: Ptr<ShadowSceneNode>, graph: u32) {
     if count == 0 {
         e.set_global(OBJECT_QUEUE_LOCK, 0u32);
     }
-    fn_00b5d180(e, this);
+    e.call(0x00b5_d180, &args![this]);
     e.set(this, ShadowSceneNode::pBSPortalGraph, graph);
 }
 
@@ -3167,7 +3168,7 @@ pub fn fn_00b5e5a0(e: &mut Engine, this: Ptr<ShadowSceneNode>) {
                 .set_u32(accumulator.wrapping_add(ACCUMULATOR_SCENE_NODE), 0);
         }
     }
-    fn_00b5d180(e, this);
+    e.call(0x00b5_d180, &args![this]);
     clear_member(e, base + 0xd8);
     clear_member(e, base + 0xdc);
     let sun = e.get(this, ShadowSceneNode::pSunLight);
@@ -3258,7 +3259,7 @@ pub fn shadow_scene_node_pre_on_visible(e: &mut Engine, this: Ptr<ShadowSceneNod
             let ni_light = e.mem.u32(light.wrapping_add(LIGHT_SP_LIGHT));
             if ni_light != 0 && e.mem.u32(ni_light.wrapping_add(4)) != 1 {
                 if e.mem.u8(light.wrapping_add(LIGHT_DYNAMIC)) != 0 {
-                    fn_00b5d270(e, this, light);
+                    e.call(0x00b5_d270, &args![this, light]);
                 }
                 if e.mem.u8(light.wrapping_add(LIGHT_CAST_SHADOW)) != 0
                     && e.call(SCRIPT_TEST_005BF7B0, &args![]).u8() != 0
@@ -3303,7 +3304,7 @@ pub fn shadow_scene_node_pre_on_visible(e: &mut Engine, this: Ptr<ShadowSceneNod
                 } else {
                     e.mem.set_u32(held, light);
                     e.call(IMPORT_INTERLOCKED_INCREMENT, &args![light.wrapping_add(4)]);
-                    shadow_scene_node_remove_queued_light(e, this, Ptr::new(held), item_slot);
+                    e.call(0x00b5_d040, &args![this, held, item_slot]);
                     let held_light = e.mem.u32(held);
                     if held_light != 0 {
                         release(e, held_light);
@@ -3775,7 +3776,7 @@ pub fn fn_00b5f170(
             let count = e.mem.u32(queue + 8).wrapping_sub(1);
             e.mem.set_u32(queue + 8, count);
             let graph = e.get(this, ShadowSceneNode::pBSPortalGraph);
-            fn_00b5c6e0(e, Ptr::new(graph), room);
+            e.call(0x00b5_c6e0, &args![graph, room]);
             let (frustum, portals) = if room != 0 {
                 let shape = e
                     .mem
@@ -4518,7 +4519,7 @@ pub fn shadow_scene_node_get_rtti(_e: &mut Engine) -> Ptr {
 pub fn fn_00b5f080(e: &mut Engine, this: Ptr<ShadowSceneNode>, ni_light: u32) {
     let light = shadow_scene_node_get_light(e, this, ni_light);
     if light != 0 {
-        fn_00b5d270(e, this, light);
+        e.call(0x00b5_d270, &args![this, light]);
     }
 }
 
@@ -4546,14 +4547,14 @@ pub fn shadow_scene_node_find_and_cull_light_recurse(
         }
         if rtti_chain_has(e, child, LIGHT_RTTI_011F4A28) {
             if remove as u8 != 0 {
-                shadow_scene_node_remove_light(e, this, child);
+                e.call(0x00b5_eed0, &args![this, child]);
             } else {
-                shadow_scene_node_add_light(e, this, child, 1);
+                e.call(0x00b5_c940, &args![this, child, 1u32]);
             }
             continue;
         }
         if e.vcall(child, SLOT_IS_NODE, &args![]).u32() != 0 {
-            shadow_scene_node_find_and_cull_light_recurse(e, this, child, remove);
+            e.call(0x00b5_f0c0, &args![this, child, remove]);
         }
     }
 }
@@ -4569,7 +4570,7 @@ pub fn shadow_scene_node_find_and_cull_light(
     remove: u32,
 ) {
     if node != 0 {
-        shadow_scene_node_find_and_cull_light_recurse(e, this, node, remove);
+        e.call(0x00b5_f0c0, &args![this, node, remove]);
     }
 }
 
@@ -6795,6 +6796,39 @@ mod b064_tests {
         assert_eq!(elements(&e, this.addr() + LIGHT_LIST), vec![listed, caster]);
         assert_eq!(e.mem.u32(caster + 0x10c), map);
         assert_eq!(e.mem.u32(map + 4), 2);
+    }
+
+    #[test]
+    fn fn_00b5eca0_reads_the_target_slot_after_the_renderer_call() {
+        let mut e = rig();
+        light_update_doubles(&mut e);
+        let this = scene(&mut e);
+        let caster = object(&mut e, 0x250);
+        let ni_light = e.mem.alloc(0x100);
+        e.mem.set_u32(caster + 0xf8, ni_light);
+        e.mem.set_u8(caster + 0xec, 1);
+        e.map(0, 0x1000);
+        e.mem.set_u8(0xed, 1);
+        let map = object(&mut e, 0x10);
+        let target = e.mem.alloc(0x10);
+        let vtable = e.mem.alloc(0x100);
+        e.mem.set_u32(target, vtable);
+        e.mem.set_u32(vtable + 0xac, 0x0f00_4000);
+        e.register_double(RENDERER_00B6E110, move |_, _| map.into_ret());
+        e.register_double(RENDERED_TEXTURE_STOP_OFFSCREEN, move |_, _| {
+            target.into_ret()
+        });
+        // `00b6d120` puts another function in the slot: the exe reads the slot after it.
+        e.register_double(RENDERER_00B6D120, move |e, _| {
+            e.mem.set_u32(vtable + 0xac, 0x0f00_4010);
+            7u32.into_ret()
+        });
+        e.register(0x0f00_4000, |_, _| Ret::default());
+        e.register(0x0f00_4010, |_, _| Ret::default());
+        e.call_log = Some(vec![]);
+        e.call(0x00b5_eca0, &args![this, caster]);
+        assert!(calls(&e, 0x0f00_4000).is_empty());
+        assert_eq!(calls(&e, 0x0f00_4010), vec![vec![target, 7]]);
     }
 
     #[test]

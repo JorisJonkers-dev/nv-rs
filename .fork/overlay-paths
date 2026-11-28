@@ -14,6 +14,7 @@
 .github/workflows/fork-ci.yml
 .github/workflows/fork-fuzz.yml
 .github/workflows/fork-package-windows.yml
+.github/workflows/fork-private.yml
 .github/workflows/fork-progress.yml
 .github/workflows/fork-release-build.yml
 .github/workflows/fork-security.yml
@@ -66,6 +67,8 @@ crates/d3d9-wgpu/src/precompile.rs
 crates/d3d9-wgpu/src/shader_cache.rs
 crates/d3dx-tex/src/fork_modern_dds.rs
 crates/d3dx-tex/tests/fork_abgr.rs
+crates/engine-core/tests/scene_jobs_real.rs
+crates/engine-core/tests/scene_jobs_stepped.rs
 crates/engine-platform/examples/linux_tables.rs
 crates/engine-platform/src/d3dxshader.rs
 crates/engine-platform/src/fork_d3d9rec.rs
@@ -76,7 +79,6 @@ crates/host/src/fork_heap.rs
 crates/host/src/fork_trace.rs
 crates/host/src/fork_ttw.rs
 crates/host/src/fork_plugins.rs
-crates/host/src/shader_overrides.rs
 crates/host/tests/linux_saves.rs
 # Upstream-owned test files, edited by the fork (docs/fork/TESTING.md): the real-data gate and the math test split.
 crates/engine-core/src/exe.rs
@@ -96,9 +98,6 @@ crates/d3d9-wgpu/src/budget.rs
 crates/d3d9-wgpu/src/gputime.rs
 crates/host/src/fork_prestart.rs
 crates/d3d9-wgpu/src/gfx_overlay.rs
-crates/d3d9-wgpu/src/shader_override.rs
-crates/d3d9-wgpu/tests/shader_override.rs
-crates/engine-platform/tests/frame_view_overrides.rs
 crates/d3d9-wgpu/src/dither.rs
 crates/d3d9-wgpu/tests/gfx_overlay.rs
 # The progress pictures and their summary (scripts/fork/progress, docs/fork/PROGRESS.md), fork-only files in upstream's
@@ -120,16 +119,37 @@ crates/engine-core/src/extend/stewie/
 crates/engine/tests/save_changes_map.rs
 crates/engine/tests/stewie_fixes.rs
 crates/engine/tests/stewie_fixes/
+crates/engine/tests/draw_pass_state.rs
+# The reference-peer controls of the differential harness (JorisJonkers-dev/nv-rs#924).
+crates/engine/tests/diff_reference_peer.rs
+crates/engine/tests/backend_gap_diff.rs
+# The local backend as the fourth reference peer (JorisJonkers-dev/nv-rs#928).
+crates/engine-core/src/typed/backend_peer.rs
+# The translations that are really incomplete run on the backend (JorisJonkers-dev/nv-rs#930).
+crates/engine-core/src/typed/backend_gaps.rs
+crates/engine-core/src/typed/real_gaps.txt
 crates/fos/
 crates/host/src/thread_races.rs
 crates/host/tests/support/
 crates/host/tests/thread_races.rs
 crates/host/tests/thread_races_stepped.rs
 crates/host/tests/thread_races_vanilla.rs
+crates/engine-core/src/bhk.rs
+crates/engine-core/src/real_threads/havok.rs
+crates/engine-core/src/late_ai.rs
+crates/engine-core/tests/bhk_seam.rs
+crates/engine-core/tests/bhk_thread_stepped.rs
+# The loader and garbage collector jobs (JorisJonkers-dev/nv-rs#941).
+crates/engine-core/src/loader_jobs.rs
+crates/engine-core/src/real_threads/loader.rs
+crates/engine-core/tests/loader_job_stepped.rs
+crates/engine-core/tests/late_ai_real.rs
+crates/engine-core/tests/late_ai_stepped.rs
 crates/mcm/
 crates/stewie/
 docs/
 research/families/
+research/component-census/
 research/ghidra/
 research/initgen/
 research/nv-oracle/
@@ -144,3 +164,13 @@ scripts/estimate-measure/
 scripts/ledger/
 scripts/mmio-measure/
 scripts/vorbis-record/
+crates/engine-core/src/lamp_distance.rs
+crates/engine-core/src/typed/form_array.rs
+crates/engine-typed/src/forms/array.rs
+crates/engine/tests/typed_form_array.rs
+crates/engine-typed/src/extra_data/nodes/layouts.rs
+crates/engine-typed/src/extra_data/nodes/mod.rs
+crates/engine-typed/src/extra_data/nodes/objects.rs
+crates/engine-typed/src/extra_data/nodes/objects_p2.rs
+crates/engine-typed/src/extra_data/nodes/objects_p3.rs
+crates/engine/tests/typed_extra_nodes.rs

@@ -1311,7 +1311,7 @@ mod n013_tests {
     }
 }
 
-/// The drawing thread (`engine_core::draw_thread`): the world accumulator's list test and the light processing that rebuilds a light's object lists join a posted world draw before anything else they do.
+/// The drawing thread (`engine_core::draw_thread`): the light processing that rebuilds a light's object lists and the shadow scene node's update join a posted world draw before anything else they do; the world accumulator's group count (`00b63a90`) does not (nv-rs#939).
 #[cfg(test)]
 mod draw_thread_joins {
     #[test]
@@ -1322,11 +1322,27 @@ mod draw_thread_joins {
         for (addr, f) in funcs {
             e.register(addr, f);
         }
-        for addr in [0x00b6_3a90u32, 0x00b5_fd60, 0x00b5_d300] {
+        for addr in [0x00b5_fd60u32, 0x00b5_d300] {
             assert!(
                 engine_core::draw_thread::testing::joins_first(&mut e, addr, &[0; 16]),
                 "{addr:08x} does not join first"
             );
         }
+    }
+
+    /// `00b63a90` reads group 6's counts, which the cut leaves in guest memory, so it runs beside a posted world draw.
+    /// Fails with the join put back.
+    #[test]
+    fn the_group_count_of_the_world_accumulator_does_not_join() {
+        let mut e = engine_core::Engine::new();
+        let mut funcs = Vec::new();
+        crate::units::funcs(&mut funcs);
+        for (addr, f) in funcs {
+            e.register(addr, f);
+        }
+        assert!(
+            !engine_core::draw_thread::testing::joins_first(&mut e, 0x00b6_3a90, &[0; 16]),
+            "00b63a90 joins first"
+        );
     }
 }

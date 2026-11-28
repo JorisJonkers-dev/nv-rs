@@ -193,6 +193,13 @@ pub fn list_words(e: &Engine, renderer: u32, out: &mut Vec<u32>) {
     out.extend(all.into_iter().filter(|addr| e.global::<u32>(*addr) != 0));
 }
 
+/// The register group only main draws, and only after the world draw: the refraction normals' group 6 (+0x54), which
+/// `00b63a90` counts and `00874920` (after its own join) draws and empties. The posted draw never reads or empties it
+/// (`drivers::draw_group` draws 0, 1, 2, 3, 9 and 10), so the cut leaves its holder, its list and its renderers in
+/// guest memory, where main reads the count with no join. Taken, main would read a fresh frame's zero count (nv-rs#939).
+pub const MAIN_ONLY_GROUPS: [u32; 1] = [6];
+const MAIN_ONLY_SLOTS: [u32; 1] = [0x3c + 4 * MAIN_ONLY_GROUPS[0]];
+
 /// Every word [`list_words`] looks at in renderer `renderer` and its holders' renderers, whatever its value. The
 /// structure it walks (the group array, the pass map, the holders and their renderers) is never in the view.
 pub fn candidates(e: &Engine, renderer: u32, out: &mut Vec<u32>) {
@@ -231,6 +238,9 @@ pub fn candidates(e: &Engine, renderer: u32, out: &mut Vec<u32>) {
     take(e, renderer.wrapping_add(0x94));
     let mut nested = Vec::new();
     for slot in (0x3cu32..=0x74).step_by(4) {
+        if MAIN_ONLY_SLOTS.contains(&slot) {
+            continue;
+        }
         let holder = e.global::<u32>(renderer.wrapping_add(slot));
         if holder == 0 {
             continue;
@@ -431,5 +441,40 @@ mod tests {
         set_word(&mut e, at, 5);
         assert_eq!((word(&e, at), e.mem.u32(at)), (5, 5));
         assert_eq!(suspended_for(&mut e, |_| vec![at], |e| e.mem.u32(at)), 5);
+    }
+
+    /// A renderer with register group holders 0 and 6 each counting a pass (word 0 holds flags and the count): the
+    /// words main alone uses after the world draw (group 6: `00b63a90`'s count) are not in the list words the cut
+    /// takes, the drawn group's are. Taken, main's count would be a fresh frame's zero.
+    #[test]
+    fn the_group_main_counts_after_the_world_draw_stays_in_guest_memory() {
+        let mut e = Engine::new();
+        let renderer = e.mem.alloc(0x98);
+        let mut holders = [0u32; 2];
+        for (i, group) in [0u32, 6].into_iter().enumerate() {
+            let holder = e.mem.alloc(0x30);
+            e.mem.set_u32(holder, 0x0003_0000 | group);
+            e.mem.set_u32(holder + 0x10, 0x1000 + group);
+            e.mem.set_u32(renderer + 0x3c + 4 * group, holder);
+            holders[i] = holder;
+        }
+        let mut words = Vec::new();
+        list_words(&e, renderer, &mut words);
+        assert!(
+            words.contains(&holders[0]),
+            "the drawn group's count is taken"
+        );
+        assert!(words.contains(&(holders[0] + 0x10)));
+        assert!(
+            !words
+                .iter()
+                .any(|w| (holders[1]..holders[1] + 0x30).contains(w)),
+            "group 6's holder is main's alone"
+        );
+        // Taken (the packet's cut), main would read a zero count where the serial order has 3.
+        open(&mut e, &words);
+        assert_eq!(e.mem.u32(holders[1]) >> 16, 3, "group 6's count is main's");
+        assert_eq!(e.mem.u32(holders[0]), 0, "the drawn group's is the draw's");
+        close(&mut e);
     }
 }

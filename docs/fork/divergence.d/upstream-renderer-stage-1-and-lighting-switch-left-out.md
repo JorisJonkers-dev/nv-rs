@@ -1,0 +1,7 @@
+### Upstream renderer stage 1 and the lighting switch, brought in late
+- Files: the entry `.fork/allowed-divergence.d/upstream-1099-1108-renderer-left-out`: the kept draw records (`d3d9-stream/src/kept.rs` and its command, wire and test parts, `engine-typed/src/draw/keep.rs`, `engine-core/src/draw_items.rs`, `engine-platform/src/d3d9items.rs`), the lighting worker and its tests (`d3d9-wgpu/src/lighting_ahead.rs`, the `lighting_*` tests, `host/src/scene_light.rs`), and the launcher and test lines that go with them
+- Upstream approach: slaterain/nv-rs#1108 records the world's still lit objects as kept items and draws them again (`NV_DRAW_ITEMS`, off by default); #1099 makes Shift+F11 switch sun shadows and ambient occlusion while playing, with a worker thread that builds their pipelines and surfaces ahead
+- Fork approach: both are now in the fork, each as its own commit joined with the fork's work (`lighting-switch-with-the-graphics-overlay`, `draw-items-with-the-detached-draw`). The entry stays because these files still differ from upstream's newest versions (upstream moved on after the commits)
+- Decision: keep the entry until a sync makes the files equal to upstream's; drop it then
+- Reason: they were left out of the sync of 2026-11-27 because they collide with the fork's renderer work; they are brought in late as ordinary commits
+- Evidence: docs/fork/LIGHTING-SWITCH.md and docs/fork/DRAW-ITEMS.md; the pull requests' recordings

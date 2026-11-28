@@ -119,8 +119,24 @@ fn sampler_state_changed(e: &Engine, this: Ptr<TextureStage>) -> bool {
 /// stage's states (`00e89410`); a non-zero answer returns false, else the stage is applied
 /// ([`apply`]) and true is returned.
 pub fn bind(e: &mut Engine, this: Ptr<TextureStage>, force: u8) -> bool {
-    let stage = e.get(this, TextureStage::m_uiStage);
-    let texture = e.get(this, TextureStage::m_pkTexture);
+    if crate::draw::keep::building() {
+        let call = crate::draw::keep::Leaf::StageBind {
+            this: this.addr(),
+            force,
+        };
+        let mut bound = false;
+        crate::draw::keep::leaf(e, call, |e| bound = bind_now(e, this, force));
+        return bound;
+    }
+    bind_now(e, this, force)
+}
+
+/// [`bind`]'s work (a kept draw record makes the call again: the texture last bound to the stage and the texture's
+/// device object are those of the moment, not of the build).
+#[inline(always)]
+fn bind_now(e: &mut Engine, this: Ptr<TextureStage>, force: u8) -> bool {
+    let stage = capture::own_get(e, this, TextureStage::m_uiStage);
+    let texture = capture::own_get(e, this, TextureStage::m_pkTexture);
     let shadow = SHADOWED_TEXTURES.wrapping_add(stage.wrapping_mul(4));
     // lStewieAl's Tweaks' S0225 (`SamplerStateLeakFix`): as in the translation, the early answer also
     // needs the stage's wrap and clamp to be the device's already.
@@ -132,7 +148,7 @@ pub fn bind(e: &mut Engine, this: Ptr<TextureStage>, force: u8) -> bool {
         return true;
     }
     e.set_global(shadow, texture);
-    let cache = e.get(this, TextureStage::pStateCache);
+    let cache = state::stage_cache(e, this.addr());
     if typed_call!(
         crate::shader::FAMILY,
         0x00e8_9410,
@@ -154,7 +170,7 @@ pub fn bind(e: &mut Engine, this: Ptr<TextureStage>, force: u8) -> bool {
 /// ([`send_sampler_commands`]) and the transform is sent ([`send_transform`]). An anisotropic stage
 /// (filter mode 6) also sets its maximum anisotropy on the device.
 pub fn apply(e: &mut Engine, this: Ptr<TextureStage>) {
-    let stage = e.get(this, TextureStage::m_uiStage);
+    let stage = capture::own_get(e, this, TextureStage::m_uiStage);
     // The frame's words the callees fill: a dword, two flag bytes and a dword.
     e.with_stack(0x10, |e, frame| {
         let f = frame.addr();
@@ -165,7 +181,7 @@ pub fn apply(e: &mut Engine, this: Ptr<TextureStage>) {
         if stage < e.global::<u32>(STAGE_COUNT) {
             e.mem.set_u32(value_slot, 0);
             e.mem.set_u8(flag_a, 0);
-            let cache = e.get(this, TextureStage::pStateCache);
+            let cache = state::stage_cache(e, this.addr());
             let found = typed_call!(
                 crate::shader::FAMILY,
                 0x00e8_9060,
@@ -174,14 +190,14 @@ pub fn apply(e: &mut Engine, this: Ptr<TextureStage>) {
             let value = if found {
                 e.mem.u32(value_slot)
             } else {
-                e.get(this, TextureStage::m_uiStage)
+                capture::own_get(e, this, TextureStage::m_uiStage)
             };
             let target = render_state(e);
-            let stage_now = e.get(this, TextureStage::m_uiStage);
+            let stage_now = capture::own_get(e, this, TextureStage::m_uiStage);
             state::cache_stage_state(e, target, stage_now, 0xb, value, 0);
         }
         let mut found = 0u32;
-        let texture = e.get(this, TextureStage::m_pkTexture);
+        let texture = capture::own_get(e, this, TextureStage::m_pkTexture);
         if texture != 0 {
             let renderer = e.global::<u32>(RENDERER);
             let manager = e.mem.u32(renderer.wrapping_add(0x8c4));
@@ -201,12 +217,12 @@ pub fn apply(e: &mut Engine, this: Ptr<TextureStage>) {
             };
         }
         let target = render_state(e);
-        let stage_now = e.get(this, TextureStage::m_uiStage);
+        let stage_now = capture::own_get(e, this, TextureStage::m_uiStage);
         state::cache_texture(e, target, stage_now, found);
         if found != 0 {
             if e.mem.u8(flag_b) == 0 {
                 let target = render_state(e);
-                let stage_now = e.get(this, TextureStage::m_uiStage);
+                let stage_now = capture::own_get(e, this, TextureStage::m_uiStage);
                 state::cache_sampler_state(e, target, stage_now, 7, 0, 0);
             }
             let word = e.mem.u32(table_slot);
@@ -217,9 +233,9 @@ pub fn apply(e: &mut Engine, this: Ptr<TextureStage>) {
             );
             typed_call!(FAMILY, 0x00e7_e940, send_transform(e, this));
         }
-        if e.get(this, TextureStage::m_eFilterMode) == 6 {
+        if capture::own_get(e, this, TextureStage::m_eFilterMode) == 6 {
             let device = e.global::<u32>(DEVICE);
-            let stage_now = e.get(this, TextureStage::m_uiStage);
+            let stage_now = capture::own_get(e, this, TextureStage::m_uiStage);
             let value = capture::own_at::<u32>(e, MAX_ANISOTROPY);
             engine_core::real_threads::device_set_sampler_state(e, device, stage_now, 10, value);
         }
@@ -245,7 +261,7 @@ fn set_transform(e: &mut Engine, stage: u32, matrix: u32) {
 /// set as they are with mode 0, else built by `00e7df90` with the mode and set when it succeeds; any
 /// other nibble sets nothing.
 pub fn send_transform(e: &mut Engine, this: Ptr<TextureStage>) {
-    let stage = e.get(this, TextureStage::m_uiStage);
+    let stage = capture::own_get(e, this, TextureStage::m_uiStage);
     if stage >= e.global::<u32>(STAGE_COUNT) {
         return;
     }
@@ -305,7 +321,7 @@ pub fn send_sampler_commands(e: &mut Engine, this: Ptr, enable: u32) {
     }
     for which in [1u32, 2] {
         let target = render_state(e);
-        let word = e.mem.u32(this.addr().wrapping_add(4));
+        let word = capture::own_at::<u32>(e, this.addr().wrapping_add(4));
         state::cache_sampler_state(e, target, word, which, 3, 0);
     }
     for step in 0..8u32 {

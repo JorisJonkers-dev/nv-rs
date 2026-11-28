@@ -50,8 +50,8 @@ pub fn bone_setup(
     let switched = partition != 0
         && e.mem.u32(t.wrapping_add(0x38)) == 0
         && switch != 0
-        && e.mem.u8(switch.wrapping_add(8)) != 0;
-    if !switched && e.mem.u32(t.wrapping_add(0x34)) != e.mem.u32(t.wrapping_add(0x80)) {
+        && own::entry_is_enabled(e, switch);
+    if !switched && own::constant_map(e, t, 0x34) != e.mem.u32(t.wrapping_add(0x80)) {
         return 0;
     }
     let renderer = e.global::<u32>(packet::RENDERER);
@@ -73,7 +73,7 @@ pub fn bone_setup(
     let constants = e.mem.u32(packet::current_pass(e).wrapping_add(0x5c));
     let count = u32::from(e.mem.u16(partition.wrapping_add(0x20)));
     let indices = e.mem.u32(partition.wrapping_add(4));
-    let head = if e.mem.u32(t.wrapping_add(0x34)) == own_bones {
+    let head = if own::constant_map(e, t, 0x34) == own_bones {
         e.vcall(own_bones, 0x70, &args![BONE_MATRIX_NAME]).u32()
     } else {
         capture::own_at::<u32>(e, BONE_SWITCH)

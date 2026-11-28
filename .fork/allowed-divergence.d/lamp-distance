@@ -1,2 +1,4 @@
 crates/engine-bs/src/units/bsshader/shadowscenelight.rs  # the lamps' fade distances take the setting light.lamp_distance; the same bits at 1 (nv-rs#827)
 crates/engine/src/lib.rs  # re-exports the lamp distance scale for the host (nv-rs#827)
+crates/engine-typed/src/lights/scene_frustum.rs  # the native TestFrustumCull scales the dimmer's fade distances by light.lamp_distance, as the translation does (nv-rs#827)
+crates/engine/tests/typed_lights.rs  # the TestFrustumCull differential runs a case with the lamp distance at 8 (nv-rs#827)

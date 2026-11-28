@@ -1,0 +1,263 @@
+//! The AI family: the game's AI code (the `fallout/ai` source units: the actors, their processes,
+//! packages, combat and the player character), turned native file by file. Each module is one
+//! source unit's functions, registered at their exe addresses over the translations in
+//! `engine-fallout-ai`.
+//!
+//! - [`actor_package`]: `ActorPackage` (its Xbox PDB source unit): the package record a process
+//!   holds (the current one is embedded in every process): its clear, its start from a package,
+//!   its move, its reference count, its save and load (the save/load game's and a buffer's) and
+//!   its flags; with the data's delete and the deleted reference handler its code shares.
+//! - [`base_process`]: `BaseProcess` (its Xbox PDB source unit): the defaults every process
+//!   class keeps in its vtable (the stubs that answer false, 0, -1 or 0.0 and those that do
+//!   nothing), the embedded current package's getters and setters, the destructor, `Copy`, the
+//!   save and load of the process block and the breath timer.
+//! - [`low_process`]: `LowProcess` (its Xbox PDB source unit), parts 1 to 3: the process lock map,
+//!   the processed date's parts, the flags and timers, the target and location setters and
+//!   `ResetTarget`, the damage modifier, the package tests, starts, schedule and done step, the
+//!   greeting, the procedure index steps, the patrol, the clear of the current data, the level
+//!   copy, the time update, the door lock and unlock callbacks, the small procedure steps, the
+//!   acquire lists' release and clears, the time delta, the flee, pursue, remove-worn and sandbox
+//!   procedures, the current destination, the loads' resolves and the package's extra data.
+//! - [`middle_low_process`]: `MiddleLowProcess` (its Xbox PDB source unit): the temporary and
+//!   damage modifiers on top of `LowProcess`'s actor values, the hourly package check, the combat
+//!   rounds, `Update` (the package's procedure actions), the destructors, the copy and the save,
+//!   load and revert of its part of the process; and `Calendar::GetDay`, which the processes ask.
+//!
+//! Reached: each stays registered at its exe address, so the translations' calls by address and
+//! the vtable slots that hold them reach the typed functions; between them the calls are typed
+//! calls, and a virtual call whose slot holds one of them (the process classes' own slots, read
+//! from their vtables) is made as that typed call. A slot holding anything else is called through
+//! the slot, as the exe calls it.
+//!
+//! Stage 1: the objects stay in guest memory where the game made them. **Threads and floats.** The
+//! process code runs on main and on the AI threads, so the row is [`Threads::Both`] and the tests
+//! compare under both control words. Most floats here are moved, not computed (a load that quiets a
+//! signalling NaN, a sign flip, a zero, the calendar's hour stored as a float, an integer stored as
+//! a float). The few computed ones follow the float rule (`crate::native`): a sum stored as a float
+//! is one double sum rounded to a float, which is the exe's result at either precision for the
+//! float-valued operands it gets; a product or quotient that is compared or truncated before any
+//! store is a float operation on main (24 bits) and a double one on the AI threads (53 bits).
+
+use engine_core::ptr::Ptr;
+use engine_core::typed::{Family, FamilyId, Threads};
+use engine_core::{entry, AbiFn};
+
+pub mod actor_package;
+pub mod base_process;
+pub mod low_process;
+pub mod middle_low_process;
+
+/// This family's bit: what each `typed_call!` of it names (39).
+pub const FAMILY: FamilyId = FamilyId::new(39);
+
+/// `NV_TYPED=ai`. A plain native conversion proved by its differential tests, so on unless
+/// `NV_TYPED` says otherwise.
+pub static AI: Family = Family {
+    name: "ai",
+    id: FAMILY,
+    past_gate: true,
+    threads: Threads::Both,
+    stage2: false,
+    funcs,
+};
+
+/// The family's functions, by exe address.
+#[rustfmt::skip]
+fn funcs() -> Vec<(u32, AbiFn)> {
+    vec![
+        entry!(0x0040_1280, base_process::empty_name(Ptr) -> u32),
+        entry!(0x0086_7d60, middle_low_process::calendar_day(Ptr) -> u32),
+        entry!(0x008c_5e70, actor_package::destroy_data(Ptr)),
+        entry!(0x008c_5ec0, actor_package::handle_deleted_reference(Ptr, u32)),
+        entry!(0x008c_5ef0, actor_package::clear(Ptr)),
+        entry!(0x008c_6030, actor_package::dec_ref_count(Ptr) -> u32),
+        entry!(0x008c_6060, actor_package::null_instance_data(Ptr)),
+        entry!(0x008c_6080, actor_package::init_from_package(Ptr, Ptr, u32)),
+        entry!(0x008c_6100, actor_package::inc_ref_count(Ptr) -> u32),
+        entry!(0x008c_6130, actor_package::move_to(Ptr, Ptr)),
+        entry!(0x008c_61a0, actor_package::save_size(Ptr, u32) -> u32),
+        entry!(0x008c_6250, actor_package::save(Ptr, u32)),
+        entry!(0x008c_6320, actor_package::load_game(Ptr, u32, u32)),
+        entry!(0x008c_64d0, actor_package::init_load_game(Ptr, u32, u32)),
+        entry!(0x008c_65a0, actor_package::revert_unused(Ptr, u32)),
+        entry!(0x008c_65d0, actor_package::save_game(Ptr, Ptr)),
+        entry!(0x008c_6730, actor_package::load_game_buffer(Ptr, Ptr)),
+        entry!(0x008c_6920, actor_package::set_flag(Ptr, u32, u8)),
+        entry!(0x008c_6970, actor_package::init_load_game_buffer(Ptr, Ptr)),
+        entry!(0x008c_6b00, actor_package::flag(Ptr, u32) -> u32),
+        entry!(0x008c_6b20, actor_package::finish_load_game(Ptr, Ptr)),
+        entry!(0x008c_6c80, actor_package::revert(Ptr, u32)),
+        entry!(0x008d_02d0, base_process::last_time_detected(Ptr, u32, u32) -> f32),
+        entry!(0x008d_02f0, base_process::false_6(Ptr, u32, u32, u32, u32, u32, u32) -> bool),
+        entry!(0x008d_0300, base_process::false_2(Ptr, u32, u32) -> bool),
+        entry!(0x008d_0310, base_process::shared_point_copy(Ptr, Ptr, u32, u32) -> Ptr),
+        entry!(0x008d_0340, base_process::zero_7(Ptr, u32, u32, u32, u32, u32, u32, u32) -> u32),
+        entry!(0x008d_0350, base_process::nothing_7(Ptr, u32, u32, u32, u32, u32, u32, u32)),
+        entry!(0x008d_0370, base_process::false_1(Ptr, u32) -> bool),
+        entry!(
+            0x008d_0380,
+            base_process::nothing_11(Ptr, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32)
+        ),
+        entry!(0x008d_0390, base_process::float_zero_2(Ptr, u32, u32) -> f32),
+        entry!(0x008d_03a0, base_process::clear_current_package(Ptr)),
+        entry!(0x008d_03c0, base_process::set_current_procedure_index(Ptr, u32)),
+        entry!(0x008d_03e0, base_process::current_procedure_index(Ptr) -> u32),
+        entry!(0x008d_0400, base_process::add_to_current_procedure_index(Ptr, u32)),
+        entry!(0x008d_0420, base_process::nothing_8(Ptr, u32, u32, u32, u32, u32, u32, u32, u32)),
+        entry!(0x008d_0430, base_process::running_package_word(Ptr) -> u32),
+        entry!(0x008d_0450, base_process::procedure_index_running(Ptr) -> u32),
+        entry!(0x008d_0470, base_process::set_procedure_index_running(Ptr, u32)),
+        entry!(0x008d_04a0, base_process::add_to_procedure_index_running(Ptr, u32, u32)),
+        entry!(0x008d_04d0, base_process::set_char_controller(Ptr, u32)),
+        entry!(0x008d_04f0, base_process::nothing_6(Ptr, u32, u32, u32, u32, u32, u32)),
+        entry!(0x008d_0500, base_process::nothing_5(Ptr, u32, u32, u32, u32, u32)),
+        entry!(0x008d_0510, base_process::false_4(Ptr, u32, u32, u32, u32) -> bool),
+        entry!(0x008d_0520, base_process::false_3(Ptr, u32, u32, u32) -> bool),
+        entry!(
+            0x008d_0530,
+            base_process::false_13(
+                Ptr, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32
+            ) -> bool
+        ),
+        entry!(
+            0x008d_0540,
+            base_process::calculate_move_mode(Ptr, u32, u32, u32, u32, u32, u32) -> u32
+        ),
+        entry!(0x008d_0560, base_process::zero_1(Ptr, u32) -> u32),
+        entry!(0x008d_0570, base_process::minus_one_3(Ptr, u32, u32, u32) -> i32),
+        entry!(0x008d_0580, base_process::float_zero_3(Ptr, u32, u32, u32) -> f32),
+        entry!(0x008d_0590, base_process::sound_handle(Ptr, Ptr, u32) -> Ptr),
+        entry!(0x008d_0610, base_process::scalar_deleting_destructor(Ptr, u32) -> Ptr),
+        entry!(0x008d_0640, base_process::destructor(Ptr)),
+        entry!(0x008d_0660, base_process::copy(Ptr, Ptr)),
+        entry!(0x008d_0870, base_process::handle_deleted_reference(Ptr, u32)),
+        entry!(0x008d_08b0, base_process::set_current_package(Ptr, u32, u32)),
+        entry!(0x008d_08f0, base_process::weapon_last_pos(Ptr) -> u32),
+        entry!(0x008d_0900, base_process::save_size(Ptr, u32, u32) -> u16),
+        entry!(0x008d_0a10, base_process::save_game(Ptr, u32, u32)),
+        entry!(0x008d_0bc0, base_process::load_game(Ptr, u32, u32, u32)),
+        entry!(0x008d_0e60, base_process::init_load_game(Ptr, u32, u32, u32)),
+        entry!(0x008d_0e80, base_process::finish_init_load_game(Ptr, u32, u32, u32)),
+        entry!(0x008d_0f10, base_process::revert(Ptr, u32, u32)),
+        entry!(0x008d_0f30, base_process::save_game_buffer(Ptr, u32)),
+        entry!(0x008d_0f90, base_process::load_game_buffer(Ptr, u32)),
+        entry!(0x008d_1000, base_process::init_load_game_buffer(Ptr, u32)),
+        entry!(0x008d_1030, base_process::cached_values_out_of_date(Ptr)),
+        entry!(0x008d_1050, base_process::finish_load_game(Ptr, u32)),
+        entry!(0x008d_1070, base_process::revert_buffer(Ptr, u32)),
+        entry!(0x008d_10c0, base_process::breath_timer(Ptr) -> f32),
+        entry!(0x0090_7430, middle_low_process::damage_mod_actor_value(Ptr, u32, u32, i32)),
+        entry!(0x0090_74f0, low_process::damage_modifier(Ptr, u8) -> f64),
+        entry!(0x0090_7460, low_process::damage_mod_actor_value(Ptr, u32, u32, f32)),
+        entry!(0x0090_7620, low_process::mod_essential_down_timer(Ptr)),
+        entry!(0x0090_7510, low_process::copy_level(Ptr, Ptr)),
+        entry!(0x0090_76a0, low_process::processed_day(Ptr) -> u32),
+        entry!(0x0090_76c0, low_process::processed_month(Ptr) -> u32),
+        entry!(0x0090_76e0, low_process::processed_year(Ptr) -> u32),
+        entry!(0x0090_7700, low_process::set_current_package_from_schedule(Ptr, Ptr) -> bool),
+        entry!(
+            0x0090_7840,
+            low_process::check_and_start_combat_controller_for_package(Ptr, Ptr, Ptr, u8) -> bool
+        ),
+        entry!(
+            0x0090_78d0,
+            low_process::should_use_combat_controller_for_package(Ptr, Ptr, u8) -> bool
+        ),
+        entry!(
+            0x0090_7960,
+            low_process::should_stop_combat_controller_to_finish_package(Ptr, u32, u32) -> bool
+        ),
+        entry!(
+            0x0090_79f0,
+            low_process::update_package_target_for_combat(Ptr, u32, u32) -> bool
+        ),
+        entry!(0x0090_8bf0, low_process::set_target_for_package(Ptr, Ptr) -> bool),
+        entry!(0x0090_8c50, low_process::set_location_for_package(Ptr, Ptr, u8) -> u32),
+        entry!(0x0090_8e90, low_process::process_use_item_at(Ptr, Ptr) -> bool),
+        entry!(0x0090_8f40, low_process::process_avoid_area(Ptr, u32)),
+        entry!(0x0090_9d00, low_process::process_flee_non_combat(Ptr, Ptr)),
+        entry!(0x0090_a070, low_process::reset_target(Ptr)),
+        entry!(0x0090_a130, low_process::current_package_location(Ptr, u32, u32) -> u32),
+        entry!(0x0090_ac20, low_process::set_flag_40(Ptr, u8)),
+        entry!(0x0090_c360, low_process::update_buffer(Ptr, Ptr, f32)),
+        entry!(0x0090_cfa0, low_process::is_wandering(Ptr) -> bool),
+        entry!(0x0090_d480, low_process::lock_door(Ptr, Ptr) -> bool),
+        entry!(0x0090_d570, low_process::unlock_door(Ptr, Ptr) -> bool),
+        entry!(
+            0x0090_dc10,
+            low_process::enter_combat(
+                Ptr, u32, u32, u32, u32, u32, u8, u32, u8, u32, u8, u32, u8, u32
+            ) -> bool
+        ),
+        entry!(0x0090_e600, low_process::objects_to_acquire_construct(Ptr) -> Ptr),
+        entry!(0x0091_0b30, low_process::clear_current_data_for_process(Ptr, u32)),
+        entry!(0x0091_19b0, low_process::add_to_procedure_index_running(Ptr, Ptr, u32)),
+        entry!(0x0091_1ae0, low_process::float_zero(Ptr, u32, u32) -> f32),
+        entry!(0x0091_1e80, low_process::set_target(Ptr, Ptr)),
+        entry!(0x0091_1ed0, low_process::process_summon_creature_defend(Ptr, u32)),
+        entry!(0x0091_2150, low_process::process_movement_blocked(Ptr, u32)),
+        entry!(0x0091_21e0, low_process::process_patrol(Ptr, Ptr)),
+        entry!(0x0091_22e0, low_process::process_patrol_init(Ptr, Ptr, Ptr) -> bool),
+        entry!(0x0091_2340, low_process::process_patrol_start_travel_to_next_ref(Ptr, Ptr, Ptr)),
+        entry!(
+            0x0091_2960,
+            low_process::process_patrol_start_at_ref_behavior(Ptr, u32, Ptr)
+        ),
+        entry!(0x0091_2990, low_process::process_patrol_at_ref(Ptr, Ptr, Ptr, f32) -> f32),
+        entry!(0x0091_3460, low_process::is_package_done(Ptr, u32) -> bool),
+        entry!(0x0091_34c0, low_process::mod_tracked_damage(Ptr, u32, f32)),
+        entry!(0x0091_3510, low_process::start_new_package(Ptr, Ptr, Ptr)),
+        entry!(0x0091_35a0, low_process::change_package(Ptr, Ptr, Ptr)),
+        entry!(0x0091_3630, low_process::package_done(Ptr, Ptr, Ptr)),
+        entry!(0x0091_36b0, low_process::process_greet(Ptr, Ptr, Ptr, u32, u32, u32, u8)),
+        entry!(0x0091_37b0, low_process::lock_map_construct(Ptr, u32) -> Ptr),
+        entry!(
+            0x0091_37e0,
+            low_process::lock_map_scalar_deleting_destructor(Ptr, u32) -> Ptr
+        ),
+        entry!(0x0091_3810, low_process::lock_map_base_construct(Ptr, u32) -> Ptr),
+        entry!(0x0091_3880, low_process::lock_map_destructor(Ptr)),
+        entry!(0x0091_38e0, low_process::lock_map_base_destructor(Ptr)),
+        entry!(0x0091_3910, low_process::lock_map_delete_item(Ptr, u32)),
+        entry!(0x0091_3950, low_process::lock_data_construct(Ptr, u32) -> Ptr),
+        entry!(
+            0x0091_3980,
+            low_process::lock_map_base_scalar_deleting_destructor(Ptr, u32) -> Ptr
+        ),
+        entry!(0x0090_70a0, low_process::release_acquire_data(Ptr)),
+        entry!(0x0090_cc10, low_process::clear_object_from_acquire_list(Ptr, u32)),
+        entry!(0x0090_cdc0, low_process::clear_form_from_acquire_list(Ptr, u32)),
+        entry!(0x0090_7260, low_process::get_time_delta(Ptr, u32) -> f32),
+        entry!(0x0090_9c90, low_process::process_flee(Ptr, u32)),
+        entry!(0x0090_dc60, low_process::process_pursue(Ptr, u32, u32, u32, u32)),
+        entry!(0x0090_9320, low_process::process_remove_worn(Ptr, u32, u8)),
+        entry!(0x0091_1f00, low_process::process_sandbox(Ptr, Ptr)),
+        entry!(0x0090_f3f0, low_process::current_destination_world_space(Ptr, Ptr) -> u32),
+        entry!(0x0090_f0e0, low_process::current_destination_cell(Ptr, Ptr) -> u32),
+        entry!(0x0091_0250, low_process::init_load_game(Ptr, u32, u32, u32)),
+        entry!(0x0091_0820, low_process::init_load_game_buffer(Ptr, u32)),
+        entry!(0x0091_30f0, low_process::save_package_to_extra_data(Ptr, Ptr)),
+        entry!(0x0091_3250, low_process::load_package_from_extra_data(Ptr, Ptr)),
+        entry!(0x0092_c9d0, middle_low_process::scalar_deleting_destructor(Ptr, u32) -> Ptr),
+        entry!(0x0092_ca00, middle_low_process::destructor(Ptr)),
+        entry!(0x0092_ca70, middle_low_process::copy(Ptr, Ptr)),
+        entry!(0x0092_cab0, middle_low_process::process_combat(Ptr, u32)),
+        entry!(0x0092_cc90, middle_low_process::process_combat_one_hour(Ptr, u32, u32) -> bool),
+        entry!(0x0092_cd90, middle_low_process::get_actor_value(Ptr, u32, u32, u32) -> i32),
+        entry!(0x0092_ce00, middle_low_process::get_actor_float_value(Ptr, u32, u32, u32) -> f64),
+        entry!(0x0092_ce70, middle_low_process::temp_mod_actor_value(Ptr, u32, u32, i32)),
+        entry!(0x0092_cec0, middle_low_process::temp_mod_actor_value_float(Ptr, u32, u32, f32)),
+        entry!(0x0092_cf10, middle_low_process::get_temporary_modifier(Ptr, u8) -> f64),
+        entry!(0x0092_cf30, middle_low_process::damage_mod_actor_value_ov2(Ptr, u32, u32, f32)),
+        entry!(0x0092_cfd0, middle_low_process::checkfor_new_package(Ptr, u32, u8) -> u8),
+        entry!(0x0092_d050, middle_low_process::update(Ptr, u32)),
+        entry!(0x0092_e400, middle_low_process::update_step(Ptr, u32, f32)),
+        entry!(0x0092_e420, middle_low_process::get_save_size(Ptr, u32, u32) -> u16),
+        entry!(0x0092_e560, middle_low_process::save_game(Ptr, u32, u32)),
+        entry!(0x0092_e730, middle_low_process::load_game(Ptr, u32, u32, u32)),
+        entry!(0x0092_e9f0, middle_low_process::revert(Ptr, u32, u32)),
+        entry!(0x0092_ea30, middle_low_process::save_game_buffer(Ptr, Ptr)),
+        entry!(0x0092_eaa0, middle_low_process::load_game_buffer(Ptr, u32)),
+        entry!(0x0092_eb00, middle_low_process::revert_buffer(Ptr, u32)),
+    ]
+}

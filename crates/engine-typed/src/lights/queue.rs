@@ -5,10 +5,13 @@
 //! `00b5c5c0`, the per-geometry updates `00b5b260` and `00b5b410`). Every moving or animating
 //! character goes through it every frame.
 //!
-//! Native code with the exe's calls: the bound test (`BoundWithinLightRadius`, typed) and the add
-//! (`AddTriGeom`, typed) are reached directly, the rest by address; the candidates in the exe's
-//! order, the CRT's `qsort` called with the exe's comparator (`00b5aa70`) and `GetLuminanceToBound`
-//! (`00b9dbe0`, which writes each gathered light's luminance) called as the exe calls them.
+//! Native code with the exe's calls: the bound test (`BoundWithinLightRadius`), the add
+//! (`AddTriGeom`) and `GetLuminanceToBound` (`00b9dbe0`, which writes each gathered light's
+//! luminance) are this family's and reached directly; the objects' `IsNode` and `IsTriBasedGeom`
+//! slots and the RTTI slot of the lamp and the parent are answered in place when they hold the
+//! exe's constant bodies ([`walk::slot_word`]), through the vtable otherwise; the rest by address:
+//! the candidates in the exe's order, the CRT's `qsort` called with the exe's comparator
+//! (`00b5aa70`).
 //!
 //! **The light table (`NV_LIGHT_TABLE`, off by default).** The exe's bound test asks each lamp's
 //! `NiLight` for its kind (a virtual call) and reads its place and radius again for every geometry
@@ -17,7 +20,9 @@
 //! scene node's lighting offset. Each geometry is then tested against the table with the typed
 //! bound test's float steps. Nothing in the object half moves a lamp or changes its kind (its
 //! callees change light lists, fences, flags and luminances only), so every geometry gets the
-//! same lamps in the same order; what goes is the repeated kind call per geometry and lamp.
+//! same lamps in the same order; what goes is the repeated read of each lamp's place and radius
+//! per geometry, and for a lamp class whose RTTI slot holds something other than the exe's bodies
+//! (which are answered in place with the table off too) the repeated kind call.
 //!
 //! **Floats.** Main thread only. The drain's own: the near test's one ordered comparison (150.0
 //! above the bound's radius). The table's bound test: native `f32` in the exe's order, as the
@@ -28,6 +33,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use super::{walk, ShadowSceneLight};
+use crate::scene_node;
 use engine_core::ptr::Ptr;
 use engine_core::{args, draw_thread, typed_call, Engine};
 
@@ -68,7 +74,7 @@ impl Table {
             Some(s) => *s,
             None => {
                 let s = Sphere {
-                    free: e.vcall(ni_light, SLOT_RTTI, &args![]).u32() == RADIUS_FREE_RTTI,
+                    free: walk::slot_word(e, ni_light, SLOT_RTTI) == RADIUS_FREE_RTTI,
                     position: [0u32, 4, 8]
                         .map(|i| e.mem.f32(ni_light.wrapping_add(WORLD_TRANSLATE + i))),
                     radius: e.mem.f32(ni_light.wrapping_add(NI_LIGHT_RADIUS)),
@@ -120,18 +126,14 @@ const LIGHT_LOCK: u32 = 0x011f_9ea0;
 const LIGHT_LOCK_COUNT: u32 = 0x011f_9ea4;
 const OBJECT_LOCK: u32 = 0x011f_9ec0;
 const OBJECT_LOCK_COUNT: u32 = 0x011f_9ec4;
-/// The light half's callees (`thiscall`, one stack word), by address: a new shadow caster, a new
-/// light, a dynamic light's update, a light's update, a removal; the renderer (`011f91a8`) and its
-/// map release; the portal graph's update; the list's remove-all; the reference counts.
-const LIGHT_UPDATE_SHADOW: u32 = 0x00b5_cd00;
-const LIGHT_ADD: u32 = 0x00b5_eca0;
-const LIGHT_UPDATE_DYNAMIC: u32 = 0x00b5_d930;
+/// The light half's callees by address (`thiscall`, one stack word): a light's update; the renderer
+/// (`011f91a8`) and its map release; the portal graph's update. A new shadow caster (`00b5cd00`), a
+/// new light (`00b5eca0`), a dynamic light's update (`00b5d930`), a removal (`00b5ef90`) and the
+/// list's remove-all (`00e74d40`) are the scene node family's, called typed.
 const LIGHT_UPDATE: u32 = 0x00b5_d300;
-const REMOVE_QUEUED_LIGHT: u32 = 0x00b5_ef90;
 const RENDERER: u32 = 0x011f_91a8;
 const RELEASE_MAP: u32 = 0x00b6_d4c0;
 const PORTAL_GRAPH_UPDATE: u32 = 0x00c5_b8d0;
-const LIST_REMOVE_ALL: u32 = 0x00e7_4d40;
 /// The node's queues: lights to add (+0xe4), to remove (+0xf0), to update (+0xfc), objects
 /// (+0x108) and objects for active lights only (+0x114); the portal graph (+0x1e0), the drained
 /// flag (+0x1fc); its light list (`lLightList` +0xb4, count +0xbc).
@@ -176,14 +178,14 @@ const SCENE_NODE: u32 = 0x011f_91c8;
 const ROOM_RTTI: u32 = 0x0120_2828;
 const OTHER_RTTI: u32 = 0x0120_30b8;
 /// The property's fence and fenced removal, the shader manager's accumulator (its scene node at
-/// +0x194), the multibound cast (to the record at `011f5eb4`) and its indexed child.
+/// +0x194) and the multibound cast (to the record at `011f5eb4`); its indexed child (`00b5aa40`)
+/// is the scene node family's, called typed.
 const FENCE_ALL_LIGHTS: u32 = 0x00b7_18b0;
 const REMOVE_FENCED_LIGHTS: u32 = 0x00b7_1600;
 const GET_ACCUMULATOR: u32 = 0x00b4_f5c0;
 const ACCUMULATOR_SCENE_NODE: u32 = 0x194;
 const CAST: u32 = 0x0065_3290;
 const MULTIBOUND_RTTI: u32 = 0x011f_5eb4;
-const INDEXED_CHILD: u32 = 0x00b5_aa40;
 /// The scrap heap (on the memory manager `011f6238`) and its alignment word, the CRT `qsort`, the
 /// exe's comparator of luminances and `GetLuminanceToBound`.
 const MEMORY_MANAGER: u32 = 0x011f_6238;
@@ -193,7 +195,6 @@ const SCRAP_DEALLOCATE: u32 = 0x00aa_5610;
 const SCRAP_ALIGNMENT: u32 = 0x010a_2720;
 const QSORT: u32 = 0x00ec_6f20;
 const LUMINANCE_COMPARE: u32 = 0x00b5_aa70;
-const LUMINANCE_TO_BOUND: u32 = 0x00b9_dbe0;
 /// The flag a geometry gets once its lights were redone.
 const LIGHTING_DONE: u32 = 0x40_0000;
 
@@ -405,10 +406,10 @@ fn walk_start(e: &mut Engine, object: u32) -> Result<u32, u8> {
     if e.mem.u32(object.wrapping_add(FLAGS)) & 1 != 0 {
         return Err(0);
     }
-    if e.vcall(object, SLOT_IS_NODE, &args![]).u32() == 0 {
+    if walk::slot_word(e, object, SLOT_IS_NODE) == 0 {
         return Err(0);
     }
-    Ok(e.vcall(object, SLOT_IS_NODE, &args![]).u32())
+    Ok(walk::slot_word(e, object, SLOT_IS_NODE))
 }
 
 /// The multibound step: the node cast to the record at `011f5eb4` and its indexed child; `None`
@@ -421,7 +422,11 @@ fn multibound_child(e: &mut Engine, node: u32) -> Option<u32> {
     if cast == 0 {
         return None;
     }
-    Some(e.call(INDEXED_CHILD, &args![cast]).u32())
+    Some(typed_call!(
+        scene_node::FAMILY,
+        0x00b5_aa40,
+        scene_node::lists::indexed_child(e, Ptr::new(cast))
+    ))
 }
 
 /// Both object walks: `leaf` for each tri-based geometry child, the walk again for any other child,
@@ -443,7 +448,7 @@ fn walk_tree(e: &mut Engine, object: u32, leaf: &mut dyn FnMut(&mut Engine, u32)
         let children = e.mem.u32(node.wrapping_add(CHILDREN_BASE));
         let child = e.mem.u32(children.wrapping_add(4 * index));
         if child != 0 {
-            answer &= if e.vcall(child, SLOT_IS_TRI_BASED_GEOM, &args![]).u32() != 0 {
+            answer &= if walk::slot_word(e, child, SLOT_IS_TRI_BASED_GEOM) != 0 {
                 leaf(e, child)
             } else {
                 walk_tree(e, child, leaf)
@@ -497,14 +502,14 @@ pub fn update_start(e: &mut Engine, object: u32, node: u32, skip_culled: u32, co
         others: 0,
     };
     if parent != 0 {
-        if e.vcall(parent, SLOT_RTTI, &args![]).u32() == ROOM_RTTI {
+        if walk::slot_word(e, parent, SLOT_RTTI) == ROOM_RTTI {
             from.rooms = parent;
-        } else if e.vcall(parent, SLOT_RTTI, &args![]).u32() == OTHER_RTTI {
+        } else if walk::slot_word(e, parent, SLOT_RTTI) == OTHER_RTTI {
             from.others = parent;
         }
     }
     if collect & 0xff == 0 {
-        if e.vcall(object, SLOT_IS_TRI_BASED_GEOM, &args![]).u32() != 0 {
+        if walk::slot_word(e, object, SLOT_IS_TRI_BASED_GEOM) != 0 {
             update_geometry(e, object, node, skip_culled, from.rooms, from.others);
         } else {
             update_tree(e, object, node, skip_culled, from.rooms, from.others);
@@ -550,7 +555,11 @@ pub fn update_start(e: &mut Engine, object: u32, node: u32, skip_culled: u32, co
             }
             e.mem.set_u32(array.wrapping_add(4 * count), light);
             count = count.wrapping_add(1);
-            e.call(LUMINANCE_TO_BOUND, &args![light, bound]);
+            typed_call!(
+                super::FAMILY,
+                0x00b9_dbe0,
+                super::scene_light::luminance_to_bound(e, Ptr::new(light), Ptr::new(bound))
+            );
         });
         if any && (count as i32) > 0 {
             e.call(QSORT, &args![array, count, 4u32, LUMINANCE_COMPARE]);
@@ -565,7 +574,7 @@ pub fn update_start(e: &mut Engine, object: u32, node: u32, skip_culled: u32, co
 /// The near flag of an object: `IsNode` answers and 150.0 is above its bound's radius (the null
 /// bound without one; not when unordered).
 fn near_flag(e: &mut Engine, object: u32) -> u32 {
-    if e.vcall(object, SLOT_IS_NODE, &args![]).u32() == 0 {
+    if walk::slot_word(e, object, SLOT_IS_NODE) == 0 {
         return 0;
     }
     let bound = match e.mem.u32(object.wrapping_add(WORLD_BOUND)) {
@@ -616,20 +625,30 @@ pub fn drain(e: &mut Engine, this: Ptr) {
     let node = this.addr();
     e.call(LOCK_ENTER, &args![LIGHT_LOCK, 0u32]);
     each_queued(e, node, QUEUE_ADD, &mut |e, light| {
-        let callee = if e.mem.u8(light.wrapping_add(LIGHT_CAST_SHADOW)) != 0 {
-            LIGHT_UPDATE_SHADOW
+        if e.mem.u8(light.wrapping_add(LIGHT_CAST_SHADOW)) != 0 {
+            let _: u32 = typed_call!(
+                scene_node::FAMILY,
+                0x00b5_cd00,
+                scene_node::lists::make_dynamic(e, Ptr::new(node), light)
+            );
         } else {
-            LIGHT_ADD
-        };
-        e.call(callee, &args![node, light]);
+            let _: u32 = typed_call!(
+                scene_node::FAMILY,
+                0x00b5_eca0,
+                scene_node::node::add_listed_light(e, Ptr::new(node), light)
+            );
+        }
     });
     each_queued(e, node, QUEUE_UPDATE, &mut |e, light| {
-        let callee = if e.mem.u8(light.wrapping_add(LIGHT_DYNAMIC)) != 0 {
-            LIGHT_UPDATE_DYNAMIC
+        if e.mem.u8(light.wrapping_add(LIGHT_DYNAMIC)) != 0 {
+            typed_call!(
+                scene_node::FAMILY,
+                0x00b5_d930,
+                scene_node::lists::follow_moved_light(e, Ptr::new(node), light)
+            );
         } else {
-            LIGHT_UPDATE
-        };
-        e.call(callee, &args![node, light]);
+            e.call(LIGHT_UPDATE, &args![node, light]);
+        }
     });
     each_queued(e, node, QUEUE_REMOVE, &mut |e, light| {
         let shadowed = e.mem.u8(light.wrapping_add(LIGHT_CAST_SHADOW)) != 0;
@@ -646,7 +665,11 @@ pub fn drain(e: &mut Engine, this: Ptr) {
                     e.mem.set_u32(light.wrapping_add(LIGHT_SHADOW_MAP), 0);
                 }
             }
-            e.call(REMOVE_QUEUED_LIGHT, &args![node, local]);
+            typed_call!(
+                scene_node::FAMILY,
+                0x00b5_ef90,
+                scene_node::node::remove_queued_light_of(e, Ptr::new(node), local)
+            );
             let kept = e.mem.u32(local.addr());
             if kept != 0 {
                 release(e, kept);
@@ -679,7 +702,11 @@ pub fn drain(e: &mut Engine, this: Ptr) {
         QUEUE_OBJECTS,
         QUEUE_OBJECTS_ACTIVE,
     ] {
-        e.call(LIST_REMOVE_ALL, &args![node.wrapping_add(queue)]);
+        typed_call!(
+            scene_node::FAMILY,
+            0x00e7_4d40,
+            scene_node::lists::remove_all(e, Ptr::new(node.wrapping_add(queue)))
+        );
     }
     e.mem.set_u8(node.wrapping_add(DRAINED), 1);
     leave(e, OBJECT_LOCK, OBJECT_LOCK_COUNT);

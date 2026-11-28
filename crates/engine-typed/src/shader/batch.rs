@@ -76,7 +76,7 @@ const NULL_BOUND: u32 = 0x011f_4288;
 /// `BSSkinInstance`'s type (`011f49d8`), what the skin's slot 8 answers for a dismember skin.
 pub(crate) const SKIN_RTTI: u32 = 0x011f_49d8;
 
-/// Callees by address: the map's `GetAt` (`thiscall(map, key, out)`; `add_to_group` calls the dispatch family's lookup directly) and `SetAt`, the memory manager and `operator new`, the batch renderer's constructor, the shadow-pass
+/// Callees by address: the map's `GetAt` (`thiscall(map, key, out)`; `add_to_group` calls the dispatch family's lookup as a typed call, by address when the dispatch family is off or hooked) and `SetAt`, the memory manager and `operator new`, the batch renderer's constructor, the shadow-pass
 /// test, the shadow light shader's per-geometry set-ups (the draw family's, compared by address), the
 /// renderer's skinned test, the geometry holder's draw, a shader's pass tail of kind 0x11, the node
 /// pool lock. The node pool's allocation is draw_f's (`0043a010`).
@@ -88,13 +88,11 @@ const MEMORY_FREE: u32 = 0x00aa_4060;
 const OPERATOR_NEW: u32 = 0x00aa_13e0;
 const RENDERER_CONSTRUCT: u32 = 0x00b9_a5b0;
 const ACTIVE_INSERT_FIRST: u32 = 0x00b9_8e20;
-const IS_SHADOW_PASS: u32 = 0x00b6_30f0;
 const SETUP_TYPES_FC_FD: u32 = 0x00b7_dde0;
 const SETUP_TYPE_CA: u32 = 0x00b7_ded0;
 const SETUP_TYPE_D1: u32 = 0x00b7_dfe0;
 const SETUP_TYPE_102: u32 = 0x00b7_e150;
 const TAIL_KIND_11: u32 = 0x00bb_96d0;
-const LOCK_ENTER: u32 = 0x0040_fbf0;
 /// The global node pool: its lock (owner `011c5f80`, count `011c5f84`) and free list (`011c5f58`).
 pub(crate) const POOL_LOCK: u32 = 0x011c_5f80;
 const POOL_LOCK_COUNT: u32 = 0x011c_5f84;
@@ -573,6 +571,71 @@ pub fn render_standard(e: &mut Engine, pass: Ptr<RenderPass>, first: u32, second
         .wrapping_add(NiGeometry::m_PropertyState.off);
     let holder = add_to_geometry_group(e, geometry, data, Ptr::new(0), 0);
     let buffer = e.get(data, NiGeometryData::m_pkBuffData);
+    let rest = |e: &mut Engine| {
+        standard_set_up_and_draw(
+            e,
+            pass,
+            (first, second, third),
+            pass_type,
+            geometry,
+            shader,
+            state,
+            buffer,
+            holder,
+        );
+    };
+    if crate::draw::keep::mode() != crate::draw::keep::Mode::Off
+        && keepable(e, pass_type, geometry.addr(), shader)
+    {
+        let order = keep_order(
+            (first, second, third),
+            e.get(pass, RenderPass::ucSortFlag),
+            e.global::<u8>(RESTORE_OWED),
+        );
+        crate::draw::keep::draw(e, (geometry.addr(), pass_type, shader, state, order), rest);
+    } else {
+        rest(e);
+    }
+}
+
+/// The draw's order-dependent choices, part of its key (`crate::draw::keep`): the flags, the pass's sort flag and
+/// whether a restore is owed (`RESTORE_OWED`): a record is only replayed where the set-up would take the same
+/// branches.
+fn keep_order((first, second, third): (bool, bool, bool), sort: u8, restore_owed: u8) -> u32 {
+    u32::from(first)
+        | u32::from(second) << 1
+        | u32::from(third) << 2
+        | u32::from(sort) << 3
+        | u32::from(restore_owed) << 11
+}
+
+/// Whether a plain geometry's draw may be kept (`crate::draw::keep`): a pass type without a set-up of its own
+/// (0xfc, 0xfd, 0x102, 0xca, 0xd1) or a special one in the shadow light shader's (4, 5, 0x250, 0x251), no skin, and
+/// the shadow light shader's per-geometry set-ups, end and draw in the shader's slots.
+fn keepable(e: &Engine, pass_type: u32, geometry: u32, shader: u32) -> bool {
+    !matches!(
+        pass_type,
+        0xfc | 0xfd | 0x102 | 0xca | 0xd1 | 4 | 5 | 0x250 | 0x251
+    ) && e.mem.u32(geometry.wrapping_add(0xbc)) == 0
+        && crate::slot_target(e, shader, slot::GEOMETRY_A) == 0x00b7_d200
+        && crate::slot_target(e, shader, slot::GEOMETRY_B) == 0x00b7_dab0
+        && crate::slot_target(e, shader, slot::GEOMETRY_DONE) == 0x00b7_c320
+        && crate::slot_target(e, shader, slot::DRAW) == 0x00e8_12f0
+}
+
+/// [`render_standard`] after the geometry group: the set-ups, the draw and the end.
+#[allow(clippy::too_many_arguments)]
+fn standard_set_up_and_draw(
+    e: &mut Engine,
+    pass: Ptr<RenderPass>,
+    (first, second, third): (bool, bool, bool),
+    pass_type: u32,
+    geometry: Ptr<NiGeometry>,
+    shader: u32,
+    state: u32,
+    buffer: u32,
+    holder: u32,
+) {
     let call_third = |e: &mut Engine| {
         if third {
             let flag = u32::from(e.get(pass, RenderPass::ucSortFlag));
@@ -627,7 +690,7 @@ pub fn render_standard(e: &mut Engine, pass: Ptr<RenderPass>, first: u32, second
     } else {
         shader_geometry_setups(e, shader, state);
         if e.get(pass, RenderPass::ucSortFlag) != 0 {
-            if second && e.call(IS_SHADOW_PASS, &args![pass_type]).u8() == 0 {
+            if second && !crate::draw::lists::shadow_pass(e, pass_type) {
                 shader_blend(e, shader, state);
             }
             if first
@@ -638,7 +701,7 @@ pub fn render_standard(e: &mut Engine, pass: Ptr<RenderPass>, first: u32, second
                 shader_alpha_function(e, shader, state);
             }
         } else if e.global::<u8>(RESTORE_OWED) != 0
-            && e.call(IS_SHADOW_PASS, &args![pass_type]).u8() == 0
+            && !crate::draw::lists::shadow_pass(e, pass_type)
         {
             shader_restore(e, shader, state);
             e.set_global(RESTORE_OWED, 0u8);
@@ -699,7 +762,7 @@ pub fn render_skinned(e: &mut Engine, pass: Ptr<RenderPass>, first: u32, second:
             if first_partition {
                 shader_geometry_setups(e, shader, state);
                 if e.get(pass, RenderPass::ucSortFlag) != 0
-                    && e.call(IS_SHADOW_PASS, &args![pass_type]).u8() == 0
+                    && !crate::draw::lists::shadow_pass(e, pass_type)
                 {
                     if second {
                         shader_blend(e, shader, state);
@@ -1481,11 +1544,11 @@ pub fn clear_renderer(e: &mut Engine, this: Ptr<BSBatchRenderer>, _unused: u32) 
 pub fn release_spare(e: &mut Engine, this: Ptr<PassList>) -> u32 {
     let mut node = e.get(this, PassList::pSpare);
     if node != 0 {
-        e.call(LOCK_ENTER, &args![POOL_LOCK, 0u32]);
+        pool_lock(e);
         loop {
             let current = node;
             node = e.global::<u32>(node);
-            e.call(LOCK_ENTER, &args![POOL_LOCK, 0u32]);
+            pool_lock(e);
             pool_give(e, current);
             if node == 0 {
                 break;
@@ -1499,6 +1562,17 @@ pub fn release_spare(e: &mut Engine, this: Ptr<PassList>) -> u32 {
         e.set_global(tail, 0u32);
     }
     tail
+}
+
+/// The global node pool's lock taken (`0040fbf0`, the dispatch family's recursive spin lock, `thiscall(lock, 0)`):
+/// [`pool_give`] holds it once less.
+#[inline(always)]
+pub(crate) fn pool_lock(e: &mut Engine) {
+    typed_call!(
+        crate::dispatch::FAMILY,
+        0x0040_fbf0,
+        crate::dispatch::refs::lock(e, Ptr::new(POOL_LOCK), 0u32)
+    );
 }
 
 /// A node back to the pool's free list, the lock held once less.
@@ -1741,4 +1815,65 @@ fn count_up(e: &mut Engine, group: Ptr<PassGroup>, list: Ptr<PassList>) {
     vset(e, list, PassList::uiCount, count);
     let total = vget(e, group, PassGroup::uiCount).wrapping_add(1);
     vset(e, group, PassGroup::uiCount, total);
+}
+
+#[cfg(test)]
+mod keep_tests {
+    use super::*;
+
+    /// Which plain draws may be kept (review of #1108): none of the pass types with set-ups of their own or the
+    /// shadow light shader's special ones, no skinned geometry, and only the shadow light shader's four slots.
+    #[test]
+    fn only_the_standard_set_ups_unskinned_draws_are_kept() {
+        let mut e = Engine::new();
+        let vtable = e.mem.alloc(0x100);
+        let shader = e.mem.alloc(0x10);
+        let geometry = e.mem.alloc(0x100);
+        e.mem.set_u32(shader, vtable);
+        let slots = [
+            (slot::GEOMETRY_A, 0x00b7_d200),
+            (slot::GEOMETRY_B, 0x00b7_dab0),
+            (slot::GEOMETRY_DONE, 0x00b7_c320),
+            (slot::DRAW, 0x00e8_12f0),
+        ];
+        for (at, target) in slots {
+            e.mem.set_u32(vtable + at, target);
+        }
+        assert!(keepable(&e, 0x60, geometry, shader));
+        for pass in [0xfc, 0xfd, 0x102, 0xca, 0xd1, 4, 5, 0x250, 0x251] {
+            assert!(!keepable(&e, pass, geometry, shader), "pass {pass:#x}");
+        }
+        e.mem.set_u32(geometry + 0xbc, 0x1234);
+        assert!(!keepable(&e, 0x60, geometry, shader), "skinned");
+        e.mem.set_u32(geometry + 0xbc, 0);
+        for (at, target) in slots {
+            e.mem.set_u32(vtable + at, target + 0x10);
+            assert!(!keepable(&e, 0x60, geometry, shader), "slot {at:#x}");
+            e.mem.set_u32(vtable + at, target);
+        }
+    }
+
+    /// Every order-dependent choice gives another key.
+    #[test]
+    fn each_order_choice_is_its_own_part_of_the_key() {
+        let base = keep_order((false, false, false), 0, 0);
+        let all = [
+            keep_order((true, false, false), 0, 0),
+            keep_order((false, true, false), 0, 0),
+            keep_order((false, false, true), 0, 0),
+            keep_order((false, false, false), 1, 0),
+            keep_order((false, false, false), 0xff, 0),
+            keep_order((false, false, false), 0, 1),
+        ];
+        let mut seen = vec![base];
+        seen.extend(all);
+        let n = seen.len();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), n, "{all:x?}");
+        assert_eq!(
+            keep_order((true, true, true), 0xff, 1),
+            7 | 0xff << 3 | 1 << 11
+        );
+    }
 }

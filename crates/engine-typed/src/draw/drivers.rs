@@ -71,8 +71,11 @@ pub fn world_draw_first(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulato
     }
     // The half draws from the copied state as fields of this engine ([`super::capture::serve`]).
     super::capture::serve(e);
-    with_packet_guard(e, |e| {
-        e.vcall(acc.addr(), SLOT_DRAW, &args![camera, acc, third]);
+    // The world draw: the only scene whose draws are kept (`super::keep`).
+    super::keep::world_draw(|| {
+        with_packet_guard(e, |e| {
+            e.vcall(acc.addr(), SLOT_DRAW, &args![camera, acc, third]);
+        });
     });
     // What runs before the second half (the VATS target's draw) is not the world draw: it reads guest memory (the
     // pause takes the copied state back off the engine first).
@@ -105,8 +108,10 @@ fn with_packet_guard(e: &mut Engine, f: impl FnOnce(&mut Engine)) {
 pub fn world_draw_second(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulator>, third: u32) {
     super::capture::resume(e);
     super::capture::serve(e);
-    with_packet_guard(e, |e| {
-        e.vcall(acc.addr(), SLOT_FINISH, &args![camera, acc, third]);
+    super::keep::world_draw(|| {
+        with_packet_guard(e, |e| {
+            e.vcall(acc.addr(), SLOT_FINISH, &args![camera, acc, third]);
+        });
     });
     super::capture::unserve(e);
     // Step 1 of the drawing thread: the view's words back to guest memory as the draw ends.
@@ -125,6 +130,15 @@ pub fn world_draw_second(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulat
 /// they hold the accumulator's own ([`accumulator_finish`] answers nothing: 0, as its translation's
 /// uniform form does).
 pub fn scene_draw(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulator>) -> u32 {
+    // No join of a posted world draw here (nv-rs#992): these passes begin the same shader objects, constant entries,
+    // stage objects and render state blocks the world draw does, and every one of them is the draw's own block while
+    // it is posted (`statics::take_pass_state`, `take_pass_objects`), so the two no longer meet in guest memory.
+    // Not the world draw, also when drawn from inside it: nothing kept (`super::keep`).
+    super::keep::outside_world_draw(|| scene_draw_now(e, camera, acc))
+}
+
+/// [`scene_draw`]'s work.
+fn scene_draw_now(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulator>) -> u32 {
     let base = acc.addr();
     if start(e, camera, base) {
         if crate::slot_target(e, base, SLOT_DRAW) == 0x00b6_6520 {
@@ -660,5 +674,25 @@ mod tests {
         assert!(!capture::is_open(&e), "main closed it");
         assert_eq!(e.mem.u32(block), 0x66, "the draw's own word at the join");
         e.call_stack.clear();
+    }
+
+    /// A world draw posted when the secondary scenes' draw (`00b6c0d0`, the extra passes) starts is not joined by it
+    /// (nv-rs#992): the pass begins' shared state is the draw's own block while it is posted, so the extra passes run
+    /// beside it. Fails if the join comes back without the join point being given up in the stage census.
+    #[test]
+    fn scene_draw_does_not_join_a_posted_world_draw() {
+        let mut e = Engine::new();
+        for (addr, f) in super::super::funcs() {
+            e.register(addr, f);
+        }
+        let (acc, _) = world(&mut e);
+        assert!(
+            !engine_core::draw_thread::testing::joins_first(
+                &mut e,
+                0x00b6_c0d0,
+                &[0x500, acc.addr()]
+            ),
+            "00b6c0d0 joins first"
+        );
     }
 }

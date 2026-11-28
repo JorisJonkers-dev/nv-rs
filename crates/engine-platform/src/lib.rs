@@ -90,6 +90,7 @@ pub mod d3d9;
 pub mod d3d9backend;
 pub mod d3d9device;
 pub mod d3d9draw;
+mod d3d9items;
 pub mod d3d9query;
 pub mod d3d9real;
 pub mod d3d9resource;
@@ -126,6 +127,7 @@ pub use ds_mix::speakers;
 pub mod time;
 pub mod vorbisfile;
 pub mod window;
+pub mod winsock;
 pub mod xinput;
 pub mod zone;
 
@@ -329,6 +331,7 @@ pub fn device_held(e: &Engine) -> bool {
 /// The [`d3d9::DeviceState`] in an engine's `Engine::device`; `held` is [`device_held`].
 #[inline]
 pub fn device(slot: &DeviceRef, held: bool) -> &d3d9::DeviceState {
+    engine_core::real_threads::note_device_state();
     debug_assert!(held, "the Direct3D 9 state reached without the device lock");
     let any = slot
         .get()
@@ -344,6 +347,7 @@ pub fn device(slot: &DeviceRef, held: bool) -> &d3d9::DeviceState {
 /// [`device_held`].
 #[inline]
 pub fn device_mut(slot: &mut DeviceRef, held: bool) -> &mut d3d9::DeviceState {
+    engine_core::real_threads::note_device_state();
     debug_assert!(held, "the Direct3D 9 state reached without the device lock");
     let any = slot
         .get_mut()
@@ -372,6 +376,7 @@ pub static LAYER: Layer = Layer {
     file_closed,
     proc_address: library::proc_address,
     device_calls: &d3d9::DEVICE_CALLS,
+    d3dx: &d3dx::DIRECT,
 };
 
 /// This crate's registered functions, as the `engine` facade takes each engine crate's.
@@ -429,6 +434,68 @@ fn layer_imports() -> Vec<(&'static str, &'static str, AbiFn)> {
             "#3",
             entry!(0, xinput::xinput_set_state(u32, Ptr) -> u32).1,
         ),
+        // The game imports Winsock by ordinal, for Havok's Visual Debugger only: the answers of a
+        // PC without a network (`winsock`).
+        (
+            "WSOCK32.dll",
+            "#115",
+            entry!(0, winsock::wsa_startup(u32, Ptr) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#111",
+            entry!(0, winsock::wsa_get_last_error() -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#23",
+            entry!(0, winsock::socket(u32, u32, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#1",
+            entry!(0, winsock::accept(u32, Ptr, Ptr) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#3",
+            entry!(0, winsock::close_socket(u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#21",
+            entry!(0, winsock::set_socket_option(u32, u32, u32, Ptr, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#2",
+            entry!(0, winsock::bind(u32, Ptr, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#13",
+            entry!(0, winsock::listen(u32, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#57",
+            entry!(0, winsock::get_host_name(Ptr, u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#18",
+            entry!(0, winsock::select(u32, Ptr, Ptr, Ptr, Ptr) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#9",
+            entry!(0, winsock::host_to_net_short(u32) -> u32).1,
+        ),
+        (
+            "WSOCK32.dll",
+            "#15",
+            entry!(0, winsock::net_to_host_short(u32) -> u32).1,
+        ),
         (
             "USER32.dll",
             "GetSystemMetrics",
@@ -445,56 +512,20 @@ fn layer_imports() -> Vec<(&'static str, &'static str, AbiFn)> {
             entry!(0, library::load_library_a(Ptr) -> u32).1,
         ),
         (k, "FreeLibrary", entry!(0, library::free_library(u32) -> u32).1),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixMultiply",
-            entry!(0, d3dx::matrix_multiply(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixMultiplyTranspose",
-            entry!(0, d3dx::matrix_multiply_transpose(Ptr, Ptr, Ptr) -> u32).1,
-        ),
+        ("d3dx9_38.dll", "D3DXMatrixMultiply", d3dx::DIRECT.matrix_multiply.0),
+        ("d3dx9_38.dll", "D3DXMatrixMultiplyTranspose", d3dx::DIRECT.matrix_multiply_transpose.0),
         (
             "d3dx9_38.dll",
             "D3DXMatrixRotationYawPitchRoll",
             entry!(0, d3dx::matrix_rotation_yaw_pitch_roll(Ptr, u32, u32, u32) -> u32).1,
         ),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixTranspose",
-            entry!(0, d3dx::matrix_transpose(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXVec3TransformNormal",
-            entry!(0, d3dx::vec3_transform_normal(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXVec3Normalize",
-            entry!(0, d3dx::vec3_normalize(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXVec3TransformCoord",
-            entry!(0, d3dx::vec3_transform_coord(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXMatrixInverse",
-            entry!(0, d3dx::matrix_inverse(Ptr, Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXPlaneNormalize",
-            entry!(0, d3dx::plane_normalize(Ptr, Ptr) -> u32).1,
-        ),
-        (
-            "d3dx9_38.dll",
-            "D3DXPlaneTransform",
-            entry!(0, d3dx::plane_transform(Ptr, Ptr, Ptr) -> u32).1,
-        ),
+        ("d3dx9_38.dll", "D3DXMatrixTranspose", d3dx::DIRECT.matrix_transpose.0),
+        ("d3dx9_38.dll", "D3DXVec3TransformNormal", d3dx::DIRECT.vec3_transform_normal.0),
+        ("d3dx9_38.dll", "D3DXVec3Normalize", d3dx::DIRECT.vec3_normalize.0),
+        ("d3dx9_38.dll", "D3DXVec3TransformCoord", d3dx::DIRECT.vec3_transform_coord.0),
+        ("d3dx9_38.dll", "D3DXMatrixInverse", d3dx::DIRECT.matrix_inverse.0),
+        ("d3dx9_38.dll", "D3DXPlaneNormalize", d3dx::DIRECT.plane_normalize.0),
+        ("d3dx9_38.dll", "D3DXPlaneTransform", d3dx::DIRECT.plane_transform.0),
         (
             "d3dx9_38.dll",
             "D3DXVec4Transform",
@@ -1116,7 +1147,8 @@ mod tests {
         // six of the player's d3dx9_38.dll, the fork's four (`d3dxshader::imports`): 201 as well.
         // Plus the 11 GalaxyWrp.dll wrapper imports of the GOG executable (same answers as
         // steam_api.dll): 212.
-        assert_eq!(table.len(), 212);
+        // Plus the twelve `WSOCK32.dll` ordinals of the Visual Debugger's server (`winsock`): 224.
+        assert_eq!(table.len(), 224);
     }
 
     /// The owned GOG executable's actual wrapper imports all resolve. No

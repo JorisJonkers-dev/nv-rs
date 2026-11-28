@@ -4,16 +4,20 @@
 //! Linux and macOS it is `nv-rs` and runs the package's play.sh in its terminal (crate::play_unix).
 //!
 //!   nv-rs                       the start screen (the game's intro before it, the first time)
-//!   nv-rs --mods | --import-saves | --install-mods | --check | --game FOLDER | --from FOLDER
+//!   nv-rs --mods | --mod-manager | --import-saves | --install-mods | --check | --game FOLDER
+//!         | --from FOLDER
 //!                               Play.exe's actions (Windows) and play.sh's (Linux, macOS), at once
 //!
 //! For pictures and tests (nothing is written but the capture, no sound):
 //!   nv-rs --capture FILE.png [--game FOLDER] [--profile FALLOUT.INI] [--plain] [--size WxH]
 //!         [--intro-at MS]       the start screen (or the intro MS milliseconds in) drawn off screen
+//!         [--output FILE [--scroll N]]  or a program's output (FILE's text) as the terminal shows
+//!                               it while the program runs, scrolled up N lines from its end
 //!   nv-rs --game-card           the card and API the game will draw with on Vulkan, one line
 //!
 //! `NV_RS_NO_WINDOWS=1` (scripted tests): no window at all; the action runs as Play.exe and
-//! play.sh ran it, plain play when none is named.
+//! play.sh ran it, plain play when none is named. `NV_RS_LAUNCHER_CRASH` (Windows) is set only by
+//! the launcher itself, starting Play.exe again after its window crashed (crate::stopped).
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
@@ -40,6 +44,7 @@ mod session;
 mod settings;
 mod sound;
 mod sound_files;
+mod stopped;
 
 use std::path::PathBuf;
 
@@ -52,6 +57,9 @@ pub struct Capture {
     pub size: (u32, u32),
     pub plain: bool,
     pub intro_at: Option<u64>,
+    /// A program's output to show (the file's text), scrolled up `scroll` lines from its end.
+    pub output: Option<PathBuf>,
+    pub scroll: usize,
 }
 
 fn capture_options(raw: &[String]) -> Result<Option<Capture>, String> {
@@ -65,6 +73,8 @@ fn capture_options(raw: &[String]) -> Result<Option<Capture>, String> {
         size: (screen::WIDTH, screen::HEIGHT),
         plain: false,
         intro_at: None,
+        output: None,
+        scroll: 0,
     };
     let mut args = raw.iter();
     while let Some(a) = args.next() {
@@ -87,6 +97,12 @@ fn capture_options(raw: &[String]) -> Result<Option<Capture>, String> {
                         .parse()
                         .map_err(|_| "--intro-at: not a number")?,
                 )
+            }
+            "--output" => c.output = Some(value("a file")?.into()),
+            "--scroll" => {
+                c.scroll = value("a number of lines")?
+                    .parse()
+                    .map_err(|_| "--scroll: not a number")?
             }
             "--plain" => c.plain = true,
             other => return Err(format!("unknown argument {other}")),
@@ -155,6 +171,18 @@ fn main() {
     }
     if std::env::var_os("NV_RS_NO_WINDOWS").is_some_and(|v| v == "1") {
         std::process::exit(without_window(&raw));
+    }
+    // Never silent from here on (crate::stopped): a panic is said with its line, and on Windows a
+    // crash in native code too; a Play.exe started again by such a crash says it and plays in
+    // message boxes, without the window.
+    stopped::watch_panics();
+    #[cfg(windows)]
+    {
+        let crash = stopped::crash_passed_on();
+        stopped::watch_crashes();
+        if let Some(crash) = crash {
+            std::process::exit(app::after_crash(&raw, &crash));
+        }
     }
     std::process::exit(app::run(raw));
 }

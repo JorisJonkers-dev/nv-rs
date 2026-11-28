@@ -1,0 +1,4 @@
+crates/engine-core/Cargo.toml  # libloading loads the locally built backend library in differential tests and for the real gaps when asked (nv-rs#928, nv-rs#930, ADR-0020)
+Cargo.lock  # engine-core's libloading dependency (nv-rs#928)
+crates/engine-core/src/mem.rs  # guest_base(), the backend's view of the shared guest reservation (nv-rs#928)
+crates/engine-core/src/typed/mod.rs  # include the fork-only backend peer module in test builds (nv-rs#928)

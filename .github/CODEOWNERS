@@ -1,2 +1,10 @@
 # The official maintainer reviews every contribution, including workflow changes.
 * @slaterain
+# The private run's one hash and the files it protects: only the fork's owner may re-pin the hash or change
+# the judge, its thresholds, its controls or the ledger generator (nv-rs#925).
+.fork/private-integrity.sha256 @ExtraToast
+crates/engine-core/src/typed/diff.rs @ExtraToast
+crates/engine-core/src/typed/mod.rs @ExtraToast
+crates/engine-core/src/x87.rs @ExtraToast
+crates/engine/tests/diff_reference_peer.rs @ExtraToast
+scripts/ledger/ @ExtraToast

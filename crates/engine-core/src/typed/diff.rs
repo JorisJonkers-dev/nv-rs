@@ -23,7 +23,8 @@
 //! The engines hold the translations only ([`Engine::new_untyped`]): whatever `NV_TYPED` says, the
 //! function differs, and with [`Diff::family`] the families named, and everything else is the same.
 //!
-//! Three runs per case:
+//! Three runs per case (two under `--release`, where run 3 is skipped), and a fourth when a
+//! reference peer is registered ([`Diff::reference_peer`]):
 //!
 //! 1. The translation.
 //! 2. The typed version with every `typed_call!` by address, against the translation.
@@ -34,6 +35,9 @@
 //!    hasn't run at all, so [`Report::assert_same`] fails on it unless the test says so with
 //!    [`Diff::goes_by_address`]. [`Report::direct_calls`] says how many went direct. This run needs
 //!    debug assertions: under `--release` it is skipped and [`Report::direct_runs`] says 0.
+//! 4. The reference peer, against the typed version of run 2. It is given the same guest memory,
+//!    setup and words, and its outgoing calls and written memory are recorded the same way. Without
+//!    a peer this run does not happen and [`Report::reference_runs`] says 0.
 //!
 //! Compared, bit for bit:
 //!
@@ -44,9 +48,12 @@
 //! - a word pointing into the stack for locals, as its offset in its frame, the frame's size and the
 //!   bytes behind it ([`Diff::stack_bytes`]), not by value; or, for a word [`Diff::local_at`] names,
 //!   as which local it is and that local's own bytes;
-//! - memory after the call, every mapped page, and which pages are mapped;
+//! - memory after the call, every mapped page, and which pages are mapped: bytes outside the stack
+//!   for locals are compared byte by byte, and a difference names its first address and both bytes;
 //! - whether and how the run stopped: a run where both stop alike fails unless the test says that
-//!   input stops ([`Diff::expect_stops`]), since it compared nothing past the stop;
+//!   input stops ([`Diff::expect_stops`]), since it compared nothing past the stop, or the test
+//!   draws its world at random and says so ([`Diff::tolerate_garbage_stops`]), which also demands a
+//!   number of runs that go through without a stop;
 //! - the heap's top and free bytes, the control word and the clock after the call.
 //!
 //! With [`Diff::float_ulps`], the words that read as floats compare within a number of ulps
@@ -77,6 +84,12 @@
 
 pub use super::{MAIN_THREAD, OTHER_THREADS};
 
+use super::backend_peer;
+
+/// The backend peer the private run configured, for a control that must fail against it too.
+pub fn backend_peer() -> Option<Box<dyn ReferencePeer>> {
+    backend_peer::from_env()
+}
 use super::{apply_families, Family, Threads};
 use crate::abi::{AbiFn, Ret};
 use crate::cxx_exception::Thrown;
@@ -397,6 +410,26 @@ type Setup = Box<dyn Fn(&mut Engine, &Case) -> Vec<u32>>;
 /// The inputs a test says stop ([`Diff::expect_stops`]).
 type StopCases = Box<dyn Fn(&Case) -> bool>;
 
+/// A reference implementation [`Diff`] can run as a fourth peer.
+///
+/// The harness gives it an engine set up exactly like the other runs: the case's words, the same
+/// setup, and the translations at their addresses. Its outgoing calls are logged with the same
+/// words and pre-call memory as the other runs', and the memory it leaves is compared byte by byte
+/// after the call outside the running thread's stack for locals, which includes the callee's frame.
+/// Calls the peer does not implement can reach the
+/// translations through [`Engine::call`]. A test registers one with [`Diff::reference_peer`];
+/// without one the harness makes only its usual runs.
+pub trait ReferencePeer {
+    /// Runs the function at `addr` with `args` on `engine`'s guest memory, and returns its result.
+    fn run(&self, engine: &mut Engine, addr: u32, args: &[u32]) -> Ret;
+}
+
+impl ReferencePeer for Box<dyn ReferencePeer> {
+    fn run(&self, engine: &mut Engine, addr: u32, args: &[u32]) -> Ret {
+        (**self).run(engine, addr, args)
+    }
+}
+
 /// Whether `NV_DIFF_ALL_WORDS` is set ([`Diff::all_words`]), read once.
 fn all_words_from_env() -> bool {
     static ALL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -422,12 +455,15 @@ pub struct Diff {
     all_words: bool,
     max_cases: usize,
     stop_cases: Option<StopCases>,
+    /// [`Diff::tolerate_garbage_stops`]: the runs that must go through without a stop.
+    garbage_stops: Option<usize>,
     stack_bytes: u32,
     nan_payloads: bool,
     max_calls: usize,
     float_sweep: usize,
     float_ulps: Option<u32>,
     float_abs: Option<f32>,
+    reference_peer: Option<Box<dyn ReferencePeer>>,
 }
 
 impl Diff {
@@ -449,12 +485,16 @@ impl Diff {
             all_words: all_words_from_env(),
             max_cases: 512,
             stop_cases: None,
+            garbage_stops: None,
             stack_bytes: 64,
             max_calls: DEFAULT_MAX_CALLS,
             nan_payloads: false,
             float_sweep: 0,
             float_ulps: None,
             float_abs: None,
+            // In the private run every typed case also runs against the local backend. A test that
+            // names its own peer overrides this one with `Diff::reference_peer`.
+            reference_peer: backend_peer::from_env(),
         }
     }
 
@@ -469,6 +509,22 @@ impl Diff {
             "the translation given is the typed version: the test would compare it with itself"
         );
         self.translation = Some(f);
+        self
+    }
+
+    /// A reference implementation to run after the three built-in runs ([`ReferencePeer`]). Its
+    /// run is compared with the typed version's by-address run: return value, outgoing calls and
+    /// memory written outside the stack for locals (the callee's frame included), byte by byte.
+    /// Without one, [`Diff::run`] makes only its usual runs and [`Report::reference_runs`] says 0.
+    pub fn reference_peer(mut self, peer: impl ReferencePeer + 'static) -> Diff {
+        self.reference_peer = Some(Box::new(peer));
+        self
+    }
+
+    /// Run no reference peer even when the private run's backend is present. For a control that
+    /// checks the harness's own three runs.
+    pub fn no_reference_peer(mut self) -> Diff {
+        self.reference_peer = None;
         self
     }
 
@@ -618,6 +674,16 @@ impl Diff {
         self
     }
 
+    /// For a world drawn at random, where a run may stop on a null pointer field or on the call budget
+    /// on both sides alike: such a stop is not a failure (the two stops are still compared), but at
+    /// least `min_through` runs must go through without one, or the test compared nothing real. A stop at
+    /// an address other than 0 that the setup lacks a double for still fails. Use the exact
+    /// [`Diff::expect_stops`] where the stopping inputs are known.
+    pub fn tolerate_garbage_stops(mut self, min_through: usize) -> Diff {
+        self.garbage_stops = Some(min_through);
+        self
+    }
+
     /// The most calls one run may make (100,000 by default, the direct `typed_call!`s noted with
     /// them): past it the run stops with "call budget spent", so a wrong version that loops for
     /// good shows as a stop on its side, not as a log that grows until the machine runs out.
@@ -713,6 +779,7 @@ impl Diff {
     #[must_use = "the report says whether they agreed: call `assert_same`"]
     pub fn run(&self) -> Report {
         let mut report = Report {
+            min_through: self.garbage_stops.unwrap_or(0),
             control_words: self.words_to_run(),
             ..Report::default()
         };
@@ -734,6 +801,7 @@ impl Diff {
                 }
             }
         }
+        backend_peer::report(self.addr, &report);
         report
     }
 
@@ -750,7 +818,9 @@ impl Diff {
         match (&translation.stop, &typed.stop) {
             (Some(a), Some(b)) if a == b => {
                 report.stopped += 1;
-                if !expected || a.starts_with("open function") {
+                let garbage = self.garbage_stops.is_some()
+                    && (!a.starts_with("open function") || a.starts_with("open function 00000000"));
+                if (!expected || a.starts_with("open function")) && !garbage {
                     report.note(
                         case,
                         word,
@@ -790,6 +860,7 @@ impl Diff {
                 Found::WordChanged { translation, typed },
             );
         }
+        let mut touched = translation.touched || typed.touched;
         // Each `typed_call!`'s direct branch, against the same function by address. Only where debug
         // assertions make the macro note its calls, so the logs can match.
         if cfg!(debug_assertions) {
@@ -812,9 +883,35 @@ impl Diff {
                 Branch::Direct,
                 report,
             );
-            return translation.touched || typed.touched || direct.touched;
+            touched |= direct.touched;
         }
-        translation.touched || typed.touched
+        // The reference peer runs last, against the typed version's by-address run. Its engine has
+        // the same setup as the translation's, so what it wrote compares byte by byte with the bytes
+        // the typed version left outside the stack for locals.
+        if self.reference_peer.is_some() {
+            report.reference_runs += 1;
+            let reference = self.side(case, word, Branch::Reference);
+            assert_eq!(
+                translation.words, reference.words,
+                "the setup gave the reference peer different call words: it must do the same on both"
+            );
+            same_registered(&translation, &reference);
+            self.compare(
+                &reference,
+                &typed,
+                &self.ignored_calls,
+                &self.plain_callees,
+                case,
+                word,
+                Branch::Reference,
+                report,
+            );
+            touched |= reference.touched;
+            if let Some(fault) = backend_peer::last_trap() {
+                report.backend_fault = Some(fault);
+            }
+        }
+        touched
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -922,7 +1019,7 @@ impl Diff {
             registered.push((*addr, now));
         }
         match branch {
-            Branch::Translation => {
+            Branch::Translation | Branch::Reference => {
                 if let Some(f) = self.translation {
                     e.register(self.addr, f);
                 }
@@ -965,7 +1062,14 @@ impl Diff {
         x87::set_control_word(word);
         // Loads from here on are the code under test's own.
         x87::watch::reset_writes();
-        let result = catch_unwind(AssertUnwindSafe(|| e.call(self.addr, &words)));
+        let result = catch_unwind(AssertUnwindSafe(|| match branch {
+            Branch::Reference => self
+                .reference_peer
+                .as_ref()
+                .expect("a reference run needs a reference peer")
+                .run(&mut e, self.addr, &words),
+            _ => e.call(self.addr, &words),
+        }));
         let touched = x87::watch::touched();
         let control_word = x87::control_word();
         x87::set_control_word(x87::DEFAULT_CONTROL_WORD);
@@ -1072,6 +1176,8 @@ pub enum Branch {
     ByAddress,
     /// The typed version, every `typed_call!` direct, against its by-address run.
     Direct,
+    /// A reference peer, against the typed version's by-address run.
+    Reference,
 }
 
 /// A word of an outgoing call as it compares.
@@ -1905,7 +2011,8 @@ fn compare_page_words(
 }
 
 /// One thing two runs did differently. In a [`Branch::Direct`] difference, `translation` is the
-/// typed version's by-address run and `typed` its direct run.
+/// typed version's by-address run and `typed` its direct run. In a [`Branch::Reference`] difference,
+/// `translation` is the reference peer's run and `typed` the typed version's by-address run.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Found {
     /// One stopped and the other didn't, or they stopped with different messages.
@@ -1975,10 +2082,10 @@ impl fmt::Display for Difference {
             "case {:?}, control word {:04x}{}: ",
             self.case.0,
             self.control_word,
-            if self.branch == Branch::Direct {
-                ", direct branch against by address"
-            } else {
-                ""
+            match self.branch {
+                Branch::Direct => ", direct branch against by address",
+                Branch::Reference => ", reference peer against by address",
+                _ => "",
             }
         )?;
         match &self.what {
@@ -2075,11 +2182,19 @@ pub struct Report {
     pub skipped_runs: usize,
     /// Of those, the runs where both sides stopped alike.
     pub stopped: usize,
+    /// [`Diff::tolerate_garbage_stops`]: the runs that must go through without a stop (0: no demand).
+    pub min_through: usize,
     /// Of those, the runs whose direct branch ran too (none without debug assertions).
     pub direct_runs: usize,
     /// The `typed_call!`s that went direct on those runs. 0 for a function with one means no family
     /// named holds its address, and the direct branch has run nowhere.
     pub direct_calls: usize,
+    /// Of [`Report::runs`], the runs that also ran a reference peer ([`Diff::reference_peer`]).
+    pub reference_runs: usize,
+    /// The reference runs that differed: the count behind the backend's failure class.
+    pub reference_found: usize,
+    /// A trap the backend reported in one of its runs.
+    pub backend_fault: Option<String>,
     /// The addresses of `typed_call!`s on those runs that no named family holds and
     /// [`Diff::goes_by_address`] doesn't list: the functions they name ran nowhere, so
     /// [`Report::assert_same`] fails.
@@ -2103,31 +2218,38 @@ pub struct Report {
 
 impl Report {
     /// The counters a run adds to.
-    fn tally(&self) -> [usize; 6] {
+    fn tally(&self) -> [usize; 8] {
         [
             self.runs,
             self.stopped,
             self.direct_runs,
             self.direct_calls,
+            self.reference_runs,
             self.tolerated,
             self.abs_tolerated,
+            self.reference_found,
         ]
     }
 
     /// Adds what the run since `before` counted, `times` more times.
-    fn repeat(&mut self, before: [usize; 6], times: usize) {
+    fn repeat(&mut self, before: [usize; 8], times: usize) {
         let now = self.tally();
         let add = |i: usize| (now[i] - before[i]) * times;
         self.runs += add(0);
         self.stopped += add(1);
         self.direct_runs += add(2);
         self.direct_calls += add(3);
-        self.tolerated += add(4);
-        self.abs_tolerated += add(5);
+        self.reference_runs += add(4);
+        self.tolerated += add(5);
+        self.abs_tolerated += add(6);
+        self.reference_found += add(7);
     }
 
     fn note(&mut self, case: &Case, word: u16, branch: Branch, what: Found) {
         self.found += 1;
+        if branch == Branch::Reference {
+            self.reference_found += 1;
+        }
         if self.first.len() < KEEP_FOUND {
             self.first.push(Difference {
                 case: case.clone(),
@@ -2144,6 +2266,13 @@ impl Report {
         assert!(self.runs > 0, "nothing ran: no case was generated");
         assert!(self.found == 0, "{self}");
         assert!(
+            self.runs.saturating_sub(self.stopped) >= self.min_through,
+            "only {} of {} runs went through without a stop, {} needed: the world reaches no real path ({self})",
+            self.runs.saturating_sub(self.stopped),
+            self.runs,
+            self.min_through
+        );
+        assert!(
             self.unnamed.is_empty(),
             "typed_call! at {:08x?} went by address: no family this test names holds it, so the \
              function it names ran nowhere. Name its family with `.family(..)`, or list the address \
@@ -2154,7 +2283,10 @@ impl Report {
 
     /// Whether something ran, nothing differed and every `typed_call!`'s function ran.
     pub fn is_same(&self) -> bool {
-        self.runs > 0 && self.found == 0 && self.unnamed.is_empty()
+        self.runs > 0
+            && self.found == 0
+            && self.runs.saturating_sub(self.stopped) >= self.min_through
+            && self.unnamed.is_empty()
     }
 }
 
@@ -2162,8 +2294,8 @@ impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "{} difference(s) in {} run(s), {} of them stopped alike, under control words {:04x?}:",
-            self.found, self.runs, self.stopped, self.control_words
+            "{} difference(s) in {} run(s) ({} with a reference peer), {} of them stopped alike, under control words {:04x?}:",
+            self.found, self.runs, self.reference_runs, self.stopped, self.control_words
         )?;
         for d in &self.first {
             writeln!(f, "  {d}")?;
@@ -2920,7 +3052,7 @@ mod tests {
         assert_eq!(report.first.len(), KEEP_FOUND);
         let text = report.to_string();
         assert!(
-            text.starts_with("18 difference(s) in 18 run(s), 0 of them stopped alike, under control words [027f, 007f]:\n"),
+            text.starts_with("18 difference(s) in 18 run(s) (0 with a reference peer), 0 of them stopped alike, under control words [027f, 007f]:\n"),
             "{text}"
         );
         assert!(
@@ -2984,6 +3116,55 @@ mod tests {
             })
             .run();
         assert_eq!((report.runs, report.stopped, report.found), (2, 1, 1));
+    }
+
+    /// A garbage stop is let through when enough runs go through without one, and not otherwise.
+    #[test]
+    fn garbage_stops_are_tolerated_only_beside_runs_that_go_through() {
+        let diff = |min: usize| {
+            Diff::new(crate::entry!(0x0040_2000, reads(u32) -> u32))
+                .translation(crate::entry!(0x0040_2000, reads(u32) -> u32).1)
+                .inputs(&[Input::Of(&[0x0200_0000, 0x0300_0000])])
+                .control_words(&[OTHER_THREADS])
+                .setup(|e, case| {
+                    e.map(0x0200_0000, 4);
+                    case.words()
+                })
+                .tolerate_garbage_stops(min)
+                .run()
+        };
+        let report = diff(1);
+        assert!(report.is_same(), "{report}");
+        assert_eq!((report.runs, report.stopped), (2, 1));
+        let report = diff(2);
+        assert!(!report.is_same(), "{report}");
+    }
+
+    /// Control: tolerating garbage stops does not excuse a real difference, whether in the result of a run
+    /// that goes through or in a stop only one side takes.
+    #[test]
+    fn tolerating_garbage_stops_still_catches_a_real_difference() {
+        fn one(_: &mut Engine, _: u32) -> u32 {
+            1
+        }
+        fn two(_: &mut Engine, _: u32) -> u32 {
+            2
+        }
+        let report = Diff::new(crate::entry!(0x0040_2000, two(u32) -> u32))
+            .translation(crate::entry!(0x0040_2000, one(u32) -> u32).1)
+            .inputs(&[Input::Of(&[1])])
+            .control_words(&[OTHER_THREADS])
+            .tolerate_garbage_stops(0)
+            .run();
+        assert!(!report.is_same(), "{report}");
+        // One side stops where the other does not.
+        let report = Diff::new(crate::entry!(0x0040_2000, one(u32) -> u32))
+            .translation(crate::entry!(0x0040_2000, reads(u32) -> u32).1)
+            .inputs(&[Input::Of(&[0x0300_0000])])
+            .control_words(&[OTHER_THREADS])
+            .tolerate_garbage_stops(0)
+            .run();
+        assert!(!report.is_same(), "{report}");
     }
 
     /// A callee with no double stops both sides at its address, and no flag excuses it.

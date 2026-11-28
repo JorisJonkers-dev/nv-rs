@@ -4,7 +4,9 @@
 //! memory; a map's manager is the family's own, in the store ([`super::store`]).
 
 use super::layout::{InterfaceEntry, InterfaceManager, LockFreeMap, MapInterface};
-use super::store::{alloc, construct_array, free, store, store_for, tag};
+use super::store::{
+    alloc, construct_array, free, in_place, store, store_for, tag, INCREMENT_STEPS,
+};
 use super::{field_ptr, FAMILY, SCOPE_BEGIN, SCOPE_CONTEXT, SCOPE_END, SCOPE_MODE, SOURCE_FILE};
 use engine_core::ptr::{Layout, Ptr};
 use engine_core::{args, typed_call, Engine};
@@ -46,6 +48,9 @@ pub fn make_interface(
     let s = store(e);
     let mut made: Ptr<MapInterface> = Ptr::NULL;
     let handed_out = field_ptr(this, InterfaceManager::handed_out).addr();
+    if in_place(s, handed_out) {
+        e.typed_charge(&INCREMENT_STEPS);
+    }
     let count = s.add(e, handed_out, 1, |e| {
         e.call(INTERLOCKED_INCREMENT, &args![handed_out]).u32()
     });

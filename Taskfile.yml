@@ -23,11 +23,23 @@ tasks:
     cmds:
       - python3 -I scripts/fork/test_wif.py
       - python3 -I scripts/fork/check_data_gates.py
+      # Public and safe: this hashes public files only. It runs in the required "Pipeline Complete" check, so a
+      # pull request that weakens the judge, thresholds, controls or ledger generator must re-pin the hash here
+      # (the hash file is owner-reviewed) or fail before it merges (nv-rs#925).
+      - python3 -I scripts/fork/private_integrity.py --check
       - python3 -I scripts/fork/public_text.py
       - python3 -I scripts/fork/public_text.py --selftest
       - python3 -I scripts/fork/setup-anthropic-wif.py --selftest
       - python3 -I scripts/fork/create-app.py --selftest
       - python3 -I -m unittest discover -s scripts/fork/tests -v
+
+  family-lab:
+    desc: Build and run one typed family's Diff cases in a generated crate (docs/fork/FAMILY-LAB.md); task family-lab -- fade culling_fade_on_visible
+    cmd: python3 -I scripts/fork/family_lab.py run {{.CLI_ARGS}}
+
+  porting-loop:
+    desc: Run a porting batch, a shakedown or the weekly rate from the ledger (docs/fork/PORTING-LOOP.md); task porting-loop -- weekly --days 7
+    cmd: python3 -I scripts/fork/porting_loop.py {{.CLI_ARGS}}
 
   components:
     desc: Check the component map against the workspace (every crate in one component, every test file in a job) and print the job matrix of a full run
@@ -38,6 +50,10 @@ tasks:
   capabilities:
     desc: Rewrite .fork/capabilities.json from the command tables (run it after a sync or a change to a command table; the release-files test fails until you do)
     cmd: cargo run --locked --quiet --manifest-path scripts/fork/release-files/Cargo.toml -- capabilities --out .fork/capabilities.json
+
+  component-census:
+    desc: Check that docs/fork/COMPONENT-CENSUS.md matches the census command's output (issue #943)
+    cmd: cargo run --locked --quiet --manifest-path research/component-census/Cargo.toml -- --check
 
   catalogue:
     desc: Rewrite the coverage catalogue's reference lists and pins (.fork/catalogue/ref, sources.toml) from the pinned sources, write the evidence files tally reads, and run `tally check` (needs tally on PATH; docs/fork/CATALOGUE.md)
@@ -59,4 +75,5 @@ tasks:
       - task: lint:actions
       - task: deny
       - task: scripts
+      - task: component-census
       - task: secrets

@@ -961,8 +961,10 @@ fn group_count(e: &Engine, renderer: u32, offset: u32) -> u32 {
 /// Unnamed in the engine map: the summed 16-bit counts of the geometry
 /// group at +0x54 of every batch renderer (the exe adds them two at a
 /// time, then the odd one).
+///
+/// No join with a posted world draw (nv-rs#939): group 6's holder is main's alone while a world draw is posted (the cut
+/// leaves it in guest memory, `engine_typed::draw::detach::MAIN_ONLY_GROUPS`), so the count is read where main left it.
 pub fn fn_00b63a90(e: &mut Engine, this: Ptr<BSShaderAccumulator>) -> u32 {
-    engine_core::draw_thread::finish_at(e, 0x00b6_3a90);
     let base = this.addr();
     let count = batch_count(e, base);
     let mut even = 0u32;
@@ -1405,9 +1407,11 @@ pub fn bs_shader_accumulator_do_sun_occlusion_queury(
     }
     let shader = e.call(GET_SHADER, &[1]).u32();
     e.call(SHADER_SETUP_00B7A870, &[9, 0]);
-    let first = e.mem.u32(shader + 0x34);
+    // The shader's counted constant maps are an own block of the detached world draw (nv-rs#992): `00b7a870` set them
+    // here, and a posted draw's `select_pass` sets them beside it; read them through the packet.
+    let first = engine_core::own_view::own_read(e, shader + 0x34, 4);
     e.vcall(first, 0x24, &[]);
-    let second = e.mem.u32(shader + 0x30);
+    let second = engine_core::own_view::own_read(e, shader + 0x30, 4);
     e.vcall(second, 0x24, &[]);
     let query = e.mem.u32(test + 0x48);
     e.call(QUERY_BEGIN, &[query]);
@@ -2599,9 +2603,10 @@ pub fn fn_00b64020(
             let pass_enum = u32::from(e.mem.u16(pass.wrapping_add(4)));
             e.call(SHADER_SETUP_00B7A870, &args![pass_enum, 0u32]);
             if shader != 0 {
-                let first = e.mem.u32(shader.wrapping_add(0x34));
+                // The counted maps are an own block of the detached draw (nv-rs#992): read through the packet.
+                let first = engine_core::own_view::own_read(e, shader.wrapping_add(0x34), 4);
                 e.vcall(first, 0x24, &[]);
-                let second = e.mem.u32(shader.wrapping_add(0x30));
+                let second = engine_core::own_view::own_read(e, shader.wrapping_add(0x30), 4);
                 e.vcall(second, 0x24, &[]);
             }
             let pass_enum = u32::from(e.mem.u16(pass.wrapping_add(4)));

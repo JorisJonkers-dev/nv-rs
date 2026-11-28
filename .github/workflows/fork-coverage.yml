@@ -55,7 +55,7 @@ jobs:
           { echo "### Components to measure"; echo; echo "Reason: $(jq -r .reason plan.json)"; echo; jq -r '.include[] | "- \(.component): `\(.args)`"' plan.json; } >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-plan
+          name: cov-plan
           path: plan.json
           retention-days: 7
 
@@ -72,6 +72,8 @@ jobs:
       actions: read
     strategy:
       fail-fast: false
+      # Coverage is not on the critical path (the longest job is about 12 minutes, the typed jobs about 18): three at a time.
+      max-parallel: 3
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       COMPONENT: ${{ matrix.component }}
@@ -113,8 +115,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
+          # The whole output goes to a file: the tail alone left a crashed test binary unnamed (nv-rs#1030). When the
+          # run fails, the lines that name the failing tests, panics and signals are printed from the file.
+          status=0
           # shellcheck disable=SC2086
-          cargo llvm-cov --locked --no-fail-fast --lcov --output-path out/lcov.info --ignore-filename-regex "$IGNORE" $ARGS 2>&1 | tail -n 40
+          cargo llvm-cov --locked --no-fail-fast --lcov --output-path out/lcov.info --ignore-filename-regex "$IGNORE" $ARGS >cov-test.log 2>&1 || status=$?
+          tail -n 40 cov-test.log
+          if [ "$status" -ne 0 ]; then
+            echo "::group::failing tests (cargo llvm-cov exit $status)"
+            grep -nE '^failures:|^---- |FAILED|panicked at|SIG[A-Z]+|signal:|error: test failed|Running ' cov-test.log | tail -n 200 || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
           cargo llvm-cov report --summary-only --ignore-filename-regex "$IGNORE" | tail -n 3 | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The baseline is the merge base of the pull request (docs/fork/COVERAGE.md): the lcov of the nightly (or manual)
@@ -169,15 +181,15 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-          # Only this workflow's artifacts (coverage-plan, cov-<component>), not the build's of the same run.
-          pattern: 'cov*'
+          # Only cov-plan and cov-<component>; the comment artifact is uploaded by the report job and downloaded by name.
+          pattern: 'cov-*'
       - name: Render the comment
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
-          python3 -I scripts/fork/coverage_report.py report --dir artifacts --plan artifacts/coverage-plan/plan.json \
+          python3 -I scripts/fork/coverage_report.py report --dir artifacts --plan artifacts/cov-plan/plan.json \
             --base "$BASE" --head "$HEAD" --out comment.md --json summary.json >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -204,15 +216,15 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-          # Only this workflow's artifacts (coverage-plan, cov-<component>), not the build's of the same run.
-          pattern: 'cov*'
+          # Only cov-plan and cov-<component>; the comment artifact is uploaded by the report job and downloaded by name.
+          pattern: 'cov-*'
       - name: Gate the fork-owned crates
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
-          python3 -I scripts/fork/coverage_report.py gate --dir artifacts --plan artifacts/coverage-plan/plan.json \
+          python3 -I scripts/fork/coverage_report.py gate --dir artifacts --plan artifacts/cov-plan/plan.json \
             --base "$BASE" --head "$HEAD" --out gate.md | tee -a "$GITHUB_STEP_SUMMARY"
 
   comment:

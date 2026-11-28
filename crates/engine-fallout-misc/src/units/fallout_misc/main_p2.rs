@@ -3125,9 +3125,11 @@ pub fn fn_00875110(
 ) {
     let this_addr = this.addr();
     // The drawing thread's job may still walk the world accumulator (+0x88): the screens' and the overlay's blocks
-    // below accumulate into it. No earlier join covers every frame: the sun query's (`006426a0`) needs a sky, the
-    // water pass's (`008746d0`, `00875e40`) water, and the refraction normals' (`00b63a90`, `00874920`) `005b9b00`
-    // (`measure/draw-thread/PLAN-C.md`, "Latent race in #551"). Off, or with nothing posted, one load.
+    // below accumulate into it, registering passes in the renderers whose pass map, pass group array and active list
+    // the job reads (they are not own blocks: nv-rs#939's census, docs/fork/DRAW-WORKERS.md), and `00b6c0d0` draws
+    // them. The check `00b63a90` no longer joins (nv-rs#939); the refraction normals' (`00874920`, run only when
+    // the check counts something) and the water pass's joins stay (`008746d0`, `00875e40`). Off, or with nothing
+    // posted, one load.
     engine_core::draw_thread::finish_at(e, 0x0087_5110);
     let root = e.call(GET_ROOT, &args![]).u32();
     let target = e.call(GET_SCENE_TARGET, &args![root]).u32();
@@ -9579,6 +9581,48 @@ mod tests_second {
         );
         assert_eq!(draw_thread::counts(&r.e).serial, 1);
         assert_eq!((FIRST.load(SeqCst), SECOND.load(SeqCst)), (2, 2));
+        draw_thread::turn_off(&mut r.e);
+    }
+
+    /// A job still posted when a world pass starts (a second draw sequence in the frame) is joined by the first half's call
+    /// (`00873200` as the join point), before it draws and exactly once; the job the pass then posts stays
+    /// posted to the pass's end and is joined at OnIdle. Fails if the entry's join is missing or comes after the first
+    /// half, or the pass joins anything else.
+    #[test]
+    fn world_pass_joins_a_job_posted_before_it_at_its_entry_only() {
+        use engine_core::draw_thread::{self, testing};
+        use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+        static JOINS: AtomicU32 = AtomicU32::new(0);
+        static JOINS_AT_FIRST_HALF: AtomicU32 = AtomicU32::new(u32::MAX);
+        fn count_join(_: &mut Engine) {
+            JOINS.fetch_add(1, SeqCst);
+        }
+        JOINS.store(0, SeqCst);
+        let (mut r, this) = scene_rig();
+        r.e.register_double(0x00b6_ba20, |e, _| {
+            JOINS_AT_FIRST_HALF.store(JOINS.load(SeqCst), SeqCst);
+            testing::mark_posted(e);
+            Ret::default()
+        });
+        draw_thread::turn_on(&r.e, testing::hooks_finishing_with(count_join));
+        testing::mark_posted(&r.e);
+        r.run(0x0087_3200, &args![this, 0u32, 0u32, 0u32, 0u32]);
+        assert_eq!(
+            JOINS_AT_FIRST_HALF.load(SeqCst),
+            1,
+            "joined before the first half"
+        );
+        assert_eq!(JOINS.load(SeqCst), 1, "no other join in the pass");
+        assert!(
+            draw_thread::posted(&r.e),
+            "the pass's own job is still posted"
+        );
+        draw_thread::idle(&mut r.e);
+        assert_eq!(JOINS.load(SeqCst), 2, "the pass's job joined at OnIdle");
+        assert_eq!(
+            draw_thread::joins_by_point(&r.e),
+            [(draw_thread::WORLD_PASS, 1), (draw_thread::ON_IDLE, 1)]
+        );
         draw_thread::turn_off(&mut r.e);
     }
 

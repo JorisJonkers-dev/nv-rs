@@ -62,10 +62,13 @@
 pub mod abi;
 #[cfg(test)]
 pub(crate) mod alloc_count;
+pub mod bhk;
 pub mod call_count;
 pub mod call_trace;
 pub mod census;
 pub mod cxx_exception;
+pub mod d3dx_direct;
+pub mod draw_items;
 pub mod draw_thread;
 pub mod editor_ids;
 mod engine;
@@ -73,6 +76,9 @@ pub mod estimate;
 pub mod exe;
 pub mod extend;
 pub mod hitch;
+pub mod lamp_distance;
+pub mod late_ai;
+pub mod loader_jobs;
 pub mod mem;
 pub mod mod_files;
 pub mod own_view;

@@ -4,12 +4,13 @@
 //! `00450edb`). The hitch log's "references" part of a grid load is this function; in a play
 //! session's border hitch it was 3.8 ms of the 4.6 ms load.
 //!
-//! For every reference of the cell, in two passes over the cell's list (markers in the second), the
-//! exe makes about ten calls by address of its own besides the work it hands on (the model loader's
-//! queue, the 3D's attach): the game loader's flag (`0042ce10`), the reference's extra data list
-//! (`005d43c0`, twice), `Script::InitActionList` (`005ac190`), the save object's test (`0047c850`),
-//! the form type (`00401170`) and the base form's flag test (`00452440`), and the virtual calls the
-//! reference's class answers with a constant body (its slots 0x100, 0x224 and the 3D at 0x1d0).
+//! For every reference of the cell, in two passes over the cell's list (the markers in the first),
+//! the exe makes about ten calls by address of its own besides the work it hands on (the model
+//! loader's queue, the 3D's attach): the game loader's flag (`0042ce10`), the reference's extra
+//! data list (`005d43c0`, twice), `Script::InitActionList` (`005ac190`), the save object's test
+//! (`0047c850`), the form type (`00401170`) and the base form's flag test (`00452440`), and the
+//! virtual calls the reference's class answers with a constant body (its slots 0x100, 0x224 and the
+//! 3D at 0x1d0).
 //!
 //! **Native.** The order of work and every call that does work stay the exe's. The field reads are
 //! read in place (the game loader's word at +0x244, the extra list at +0x44, the type byte at +4,
@@ -22,9 +23,51 @@
 //! addresses. `SetActionFlag` (`005ac750`) and the cell's state (`004512a0`) can be replaced by a
 //! fix or a built-in extender: called by address.
 //!
-//! Stage 1: the objects stay in guest memory where the game made them. **Integers only** (the one
-//! float, the origin's 0.0 for the vector constructor, is a constant word), so the row is
-//! [`Threads::Both`].
+//! The model loader's queue of each reference (`ModelLoader::QueueReference`, `00444850`, most of
+//! the pass's time) is typed in [`queue`] and registered at its address, so the pass, which calls
+//! it by address as the game's other callers do, reaches it through the registration. The small
+//! functions it calls on its task pointer and the cell are typed there too.
+//!
+//! The finish of each task on main, once its files are in (`QueuedReference::PostProcess`,
+//! `0043fdf0`, and the attaches it reaches: `00440ba0`, `00441800`, `00441c30`), is typed in
+//! [`attach`] with `TES::IsCellLoaded`, the loader's word that a reference is done and the cell's
+//! two counters going down. `TES`'s load of each reference into the scene (`00451ef0`), which the
+//! attach and the cell's other loads call, is typed in [`scene`]; with it the actor classes' true
+//! body (`008d0360`) their slot 0x100 holds, so an actor's test is a typed call too.
+//!
+//! The reference's form id given to the geometry under its 3D (`SetReferenceIDOnScenegraph`,
+//! `004b6dc0`, a walk of the scene graph the game runs for every actor it loads) is typed in
+//! [`scenegraph`] with `NiAVObject::GetProperty` (`00a59d30`), which it asks of each geometry; both
+//! are registered at their addresses, so every caller by address reaches them.
+//!
+//! The shadow scene node's queue of the objects whose lighting is to be redone, which `TES`'s load
+//! fills for every node it puts in the scene (`ShadowSceneNode::AddObject`, `00b5eeb0`, and
+//! `UpdateObjectLighting`, `00b5d9f0`), is typed in [`lighting`] with the add at the tail of a list
+//! of counted pointers (`00a5a310`) it makes; all three are registered at their addresses.
+//!
+//! The reference's script made ready as the load brings it into the scene
+//! (`TESObjectREFR::InitScript`, `00565730`) is typed in [`script`] with what it asks of the
+//! reference: the form its script comes from (the actor classes' slot 0x1a4, `008ae600`), the
+//! form's script (`004826d0`) and the base form's container (`0055d310`); all four are registered
+//! at their addresses.
+//!
+//! The list of extra data every reference, cell and inventory entry carries (`BaseExtraList` and
+//! `ExtraDataList`, Xbox PDB) is typed in [`extra_list`]: its constructors and destructors, its
+//! operations under the extra data lock (`AddExtra`, both `RemoveExtra`s, `RemoveAll`,
+//! `RemoveAllDefault`, `ItemsInList`, `GetPrevExtraData`), the type bitmap, the thread's cache of
+//! the last lookup and the small extra data classes of the unit, each registered at its address.
+//!
+//! Stage 1: the objects stay in guest memory where the game made them. The row is
+//! [`Threads::Both`]: the code is integers (the origin's 0.0 for the vector constructor is a constant
+//! word) but for one product in [`scene`], which keeps the x87's exact helpers.
+
+pub mod attach;
+pub mod extra_list;
+pub mod lighting;
+pub mod queue;
+pub mod scene;
+pub mod scenegraph;
+pub mod script;
 
 use crate::{dispatch, draw, slot_target};
 use engine_core::ptr::Ptr;
@@ -52,7 +95,75 @@ fn funcs() -> Vec<(u32, AbiFn)> {
     vec![
         entry!(0x0054_bcf0, references_after_load(u32, u8)),
         entry!(0x005a_c190, init_action_list(u32, u32)),
+        entry!(0x0044_4850, queue::queue_reference(u32, u32, u32, u8)),
+        entry!(0x006f_74f0, queue::task_pointer_assign(u32, u32) -> u32),
+        entry!(0x0092_c870, queue::add_ref(u32)),
+        entry!(0x0044_cbf0, queue::task_pointer_release(u32)),
+        entry!(0x0044_4cc0, queue::count_queued(u32)),
+        entry!(0x0044_4ce0, queue::count_critical(u32)),
+        entry!(0x0057_2350, queue::is_3d_critical(u32) -> bool),
         entry!(0x0057_25b0, kind_3d_to_40_or_69(u32) -> bool),
+        entry!(0x0043_fdf0, attach::post_process(u32)),
+        entry!(0x0044_1c30, attach::player_attach(u32)),
+        entry!(0x0044_1800, attach::character_attach(u32)),
+        entry!(0x0044_0ba0, attach::attach(u32)),
+        entry!(0x0045_11e0, attach::is_cell_loaded(u32, u32, u8) -> bool),
+        entry!(0x0044_09e0, attach::reference_done(u32, u32)),
+        entry!(0x0044_0a10, attach::queued_count_down(u32)),
+        entry!(0x0044_0a50, attach::critical_count_down(u32)),
+        entry!(0x0045_1ef0, scene::load_reference(u32, u32, u32, u32, u8)),
+        entry!(0x008d_0360, answers_true(u32) -> bool),
+        entry!(0x004b_6dc0, scenegraph::set_reference_id_on_scenegraph(u32, u32)),
+        entry!(0x00a5_9d30, scenegraph::get_property(u32, i32) -> u32),
+        entry!(0x00b5_eeb0, lighting::add_object(u32, u32)),
+        entry!(0x00b5_d9f0, lighting::update_object_lighting(u32, u32, u8)),
+        entry!(0x00a5_a310, lighting::list_add_tail(u32, u32)),
+        entry!(0x0056_5730, script::init_script(u32)),
+        entry!(0x0048_26d0, script::form_script(u32) -> u32),
+        entry!(0x0055_d310, script::has_container(u32) -> u32),
+        entry!(0x008a_e600, script::actor_form_148(u32) -> u32),
+        entry!(0x0040_ec80, extra_list::extra_data_new(u32, u8) -> u32),
+        entry!(0x0040_ecb0, extra_list::extra_data_drop(u32)),
+        entry!(0x0040_3550, extra_list::set_next(u32, u32)),
+        entry!(0x0040_f680, extra_list::north_rotation_new(u32) -> u32),
+        entry!(0x0040_f6b0, extra_list::detach_time_new(u32) -> u32),
+        entry!(0x0040_f700, extra_list::extra_compare(u32, u32) -> bool),
+        entry!(0x0040_f740, extra_list::base_list_new(u32) -> u32),
+        entry!(0x0040_f780, extra_list::base_list_delete(u32, u32) -> u32),
+        entry!(0x0040_f7b0, extra_list::base_list_drop(u32)),
+        entry!(0x0040_f7d0, extra_list::clear_last_extra(u32, i32)),
+        entry!(0x0040_f860, extra_list::clear_last_extra_all(u32)),
+        entry!(0x0040_f900, extra_list::drop_stale_cache()),
+        entry!(0x0040_f980, extra_list::added_at_head(u32) -> bool),
+        entry!(0x0040_f9e0, extra_list::cached_extra(u32, i32) -> u32),
+        entry!(0x0040_fa40, extra_list::cache_extra(u32, u32)),
+        entry!(0x0040_fae0, extra_list::remove_all(u32, bool)),
+        entry!(0x0040_fcb0, extra_list::remove_all_default(u32, bool)),
+        entry!(0x0040_fe20, extra_list::items_in_list(u32) -> i32),
+        entry!(0x0040_fe80, extra_list::has_extra_type(u32, u8) -> bool),
+        entry!(0x0040_fee0, extra_list::set_extra_flag(u32, u8, bool)),
+        entry!(0x0040_ff60, extra_list::add_extra(u32, u32) -> u32),
+        entry!(0x0041_0020, extra_list::remove_extra(u32, u32, bool)),
+        entry!(0x0041_0140, extra_list::remove_extra_of_type(u32, u8)),
+        entry!(0x0041_02d0, extra_list::get_prev_extra_data(u32, u8) -> u32),
+        entry!(0x0041_0360, extra_list::data_list_new(u32) -> u32),
+        entry!(0x0041_0380, extra_list::data_list_delete(u32, u32) -> u32),
+        entry!(0x0041_03b0, extra_list::data_list_drop(u32)),
+        entry!(0x0041_1b00, extra_list::lock_data_new(u32) -> u32),
+        entry!(0x0041_1b40, extra_list::reflected_refs_new(u32) -> u32),
+        entry!(0x0041_1bb0, extra_list::reflected_refs_delete(u32, u32) -> u32),
+        entry!(0x0041_1be0, extra_list::reflector_refs_new(u32) -> u32),
+        entry!(0x0041_1c50, extra_list::reflector_refs_delete(u32, u32) -> u32),
+        entry!(0x0041_1c80, extra_list::water_light_refs_new(u32) -> u32),
+        entry!(0x0041_1cf0, extra_list::water_light_refs_delete(u32, u32) -> u32),
+        entry!(0x0041_1d20, extra_list::lit_water_refs_new(u32) -> u32),
+        entry!(0x0041_1d90, extra_list::lit_water_refs_delete(u32, u32) -> u32),
+        entry!(0x0041_1dc0, extra_list::four_words_new(u32) -> u32),
+        entry!(0x0041_1e00, extra_list::word_16_new(u32) -> u32),
+        entry!(0x0041_1e20, extra_list::weapon_mod_flags_any(u32, u8) -> bool),
+        entry!(0x0041_1e40, extra_list::type_92_new(u32) -> u32),
+        entry!(0x0041_1e70, extra_list::type_92_delete(u32, u32) -> u32),
+        entry!(0x0041_1ea0, extra_list::type_92_drop(u32)),
     ]
 }
 
@@ -147,18 +258,18 @@ fn node_next(e: &mut Engine, node: u32) -> u32 {
     typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, node))
 }
 
-/// The reference's slot 0x100 (whether it is an actor): `TESObjectREFR`'s false body as its typed
-/// call, any other through the vtable.
+/// The reference's slot 0x100 (whether it is an actor): `TESObjectREFR`'s false body and the actor
+/// classes' true body ([`answers_true`]) as their typed calls, any other through the vtable.
 #[inline]
 fn is_actor(e: &mut Engine, reference: u32) -> bool {
-    if slot_target(e, reference, SLOT_IS_ACTOR) == 0x0047_c850 {
-        typed_call!(
+    match slot_target(e, reference, SLOT_IS_ACTOR) {
+        0x0047_c850 => typed_call!(
             draw::FAMILY,
             0x0047_c850,
             draw::shapes::answers_false(e, reference)
-        )
-    } else {
-        e.vcall(reference, SLOT_IS_ACTOR, &args![]).bool()
+        ),
+        0x008d_0360 => typed_call!(FAMILY, 0x008d_0360, answers_true(e, reference)),
+        _ => e.vcall(reference, SLOT_IS_ACTOR, &args![]).bool(),
     }
 }
 
@@ -176,7 +287,7 @@ fn kind_test(e: &mut Engine, reference: u32) -> bool {
 /// The reference's 3D (slot 0x1d0): `TESObjectREFR::Get3D` as its typed call when the slot holds
 /// it, any other through the vtable.
 #[inline]
-fn reference_3d(e: &mut Engine, reference: u32) -> u32 {
+fn slot_3d(e: &mut Engine, reference: u32) -> u32 {
     if slot_target(e, reference, SLOT_GET_3D) == 0x0043_fcd0 {
         typed_call!(
             dispatch::FAMILY,
@@ -304,7 +415,7 @@ fn bring_up(e: &mut Engine, cell: u32, item: u32, priority: u32) {
         MODEL_LOADER_QUEUE_REFERENCE,
         &args![model_loader, item, priority, 0u32],
     );
-    if reference_3d(e, item) != 0 {
+    if slot_3d(e, item) != 0 {
         let mut attach = true;
         let base = base_form(e, item);
         if e.mem.u8(base.wrapping_add(4)) == FORM_TYPE_23 {
@@ -348,4 +459,11 @@ pub fn init_action_list(e: &mut Engine, reference: u32, list: u32) {
 pub fn kind_3d_to_40_or_69(e: &mut Engine, this: u32) -> bool {
     let kind = e.mem.u8(this.wrapping_add(4));
     (0x3d..=0x40).contains(&kind) || kind == 0x69
+}
+
+// Typed from 008d0360
+/// A class's constant true body (`thiscall(this)`, `mov al, 1`): the slot 0x100 of the actor
+/// classes (`Actor`, `Character`, `Creature`, `PlayerCharacter`), among others.
+pub fn answers_true(_e: &mut Engine, _this: u32) -> bool {
+    true
 }

@@ -55,6 +55,8 @@ pub const FAMILY: FamilyId = FamilyId::new(1);
 /// street at 2560x1440 8x AA 52.3 to 57.7 fps (+10.3%), the sky above it 117 to 134 fps (+14%). On unless
 /// `NV_TYPED` says otherwise (`NV_TYPED=off` or `lockfree:off`). Stage 2 (the pilot, `store.rs`): `lockfree:dual` mirrors
 /// the maps' body in the slab and compares every access; `lockfree:moved` (K1) and `lockfree:freed` (K2) move it there.
+/// Moved by default (nv-rs#946, `typed::MOVED_BY_DEFAULT`): with no switch the family is in K1. Rolled back by
+/// `NV_TYPED=lockfree` (stage 1), `lockfree:freed` (K2) or `lockfree:off` (the translation).
 pub static LOCKFREE: Family = Family {
     name: "lockfree",
     id: FAMILY,
@@ -128,6 +130,8 @@ fn funcs() -> Vec<(u32, AbiFn)> {
             0x0044_bd60,
             map::find(Ptr<LockFreeMap>, u32, Ptr<Holder>) -> u8
         ),
+        entry!(0x0052_8b60, map::add(Ptr<LockFreeMap>, u32, u32, u8) -> u8),
+        entry!(0x0090_62e0, map::remove(Ptr<LockFreeMap>, u32) -> u8),
         entry!(
             0x0044_d070,
             iface::insert_in_bucket(Ptr<MapInterface>, u32, u32, Ptr<Holder>, u8) -> bool

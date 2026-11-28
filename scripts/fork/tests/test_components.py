@@ -142,10 +142,16 @@ class Jobs(unittest.TestCase):
         self.assertEqual(got[:2], [("Component: c / j 1/2 (Windows)", "1/2"), ("Component: c / j 2/2 (Windows)", "2/2")])
         self.assertEqual(got[2], ("Component: c / k (Windows)", ""))
 
-    def test_shards_need_exactly_one_test_binary(self):
-        jobs = [{"name": "j", "args": ["-p big --test one --test dir"], "shards": 2}]
-        m = model([comp("c", ["big"], job=jobs)], workspace({"big": []}), root=str(self.tmp))
-        self.assertTrue(any("exactly one `--test` binary" in e for e in m.errors), m.errors)
+    def test_shards_over_several_binaries_need_the_archive_and_never_a_lib_or_doc_run(self):
+        multi = [{"name": "j", "args": ["-p big --test one --test dir"], "shards": 2}]
+        m = model([comp("c", ["big"], job=multi)], workspace({"big": []}), root=str(self.tmp))
+        self.assertTrue(any("has shards" in e for e in m.errors), m.errors)
+        m = model([comp("c", ["big"], job=multi, archive=True)], workspace({"big": []}), root=str(self.tmp))
+        self.assertFalse([e for e in m.errors if "shards" in e], m.errors)
+        for args in (["-p big --test one --lib"], ["-p big --test one", "-p small"], ["-p big --doc"]):
+            jobs = [{"name": "j", "args": args, "shards": 2}]
+            m = model([comp("c", ["big", "small"], job=jobs, archive=True)], self.meta, root=str(self.tmp))
+            self.assertTrue(any("has shards" in e for e in m.errors), (args, m.errors))
 
     def test_a_test_file_in_no_job_fails(self):
         m = self.split(["-p big --test one --test dir", "-p small"])
@@ -255,6 +261,140 @@ class Matrix(unittest.TestCase):
         self.assertEqual(m.entries("high")[0]["script"], "cargo test --locked -p b")  # b gets it through its own dependency
 
 
+class AffectedOnly(unittest.TestCase):
+    """Reverse dependents, Windows only for platform code, and a test file that reaches its own job."""
+    META = workspace({"engine-core": [], "esm": [], "mid": ["engine-core"], "top": ["mid"], "big": ["esm"]})
+
+    def cfg(self):
+        return [comp("core", ["engine-core"], runs_on="both", windows="required"),
+                comp("fmt", ["esm"], runs_on="both"),
+                comp("mid", ["mid"], ["core"], runs_on="both"),
+                comp("top", ["top"], ["mid"], runs_on="both"),
+                comp("big", ["big"], ["fmt"], runs_on="windows")]
+
+    def os_of(self, plan):
+        return sorted({(e["component"], e["os"][:3], e["informational"]) for e in plan["include"]})
+
+    def test_a_change_builds_the_crate_and_its_reverse_dependents_only(self):
+        m = model(self.cfg(), self.META)
+        for files, want in ((["crates/mid/src/lib.rs"], {"mid", "top"}), (["crates/esm/src/lib.rs"], {"fmt", "big"}),
+                            (["crates/top/src/lib.rs"], {"top"}), (["crates/engine-core/src/lib.rs"], {"core", "mid", "top"})):
+            self.assertEqual({e["component"] for e in m.plan(False, files)["include"]}, want, files)
+
+    def test_without_platform_code_the_windows_jobs_go_and_a_windows_only_component_runs_nothing(self):
+        m = model(self.cfg(), self.META)
+        plan = m.plan(False, ["crates/esm/src/lib.rs"], all_os=False)
+        self.assertEqual(self.os_of(plan), [("fmt", "ubu", True)])
+        self.assertIn("Windows only", [c for c in plan["components"] if c["component"] == "big"][0]["why"])
+
+    def test_with_windows_the_informational_linux_twin_is_left_out(self):
+        m = model(self.cfg(), self.META)
+        self.assertEqual(self.os_of(m.plan(False, ["crates/esm/src/lib.rs"], all_os=True)), [("big", "win", False), ("fmt", "win", False)])
+        self.assertEqual(self.os_of(m.plan(True, [], all_os=True))[-1:], [("top", "win", False)])  # a push keeps every job
+        self.assertIn(("fmt", "ubu", True), self.os_of(m.plan(True, [])))
+
+    def test_docs_and_fork_scripts_are_not_platform_relevant(self):
+        m = model(self.cfg(), self.META)
+        self.assertFalse(m.platform_relevant(["crates/esm/src/lib.rs", "docs/x.md", "scripts/fork/components.py"]))
+
+    def test_a_cfg_on_windows_or_macos_makes_a_file_platform_relevant(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "crates" / "esm" / "src").mkdir(parents=True)
+        (tmp / "crates" / "esm" / "src" / "lib.rs").write_text("#[cfg(windows)]\nfn f() {}\n")
+        (tmp / "crates" / "esm" / "src" / "b.rs").write_text("fn f() {}\n")
+        (tmp / "crates" / "esm" / "src" / "m.rs").write_text('#[cfg(target_os = "macos")]\nfn f() {}\n')
+        m = model(self.cfg(), self.META, root=str(tmp))
+        self.assertTrue(m.platform_relevant(["crates/esm/src/lib.rs"]))
+        self.assertFalse(m.platform_relevant(["crates/esm/src/b.rs"]))
+        self.assertFalse(m.platform_relevant(["crates/esm/src/lib.rs"], macos=True))
+        self.assertTrue(m.platform_relevant(["crates/esm/src/m.rs"], macos=True))
+
+    def test_a_changed_test_file_runs_its_own_job_and_a_source_change_runs_them_all(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "crates" / "big" / "tests").mkdir(parents=True)
+        for t in ("one", "two"):
+            (tmp / "crates" / "big" / "tests" / f"{t}.rs").write_text("")
+        jobs = [{"name": "j1", "args": ["-p big --test one"]}, {"name": "j2", "args": ["-p big --test two"]}]
+        cfg = [comp("fmt", ["esm"]), comp("big", ["big"], ["fmt"], job=jobs), comp("rest", ["engine-core", "mid", "top"])]
+        m = model(cfg, self.META, root=str(tmp))
+        names = lambda files: sorted(e["name"] for e in m.plan(False, files)["include"] if e["component"] == "big")
+        self.assertEqual(names(["crates/big/tests/two.rs"]), ["Component: big / j2 (Windows)"])
+        self.assertEqual(len(names(["crates/big/src/lib.rs"])), 2)
+        self.assertEqual(len(names(["crates/big/tests/two.rs", "crates/big/src/lib.rs"])), 2)
+        self.assertEqual(len(names(["crates/esm/src/lib.rs"])), 2)  # a dependency reaches both
+
+
+class Grouping(unittest.TestCase):
+    META = workspace({"a": [], "b": [], "c": []})
+
+    def test_components_of_a_group_share_one_windows_job_and_linux_stays_per_component(self):
+        m = model([comp("x", ["a"], group="small"), comp("y", ["b"], group="small"), comp("z", ["c"], group="small", runs_on="both")], self.META)
+        inc = m.plan()["include"]
+        win = [e for e in inc if e["os"] == "windows-latest"]
+        self.assertEqual([e["name"] for e in win], ["Component: small (Windows)"])
+        self.assertEqual(win[0]["script"], "cargo test --locked -p a\ncargo test --locked -p b\ncargo test --locked -p c")
+        self.assertEqual([e["name"] for e in inc if e["os"] != "windows-latest"], ["Component: z (Linux, informational)"])
+
+    def test_a_group_holds_only_the_components_the_change_reaches(self):
+        m = model([comp("x", ["a"], group="small"), comp("y", ["b"], group="small")], self.META)
+        win = m.plan(False, ["crates/b/src/lib.rs"])["include"]
+        self.assertEqual([e["script"] for e in win], ["cargo test --locked -p b"])
+
+
+class Realistic(unittest.TestCase):
+    def test_no_component_archives_unless_it_asks(self):
+        full = real_model().plan(True, [])
+        self.assertEqual(full["builds"], [])
+        self.assertEqual({e["archive"] for e in full["include"]}, {""})
+
+    def test_the_narrow_windows_clippy_covers_the_windows_required_components_only(self):
+        got = real_model().windows_crates()
+        self.assertIn("engine-platform", got)
+        self.assertIn("d3d9-wgpu", got)
+        self.assertNotIn("esm", got)
+        self.assertNotIn("engine", got)
+
+    def test_the_typed_jobs_of_an_os_share_one_archive_build_and_a_single_job_builds_for_itself(self):
+        m = real_model()
+        m.comps["integration"]["archive"] = True
+        full = m.plan(True, [])
+        builds = {b["os"]: b for b in full["builds"]}
+        self.assertEqual(sorted(builds), ["ubuntu-latest", "windows-latest"])
+        for os_name, b in builds.items():
+            members = [e for e in full["include"] if e["archive"] == b["id"]]
+            self.assertEqual({e["os"] for e in members}, {os_name})
+            self.assertEqual(len(members), b["jobs"])
+            self.assertTrue(all(e["component"] == "integration" and " / typed" in e["name"] for e in members))
+            self.assertIn("-p engine --test typed_shader", b["args"])
+            self.assertEqual(b["args"].count("--test typed_interface"), 1)  # three shards, one binary
+            self.assertIn("--config profile.dev.package.engine.opt-level=1", b["args"])
+        # the aggregator (`--lib`, `--doc`, several crates) is never archived
+        self.assertTrue(all(e["archive"] == "" for e in full["include"] if "aggregator" in e["name"]))
+        one = m.plan(False, ["crates/engine/tests/typed_pathing.rs"])
+        self.assertEqual(one["builds"], [])
+        self.assertEqual({e["archive"] for e in one["include"]}, {""})
+
+    def test_only_platform_crates_and_toolchain_files_are_platform_relevant(self):
+        m = real_model()
+        for f in ("crates/d3d9-wgpu/src/lib.rs", "crates/engine-platform/src/lib.rs", "crates/fork-window/src/lib.rs",
+                  "crates/nv-launcher/src/lib.rs", "Cargo.lock", "rust-toolchain.toml", "crates/esm/Cargo.toml", ".cargo/config.toml"):
+            self.assertTrue(m.platform_relevant([f]), f)
+        for f in ("crates/engine-core/src/lib.rs", "crates/engine-typed/src/lib.rs", "crates/engine-bs/src/lib.rs",
+                  "crates/engine-fallout-ai/src/lib.rs", "crates/engine/tests/typed_culling.rs"):
+            self.assertFalse(m.platform_relevant([f]), f)
+
+    def test_a_typed_test_file_reaches_only_its_job_and_the_typed_crates_reach_every_typed_job(self):
+        m = real_model()
+        got = lambda files: {e["name"] for e in m.plan(False, files)["include"] if e["component"] == "integration"}
+        one = got(["crates/engine/tests/typed_pathing.rs"])
+        self.assertEqual(one, {"Component: integration / typed pathing (Linux)"})
+        self.assertFalse(m.platform_relevant(["crates/engine/tests/typed_pathing.rs"]))
+        every = got(["crates/engine-typed/src/lib.rs"])
+        self.assertTrue(one < every and len(every) >= 15, every)
+
+
 class Affected(unittest.TestCase):
     def setUp(self):
         self.m = real_model()
@@ -283,7 +423,7 @@ class Affected(unittest.TestCase):
     def test_a_core_change_reaches_the_slow_jobs(self):
         plan, got = self.reached(["crates/engine-core/src/mem.rs"])
         self.assertIn("integration", got)
-        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 16)
+        self.assertEqual(sum(1 for e in plan["include"] if e["component"] == "integration"), 21)
 
     def test_a_fallout_change_reaches_every_component_whose_tests_link_it(self):
         _, got = self.reached(["crates/engine-fallout-cell/src/lib.rs"])
@@ -353,14 +493,41 @@ class RealMap(unittest.TestCase):
         self.assertIn("--features engine-core/test-support", script)  # tests/typed_seam.rs is cfg(feature = "test-support")
 
     def test_the_typed_jobs_build_the_harness_crates_at_opt_level_1_and_the_aggregator_does_not(self):
-        got = {e["name"]: e["script"] for e in real_model().entries("integration")}
+        got = {e["name"]: e["script"] for e in real_model().entries("integration", windows_full=False)}
         typed = [v for k, v in got.items() if "typed" in k]
-        self.assertEqual(len(typed), 15)
+        self.assertEqual(len(typed), 20)
         for script in typed:
             for crate in ("engine-core", "engine-typed", "engine"):
                 self.assertIn(f"--config profile.dev.package.{crate}.opt-level=1", script)
             self.assertNotIn("debug-assertions", script)  # the direct run of each case needs them: the dev default stays
         self.assertFalse([v for k, v in got.items() if "aggregator" in k and "--config" in v])
+
+    def test_the_typed_jobs_gate_on_linux_and_their_windows_twins_run_in_the_full_run_only(self):
+        m = real_model()
+        names = lambda **kw: {e["name"] for e in m.plan(**kw)["include"] if e["component"] == "integration"}
+        pr = names(run_all=False, files=["crates/engine-typed/src/lib.rs"])
+        self.assertTrue(pr and all(n.endswith("(Linux)") for n in pr if "typed" in n), pr)
+        full = names()
+        typed = [n for n in full if "typed" in n]
+        self.assertEqual(sum(n.endswith("(Linux)") for n in typed), sum(n.endswith("(Windows)") for n in typed))
+        self.assertGreaterEqual(len(typed), 40)
+        push = names(run_all=False, files=["crates/engine-typed/src/lib.rs"], windows_full=True)
+        self.assertTrue(any(n.endswith("(Windows)") and "typed" in n for n in push))
+
+    def test_the_aggregator_stays_on_windows(self):
+        m = real_model()
+        agg = [e for e in m.entries("integration", windows_full=False) if "aggregator" in e["name"]]
+        self.assertEqual([e["os"] for e in agg], ["windows-latest"])
+        self.assertEqual([e["os"] for e in m.entries("integration", windows=False)], ["ubuntu-latest"] * 20)
+
+    def test_a_job_that_names_os_windows_stays_on_windows_and_a_bad_windows_value_fails(self):
+        meta = workspace({"a": []})
+        c = comp("a", ["a"], runs_on="both", windows="nightly", job=[{"name": "x", "args": ["-p a"], "os": "windows"}, {"name": "y", "args": ["-p a --lib"]}])
+        m = model([c], meta, linux_ok=["a"])
+        self.assertEqual({(e["name"], e["os"]) for e in m.entries("a", windows_full=False)},
+                         {("Component: a / x (Windows)", "windows-latest"), ("Component: a / y (Linux)", "ubuntu-latest")})
+        bad = model([comp("a", ["a"], runs_on="both", windows="sometimes")], meta)
+        self.assertTrue(any("windows must be" in e for e in bad.errors))
 
     def test_the_old_shards_are_gone(self):
         self.assertFalse((REPO / ".fork" / "test-groups.json").exists())
@@ -374,7 +541,7 @@ class RealMap(unittest.TestCase):
         data = json.loads(out)
         # the count follows .fork/linux-ok.txt (one Linux twin per fully covered component), so compare with the model instead of a constant
         self.assertEqual(len(data["include"]), len(real_model().plan()["include"]))
-        self.assertEqual({"name", "component", "cache", "os", "informational", "shard", "workspaces", "timeout", "script"}, set(data["include"][0]))
+        self.assertEqual({"name", "component", "cache", "os", "informational", "shard", "workspaces", "timeout", "script", "archive"}, set(data["include"][0]))
 
     def test_the_cli_prints_what_a_file_list_reaches(self):
         files = Path(tempfile.mkdtemp()) / "files.txt"

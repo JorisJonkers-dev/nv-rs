@@ -672,11 +672,13 @@ const SHADER_MANAGER_00B54B10: u32 = 0x00b5_4b10;
 /// virtual slots +0x8C (with `first`) and +0xA8. Always ends in a jump to
 /// `second`'s slot +0xAC, whose result it passes on.
 pub fn fn_00b6c0d0(e: &mut Engine, first: u32, second: Ptr) -> u32 {
+    // A posted world draw is not joined: the shared pass-begin state is its own block (nv-rs#992).
     let holder = e.mem.u32(OBJECT_011F4748);
     let second = second.addr();
     if holder != 0 && first != 0 {
         e.call(OBJECT_METHOD_004E9BB0, &[holder, first]);
         e.mem.set_u32(CURRENT_011F917C, first);
+        engine_core::own_view::note_write(e, CURRENT_011F917C, 4);
         e.call(SHADER_MANAGER_00B54B10, &[second]);
         e.vcall(second, 0x8c, &[first]);
         e.vcall(second, 0xa8, &[]);

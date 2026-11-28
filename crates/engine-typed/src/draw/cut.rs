@@ -143,6 +143,8 @@ fn fill_reason(e: &mut Engine, camera: u32, acc: Ptr<BSShaderAccumulator>) -> Op
     super::statics::count(reason);
     if reason.is_none() {
         super::statics::take(e, acc);
+        super::statics::take_pass_state(e);
+        super::statics::take_pass_objects(e, Some(&passes));
         for &pass in &passes {
             own_clip_plane_caches(e, pass);
         }

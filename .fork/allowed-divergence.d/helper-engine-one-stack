@@ -1,0 +1,3 @@
+crates/engine-core/src/engine.rs  # a helper engine with a placed stack keeps its locals on that one stack whichever game thread is current, instead of stopping when the Havok helper is posted from another thread (nv-rs#997); drop when upstream does the same
+crates/engine-core/src/real_threads.rs  # test that a Havok step is posted only from the main game thread (nv-rs#997); drop when upstream does the same
+crates/engine-core/src/real_threads/havok.rs  # a Havok step is posted to nv-havok only from the main game thread, since the helper cannot yield to another game thread (nv-rs#997); drop when upstream does the same

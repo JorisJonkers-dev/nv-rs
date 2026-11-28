@@ -312,7 +312,7 @@ pub(crate) fn fog_ambient_inline(e: &mut Engine) {
         capture::set_own_at(e, AMBIENT.wrapping_add(4 * index), word);
     }
     let enable = capture::own_at::<u32>(e, AMBIENT_ENABLE);
-    e.set_global(enable.wrapping_add(8), 1u8);
+    capture::set_own_at(e, enable.wrapping_add(8), 1u8);
     capture::set_own_at(e, AMBIENT_SET, 1u8);
     capture::set_own_at(e, AMBIENT_FOG, 1u8);
 }
@@ -344,10 +344,9 @@ pub(crate) fn free_alpha_group(e: &mut Engine, group: u32) {
 /// and given back once the node is on the free list (the shader family's `pool_give`) (condition 4).
 pub(crate) fn give_node(e: &mut Engine, node: u32) {
     e.set_global(node.wrapping_add(8), 0u32);
-    e.call(LOCK_ENTER, &args![batch::POOL_LOCK, 0u32]);
+    batch::pool_lock(e);
     batch::pool_give(e, node);
 }
-const LOCK_ENTER: u32 = 0x0040_fbf0;
 
 // Typed from 00b71300
 /// `NiTPointerListBase::RemoveAll`, `thiscall(list)` (head, tail, count): each node in turn, from the head, back to
@@ -693,19 +692,19 @@ pub(crate) fn set_current_pass(e: &mut Engine, pass: u32) {
 /// A pass stage's texture (+8) set (condition 2).
 #[inline(always)]
 pub(crate) fn set_stage_texture(e: &mut Engine, stage: u32, texture: u32) {
-    e.set_global(stage.wrapping_add(8), texture);
+    capture::set_own_at(e, stage.wrapping_add(8), texture);
 }
 
 /// A constant switch object's word +0x20 set (condition 2).
 #[inline(always)]
-pub(crate) fn set_switch_word(e: &mut Engine, switch: u32, value: u32) {
-    e.set_global(switch.wrapping_add(0x20), value);
+pub fn set_switch_word(e: &mut Engine, switch: u32, value: u32) {
+    capture::set_own_at(e, switch.wrapping_add(0x20), value);
 }
 
 /// A constant entry switched on or off (its byte +8) for the pass (condition 2).
 #[inline(always)]
-pub(crate) fn set_entry_enabled(e: &mut Engine, entry: u32, on: bool) {
-    e.set_global(entry.wrapping_add(8), u8::from(on));
+pub fn set_entry_enabled(e: &mut Engine, entry: u32, on: bool) {
+    capture::set_own_at(e, entry.wrapping_add(8), u8::from(on));
 }
 
 /// A word of the shader constants the pass begin fills (the fog constants `011fa280`, their colour's
@@ -758,10 +757,27 @@ pub(crate) fn device_vertex_constants(
 /// The counted pointer at `slot` set to the word at `source`, the exe's own code (condition 7):
 /// nothing when they are equal; else the old object's count goes down (deleted at 0, its slot 4), the
 /// new one is stored (read again from `source` when `reread`) and, when not null, counted.
-pub(crate) fn assign_counted(e: &mut Engine, slot: u32, source: u32, reread: bool) {
-    let old = e.global::<u32>(slot);
-    let new = e.global::<u32>(source);
+///
+/// The drawing side's own pointer is only set in the packet: its old object is released (and deleted at zero) and the
+/// new one counted at the join ([`capture::end`]), not at this call as in the exe. Nothing may read these counts
+/// between the cut and the join; the objects are held meanwhile, so none is freed early, and the final counts and
+/// pointers are those of the serial order (the test `main_wins_the_pass_state_it_wrote_last_and_the_counts_follow`).
+pub fn assign_counted(e: &mut Engine, slot: u32, source: u32, reread: bool) {
+    let old = capture::own_at::<u32>(e, slot);
+    let new = capture::own_at::<u32>(e, source);
     if old == new {
+        // Main deciding while the drawing side holds the packet: its value is main's at the join.
+        capture::note_write(e, slot, 4);
+        return;
+    }
+    if capture::owns(e, slot, 4) {
+        // The drawing side: the pointer is its own, and the counts move at the join (`capture::end`).
+        let new = if reread {
+            capture::own_at::<u32>(e, source)
+        } else {
+            new
+        };
+        capture::set_own_at(e, slot, new);
         return;
     }
     if old != 0 {
@@ -770,41 +786,60 @@ pub(crate) fn assign_counted(e: &mut Engine, slot: u32, source: u32, reread: boo
             e.vcall(old, SLOT_DELETE, &[]);
         }
     }
-    let new = if reread { e.global::<u32>(source) } else { new };
-    e.set_global(slot, new);
+    let new = if reread {
+        capture::own_at::<u32>(e, source)
+    } else {
+        new
+    };
+    capture::set_own_at(e, slot, new);
     if new != 0 {
         engine_core::sync_direct::interlocked_increment(e, new.wrapping_add(4));
     }
 }
 
-/// The counted pointer at `slot` set to `object` through `00a5f860` (condition 7).
+/// The counted pointer at `slot` set to `object` through `00a5f860` (condition 7). The drawing side's own pointer is
+/// set in the packet, the counts left to the join; main's call notes what it decided ([`capture::note_write`], in the
+/// translation).
 #[inline(always)]
-pub(crate) fn set_counted(e: &mut Engine, slot: u32, object: u32) {
+pub fn set_counted(e: &mut Engine, slot: u32, object: u32) {
+    if capture::owns(e, slot, 4) {
+        if capture::own_at::<u32>(e, slot) != object {
+            capture::set_own_at(e, slot, object);
+        }
+        return;
+    }
     e.call(SET_COUNTED, &args![slot, object]);
 }
 
-/// The counted pointer at `slot` set from the one at `source` through `00c663d0` (condition 7).
+/// The counted pointer at `slot` set from the one at `source` through `00c663d0` (condition 7), as [`set_counted`].
 #[inline(always)]
-pub(crate) fn copy_counted(e: &mut Engine, slot: u32, source: u32) {
+pub fn copy_counted(e: &mut Engine, slot: u32, source: u32) {
+    if capture::owns(e, slot, 4) {
+        let new = capture::own_at::<u32>(e, source);
+        if capture::own_at::<u32>(e, slot) != new {
+            capture::set_own_at(e, slot, new);
+        }
+        return;
+    }
     e.call(COPY_COUNTED, &args![slot, source]);
 }
 
 /// A pass stage's texture (+8) as the draw left it, read back.
 #[inline(always)]
 pub(crate) fn stage_texture(e: &Engine, stage: u32) -> u32 {
-    e.global::<u32>(stage.wrapping_add(8))
+    capture::own_at::<u32>(e, stage.wrapping_add(8))
 }
 
 /// Whether a constant entry is switched on (its byte +8), read back.
 #[inline(always)]
-pub(crate) fn entry_is_enabled(e: &Engine, entry: u32) -> bool {
-    e.global::<u8>(entry.wrapping_add(8)) != 0
+pub fn entry_is_enabled(e: &Engine, entry: u32) -> bool {
+    capture::own_at::<u8>(e, entry.wrapping_add(8)) != 0
 }
 
 /// The shader's counted constant map at `offset` (+0x30 pixel, +0x34 vertex), read back.
 #[inline(always)]
-pub(crate) fn constant_map(e: &Engine, shader: u32, offset: u32) -> u32 {
-    e.global::<u32>(shader.wrapping_add(offset))
+pub fn constant_map(e: &Engine, shader: u32, offset: u32) -> u32 {
+    capture::own_at::<u32>(e, shader.wrapping_add(offset))
 }
 
 /// `size` bytes of constants from `from` copied into an entry's own buffer at `to` (`_memcpy`, the CRT
@@ -964,13 +999,18 @@ pub(crate) fn set_draw_count(e: &mut Engine, data: u32, count: u16) {
 /// The counted pointer at `slot` released and cleared, the exe's own code (condition 7): when it holds
 /// an object, its count goes down (deleted at 0, its slot 4) and the slot is cleared.
 pub(crate) fn clear_counted(e: &mut Engine, slot: u32) {
-    let old = e.global::<u32>(slot);
+    let old = capture::own_at::<u32>(e, slot);
+    if capture::owns(e, slot, 4) {
+        // The drawing side: its own pointer, the counts left to the join.
+        capture::set_own_at(e, slot, 0u32);
+        return;
+    }
     if old != 0 {
         let left = engine_core::sync_direct::interlocked_decrement(e, old.wrapping_add(4)) as u32;
         if left == 0 {
             e.vcall(old, SLOT_DELETE, &[]);
         }
-        e.set_global(slot, 0u32);
+        capture::set_own_at(e, slot, 0u32);
     }
 }
 
@@ -1001,7 +1041,7 @@ pub(crate) fn constant_byte(e: &Engine, at: u32) -> u8 {
 /// A constant entry's word at `offset` set (the light data entry's count, +0x20) (condition 2).
 #[inline(always)]
 pub(crate) fn set_entry_word(e: &mut Engine, entry: u32, offset: u32, value: u32) {
-    e.set_global(entry.wrapping_add(offset), value);
+    capture::set_own_at(e, entry.wrapping_add(offset), value);
 }
 
 /// A clip plane set on the device (`IDirect3DDevice9::SetClipPlane`, slot 0xdc: the index and the plane)

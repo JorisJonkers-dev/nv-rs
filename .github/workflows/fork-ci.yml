@@ -2,17 +2,17 @@
 # check (estate convention). The build is one job per engine component (fork-build.yml, .fork/components.toml,
 # docs/fork/CI.md); the repository's own checks run in parallel with it; Pipeline Complete gathers every result
 # and prints each component's result and duration. The two reusable workflows (hygiene, PR title) are jobs.
-# A description or title edit (pull_request `edited`) runs only the checks that read them (hygiene, PR title, the
-# replay point of Verify sync, Progress counts); the builds and code checks skip, and Pipeline Complete takes the
-# code's result from the latest finished run of the commits on the same head commit, so an edit cannot turn a red
-# pull request green and does not start the whole pipeline again. A change of the base branch (also an `edited`
-# event, with `changes.base`) runs everything: the merge with the new base was never checked.
+# This workflow runs for COMMITS only: a push, a new pull request, a reopen. Editing a pull request's title or
+# description does not start it (no `edited` trigger), so those edits create no "Pipeline Complete" check run and the
+# run of the commits stays the only source of the required check. The checks that read the title or the description
+# are in pr-text.yml. Here the Progress-Drop rule is not applied and the
+# Upstream-Commit trailer is not read; both are enforced there.
 # Upstream's own gate, .github/workflows/ci.yml (Windows, ~140 minutes), is not required here.
 name: Pipeline
 
 on:
   pull_request:
-    types: [opened, edited, reopened, synchronize]
+    types: [opened, reopened, synchronize]
   push:
     branches: [fork]
   workflow_dispatch:
@@ -21,11 +21,10 @@ on:
     - cron: '17 3 * * *'
 
 # A new commit on a branch cancels the run still going for the older one: runners are limited and the older
-# result is of no use. Not cancelled: a title edit (its own group, so it neither cancels nor is cancelled by a
-# push; no label events trigger this workflow, so a bot labelling a new pull request starts nothing) and the fork
-# branch (every commit there runs to the end, so it always has a finished run and its caches are saved).
+# result is of no use. Not cancelled: the fork branch (every commit there runs to the end, so it always has a
+# finished run and its caches are saved).
 concurrency:
-  group: pipeline-${{ github.ref == 'refs/heads/fork' && github.sha || format('{0}-{1}', github.event.pull_request.number || github.ref, github.event.action == 'edited' && !github.event.changes.base && github.run_id || 'commits') }}
+  group: pipeline-${{ github.ref == 'refs/heads/fork' && github.sha || format('{0}-commits', github.event.pull_request.number || github.ref) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/fork' }}
 
 permissions:
@@ -36,11 +35,13 @@ env:
   # that release's SHA256SUMS.
   TALLY_VERSION: v0.8.0
   TALLY_SHA256: 5dc487d3f84248e5a80a06f989acb31b3040ee77342656971437f76493e925e6
-  # The generated coverage-catalogue reports: the only files the `reports` job may commit on fork.
+  # The generated reports: the only files the `reports` job may commit on fork. The census reads crates/ and
+  # becomes stale on any engine change, so it is regenerated here rather than checked on every pull request.
   REPORT_FILES: >-
     docs/fork/coverage/FEATURES.md
     docs/fork/coverage/tally-report.json
     docs/fork/coverage/tally.svg
+    docs/fork/COMPONENT-CENSUS.md
 
 jobs:
   # Pull requests that only change documentation or the fork's own files skip the builds (see the diff step). The gate below still runs and still requires everything else.
@@ -51,6 +52,8 @@ jobs:
     outputs:
       code: ${{ steps.diff.outputs.code }}
       native: ${{ steps.diff.outputs.native }}
+      census: ${{ steps.diff.outputs.census }}
+      macos: ${{ steps.os.outputs.macos }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,9 +66,9 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          # A push to the fork branch always runs the builds: it verifies the result and fills the caches.
-          if [ "$EVENT" = push ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
-            { echo "code=true"; echo "native=true"; } >>"$GITHUB_OUTPUT"; echo "building (push, or no base to compare with)"; exit 0
+          # The nightly run and a manual run always run the builds in full. A push to fork, like a pull request, runs what its commits change.
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            { echo "code=true"; echo "native=true"; echo "census=false"; } >>"$GITHUB_OUTPUT"; echo "building (push, or no base to compare with)"; exit 0
           fi
           # On a pull request the Rust builds verify UPSTREAM's code. A change that only touches documentation or the fork's own
           # files (.fork/overlay-paths) cannot change that, so the builds are skipped. Files that steer the builds still count.
@@ -79,7 +82,7 @@ jobs:
           overlay = [o for o in overlay if o]
           # Files that steer the builds count when they are MODIFIED (an existing, verified behaviour changes); a newly added
           # file cannot change what an earlier run verified, and the push to the fork branch runs the full builds anyway.
-          steering = re.compile(r"^(\.fork/(linux-ok\.txt|components\.toml)|\.github/workflows/fork-build\.yml|scripts/fork/(linux_probe|components|libtest_summary|clippy_annotations)\.py|scripts/fork/run-component\.sh)$")
+          steering = re.compile(r"^(\.fork/(linux-ok\.txt|components\.toml)|\.github/workflows/fork-build\.yml|scripts/fork/(linux_probe|components|libtest_summary|clippy_annotations|test_archive)\.py|scripts/fork/run-component\.sh)$")
           docs = re.compile(r"^(docs/|LICENSE$|.*\.md$)")
           fork_owned = lambda f: any(f == o or (o.endswith("/") and f.startswith(o)) for o in overlay)
           code = [f for f in diff("ACDMRT") if not (docs.match(f) or fork_owned(f))]
@@ -89,7 +92,28 @@ jobs:
           # The macOS job also checks fork-owned crates (fork-window, the facade): it runs unless only documentation changed.
           native = [f for f in diff("ACDMRT") if not docs.match(f)]
           print("native=" + ("true" if native else "false"))
+          # A pull request that changes the census tool or its declarations must carry a matching report.
+          # Other changes are regenerated on fork, so they do not fail on a stale generated file.
+          census_files = ("research/component-census/", "docs/fork/COMPONENT-CENSUS.md")
+          census = [f for f in diff("ACDMRT") if f.startswith(census_files[0]) or f == census_files[1]]
+          print("census=" + ("true" if census else "false"))
           ' >>"$GITHUB_OUTPUT"
+      # The macOS job runs in the nightly run and a manual run, and on a pull request or a push to fork only when the change
+      # reaches code the job builds for macOS (d3d9-*, engine-platform, fork-window, the facade, or a cfg on macos), or
+      # the pull request has the label ci:all-os when its run starts (a label added later counts from the next push).
+      - id: os
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] || [ -z "${BASE:-}" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE" 2>/dev/null || jq -e 'index("ci:all-os")' <<<"$LABELS" >/dev/null; then
+            echo "macos=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          rustup toolchain install
+          echo "macos=$(python3 -I scripts/fork/components.py platform --macos --base "$BASE" --head "$HEAD")" >>"$GITHUB_OUTPUT"
 
   hygiene:
     name: Hygiene
@@ -99,23 +123,51 @@ jobs:
       pull-requests: read
     uses: JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
 
-  pr-title:
-    name: PR title
-    if: ${{ github.event_name == 'pull_request' }}
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/pr-title-check.yml@8e402cc4904be3f6bdb53bad3d9b5d7951bed491 # v0.50.3
+  # Upstream sync pull requests (branches sync/*) are merged by rebase, so each replayed commit lands on fork as it
+  # is and must be a conventional commit (docs/fork/KEEPING-IN-SYNC.md). Every other pull request is squash merged
+  # and only its title counts (pr-text.yml), so this job is skipped for them.
+  commit-messages:
+    name: Commit messages (sync branches)
+    if: ${{ startsWith(github.head_ref, 'sync/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.50.3
+          path: .github-workflows
+          persist-credentials: false
+      - name: Check every commit message
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
+          python3 .github-workflows/scripts/pr_title_check.py --range "${base}..${HEAD_SHA}"
 
   # Upstream's ci.yml, as one job per engine component (.fork/components.toml); see fork-build.yml.
   build:
     name: Build
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' && (github.event.action != 'edited' || github.event.changes.base) }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/fork-build.yml
 
   # The repository's own checks, in parallel with the builds. Separate steps so one failing check does not hide
   # the others.
   lint:
     name: Repository checks
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -138,6 +190,27 @@ jobs:
       - name: Script self-tests
         if: ${{ !cancelled() }}
         run: mise exec -- task scripts
+      # Cheap and tree-wide, so it also runs when the builds are skipped (the component `repo-checks` runs it on every
+      # build too). Its target directory is outside the checkout: the test reads every file git does not ignore.
+      - name: Repository hygiene (nvinspect)
+        if: ${{ !cancelled() }}
+        run: |
+          rustup toolchain install
+          CARGO_TARGET_DIR="$RUNNER_TEMP/target-hygiene" cargo test --locked -p nvinspect --test repo_hygiene
+      - name: Extender move inventory
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/fork/extender_move_inventory.py --check
+      # The census tool's own tests run on every pull request and push. The report it writes is generated on
+      # fork by "Catalogue results" and committed by "Catalogue reports"; checking it on every pull request
+      # failed unrelated engine changes (#965), so the check is limited to the tool and its declarations.
+      - name: Census tool tests
+        if: ${{ !cancelled() }}
+        run: |
+          rustup toolchain install
+          cargo test --locked --manifest-path research/component-census/Cargo.toml
+      - name: Component census
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.census == 'true' }}
+        run: cargo run --locked --quiet --manifest-path research/component-census/Cargo.toml -- --check
       - name: Secrets
         if: ${{ !cancelled() }}
         run: mise exec -- task secrets
@@ -146,7 +219,6 @@ jobs:
   # builds them. Runs on every pull request and push to fork: the crates are fork-owned, so the `changes` filter would skip them.
   facade:
     name: Facade crates
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -174,11 +246,12 @@ jobs:
 
   # The engine on macOS (Apple silicon, wgpu on Metal; nv-rs#378): the crates the Toolbox links and the window and
   # device layers build, and their tests that need no game run. The game's window on macOS is nv-rs#379; until then
-  # the device layer stays off screen there. Skipped when only documentation changed.
+  # the device layer stays off screen there. On a pull request it runs only for macOS-relevant changes or with the label
+  # ci:all-os; pushes to fork, the schedule and manual runs always run it.
   macos:
     name: macOS
     needs: changes
-    if: ${{ needs.changes.outputs.native == 'true' && (github.event.action != 'edited' || github.event.changes.base) }}
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     runs-on: macos-latest
     timeout-minutes: 120
     env:
@@ -217,7 +290,7 @@ jobs:
       # dependencies switch on nvse's test support. A failed or missing log here lowers covered, and the ratchet of
       # "Catalogue results" then fails the run.
       - name: Tests of the catalogue's packages
-        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/testlog"
@@ -227,7 +300,7 @@ jobs:
       # In this job, not one of its own: one macOS runner per run (a second one waited in the queue for this one), one
       # cache, and the crates.io and platform crates built above are reused. Same events as the step above.
       - name: Tagged engine tests
-        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         run: scripts/fork/tagged-engine-tests.sh "$RUNNER_TEMP/testlog/test-macos-engine.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
@@ -241,7 +314,7 @@ jobs:
   # none of those engine functions could be covered. Pushes, the schedule and manual runs only.
   linux-engine:
     name: Linux (tagged engine tests)
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -272,7 +345,7 @@ jobs:
   # (fork-coverage.yml, docs/fork/COVERAGE.md). Pull requests only; the nightly baseline is that workflow's own schedule.
   coverage:
     name: Coverage
-    if: ${{ github.event_name == 'pull_request' && (github.event.action != 'edited' || github.event.changes.base) }}
+    if: ${{ github.event_name == 'pull_request' }}
     permissions:
       contents: read
       actions: read
@@ -280,7 +353,8 @@ jobs:
     uses: ./.github/workflows/fork-coverage.yml
 
   # Upstream-owned files may differ from upstream only where .fork/allowed-divergence says so. Cheap, so it runs on every
-  # pull request and push, also when the builds are skipped; it needs the history and upstream's copy (main).
+  # pull request and push, also when the builds are skipped; it needs the history and upstream's copy (main). The
+  # replay point in the description is checked in pr-text.yml.
   verify-sync:
     name: Verify sync
     runs-on: ubuntu-latest
@@ -294,26 +368,12 @@ jobs:
         run: git fetch --no-tags origin main:refs/remotes/origin/main
       - name: No divergence outside the overlay
         run: scripts/fork/verify-sync.sh
-      # A pull request that replays upstream commits ends its description with the newest Upstream-Commit trailer, so a
-      # squash merge (its message is the description) keeps the replay point (scripts/fork/sync_trailer.py). Runs on
-      # description edits too (the `edited` trigger).
-      - name: The replay point survives the merge
-        if: ${{ github.event_name == 'pull_request' && !cancelled() }}
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-          BODY: ${{ github.event.pull_request.body }}
-        run: |
-          set -euo pipefail
-          printf '%s\n' "$BODY" >"$RUNNER_TEMP/pr-body.md"
-          python3 -I scripts/fork/sync_trailer.py "$BASE" "$HEAD" "$RUNNER_TEMP/pr-body.md"
 
   # A change to a layout constant of engine-core's mem.rs (the heap's ranges, the platform area, the extenders' code and
   # the helper area) must pass the window test before it merges (nv-rs#272, scripts/fork/layout_gate.py): the heap's
   # tests at lowered windows state the ranges' sizes, so a moved constant fails them. Cheap when nothing moved.
   layout-window:
     name: Layout window test
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -338,8 +398,8 @@ jobs:
 
   # The progress pictures' generator (docs/fork/PROGRESS.md, scripts/fork/progress) in check mode on every pull request,
   # so it cannot break unseen: its tests, two counts of the merged tree that must agree, and the counts against the base's
-  # summary. A count that goes down fails unless the description has a line `Progress-Drop: <reason>` (the `edited`
-  # trigger runs it again; the upstream replay's drops are only reported). Its report is in the run summary. The pictures themselves are committed after the merge
+  # summary. A count that goes down is only reported here; whether the description excuses it
+  # (`Progress-Drop: <reason>`) is checked in pr-text.yml. Its report is in the run summary. The pictures themselves are committed after the merge
   # (fork-progress.yml).
   progress:
     name: Progress counts
@@ -354,9 +414,6 @@ jobs:
       - name: Check the counts
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-          BODY: ${{ github.event.pull_request.body }}
-          HEAD_REF: ${{ github.head_ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
           rustup toolchain install
@@ -370,12 +427,8 @@ jobs:
           if git show "$BASE:docs/media/fork-progress.json" >"$RUNNER_TEMP/baseline.json" 2>/dev/null; then
             baseline=(--baseline "$RUNNER_TEMP/baseline.json")
           fi
-          allow=()
-          printf '%s\n' "$BODY" | tr -d '\r' >"$RUNNER_TEMP/pr-body.md"
-          if grep -qE '^Progress-Drop: *[^ ]' "$RUNNER_TEMP/pr-body.md"; then allow=(--allow-drop); fi
-          # The upstream replay (this repository's own sync branch) carries upstream's changes as they are: its drops
-          # are reported, not refused.
-          if [ "$HEAD_REF" = sync/upstream ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then allow=(--allow-drop); fi
+          # A drop is reported here, never refused: the description's Progress-Drop line is read by pr-text.yml.
+          allow=(--allow-drop)
           "${tool[@]}" check --sources "$RUNNER_TEMP/pins" --ledger "$RUNNER_TEMP/ledger.tsv" "${baseline[@]}" "${allow[@]}" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -412,11 +465,12 @@ jobs:
   # holds: the covered (and tagged) count does not drop below the report of the commit before
   # (docs/fork/coverage/tally-report.json). On a push the step also renders the reports for the `reports` job.
   # Pull requests run only the components a change reaches, so their results would be partial: they keep the
-  # check without results in "Progress counts".
+  # check without results in "Progress counts". On a push the step also regenerates the component census from the
+  # tested commit, so an engine change cannot leave the generated report stale on fork.
   catalogue:
     name: Catalogue results
     needs: [changes, build, macos, linux-engine]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -503,6 +557,13 @@ jobs:
           # Depth 2 (areas and groups): the items would add one row per engine function, about 15 MB per commit.
           "${tally[@]}" report "${args[@]}" --depth 2 --format json --out docs/fork/coverage/tally-report.json
           "${tally[@]}" report "${args[@]}" --depth 1 --format svg --out docs/fork/coverage/tally.svg
+          # Regenerate the census from this worktree's crates/ and declarations. The paths are explicit because
+          # CARGO_MANIFEST_DIR is baked into a cached binary; CARGO_TARGET_DIR is outside the worktree, so the
+          # only tracked change is the report the `reports` job commits with the others.
+          cargo run --locked --quiet --manifest-path research/component-census/Cargo.toml -- \
+            --root "$RUNNER_TEMP/render" \
+            --components "$RUNNER_TEMP/render/research/component-census/components.tsv" \
+            --out "$RUNNER_TEMP/render/docs/fork/COMPONENT-CENSUS.md"
           # Only the report files may change; anything else stops the run (target/ is ignored).
           # shellcheck disable=SC2086
           printf '%s\n' $REPORT_FILES >"$RUNNER_TEMP/allowed"
@@ -521,18 +582,24 @@ jobs:
         if: ${{ !cancelled() && steps.catalogue.outputs.reports == 'changed' }}
         with:
           name: report-files
-          path: ${{ runner.temp }}/render/docs/fork/coverage/
+          # Both paths are relative to their common root (docs/fork/) in the artifact: the coverage
+          # files keep their `coverage/` prefix and the census sits beside that folder. The reports
+          # job strips `docs/fork/` when copying the files back (see `${f#docs/fork/}` below).
+          path: |
+            ${{ runner.temp }}/render/docs/fork/coverage/
+            ${{ runner.temp }}/render/docs/fork/COMPONENT-CENSUS.md
           retention-days: 3
 
   pipeline-complete:
     name: Pipeline Complete
-    needs: [changes, hygiene, pr-title, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
+    needs: [changes, hygiene, commit-messages, lint, verify-sync, layout-window, progress, build, coverage, facade, macos, linux-engine, catalogue]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -541,30 +608,14 @@ jobs:
 
       # A skipped job fails, except the four that only run on pull requests (hygiene also skips when
       # its override label is set), "Catalogue results" and the Linux tagged-engine-test job on a pull request (they run on fork only), the build when only documentation or fork-owned files changed and the macOS job
-      # when only documentation changed. On a description edit the builds and code checks skip (the next step).
+      # when no macOS code changed (the `os` step of `changes`).
       - name: Every job passed
         env:
           NEEDS: ${{ toJSON(needs) }}
-          ACTION: ${{ github.event.action == 'edited' && !github.event.changes.base && 'edited' || 'full' }}
         run: |
           set -euo pipefail
-          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" --arg act "$ACTION" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "pr-title", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and $ev == "pull_request") or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.native == "false") or ((.key | IN("build", "macos", "lint", "facade", "layout-window")) and $act == "edited") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
+          failed="$(jq -r --arg ev "$GITHUB_EVENT_NAME" '. as $n | to_entries[] | select(.value.result != "success") | select(.value.result != "skipped" or ((.key | IN("hygiene", "commit-messages", "coverage", "progress")) or ((.key == "catalogue" or .key == "linux-engine") and ($ev != "schedule" and $ev != "workflow_dispatch")) or ((.key == "build") and $n.changes.outputs.code == "false") or ((.key == "macos") and $n.changes.outputs.macos == "false") | not)) | "\(.key): \(.value.result)"' <<<"$NEEDS")"
           if [ -n "$failed" ]; then echo "::error title=Pipeline::$failed"; exit 1; fi
-
-      # A description edit checked only the title and description; the code's result is that of the newest run of this
-      # workflow on the same head commit whose "Repository checks" ran (a run of the commits, not of another edit). While
-      # that run is still going this fails, and that run's own Pipeline Complete, finishing later, is the one that counts.
-      - name: The commits' run passed
-        if: ${{ github.event.action == 'edited' && !github.event.changes.base }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          RUN_ID: ${{ github.run_id }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-        run: python3 -I scripts/fork/edit_run_gate.py
 
       # Read-only; shown whether the pipeline passed or not: every component's result and duration.
       - name: Summary of the run
@@ -573,17 +624,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/fork/pipeline_summary.py --run "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --exclude "Pipeline Complete" >>"$GITHUB_STEP_SUMMARY"
 
-  # On a push to fork, the coverage-catalogue reports rendered by "Catalogue results" go onto fork as one commit of those
-  # files only, marked with the skip-ci marker, when one changed and every job passed. This job runs no code of the
-  # repository: a fresh checkout, the rendered files copied in, a commit and a push with the token of raul-progress-bot
+  # On a push to fork, the coverage-catalogue reports and the component census rendered by "Catalogue results" go onto
+  # fork as one commit of generated files only, marked with the skip-ci marker, when one changed and every job passed.
+  # This job runs no repository code: a fresh checkout, the rendered files copied in, a commit and a push with the
+  # token of raul-progress-bot
   # (contents write, metadata read; the bypass actor of the ruleset "Fork line"; scripts/fork/setup-progress-bot.py).
   # Git hooks are off for that commit and push. Without the App's variable and secret nothing is pushed.
   reports:
     name: Catalogue reports
     needs: [catalogue, pipeline-complete]
-    # Explicit result checks: the implicit success() is false on a push, because the pull-request-only jobs upstream of
+    # Explicit result checks: the implicit success() is false here, because the pull-request-only jobs upstream of
     # Pipeline Complete are skipped there.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/fork' && needs.pipeline-complete.result == 'success' && needs.catalogue.outputs.reports == 'changed' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/fork' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.pipeline-complete.result == 'success' && needs.catalogue.outputs.reports == 'changed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -640,9 +692,12 @@ jobs:
             "${git[@]}" checkout --quiet --detach "$head"
           fi
           mkdir -p docs/fork/coverage
-          # upload-artifact stores the files relative to their folder, so docs/fork/coverage/tally.svg is tally.svg there.
+          # upload-artifact stored both paths relative to docs/fork/, so ${f#docs/fork/} names every
+          # file in the artifact, including COMPONENT-CENSUS.md. Refuse an empty file rather than
+          # committing a report that would blank the one already on fork.
           for f in $REPORT_FILES; do
-            cp "$RUNNER_TEMP/report-files/${f#docs/fork/coverage/}" "$f"
+            cp "$RUNNER_TEMP/report-files/${f#docs/fork/}" "$f"
+            test -s "$f" || { echo "::error title=Catalogue::empty report $f"; exit 1; }
           done
           # shellcheck disable=SC2086
           "${git[@]}" add -- $REPORT_FILES
@@ -653,3 +708,30 @@ jobs:
           "${git[@]}" commit --quiet -m "chore(catalogue): update the generated reports [skip ci]"
           "${git[@]}" push --quiet "$remote" "HEAD:refs/heads/fork"
           echo "Pushed $(git rev-parse --short HEAD)." >>"$GITHUB_STEP_SUMMARY"
+
+  # The nightly run is the only full run of fork. When it fails, one open issue (label nightly-failure) collects it: a new
+  # issue the first night, a comment with the run's link on each night after, until someone closes the issue.
+  nightly-issue:
+    name: Nightly failure issue
+    needs: [pipeline-complete]
+    if: ${{ always() && github.event_name == 'schedule' && needs.pipeline-complete.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ needs.pipeline-complete.result }}
+        run: |
+          set -euo pipefail
+          body="The nightly full run of the pipeline finished with \`$RESULT\`: $RUN_URL ($GITHUB_SHA)"
+          open="$(gh issue list --label nightly-failure --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --label nightly-failure --assignee ExtraToast --title "Nightly full pipeline run failed" --body "$body"
+          fi

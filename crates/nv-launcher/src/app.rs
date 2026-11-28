@@ -15,6 +15,7 @@ use crate::session::{self, Event};
 use crate::settings;
 use crate::sound;
 use crate::sound_files::Cue;
+use crate::stopped;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
@@ -36,13 +37,16 @@ fn look_of(game: Option<&Path>, fallout_ini: &Path, plain: bool) -> Look {
         return Look::plain();
     };
     let Some(g) = crate::game::Game::at(folder) else {
-        eprintln!("look: no game at {}: the port's own look", folder.display());
+        stopped::note(&format!(
+            "look: no game at {}: the port's own look",
+            folder.display()
+        ));
         return Look::plain();
     };
     match Look::from_game(&g, &[fallout_ini.to_path_buf()]) {
         Ok(l) => l,
         Err(why) => {
-            eprintln!("look: {why}: the port's own look");
+            stopped::note(&format!("look: {why}: the port's own look"));
             Look::plain()
         }
     }
@@ -196,6 +200,25 @@ pub fn append_output(lines: &mut Vec<String>, text: &str) {
     lines.drain(..extra);
 }
 
+/// The screen of a program's `output` (the mod installer's, play.sh's): its lines as the welcome
+/// text, which shows its end (new output brings it back there; Page Up and the wheel show the
+/// earlier lines, the installer's list above its question), what the player has `typed` at the
+/// prompt, and once the program has `ended` Back and Exit.
+pub fn output_screen(output: &[String], ended: bool, typed: String) -> Screen {
+    Screen {
+        title: "-nv-rs-".into(),
+        welcome: output.to_vec(),
+        follow_end: true,
+        typed,
+        entries: if ended {
+            vec!["Back".into(), EXIT.into()]
+        } else {
+            Vec::new()
+        },
+        ..Default::default()
+    }
+}
+
 /// Esc's entry: the screen's Back, No or Don't send, else its last (Exit, OK); none without
 /// entries.
 pub fn back_entry(entries: &[String]) -> Option<usize> {
@@ -222,6 +245,18 @@ pub fn first_size(monitor: Option<(f64, f64)>) -> (f64, f64) {
     };
     let height = h.min(mh * HEIGHT_SHARE).min(mw * 0.9 * 3.0 / 4.0);
     ((height * 4.0 / 3.0).floor(), height.floor())
+}
+
+/// The smallest the window may be made, in the monitor's logical units: half the terminal's
+/// size, but never more than the first size (`first`, [`first_size`]), so a monitor that says it
+/// is very small in logical units (a scale factor larger than its height allows, as a monitor
+/// reporting a wrong size in millimetres can give on X11) never gets a window taller or wider
+/// than itself, its bottom rows off the screen.
+pub fn least_size(first: (f64, f64)) -> (f64, f64) {
+    (
+        (f64::from(screen::WIDTH) / 2.0).min(first.0),
+        (f64::from(screen::HEIGHT) / 2.0).min(first.1),
+    )
 }
 
 /// Where a window of `size` stands centred on a monitor at `origin` of `monitor`'s size (all in
@@ -487,21 +522,58 @@ pub fn frameless(a: winit::window::WindowAttributes) -> winit::window::WindowAtt
     a.with_title("nv-rs").with_decorations(false)
 }
 
-/// The entry under the window position `pos` (pixels) in a window of `window` pixels, the
-/// terminal's picture fitted into it ([`gpu::fit`]) and its rows laid out as `rows`: the index of
-/// a shown entry, none above, below, left or right of them.
-pub fn row_hit(window: (u32, u32), rows: &screen::Rows, pos: (f64, f64)) -> Option<usize> {
-    let (x, y, w, h) = gpu::fit((screen::WIDTH, screen::HEIGHT), window);
-    if w == 0 || h == 0 || rows.row == 0 {
-        return None;
-    }
-    let px = (pos.0 - x as f64) * screen::WIDTH as f64 / w as f64;
-    let py = (pos.1 - y as f64) * screen::HEIGHT as f64 / h as f64;
-    if px < rows.x as f64 || px > (rows.x + rows.width as i32) as f64 || py < rows.top as f64 {
+/// The terminal's screen's own size, in its units.
+pub const SCREEN: (u32, u32) = (screen::WIDTH, screen::HEIGHT);
+
+/// The entry under the window position `pos` (pixels), the screen standing in the window as
+/// `framing` puts it ([`gpu::framing`]) and its rows laid out as `rows`: the index of a shown
+/// entry, none above, below, left or right of them.
+pub fn row_hit(framing: &gpu::Framing, rows: &screen::Rows, pos: (f64, f64)) -> Option<usize> {
+    let (px, py) = framing.in_screen(pos)?;
+    if rows.row == 0
+        || px < rows.x as f64
+        || px > (rows.x + rows.width as i32) as f64
+        || py < rows.top as f64
+    {
         return None;
     }
     let k = ((py - rows.top as f64) / rows.row as f64) as usize;
     (k < rows.shown).then_some(rows.first + k)
+}
+
+/// The window's own button ([`screen::buttons`], in the picture's top-right corner, so the
+/// window's) under the window position `pos` (pixels), the picture standing in the window as
+/// `framing` puts it, as for [`row_hit`].
+pub fn button_hit(framing: &gpu::Framing, look: &Look, pos: (f64, f64)) -> Option<screen::Button> {
+    let p = framing.in_picture(pos)?;
+    screen::button_at(look, framing.picture.0, p)
+}
+
+/// A window the minimise button minimises: winit's (on every system), or a test's own.
+pub trait Minimise {
+    fn minimise(&self);
+}
+
+impl Minimise for winit::window::Window {
+    fn minimise(&self) {
+        self.set_minimized(true);
+    }
+}
+
+/// A press of the window's `button`: Minimise minimises `window` and does nothing more; Exit
+/// does what the menu's Exit does ([`on_enter`]'s), or while Play's work runs (`working`: no
+/// screen offers Exit then) what closing the window does then ([`Act::Close`]).
+pub fn press_button(button: screen::Button, working: bool, window: Option<&impl Minimise>) -> Act {
+    match button {
+        screen::Button::Minimise => {
+            if let Some(w) = window {
+                w.minimise();
+            }
+            Act::Nothing
+        }
+        screen::Button::Exit if working => Act::Close,
+        screen::Button::Exit => Act::Exit,
+    }
 }
 
 /// Whether a left press moves the window (it has no title bar): anywhere but on an entry
@@ -529,10 +601,10 @@ pub enum Kind {
     Output,
     /// play.sh has ended badly: Back or Exit.
     Ended,
-    /// The Settings list (its rows, Testing, Back).
+    /// The Settings list (its rows, the lists it opens, Back).
     Settings,
-    /// The Testing list (its rows, Back).
-    Testing,
+    /// A list Settings opens ([`SUBLISTS`]: its rows, Back).
+    Sublist,
     /// One row's choices (and Back).
     Choices,
     /// What a crash report holds, the first of the crash reports screens (at the first start,
@@ -562,7 +634,8 @@ pub enum Act {
     TypeLine(String),
     BackToStart,
     OpenSettings,
-    OpenTesting,
+    /// A list Settings opens.
+    OpenList(settings::List),
     /// The row at this place of the list on screen.
     OpenChoices(usize),
     /// The choice of the row whose choices show.
@@ -584,6 +657,9 @@ pub enum Act {
     OpenConsentFromSettings,
     /// The crash reports screens left unanswered: to where they were opened from.
     CloseConsent,
+    /// The exit button while Play's work runs: only the window goes, as when it is closed then
+    /// ([`App::close_while_working`]).
+    Close,
     Nothing,
 }
 
@@ -656,12 +732,12 @@ pub fn about_text(in_force: Option<Consent>) -> Vec<String> {
     text
 }
 
-/// The question: where reports go, that only the report goes (where the player was in the game
-/// and an F12 report's note stay on this PC), that nothing is sent before an answer, and, where
-/// this copy of nv-rs cannot send (`can_send`), that it cannot.
+/// The question: where reports go, that a report sent includes where the player was in the game
+/// and an F12 report's note, that nothing is sent before an answer, and, where this copy of
+/// nv-rs cannot send (`can_send`), that it cannot.
 pub fn question_text(can_send: bool) -> Vec<String> {
     let mut text = vec![
-        "Send crash reports to Sentry (sentry.io), the crash-report service nv-rs's developers use? Only the report goes, not where you were or an F12 note. Settings can change this.".into(),
+        "Send crash reports to Sentry (sentry.io), the crash-report service nv-rs's developers use? The report includes where you were and your F12 note. Settings can change this.".into(),
         "Nothing is sent until you choose.".into(),
     ];
     if !can_send {
@@ -754,8 +830,8 @@ pub fn start_kind(refused: bool, answer: Consent, asked: bool) -> Kind {
 /// What Left or Right does on a Settings list's row at `index` (none: the row's own choices):
 /// the sounds row flips; the crash reports row opens its screens as Enter does, so no press
 /// there ever answers (sending is never switched on without the question).
-pub fn row_step_act(testing: bool, index: usize) -> Option<Act> {
-    if testing {
+pub fn row_step_act(list: settings::List, index: usize) -> Option<Act> {
+    if list != settings::List::Main {
         None
     } else if index == settings::ROWS.len() {
         Some(Act::ToggleSounds)
@@ -789,8 +865,16 @@ pub fn keep_consent(own: &Path, refused: bool, answer: Consent, now: bool) -> Op
     })
 }
 
-/// The Settings list's entry that opens the Testing list, and the start screen's for Settings.
-pub const TESTING_ENTRY: &str = "Testing";
+/// The lists the Settings list opens, in its order after the crash reports row: the table's keys
+/// outside the fixes, and every fix row ([`settings::List`]).
+pub const SUBLISTS: [settings::List; 2] = [settings::List::More, settings::List::Fixes];
+
+/// The Settings list's entry that opens `list` (a [`SUBLISTS`] one), and its place there.
+pub fn sublist_entry(list: settings::List) -> usize {
+    CRASH_ROW_INDEX + 1 + SUBLISTS.iter().position(|l| *l == list).unwrap_or(0)
+}
+
+/// The start screen's entry for Settings.
 pub const SETTINGS: &str = "Settings";
 pub const BACK: &str = "Back";
 
@@ -1113,12 +1197,15 @@ pub fn on_enter(kind: Kind, typed: &str, chosen: usize, entry: &str) -> Act {
         Kind::Message => Act::Answer(chosen),
         Kind::Folder => Act::Folder(typed_folder),
         Kind::Output => Act::TypeLine(typed.to_string()),
-        Kind::Settings if entry == TESTING_ENTRY => Act::OpenTesting,
+        Kind::Settings if SUBLISTS.iter().any(|l| l.name() == entry) => SUBLISTS
+            .into_iter()
+            .find(|l| l.name() == entry)
+            .map_or(Act::Nothing, Act::OpenList),
         Kind::Settings if entry.starts_with(SOUNDS_ROW) => Act::ToggleSounds,
         Kind::Settings if entry.starts_with(CRASH_ROW) => Act::OpenConsentFromSettings,
         Kind::Settings if entry == BACK => Act::BackToStart,
-        Kind::Testing if entry == BACK => Act::OpenSettings,
-        Kind::Settings | Kind::Testing => Act::OpenChoices(chosen),
+        Kind::Sublist if entry == BACK => Act::OpenSettings,
+        Kind::Settings | Kind::Sublist => Act::OpenChoices(chosen),
         Kind::Choices if entry == BACK => Act::BackToList,
         Kind::Choices => Act::Save(entry.to_string()),
         Kind::Consent if entry == CHOOSE_REPORTS => Act::OpenQuestion,
@@ -1137,27 +1224,99 @@ pub fn short(choice: &str) -> &str {
     choice.split(" (").next().unwrap_or(choice)
 }
 
-/// The Settings list's (or the Testing list's) entries for what `shown` says: each row with its
-/// value, then (the main list) the launcher's sounds (`sounds`: on or off), crash reports
-/// (`crash`: the player's answer) and Testing, then Back.
+/// A row as a list shows it: its label and its value (the value's note left out).
+pub fn row_entry(row: settings::Row, shown: &settings::Files) -> String {
+    format!("{}: {}", row.label(), short(&row.current(shown)))
+}
+
+/// A Settings list's entries for what `shown` says: each of `list`'s rows with its value, then
+/// (the main list) the launcher's sounds (`sounds`: on or off), crash reports (`crash`: the
+/// player's answer) and the lists it opens, then Back.
 pub fn settings_entries(
-    rows: &[settings::Row],
+    list: settings::List,
     shown: &settings::Files,
-    testing: bool,
     sounds: bool,
     crash: Consent,
 ) -> Vec<String> {
-    let mut e: Vec<String> = rows
-        .iter()
-        .map(|r| format!("{}: {}", r.label(), short(&r.current(shown))))
-        .collect();
-    if !testing {
+    let mut e: Vec<String> = list.rows().iter().map(|&r| row_entry(r, shown)).collect();
+    if list == settings::List::Main {
         e.push(sounds_entry(sounds));
         e.push(crash_entry(crash));
-        e.push(TESTING_ENTRY.into());
+        e.extend(SUBLISTS.iter().map(|l| l.name().to_string()));
     }
     e.push(BACK.into());
     e
+}
+
+/// A Settings list's screen for what `shown` says: `note` (a save that failed), where choices
+/// are saved (`in_files`: in the game's files at once, else for Play to move in), the list's own
+/// lines, then its entries ([`settings_entries`]), the first highlighted.
+pub fn list_screen(
+    list: settings::List,
+    shown: &settings::Files,
+    in_files: bool,
+    note: Option<String>,
+    sounds: bool,
+    crash: Consent,
+) -> Screen {
+    let mut welcome = Vec::new();
+    if let Some(note) = note {
+        welcome.push(note);
+    }
+    welcome.push(if in_files {
+        "Saved at once, for both ways of playing (with and without mods). The game reads them at its next start.".to_string()
+    } else {
+        "Saved for Play to move into the game's own files at its next start.".to_string()
+    });
+    welcome.extend(list.notes());
+    Screen {
+        title: format!("-{}-", list.name()),
+        welcome,
+        entries: settings_entries(list, shown, sounds, crash),
+        ..Default::default()
+    }
+}
+
+/// A row's choices screen for what `shown` says: what it is now (and, for a fix row, whether
+/// that comes from the preset), what it does (a table row's plain text; for the preset, how many
+/// fixes are chosen one by one), its choices with the one it has highlighted, then Back.
+/// `desktop` is the main monitor's size, for the resolution row.
+pub fn choices_screen(row: settings::Row, shown: &settings::Files, desktop: (u32, u32)) -> Screen {
+    let now = row.current(shown);
+    let mut entries = row.choices(shown, desktop);
+    let highlighted = entries.iter().position(|c| *c == now).unwrap_or(0);
+    entries.push(BACK.into());
+    let mut welcome = vec![row.now_line(shown)];
+    welcome.extend(row.about());
+    if row == settings::Row::GameFixes {
+        let chosen = settings::List::Fixes
+            .rows()
+            .iter()
+            .filter(|r| r.chosen_here(shown).is_some())
+            .count();
+        if chosen > 0 {
+            welcome.push(format!(
+                "Kept with either: the {chosen} chosen in {}.",
+                settings::List::Fixes.name()
+            ));
+        }
+    }
+    Screen {
+        title: format!("-{}-", row.label()),
+        welcome,
+        entries,
+        highlighted,
+        ..Default::default()
+    }
+}
+
+/// Where the Settings list opens from the screen `mode` shows: on the entry of the list it came
+/// back from, else at its top.
+fn settings_entry_from(mode: &Mode) -> usize {
+    match mode {
+        Mode::Settings { list } if *list != settings::List::Main => sublist_entry(*list),
+        _ => 0,
+    }
 }
 
 /// The crash reports row as the list shows it.
@@ -1223,13 +1382,13 @@ enum Mode {
     Output(Option<i32>),
     /// nv-rs may not write in its own folder: only Exit.
     Refused,
-    /// The Settings list (`testing`: the Testing list).
+    /// A Settings list: the main one, or one it opens.
     Settings {
-        testing: bool,
+        list: settings::List,
     },
-    /// The choices of the row at `index` of the Settings (or Testing) list.
+    /// The choices of the row at `index` of a Settings list.
     Choices {
-        testing: bool,
+        list: settings::List,
         index: usize,
     },
     /// One of the crash reports screens (`screen`: `Kind::Consent`, `Question` or `Sample`).
@@ -1249,20 +1408,13 @@ impl Mode {
             Mode::Output(None) => Kind::Output,
             Mode::Output(Some(_)) => Kind::Ended,
             Mode::Refused => Kind::Refused,
-            Mode::Settings { testing: false } => Kind::Settings,
-            Mode::Settings { testing: true } => Kind::Testing,
+            Mode::Settings {
+                list: settings::List::Main,
+            } => Kind::Settings,
+            Mode::Settings { .. } => Kind::Sublist,
             Mode::Choices { .. } => Kind::Choices,
             Mode::Consent { screen } => *screen,
         }
-    }
-}
-
-/// The rows of the Settings list, or of the Testing list.
-fn rows_of(testing: bool) -> &'static [settings::Row] {
-    if testing {
-        &settings::TESTING
-    } else {
-        &settings::ROWS
     }
 }
 
@@ -1287,6 +1439,8 @@ struct App {
     frame_ms: f64,
     rows: Option<screen::Rows>,
     mouse: (f64, f64),
+    /// The window's button under the mouse (drawn highlighted).
+    hover: Option<screen::Button>,
     card: Card,
     /// The action named on the command line, started as soon as the window is there.
     action: Option<Vec<OsString>>,
@@ -1332,27 +1486,48 @@ struct App {
     start_note: Option<String>,
 }
 
+/// Play's work running on its thread ([`start_work`]): a window that stops while it runs waits
+/// for its end ([`after_panic`]).
+static WORK: std::sync::Mutex<Option<std::thread::JoinHandle<i32>>> = std::sync::Mutex::new(None);
+
+/// The work still running, taken (a panic took the window while it ran).
+fn running_work() -> Option<std::thread::JoinHandle<i32>> {
+    WORK.lock().ok()?.take().filter(|work| !work.is_finished())
+}
+
 /// Starts Play's work on a thread of its own with `args` (Play.exe's, or play.sh's on Linux and
 /// macOS); it always sends `Ended` with its exit code ([`work_code`]: 101 after a panic).
 fn start_work(args: Vec<OsString>) {
-    std::thread::spawn(move || {
-        let code = work_code(move || {
-            #[cfg(windows)]
-            {
-                let args: Vec<String> = args
-                    .iter()
-                    .map(|a| a.to_string_lossy().into_owned())
-                    .collect();
-                crate::play::run_play(&args)
-            }
-            #[cfg(not(windows))]
-            match crate::play_unix::script() {
-                Some(script) => crate::play_unix::run(&script, &args),
-                None => 127,
-            }
-        });
-        session::send(Event::Ended(code));
+    start_work_with(move || {
+        #[cfg(windows)]
+        {
+            let args: Vec<String> = args
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            crate::play::run_play(&args)
+        }
+        #[cfg(not(windows))]
+        match crate::play_unix::script() {
+            Some(script) => crate::play_unix::run(&script, &args),
+            None => 127,
+        }
     });
+}
+
+/// [`start_work`] with the work `work`: marked as running ([`stopped::set_working`]: a crash
+/// meanwhile starts no second Play) from before it starts until it has ended.
+fn start_work_with(work: impl FnOnce() -> i32 + Send + 'static) {
+    stopped::set_working(true);
+    let work = std::thread::spawn(move || {
+        let code = work_code(work);
+        stopped::set_working(false);
+        session::send(Event::Ended(code));
+        code
+    });
+    if let Ok(mut running) = WORK.lock() {
+        *running = Some(work);
+    }
 }
 
 /// Play's arguments, the same for Play.exe's steps and play.sh: `--mods` for Play with mods, and
@@ -1637,8 +1812,11 @@ impl App {
             self.rows = Some(rows);
             canvas
         };
-        let picture = (screen::WIDTH, screen::HEIGHT);
-        gpu.upload(&canvas.pixels, picture);
+        // The 4:3 screen in the window's shape, the buttons in the window's corner.
+        let framing = gpu::framing(SCREEN, (config.width, config.height), gpu.most_side());
+        let mut canvas = canvas.placed(framing.picture, framing.screen_at);
+        screen::draw_buttons(&mut canvas, &self.look, self.hover);
+        gpu.upload(&canvas.pixels, framing.picture);
         use wgpu::CurrentSurfaceTexture as T;
         let (got, frame) = match surface.get_current_texture() {
             T::Success(f) | T::Suboptimal(f) => (Got::Texture, Some(f)),
@@ -1666,13 +1844,7 @@ impl App {
         };
         let view = frame.texture.create_view(&Default::default());
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        gpu.draw(
-            &mut encoder,
-            &view,
-            config.format,
-            (config.width, config.height),
-            picture,
-        );
+        gpu.draw(&mut encoder, &view, config.format, &framing);
         gpu.queue.submit([encoder.finish()]);
         gpu.queue.present(frame);
         self.frame.on_frame(FrameStep::Draw, key, Instant::now());
@@ -1710,7 +1882,9 @@ impl App {
         self.chosen_again
             .retain(|t| now.duration_since(*t) < CHOOSE_AGAIN_SPAN);
         self.chosen_again.push(now);
-        eprintln!("the launcher's drawing stopped ({why}): choosing its device again");
+        stopped::note(&format!(
+            "the launcher's drawing stopped ({why}): choosing its device again"
+        ));
         self.surface = None;
         self.config = None;
         self.gpu = None;
@@ -1722,7 +1896,7 @@ impl App {
         let size = window.inner_size();
         match gpu::choose(Some(window), (size.width, size.height)) {
             Ok(drawing) => {
-                eprintln!("drawing with {}", drawing.gpu.describe());
+                stopped::note(&format!("drawing with {}", drawing.gpu.describe()));
                 let Some((surface, config)) = drawing.surface else {
                     unreachable!("a window's drawing always has its surface");
                 };
@@ -1783,10 +1957,33 @@ impl App {
         self.show_start();
     }
 
+    /// How the screen stands in the window now, as [`App::redraw`] draws it.
+    fn framing(&self) -> Option<gpu::Framing> {
+        let (config, gpu) = (self.config.as_ref()?, self.gpu.as_ref()?);
+        Some(gpu::framing(
+            SCREEN,
+            (config.width, config.height),
+            gpu.most_side(),
+        ))
+    }
+
     /// The row under the window position, if any.
     fn row_at(&self, pos: (f64, f64)) -> Option<usize> {
-        let (config, rows) = (self.config.as_ref()?, self.rows.as_ref()?);
-        row_hit((config.width, config.height), rows, pos)
+        row_hit(&self.framing()?, self.rows.as_ref()?, pos)
+    }
+
+    /// The window's button under the window position, if any.
+    fn button_at(&self, pos: (f64, f64)) -> Option<screen::Button> {
+        button_hit(&self.framing()?, &self.look, pos)
+    }
+
+    /// The button under the mouse is `over` now: drawn again when that changes.
+    fn set_hover(&mut self, over: Option<screen::Button>) {
+        if self.hover != over {
+            self.hover = over;
+            self.frame.changed();
+            self.request_redraw();
+        }
     }
 
     /// Whether what is typed goes to the prompt on this screen.
@@ -1795,7 +1992,10 @@ impl App {
         match act {
             Act::EndIntro => self.end_intro(),
             Act::Play { mods, game } => self.play(mods, game),
-            Act::Exit => event_loop.exit(),
+            Act::Exit => {
+                stopped::leave();
+                event_loop.exit();
+            }
             Act::Mods => self.mods(),
             Act::ImportSaves => self.import_saves(),
             Act::Answer(i) => {
@@ -1819,22 +2019,27 @@ impl App {
                 self.add_output(&format!("{line}\n"));
             }
             Act::BackToStart => self.show_start(),
-            Act::OpenSettings => self.show_settings(false, 0, None),
-            Act::OpenTesting => self.show_settings(true, 0, None),
+            Act::OpenSettings => {
+                // Back from a list it opened: on that list's entry.
+                let at = settings_entry_from(&self.mode);
+                self.show_settings(settings::List::Main, at, None)
+            }
+            Act::OpenList(list) => self.show_settings(list, 0, None),
             Act::OpenChoices(index) => {
-                let testing = matches!(self.mode, Mode::Settings { testing: true });
-                if index < rows_of(testing).len() {
-                    self.show_choices(testing, index);
+                if let Mode::Settings { list } = self.mode {
+                    if index < list.rows().len() {
+                        self.show_choices(list, index);
+                    }
                 }
             }
             Act::Save(choice) => {
-                if let Mode::Choices { testing, index } = self.mode {
-                    self.save(testing, index, &choice);
+                if let Mode::Choices { list, index } = self.mode {
+                    self.save(list, index, &choice);
                 }
             }
             Act::BackToList => {
-                if let Mode::Choices { testing, index } = self.mode {
-                    self.show_settings(testing, index, None);
+                if let Mode::Choices { list, index } = self.mode {
+                    self.show_settings(list, index, None);
                 }
             }
             Act::ToggleSounds => self.toggle_sounds(),
@@ -1844,6 +2049,7 @@ impl App {
             Act::OpenQuestion => self.show_question(),
             Act::OpenConsentFromSettings => self.open_consent_from_settings(),
             Act::CloseConsent => self.close_consent(None),
+            Act::Close => self.close_while_working(event_loop),
             Act::Nothing => {}
         }
     }
@@ -1861,7 +2067,7 @@ impl App {
         };
         self.sounds_on = on;
         self.update_sound();
-        self.show_settings(false, settings::ROWS.len(), note);
+        self.show_settings(settings::List::Main, settings::ROWS.len(), note);
     }
 
     /// The crash reports screens opened from Settings' row (Enter, a click, Left or Right).
@@ -1949,7 +2155,7 @@ impl App {
     /// was not kept: Settings on its row, or the start screen.
     fn close_consent(&mut self, note: Option<String>) {
         if self.consent_flow.close() {
-            self.show_settings(false, CRASH_ROW_INDEX, note);
+            self.show_settings(settings::List::Main, CRASH_ROW_INDEX, note);
         } else {
             self.start_note = note;
             self.show_start();
@@ -2028,9 +2234,9 @@ impl App {
         }
     }
 
-    /// The Settings list (or the Testing list), the row at `highlight` highlighted, with `note`
-    /// (a save that failed) above it.
-    fn show_settings(&mut self, testing: bool, highlight: usize, note: Option<String>) {
+    /// A Settings list, the row at `highlight` highlighted, with `note` (a save that failed)
+    /// above it.
+    fn show_settings(&mut self, list: settings::List, highlight: usize, note: Option<String>) {
         let profiles = crate::profiles::Profiles::at(&self.place.own);
         let (shown, in_files) = match profiles.shown().and_then(|s| Ok((s, profiles.in_files()?))) {
             Ok(v) => v,
@@ -2039,91 +2245,54 @@ impl App {
                     &format!("nv-rs cannot read its settings: {e}"),
                     &[BACK.to_string()],
                 );
-                self.show(Mode::Settings { testing }, s, true);
+                self.show(Mode::Settings { list }, s, true);
                 return;
             }
         };
-        let mut welcome = Vec::new();
-        if let Some(note) = note {
-            welcome.push(note);
-        }
-        welcome.push(if in_files {
-            "Saved at once, for both ways of playing (with and without mods). The game reads them at its next start.".to_string()
-        } else {
-            "Saved for Play to move into the game's own files at its next start.".to_string()
-        });
-        if testing {
-            welcome.push(
-                "Still being tried: the new lighting draws on Vulkan only; JIP LN for mods that need it."
-                    .into(),
-            );
-        }
-        let mut s = Screen {
-            title: if testing { "-Testing-" } else { "-Settings-" }.into(),
-            welcome,
-            entries: settings_entries(
-                rows_of(testing),
-                &shown,
-                testing,
-                self.sounds_on,
-                self.consent,
-            ),
-            ..Default::default()
-        };
+        let mut s = list_screen(list, &shown, in_files, note, self.sounds_on, self.consent);
         s.highlighted = highlight.min(s.entries.len() - 1);
         let retype = !matches!(self.mode, Mode::Settings { .. } | Mode::Choices { .. });
-        self.show(Mode::Settings { testing }, s, retype);
+        self.show(Mode::Settings { list }, s, retype);
     }
 
     /// The choices of the row at `index` of the list, the one it has highlighted.
-    fn show_choices(&mut self, testing: bool, index: usize) {
-        let row = rows_of(testing)[index];
+    fn show_choices(&mut self, list: settings::List, index: usize) {
+        let row = list.rows()[index];
         let profiles = crate::profiles::Profiles::at(&self.place.own);
         let shown = match profiles.shown() {
             Ok(s) => s,
-            Err(e) => return self.show_settings(testing, index, Some(format!("Not read: {e}"))),
+            Err(e) => return self.show_settings(list, index, Some(format!("Not read: {e}"))),
         };
-        let now = row.current(&shown);
-        let mut entries = row.choices(&shown, self.desktop);
-        let highlighted = entries.iter().position(|c| *c == now).unwrap_or(0);
-        entries.push(BACK.into());
-        let s = Screen {
-            title: format!("-{}-", row.label()),
-            welcome: vec![format!("Now: {now}")],
-            entries,
-            highlighted,
-            ..Default::default()
-        };
-        self.show(Mode::Choices { testing, index }, s, false);
+        let s = choices_screen(row, &shown, self.desktop);
+        self.show(Mode::Choices { list, index }, s, false);
     }
 
     /// `choice` saved for the row at `index`, then its list again (with what went wrong when it
     /// was not saved).
-    fn save(&mut self, testing: bool, index: usize, choice: &str) {
-        let row = rows_of(testing)[index];
+    fn save(&mut self, list: settings::List, index: usize, choice: &str) {
+        let row = list.rows()[index];
         let profiles = crate::profiles::Profiles::at(&self.place.own);
         let note = profiles
             .save(row, choice)
             .err()
             .map(|e| format!("Not saved: {e}"));
-        self.show_settings(testing, index, note);
+        self.show_settings(list, index, note);
     }
 
-    /// Left or Right on a row of the Settings (or Testing) list: its next or previous choice,
-    /// saved at once.
+    /// Left or Right on a row of a Settings list: its next or previous choice, saved at once.
     fn step_row(&mut self, forward: bool) {
-        let Mode::Settings { testing } = self.mode else {
+        let Mode::Settings { list } = self.mode else {
             return;
         };
         let index = self.screen.highlighted;
         // The sounds row has two choices: either way flips it. The crash reports row opens its
         // screens ([`row_step_act`]).
-        match row_step_act(testing, index) {
+        match row_step_act(list, index) {
             Some(Act::ToggleSounds) => return self.toggle_sounds(),
             Some(Act::OpenConsentFromSettings) => return self.open_consent_from_settings(),
             _ => {}
         }
-        let Some(&row) = rows_of(testing).get(index) else {
+        let Some(&row) = list.rows().get(index) else {
             return;
         };
         let profiles = crate::profiles::Profiles::at(&self.place.own);
@@ -2135,7 +2304,7 @@ impl App {
             &row.current(&shown),
             forward,
         ) {
-            self.save(testing, index, &next);
+            self.save(list, index, &next);
         }
     }
 
@@ -2196,16 +2365,7 @@ impl App {
             _ => None,
         };
         let typed = std::mem::take(&mut self.screen.typed);
-        let mut s = Screen {
-            title: "-nv-rs-".into(),
-            welcome: self.output.clone(),
-            follow_end: true,
-            typed,
-            ..Default::default()
-        };
-        if ended.is_some() {
-            s.entries = vec!["Back".into(), EXIT.into()];
-        }
+        let s = output_screen(&self.output, ended.is_some(), typed);
         if self.hidden && ended.is_some() {
             self.show(Mode::Output(ended), s, false);
         } else {
@@ -2276,13 +2436,11 @@ impl winit::application::ApplicationHandler<Event> for App {
         // No title bar or border, as a terminal's screen (the maintainer's wish): the window is
         // moved by dragging its background ([`press_drags`]) and closed by Exit, Esc's way back
         // to it, or the system's own close keys. The title still names it in the task bar.
+        let least = least_size((w, h));
         let mut attributes = frameless(winit::window::Window::default_attributes())
             .with_visible(false)
             .with_inner_size(winit::dpi::LogicalSize::new(w, h))
-            .with_min_inner_size(winit::dpi::LogicalSize::new(
-                screen::WIDTH / 2,
-                screen::HEIGHT / 2,
-            ));
+            .with_min_inner_size(winit::dpi::LogicalSize::new(least.0, least.1));
         // Centred on its monitor (Windows would place it at its own default spot).
         if let Some(m) = &monitor {
             let scale = m.scale_factor();
@@ -2328,11 +2486,11 @@ impl winit::application::ApplicationHandler<Event> for App {
                 return;
             }
         };
-        eprintln!(
+        stopped::note(&format!(
             "drawing with {}; look: {}",
             drawing.gpu.describe(),
             self.look.from
-        );
+        ));
         let Some((surface, config)) = drawing.surface else {
             unreachable!("a window's drawing always has its surface");
         };
@@ -2346,6 +2504,9 @@ impl winit::application::ApplicationHandler<Event> for App {
         session::connect(move |e| proxy.lock().is_ok_and(|p| p.send_event(e).is_ok()));
         // From here on a program the work runs takes the lines typed at the prompt.
         crate::piped::window_takes_lines(true);
+        // (After the window took the channel: message-box Play must take it over.)
+        #[cfg(debug_assertions)]
+        stopped::test_stop(false);
         // The game's card, from a process of its own.
         std::thread::spawn(|| {
             session::send(Event::Card(ask_game_card()));
@@ -2453,7 +2614,10 @@ impl winit::application::ApplicationHandler<Event> for App {
                     matches!(self.mode, Mode::Output(_)),
                 ) {
                     // Closed while the work ran, or Play's good end: the launcher ends.
-                    EndStep::Exit => event_loop.exit(),
+                    EndStep::Exit => {
+                        stopped::leave();
+                        event_loop.exit();
+                    }
                     // The installer's good end, or Play.exe's message shown and answered.
                     EndStep::Start => self.show_start(),
                     // The work's own lines say what went wrong; Back or Exit below them.
@@ -2507,6 +2671,7 @@ impl winit::application::ApplicationHandler<Event> for App {
             // too, play.sh's input is closed, and the launcher ends when Play ends, with its code.
             WindowEvent::CloseRequested => {
                 if !self.working {
+                    stopped::leave();
                     std::process::exit(session::stop_code().unwrap_or(self.exit_code));
                 }
                 self.close_while_working(event_loop);
@@ -2570,8 +2735,12 @@ impl winit::application::ApplicationHandler<Event> for App {
                 match press {
                     Press::Up => self.focus(step_focus(self.screen.highlighted, count, true)),
                     Press::Down => self.focus(step_focus(self.screen.highlighted, count, false)),
-                    Press::PageUp => self.screen.scroll = self.screen.scroll.saturating_sub(5),
-                    Press::PageDown => self.screen.scroll += 5,
+                    Press::PageUp => {
+                        self.screen.scroll = screen::scrolled(&self.look, &self.screen, true, 5)
+                    }
+                    Press::PageDown => {
+                        self.screen.scroll = screen::scrolled(&self.look, &self.screen, false, 5)
+                    }
                     Press::Right => self.step_row(true),
                     Press::Left => self.step_row(false),
                     Press::Enter => self.choose(event_loop),
@@ -2616,6 +2785,7 @@ impl winit::application::ApplicationHandler<Event> for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x, position.y);
+                self.set_hover(self.button_at(self.mouse));
                 if let Some(i) = self.row_at(self.mouse) {
                     // The focus moves only onto live entries (the game's are disabled while
                     // it types).
@@ -2625,15 +2795,17 @@ impl winit::application::ApplicationHandler<Event> for App {
                     }
                 }
             }
+            WindowEvent::CursorLeft { .. } => self.set_hover(None),
             WindowEvent::MouseWheel { delta, .. } => {
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => (p.y / 30.0) as f32,
                 };
-                if lines > 0.0 {
-                    self.screen.scroll = self.screen.scroll.saturating_sub(lines.ceil() as usize);
-                } else if lines < 0.0 {
-                    self.screen.scroll += (-lines).ceil() as usize;
+                // The wheel up shows what is above (a program's output's earlier lines too).
+                if lines != 0.0 {
+                    let by = lines.abs().ceil() as usize;
+                    self.screen.scroll =
+                        screen::scrolled(&self.look, &self.screen, lines > 0.0, by);
                 }
                 self.request_redraw();
             }
@@ -2642,6 +2814,15 @@ impl winit::application::ApplicationHandler<Event> for App {
                 button: MouseButton::Left,
                 ..
             } => {
+                // The window's own buttons first, on every screen, typing or not; a press on
+                // one never moves the window.
+                if let Some(b) = self.button_at(self.mouse) {
+                    if b == screen::Button::Minimise {
+                        self.set_hover(None);
+                    }
+                    let act = press_button(b, self.working, self.window.as_deref());
+                    return self.act(act, event_loop);
+                }
                 // Off the entries the press also moves the window (it has no title bar); the
                 // intro's own click (which ends it) moves it the same way.
                 let intro = matches!(self.mode, Mode::Intro(_));
@@ -2729,45 +2910,15 @@ fn cannot_draw(why: &str, place: &Place) {
     );
 }
 
-/// [`cannot_draw`] with `next` saying what happens next.
+/// [`cannot_draw`] with `next` saying what happens next (kept as a start-up line too, for a later
+/// stop's message).
 fn cannot_draw_then(why: &str, place: &Place, next: &str) {
-    let text = format!("nv-rs's launcher cannot draw its window: {why}.\n\n{next}");
-    eprintln!("{text}");
-    #[cfg(windows)]
-    {
-        let _ = place;
-        #[link(name = "user32")]
-        extern "system" {
-            fn MessageBoxW(
-                owner: *mut std::ffi::c_void,
-                text: *const u16,
-                title: *const u16,
-                kind: u32,
-            ) -> i32;
-        }
-        let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
-        let (t, title) = (wide(&text), wide("nv-rs"));
-        // SAFETY: both strings live through the call; no owner window. 0x30: MB_ICONWARNING.
-        unsafe { MessageBoxW(std::ptr::null_mut(), t.as_ptr(), title.as_ptr(), 0x30) };
-    }
-    #[cfg(not(windows))]
-    {
-        use std::io::IsTerminal;
-        if !std::io::stderr().is_terminal() && place.refused.is_none() {
-            let logs = place.own.join("logs");
-            let written = std::fs::create_dir_all(&logs).and_then(|()| {
-                use std::io::Write;
-                let mut f = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(logs.join("launcher.log"))?;
-                writeln!(f, "{text}")
-            });
-            if let Err(e) = written {
-                eprintln!("{}: {e}", logs.display());
-            }
-        }
-    }
+    stopped::keep_line(&format!("cannot draw its window: {why}"));
+    stopped::say(
+        &format!("nv-rs's launcher cannot draw its window: {why}.\n\n{next}"),
+        stopped::Icon::Warning,
+        place.refused.is_none().then_some(place.own.as_path()),
+    );
 }
 
 /// The keyboard library winit needs on Linux and cannot load, if one is missing (as
@@ -2786,13 +2937,20 @@ fn missing_keyboard_library() -> Option<&'static str> {
 }
 
 /// No window: Play goes on without it. Windows: Play's steps with Windows' own message boxes and
-/// folder picker, as Play.exe asked; Linux and macOS: play.sh in the terminal, with the same
-/// arguments.
+/// folder picker, as Play.exe asked (a panic in them said in a last box, not silently);
+/// Linux and macOS: play.sh in the terminal, with the same arguments.
 fn without_window(raw: &[String]) -> i32 {
     #[cfg(windows)]
     {
         crate::play::answer_in_boxes();
-        crate::play::run_play(raw)
+        caught(|| crate::play::run_play(raw)).unwrap_or_else(|line| {
+            let what = stopped::panic_what(&line);
+            let text = stopped::stopped_text(false, &what, &stopped::lines(), &stopped::report());
+            // In the log at once if this Play passed its first write.
+            stopped::hold_for_log(&text);
+            stopped::say(&text, stopped::Icon::Error, None);
+            101
+        })
     }
     #[cfg(not(windows))]
     {
@@ -2800,9 +2958,93 @@ fn without_window(raw: &[String]) -> i32 {
     }
 }
 
-/// The window, until the player leaves or the game ends well: the exit code.
+/// `run`'s result, or the line of the panic that ended it ([`stopped::panic_line`]).
+fn caught<T>(run: impl FnOnce() -> T) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
+        .map_err(|payload| stopped::panic_line(&*payload))
+}
+
+/// How the window's run ended.
+enum Ran {
+    /// The player left, or the game ended: the exit code.
+    Ended(i32),
+    /// The window could not be made or drawn in ([`cannot_draw`] said why).
+    NoWindow,
+}
+
+/// The window, until the player leaves or the game ends well: the exit code. Never silent: a
+/// panic anywhere in the window's run (winit raises a callback's again from `run_app`) is said
+/// with its line ([`after_panic`]), and on Windows a crash in native code is said by
+/// [`stopped::watch_crashes`]'s filter.
 pub fn run(raw: Vec<String>) -> i32 {
+    let mut log = None;
+    match in_window(|| run_window(&raw, &mut log)) {
+        Ok(Ran::Ended(code)) => code,
+        Ok(Ran::NoWindow) => without_window(&raw),
+        Err(line) => after_panic(&raw, &line, log.as_deref()),
+    }
+}
+
+/// `run` [`caught`], with the window's run marked as going on ([`stopped::set_in_window`]: a
+/// crash in it starts Play.exe again) until it returns or panics.
+fn in_window<T>(run: impl FnOnce() -> T) -> Result<T, String> {
+    stopped::set_in_window(true);
+    let ran = caught(run);
+    stopped::set_in_window(false);
+    ran
+}
+
+/// The window's run ended in a panic (`line`). While the launcher was ending as asked
+/// ([`stopped::leave`]) it ends quietly, as before. Otherwise said with the start-up lines (and
+/// kept for the log, [`stopped::hold_for_log`]), then Play goes on without the window: with work
+/// running (Play's, the installer's, the import), to its end, its questions in Windows' own
+/// message boxes (elsewhere answered as Esc answers them); with none, Play as after
+/// [`cannot_draw`]. `log`: nv-rs's own folder when it may hold the log (Linux and macOS write it
+/// at once).
+fn after_panic(raw: &[String], line: &str, log: Option<&Path>) -> i32 {
+    let running = running_work();
+    let after = stopped::after_panic(stopped::leaving(), running.is_some());
+    if after == stopped::AfterPanic::Quiet {
+        return 101;
+    }
+    if running.is_some() {
+        // Before the message: a question the work asks meanwhile goes to the new answers.
+        #[cfg(windows)]
+        crate::play::answer_in_boxes();
+        crate::piped::close_input();
+    }
+    let next = if running.is_some() {
+        stopped::next_working()
+    } else {
+        stopped::next_play(false)
+    };
+    let what = stopped::panic_what(line);
+    let text = stopped::stopped_text(true, &what, &stopped::lines(), &next);
+    // Kept first: running work that ends while the message is up writes it.
+    stopped::hold_for_log(&text);
+    stopped::say(&text, stopped::Icon::Error, log);
+    match running {
+        Some(work) => work.join().unwrap_or(101),
+        None => without_window(raw),
+    }
+}
+
+/// Play.exe started again after a crash in native code in the launcher's window
+/// ([`stopped::crash_passed_on`]): the crash said (and held for the log), then Play in Windows'
+/// own message boxes as after [`cannot_draw`]. The window is not tried again.
+#[cfg(windows)]
+pub fn after_crash(raw: &[String], crash: &stopped::Crash) -> i32 {
+    let text = stopped::stopped_text(true, &crash.what, &crash.lines, &stopped::next_play(true));
+    stopped::hold_for_log(&text);
+    stopped::say(&text, stopped::Icon::Error, None);
+    without_window(raw)
+}
+
+/// [`run`]'s window: how it ended. `log` is set to nv-rs's own folder as soon as it is known
+/// and may hold the launcher's log.
+fn run_window(raw: &[String], log: &mut Option<PathBuf>) -> Ran {
     let place = place::place();
+    *log = place.refused.is_none().then(|| place.own.clone());
     let app_own = place.own.clone();
     #[cfg(all(not(windows), not(target_vendor = "apple")))]
     if let Some(library) = missing_keyboard_library() {
@@ -2810,13 +3052,13 @@ pub fn run(raw: Vec<String>) -> i32 {
             &format!("the keyboard library {library} is missing (install libxkbcommon)"),
             &place,
         );
-        return without_window(&raw);
+        return Ran::NoWindow;
     }
     let event_loop = match EventLoop::<Event>::with_user_event().build() {
         Ok(l) => l,
         Err(e) => {
             cannot_draw(&format!("no window system: {e}"), &place);
-            return without_window(&raw);
+            return Ran::NoWindow;
         }
     };
     let look = look_of(place.game.as_deref(), &place.fallout_ini, false);
@@ -2838,6 +3080,7 @@ pub fn run(raw: Vec<String>) -> i32 {
         frame_ms: pacing::frame_ms(0),
         rows: None,
         mouse: (0.0, 0.0),
+        hover: None,
         card: Card::Asking,
         action: (!raw.is_empty()).then(|| raw.iter().map(OsString::from).collect()),
         output: Vec::new(),
@@ -2863,13 +3106,25 @@ pub fn run(raw: Vec<String>) -> i32 {
         start_note: None,
     };
     if let Err(e) = event_loop.run_app(&mut app) {
-        eprintln!("error: {e}");
-        return 1;
+        if app.no_window {
+            return Ran::NoWindow;
+        }
+        // No window was made: said as any other start without one, and Play goes on.
+        if app.window.is_none() {
+            cannot_draw(&format!("its window's loop could not run: {e}"), &app.place);
+            return Ran::NoWindow;
+        }
+        stopped::note(&format!("error: {e}"));
+        stopped::leave();
+        return Ran::Ended(1);
     }
     if app.no_window {
-        return without_window(&raw);
+        return Ran::NoWindow;
     }
-    app.exit_code
+    // Ending as asked (Exit and Play's good end said so already): before the drawing, the window
+    // and the sounds go, as `app` and `event_loop` are dropped on the way out.
+    stopped::leave();
+    Ran::Ended(app.exit_code)
 }
 
 /// The start screen (or the intro) drawn off screen and saved: nothing else is written.
@@ -2889,14 +3144,24 @@ pub fn capture(c: &crate::Capture) -> Result<(), String> {
     };
     let look = look_of(place.game.as_deref(), &fallout_ini, c.plain);
     let mut drawing = gpu::choose(None, (0, 0))?;
-    let picture = (screen::WIDTH, screen::HEIGHT);
-    let canvas = match (c.intro_at, &look.intro) {
-        (Some(ms), Some([welcome, logon, header])) => {
+    let canvas = match (c.intro_at, &look.intro, &c.output) {
+        (_, _, Some(file)) => {
+            // A program's output as the terminal shows it while the program runs (the mod
+            // installer's lines), scrolled up `scroll` lines from its end.
+            let text =
+                std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+            let mut lines = Vec::new();
+            append_output(&mut lines, &text);
+            let mut s = output_screen(&lines, false, String::new());
+            s.scroll = c.scroll;
+            screen::draw(&look, &s, None, true).0
+        }
+        (Some(ms), Some([welcome, logon, header]), None) => {
             let intro = Intro::new(welcome, logon, header, false, pacing::frame_ms(0));
             screen::draw_intro(&look, &intro.typed(ms))
         }
-        (Some(_), None) => return Err("the intro needs the game's look".into()),
-        (None, _) => {
+        (Some(_), None, None) => return Err("the intro needs the game's look".into()),
+        (None, _, None) => {
             let card =
                 Card::Known(gpu::game_card().map(|(n, a)| (n, gpu::api_name(a).to_string())));
             let s = start_screen(&place, &card);
@@ -2904,8 +3169,11 @@ pub fn capture(c: &crate::Capture) -> Result<(), String> {
         }
     };
     let g = &mut drawing.gpu;
-    g.upload(&canvas.pixels, picture);
-    let rgba = g.capture(picture, c.size)?;
+    let framing = gpu::framing(SCREEN, c.size, g.most_side());
+    let mut canvas = canvas.placed(framing.picture, framing.screen_at);
+    screen::draw_buttons(&mut canvas, &look, None);
+    g.upload(&canvas.pixels, framing.picture);
+    let rgba = g.capture(&framing, c.size)?;
     std::fs::write(&c.file, crate::png::encode(c.size.0, c.size.1, &rgba))
         .map_err(|e| format!("{}: {e}", c.file.display()))?;
     println!(
@@ -2966,6 +3234,122 @@ mod tests {
         assert!(press_drags(false, false));
         assert!(!press_drags(true, false));
         assert!(!press_drags(false, true));
+    }
+
+    /// A window that counts its minimises.
+    #[derive(Default)]
+    struct Counted(std::cell::Cell<u32>);
+
+    impl Minimise for Counted {
+        fn minimise(&self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    /// The window's two buttons are hit inside their boxes, in the window's top-right corner
+    /// whatever its shape (scaled, or with bars beside the screen: the buttons are on the bar
+    /// then), and nowhere else: not between them, beyond them, on the header or on an entry; no
+    /// entry is hit on them.
+    #[test]
+    fn the_window_buttons_are_hit_in_their_boxes() {
+        use screen::Button;
+        let look = Look::plain();
+        let s = start_screen(&place(Some("/g/x"), false), &Card::Asking);
+        let rows = screen::rows_of(&look, &s);
+        for (window, scale, left, picture_width) in [
+            ((960, 720), 1.0, 0.0, 960),
+            ((1920, 1440), 2.0, 0.0, 960),
+            ((1600, 720), 1.0, 320.0, 1600),
+        ] {
+            let framing = gpu::framing(SCREEN, window, 8192);
+            assert_eq!(framing.picture.0, picture_width);
+            let boxes = screen::buttons(&look, picture_width);
+            assert_eq!(boxes.map(|(b, _)| b), [Button::Minimise, Button::Exit]);
+            // A point of the picture (the buttons'), and one of the screen (the rest).
+            let at = |x: f64, y: f64| (x * scale, y * scale);
+            let on_screen = |x: f64, y: f64| (left + x * scale, y * scale);
+            let window_right = window.0 as f64 - 10.0 * scale;
+            assert_eq!(
+                at((boxes[1].1 .0 + boxes[1].1 .2 as i32) as f64, 0.0).0,
+                window_right
+            );
+            for (b, (x, y, w, h)) in boxes {
+                let (x, y, w, h) = (x as f64, y as f64, w as f64, h as f64);
+                for (px, py) in [
+                    (x + 0.5, y + 0.5),
+                    (x + w / 2.0, y + h / 2.0),
+                    (x + w - 0.5, y + h - 0.5),
+                ] {
+                    let p = at(px, py);
+                    assert_eq!(button_hit(&framing, &look, p), Some(b), "{window:?} {p:?}");
+                    assert_eq!(row_hit(&framing, &rows, p), None, "{window:?} {p:?}");
+                }
+                for (px, py) in [
+                    (x - 1.0, y + h / 2.0),
+                    (x + w + 1.0, y + h / 2.0),
+                    (x + w / 2.0, y - 1.0),
+                    (x + w / 2.0, y + h + 1.0),
+                ] {
+                    let p = at(px, py);
+                    assert_ne!(button_hit(&framing, &look, p), Some(b), "{window:?} {p:?}");
+                }
+            }
+            let (_, (mx, my, mw, mh)) = boxes[0];
+            let mid = (my + mh as i32 / 2) as f64;
+            let gap = (mx + mw as i32) as f64 + 2.5;
+            assert_eq!(button_hit(&framing, &look, at(gap, mid)), None);
+            let right = picture_width as f64 - 5.0;
+            assert_eq!(button_hit(&framing, &look, at(right, mid)), None);
+            assert_eq!(button_hit(&framing, &look, on_screen(480.0, 70.0)), None);
+            let entry = on_screen(rows.x as f64 + 10.0, rows.top as f64 + 10.0);
+            assert_eq!(button_hit(&framing, &look, entry), None);
+            assert_eq!(row_hit(&framing, &rows, entry), Some(0));
+        }
+        let none = gpu::framing(SCREEN, (0, 0), 8192);
+        assert_eq!(button_hit(&none, &look, (0.0, 0.0)), None);
+        assert_eq!(row_hit(&none, &rows, (0.0, 0.0)), None);
+    }
+
+    /// The exit button does what the menu's Exit does (the same act, so the same way out of the
+    /// event loop and the same end) on every screen that has Exit, and on the others while
+    /// nothing runs; while Play's work runs (no screen offers Exit then) it closes the window as
+    /// the window's own close does then. It never minimises.
+    #[test]
+    fn the_exit_button_goes_the_way_of_the_menus_exit() {
+        let w = Counted::default();
+        let s = start_screen(&place(Some("/g/x"), false), &Card::Asking);
+        let i = s.entries.iter().position(|e| e == EXIT).unwrap();
+        let menu = on_enter(Kind::Start, "", i, &s.entries[i]);
+        assert_eq!(menu, Act::Exit);
+        assert_eq!(press_button(screen::Button::Exit, false, Some(&w)), menu);
+        for kind in [Kind::Refused, Kind::Ended] {
+            assert_eq!(
+                press_button(screen::Button::Exit, false, Some(&w)),
+                on_enter(kind, "", 0, EXIT)
+            );
+        }
+        assert_eq!(
+            press_button(screen::Button::Exit, true, Some(&w)),
+            Act::Close
+        );
+        assert_eq!(w.0.get(), 0);
+    }
+
+    /// The minimise button minimises the window (winit's, on every system) and does nothing
+    /// else, Play's work running or not; before there is a window it does nothing.
+    #[test]
+    fn the_minimise_button_minimises_the_window() {
+        for working in [false, true] {
+            let w = Counted::default();
+            let act = press_button(screen::Button::Minimise, working, Some(&w));
+            assert_eq!(act, Act::Nothing);
+            assert_eq!(w.0.get(), 1);
+        }
+        let none: Option<&Counted> = None;
+        assert_eq!(
+            press_button(screen::Button::Minimise, false, none),
+            Act::Nothing
+        );
     }
 
     /// The start screen offers what works today: Play, Play with mods only when there are mods,
@@ -3172,6 +3556,20 @@ mod tests {
             w <= 800.0 * 0.9 && (w / h - 4.0 / 3.0).abs() < 0.01,
             "{w}x{h}"
         );
+        // Ultrawide screens (21:9, 32:9): the height decides, never the width; the window is
+        // the terminal's 4:3, never the monitor's shape.
+        for monitor in [(3440.0, 1440.0), (5120.0, 1440.0), (2560.0, 1080.0)] {
+            assert_eq!(first_size(Some(monitor)), (960.0, 720.0), "{monitor:?}");
+        }
+        // The smallest window: half the terminal, never more than the first window, even on a
+        // monitor whose logical size is far too small (a wrong scale factor).
+        assert_eq!(least_size((960.0, 720.0)), (480.0, 360.0));
+        for monitor in [(242.0, 101.0), (640.0, 360.0), (1280.0, 720.0)] {
+            let first = first_size(Some(monitor));
+            let least = least_size(first);
+            assert!(least.0 <= first.0 && least.1 <= first.1, "{monitor:?}");
+            assert!(first.1 <= monitor.1 && first.0 <= monitor.0, "{monitor:?}");
+        }
         // Centred on its monitor, a second monitor's origin included; never left of it.
         assert_eq!(centred((0, 0), (1920, 1080), (960, 720)), (480, 180));
         assert_eq!(centred((1920, -200), (1280, 1024), (960, 720)), (2080, -48));
@@ -3377,6 +3775,57 @@ mod tests {
         assert_eq!(work_code(|| panic!("made-up failure")), 101);
     }
 
+    /// A panic in the window's run is caught with its line (message and place) for the message;
+    /// a run that ends gives its result.
+    #[test]
+    fn a_panic_in_the_window_is_caught_with_its_line() {
+        stopped::watch_panics();
+        assert_eq!(caught(|| 3), Ok(3));
+        let line = caught(|| -> i32 { panic!("made-up window stop") }).unwrap_err();
+        assert!(line.starts_with("made-up window stop (at "), "{line}");
+        assert!(line.contains("app.rs:"), "{line}");
+    }
+
+    /// Work is marked as running (a crash then starts no second Play) from before it starts until
+    /// it has ended; still running, it is waited for after a panic, and once ended it is not.
+    #[test]
+    fn work_is_marked_running_and_only_running_work_is_waited_for() {
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        start_work_with(move || {
+            let _ = wait.recv();
+            5
+        });
+        assert!(stopped::working(), "marked before it runs");
+        let running = running_work().expect("still running");
+        assert!(WORK.lock().unwrap().is_none(), "taken");
+        assert!(stopped::working(), "still marked while it runs");
+        go.send(()).unwrap();
+        assert_eq!(running.join().unwrap(), 5);
+        assert!(!stopped::working(), "unmarked once it has ended");
+        start_work_with(|| 6);
+        let started = Instant::now();
+        while stopped::working() || !WORK.lock().unwrap().as_ref().unwrap().is_finished() {
+            assert!(started.elapsed() < Duration::from_secs(20));
+            std::thread::yield_now();
+        }
+        assert!(running_work().is_none(), "ended already");
+    }
+
+    /// The window's run is marked as going on (a crash in it starts Play.exe again) only while
+    /// it runs, also when it panics.
+    #[test]
+    fn the_window_is_marked_only_while_it_runs() {
+        assert!(!stopped::in_window());
+        assert_eq!(in_window(stopped::in_window), Ok(true));
+        assert!(!stopped::in_window());
+        stopped::watch_panics();
+        let stopped_run = in_window(|| -> bool { panic!("made-up stop in the window") });
+        assert!(stopped_run
+            .unwrap_err()
+            .starts_with("made-up stop in the window"));
+        assert!(!stopped::in_window());
+    }
+
     /// Play's arguments: `--mods` for Play with mods, `--game FOLDER` for a typed or dropped
     /// folder, nothing for plain Play (Play.exe's and play.sh's own options).
     #[test]
@@ -3394,20 +3843,26 @@ mod tests {
 
     /// A press on each shown entry hits that entry and does not move the window; a press above
     /// the rows, left or right of their column, or below the last shown row hits none and moves
-    /// it. The start screen and the full Settings list (16 entries: it scrolls), at the top and
-    /// scrolled to the end, in the 960x720 window, a smaller one and a wider one.
+    /// it. The start screen, the full Settings list (17 entries: it scrolls) and its fixes list
+    /// (every fix row), at the top and scrolled to the end, in the 960x720 window, a smaller one
+    /// and a wider one.
     #[test]
     fn a_press_hits_the_entry_under_it_and_drags_elsewhere() {
         let look = Look::plain();
         let settings = settings_entries(
-            &settings::ROWS,
+            settings::List::Main,
             &settings::Files::default(),
-            false,
+            true,
+            Consent::Unanswered,
+        );
+        let fixes = settings_entries(
+            settings::List::Fixes,
+            &settings::Files::default(),
             true,
             Consent::Unanswered,
         );
         let start = vec![PLAY.to_string(), MODS.into(), SETTINGS.into(), EXIT.into()];
-        for entries in [start, settings] {
+        for entries in [start, settings, fixes] {
             for highlighted in [0, entries.len() - 1] {
                 let s = Screen {
                     entries: entries.clone(),
@@ -3417,6 +3872,8 @@ mod tests {
                 let rows = screen::rows_of(&look, &s);
                 assert!(rows.shown > 0);
                 for window in [(960, 720), (640, 480), (1280, 700)] {
+                    // The screen where `fit` puts it, to check the framing's mapping against.
+                    let framing = gpu::framing(SCREEN, window, 8192);
                     let (x, y, w, h) = gpu::fit((screen::WIDTH, screen::HEIGHT), window);
                     let at = |px: f64, py: f64| {
                         (
@@ -3427,7 +3884,7 @@ mod tests {
                     let mid = rows.x as f64 + rows.width as f64 / 2.0;
                     let row_y = |k: f64| rows.top as f64 + (k + 0.5) * rows.row as f64;
                     for k in 0..rows.shown {
-                        let hit = row_hit(window, &rows, at(mid, row_y(k as f64)));
+                        let hit = row_hit(&framing, &rows, at(mid, row_y(k as f64)));
                         assert_eq!(hit, Some(rows.first + k), "{window:?} row {k}");
                         assert!(!press_drags(hit.is_some(), false));
                     }
@@ -3437,7 +3894,7 @@ mod tests {
                         (rows.x as f64 + rows.width as f64 + 5.0, row_y(0.0)),
                         (mid, row_y(rows.shown as f64)),
                     ] {
-                        let hit = row_hit(window, &rows, at(px, py));
+                        let hit = row_hit(&framing, &rows, at(px, py));
                         assert_eq!(hit, None, "{window:?} at {px},{py}");
                         assert!(press_drags(hit.is_some(), false));
                     }
@@ -3446,21 +3903,57 @@ mod tests {
         }
     }
 
-    /// The Settings list shows each row with its value (its note left out), then Testing and
-    /// Back; the Testing list its rows and Back. Enter on a row opens its choices, on a choice
-    /// saves it; Esc goes back a list (never saving); Left and Right step round a row's choices.
+    /// The Settings list shows each row with its value (its note left out), then the two lists it
+    /// opens and Back; each of those its rows and Back. Enter on a row opens its choices, on a
+    /// choice saves it; Esc goes back a list (never saving); Left and Right step round a row's
+    /// choices.
     #[test]
     fn the_settings_lists_open_choose_and_go_back() {
         let shown = settings::Files::default();
-        let main = settings_entries(&settings::ROWS, &shown, false, true, Consent::Ask);
-        assert_eq!(main.len(), 16);
+        let main = settings_entries(settings::List::Main, &shown, true, Consent::Ask);
+        assert_eq!(main.len(), 17);
         assert_eq!(main[0], "Renderer: Vulkan");
         assert_eq!(main[12], "Launcher sounds: On");
         assert_eq!(main[CRASH_ROW_INDEX], "Crash reports: Ask each time");
-        assert_eq!(main[14], TESTING_ENTRY);
-        assert_eq!(main[15], BACK);
+        assert_eq!(main[14], "New lighting and more");
+        assert_eq!(main[15], "Fixes one by one");
+        assert_eq!(main[16], BACK);
+        for list in SUBLISTS {
+            assert_eq!(main[sublist_entry(list)], list.name());
+            assert_eq!(
+                on_enter(Kind::Settings, "", sublist_entry(list), list.name()),
+                Act::OpenList(list)
+            );
+            let e = settings_entries(list, &shown, true, Consent::Send);
+            assert!(!e.iter().any(|x| x.starts_with(CRASH_ROW)));
+            assert_eq!(e.len(), list.rows().len() + 1);
+            assert_eq!(e.last().map(String::as_str), Some(BACK));
+            assert_eq!(on_escape(Kind::Sublist, &e), Act::OpenSettings);
+            assert_eq!(on_enter(Kind::Sublist, "", 0, &e[0]), Act::OpenChoices(0));
+        }
+        // The fixes list: every fix row with the value the game plays it with.
+        let fixes = settings_entries(settings::List::Fixes, &shown, true, Consent::Ask);
+        assert_eq!(fixes[0], "Uncapped frame rate: On");
+        assert!(fixes.contains(&"JIP LN NVSE built in: On".to_string()));
+        assert!(fixes.contains(&"UI Organizer built in: On".to_string()));
+        let more = settings_entries(settings::List::More, &shown, true, Consent::Ask);
+        assert_eq!(more[0], "Ambient occlusion: Off");
+        assert!(more.contains(&"Ambient occlusion strength: 0.7".to_string()));
+        assert!(more.contains(&"Sun shadows (experimental): Off".to_string()));
+        // Back from a list Settings opened lands on its entry; anything else at the top.
+        for list in SUBLISTS {
+            assert_eq!(
+                settings_entry_from(&Mode::Settings { list }),
+                sublist_entry(list)
+            );
+        }
+        let main_list = Mode::Settings {
+            list: settings::List::Main,
+        };
+        assert_eq!(settings_entry_from(&main_list), 0);
+        assert_eq!(settings_entry_from(&Mode::Refused), 0);
         assert_eq!(
-            settings_entries(&settings::ROWS, &shown, false, false, Consent::Never)[12],
+            settings_entries(settings::List::Main, &shown, false, Consent::Never)[12],
             "Launcher sounds: Off"
         );
         // Enter on the crash reports row opens its screens (never answers on one press).
@@ -3473,10 +3966,6 @@ mod tests {
             on_enter(Kind::Settings, "", 12, &main[12]),
             Act::ToggleSounds
         );
-        let testing = settings_entries(&settings::TESTING, &shown, true, true, Consent::Send);
-        assert!(!testing.iter().any(|e| e.starts_with(CRASH_ROW)));
-        assert_eq!(testing.len(), settings::TESTING.len() + 1);
-        assert_eq!(testing.last().map(String::as_str), Some(BACK));
         assert_eq!(on_enter(Kind::Start, "", 1, SETTINGS), Act::OpenSettings);
         assert_eq!(on_enter(Kind::Start, "", 1, MODS), Act::Mods);
         assert_eq!(on_enter(Kind::Start, "", 1, IMPORT_SAVES), Act::ImportSaves);
@@ -3484,16 +3973,7 @@ mod tests {
             on_enter(Kind::Settings, "", 0, &main[0]),
             Act::OpenChoices(0)
         );
-        assert_eq!(
-            on_enter(Kind::Settings, "", 14, TESTING_ENTRY),
-            Act::OpenTesting
-        );
         assert_eq!(on_escape(Kind::Settings, &main), Act::BackToStart);
-        assert_eq!(on_escape(Kind::Testing, &testing), Act::OpenSettings);
-        assert_eq!(
-            on_enter(Kind::Testing, "", 2, &testing[2]),
-            Act::OpenChoices(2)
-        );
         let choices: Vec<String> = ["Off", "On", BACK].map(String::from).to_vec();
         assert_eq!(on_enter(Kind::Choices, "", 1, "On"), Act::Save("On".into()));
         assert_eq!(on_escape(Kind::Choices, &choices), Act::BackToList);
@@ -3571,9 +4051,8 @@ mod tests {
         assert_eq!(start_kind(true, Consent::Unanswered, false), Kind::Refused);
         // Settings' row: Enter, Left and Right all open the screens; no press there answers.
         let main = settings_entries(
-            &settings::ROWS,
+            settings::List::Main,
             &settings::Files::default(),
-            false,
             true,
             Consent::Unanswered,
         );
@@ -3583,15 +4062,17 @@ mod tests {
             Act::OpenConsentFromSettings
         );
         assert_eq!(
-            row_step_act(false, CRASH_ROW_INDEX),
+            row_step_act(settings::List::Main, CRASH_ROW_INDEX),
             Some(Act::OpenConsentFromSettings)
         );
         assert_eq!(
-            row_step_act(false, settings::ROWS.len()),
+            row_step_act(settings::List::Main, settings::ROWS.len()),
             Some(Act::ToggleSounds)
         );
-        assert_eq!(row_step_act(false, 0), None);
-        assert_eq!(row_step_act(true, CRASH_ROW_INDEX), None);
+        assert_eq!(row_step_act(settings::List::Main, 0), None);
+        for list in SUBLISTS {
+            assert_eq!(row_step_act(list, CRASH_ROW_INDEX), None);
+        }
         // The question opens on Never: quick Enters never choose sending.
         for can_send in [false, true] {
             let q = question_screen(can_send);
@@ -3600,9 +4081,9 @@ mod tests {
         // Settings' answers are written at once; only the first start's waits on Windows.
         assert!(keeps_at_once(true));
         assert_eq!(keeps_at_once(false), cfg!(not(windows)));
-        // What a report holds (the F12 report's note and place too), where reports go, that only
-        // the report goes (no place in the game, no F12 note), that nothing goes before an
-        // answer, and where this copy cannot send, that it cannot.
+        // What a report holds (the F12 report's note and place too), where reports go, that a
+        // report sent includes where the player was and the F12 note, that nothing goes before
+        // an answer, and where this copy cannot send, that it cannot.
         let about = about_text(None).join(" ");
         assert!(about.contains("an F12 report's note and place from that run"));
         assert!(about.contains("no saves or pictures"));
@@ -3613,7 +4094,8 @@ mod tests {
         assert!(!in_settings.contains("Not now"));
         let question = question_text(false).join(" ");
         assert!(question.contains("Sentry (sentry.io)"));
-        assert!(question.contains("Only the report goes, not where you were or an F12 note."));
+        assert!(question.contains("The report includes where you were and your F12 note."));
+        assert!(!question.contains("not where you were"), "{question}");
         assert!(question.contains("Nothing is sent until you choose."));
         assert!(question.contains("cannot send yet"));
         assert!(!question_text(true).join(" ").contains("cannot send"));
@@ -3646,6 +4128,305 @@ mod tests {
         let mut fresh = ConsentFlow::default();
         assert_eq!(fresh.at_start(false, Consent::Never), Kind::Start);
         assert_eq!(fresh.at_start(false, Consent::Unanswered), Kind::Consent);
+    }
+
+    /// In the launcher's own plain look the window's two buttons fit every screen: inside the
+    /// picture, apart, and above the header's lines (the longest titles' too), so above all a
+    /// screen shows below them: its text, its list and its prompt.
+    #[test]
+    fn the_window_buttons_fit_every_screen_of_the_plain_look() {
+        let apart = |a: screen::Area, b: screen::Area| {
+            a.0 + a.2 as i32 <= b.0
+                || b.0 + b.2 as i32 <= a.0
+                || a.1 + a.3 as i32 <= b.1
+                || b.1 + b.3 as i32 <= a.1
+        };
+        let look = Look::plain();
+        let boxes = screen::buttons(&look, screen::WIDTH).map(|(_, b)| b);
+        assert!(apart(boxes[0], boxes[1]));
+        for b in boxes {
+            assert!(b.0 >= 0 && b.1 >= 0, "{b:?}");
+            assert!(b.0 + b.2 as i32 <= screen::WIDTH as i32, "{b:?}");
+            assert!(b.2 >= 30 && b.3 >= 30, "big enough to hit: {b:?}");
+        }
+        let fixes = generated("fixes");
+        let mut screens = vec![
+            start_screen(&place(Some("/g/x"), true), &Card::Asking),
+            start_screen(&place(None, false), &Card::Asking),
+            message_screen("A question?", &["Yes".into(), "No".into()]),
+            question_screen(false),
+            question_screen(true),
+        ];
+        for consent in [None, Some(Consent::Ask)] {
+            screens.push(Screen {
+                title: format!("-{CRASH_ROW}-"),
+                welcome: about_text(consent),
+                entries: about_entries(consent.is_some()),
+                ..Default::default()
+            });
+        }
+        for list in [settings::List::Main].into_iter().chain(SUBLISTS) {
+            screens.push(list_screen(list, &fixes, true, None, true, Consent::Ask));
+            for &row in list.rows() {
+                screens.push(choices_screen(row, &fixes, (3840, 2160)));
+            }
+        }
+        for s in &screens {
+            let header = screen::header_boxes(&look, s);
+            for b in boxes {
+                assert!(b.1 + b.3 as i32 <= header[0].1, "{}: {b:?}", s.title);
+                for h in header {
+                    assert!(apart(b, h), "{}: {b:?} {h:?}", s.title);
+                }
+            }
+        }
+    }
+
+    /// What the mod installer (`crates/mod-chooser`) writes for its list, as it wraps it:
+    /// `installed` mods installed with nv-rs and `waiting` archives, its question, its prompt.
+    fn installer_list(installed: usize, waiting: usize) -> String {
+        let mut out = String::from("nv-rs mods\n==========\n\n");
+        if installed > 0 {
+            out.push_str("Installed with nv-rs:\n");
+            for i in 1..=installed {
+                out.push_str(&format!("  {i}) Installed mod number {i}\n"));
+            }
+        }
+        if waiting > 0 {
+            out.push_str("Waiting in the mods folder, not installed yet:\n");
+            for i in 1..=waiting {
+                out.push_str(&format!("  {}) Waiting archive {i}.7z\n", installed + i));
+            }
+        }
+        out.push_str(
+            "\nType a number and press Enter. A waiting archive's number installs it; an\n    \
+             installed mod's number shows what it installed.\nTo remove an installed mod, type \
+             remove and its number (like remove 1).\nJust press Enter to finish.\n> ",
+        );
+        out
+    }
+
+    /// Every screen in every window shape players have (21:9 and 32:9 ultrawides, a wide and
+    /// short 16:9, a tall portrait screen, the first window's 4:3): the screen whole inside the
+    /// window, its 4:3 shape kept and as large as fits, black beside it; every entry that shows
+    /// inside the window and hit where it is drawn, the highlighted one among them wherever it is
+    /// in a long list; the window's buttons in the window's top-right corner, drawn there. The
+    /// Mods screen with more mods than it holds (the mod installer's list, wrapped to the
+    /// screen's text width) shows its question at its end, and Page Up reaches every line of it.
+    #[test]
+    fn every_screen_shows_its_options_in_every_window_shape() {
+        use crate::canvas::Canvas;
+        const WINDOWS: [(u32, u32); 6] = [
+            (3440, 1440),
+            (2560, 1080),
+            (5120, 1440),
+            (1280, 720),
+            (1080, 1920),
+            (960, 720),
+        ];
+        let look = Look::plain();
+        let fixes = generated("fixes");
+        let mut installer = Vec::new();
+        append_output(&mut installer, &installer_list(25, 15));
+        let mods_asking = output_screen(&installer, false, String::new());
+        let mods_ended = output_screen(&installer, true, String::new());
+        let mut screens = vec![
+            start_screen(&place(Some("/g/x"), true), &Card::Asking),
+            start_screen(&place(None, false), &Card::Asking),
+            mods_asking.clone(),
+            mods_ended.clone(),
+            message_screen("A question?", &["Yes".into(), "No".into()]),
+            question_screen(false),
+            question_screen(true),
+        ];
+        for consent in [None, Some(Consent::Ask)] {
+            screens.push(Screen {
+                title: format!("-{CRASH_ROW}-"),
+                welcome: about_text(consent),
+                entries: about_entries(consent.is_some()),
+                ..Default::default()
+            });
+        }
+        let note = Some("The choice could not be saved: the file is read-only.".to_string());
+        for list in [settings::List::Main].into_iter().chain(SUBLISTS) {
+            screens.push(list_screen(list, &fixes, true, None, true, Consent::Ask));
+            screens.push(list_screen(
+                list,
+                &fixes,
+                false,
+                note.clone(),
+                true,
+                Consent::Ask,
+            ));
+            for &row in list.rows() {
+                screens.push(choices_screen(row, &fixes, (5120, 1440)));
+            }
+        }
+        // Each screen with each of its entries highlighted, laid out once (the layout is the
+        // screen's own, the same in every window).
+        let mut laid = Vec::new();
+        for s in &screens {
+            for highlighted in 0..s.entries.len().max(1) {
+                let s = Screen {
+                    highlighted,
+                    ..s.clone()
+                };
+                let rows = screen::rows_of(&look, &s);
+                if !s.entries.is_empty() {
+                    assert!(rows.shown > 0, "{}", s.title);
+                    assert!(
+                        (rows.first..rows.first + rows.shown).contains(&highlighted),
+                        "{}: entry {highlighted} of {} not shown ({rows:?})",
+                        s.title,
+                        s.entries.len()
+                    );
+                }
+                let bottom = rows.top + (rows.row * rows.shown as u32) as i32;
+                assert!(bottom <= screen::HEIGHT as i32, "{}: {rows:?}", s.title);
+                laid.push((s, rows));
+            }
+        }
+        let inside = |window: (u32, u32), (x, y, w, h): (f64, f64, f64, f64)| {
+            x >= -0.01
+                && y >= -0.01
+                && x + w <= window.0 as f64 + 0.01
+                && y + h <= window.1 as f64 + 0.01
+        };
+        for window in WINDOWS {
+            let f = gpu::framing(SCREEN, window, 8192);
+            let whole = f.screen_area_in_window((0, 0, screen::WIDTH, screen::HEIGHT));
+            assert!(inside(window, whole), "{window:?}: {whole:?}");
+            assert!(
+                (whole.2 / whole.3 - 4.0 / 3.0).abs() < 0.01,
+                "{window:?}: {whole:?}"
+            );
+            assert!(
+                whole.2 >= window.0 as f64 - 2.0 || whole.3 >= window.1 as f64 - 2.0,
+                "{window:?}: as large as fits, {whole:?}"
+            );
+            // The buttons: in the window's top-right corner, hit there.
+            let scale = f.rect.2 as f64 / f.picture.0 as f64;
+            for (b, area) in screen::buttons(&look, f.picture.0) {
+                let (x, y, w, h) = f.area_in_window(area);
+                assert!(inside(window, (x, y, w, h)), "{window:?} {b:?}");
+                assert!(y <= 10.0 * scale + 1.0, "{window:?} {b:?} at {y}");
+                assert!(
+                    x >= window.0 as f64 - 120.0 * scale,
+                    "{window:?} {b:?} at {x}"
+                );
+                let centre = (x + w / 2.0, y + h / 2.0);
+                assert_eq!(button_hit(&f, &look, centre), Some(b), "{window:?}");
+            }
+            let exit = f.area_in_window(screen::buttons(&look, f.picture.0)[1].1);
+            let right = window.0 as f64 - (exit.0 + exit.2);
+            assert!(
+                right <= 10.0 * scale + 2.0,
+                "{window:?}: {right} from the right"
+            );
+            // Every entry that shows: inside the window, hit at its centre.
+            for (s, rows) in &laid {
+                for k in 0..rows.shown {
+                    let area = (
+                        rows.x,
+                        rows.top + (rows.row * k as u32) as i32,
+                        rows.width,
+                        rows.row,
+                    );
+                    let (x, y, w, h) = f.screen_area_in_window(area);
+                    assert!(
+                        inside(window, (x, y, w, h)),
+                        "{window:?} {}: row {k}",
+                        s.title
+                    );
+                    let hit = row_hit(&f, rows, (x + w / 2.0, y + h / 2.0));
+                    assert_eq!(hit, Some(rows.first + k), "{window:?} {}: row {k}", s.title);
+                    assert_eq!(button_hit(&f, &look, (x + w / 2.0, y + h / 2.0)), None);
+                }
+            }
+            // Drawn: the screen whole in its place on the window's picture, black around it but
+            // for the buttons, which are drawn in the corner.
+            for s in [&screens[0], &mods_asking, &laid.last().unwrap().0] {
+                let (drawn, _) = screen::draw(&look, s, None, true);
+                let mut c = Canvas {
+                    width: drawn.width,
+                    height: drawn.height,
+                    pixels: drawn.pixels.clone(),
+                }
+                .placed(f.picture, f.screen_at);
+                screen::draw_buttons(&mut c, &look, None);
+                let px = |c: &Canvas, x: u32, y: u32| {
+                    let i = ((y * c.width + x) * 4) as usize;
+                    [c.pixels[i], c.pixels[i + 1], c.pixels[i + 2]]
+                };
+                let boxes = screen::buttons(&look, f.picture.0).map(|(_, b)| b);
+                let in_box = |x: u32, y: u32| {
+                    boxes.iter().any(|&(bx, by, bw, bh)| {
+                        (bx..bx + bw as i32).contains(&(x as i32))
+                            && (by..by + bh as i32).contains(&(y as i32))
+                    })
+                };
+                let (ax, ay) = (f.screen_at.0 as u32, f.screen_at.1 as u32);
+                for y in (0..c.height).step_by(3) {
+                    for x in (0..c.width).step_by(3) {
+                        let on_screen = (ax..ax + screen::WIDTH).contains(&x)
+                            && (ay..ay + screen::HEIGHT).contains(&y);
+                        if on_screen && !in_box(x, y) {
+                            assert_eq!(px(&c, x, y), px(&drawn, x - ax, y - ay), "{window:?}");
+                        } else if !on_screen && !in_box(x, y) {
+                            assert_eq!(px(&c, x, y), [0, 0, 0], "{window:?} at {x},{y}");
+                        }
+                    }
+                }
+                for (bx, by, bw, bh) in boxes {
+                    let lit = (by..by + bh as i32)
+                        .flat_map(|y| (bx..bx + bw as i32).map(move |x| (x, y)))
+                        .filter(|&(x, y)| px(&c, x as u32, y as u32) != [0, 0, 0])
+                        .count();
+                    assert!(lit > 20, "{window:?}: a button drawn in the corner");
+                }
+            }
+        }
+        // The Mods screen: more lines than it holds, its end (the question and the installer's
+        // prompt) at rest with the line saying more is above; Page Up shows every line.
+        let wrapped = screen::welcome_lines(&look, &mods_asking);
+        assert!(
+            screen::most_scroll(&look, &mods_asking) > 20,
+            "the list is long"
+        );
+        let rest = screen::line_texts(&look, &mods_asking);
+        assert_eq!(rest[3], screen::MORE_ABOVE);
+        assert!(rest.iter().any(|l| l == "Just press Enter to finish."));
+        assert_eq!(
+            rest[rest.len() - 2],
+            "> ",
+            "the installer's own prompt last"
+        );
+        for s in [mods_asking, mods_ended] {
+            let mut s = s;
+            let mut seen = std::collections::HashSet::new();
+            loop {
+                seen.extend(screen::line_texts(&look, &s));
+                let next = screen::scrolled(&look, &s, true, 5);
+                if next == s.scroll {
+                    break;
+                }
+                s.scroll = next;
+            }
+            for line in &wrapped {
+                assert!(seen.contains(line), "never shown: {line:?}");
+            }
+            for first_and_last in ["Installed mod number 1", "Waiting archive 15.7z"] {
+                assert!(seen.iter().any(|l| l.ends_with(first_and_last)));
+            }
+            if !s.entries.is_empty() {
+                assert_eq!(screen::rows_of(&look, &s).shown, 2, "Back and Exit show");
+            }
+            // Page Down brings it back to its end.
+            while s.scroll > 0 {
+                s.scroll = screen::scrolled(&look, &s, false, 5);
+            }
+            assert_eq!(screen::line_texts(&look, &s)[3], screen::MORE_ABOVE);
+        }
     }
 
     /// In the launcher's own plain look (the game not found yet), every line and every choice of
@@ -3682,6 +4463,104 @@ mod tests {
         }
     }
 
+    /// A fresh profile's files under `preset`: the generated sections (the fix lines notes).
+    fn generated(preset: &str) -> settings::Files {
+        let text = game_profile::game_ini::with_sections("").unwrap().text;
+        settings::Files {
+            ini: game_profile::game_ini::set_key(&text, "nv-rs General", "sPreset", preset),
+            prefs: String::new(),
+        }
+    }
+
+    /// In the launcher's own plain look, every entry of the lists Settings opens fits its row's
+    /// highlight with each of its choices, as do the entries that open them; each of their rows'
+    /// choices screens shows whole (what it is now, why it does nothing when it does nothing,
+    /// what it does, every choice), with the rows it needs on or off, its title within the
+    /// header's line; each list's own lines show whole, with rows below them.
+    #[test]
+    fn the_settings_lists_fit_the_plain_look() {
+        let look = Look::plain();
+        let fits = |entry: &str| look.font.width(&format!("> {entry}")) <= 700 - 5;
+        for list in SUBLISTS {
+            assert!(fits(list.name()), "{}", list.name());
+        }
+        let mut checked = 0;
+        let parents_off = |f: &settings::Files| {
+            ["bUncap", "bJIPInstalled", "bMenuCap"]
+                .into_iter()
+                .fold(f.clone(), |f, key| {
+                    settings::Row::of(key).unwrap().apply(&f, "Off")
+                })
+        };
+        let fixes = generated("fixes");
+        let vanilla = generated("vanilla");
+        let starts = [parents_off(&fixes), fixes, vanilla];
+        for shown in starts {
+            for list in SUBLISTS {
+                for &row in list.rows() {
+                    for choice in row.choices(&shown, (3840, 2160)) {
+                        let after = row.apply(&shown, &choice);
+                        let entry = row_entry(row, &after);
+                        assert!(fits(&entry), "{entry}");
+                        let s = choices_screen(row, &after, (3840, 2160));
+                        let rows = screen::rows_of(&look, &s);
+                        assert_eq!(
+                            (rows.first, rows.shown),
+                            (0, s.entries.len()),
+                            "{}: every choice shows",
+                            s.title
+                        );
+                        assert!(
+                            screen::shows_whole(&look, &s),
+                            "{}: {:?}",
+                            s.title,
+                            s.welcome
+                        );
+                        assert!(look.font.width(&s.title) <= screen::WIDTH, "{}", s.title);
+                        let lines = screen::line_texts(&look, &s);
+                        assert!(lines[3].starts_with("Now: "), "{}: {lines:?}", s.title);
+                        checked += 1;
+                    }
+                }
+                for (in_files, note) in [(true, None), (false, Some("Not saved: x".to_string()))] {
+                    let s = list_screen(list, &shown, in_files, note, true, Consent::Ask);
+                    let text = screen::welcome_lines(&look, &s).len();
+                    assert_eq!(
+                        screen::first_entry_line(&look, &s),
+                        3 + text,
+                        "{:?}",
+                        s.title
+                    );
+                    assert!(screen::rows_of(&look, &s).shown >= 4, "{:?}", s.title);
+                }
+            }
+        }
+        assert!(checked > 120, "{checked}");
+        // The preset's screen counts the fixes chosen one by one, and still shows whole.
+        let uncap = settings::Row::of("bUncap").unwrap();
+        let grab = settings::Row::of("bGrabPush").unwrap();
+        let two = grab.apply(&uncap.apply(&generated("fixes"), "Off"), "Off");
+        let s = choices_screen(settings::Row::GameFixes, &two, (1, 1));
+        assert_eq!(
+            s.welcome.last().map(String::as_str),
+            Some("Kept with either: the 2 chosen in Fixes one by one.")
+        );
+        assert!(screen::shows_whole(&look, &s), "{:?}", s.welcome);
+        let s = choices_screen(settings::Row::GameFixes, &generated("fixes"), (1, 1));
+        assert_eq!(s.welcome, ["Now: Fixes (recommended)"]);
+        // A fix row's screen: what it is, where that comes from, and what it does.
+        let s = choices_screen(uncap, &generated("vanilla"), (1, 1));
+        assert_eq!(s.title, "-Uncapped frame rate-");
+        assert_eq!(s.welcome[0], "Now: Off, from Game fixes");
+        assert_eq!(s.welcome[1], uncap.about().unwrap());
+        assert!(!s
+            .welcome
+            .iter()
+            .any(|l| l.contains("bUncap") || l.contains("iFrameLimit")));
+        assert_eq!(s.entries, ["Off", "On", BACK]);
+        assert_eq!(s.highlighted, 0);
+    }
+
     /// Typing, and so a paste, reaches the prompt on the start screen, Play's folder question and
     /// play.sh's output only: every other kind of screen is listed and refuses it.
     #[test]
@@ -3696,7 +4575,7 @@ mod tests {
             Kind::Output,
             Kind::Ended,
             Kind::Settings,
-            Kind::Testing,
+            Kind::Sublist,
             Kind::Choices,
             Kind::Consent,
             Kind::Question,

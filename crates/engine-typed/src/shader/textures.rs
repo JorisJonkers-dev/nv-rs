@@ -31,7 +31,7 @@ fn pass_stage(e: &Engine, index: u32) -> u32 {
 /// A stage's texture (+8).
 #[inline(always)]
 fn set_stage_texture(e: &mut Engine, stage: u32, texture: u32) {
-    e.mem.set_u32(stage.wrapping_add(8), texture);
+    capture::set_own_at(e, stage.wrapping_add(8), texture);
 }
 
 /// The stage takes the address modes of the property's clamp mode (its vtable +0xe0, then

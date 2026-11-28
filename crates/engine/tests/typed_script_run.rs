@@ -3,11 +3,13 @@
 //! the run manager's instance, run and action list build, a fresh runner and its busy test, the
 //! forgetting of a run's referenced objects, and the locals' variable set and action flags' clear.
 //!
-//! What stands in: the script's header, the elapsed time, the quest delay setting and a quest's
-//! delay, the referenced-object list, the run count's interlocked add and subtract, the allocator
-//! and its free, the fill, the manager's constructor and the exit queue, the runner's line loop and
-//! the action list's run (xNVSE's wrapped pair: by address in play too), the log, the save game's
-//! loading test and form, the form lookup, the cast and the names.
+//! The script's header (`00500940`) and the elapsed time (`0084d030`, the frame timer's float at
+//! +0xc) are the family's own getters, each with a test of its own here. What stands in: the quest
+//! delay setting and a quest's delay, the referenced-object list, the run count's interlocked add
+//! and subtract, the allocator and its free, the fill, the manager's constructor and the exit
+//! queue, the runner's line loop and the action list's run (xNVSE's wrapped pair: by address in
+//! play too), the log, the save game's loading test and form, the form lookup, the cast and the
+//! names.
 
 use engine as _;
 use engine_core::prelude::*;
@@ -16,10 +18,11 @@ use engine_core::typed::leaf;
 use engine_typed::scripts::{self, run};
 
 const CONFIG: u32 = 0x0300_0000;
-/// What the stand-ins answer: the elapsed time (a double), the quest's delay (a double), the line
-/// loop's result, whether a save loads, the form being loaded's header, the looked-up form, the cast,
-/// the name, whether the allocator answers null.
-const ANSWER_ELAPSED: u32 = CONFIG;
+/// The frame timer (`011f6394`) whose float at +0xc is the elapsed time.
+const ELAPSED_TIMER: u32 = 0x011f_6394;
+/// What the stand-ins answer: the quest's delay (a double), the line loop's result, whether a save
+/// loads, the form being loaded's header, the looked-up form, the cast, the name, whether the
+/// allocator answers null.
 const ANSWER_QUEST_DELAY: u32 = CONFIG + 8;
 const ANSWER_RUN: u32 = CONFIG + 0x10;
 const ANSWER_LOADING: u32 = CONFIG + 0x14;
@@ -62,8 +65,6 @@ fn world(e: &mut Engine) {
         e.map(page, 0x1000);
     }
     e.map(CONFIG, 0x1000);
-    e.register(0x0050_0940, |_, a| ret(a[0] + 0x18));
-    e.register(0x0084_d030, |e, _| ret_f(e.mem.f64(ANSWER_ELAPSED)));
     e.register(0x0040_3e20, |_, a| ret(a[0] - 0x011c_ac68 + SETTING));
     e.register(0x0079_2760, |e, _| ret_f(e.mem.f64(ANSWER_QUEST_DELAY)));
     e.register(0x005d_43c0, |e, a| ret(e.mem.u32(a[0] + 0x44)));
@@ -222,7 +223,8 @@ fn scripts_run() {
             f32::from_bits(case.word(2)),
             owner,
         );
-        e.mem.set_f64(ANSWER_ELAPSED, 2.5);
+        // The frame timer's elapsed seconds (`0084d030` reads its float at +0xc).
+        e.mem.set_f32(ELAPSED_TIMER + 0xc, 2.5);
         e.mem.set_f64(
             ANSWER_QUEST_DELAY,
             if case.word(3) == 2 { 0.0 } else { 1.75 },
@@ -359,6 +361,78 @@ fn scripts_run_manager() {
     })
     .run()
     .assert_same();
+}
+
+/// Off the main thread the action list is built in a temporary runner and the cached runner (the
+/// one main runs its scripts in) is not touched, even while it is free: a loading thread that
+/// shared it read a script main had meanwhile finished and stopped at address 0 (the speed-20000
+/// trip, 2026-11-26). On main the exe's path: the cached runner while it is free.
+#[test]
+fn scripts_init_action_list_off_main_uses_its_own_runner() {
+    const BUILT_IN: u32 = SEEN;
+    const BUSY_AT_BUILD: u32 = SEEN + 4;
+    const FREED: u32 = SEEN + 8;
+    const PASSED: u32 = SEEN + 0x20;
+    let mut e = Engine::new_untyped_for_test();
+    world(&mut e);
+    e.register(0x0040_1000, |e, a| ret(e.mem.alloc(a[0])));
+    e.register(0x0040_1030, |e, a| {
+        e.mem.set_u32(FREED, a[0]);
+        ret(0)
+    });
+    // The build (by address, as xNVSE wraps it): which runner, and whether it was busy then.
+    e.register(0x005e_1160, |e, a| {
+        e.mem.set_u32(BUILT_IN, a[0]);
+        let busy = e.mem.u32(a[0] + 0x14);
+        e.mem.set_u32(BUSY_AT_BUILD, busy);
+        for (i, word) in a[1..4].iter().enumerate() {
+            e.mem.set_u32(PASSED + 4 * i as u32, *word);
+        }
+        ret(1)
+    });
+    let cached = e.mem.alloc(0xa4);
+    e.mem.set_u32(cached + 4, 0x0077_0004);
+    e.mem.set_u32(cached + 8, 0x0077_0008);
+    e.mem.set_u32(MANAGER, cached);
+    let s = script(&mut e, 8, false, 0.0, 0);
+    let call = |e: &mut Engine| {
+        run::manager_init_action_list(
+            e,
+            Ptr::new(MANAGER),
+            Ptr::new(s),
+            Ptr::new(0x0072_0000),
+            Ptr::new(0x0073_0000),
+        )
+    };
+
+    engine_core::thread_host::create(&mut e, 0x77, 0, 0, true);
+    e.kernel.threads.current = 1;
+    assert!(call(&mut e));
+    let temporary = e.mem.u32(BUILT_IN);
+    assert_ne!(temporary, cached, "off main: not the cached runner");
+    assert_ne!(temporary, 0);
+    assert_eq!(e.mem.u32(BUSY_AT_BUILD), 0, "a fresh runner");
+    let passed: Vec<u32> = (0..3).map(|i| e.mem.u32(PASSED + 4 * i)).collect();
+    assert_eq!(
+        passed,
+        [s, 0x0072_0000, 0x0073_0000],
+        "off main: the script, the reference and its variables reach the build"
+    );
+    assert_eq!(e.mem.u32(FREED), temporary, "freed after the build");
+    assert_eq!(e.mem.u32(MANAGER), cached);
+    for (offset, word) in [(4, 0x0077_0004), (8, 0x0077_0008), (0x14, 0)] {
+        assert_eq!(
+            e.mem.u32(cached + offset),
+            word,
+            "the cached runner's +{offset:#x}"
+        );
+    }
+
+    e.kernel.threads.current = 0;
+    e.mem.set_u32(FREED, 0);
+    assert!(call(&mut e));
+    assert_eq!(e.mem.u32(BUILT_IN), cached, "on main: the cached runner");
+    assert_eq!(e.mem.u32(FREED), 0);
 }
 
 #[test]
@@ -549,6 +623,47 @@ fn scripts_set_variable_and_action_flags() {
                 _ => {}
             }
             vec![l]
+        })
+        .run()
+        .assert_same();
+}
+
+/// Words a getter hands back whole, and an object's address near the top of memory (the sum wraps).
+const WORDS: &[u32] = &[0, 1, 0x0012_3456, 0x7fff_ffff, 0x8000_0000, 0xffff_ffe0];
+
+#[test]
+fn scripts_plus_18() {
+    Diff::new(entry!(0x0050_0940, run::plus_18(Ptr) -> u32))
+        .common()
+        .inputs(&[Input::Of(WORDS)])
+        .run()
+        .assert_same();
+}
+
+/// The floats at +0xc: zeros, a subnormal, ordinary values, the largest float, an infinity, a quiet
+/// NaN and a signalling one (the `FLD` quiets it), with their signs.
+const FLOATS: &[u32] = &[
+    0,
+    0x8000_0000,
+    1,
+    0x3f80_0000,
+    0xc020_0000,
+    0x7f7f_ffff,
+    0xff80_0000,
+    0x7fc0_1234,
+    0x7f80_0001,
+    0xffa0_0000,
+];
+
+#[test]
+fn scripts_float_at_c() {
+    Diff::new(entry!(0x0084_d030, run::float_at_c(Ptr) -> f64))
+        .common()
+        .inputs(&[Input::Of(FLOATS)])
+        .setup(|e, case| {
+            let object = e.mem.alloc(0x10);
+            e.mem.set_u32(object + 0xc, case.word(0));
+            vec![object]
         })
         .run()
         .assert_same();

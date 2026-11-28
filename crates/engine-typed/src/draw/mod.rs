@@ -79,6 +79,7 @@ pub mod defined;
 pub mod detach;
 pub mod drivers;
 pub mod group_c;
+pub mod keep;
 pub mod layout;
 pub mod lighting30;
 pub mod lights;
@@ -123,6 +124,7 @@ fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00b6_c0d0, drivers::scene_draw(u32, Ptr<_>) -> u32),
         entry!(0x00b6_6520, drivers::accumulator_draw(Ptr<_>)),
         entry!(0x00b6_6570, drivers::accumulator_finish(Ptr<_>)),
+        entry!(0x00b6_30f0, lists::is_shadow_pass(u32) -> bool),
         entry!(0x00d4_7a40, packet::set_camera(Ptr<_>, u32)),
         entry!(0x00aa_0fe0, packet::finish_accumulating(Ptr<_>)),
         entry!(0x00b5_4b10, own::hold_accumulator(u32)),
@@ -185,6 +187,7 @@ fn funcs() -> Vec<(u32, AbiFn)> {
         entry!(0x00e7_0140, packed::draw_points(Ptr<_>, Ptr<_>)),
         entry!(0x00e6_c780, camera::set_camera_data(Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>, Ptr<_>)),
         entry!(0x00e8_3db0, defined::set_defined_constant(Ptr<_>, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) -> u32),
+        entry!(0x00e8_3550, defined::setup_texture_transform_matrix(Ptr<_>, Ptr<_>, u8, u8, u32)),
         entry!(0x00e6_9ea0, packed::build_quads(Ptr<_>, u32, u32, u32, u32, u32, u32, u16)),
         entry!(0x00e6_ab40, packed::build_quads_with_byte(Ptr<_>, u32, u32, u32, u32, u32, u32, u32, u16)),
         entry!(0x00e6_96a0, packed::declaration(Ptr<_>) -> u32),

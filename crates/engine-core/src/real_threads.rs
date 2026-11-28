@@ -78,13 +78,23 @@ use crate::ptr::Ptr;
 use crate::thread_host::{RunState, Signalled, ThreadHost, MAIN_THREAD_ID};
 use crate::Engine;
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 #[path = "real_sync.rs"]
 mod sync;
 pub(crate) use sync::{handle_closed, sync_object, take_all_sync};
+
+mod havok;
+pub use havok::{
+    havok_post_ready, havok_posted, join_havok, on_havok_helper, post_havok, HavokJob,
+};
+
+mod loader;
+pub use loader::{
+    join_loader, loader_post_ready, loader_posted, on_loader_helper, post_loader, LoaderJob,
+};
 
 /// The kept pages over the limit that make the host hand them back at a frame's end (64 MB): a
 /// barrier is a few hundred microseconds, so not every frame.
@@ -1457,6 +1467,10 @@ pub fn start(e: &mut Engine) -> Result<(), String> {
         if e.kernel.threads.list[i].suspend_count == 0 {
             start_thread(e, i);
         }
+    }
+    // The scene helper's thread and area are made here, not at the first post inside a frame.
+    if scene_switch_on() {
+        SCENE.get_or_init(|| make_scene_helper(e, world));
     }
     Ok(())
 }
@@ -3037,11 +3051,11 @@ const HELPER_ID_BASE: u32 = 0x0001_0000;
 /// thread's (the thread list holds a few dozen), so `SuspendThread` of a game thread never finds it.
 const HELPER_INDEX_BASE: usize = 1000;
 
-/// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last, the
-/// drawing helper's ([`DRAW_SLOT`]).
+/// The most helpers a pool can have: the slots of [`crate::mem::HELPER_AREA`] but the last three,
+/// the scene helper's ([`SCENE_SLOT`]), the Havok helper's and the drawing helper's ([`DRAW_SLOT`]).
 pub const MOST_HELPERS: usize = ((crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start)
     / crate::mem::HELPER_SLOT) as usize
-    - 1;
+    - 3;
 
 /// Whether a pool of `helpers` fits the helper area beside the drawing helper's slot (one helper
 /// at least).
@@ -3133,6 +3147,18 @@ pub fn fork_join(e: &mut Engine, helpers: usize, job: HelperJob<'_>) -> bool {
 /// fewer than `helpers` helpers, or on none.
 pub fn fork_join_first(e: &mut Engine, helpers: usize, job: HelperJob<'_>) -> bool {
     fork(e, helpers, job, false)
+}
+
+/// Whether the helper pool has been made (by any caller). A caller that needs only a few helpers
+/// uses this to avoid being the one that fixes the pool's size at its own small count.
+pub fn pool_made() -> bool {
+    POOL.get().is_some()
+}
+
+/// Whether a [`fork_join`] is in flight now. A caller that would otherwise stop with the
+/// one-caller-at-a-time panic asks first and does its work itself instead.
+pub fn pool_busy() -> bool {
+    POOL.get().is_some_and(|p| p.busy.load(Ordering::SeqCst))
 }
 
 /// [`fork_join`] (`every`: each helper runs the job) or [`fork_join_first`].
@@ -3399,14 +3425,19 @@ fn run_helper(
 // stack for locals are the last slot of `HELPER_AREA` ([`DRAW_SLOT`]), which the pool never takes.
 // ---------------------------------------------------------------------------------------------
 
-/// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the one past the pool's.
-const DRAW_SLOT: u32 = MOST_HELPERS as u32;
+/// The drawing helper's slot of [`crate::mem::HELPER_AREA`]: the last one, past the pool's, the
+/// scene helper's and the Havok helper's.
+const DRAW_SLOT: u32 =
+    (crate::mem::HELPER_AREA.end - crate::mem::HELPER_AREA.start) / crate::mem::HELPER_SLOT - 1;
 // The area's last slot, and no pool slot: the drawing helper's TLS block and stack are nobody
 // else's, and nothing past the area (the extenders' code begins there).
+/// The scene helper's slot: the one past the pool's, before the Havok helper's and the drawing
+/// helper's.
+const SCENE_SLOT: u32 = DRAW_SLOT - 2;
 const _: () = assert!(
     crate::mem::HELPER_AREA.start + (DRAW_SLOT + 1) * crate::mem::HELPER_SLOT
         == crate::mem::HELPER_AREA.end
-        && MOST_HELPERS as u32 <= DRAW_SLOT
+        && MOST_HELPERS as u32 == SCENE_SLOT
 );
 /// The id the drawing helper answers `GetCurrentThreadId` with, and its thread index: past the
 /// pool's.
@@ -3795,10 +3826,334 @@ fn draw_stopped(world: &'static World, e: &Engine, payload: &(dyn std::any::Any 
     world.kernel.unlock();
 }
 
+// ---------------------------------------------------------------------------------------------
+// The scene helper (nv-rs#950): the scene-graph update main ran inline are posted here and joined
+// before main fixes the camera and visibility and before the draw. Off by default, real threads only: stepped frames
+// keep the game's order and their recordings byte-identical (ADR-0015). A job forwards the game's calls; the typed
+// families they reach are `Threads::Both` and follow ADR-0014's float rule (f64, rounded at each float store).
+// ---------------------------------------------------------------------------------------------
+
+/// `NV_SCENE_JOBS`, read once: 0 unset, 1 off, 2 on.
+static SCENE_JOBS: AtomicU8 = AtomicU8::new(0);
+const SCENE_OFF: u8 = 1;
+const SCENE_ON: u8 = 2;
+/// The id and thread index the scene helper answers `GetCurrentThreadId` with, past the pool's and
+/// the drawing helper's.
+const SCENE_ID: u32 = DRAW_ID + 1;
+const SCENE_INDEX: usize = DRAW_INDEX + 1;
+
+/// A job for [`post_scene`]: run once on the scene helper's engine.
+pub type SceneJob = Box<dyn FnOnce(&mut Engine) + Send>;
+
+struct SceneHelper {
+    state: Mutex<SceneState>,
+    start: Condvar,
+    done: Condvar,
+    kernel: usize,
+    world: Option<usize>,
+}
+
+#[derive(Default)]
+struct SceneState {
+    posted: bool,
+    job: Option<SceneJob>,
+    finished: bool,
+    control_word: u16,
+    panic: Option<Box<dyn std::any::Any + Send>>,
+    /// The stopped job's calls, innermost last, for the join to report as the poster's own.
+    stop_stack: Vec<u32>,
+}
+
+impl SceneHelper {
+    fn assert_same_run(&self, kernel: usize, world: Option<usize>) {
+        assert!(
+            self.kernel == kernel && self.world == world,
+            "post_scene: the scene helper belongs to another run; one run per process may post"
+        );
+    }
+}
+
+static SCENE: std::sync::OnceLock<&'static SceneHelper> = std::sync::OnceLock::new();
+
+thread_local! {
+    /// This OS thread is the scene helper.
+    static SCENE_HELPER: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether this OS thread is the scene helper.
+pub fn on_scene_helper() -> bool {
+    SCENE_HELPER.with(Cell::get)
+}
+
+#[cold]
+fn read_scene_switch() -> u8 {
+    let value = std::env::var("NV_SCENE_JOBS").unwrap_or_default();
+    let m = if value
+        .split(',')
+        .any(|p| p.trim() == "1" || p.trim() == "on")
+    {
+        SCENE_ON
+    } else {
+        SCENE_OFF
+    };
+    if m == SCENE_ON {
+        println!("NV_SCENE_JOBS=1: the scene update on the nv-scene helper with real threads");
+    }
+    SCENE_JOBS.store(m, Ordering::Relaxed);
+    m
+}
+
+/// Whether the scene-job switch is on (read once from the environment, here at start-up).
+fn scene_switch_on() -> bool {
+    let mode = match SCENE_JOBS.load(Ordering::Relaxed) {
+        0 => read_scene_switch(),
+        m => m,
+    };
+    mode == SCENE_ON
+}
+
+/// Sets the switch for tests that cannot set the environment before its first read.
+#[doc(hidden)]
+pub fn scene_jobs_set_for_tests(on: bool) {
+    SCENE_JOBS.store(if on { SCENE_ON } else { SCENE_OFF }, Ordering::Relaxed);
+}
+
+/// Posts `job` to the scene helper and answers whether it was taken. With real threads it starts at once; main goes on
+/// and joins it before the camera and visibility passes and before the draw ([`join_scene`]). Answers false, and the
+/// caller does the work itself, when the switch is off, with stepped threads, on a helper, while a typed family runs
+/// dual, while a per-call diagnostic is on or while an earlier job is not joined yet. One helper per process.
+pub fn post_scene(e: &mut Engine, job: SceneJob) -> bool {
+    let mode = match SCENE_JOBS.load(Ordering::Relaxed) {
+        0 => read_scene_switch(),
+        m => m,
+    };
+    if mode != SCENE_ON
+        || e.real.is_none()
+        || HELPER.with(Cell::get)
+        || on_draw_helper()
+        || on_scene_helper()
+        || on_havok_helper()
+        || e.typed_any_dual()
+        || diagnostic_on(e).is_some()
+    {
+        return false;
+    }
+    let world = e.real.as_ref().expect("real threads checked above").world;
+    let world_id = Some(world as *const World as usize);
+    if let Some(s) = SCENE.get() {
+        s.assert_same_run(e.kernel.id(), world_id);
+        if guard(&s.state).posted {
+            return false;
+        }
+    }
+    if !e.mem.is_shared() {
+        if !e.mem.can_share() {
+            return false;
+        }
+        e.kernel.leak();
+        e.device.leak();
+        e.mem.start_sharing();
+    }
+    let control_word = crate::units::crt::x87_control_word(e);
+    let s = *SCENE.get_or_init(|| make_scene_helper(e, world));
+    s.assert_same_run(e.kernel.id(), world_id);
+    {
+        let mut state = guard(&s.state);
+        if state.posted {
+            return false;
+        }
+        state.posted = true;
+        state.finished = false;
+        state.panic = None;
+        state.stop_stack.clear();
+        state.control_word = control_word;
+        state.job = Some(job);
+    }
+    s.start.notify_all();
+    true
+}
+
+/// Whether a job is posted to the scene helper and not joined yet.
+pub fn scene_posted() -> bool {
+    SCENE.get().is_some_and(|s| guard(&s.state).posted)
+}
+
+/// Returns once the posted job has finished. The caller does not count as running game code while it waits and gives
+/// back the kernel and device locks the job's calls take, as a wait on an object gives back the kernel lock.
+pub fn wait_scene(e: &Engine) -> bool {
+    let Some(s) = SCENE.get() else { return false };
+    {
+        let state = guard(&s.state);
+        if !state.posted {
+            return false;
+        }
+        if state.finished {
+            return true;
+        }
+    }
+    let world = e.real.as_ref().map(|r| r.world);
+    let held = world.map(|w| (w.kernel.release_all(), w.device.release_all()));
+    let counted = world.is_some_and(World::leave_guest);
+    let mut state = guard(&s.state);
+    while !state.finished {
+        state = wait(&s.done, state);
+    }
+    drop(state);
+    if let Some(world) = world {
+        if counted {
+            world.enter_guest();
+        }
+        let (kernel, device) = held.unwrap_or_default();
+        world.device.take_again(world, device);
+        world.kernel.take_again(world, kernel);
+    }
+    true
+}
+
+/// [`wait_scene`], then the job is joined (another may be posted) and its panic resumed here.
+/// False when none was posted.
+pub fn join_scene(e: &mut Engine) -> bool {
+    if !wait_scene(e) {
+        return false;
+    }
+    let s = SCENE.get().expect("a job was posted");
+    let (panic, stop_stack) = {
+        let mut state = guard(&s.state);
+        state.posted = false;
+        (state.panic.take(), std::mem::take(&mut state.stop_stack))
+    };
+    if let Some(payload) = panic {
+        // The helper's stack starts at the posted call: appending it reports the same innermost
+        // calls an inline update would have left on the poster's stack.
+        e.call_stack.extend(stop_stack);
+        std::panic::resume_unwind(payload);
+    }
+    true
+}
+
+/// The scene helper and its OS thread, with an engine made on this thread.
+fn make_scene_helper(e: &mut Engine, world: &'static World) -> &'static SceneHelper {
+    let s: &'static SceneHelper = Box::leak(Box::new(SceneHelper {
+        state: Mutex::new(SceneState::default()),
+        start: Condvar::new(),
+        done: Condvar::new(),
+        kernel: e.kernel.id(),
+        world: Some(world as *const World as usize),
+    }));
+    let mut helper = world.context(SCENE_ID, SCENE_INDEX);
+    let area = crate::mem::HELPER_AREA.start + SCENE_SLOT * crate::mem::HELPER_SLOT;
+    helper.place_thread_memory(area, crate::mem::HELPER_SLOT);
+    let engine = SendEngine(Box::new(helper));
+    std::thread::Builder::new()
+        .name("nv-scene".into())
+        .stack_size(THREAD_STACK)
+        .spawn(move || {
+            qos::thread_started();
+            run_scene_helper(engine, world, s)
+        })
+        .expect("the scene helper's thread");
+    s
+}
+
+/// The scene helper's body: waits for each job, runs it on its engine, marks it finished.
+fn run_scene_helper(engine: SendEngine, world: &'static World, s: &'static SceneHelper) {
+    SCENE_HELPER.with(|h| h.set(true));
+    let mut e = engine.0;
+    loop {
+        let (job, control_word) = {
+            let mut state = guard(&s.state);
+            while state.job.is_none() {
+                state = wait(&s.start, state);
+            }
+            (state.job.take().expect("checked above"), state.control_word)
+        };
+        let mark = e.guest_stack_mark();
+        let mut entered = false;
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sync_registered(&mut e);
+            crate::units::crt::set_x87_control_word(&mut e, control_word);
+            world.enter_guest();
+            entered = true;
+            job(&mut e)
+        }));
+        if entered {
+            world.leave_guest();
+        }
+        let stop_stack = if out.is_err() {
+            if let Err(payload) = &out {
+                scene_stopped(world, &e, &**payload);
+            }
+            let stack = std::mem::take(&mut e.call_stack);
+            e.guest_stack_restore(mark);
+            e.stack_frames.clear();
+            stack
+        } else {
+            Vec::new()
+        };
+        {
+            let mut state = guard(&s.state);
+            if let Err(payload) = out {
+                state.panic = Some(payload);
+                state.stop_stack = stop_stack;
+            }
+            state.finished = true;
+        }
+        s.done.notify_all();
+    }
+}
+
+/// A stop in the scene job (real threads) is the run's, as a game thread's and the drawing helper's
+/// are: named with `nv-scene` and the job's innermost functions, recorded for main and given to
+/// every waiter, so a thread waiting on a lock the job held stops instead of waiting for ever.
+fn scene_stopped(world: &'static World, e: &Engine, payload: &(dyn std::any::Any + Send)) {
+    let text = payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let first = text.lines().next().unwrap_or("");
+    let path: Vec<String> = e
+        .call_stack
+        .iter()
+        .rev()
+        .take(6)
+        .map(|a| format!("{a:08x}"))
+        .collect();
+    let line = if path.is_empty() {
+        format!("{first} (in the scene helper nv-scene)")
+    } else {
+        format!(
+            "{first} (in {}, in the scene helper nv-scene)",
+            path.join(" < ")
+        )
+    };
+    eprintln!("real threads: {line}");
+    world.kernel.lock(world);
+    guard(&world.stopped).get_or_insert(line);
+    world.any_stop.store(true, Ordering::SeqCst);
+    world.wake_all_waiters();
+    world.kernel.unlock();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::args;
+
+    /// A Havok step is posted to `nv-havok` only from the main game thread: the helper cannot
+    /// yield to another game thread, so a step that waits for a lock another thread holds would
+    /// stop the run. From any other game thread the step runs inline.
+    #[test]
+    fn a_havok_step_is_posted_only_from_the_main_thread() {
+        let mut e = Engine::new_untyped();
+        e.kernel.threads.current = 0;
+        assert!(havok_post_ready(&e));
+        assert!(loader_post_ready(&e));
+        e.kernel.threads.current = 17;
+        assert!(!havok_post_ready(&e));
+        // Loader and garbage-collection jobs follow the same rule.
+        assert!(!loader_post_ready(&e));
+    }
 
     /// A device function's slot is its byte offset into the ranges laid end to end: every address
     /// of each range has its own slot, the second range's follow the first's, and an address
@@ -6032,19 +6387,25 @@ mod tests {
         world.leave_guest();
     }
 
-    /// A pool fits the helper area beside the drawing helper's slot: one helper at least, and no
-    /// more than the slots before the last.
+    /// A pool fits the helper area beside the scene helper's, the Havok helper's and the drawing
+    /// helper's slots: one helper at least, and no more than the slots before those three.
     #[test]
-    fn a_pool_fits_beside_the_drawing_helper() {
+    fn a_pool_fits_beside_the_scene_and_drawing_helpers() {
         assert!(pool_fits(1) && pool_fits(MOST_HELPERS));
         assert!(!pool_fits(0) && !pool_fits(MOST_HELPERS + 1));
+        let scene = crate::mem::HELPER_AREA.start + SCENE_SLOT * crate::mem::HELPER_SLOT;
         let draw =
             (crate::mem::HELPER_AREA.end - crate::mem::HELPER_SLOT)..crate::mem::HELPER_AREA.end;
-        assert!(
-            crate::mem::HELPER_AREA.start + MOST_HELPERS as u32 * crate::mem::HELPER_SLOT
-                <= draw.start,
-            "the pool's highest slot ends below the drawing helper's"
+        assert_eq!(
+            DRAW_SLOT,
+            MOST_HELPERS as u32 + 2,
+            "the scene and Havok helpers have the two slots before the drawing helper's"
         );
+        assert!(
+            crate::mem::HELPER_AREA.start + MOST_HELPERS as u32 * crate::mem::HELPER_SLOT == scene,
+            "the pool's highest slot is the scene helper's"
+        );
+        assert_eq!(scene + 2 * crate::mem::HELPER_SLOT, draw.start);
     }
 
     /// The drawing helper (one per process, so one test makes it), with real threads: a posted job
@@ -6240,6 +6601,11 @@ thread_local! {
     static DIRECT_WORLD: Cell<Option<&'static World>> = const { Cell::new(None) };
     /// The calls this thread made directly (tests).
     static DIRECT_CALLS: Cell<u64> = const { Cell::new(0) };
+    /// The device-lock probes a direct call made before the geometry hold was taken (tests).
+    static DIRECT_PROBES: Cell<u64> = const { Cell::new(0) };
+    /// How many geometries' device calls this thread has inside a half (0 outside one). The
+    /// world draw's own hold outlives each of them.
+    static GEOMETRY_HALF: Cell<u32> = const { Cell::new(0) };
 }
 
 /// `NV_DRAW_DIRECT`: on unless `0`.
@@ -6261,6 +6627,19 @@ pub fn force_direct_for_tests() {
 #[doc(hidden)]
 pub fn direct_calls() -> u64 {
     DIRECT_CALLS.with(Cell::get)
+}
+
+/// How many times a direct call has probed the half's device lock (tests). A draw that keeps the
+/// half for a whole geometry probes once, however many device calls it makes.
+#[doc(hidden)]
+pub fn direct_probes() -> u64 {
+    DIRECT_PROBES.with(Cell::get)
+}
+
+/// Whether this thread is inside a geometry's device calls (tests).
+#[doc(hidden)]
+pub fn geometry_half_open() -> bool {
+    GEOMETRY_HALF.with(Cell::get) != 0
 }
 
 /// Whether this thread has direct calls on and holds the device lock for them (tests).
@@ -6313,6 +6692,44 @@ impl Drop for DirectHalf {
     }
 }
 
+/// One geometry's device calls, inside the world draw's half. The half's hold of the device lock is
+/// kept for the whole geometry: the calls in between do not probe it or take the hold up again. A
+/// guest call that waits still leaves guest code through [`release_direct`], which gives the hold
+/// back as it did before; the later device calls then lock per call. With stepped threads, or
+/// outside a half, nothing changes and each call takes the lock as it did.
+pub struct DeviceHalf(bool);
+
+impl DeviceHalf {
+    /// Marks the device calls that follow as one geometry's. Nests: a geometry drawn inside another
+    /// (a reflection, a first-person pass) leaves the outer one's hold in place.
+    pub fn begin(e: &Engine) -> DeviceHalf {
+        let Some(r) = e.real.as_ref() else {
+            return DeviceHalf(false);
+        };
+        if DIRECT.with(Cell::get) == 0 {
+            return DeviceHalf(false);
+        }
+        // The hold the calls of this geometry share is taken here, at the first of them. From now
+        // until the guard drops, `device_call_lock` only takes the call's own re-entrant hold.
+        // A geometry drawn inside another has no hold of its own to take: re-probing here could run
+        // `direct_hold`'s waiter arm and surrender the outer geometry's hold between two of its
+        // calls. It shares that hold until the outer guard drops, so do not probe again.
+        if GEOMETRY_HALF.with(Cell::get) == 0 {
+            direct_hold(e, r.world);
+        }
+        GEOMETRY_HALF.with(|g| g.set(g.get() + 1));
+        DeviceHalf(true)
+    }
+}
+
+impl Drop for DeviceHalf {
+    fn drop(&mut self) {
+        if self.0 {
+            GEOMETRY_HALF.with(|g| g.set(g.get() - 1));
+        }
+    }
+}
+
 /// The direct calls' hold given back (this thread is about to wait, or gives the kernel lock up
 /// for pure work): only when it is the only hold of the device lock on this thread. Every device
 /// call takes the lock again on top of the hold ([`device_call_lock`]), so depth 1 means no device
@@ -6333,7 +6750,8 @@ fn release_direct(w: &World) {
 /// it), so a nested call never finds depth 1 inside a device function.
 #[inline]
 fn device_call_lock(e: &Engine, world: &'static World) -> DeviceGuard {
-    if DIRECT.with(Cell::get) != 0 {
+    if GEOMETRY_HALF.with(Cell::get) == 0 && DIRECT.with(Cell::get) != 0 {
+        DIRECT_PROBES.with(|p| p.set(p.get() + 1));
         direct_hold(e, world);
     }
     if !world.device.held_here() {
@@ -6372,6 +6790,7 @@ fn direct_hold(e: &Engine, world: &'static World) {
 /// threads, the switch off).
 #[inline]
 pub fn device_vcall(e: &mut Engine, this: u32, slot: u32, args: &[u32]) -> Ret {
+    let _call = NotedCall::enter(note_device_call(e, this, slot, args));
     if DIRECT.with(Cell::get) == 0 || e.diagnosing_direct() {
         return e.vcall(this, slot, args);
     }
@@ -6479,6 +6898,7 @@ fn device_typed(
     pick: fn(&'static DeviceWriter) -> AbiFn,
     typed: impl FnOnce(&mut Engine, &'static DeviceWriter) -> u32,
 ) -> Ret {
+    let _call = NotedCall::enter(note_device_call(e, this, slot, args));
     if DIRECT.with(Cell::get) == 0 || e.diagnosing_direct() {
         return e.vcall(this, slot, args);
     }
@@ -6719,6 +7139,220 @@ pub fn device_set_pixel_constants(
     )
 }
 
+/// A device call the typed draw code made while this thread's recorder was on
+/// ([`device_record_begin`]): the device, the slot (byte offset), the words, and for a call that
+/// passes a structure by address (constants, a matrix, a plane, a viewport) from the caller's stack
+/// for locals the bytes there as they were at the call and which word held the address (one
+/// elsewhere is read again at replay). [`device_replay`] makes it again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceCall {
+    pub this: u32,
+    pub slot: u32,
+    pub args: Vec<u32>,
+    pub data: Vec<u8>,
+    pub data_arg: Option<usize>,
+}
+
+thread_local! {
+    /// The calls recorded on this thread while its recorder is on.
+    static RECORDED: std::cell::RefCell<Option<Vec<DeviceCall>>> =
+        const { std::cell::RefCell::new(None) };
+    /// 1 while the recorder is on and not paused (the one test a device call makes), else 0.
+    static RECORDING: Cell<u32> = const { Cell::new(0) };
+    /// Pauses in force while the recorder is on.
+    static RECORD_PAUSES: Cell<u32> = const { Cell::new(0) };
+    /// How deep this thread is in device calls the recorder noted.
+    static IN_CALL: Cell<u32> = const { Cell::new(0) };
+    /// Whether the device's state was reached outside a noted call while the recorder was on (a call it cannot
+    /// make again: [`note_device_state`]).
+    static UNSEEN: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Starts this thread's device call recorder (the kept draw records' build, the typed draw code):
+/// every call through [`device_vcall`] and the writer's functions is noted until
+/// [`device_record_end`]. Starting it again drops what it held.
+pub fn device_record_begin() {
+    IN_CALL.with(|c| c.set(0));
+    UNSEEN.with(|u| u.set(false));
+    RECORDED.with(|r| *r.borrow_mut() = Some(Vec::new()));
+    RECORD_PAUSES.with(|p| p.set(0));
+    RECORDING.with(|r| r.set(1));
+}
+
+/// Ends this thread's recorder: the calls noted, in order.
+pub fn device_record_end() -> Vec<DeviceCall> {
+    RECORDING.with(|r| r.set(0));
+    RECORD_PAUSES.with(|p| p.set(0));
+    RECORDED.with(|r| r.borrow_mut().take()).unwrap_or_default()
+}
+
+/// Pauses (`true`) or resumes (`false`) this thread's recorder; pauses nest. Nothing without it.
+pub fn device_record_pause(pause: bool) {
+    if RECORDED.with(|r| r.borrow().is_none()) {
+        return;
+    }
+    let n = RECORD_PAUSES.with(|p| {
+        let n = if pause {
+            p.get() + 1
+        } else {
+            p.get().saturating_sub(1)
+        };
+        p.set(n);
+        n
+    });
+    RECORDING.with(|r| r.set(u32::from(n == 0)));
+}
+
+/// The word of a device call that is the address of a structure, and the structure's bytes:
+/// `Set{Vertex,Pixel}ShaderConstant{F,I,B}` (16, 16 and 4 bytes a register), `SetTransform` (a
+/// matrix), `SetClipPlane` (a plane), `SetViewport`, `SetMaterial`, `SetLight`.
+pub fn device_structure(slot: u32, args: &[u32]) -> Option<(usize, u32)> {
+    let count = |i: usize| args.get(i).copied().unwrap_or(0);
+    match slot {
+        0x178 | 0x180 | 0x1b4 | 0x1bc => Some((1, count(2).saturating_mul(16))),
+        0x188 | 0x1c4 => Some((1, count(2).saturating_mul(4))),
+        0xb0 => Some((1, 64)),
+        0xdc => Some((1, 16)),
+        0xbc => Some((0, 24)),
+        0xc4 => Some((0, 68)),
+        0xcc => Some((1, 104)),
+        _ => None,
+    }
+}
+
+/// Notes a device call when this thread's recorder is on (one thread-local test otherwise); answers whether it did.
+#[inline(always)]
+fn note_device_call(e: &Engine, this: u32, slot: u32, args: &[u32]) -> bool {
+    if RECORDING.with(Cell::get) != 0 {
+        note_device_call_slow(e, this, slot, args);
+        return true;
+    }
+    false
+}
+
+/// A noted device call running ([`IN_CALL`] one deeper while it does).
+struct NotedCall(bool);
+
+impl NotedCall {
+    #[inline(always)]
+    fn enter(noted: bool) -> NotedCall {
+        if noted {
+            IN_CALL.with(|c| c.set(c.get() + 1));
+        }
+        NotedCall(noted)
+    }
+}
+
+impl Drop for NotedCall {
+    #[inline(always)]
+    fn drop(&mut self) {
+        if self.0 {
+            IN_CALL.with(|c| c.set(c.get().saturating_sub(1)));
+        }
+    }
+}
+
+/// Whether this thread is inside a device call the recorder noted ([`device_record_begin`]) or a
+/// record's replay makes again ([`device_replay`]): the draw's own calls, whose commands
+/// [`crate::draw_items`] may hold. One thread-local read.
+#[inline(always)]
+pub fn in_noted_call() -> bool {
+    IN_CALL.with(Cell::get) != 0
+}
+
+/// Tests: `f` as inside a noted device call ([`in_noted_call`]).
+#[doc(hidden)]
+pub fn as_noted_call_for_tests<R>(f: impl FnOnce() -> R) -> R {
+    let _call = NotedCall::enter(true);
+    f()
+}
+
+/// The platform layer reached the device's state (every device function and the resources' do): with the recorder
+/// on and outside a call it noted, that is a call it could not make again (a device call by the vtable from
+/// translated code, a buffer's `Lock`), noted for [`device_record_unseen`]. One thread-local test otherwise.
+#[inline(always)]
+pub fn note_device_state() {
+    if RECORDING.with(Cell::get) != 0 && IN_CALL.with(Cell::get) == 0 {
+        UNSEEN.with(|u| u.set(true));
+    }
+}
+
+/// Whether, since [`device_record_begin`], the device's state was reached outside the calls the recorder noted
+/// ([`note_device_state`]): what it recorded is then not all the device got.
+pub fn device_record_unseen() -> bool {
+    UNSEEN.with(Cell::get)
+}
+
+#[cold]
+#[inline(never)]
+fn note_device_call_slow(e: &Engine, this: u32, slot: u32, args: &[u32]) {
+    // A structure on the caller's stack for locals is gone by replay time: its bytes are kept. One elsewhere (the
+    // shader statics, an object) is read again where it is at replay, as the call would read it then.
+    let (data_arg, data) = match device_structure(slot, args) {
+        Some((i, len))
+            if args.get(i).is_some_and(|&p| p != 0 && e.in_locals(p)) && len <= 0x4000 =>
+        {
+            let mut bytes = vec![0u8; len as usize];
+            if e.mem.try_read(args[i], &mut bytes).is_err() {
+                bytes.clear();
+            }
+            (Some(i), bytes)
+        }
+        _ => (None, Vec::new()),
+    };
+    let call = DeviceCall {
+        this,
+        slot,
+        args: args.to_vec(),
+        data,
+        data_arg,
+    };
+    RECORDED.with(|r| {
+        if let Some(v) = r.borrow_mut().as_mut() {
+            // Its place among the writes the store log notes meanwhile, when one is on.
+            e.mem.store_log_mark(DEVICE_CALL_MARK, v.len() as u32);
+            v.push(call);
+        }
+    });
+}
+
+/// The store log mark ([`crate::mem::Mem::store_log_mark`]) a recorded device call leaves, its index in
+/// the recorder's list as the mark's bytes.
+pub const DEVICE_CALL_MARK: u32 = 0;
+
+/// Makes a recorded device call again ([`DeviceCall`]): a structure it passed by address from a
+/// local copy of its bytes; through the writer's function for the slots it has, else
+/// [`device_vcall`]. Its answer.
+pub fn device_replay(e: &mut Engine, call: &DeviceCall) -> Ret {
+    // The draw's own call again: its commands are the draw's, as at the build ([`in_noted_call`]).
+    let _call = NotedCall::enter(true);
+    match call.data_arg {
+        Some(i) if !call.data.is_empty() => e.with_stack(call.data.len() as u32, |e, local| {
+            e.mem.write(local.addr(), &call.data);
+            let mut args = call.args.clone();
+            args[i] = local.addr();
+            device_call_by_slot(e, call.this, call.slot, &args)
+        }),
+        _ => device_call_by_slot(e, call.this, call.slot, &call.args),
+    }
+}
+
+/// A device call by its slot: the writer's function where it has one, else [`device_vcall`].
+fn device_call_by_slot(e: &mut Engine, this: u32, slot: u32, a: &[u32]) -> Ret {
+    let w = |i: usize| a.get(i).copied().unwrap_or(0);
+    match (slot, a.len()) {
+        (0xe4, 2) => device_set_render_state(e, this, w(0), w(1)),
+        (0x10c, 3) => device_set_stage_state(e, this, w(0), w(1), w(2)),
+        (0x114, 3) => device_set_sampler_state(e, this, w(0), w(1), w(2)),
+        (0x104, 2) => device_set_texture(e, this, w(0), w(1)),
+        (0x190, 4) => device_set_stream_source(e, this, w(0), w(1), w(2), w(3)),
+        (0x144, 3) => device_draw_primitive(e, this, w(0), w(1), w(2)),
+        (0x148, 6) => device_draw_indexed_primitive(e, this, w(0), w(1), w(2), w(3), w(4), w(5)),
+        (0x178 | 0x1b4, 3) => device_set_constants(e, this, slot, w(0), w(1), w(2)),
+        _ => device_vcall(e, this, slot, a),
+    }
+}
+
 /// The world draw's hold of the device lock with real threads (`NV_DRAW_DIRECT`): what a wait, a
 /// waiting thread, the half's end, a panic and a nested call do to it. Each device call here is
 /// [`device_call_lock`], the locking every direct device call goes through. Every wait is bounded:
@@ -6913,6 +7547,37 @@ mod direct_tests {
         assert!(!device_lock_held(&e));
     }
 
+    /// A geometry drawn inside another does not give up the outer geometry's hold, even when a
+    /// thread waits for the device lock at the nested begin: the nested guard shares the hold and
+    /// its calls keep the same order and the same re-entrant depth.
+    #[test]
+    fn a_nested_geometry_half_never_gives_up_the_outer_hold() {
+        let (e, world, _) = real_engine();
+        assert!(direct_begin(&e));
+        let outer = DeviceHalf::begin(&e);
+        device_call_here(&e, world);
+        assert!(direct_holds(), "the outer geometry took the hold");
+
+        let (_got, taker) = device_taker(world);
+        let waiting = until_waiting(world);
+        {
+            let inner = DeviceHalf::begin(&e);
+            assert!(geometry_half_open(), "both geometries are in their half");
+            assert!(direct_holds(), "the nested begin kept the outer hold");
+            // The call still runs on the outer hold (depth 2), not per call (depth 1).
+            device_call_here(&e, world);
+            assert!(direct_holds(), "the hold outlives the nested geometry");
+            drop(inner);
+        }
+        drop(outer);
+        let held_after = direct_holds();
+        direct_end();
+        taker.join().expect("the other thread");
+        assert!(waiting, "the other thread waits for the device lock");
+        assert!(held_after, "the outer geometry kept its hold throughout");
+        assert!(!device_lock_held(&e));
+    }
+
     /// The half's end gives the hold back, and so does a panic inside the half (the drawing code's
     /// guard, [`DirectHalf`]), also with a device call's lock taken when it panics.
     #[test]
@@ -7029,5 +7694,116 @@ mod direct_tests {
         assert!(took, "another thread took the kernel lock meanwhile");
         assert!(!after, "the hold given back first");
         assert!(world.kernel.held_here(), "the kernel lock taken back");
+    }
+}
+
+/// The kept draw records' device recorder ([`device_record_begin`]; review of #1108).
+#[cfg(test)]
+mod recorder_tests {
+    use super::*;
+
+    thread_local! {
+        /// Where the test device's `SetTransform` copies the matrix it was given.
+        static SEEN: Cell<u32> = const { Cell::new(0) };
+    }
+
+    /// TEST DATA: a device's `SetTransform(state, matrix)` (`this` first): copies the 16 words at `matrix` to
+    /// [`SEEN`], and notes that it reached the device's state as the platform's functions do.
+    fn set_transform(e: &mut Engine, a: &[u32]) -> Ret {
+        note_device_state();
+        let matrix = a.last().copied().unwrap_or(0);
+        let seen = SEEN.with(Cell::get);
+        for i in 0..16 {
+            let w = e.mem.u32(matrix + 4 * i);
+            e.mem.set_u32(seen + 4 * i, w);
+        }
+        Ret::default()
+    }
+
+    /// A device whose vtable's `SetTransform` (slot 0xb0) is [`set_transform`]: (engine, device).
+    fn test_device() -> (Engine, u32) {
+        let mut e = Engine::new();
+        SEEN.with(|s| s.set(e.mem.alloc(0x40)));
+        e.register(0x0040_3000, set_transform);
+        let vtable = e.mem.alloc(0x200);
+        e.mem.set_u32(vtable + 0xb0, 0x0040_3000);
+        let device = e.mem.alloc(0x10);
+        e.mem.set_u32(device, vtable);
+        (e, device)
+    }
+
+    /// The structures a call passes by address, by slot: which word and how many bytes.
+    #[test]
+    fn a_calls_structure_is_named_by_its_slot() {
+        let args = [1, 0x5000, 3];
+        for (slot, want) in [
+            (0x178, Some((1, 48))),
+            (0x180, Some((1, 48))),
+            (0x1b4, Some((1, 48))),
+            (0x1bc, Some((1, 48))),
+            (0x188, Some((1, 12))),
+            (0x1c4, Some((1, 12))),
+            (0xb0, Some((1, 64))),
+            (0xdc, Some((1, 16))),
+            (0xbc, Some((0, 24))),
+            (0xc4, Some((0, 68))),
+            (0xcc, Some((1, 104))),
+            (0xe4, None),
+            (0x190, None),
+            (0x184, None),
+        ] {
+            assert_eq!(device_structure(slot, &args), want, "slot {slot:#x}");
+        }
+    }
+
+    /// A call with a structure on the stack for locals is noted with the structure's bytes; replayed, the
+    /// structure comes from those bytes (the local holds other bytes by then) and the call counts as the draw's
+    /// own ([`in_noted_call`]); the device's state reached outside a noted call is noted as unseen, inside one it
+    /// is not, and not while the recorder is paused.
+    #[test]
+    fn the_recorder_notes_a_calls_structure_and_replays_it_from_its_bytes() {
+        let (mut e, device) = test_device();
+        let matrix: [u32; 16] = std::array::from_fn(|i| 100 + i as u32);
+        device_record_begin();
+        e.with_stack(0x40, |e, local| {
+            for (i, w) in matrix.iter().enumerate() {
+                e.mem.set_u32(local.addr() + 4 * i as u32, *w);
+            }
+            device_vcall(e, device, 0xb0, &[256, local.addr()]);
+            for i in 0..16 {
+                e.mem.set_u32(local.addr() + 4 * i, 0xdead);
+            }
+        });
+        assert!(!device_record_unseen(), "inside the noted call");
+        device_record_pause(true);
+        note_device_state();
+        device_record_pause(false);
+        assert!(!device_record_unseen(), "paused");
+        let calls = device_record_end();
+        assert_eq!(calls.len(), 1);
+        let call = &calls[0];
+        assert_eq!(
+            (call.this, call.slot, call.data_arg),
+            (device, 0xb0, Some(1))
+        );
+        assert_eq!(call.data.len(), 64);
+        let seen = SEEN.with(Cell::get);
+        e.mem.set_u32(seen, 0);
+        e.with_stack(0x40, |e, local| {
+            for i in 0..16 {
+                e.mem.set_u32(local.addr() + 4 * i, 0xbeef);
+            }
+            device_replay(e, call);
+        });
+        assert_eq!(
+            std::array::from_fn::<u32, 16, _>(|i| e.mem.u32(seen + 4 * i as u32)),
+            matrix,
+            "the structure from the call's bytes"
+        );
+        assert!(!in_noted_call());
+        device_record_begin();
+        note_device_state();
+        assert!(device_record_unseen(), "outside any noted call");
+        device_record_end();
     }
 }

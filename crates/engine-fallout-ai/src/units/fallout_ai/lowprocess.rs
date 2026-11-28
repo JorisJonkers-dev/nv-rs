@@ -481,7 +481,7 @@ pub fn fn_00913810(e: &mut Engine, this: Ptr, buckets: u32) -> Ptr {
 pub fn fn_00913880(e: &mut Engine, this: Ptr) {
     e.mem.set_u32(this.addr(), VTABLE_009137B0);
     e.call(MAP_REMOVE_ALL, &args![this]);
-    fn_009138e0(e, this);
+    e.call(0x0091_38e0, &args![this]);
 }
 
 // Translated from 009138e0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -568,7 +568,7 @@ pub fn low_process_process_patrol_init(
         );
         return false;
     }
-    low_process_process_patrol_start_travel_to_next_ref(e, this, actor, data);
+    e.call(0x0091_2340, &args![this, actor, data]);
     true
 }
 
@@ -802,7 +802,9 @@ pub fn low_process_check_and_start_combat_controller_for_package(
     flag: u8,
 ) -> bool {
     if package.addr() == 0
-        || !low_process_should_use_combat_controller_for_package(e, this, package, flag)
+        || !e
+            .call(0x0090_78d0, &args![this, package, u32::from(flag)])
+            .bool()
     {
         return false;
     }
@@ -1314,7 +1316,7 @@ pub fn low_process_clear_current_data_for_process(
 ) {
     let base = this.addr();
     e.vcall(base, SET_CURRENT_ACTION_COMPLETE_SLOT, &args![0u32]);
-    fn_0090ac20(e, this, 0);
+    e.call(0x0090_ac20, &args![this, 0u32]);
     e.vcall(base, SET_TARGET_ACTIVATED_SLOT, &args![0u32]);
     e.vcall(base, SET_TARGET_SLOT, &args![0u32]);
     e.mem.set_u32(base.wrapping_add(GENERIC_LOCATION), 0);
@@ -1529,36 +1531,28 @@ pub fn low_process_process_patrol(e: &mut Engine, this: Ptr<LowProcess>, actor: 
         return;
     }
     let mut time =
-        patrol_time_to_spend(low_process_get_time_delta(e, this, actor.addr()).to_bits());
+        patrol_time_to_spend(x87_store32(e.call(0x0090_7260, &args![this, actor]).f64()));
     let zero: f64 = e.global(ZERO);
     while x87_load32(time) > zero {
         time = match e.mem.u32(data.wrapping_add(4)) {
             0 => {
-                if low_process_process_patrol_init(e, this, actor, Ptr::new(data)) {
+                if e.call(0x0091_22e0, &args![this, actor, data]).bool() {
                     time
                 } else {
                     0
                 }
             }
             1 => {
-                let left = fn_009125b0(
-                    e,
-                    this,
-                    actor,
-                    Ptr::new(data),
-                    f32::from_bits(x87_quiet_bits(time)),
-                );
-                x87_store32(f64::from(left))
+                let left = e
+                    .call(0x0091_25b0, &args![this, actor, data, x87_quiet_bits(time)])
+                    .f64();
+                x87_store32(left)
             }
             2 => {
-                let left = low_process_process_patrol_at_ref(
-                    e,
-                    this,
-                    actor,
-                    Ptr::new(data),
-                    f32::from_bits(x87_quiet_bits(time)),
-                );
-                x87_store32(f64::from(left))
+                let left = e
+                    .call(0x0091_2990, &args![this, actor, data, x87_quiet_bits(time)])
+                    .f64();
+                x87_store32(left)
             }
             _ => 0,
         };
@@ -1653,7 +1647,7 @@ pub fn low_process_process_patrol_at_ref(
                 left = 0;
             }
         }
-        low_process_process_patrol_start_travel_to_next_ref(e, this, actor, data);
+        e.call(0x0091_2340, &args![this, actor, data]);
     } else {
         let waited = x87_store32(x87_add(
             x87_load32(e.mem.u32(waited_at)),
@@ -2073,7 +2067,7 @@ pub fn fn_009125b0(e: &mut Engine, this: Ptr<LowProcess>, actor: Ptr, data: Ptr,
         cells_unloaded(e, actor_cell, reference_cell)
     };
     if !fast && e.call(ACTOR_TEST_008B3B90, &args![actor]).bool() {
-        low_process_process_patrol_start_travel_to_next_ref(e, this, actor, data);
+        e.call(0x0091_2340, &args![this, actor, data]);
         return f32::from_bits(left);
     }
     let mut mode = 0x101u32;
@@ -2155,9 +2149,9 @@ pub fn fn_009125b0(e: &mut Engine, this: Ptr<LowProcess>, actor: Ptr, data: Ptr,
         let spent = x87_div(x87_load32(distance), x87_m32(speed));
         left = x87_store32(x87_sub(x87_m32(left), spent));
         e.call(ACTOR_MOVE_TO_008AD910, &args![actor, reference, 1u32, 0u32]);
-        low_process_process_patrol_start_at_ref_behavior(e, this, actor.addr(), data);
+        e.call(0x0091_2960, &args![this, actor, data]);
     } else if e.call(ACTOR_IS_PATHING_COMPLETE, &args![actor]).bool() {
-        low_process_process_patrol_start_at_ref_behavior(e, this, actor.addr(), data);
+        e.call(0x0091_2960, &args![this, actor, data]);
     } else {
         left = 0;
     }
@@ -2377,7 +2371,7 @@ pub fn low_process_load_package_from_extra_data(e: &mut Engine, this: Ptr<LowPro
         e.vcall(base, CLEAR_CURRENT_PACKAGE_SLOT, &args![]);
         e.vcall(base, SET_TARGET_SLOT, &args![0u32]);
         e.vcall(base, SET_CURRENT_ACTION_COMPLETE_SLOT, &args![0u32]);
-        fn_0090ac20(e, this, 0);
+        e.call(0x0090_ac20, &args![this, 0u32]);
         e.vcall(base, SET_PACKAGE_DONE_ONCE_SLOT, &args![0u32]);
         e.vcall(base, SET_TARGET_ACTIVATED_SLOT, &args![0u32]);
     }
@@ -2592,7 +2586,7 @@ pub fn low_process_process_follow(
         return;
     }
     // The time delta is computed and stored, its value unused.
-    low_process_get_time_delta(e, this, actor.addr());
+    e.call(0x0090_7260, &args![this, actor]);
     let package = current(e);
     let radius = e
         .call(PACKAGE_RADIUS_ACTOR_TO_TARGET, &args![package, actor, 0u32])
@@ -3664,7 +3658,7 @@ pub fn low_process_process_activate(
         }
     }
     // The time delta is computed and stored, its value unused.
-    low_process_get_time_delta(e, this, actor.addr());
+    e.call(0x0090_7260, &args![this, actor]);
     let current = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
     let radius = e
         .call(PACKAGE_RADIUS_ACTOR_TO_TARGET, &args![current, actor, 0u32])
@@ -4592,7 +4586,7 @@ pub fn low_process_check_for_new_package(
     let mut replace = false;
     if package == 0 {
         changed = true;
-        low_process_set_current_package_from_schedule(e, this, actor);
+        e.call(0x0090_7700, &args![this, actor]);
         if current(e) == 0 {
             changed = false;
         }
@@ -4722,7 +4716,7 @@ pub fn low_process_check_for_new_package(
             }
             package = 0;
         }
-        if !low_process_set_current_package_from_schedule(e, this, actor) {
+        if !e.call(0x0090_7700, &args![this, actor]).bool() {
             return false;
         }
         let new_package = current(e);
@@ -4804,7 +4798,7 @@ pub fn low_process_check_for_new_package(
             e.vcall(base, CLEAR_RUN_ONCE_PACKAGE_SLOT, &args![]);
         }
         e.vcall(base, SET_CURRENT_ACTION_COMPLETE_SLOT, &args![0u32]);
-        fn_0090ac20(e, this, 0);
+        e.call(0x0090_ac20, &args![this, 0u32]);
         e.vcall(base, SET_TARGET_ACTIVATED_SLOT, &args![0u32]);
         let list = base.wrapping_add(OBJECT_LIST);
         while !typed_call!(leaf::FAMILY, 0x0082_56d0, leaf::both_words_zero(e, list)) {
@@ -5164,7 +5158,7 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
         runs = !e.call(PACKAGE_TEST_008A6290, &args![p]).bool();
     }
     if runs {
-        low_process_reset_target(e, this);
+        e.call(0x0090_a070, &args![this]);
         let p = current(e);
         let procedure = running_procedure(e, base, p);
         let process_slot = |e: &mut Engine, slot: u32| {
@@ -5210,7 +5204,7 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
                         }
                     }
                     // The time delta is computed and stored, its value unused.
-                    low_process_get_time_delta(e, this, actor);
+                    e.call(0x0090_7260, &args![this, actor]);
                     let process =
                         typed_call!(leaf::FAMILY, 0x008d_8520, leaf::word_at_68(e, actor));
                     if typed_call!(leaf::FAMILY, 0x0045_cd60, leaf::word_at_28(e, process)) == 3 {
@@ -5384,7 +5378,7 @@ pub fn low_process_update(e: &mut Engine, this: Ptr<LowProcess>, mobile: Ptr) {
                 typed_call!(leaf::FAMILY, 0x0072_6070, leaf::word_at_4(e, schedule)) == 0
             } {
                 let old = current(e);
-                low_process_set_current_package_from_schedule(e, this, Ptr::new(actor));
+                e.call(0x0090_7700, &args![this, actor]);
                 package = current(e);
                 if old != current(e) {
                     e.vcall(base, SET_PROCEDURE_INDEX_RUNNING_SLOT, &args![0u32]);
@@ -5583,7 +5577,7 @@ pub fn low_process_process_flee(e: &mut Engine, this: Ptr<LowProcess>, actor: u3
         )
         .bool()
     {
-        low_process_get_time_delta(e, this, actor);
+        e.call(0x0090_7260, &args![this, actor]);
     } else {
         e.call(ACTOR_END_INTERRUPT_PACKAGE, &args![actor, 0u32]);
     }
@@ -5855,7 +5849,7 @@ pub fn low_process_mod_tracked_damage(
 /// `thiscall`, one stack word, `RET 4`): the destructor [`fn_00913880`], then `this` freed
 /// (`00401030`) when bit 0 of `flags` is set. Returns `this`.
 pub fn fn_009137e0(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
-    fn_00913880(e, this);
+    e.call(0x0091_3880, &args![this]);
     if flags & 1 != 0 {
         e.call(FREE_OBJECT, &args![this]);
     }
@@ -5879,7 +5873,7 @@ pub fn fn_00913950(e: &mut Engine, this: Ptr, _unused_1: u32) -> Ptr {
 /// to `006b8310` on the allocator `+0xc`.
 pub fn fn_00913910(e: &mut Engine, this: Ptr, item: u32) {
     e.with_stack(8, |e, value| {
-        fn_00913950(e, value, 0);
+        e.call(0x0091_3950, &args![value, 0u32]);
         let first = e.mem.u32(value.addr());
         e.mem.set_u32(item + 8, first);
         let second = e.mem.u32(value.addr() + 4);
@@ -5893,7 +5887,7 @@ pub fn fn_00913910(e: &mut Engine, this: Ptr, item: u32) {
 /// map; `thiscall`, one stack word, `RET 4`): the destructor [`fn_009138e0`], then `this`
 /// freed (`00401030`) when bit 0 of `flags` is set. Returns `this`.
 pub fn fn_00913980(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
-    fn_009138e0(e, this);
+    e.call(0x0091_38e0, &args![this]);
     if flags & 1 != 0 {
         e.call(FREE_OBJECT, &args![this]);
     }
@@ -5910,7 +5904,7 @@ pub fn fn_00913980(e: &mut Engine, this: Ptr, flags: u32) -> Ptr {
 pub fn low_process_revert_ov2(e: &mut Engine, this: Ptr<LowProcess>, buffer: u32) {
     let base = this.addr();
     e.call(BASE_PROCESS_REVERT_OV2, &args![this, buffer]);
-    fn_009070a0(e, this);
+    e.call(LOW_PROCESS_RELEASE, &args![this]);
     e.mem.set_u32(base + NUMBER_ITEMS_ACTIVATE, 0);
     e.vcall(base, SET_TARGET_SLOT, &args![0u32]);
     e.mem.set_u32(base + ESSENTIAL_DOWN_TIMER, x87_store32(0.0));
@@ -7299,12 +7293,12 @@ pub fn low_process_should_update_combat_controller_or_end_combat(
     }
     let extra = e.call(REFERENCE_GET_EXTRA_LIST, &args![actor]).u32();
     let index = e.call(EXTRA_GET_PACKAGE_INDEX, &args![extra]).u32();
-    if low_process_should_stop_combat_controller_to_finish_package(e, this, package, index) {
+    if e.call(0x0090_7960, &args![this, package, index]).bool() {
         e.vcall(base, PROCESS_SLOT_328, &args![1u32]);
         e.mem.set_u32(out, 0);
         return true;
     }
-    if low_process_update_package_target_for_combat(e, this, actor, package) {
+    if e.call(0x0090_79f0, &args![this, actor, package]).bool() {
         e.mem.set_u32(out, package);
         return false;
     }
@@ -7324,10 +7318,7 @@ pub fn low_process_should_update_combat_controller_or_end_combat(
     let extra = e.call(REFERENCE_GET_EXTRA_LIST, &args![actor]).u32();
     e.call(EXTRA_SET_ACTION_COMPLETE, &args![extra, 1u32]);
     let next = e.call(ACTOR_GET_PACKAGE, &args![actor]).u32();
-    if next == 0
-        || next == package
-        || !low_process_should_use_combat_controller_for_package(e, this, Ptr::new(next), 1)
-    {
+    if next == 0 || next == package || !e.call(0x0090_78d0, &args![this, next, 1u32]).bool() {
         e.mem.set_u32(out, 0);
         return false;
     }
@@ -7371,7 +7362,7 @@ pub fn low_process_should_update_combat_controller_or_end_combat(
         e.call(EXTRA_SET_ACTOR_PACKAGE_DATA, &args![extra, data]);
     }
     e.vcall(base, START_NEW_PACKAGE_SLOT, &args![actor, next]);
-    low_process_update_package_target_for_combat(e, this, actor, next);
+    e.call(0x0090_79f0, &args![this, actor, next]);
     e.vcall(actor, ACTOR_SLOT_48, &args![0x8000_0000u32]);
     e.mem.set_u32(out, next);
     false
@@ -8540,7 +8531,7 @@ pub fn low_process_process_escort(e: &mut Engine, this: Ptr<LowProcess>, actor: 
         }
         return;
     }
-    low_process_get_time_delta(e, this, actor);
+    e.call(0x0090_7260, &args![this, actor]);
     let package = e.vcall(base, GET_CURRENT_PACKAGE_SLOT, &args![]).u32();
     let minus_one = x87_quiet_bits(e.global::<u32>(MINUS_ONE));
     if e.vcall(
@@ -8684,7 +8675,7 @@ fn acquire_settings_match(e: &mut Engine, process: u32, form: u32) -> bool {
 fn new_acquire_entry(e: &mut Engine) -> u32 {
     let block = e.call(ALLOCATE, &args![0x1cu32]).u32();
     if block != 0 {
-        fn_0090e600(e, Ptr::new(block)).addr()
+        e.call(0x0090_e600, &args![block]).u32()
     } else {
         0
     }

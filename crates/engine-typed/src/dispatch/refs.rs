@@ -184,9 +184,17 @@ pub fn lock(e: &mut Engine, this: Ptr<LightLock>, _unused: u32) {
 }
 
 // Typed from 0040fba0
-/// The lock given back (`thiscall(this)`): one count fewer; at zero no owner.
+/// The lock given back (`thiscall(this)`): one count fewer; at zero no owner ([`unlock_inline`]).
 pub fn unlock(e: &mut Engine, this: Ptr<LightLock>) {
     typed_call!(leaf::FAMILY, 0x0040_fbe0, leaf::nothing(e));
+    unlock_inline(e, this);
+}
+
+/// `0040fba0`'s body past its empty call, as the exe inlines it where it gives the lock back in
+/// place (the shadow scene node's queues' lock, `cell_refs::lighting`): one count fewer and, at
+/// zero, the owner word cleared.
+#[inline]
+pub fn unlock_inline(e: &mut Engine, this: Ptr<LightLock>) {
     let count = e.get(this, LightLock::count).wrapping_sub(1);
     e.set(this, LightLock::count, count);
     if count == 0 {
@@ -704,4 +712,102 @@ pub fn map_lookup(e: &mut Engine, this: Ptr, key: u32, out: Ptr<u32>) -> u8 {
         node = e.mem.u32(node);
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    /// A lock (its owner word, then its count) and a word it guards, on a page of their own.
+    const LOCK: u32 = 0x0300_0000;
+    const GUARDED: u32 = LOCK + 0x40;
+
+    /// An engine whose memory is shared, as with real threads.
+    fn shared() -> Engine {
+        let mut e = Engine::new();
+        e.map(LOCK, 0x1000);
+        e.mem.start_sharing();
+        e
+    }
+
+    /// On shared memory a count past 1 keeps the owner; the last count clears it.
+    #[test]
+    fn the_last_count_clears_the_owner_on_shared_memory() {
+        let mut e = shared();
+        assert!(e.mem.is_shared());
+        e.mem.set_u32(LOCK, 7);
+        e.mem.set_u32(LOCK + 4, 2);
+        unlock_inline(&mut e, Ptr::new(LOCK));
+        assert_eq!((e.mem.u32(LOCK), e.mem.u32(LOCK + 4)), (7, 1));
+        unlock_inline(&mut e, Ptr::new(LOCK));
+        assert_eq!((e.mem.u32(LOCK), e.mem.u32(LOCK + 4)), (0, 0));
+    }
+
+    /// The release stores its count before it clears the owner word (at `0040fbc7`), seen on one
+    /// thread with both words watched: whatever the timing of other threads, a release that cleared
+    /// the owner first would let a waiter's count, stored between the two, be overwritten with 0.
+    #[test]
+    fn the_release_stores_the_count_before_it_clears_the_owner() {
+        let mut e = Engine::new();
+        e.map(LOCK, 0x1000);
+        e.mem.set_u32(LOCK, 7);
+        e.mem.set_u32(LOCK + 4, 1);
+        e.mem.watch(LOCK, 8, false);
+        unlock_inline(&mut e, Ptr::new(LOCK));
+        let order: Vec<u32> = e.mem.take_watch_hits().iter().map(|hit| hit.addr).collect();
+        assert_eq!(order, [LOCK + 4, LOCK]);
+        assert_eq!((e.mem.u32(LOCK), e.mem.u32(LOCK + 4)), (0, 0));
+    }
+
+    /// Another real thread takes the lock as `0040fbf0` does (the owner word swapped from 0 to its
+    /// id, spinning on it, then a count of 1) once this one gives it back, and reads what this one
+    /// wrote under it. Its count of 1 stays: the release stores this thread's count before it clears
+    /// the owner, so no store of this thread's lands after the waiter's. Many rounds, each waiter
+    /// spinning before the release starts, so a release that cleared the owner first would let some
+    /// waiter's count be overwritten with 0.
+    #[test]
+    fn a_thread_waiting_on_shared_memory_takes_the_lock_given_back() {
+        let mut e = shared();
+        for round in 0..200u32 {
+            e.mem.set_u32(LOCK, 7);
+            e.mem.set_u32(LOCK + 4, 1);
+            let other = e.mem.view();
+            let spinning = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let started = spinning.clone();
+            let waiter = std::thread::spawn(move || {
+                let owner = other.atomic_u32(LOCK).expect("an aligned, mapped word");
+                let deadline = Instant::now() + Duration::from_secs(5);
+                started.store(true, Ordering::Release);
+                while owner
+                    .compare_exchange(0, 9, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {
+                    if Instant::now() > deadline {
+                        return None;
+                    }
+                    std::hint::spin_loop();
+                }
+                other.set_u32(LOCK + 4, 1);
+                Some(other.u32(GUARDED))
+            });
+            while !spinning.load(Ordering::Acquire) {
+                std::hint::spin_loop();
+            }
+            e.mem.set_u32(GUARDED, 0x1234_5678 + round);
+            unlock_inline(&mut e, Ptr::new(LOCK));
+            let seen = waiter.join().expect("the waiting thread");
+            assert_eq!(
+                seen,
+                Some(0x1234_5678 + round),
+                "round {round}: the waiter took the lock"
+            );
+            assert_eq!(
+                (e.mem.u32(LOCK), e.mem.u32(LOCK + 4)),
+                (9, 1),
+                "round {round}: the waiter's count stays after the release"
+            );
+        }
+    }
 }

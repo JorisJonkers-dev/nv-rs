@@ -568,11 +568,24 @@ pub(super) fn skip_repeats(e: &mut Engine) -> bool {
 pub(super) fn skip_repeats_in(objects: &mut Objects) -> bool {
     static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let keep = *objects.keep_repeats.get_or_insert_with(|| {
-        *KEEP.get_or_init(|| std::env::var("NV_D3D9_REPEATS").is_ok_and(|v| v == "keep"))
+        *KEEP.get_or_init(|| {
+            repeats_kept(
+                std::env::var("NV_D3D9_REPEATS").is_ok_and(|v| v == "keep"),
+                engine_core::draw_items::mode(),
+            )
+        })
     });
     !keep
         && (!super::d3d9draw::cut_open_in(&objects.draw)
             || super::d3d9draw::drawing_side(&objects.draw))
+}
+
+/// Whether states set again to their value reach the backend: `NV_D3D9_REPEATS=keep`, or a kept draw records'
+/// check run (`NV_DRAW_ITEMS=check`). There an item made from a record's replay comes before the set-up's old
+/// form, and the model already took the item's registers: the old form's identical sets would be left out as
+/// repeats, and neither form's draw would get them when the recording is replayed one way or the other.
+pub(super) fn repeats_kept(asked: bool, items: engine_core::draw_items::Mode) -> bool {
+    asked || items == engine_core::draw_items::Mode::Check
 }
 
 /// Tests: whether states set again to the value they hold still reach the backend on `e`
@@ -1094,6 +1107,7 @@ static WRITER: engine_core::real_threads::DeviceWriter = {
 
 fn register_code(e: &mut Engine) {
     engine_core::real_threads::install_device_writer(&WRITER);
+    engine_core::draw_items::install(&super::d3d9items::HOOKS);
     let device: [(u32, crate::AbiFn); 48] = [
         (16, crate::entry!(0, reset(Ptr, Ptr) -> u32).1),
         (
@@ -8395,6 +8409,56 @@ pub(crate) mod tests {
         assert!(direct_begin(&e), "on again after the end");
         direct_end();
         assert_eq!(render_state(&mut e, dev, 7), 5);
+    }
+
+    /// One geometry's device calls keep half's hold: the calls reach the device in the order made,
+    /// but none of them probes the half's lock between the geometry's first and last call. Outside a
+    /// geometry each call still probes, as before.
+    #[test]
+    fn a_geometry_keeps_the_device_half_without_a_probe_per_call() {
+        use engine_core::real_threads::{
+            device_guard, device_lock_held, device_vcall, direct_begin, direct_calls, direct_end,
+            direct_holds, direct_probes, force_direct_for_tests, geometry_half_open, DeviceHalf,
+        };
+        let (mut e, dev) = texture_device(Store::Host);
+        engine_core::real_threads::start(&mut e).expect("real threads on");
+        force_direct_for_tests();
+        assert!(direct_begin(&e));
+
+        let (calls, probes) = (direct_calls(), direct_probes());
+        assert_eq!(device_vcall(&mut e, dev, 4 * 57, &[7, 1]).u32(), D3D_OK);
+        assert_eq!(device_vcall(&mut e, dev, 4 * 57, &[8, 2]).u32(), D3D_OK);
+        assert_eq!(direct_calls() - calls, 2, "both calls made directly");
+        assert_eq!(
+            direct_probes() - probes,
+            2,
+            "one probe each outside a geometry"
+        );
+
+        let (calls, probes) = (direct_calls(), direct_probes());
+        {
+            let _half = DeviceHalf::begin(&e);
+            assert!(geometry_half_open());
+            assert!(direct_holds(), "the geometry shares the world draw's hold");
+            assert_eq!(device_vcall(&mut e, dev, 4 * 57, &[7, 3]).u32(), D3D_OK);
+            assert_eq!(device_vcall(&mut e, dev, 4 * 57, &[8, 4]).u32(), D3D_OK);
+        }
+        assert!(!geometry_half_open(), "the hold ends with the geometry");
+        assert_eq!(
+            direct_calls() - calls,
+            2,
+            "the geometry's calls made in order"
+        );
+        assert_eq!(direct_probes() - probes, 0, "no probe between its calls");
+        assert!(direct_holds(), "the half's hold outlives the geometry");
+
+        direct_end();
+        assert!(!direct_holds() && !device_lock_held(&e));
+        {
+            let _device = device_guard(&e);
+            assert_eq!(render_state(&mut e, dev, 7), 3);
+            assert_eq!(render_state(&mut e, dev, 8), 4);
+        }
     }
 
     /// With direct calls on and real threads, under a device lock the caller already holds (this test's device was

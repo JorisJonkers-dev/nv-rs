@@ -21,8 +21,6 @@
 //!   own opaque draws, shown by a full-screen step.
 //! - `bright`: the HDR watch (a diagnostic, read only): the game's float targets checked for
 //!   pixels that are not finite, lone bright dots and jumps of the luminance targets.
-//! - `shader_override`: shader overrides (port-added, none unless a setting asks): a named game
-//!   pixel shader drawn with a WGSL program of the fork's own that can read the scene's depth.
 //! - `ramp`: the game's brightness (its gamma ramp) on the frames shown in the window (port-added:
 //!   Direct3D 9 shows a ramp only in exclusive full screen).
 
@@ -46,6 +44,7 @@ pub mod gfx_overlay;
 pub mod gpu_times;
 mod gputime;
 pub mod identity;
+mod lighting_ahead;
 pub mod loading;
 pub mod memstats;
 mod perf;
@@ -54,12 +53,49 @@ mod prepare;
 pub mod ramp;
 pub mod scene_light;
 pub mod shader_cache;
-pub mod shader_override;
 pub mod shot;
 pub mod sm;
 pub mod state;
 pub mod sun_shadow;
 mod window;
+
+/// The driver's slow work done on the calling thread so far: pipelines, shader modules and
+/// textures made, counted where the device makes the game's (and the shaders' modules), and where
+/// the new lighting's parts, the counter and the notes make theirs. The render thread's count over
+/// a frame says whether that frame waited for the driver (tests of the new lighting's switch).
+pub mod made_here {
+    use std::cell::Cell;
+
+    thread_local! {
+        static MADE: Cell<[u64; 3]> = const { Cell::new([0; 3]) };
+    }
+
+    fn add(k: usize) {
+        MADE.with(|m| {
+            let mut v = m.get();
+            v[k] += 1;
+            m.set(v);
+        });
+    }
+
+    pub(crate) fn pipeline() {
+        add(0);
+    }
+
+    pub(crate) fn module() {
+        add(1);
+    }
+
+    pub(crate) fn texture() {
+        add(2);
+    }
+
+    /// The pipelines, shader modules and textures this thread made so far.
+    #[doc(hidden)]
+    pub fn on_this_thread() -> [u64; 3] {
+        MADE.with(Cell::get)
+    }
+}
 
 /// Writes every live wgpu device's pipeline cache and pipeline list now, when they changed: for
 /// the end of the run (the host's exit hooks; the process ends with `std::process::exit`).
@@ -451,6 +487,11 @@ impl Backend for WgpuBackend {
                 return Reply::Query(d.query_get_data(query, flags))
             }
             Cmd::QueryIssue { query, flags } => d.query_issue(query, flags),
+            // Kept draw records: carried out by `d3d9_stream::Kept` in front of the backend, which
+            // the platform puts there whenever the game side may send them.
+            Cmd::RecordNext { .. } | Cmd::DrawItem { .. } | Cmd::ForgetRecords { .. } => {
+                d.not_provided("kept draw records without d3d9_stream::Kept (skipped)");
+            }
             Cmd::SetClipPlane { index, plane, .. } => d.set_clip_plane(index, plane),
             Cmd::ColorFill { .. } => d.not_provided("ColorFill is not provided (skipped)"),
             // The new lighting's frame parameters, recorded just before the game's depth-only
@@ -472,6 +513,11 @@ impl Backend for WgpuBackend {
             }
             Cmd::SetTransform { state, matrix, .. } if state == sun_shadow::BEGIN_STATE => {
                 d.sun_lookup(&matrix.to_words());
+            }
+            // The new lighting switched while playing, recorded right after the game's `Present`:
+            // its parts on or off from the next frame ([`scene_light::SWITCH_STATE`]).
+            Cmd::SetTransform { state, matrix, .. } if state == scene_light::SWITCH_STATE => {
+                d.switch_lighting(&matrix.to_words());
             }
             // The game's brightness: kept for the frames shown in the window ([`ramp`]).
             Cmd::SetGammaRamp {
@@ -548,6 +594,20 @@ pub fn replay_merged_digests(
     replay_digests(bytes, true, true, Some((sort, across)), from, to, cache)
 }
 
+/// A check run's recording (`NV_DRAW_ITEMS=check`) replayed with its draws in `form`
+/// ([`d3d9_stream::Kept`]), draw records on: each draw's digest of what it gave wgpu with its
+/// Present, as [`replay_draw_digests`]. The proof that the items draw what their draws drew: the
+/// two forms' lists are the same. None without a GPU adapter.
+pub fn replay_item_digests(
+    bytes: &[u8],
+    form: d3d9_stream::kept::Form,
+    from: u64,
+    to: u64,
+    cache: Option<std::path::PathBuf>,
+) -> Result<Option<Vec<(u64, u64)>>, d3d9_stream::wire::WireError> {
+    Ok(replay_digests_as(bytes, true, false, None, form, from, to, cache)?.map(|(drawn, _)| drawn))
+}
+
 /// [`replay_draw_digests_with`] and [`replay_merged_digests`]: `merge` the sorting and holding
 /// across blended draws when the held draws are merged.
 #[allow(clippy::type_complexity)]
@@ -560,10 +620,27 @@ fn replay_digests(
     to: u64,
     cache: Option<std::path::PathBuf>,
 ) -> Result<Option<(Vec<(u64, u64)>, Vec<(u64, u64)>)>, d3d9_stream::wire::WireError> {
+    let form = d3d9_stream::kept::Form::Old;
+    replay_digests_as(bytes, records, storage, merge, form, from, to, cache)
+}
+
+/// [`replay_digests`] with a check run's draws in `form`.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn replay_digests_as(
+    bytes: &[u8],
+    records: bool,
+    storage: bool,
+    merge: Option<(bool, bool)>,
+    form: d3d9_stream::kept::Form,
+    from: u64,
+    to: u64,
+    cache: Option<std::path::PathBuf>,
+) -> Result<Option<(Vec<(u64, u64)>, Vec<(u64, u64)>)>, d3d9_stream::wire::WireError> {
     let mut b = WgpuBackend::new(Output::Offscreen);
     if let Some(dir) = cache {
         b = b.with_cache_dir(dir);
     }
+    let mut b = d3d9_stream::Kept::with_form(b, form);
     let mut set = false;
     let mut present = 0u64;
     let mut out = Vec::new();
@@ -572,7 +649,7 @@ fn replay_digests(
         let c = c?;
         let p = matches!(c, Cmd::Present { .. });
         b.execute(c);
-        match b.device() {
+        match b.inner_mut().device() {
             Some(d) => {
                 if !set {
                     if d.set_storage_regs(storage) != storage {

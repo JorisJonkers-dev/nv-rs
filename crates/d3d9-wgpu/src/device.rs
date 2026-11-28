@@ -16,11 +16,11 @@ use crate::format::{self, d3dfmt, Format};
 use crate::frame_rate;
 use crate::fxhash::Map;
 use crate::gpu_times::{self, GpuTimes, Kind};
+use crate::lighting_ahead;
 use crate::loading;
 use crate::memstats;
 use crate::prepare;
 use crate::scene_light;
-use crate::shader_override;
 use crate::shot::{self, Shots};
 use crate::sm::{self, wgsl, Stage};
 use crate::state::{self, rs, SamplerKey};
@@ -138,9 +138,6 @@ pub(crate) struct Shader {
     sun: Option<u32>,
     /// A pixel shader of a character's face (its constant table names `FaceGenMap0`).
     face: bool,
-    /// A pixel shader a shader override replaces ([`shader_override`]; its draws take the
-    /// override's variant pipeline where they can).
-    over: Option<Arc<shader_override::Override>>,
 }
 
 /// A `D3DVERTEXELEMENT9`.
@@ -377,6 +374,99 @@ impl State {
     }
 }
 
+/// The bytes of register `i` of `size` bytes from a constant set, zero past the command's end (as
+/// its last partial word is padded) into a 16-byte scratch. The caller only asks for registers the
+/// command has.
+fn register_bytes(data: &d3d9_stream::Data<'_>, i: usize, size: usize, into: &mut [u8; 16]) {
+    let at = i * size;
+    // Both callers bound the register count by the command's bytes, so `at` is inside them; keep
+    // that requirement here rather than relying on them to agree.
+    debug_assert!(
+        at <= data.len() as usize,
+        "a register the command does not carry"
+    );
+    let n = (data.len() as usize).saturating_sub(at).min(size);
+    data.copy_to(at as u32, &mut into[..n]);
+}
+
+/// Copies the float registers `start..start + count` from a constant set, only when their 16 bytes
+/// differ. Answers whether any changed, so a stage's block is written again only then. Registers
+/// past the file's end, or past the command's bytes, are not kept.
+fn set_float_registers(
+    regs: &mut [u8; 4096],
+    start: u32,
+    count: u32,
+    data: &d3d9_stream::Data<'_>,
+) -> bool {
+    let n = (count as usize)
+        .min(data.len() as usize / 16)
+        .min(256usize.saturating_sub(start as usize));
+    let mut changed = false;
+    for i in 0..n {
+        let mut bytes = [0u8; 16];
+        register_bytes(data, i, 16, &mut bytes);
+        let at = 16 * (start as usize + i);
+        if regs[at..at + 16] != bytes[..] {
+            regs[at..at + 16].copy_from_slice(&bytes);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Copies the words of `count` registers of `words` words each (4 for integers, 1 for booleans)
+/// from a constant set, only when they differ. Answers whether any changed. A register the command
+/// does not carry whole words for is left alone; a partial last word is zero padded.
+fn set_words(
+    regs: &mut [u32],
+    start: usize,
+    count: u32,
+    words: usize,
+    data: &d3d9_stream::Data<'_>,
+) -> bool {
+    let available = (data.len() as usize).div_ceil(4) / words;
+    let end = regs.len() / words;
+    let n = (count as usize)
+        .min(available)
+        .min(end.saturating_sub(start));
+    let mut changed = false;
+    for i in 0..n {
+        let mut bytes = [0u8; 16];
+        register_bytes(data, i, 4 * words, &mut bytes);
+        let at = words * (start + i);
+        for (w, word) in regs[at..at + words].iter_mut().enumerate() {
+            let new = u32::from_le_bytes(bytes[4 * w..4 * w + 4].try_into().unwrap());
+            if *word != new {
+                *word = new;
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// [`set_words`] for a stage's integer registers (four words each).
+fn set_int_registers(
+    regs: &mut [[u32; 4]; 16],
+    start: u32,
+    count: u32,
+    data: &d3d9_stream::Data<'_>,
+) -> bool {
+    // SAFETY: every `[u32; 4]` is four initialised, contiguous words with no padding.
+    let flat = unsafe { std::slice::from_raw_parts_mut(regs.as_mut_ptr().cast(), 4 * regs.len()) };
+    set_words(flat, start as usize, count, 4, data)
+}
+
+/// [`set_words`] for a stage's boolean registers (one word each).
+fn set_bool_registers(
+    regs: &mut [u32; 16],
+    start: u32,
+    count: u32,
+    data: &d3d9_stream::Data<'_>,
+) -> bool {
+    set_words(regs, start as usize, count, 1, data)
+}
+
 /// What a render pass draws into.
 #[derive(Clone, PartialEq, Eq)]
 struct Targets {
@@ -409,8 +499,6 @@ struct PipeKey {
     clip: wgsl::Clip,
     /// The sun shadows' variant of the pixel shader ([`wgsl::convert_with_sun`]; never listed).
     sun: bool,
-    /// A shader override's variant of the pixel shader ([`shader_override`]; never listed).
-    over: bool,
 }
 
 /// The samplers a draw's two shaders use ([`Device::sampler_bindings`]): (binding, dimension,
@@ -857,26 +945,6 @@ struct PassBinds {
     index: Option<(wgpu::Buffer, bool)>,
     /// The sun shadows' lookup group (3) at this offset.
     light: Option<u32>,
-}
-
-/// A shader override's draw kept to be drawn where the world is drawn
-/// ([`shader_override::Override::late`], [`Device::draw_late`]): what the pass is given for it,
-/// with its registers' bytes (written again when it is drawn: the ring may be sent by then).
-struct LateDraw {
-    name: String,
-    targets: Targets,
-    pipeline: wgpu::RenderPipeline,
-    groups: Vec<wgpu::BindGroup>,
-    /// The vertex and pixel headers and float constants ([`Device::write_blocks`]' four blocks).
-    regs: [Vec<u8>; 4],
-    streams: [Option<(wgpu::Buffer, u64)>; 8],
-    index: Option<(wgpu::Buffer, bool)>,
-    /// Indexed, the first vertex or index, how many, the base vertex.
-    range: (bool, u32, u32, i32),
-    viewport: [u32; 6],
-    scissor: (u32, u32, u32, u32),
-    stencil: u32,
-    blend: u32,
 }
 
 /// The render states a pipeline is made from.
@@ -1587,8 +1655,29 @@ pub struct Device {
     /// `END`s (query, number) whose counts are awaited.
     pub(crate) answers: Option<Arc<QueryAnswers>>,
     awaiting: Vec<(Handle, u64)>,
+    /// The new lighting can be switched while playing ([`scene_light::switchable`] when this
+    /// device was made): what the sun shadows read of the textures is read, so either part can be
+    /// switched on at a frame boundary and draw as on a fresh start ([`Device::switch_lighting`]),
+    /// and what the parts draw with is made ahead on the device's lighting thread
+    /// ([`lighting_ahead`]; what it refused, said once). What is kept of the sun shadows while
+    /// they are off ([`SunKept`]: their maps too, made once a run), and whether they wait for
+    /// their maps from that thread, switched on for the first time (they start at the present
+    /// after the maps are there); the thin casters' pipeline from it before the sun shadows have
+    /// their maps. Whether multisampled depth surfaces are made readable: with a part on from the
+    /// start, or once one was switched on (those made before are made again then, on the
+    /// lighting thread). The note the window shows after a switch, and until when
+    /// ([`frame_rate::NOTE_TIME`]).
+    lighting_switch: bool,
+    lighting_worker: Option<lighting_ahead::Worker>,
+    lighting_refused: HashSet<lighting_ahead::Job>,
+    sun_kept: Option<SunKept>,
+    sun_waits: bool,
+    thin_made: Option<wgpu::RenderPipeline>,
+    depth_readable: bool,
+    lighting_note: Option<(&'static str, std::time::Instant)>,
     /// The new lighting ([`scene_light`]): on for this device ([`scene_light::enabled`] when it
-    /// was made), its GPU objects once it first runs, and the present it last ran in.
+    /// was made, then as switched), its GPU objects once it first runs, and the present it last
+    /// ran in.
     scene_light_on: bool,
     scene_light: Option<Box<scene_light::Gpu>>,
     scene_light_ran: Option<u64>,
@@ -1596,7 +1685,7 @@ pub struct Device {
     scene_light_said: Option<scene_light::Params>,
     scene_light_alternate: bool,
     /// The sun shadows ([`sun_shadow`]): present only when on for this device
-    /// ([`sun_shadow::enabled`] when it was made).
+    /// ([`sun_shadow::enabled`] when it was made, then as switched).
     sun: Option<Box<SunState>>,
     /// The sun shadows' variant pipelines on their way ([`Device::sun_variant_ready`]) and those
     /// that could not be made.
@@ -1604,24 +1693,6 @@ pub struct Device {
     sun_failed: HashSet<PipeKey>,
     /// The still casters' pipeline layout (the registers alone).
     sun_caster_layout: Option<wgpu::PipelineLayout>,
-    /// The shader overrides ([`shader_override::registered`] when the device was made), by the
-    /// bytecode hash of the shader each replaces; none: nothing of them is made or read.
-    overrides: Map<u64, Arc<shader_override::Override>>,
-    /// Their GPU part (the scene depth's snapshot), once a draw first takes one.
-    override_gpu: Option<Box<shader_override::Gpu>>,
-    /// Their variant pipelines on their way ([`Device::override_variant_ready`]) and those that
-    /// could not be made.
-    override_pending: Map<PipeKey, std::sync::mpsc::Receiver<Option<Pipe>>>,
-    override_failed: HashSet<PipeKey>,
-    /// The frame's camera ([`scene_light::STATE`]'s words, recorded where the world is drawn),
-    /// kept only with overrides: their snapshot's near and far planes.
-    frame_view: Option<scene_light::Params>,
-    /// Overridden draws so far (for the log's first line).
-    overridden: u64,
-    /// The late overrides' draws of this frame not drawn yet ([`Device::draw_late`]), and those
-    /// dropped (their targets were not bound where the world is drawn) so far.
-    late: Vec<LateDraw>,
-    late_dropped: u64,
 }
 
 /// A sun-shadow caster pipeline's key: vertex shader, declaration, strides, primitive type,
@@ -1862,9 +1933,18 @@ impl SunState {
         self.forgotten += 1;
     }
 
-    fn new(device: &wgpu::Device) -> SunState {
+    /// The sun shadows as a fresh start has them, with what was `kept` from the run's earlier sun
+    /// shadows (the player switched them off, or their maps came from the lighting thread:
+    /// [`SunKept`], the maps restarted and the pipelines kept, nothing made again), else all made
+    /// here; `ahead`: still casters' pipelines made on threads of their own
+    /// ([`sun_shadow::casters_ahead`]).
+    fn new(device: &wgpu::Device, kept: Option<SunKept>, ahead: bool) -> SunState {
+        let kept = kept.unwrap_or_else(|| {
+            let characters = sun_shadow::characters();
+            SunKept::maps(sun_shadow::Gpu::new(device, characters), characters)
+        });
         SunState {
-            gpu: sun_shadow::Gpu::new(device, sun_shadow::characters()),
+            gpu: kept.gpu.restart(),
             lists: sun_shadow::Lists::default(),
             cache: sun_shadow::Cache::default(),
             far: sun_shadow::Cache::default(),
@@ -1880,8 +1960,8 @@ impl SunState {
             rewritten: crate::fxhash::Set::default(),
             bounds: Map::default(),
             prune_at: SUN_PRUNE_FROM,
-            pipes: Map::default(),
-            ribbon_pipes: Map::default(),
+            pipes: kept.pipes,
+            ribbon_pipes: kept.ribbon_pipes,
             keep: [sun_shadow::SunKeep::default(); sun_shadow::CASCADES],
             anchors: [None; sun_shadow::CASCADES],
             view: None,
@@ -1918,16 +1998,55 @@ impl SunState {
                 .ok()
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(0),
-            characters: sun_shadow::characters(),
-            ahead: sun_shadow::casters_ahead(),
+            characters: kept.characters,
+            ahead,
             skins: Map::default(),
             skinned: Vec::new(),
             skinned_seen: 0,
-            caster_pending: Map::default(),
+            caster_pending: kept.caster_pending,
             caster_waiting: crate::fxhash::Set::default(),
             skin_before: Vec::new(),
             skin_now: Vec::new(),
             allow_override: None,
+        }
+    }
+
+    /// What is kept while the player has the sun shadows switched off ([`SunKept`]); everything of
+    /// the scene goes with `self`.
+    fn into_kept(self) -> SunKept {
+        SunKept {
+            gpu: self.gpu,
+            pipes: self.pipes,
+            ribbon_pipes: self.ribbon_pipes,
+            caster_pending: self.caster_pending,
+            characters: self.characters,
+        }
+    }
+}
+
+/// What a device keeps of its sun shadows while the player has them switched off
+/// ([`Device::switch_lighting`]): what is made once a run, the maps ([`sun_shadow::map_bytes`]:
+/// kept for the rest of the run once made) and the casters' pipelines (where each kind's is, those
+/// on their way, the lookup's layout the lighting variants were made with, and whether characters
+/// cast, which the variants and the maps were made for), not anything of the scene. So switching
+/// them on again draws as a fresh start does, with nothing made again.
+struct SunKept {
+    gpu: sun_shadow::Gpu,
+    pipes: Map<PipeOf, Option<u32>>,
+    ribbon_pipes: Map<PipeOf, Option<u32>>,
+    caster_pending: Map<(SunMap, PipeOf), CasterPending>,
+    characters: bool,
+}
+
+impl SunKept {
+    /// New maps (`characters`: with the characters' layers) and no pipelines yet.
+    fn maps(gpu: sun_shadow::Gpu, characters: bool) -> SunKept {
+        SunKept {
+            gpu,
+            pipes: Map::default(),
+            ribbon_pipes: Map::default(),
+            caster_pending: Map::default(),
+            characters,
         }
     }
 }
@@ -2130,7 +2249,9 @@ impl Device {
         // The pipelines to make before play: the shipped list and this machine's.
         let list = cache_dir.map(Listed::load);
         let casters = cache_dir
-            .filter(|_| sun_shadow::enabled() && sun_shadow::casters_ahead())
+            .filter(|_| {
+                (sun_shadow::enabled() || scene_light::switchable()) && sun_shadow::casters_ahead()
+            })
             .map(CasterList::load);
         let warm_start = pipeline_cache.as_ref().is_some_and(|c| c.warm);
         let listed_shaders: HashSet<u64> = list
@@ -2400,27 +2521,24 @@ impl Device {
             stale_textures: 0,
             answers: None,
             awaiting: Vec::new(),
+            lighting_switch: scene_light::switchable(),
+            lighting_worker: None,
+            lighting_refused: HashSet::new(),
+            sun_kept: None,
+            sun_waits: false,
+            thin_made: None,
+            depth_readable: scene_light::enabled() || sun_shadow::enabled(),
+            lighting_note: None,
             scene_light_on: scene_light::enabled(),
             scene_light: None,
             scene_light_ran: None,
             scene_light_said: None,
-            scene_light_alternate: scene_light::enabled()
-                && std::env::var("NV_AO_ALTERNATE").is_ok_and(|v| v.trim() == "1"),
+            // Read whether the step is on now or switched on later (it is read only while on).
+            scene_light_alternate: std::env::var("NV_AO_ALTERNATE").is_ok_and(|v| v.trim() == "1"),
             sun: None,
             sun_pending: Map::default(),
             sun_failed: HashSet::new(),
             sun_caster_layout: None,
-            overrides: shader_override::registered()
-                .into_iter()
-                .flat_map(|o| o.shaders.clone().into_iter().map(move |h| (h, o.clone())))
-                .collect(),
-            override_gpu: None,
-            override_pending: Map::default(),
-            override_failed: HashSet::new(),
-            frame_view: None,
-            overridden: 0,
-            late: Vec::new(),
-            late_dropped: 0,
         };
         // The card's times when asked for (`NV_WGPU_GPU_TIMES`): none where the driver has no
         // timestamps (said once).
@@ -2438,7 +2556,24 @@ impl Device {
         }
         // The sun shadows: their maps and light list only when on for this device.
         if sun_shadow::enabled() {
-            d.sun = Some(Box::new(SunState::new(&d.device)));
+            d.sun = Some(Box::new(SunState::new(
+                &d.device,
+                None,
+                sun_shadow::casters_ahead(),
+            )));
+        }
+        // While the player can switch the new lighting: the lighting thread, which makes the
+        // ambient occlusion's pipelines and the thin casters' now ([`lighting_ahead`]).
+        if d.lighting_switch {
+            d.lighting_worker = lighting_ahead::Worker::start(
+                d.device.clone(),
+                d.queue.clone(),
+                d.pipeline_cache.as_ref().map(|c| c.cache.clone()),
+            );
+            if let Some(w) = &mut d.lighting_worker {
+                w.ask(lighting_ahead::Job::Thin);
+                w.ask(lighting_ahead::Job::Ao(scene_light::Need::Base));
+            }
         }
         d.surface = shown_in;
         // The frame-rate counter can show (F11 is taken) while a device draws the game's window.
@@ -2671,6 +2806,17 @@ impl Device {
                 "the game draws into multisampled targets: {samples} samples a pixel (its anti-aliasing setting)"
             ));
         }
+        // A scene target the ambient occlusion may run on, while the player can switch it on: its
+        // pipeline for the target made ahead on the lighting thread ([`lighting_ahead`]).
+        if target && !format.depth && !cube && self.screen_sized(width, height) {
+            // Without the sun's lookup, and with it (the sun shadows may come on: the occlusion
+            // then leaves the direct light alone).
+            for light in [false, true] {
+                self.ask_lighting(lighting_ahead::Job::Ao(scene_light::Need::Apply(
+                    scene_light::key_of(format.wgpu, samples, light),
+                )));
+            }
+        }
         let layers = if cube { 6 } else { 1 };
         let side = self
             .device
@@ -2701,6 +2847,7 @@ impl Device {
             }
         };
         let made = hitch::Timed::new(hitch::Call::CreateTexture);
+        crate::made_here::texture();
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -2716,13 +2863,11 @@ impl Device {
             // colour one by a shader that reads its samples).
             usage: if samples > 1 && gamma_resolved(&format) {
                 wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING
-            } else if samples > 1
-                && format.depth
-                && (self.scene_light_on || self.sun.is_some() || !self.overrides.is_empty())
-            {
-                // The new lighting, the sun shadows and the shader overrides read the scene's
-                // depth ([`Device::scene_light`], [`Device::sun_shadows`],
-                // [`Device::override_snapshot`]).
+            } else if samples > 1 && format.depth && self.depth_readable {
+                // The new lighting and the sun shadows read the scene's depth
+                // ([`Device::scene_light`], [`Device::sun_shadows`]): with a part on from the
+                // start, or since one was switched on. Not before: a readable multisampled depth
+                // surface can cost some drivers their depth compression.
                 wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING
             } else if samples > 1 {
                 wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -3047,11 +3192,6 @@ impl Device {
                 let fixed = varyings.iter().all(|s| wgsl::fixed_slot(*s).is_some());
                 let sun = wgsl::sun_register(&program);
                 let face = program.constants.iter().any(|c| c.name == "FaceGenMap0");
-                // A shader override's: the draws give its program the constants it reads too.
-                let over = (program.stage == Stage::Pixel)
-                    .then(|| self.overrides.get(&stable).cloned())
-                    .flatten();
-                let fregs = over.as_ref().map_or(fregs, |o| fregs.max(o.registers));
                 let mvp = (program.stage == Stage::Vertex && sig.samplers.is_empty())
                     .then(|| sun_shadow::model_view_proj(&program))
                     .flatten();
@@ -3071,7 +3211,6 @@ impl Device {
                     skin,
                     sun,
                     face,
-                    over,
                 });
                 self.shader_bytecode
                     .entry(stable)
@@ -3438,8 +3577,9 @@ impl Device {
         }
         let bytes = format::convert(&s.format, &data[..(row * rows) as usize]);
         // The sun shadows tell a ribbon cable's texture (mostly clear) from a fence's by the mean
-        // alpha of its smallest level (only read with them on).
-        if self.sun.is_some() && s.level + 1 == tex.levels && s.layer == 0 {
+        // alpha of its smallest level (only read with them on, or while they can be switched on).
+        if (self.sun.is_some() || self.lighting_switch) && s.level + 1 == tex.levels && s.layer == 0
+        {
             let mean = if s.format.opaque {
                 Some(1.0)
             } else if format::is_precise(&s.format) {
@@ -4069,7 +4209,10 @@ impl Device {
 
     /// `Set*ShaderConstant*` (`kind`: vertex float, int, bool, then the same for the pixel stage)
     /// of `count` registers from `start`, from the command's bytes. Float registers are copied
-    /// as bytes (a draw's block carries them so); registers past the file's end are not kept.
+    /// as bytes (a draw's block carries them so); registers past the file's end are not kept. A set
+    /// that leaves every register as it was makes no block due: the blocks are written from this
+    /// register file, so an unchanged file sends the same registers to the same shader; a shader,
+    /// viewport or other header change makes the block due through its own setter.
     pub(crate) fn set_constants(
         &mut self,
         kind: u8,
@@ -4078,39 +4221,28 @@ impl Device {
         data: &d3d9_stream::Data<'_>,
     ) {
         let st = &mut self.st;
-        let s = start as usize;
         let stage = usize::from(kind >= 3);
-        if kind == 0 || kind == 3 {
-            let regs = if kind == 0 { &mut st.vsf } else { &mut st.psf };
-            let n = (count as usize)
-                .min(data.len() as usize / 16)
-                .min(256usize.saturating_sub(s));
-            if n > 0 {
-                data.copy_to(0, &mut regs[16 * s..16 * (s + n)]);
+        let changed = match kind {
+            0 | 3 => {
+                let regs = if kind == 0 { &mut st.vsf } else { &mut st.psf };
+                set_float_registers(regs, start, count, data)
             }
-            st.dirty[stage] = true;
-            return;
-        }
-        let words = data.to_words();
-        match kind {
             1 | 4 => {
                 let regs = if kind == 1 { &mut st.vsi } else { &mut st.psi };
-                for (k, r) in words.chunks_exact(4).take(count as usize).enumerate() {
-                    if let Some(slot) = regs.get_mut(s + k) {
-                        slot.copy_from_slice(r);
-                    }
-                }
+                set_int_registers(regs, start, count, data)
             }
             _ => {
                 let regs = if kind == 2 { &mut st.vsb } else { &mut st.psb };
-                for (k, &v) in words.iter().take(count as usize).enumerate() {
-                    if let Some(slot) = regs.get_mut(s + k) {
-                        *slot = v;
-                    }
-                }
+                set_bool_registers(regs, start, count, data)
+            }
+        };
+        if changed {
+            if matches!(kind, 1 | 2 | 4 | 5) {
+                st.touch(stage);
+            } else {
+                st.dirty[stage] = true;
             }
         }
-        st.touch(stage);
     }
 
     pub(crate) fn set_stream(&mut self, stream: u32, buffer: Handle, offset: u32, stride: u32) {
@@ -6074,7 +6206,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             count: false,
             clip: self.clip_link(samples),
             sun: false,
-            over: false,
         };
         let r = DrawRecord {
             state_gen: self.state_gen,
@@ -6191,36 +6322,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         key.filterable = filterable;
         key.count = self.counting.is_some();
         key.sun = use_sun;
-        // A shader override's variant ([`shader_override`]) in place of the game's pixel shader,
-        // where the scene's depth can be read for it ([`Device::override_usable`]): made on a
-        // thread of its own the first time; until it is there, and where it cannot be used, the
-        // draw takes the game's shader (and the sun shadows' variant, as without the override).
-        key.over = false;
-        let mut use_over = ps.over.is_some() && self.override_usable();
-        if use_over {
-            key.sun = false;
-            key.over = true;
-            if !self.pipelines.contains_key(&key) {
-                let sampler_keys: Vec<(u32, u8, bool)> = samplers.iter().map(|(k, _)| *k).collect();
-                if !self.override_variant_ready(
-                    &key,
-                    &vs,
-                    &ps,
-                    &link.inputs,
-                    attributes,
-                    topology,
-                    &sampler_keys,
-                ) {
-                    key.over = false;
-                    key.sun = use_sun;
-                    use_over = false;
-                }
-            }
-        }
-        if use_over {
-            use_sun = false;
-            self.overridden += 1;
-        }
         // A variant is made on a thread of its own the first time (its shaders take the driver a
         // while): until it is there, the draw takes the plain pipeline (no hitch, no shadow).
         if key.sun && !self.pipelines.contains_key(&key) {
@@ -6301,7 +6402,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                     (p, true)
                 }
             };
-            if unlisted && self.list.is_some() && !key.sun && !key.over {
+            if unlisted && self.list.is_some() && !key.sun {
                 self.list_offers += 1;
                 let entry = prepare::Entry {
                     vs: vs.stable,
@@ -6492,13 +6593,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         // Direct3D 9's pixel centres: each vertex shader moves its position half a pixel right
         // and down, by this viewport's size (the converter's module documentation).
         self.write_blocks([1.0 / vw as f32, -1.0 / vh as f32], [vs.fregs, ps.fregs]);
-        // An overridden draw's scene depth, taken at the frame's first on this depth surface
-        // (between passes).
-        // (Never a draw from the game's memory (`DrawPrimitiveUP`): its vertices are the batch's.)
-        let late = use_over && up.is_none() && ps.over.as_ref().is_some_and(|o| o.late);
-        if use_over && !late {
-            self.override_snapshot(ps.over.as_ref().map_or("?", |o| o.name.as_str()));
-        }
         self.begin_pass(None);
         let scissor = if self.st.rs[rs::SCISSORTESTENABLE] != 0 {
             let r = self.st.scissor;
@@ -6518,8 +6612,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         let bf = self.st.rs[rs::BLENDFACTOR];
         // Held to be drawn with the other draws of its key ([`Device::may_hold`]), or given to the
         // pass now, after the draws held before it.
-        // An overridden draw is never held: its group 3 is bound with it.
-        let holdable = up.is_none() && copies.iter().all(Option::is_none) && !use_over;
+        let holdable = up.is_none() && copies.iter().all(Option::is_none);
         let channels = self.colour_channels(u32::from(ps.sig.colours));
         let hold = holdable && self.may_hold(depth.is_some(), channels);
         let after = holdable && !hold && self.may_hold_after(depth.is_some());
@@ -6614,65 +6707,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             depth_range[1],
         ]
         .map(f32::to_bits);
-        // A late override's draw: kept, to be drawn where the world is drawn ([`Device::draw_late`]).
-        if late {
-            let index = if indexed {
-                self.st
-                    .indices
-                    .as_ref()
-                    .map(|b| (b.buffer.clone(), b.index32))
-            } else {
-                None
-            };
-            let mut all_streams: [Option<(wgpu::Buffer, u64)>; 8] = Default::default();
-            for (k, a) in attributes.iter().enumerate() {
-                if !a.is_empty() {
-                    all_streams[k] = self.st.streams[k]
-                        .buffer
-                        .as_ref()
-                        .map(|b| (b.buffer.clone(), u64::from(self.st.streams[k].offset)));
-                }
-            }
-            let lens = [
-                wgsl::REGS_C_OFFSET as usize,
-                wgsl::REGS_C_OFFSET as usize,
-                16 * vs.fregs as usize,
-                16 * ps.fregs as usize,
-            ];
-            let regs: [Vec<u8>; 4] = std::array::from_fn(|k| {
-                let at = self.blocks[k] as usize;
-                self.ring.get(at..at + lens[k]).unwrap_or_default().to_vec()
-            });
-            let pipeline = self
-                .last_pipeline
-                .as_ref()
-                .and_then(|(_, p, _)| p.as_ref())
-                .expect("the draw's pipeline, checked above")
-                .0
-                .clone();
-            let groups = self
-                .last_groups
-                .iter()
-                .map(|(_, g)| g.clone().expect("the draw's groups, set above"))
-                .collect();
-            let targets = self.current_targets();
-            self.late.push(LateDraw {
-                name: ps.over.as_ref().map_or(String::new(), |o| o.name.clone()),
-                targets,
-                pipeline,
-                groups,
-                regs,
-                streams: all_streams,
-                index,
-                range: (indexed, start, n, base_vertex),
-                viewport,
-                scissor,
-                stencil: stencil_ref,
-                blend: bf,
-            });
-            self.draws += 1;
-            return;
-        }
         // Held: its list and place; else given now: its instance (its draw table entry's number).
         let (held, instance) = if hold || after {
             let state = self.draw_digests.is_some().then(|| {
@@ -6762,14 +6796,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                         pass.set_bind_group(3, &group, &[offset]);
                         b.light = Some(offset);
                     }
-                }
-            }
-            // A shader override's scene depth (group 3, [`Device::override_snapshot`]); a sun
-            // variant's draw after it binds its own again.
-            if use_over {
-                if let Some(group) = self.override_gpu.as_ref().and_then(|g| g.group.as_ref()) {
-                    pass.set_bind_group(3, group, &[]);
-                    b.light = None;
                 }
             }
             if b.viewport != Some(viewport) {
@@ -7005,7 +7031,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             atoc: e.atoc,
             count: e.count,
             sun: false,
-            over: false,
             // How the planes are cut is this adapter's ([`Device::clip_link`]: with clip distances
             // every draw takes them, planes on or off); without them, planes on or off is the
             // entry's (a list made on one API serves the other).
@@ -7429,7 +7454,10 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// time.
     fn queue_modules(&mut self, s: &Arc<Shader>) {
         self.queue_modules_as(s, self.storage_regs);
-        if self.storage_regs && self.sun.is_some() && s.program.stage == Stage::Vertex {
+        if self.storage_regs
+            && (self.sun.is_some() || self.lighting_switch)
+            && s.program.stage == Stage::Vertex
+        {
             self.queue_modules_as(s, false);
         }
     }
@@ -8555,11 +8583,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// where the world is drawn, then the depth-only clear before the arms), when this device has
     /// it on and the two have the screen's size and one sample count (the game's scene).
     pub(crate) fn scene_light(&mut self, words: &[u32]) {
-        // The shader overrides take the frame's near and far planes from them.
-        if !self.overrides.is_empty() {
-            self.frame_view = scene_light::Params::from_words(words);
-            self.draw_late();
-        }
         // The sun shadows take the frame's camera from the same words ([`Device::sun_shadows`]).
         if let Some(sun) = &mut self.sun {
             sun.view = scene_light::Params::from_words(words);
@@ -8615,10 +8638,51 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 .usage()
                 .contains(wgpu::TextureUsages::TEXTURE_BINDING);
         if !fits {
+            // Its depth surface made readable on the lighting thread (just switched on): from
+            // the frame after it is there.
+            if self.readable_depth_coming() {
+                return;
+            }
             self.warn(format!(
                 "new lighting: a {}x{} target ({} samples) with a {}x{} depth surface ({} samples) (skipped)",
                 rt.width, rt.height, rt.samples, ds.width, ds.height, ds.samples
             ));
+            return;
+        }
+        let targets = scene_light::Targets {
+            colour: &colour,
+            colour_format: rt.format.wgpu,
+            depth: &depth_tex.view,
+            samples: rt.samples,
+            width: rt.width,
+            height: rt.height,
+        };
+        // While the player can switch it: it runs once what it needs for this scene is there,
+        // made on the lighting thread (asked for now if it is not on its way), so no frame waits
+        // for the driver.
+        let device = self.device.clone();
+        // Made again at another quality (`ao.quality`, changed while the game runs).
+        if self
+            .scene_light
+            .as_ref()
+            .is_some_and(|g| g.quality != scene_light::quality())
+        {
+            self.scene_light = None;
+        }
+        // The sun's lookup of this frame, for an occlusion that leaves the direct light alone.
+        let light = self
+            .sun
+            .as_ref()
+            .and_then(|s| s.light.map(|o| (s.gpu.light_group().clone(), o)));
+        let cache = self.pipeline_cache.as_ref().map(|c| c.cache.clone());
+        let needs = self
+            .scene_light
+            .get_or_insert_with(|| Box::new(scene_light::Gpu::new(&device)))
+            .needs(&targets, light.is_some());
+        if self.lighting_worker.is_some() && needs.iter().any(Option::is_some) {
+            for need in needs.into_iter().flatten() {
+                self.ask_lighting(lighting_ahead::Job::Ao(need));
+            }
             return;
         }
         self.scene_light_ran = Some(self.presents);
@@ -8653,37 +8717,19 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             );
         }
         self.end_pass();
-        let mut gpu = self
-            .scene_light
-            .take()
-            // Made again at another quality (`ao.quality`, changed while the game runs).
-            .filter(|g| g.quality == scene_light::quality())
-            .unwrap_or_else(|| Box::new(scene_light::Gpu::new(&self.device)));
-        let targets = scene_light::Targets {
-            colour: &colour,
-            colour_format: rt.format.wgpu,
-            depth: &depth_tex.view,
-            samples: rt.samples,
-            width: rt.width,
-            height: rt.height,
-        };
+        let mut gpu = self.scene_light.take().expect("made above");
         let (buffer, bytes) = gpu.uniforms(&params, &targets);
         self.on_queue(move |q| {
             hitch::timed(hitch::Call::WriteBuffer, || {
                 q.write_buffer(&buffer, 0, &bytes)
             })
         });
-        let device = self.device.clone();
-        // The sun's lookup of this frame, for an occlusion that leaves the direct light alone.
-        let light = self
-            .sun
-            .as_ref()
-            .and_then(|s| s.light.map(|o| (s.gpu.light_group().clone(), o)));
         let span = self.span_begin(Kind::Other);
         gpu.encode(
             &device,
             self.encoder(),
             &targets,
+            cache.as_ref(),
             light.as_ref().map(|(g, o)| (g, *o)),
         );
         self.span_end(span);
@@ -8691,6 +8737,384 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         for t in [&colour_tex, &depth_tex] {
             t.batch.store(self.batch, Ordering::Relaxed);
         }
+    }
+
+    /// The new lighting's parts this device has on now ([`scene_light::Parts`]): the sun shadows
+    /// also while they wait for their maps (switched on for the first time).
+    pub fn lighting_parts(&self) -> scene_light::Parts {
+        scene_light::Parts {
+            ambient_occlusion: self.scene_light_on,
+            sun_shadows: self.sun.is_some() || self.sun_waits,
+        }
+    }
+
+    /// The player switched the new lighting ([`scene_light::SWITCH_STATE`], `words` its
+    /// [`scene_light::Parts`]), recorded by the platform right after the game's `Present`: the
+    /// frames from the next are drawn with the parts on and without the others, as on a fresh start
+    /// in that state. Nothing is made here, so no frame waits for the driver: what the parts draw
+    /// with was made ahead on the lighting thread ([`lighting_ahead`]), or is made there now, the
+    /// first time a part is switched on, and the part starts at the present after it is there. The
+    /// ambient occlusion switched on runs from the next frame's world once its half-resolution
+    /// textures are there; the sun shadows start as on a fresh start once their maps are there
+    /// (made once a run: [`sun_shadow::map_bytes`]), still casters of a kind not seen before made on
+    /// threads of their own (a caster casts from the frame its pipeline is there), their maps
+    /// drawn at the next frame's scene clear. The first time either is switched on, the
+    /// multisampled depth surfaces are made readable (again, on the lighting thread). Switched
+    /// off, a part draws nothing and everything it made is kept for the rest of the run. Said in
+    /// the log and, on the game's window, shown for a few seconds.
+    pub(crate) fn switch_lighting(&mut self, words: &[u32]) {
+        let Some(parts) = scene_light::Parts::from_words(words) else {
+            self.warn("new lighting: a switch it cannot read (skipped)");
+            return;
+        };
+        if parts == self.lighting_parts() {
+            return;
+        }
+        if (parts.ambient_occlusion || parts.sun_shadows) && !self.depth_readable {
+            self.depth_readable = true;
+            self.remake_depth_readable();
+        }
+        self.scene_light_on = parts.ambient_occlusion;
+        if !parts.ambient_occlusion {
+            self.scene_light_said = None;
+        }
+        let mut waits = "";
+        match (parts.sun_shadows, self.sun.take()) {
+            (true, None) => match self.sun_kept.take() {
+                Some(kept) => {
+                    self.sun_waits = false;
+                    self.sun = Some(Box::new(SunState::new(&self.device, Some(kept), true)));
+                }
+                // No lighting thread: made here, as without the switch.
+                None if self.lighting_worker.is_none() => {
+                    self.sun = Some(Box::new(SunState::new(&self.device, None, true)));
+                }
+                None => {
+                    self.sun_waits = true;
+                    self.ask_lighting(lighting_ahead::Job::SunMaps(sun_shadow::characters()));
+                    waits = " (the sun shadows from when their maps are made)";
+                }
+            },
+            (false, Some(sun)) => self.sun_kept = Some(sun.into_kept()),
+            (false, None) => self.sun_waits = false,
+            (true, sun) => self.sun = sun,
+        }
+        self.give_thin_pipeline();
+        eprintln!(
+            "NV_D3D9 wgpu: the new lighting switched at present {}: sun shadows {}, ambient occlusion {}{waits}",
+            self.presents,
+            if parts.sun_shadows { "on" } else { "off" },
+            if parts.ambient_occlusion { "on" } else { "off" },
+        );
+        if self.surface.is_some() {
+            self.lighting_note = Some((
+                parts.note(),
+                std::time::Instant::now() + frame_rate::NOTE_TIME,
+            ));
+        }
+    }
+
+    /// Asks the lighting thread for `job` ([`lighting_ahead`]) unless it was refused before, or it
+    /// is the ambient occlusion's and already there; nothing without the thread (a device where
+    /// the player cannot switch the new lighting).
+    fn ask_lighting(&mut self, job: lighting_ahead::Job) {
+        let Some(w) = &mut self.lighting_worker else {
+            return;
+        };
+        let there = match job {
+            lighting_ahead::Job::Ao(need) => self.scene_light.as_ref().is_some_and(|g| g.has(need)),
+            _ => false,
+        };
+        if !there && !self.lighting_refused.contains(&job) {
+            w.ask(job);
+        }
+    }
+
+    /// Whether a `width` by `height` target is the screen's size (the back buffer's).
+    fn screen_sized(&self, width: u32, height: u32) -> bool {
+        self.back_buffers
+            .first()
+            .and_then(|h| self.surface_of(*h))
+            .is_some_and(|s| (s.width, s.height) == (width, height))
+    }
+
+    /// The multisampled depth surfaces made before any part of the new lighting was on (not
+    /// readable: `depth_readable`), and their stand-ins, made again readable on the lighting
+    /// thread; each takes its place at the present after it is made
+    /// ([`Device::collect_lighting`]).
+    fn remake_depth_readable(&mut self) {
+        let mut jobs: Vec<lighting_ahead::Job> = Vec::new();
+        let surfaces = self
+            .objects
+            .all
+            .values()
+            .filter_map(|o| match o {
+                Obj::Surface(s) => Some(s.clone()),
+                _ => None,
+            })
+            .chain(self.depth_parts.values().map(|(s, _)| s.clone()));
+        for s in surfaces {
+            let Some(t) = &s.tex else { continue };
+            if t.samples > 1
+                && t.format.depth
+                && !t
+                    .texture
+                    .usage()
+                    .contains(wgpu::TextureUsages::TEXTURE_BINDING)
+            {
+                let job =
+                    lighting_ahead::Job::Depth(t.id, t.width, t.height, t.format.wgpu, t.samples);
+                if !jobs.contains(&job) {
+                    jobs.push(job);
+                }
+            }
+        }
+        for job in jobs {
+            self.ask_lighting(job);
+        }
+    }
+
+    /// Whether a depth surface is on its way from the lighting thread, readable.
+    fn readable_depth_coming(&self) -> bool {
+        self.lighting_worker
+            .as_ref()
+            .is_some_and(|w| w.waits_for(|j| matches!(j, lighting_ahead::Job::Depth(..))))
+    }
+
+    /// A depth surface made again readable on the lighting thread (`old`: its texture's id) takes
+    /// its place: in every handle that names it, as the bound depth surface, and as a stand-in.
+    fn readable_depth_made(&mut self, old: u64, texture: wgpu::Texture, view: wgpu::TextureView) {
+        let was = self
+            .objects
+            .all
+            .values()
+            .filter_map(|o| match o {
+                Obj::Surface(s) => s.tex.clone(),
+                _ => None,
+            })
+            .chain(self.depth_parts.values().filter_map(|(s, _)| s.tex.clone()))
+            .find(|t| t.id == old);
+        let Some(was) = was else {
+            return;
+        };
+        // Charged to the video memory budget as the surface it replaces was (that one's charge is
+        // given back when its last handle lets go).
+        let bytes = budget::texture_bytes(
+            was.width,
+            was.height,
+            1,
+            1,
+            was.samples,
+            format::texel_bytes(&was.format),
+            was.format.block,
+        );
+        let kind = budget::Kind::of_texture(was.format.block, was.format.depth, true, was.samples);
+        let charge = match self.budget.take(kind, was.width, was.height, bytes) {
+            Ok(c) => c,
+            Err(why) => {
+                self.refuse_allocation("texture", was.width, was.height, bytes, &why);
+                return;
+            }
+        };
+        let id = self.id();
+        let tex = Arc::new(Tex {
+            _charge: charge,
+            texture,
+            view,
+            format: was.format,
+            width: was.width,
+            height: was.height,
+            levels: 1,
+            cube: false,
+            samples: was.samples,
+            id,
+            batch: AtomicU64::new(0),
+            alpha: AtomicU32::new(f32::NAN.to_bits()),
+            written: AtomicU64::new(0),
+            stale_said: AtomicBool::new(false),
+        });
+        let surface = self.level_surface(&tex, 0, 0);
+        let named: Vec<Handle> = self
+            .objects
+            .all
+            .iter()
+            .filter_map(|(h, o)| match o {
+                Obj::Surface(s) if s.tex.as_ref().is_some_and(|t| t.id == old) => Some(*h),
+                _ => None,
+            })
+            .collect();
+        for h in named {
+            self.objects.insert(h, Obj::Surface(surface.clone()));
+        }
+        for (s, _) in self.depth_parts.values_mut() {
+            if s.tex.as_ref().is_some_and(|t| t.id == old) {
+                *s = surface.clone();
+            }
+        }
+        if self
+            .st
+            .ds
+            .as_ref()
+            .and_then(|s| s.tex.as_ref())
+            .is_some_and(|t| t.id == old)
+        {
+            self.end_pass();
+            self.st.ds = Some(surface);
+        }
+    }
+
+    /// The thin casters' pipeline from the lighting thread, given to the sun shadows' maps once
+    /// they are there (on, or kept while off).
+    fn give_thin_pipeline(&mut self) {
+        let gpu = match (&mut self.sun, &mut self.sun_kept) {
+            (Some(s), _) => &mut s.gpu,
+            (None, Some(k)) => &mut k.gpu,
+            (None, None) => return,
+        };
+        if let Some(p) = self.thin_made.take() {
+            gpu.give_thin_pipeline(p);
+        }
+    }
+
+    /// What the lighting thread made by now ([`lighting_ahead`]; `wait`: tests, everything asked
+    /// for waited for), each taking its place: from the next frame on, a part draws with it.
+    fn collect_lighting(&mut self, wait: bool) {
+        let Some(w) = &mut self.lighting_worker else {
+            return;
+        };
+        let done = if wait { w.wait() } else { w.take() };
+        for (job, made) in done {
+            match made {
+                lighting_ahead::Made::Thin(p) => {
+                    self.thin_made = Some(p);
+                    self.give_thin_pipeline();
+                }
+                lighting_ahead::Made::Ao(a) => {
+                    let device = &self.device;
+                    self.scene_light
+                        .get_or_insert_with(|| Box::new(scene_light::Gpu::new(device)))
+                        .take(a);
+                }
+                lighting_ahead::Made::SunMaps(gpu, took) => {
+                    let characters = matches!(job, lighting_ahead::Job::SunMaps(true));
+                    let kept = SunKept::maps(*gpu, characters);
+                    eprintln!(
+                        "NV_D3D9 wgpu: the sun shadows' maps made on the lighting thread in {:.1} ms ({} MB, kept for the rest of the run)",
+                        took.as_secs_f64() * 1000.0,
+                        sun_shadow::map_bytes(characters) >> 20
+                    );
+                    if self.sun_waits && self.sun.is_none() {
+                        self.sun_waits = false;
+                        self.sun = Some(Box::new(SunState::new(&self.device, Some(kept), true)));
+                    } else {
+                        self.sun_kept = Some(kept);
+                    }
+                    self.give_thin_pipeline();
+                }
+                lighting_ahead::Made::Overlay(o) => match &mut self.fps_overlay {
+                    Some(have) if have.format == o.format => have.take_notes(*o),
+                    _ => self.fps_overlay = Some(*o),
+                },
+                lighting_ahead::Made::Depth(texture, view) => {
+                    if let lighting_ahead::Job::Depth(old, ..) = job {
+                        self.readable_depth_made(old, texture, view);
+                    }
+                }
+                lighting_ahead::Made::Refused(why) => {
+                    self.lighting_refused.insert(job);
+                    if matches!(job, lighting_ahead::Job::SunMaps(_)) {
+                        self.sun_waits = false;
+                    }
+                    self.warn(format!("new lighting: {job:?} could not be made ({why})"));
+                }
+            }
+        }
+    }
+
+    /// Tests: waits until everything the lighting thread was asked for is made, and takes it (as
+    /// the next present would).
+    #[doc(hidden)]
+    pub fn wait_for_lighting(&mut self) {
+        self.collect_lighting(true);
+    }
+
+    /// Tests: the sun shadows' caster pipelines this device has (live or kept while switched off),
+    /// whether the ambient occlusion holds its textures now, whether the sun shadows' maps are
+    /// there (live or kept) and whether their thin casters' pipeline is.
+    #[doc(hidden)]
+    pub fn lighting_held(&self) -> (usize, bool, bool, bool) {
+        let gpu = match (&self.sun, &self.sun_kept) {
+            (Some(s), _) => Some(&s.gpu),
+            (None, Some(k)) => Some(&k.gpu),
+            (None, None) => None,
+        };
+        let textures = self.scene_light.as_ref().is_some_and(|g| g.has_textures());
+        (
+            gpu.map_or(0, sun_shadow::Gpu::pipelines_made),
+            textures,
+            gpu.is_some(),
+            gpu.is_some_and(sun_shadow::Gpu::has_thin_pipeline) || self.thin_made.is_some(),
+        )
+    }
+
+    /// Tests: whether the device has `DEPTH_CLIP_CONTROL` (the sun shadows' casters drawn
+    /// unclipped) and whether its adapter has it, and whether its multisampled depth surfaces are
+    /// made readable now.
+    #[doc(hidden)]
+    pub fn lighting_features(&self) -> (bool, bool, bool) {
+        let clip = wgpu::Features::DEPTH_CLIP_CONTROL;
+        (
+            self.device.features().contains(clip),
+            self.adapter.features().contains(clip),
+            self.depth_readable,
+        )
+    }
+
+    /// Tests: waits until the GPU has done everything handed to it so far (the queue thread's
+    /// submits first).
+    #[doc(hidden)]
+    pub fn wait_for_gpu(&self) {
+        if let Some(s) = &self.submitter {
+            s.sync();
+        }
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+    }
+
+    /// Tests: the mean alpha of texture `h`'s smallest level as last uploaded (none: not read).
+    #[doc(hidden)]
+    pub fn texture_mean_alpha(&self, h: Handle) -> Option<f32> {
+        let a = f32::from_bits(self.texture_of(h)?.alpha.load(Ordering::Relaxed));
+        (!a.is_nan()).then_some(a)
+    }
+
+    /// Tests: whether surface `h` can be read by the new lighting (its texture's usage).
+    #[doc(hidden)]
+    pub fn surface_readable(&self, h: Handle) -> Option<bool> {
+        let t = self.surface_of(h)?.tex.clone()?;
+        Some(
+            t.texture
+                .usage()
+                .contains(wgpu::TextureUsages::TEXTURE_BINDING),
+        )
+    }
+
+    /// Tests: whether the ambient occlusion ran in the frame last presented.
+    #[doc(hidden)]
+    pub fn occlusion_ran_last_frame(&self) -> bool {
+        self.presents > 0 && self.scene_light_ran == Some(self.presents - 1)
+    }
+
+    /// Tests: the note the window shows after a switch (none offscreen).
+    #[doc(hidden)]
+    pub fn lighting_note(&self) -> Option<&'static str> {
+        self.lighting_note.map(|(n, _)| n)
+    }
+
+    /// Tests: how many pipelines the device keeps for the game's draws (the plain ones and the sun
+    /// shadows' lighting variants).
+    #[doc(hidden)]
+    pub fn pipelines_kept(&self) -> usize {
+        self.pipelines.len()
     }
 
     /// Keeps the draw just made in the sun shadows' light list ([`sun_shadow::Caster`]) when it is
@@ -10788,6 +11212,9 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     /// Waits until every sun-shadow variant on its way is made and keeps it (tests: the draws after
     /// take the variants).
     pub fn wait_for_sun_variants(&mut self) {
+        // What the lighting thread was asked for first (the maps, the occlusion's pipelines and
+        // textures), as the next present takes it.
+        self.collect_lighting(true);
         for (key, rx) in std::mem::take(&mut self.sun_pending) {
             match rx.recv() {
                 Ok(Some(p)) => {
@@ -10808,282 +11235,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
                 sun.map_mut(map).insert(key, at);
             }
         }
-    }
-
-    /// Whether a shader override's draw can read the scene's depth now: the frame's camera is
-    /// known ([`Device::frame_view`]), and the bound depth surface can be read and covers the
-    /// colour target.
-    fn override_usable(&self) -> bool {
-        let (Some(ds), Some(rt)) = (self.st.ds.as_ref(), self.st.rt[0].as_ref()) else {
-            return false;
-        };
-        self.frame_view.is_some()
-            && ds.samples == rt.samples
-            && ds.width >= rt.width
-            && ds.height >= rt.height
-            && ds.tex.as_ref().is_some_and(|t| {
-                t.texture
-                    .usage()
-                    .contains(wgpu::TextureUsages::TEXTURE_BINDING)
-            })
-    }
-
-    /// The scene's depth for the shader overrides' draws ([`shader_override::Gpu::snapshot`]):
-    /// at the frame's first overridden draw on the bound depth surface the pass is ended and the
-    /// depth's first sample turned into distances (through the frame's near and far planes); the
-    /// later draws of the frame on that surface read the same.
-    fn override_snapshot(&mut self, name: &str) {
-        let (Some(ds), Some(view)) = (self.st.ds.clone(), self.frame_view) else {
-            return;
-        };
-        let Some(depth) = ds.tex.clone() else {
-            return;
-        };
-        let at = (self.presents, ds.id);
-        if self
-            .override_gpu
-            .as_ref()
-            .is_some_and(|g| g.taken == Some(at))
-        {
-            return;
-        }
-        self.end_pass();
-        let mut gpu = self
-            .override_gpu
-            .take()
-            .unwrap_or_else(|| Box::new(shader_override::Gpu::new(&self.device)));
-        if gpu.taken.is_none() {
-            fork_log::info!(target: "d3d9",
-                "NV_D3D9 wgpu: shader override {}: first drawn at present {} on a {}x{} depth surface ({} samples), near {}, far {}",
-                name,
-                self.presents, ds.width, ds.height, ds.samples, view.near, view.far
-            );
-        }
-        let device = self.device.clone();
-        let span = self.span_begin(Kind::Other);
-        gpu.snapshot(
-            &device,
-            self.encoder(),
-            &depth.view,
-            ds.samples,
-            ds.width,
-            ds.height,
-            view.near,
-            view.far,
-        );
-        self.span_end(span);
-        gpu.taken = Some(at);
-        self.override_gpu = Some(gpu);
-        depth.batch.store(self.batch, Ordering::Relaxed);
-    }
-
-    /// Draws the late overrides' draws kept this frame ([`LateDraw`]), where the world is drawn
-    /// (the frame's camera words): the scene's depth is taken now ([`Device::override_snapshot`],
-    /// the whole world in it), then each draw is given to a pass on the bound targets with its
-    /// registers written again, in the order the game drew them. A draw whose targets are not the
-    /// bound ones is dropped (counted). The registers and the pass's settings the next draw of the
-    /// game takes are written and set again.
-    fn draw_late(&mut self) {
-        if self.late.is_empty() {
-            return;
-        }
-        let list = std::mem::take(&mut self.late);
-        let targets = self.current_targets();
-        let (keep, drop): (Vec<LateDraw>, Vec<LateDraw>) =
-            list.into_iter().partition(|d| d.targets == targets);
-        if !drop.is_empty() {
-            if self.late_dropped == 0 {
-                self.warn(format!(
-                    "shader override {}: late draws whose targets are not bound where the world is drawn (dropped)",
-                    drop[0].name
-                ));
-            }
-            self.late_dropped += drop.len() as u64;
-        }
-        let Some(first) = keep.first() else {
-            return;
-        };
-        let name = first.name.clone();
-        self.emit_held();
-        if let Some(g) = self.override_gpu.as_mut() {
-            g.taken = None;
-        }
-        self.override_snapshot(&name);
-        let Some(group) = self.override_gpu.as_ref().and_then(|g| g.group.clone()) else {
-            return;
-        };
-        for d in keep {
-            self.make_ring_room();
-            let blocks: [u32; 4] = std::array::from_fn(|k| {
-                if k < 2 {
-                    write_block(&mut self.ring, &d.regs[k], &[])
-                } else {
-                    write_block(&mut self.ring, &[], &d.regs[k])
-                }
-            });
-            self.begin_pass(None);
-            let instance = match self.storage_regs_gpu.as_ref().filter(|_| self.storage_regs) {
-                Some(_) => {
-                    let at = (self.table.len() / 16) as u32;
-                    for o in blocks {
-                        self.table.extend_from_slice(&(o / 16).to_le_bytes());
-                    }
-                    at
-                }
-                None => 0,
-            };
-            let storage = self
-                .storage_regs_gpu
-                .as_ref()
-                .filter(|_| self.storage_regs)
-                .map(|s| s.group.clone());
-            let pass = self.pass.as_mut().expect("a pass is open");
-            pass.set_pipeline(&d.pipeline);
-            match &storage {
-                Some(g) => pass.set_bind_group(0, g, &[]),
-                None => pass.set_bind_group(0, &self.ring_group, &blocks),
-            }
-            for (k, g) in d.groups.iter().enumerate() {
-                pass.set_bind_group(1 + k as u32, g, &[]);
-            }
-            pass.set_bind_group(3, &group, &[]);
-            let f = d.viewport.map(f32::from_bits);
-            pass.set_viewport(f[0], f[1], f[2], f[3], f[4], f[5]);
-            pass.set_scissor_rect(d.scissor.0, d.scissor.1, d.scissor.2, d.scissor.3);
-            pass.set_stencil_reference(d.stencil);
-            pass.set_blend_constant(blend_colour(d.blend));
-            for (slot, s) in d.streams.iter().enumerate() {
-                if let Some((buffer, offset)) = s {
-                    pass.set_vertex_buffer(slot as u32, buffer.slice(*offset..));
-                }
-            }
-            let (indexed, start, n, base) = d.range;
-            match (&d.index, indexed) {
-                (Some((buffer, index32)), true) => {
-                    pass.set_index_buffer(buffer.slice(..), index_format(*index32));
-                    pass.draw_indexed(start..start + n, base, instance..instance + 1);
-                }
-                (_, true) => {}
-                _ => pass.draw(start..start + n, instance..instance + 1),
-            }
-            // What the pass holds is the game's again only when set again.
-            self.binds = PassBinds::default();
-            self.pass_draws += 1;
-        }
-        // The game's next draw writes its registers again.
-        self.st.dirty = [true; 2];
-        self.st.header_dirty = [true; 2];
-    }
-
-    /// Whether the shader override's variant pipeline of `key` is ready (then it is in the
-    /// pipelines' cache). The first time it is asked for, its job is prepared here (the plain
-    /// pipeline's, with its pixel shader's module made from the override's program,
-    /// [`wgsl::convert_replaced`], and a layout with the scene depth's group 3) and made on a
-    /// thread of its own; until it is made (or if it cannot be), false.
-    #[allow(clippy::too_many_arguments)]
-    fn override_variant_ready(
-        &mut self,
-        key: &PipeKey,
-        vs: &Shader,
-        ps: &Shader,
-        inputs: &[wgsl::Input],
-        attributes: &[Vec<wgpu::VertexAttribute>; 8],
-        topology: wgpu::PrimitiveTopology,
-        samplers: &[(u32, u8, bool)],
-    ) -> bool {
-        if self.override_failed.contains(key) {
-            return false;
-        }
-        if let Some(rx) = self.override_pending.get(key) {
-            return match rx.try_recv() {
-                Ok(Some(p)) => {
-                    self.override_pending.remove(key);
-                    self.pipelines.insert(key.clone(), (Some(p), 0));
-                    true
-                }
-                Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.override_pending.remove(key);
-                    self.override_failed.insert(key.clone());
-                    self.warn("shader override: a draw's variant could not be made (drawn with the game's shader)");
-                    false
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => false,
-            };
-        }
-        let Some(over) = ps.over.clone() else {
-            return false;
-        };
-        let depth_layout = self
-            .override_gpu
-            .get_or_insert_with(|| Box::new(shader_override::Gpu::new(&self.device)))
-            .layout
-            .clone();
-        let plain = PipeKey {
-            sun: false,
-            over: false,
-            ..key.clone()
-        };
-        let (vkey, pkey, tasks) = self.module_tasks(&plain, vs, ps, inputs, self.storage_regs);
-        self.make_modules(tasks, 1, false, &mut |_| {});
-        let Some(job) = self.pipeline_job(&plain, ps, &vkey, &pkey, attributes, topology, samplers)
-        else {
-            self.override_failed.insert(key.clone());
-            return false;
-        };
-        let source = wgsl::convert_replaced(
-            &ps.program,
-            &wgsl::Link {
-                inputs: Vec::new(),
-                centroid: wgsl::centroid_everywhere(pkey.1.len()),
-                varyings: pkey.1.clone(),
-                clip: key.clip,
-                count: key.count,
-                fixed: ps.fixed,
-                storage: pkey.5,
-            },
-            &over.source,
-        );
-        let device = self.device.clone();
-        let registers = self.registers_layout(vkey.5).clone();
-        let name = over.name.clone();
-        let blend = over.blend;
-        let (tx, rx) = std::sync::mpsc::channel();
-        let made = std::thread::Builder::new()
-            .name("nv-wgpu-override".into())
-            .spawn(move || {
-                let made = (|| -> Result<Pipe, String> {
-                    let mut job = job;
-                    job.pm = create_module(&device, source.map_err(|e| e.to_string())?)?;
-                    // Blended over what is behind by the program's alpha.
-                    if blend {
-                        if let Some(Some(t)) = job.targets.first_mut() {
-                            t.blend = Some(wgpu::BlendState::ALPHA_BLENDING);
-                        }
-                    }
-                    job.layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("shader override: a draw"),
-                        bind_group_layouts: &[
-                            Some(&registers),
-                            Some(&job.group_layouts[0]),
-                            Some(&job.group_layouts[1]),
-                            Some(&depth_layout),
-                        ],
-                        immediate_size: 0,
-                    });
-                    let p = build_pipeline(&device, None, &job)?;
-                    Ok((p, job.group_layouts.clone()))
-                })();
-                if let Err(e) = &made {
-                    eprintln!("NV_D3D9 wgpu: shader override {name}: its pipeline: {e}");
-                }
-                let _ = tx.send(made.ok());
-            });
-        if made.is_err() {
-            self.override_failed.insert(key.clone());
-            return false;
-        }
-        self.override_pending.insert(key.clone(), rx);
-        false
     }
 
     /// Whether the sun shadows' variant pipeline of `key` is ready (then it is in the pipelines'
@@ -11131,7 +11282,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         };
         let plain = PipeKey {
             sun: false,
-            over: false,
             ..key.clone()
         };
         let (vkey, pkey, tasks) = self.module_tasks(&plain, vs, ps, inputs, self.storage_regs);
@@ -12003,9 +12153,10 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     ) {
         self.end_pass();
         let readout = self.fps_meter.lock().map_or((None, 0), |m| m.readout());
+        let cache = self.pipeline_cache.as_ref().map(|c| c.cache.clone());
         let mut overlay = match self.fps_overlay.take() {
             Some(o) if o.format == format => o,
-            _ => frame_rate::Overlay::new(&self.device, format),
+            _ => frame_rate::Overlay::new(&self.device, format, cache.as_ref()),
         };
         let (device, queue) = (self.device.clone(), self.queue.clone());
         let span = self.span_begin(Kind::Other);
@@ -12046,6 +12197,46 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         );
         self.span_end(span);
         self.gfx_overlay = Some(painter);
+    }
+
+    /// Whether the notes a switch shows are made for the window's frame (`format`, `height`
+    /// pixels high): made ahead on the lighting thread with the counter's drawing, asked for here
+    /// (each present while the player can switch the new lighting) when they are not, so a note
+    /// never makes its texture in a frame.
+    fn notes_ready(&mut self, format: wgpu::TextureFormat, height: u32) -> bool {
+        let glyph = frame_rate::glyph_height(height);
+        let ready = self
+            .fps_overlay
+            .as_ref()
+            .is_some_and(|o| o.format == format && o.notes_glyph() == Some(glyph));
+        if !ready {
+            self.ask_lighting(lighting_ahead::Job::Overlay(format, glyph));
+        }
+        ready
+    }
+
+    /// The note `text` drawn into the window's frame `view` (`format`, `width` by `height`) as the
+    /// counter is ([`Device::draw_frame_rate`]), under it while it shows (`below`), from the notes
+    /// made ahead ([`Device::notes_ready`]: until they are there, nothing).
+    fn draw_note(
+        &mut self,
+        view: &wgpu::TextureView,
+        (format, width, height): (wgpu::TextureFormat, u32, u32),
+        text: &'static str,
+        below: bool,
+    ) {
+        if !self.notes_ready(format, height) {
+            return;
+        }
+        self.end_pass();
+        let Some(mut overlay) = self.fps_overlay.take() else {
+            return;
+        };
+        let queue = self.queue.clone();
+        let span = self.span_begin(Kind::Other);
+        overlay.draw_note(&queue, self.encoder(), view, (width, height), text, below);
+        self.span_end(span);
+        self.fps_overlay = Some(overlay);
     }
 
     /// Shows `p` in the game's window ([`loading`]): for a long step of the backend's own before
@@ -12137,17 +12328,6 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
     }
 
     pub(crate) fn present(&mut self, frame: u32) {
-        // Late overrides' draws the frame kept but never reached where the world is drawn (no
-        // camera words this frame): dropped, never drawn into a later frame.
-        if !self.late.is_empty() {
-            if self.late_dropped == 0 {
-                self.warn(
-                    "shader override: late draws in a frame without the world's point (dropped)",
-                );
-            }
-            self.late_dropped += self.late.len() as u64;
-            self.late.clear();
-        }
         self.perf.frame_end();
         let _perf = crate::perf::span(crate::perf::Cat::Present);
         fork_hitch::add(fork_hitch::Counter::Presents, 1);
@@ -12183,6 +12363,8 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
         self.collect_sun_variants();
         self.collect_sun_casters();
         self.end_pass();
+        // What the lighting thread made by now: the parts draw with it from the next frame.
+        self.collect_lighting(false);
         self.presents += 1;
         if let Some(line) = self.gpu_times.as_mut().and_then(GpuTimes::frame) {
             eprintln!("{line}");
@@ -12384,6 +12566,17 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             // an F12 report and the game's captures read), so in no capture or report.
             if fps {
                 self.draw_frame_rate(&view, (format, cw, ch));
+            }
+            // The new lighting's switch said for a few seconds, the same way: under the counter.
+            // Its drawing is made ahead for this frame's format and size ([`Device::notes_ready`]).
+            if let Some((note, until)) = self.lighting_note {
+                if frame_rate::note_shows(until, std::time::Instant::now()) {
+                    self.draw_note(&view, (format, cw, ch), note, fps);
+                } else {
+                    self.lighting_note = None;
+                }
+            } else if self.lighting_switch {
+                self.notes_ready(format, ch);
             }
             frame_texture = Some(t);
         }
@@ -12708,7 +12901,7 @@ fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_i
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        let mut overlay = frame_rate::Overlay::new(&self.device, format);
+        let mut overlay = frame_rate::Overlay::new(&self.device, format, None);
         overlay.draw(
             &self.device,
             &self.queue,
@@ -13317,8 +13510,9 @@ fn open(
         | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
         | wgpu::Features::PIPELINE_CACHE
         | crate::gputime::features();
-    // The sun shadows clamp casters between the sun and a map's near plane (only when on).
-    let wanted = if crate::sun_shadow::enabled() {
+    // The sun shadows clamp casters between the sun and a map's near plane (only when on, or
+    // while they can be switched on).
+    let wanted = if crate::sun_shadow::enabled() || crate::scene_light::switchable() {
         wanted | wgpu::Features::DEPTH_CLIP_CONTROL
     } else {
         wanted
@@ -14200,6 +14394,7 @@ fn create_module(device: &wgpu::Device, source: String) -> Result<wgpu::ShaderMo
 
 /// [`create_module`]'s work.
 fn create_module_here(device: &wgpu::Device, source: String) -> Result<wgpu::ShaderModule, String> {
+    crate::made_here::module();
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
@@ -14233,6 +14428,7 @@ fn build_pipeline_here(
     cache: Option<&wgpu::PipelineCache>,
     job: &PipelineJob,
 ) -> Result<wgpu::RenderPipeline, String> {
+    crate::made_here::pipeline();
     let buffers: Vec<Option<wgpu::VertexBufferLayout>> = job
         .buffers
         .iter()
@@ -15013,6 +15209,104 @@ mod tests {
 
     use super::*;
     use wgpu::TextureFormat as F;
+
+    /// A float set copies only the registers whose bytes changed; a set that holds the same bytes
+    /// leaves the register file alone, so the stage's block need not be written again.
+    #[test]
+    fn a_float_constant_set_copies_only_the_registers_that_changed() {
+        use d3d9_stream::Data;
+
+        let mut regs = [0u8; 4096];
+        let first = [0x3f80_0000u32, 1, 2, 3];
+        let twice = [
+            first[0], first[1], first[2], first[3], first[0], first[1], first[2], first[3],
+        ];
+        let data = Data::from_words(&twice);
+        assert!(set_float_registers(&mut regs, 0, 2, &data));
+        let expected: Vec<u8> = first.iter().flat_map(|&w| w.to_le_bytes()).collect();
+        assert_eq!(&regs[..16], &expected[..]);
+        assert_eq!(&regs[16..32], &expected[..]);
+        let held = regs;
+        assert!(!set_float_registers(&mut regs, 0, 2, &data));
+        assert_eq!(regs, held, "a repeat does not write the register file");
+
+        let both = [5u32, 6, 7, 8, first[0], first[1], first[2], first[3]];
+        let data = Data::from_words(&both);
+        assert!(set_float_registers(&mut regs, 0, 2, &data));
+        assert_eq!(
+            &regs[16..32],
+            &held[16..32],
+            "the register already holding the words is not written"
+        );
+        assert_eq!(
+            &regs[..16],
+            &both[..4]
+                .iter()
+                .flat_map(|&w| w.to_le_bytes())
+                .collect::<Vec<_>>()[..]
+        );
+
+        // Out of range, no data, and a read-at-the-call payload.
+        assert!(!set_float_registers(&mut regs, 256, 1, &data));
+        assert!(!set_float_registers(&mut regs, 0, 0, &data));
+        let read = Data::Read {
+            len: 16,
+            read: &|at, into| {
+                let words = [5u32, 6, 7, 8];
+                let bytes: Vec<u8> = words.iter().flat_map(|&w| w.to_le_bytes()).collect();
+                into.copy_from_slice(&bytes[at as usize..at as usize + into.len()]);
+            },
+        };
+        assert!(!set_float_registers(&mut regs, 0, 1, &read));
+        let changed = Data::Read {
+            len: 16,
+            read: &|at, into| {
+                let words = [9u32, 9, 9, 9];
+                let bytes: Vec<u8> = words.iter().flat_map(|&w| w.to_le_bytes()).collect();
+                into.copy_from_slice(&bytes[at as usize..at as usize + into.len()]);
+            },
+        };
+        assert!(set_float_registers(&mut regs, 1, 1, &changed));
+        assert_eq!(
+            &regs[16..32],
+            &[9u8, 0, 0, 0, 9, 0, 0, 0, 9, 0, 0, 0, 9, 0, 0, 0]
+        );
+    }
+
+    /// Integer and boolean sets do the same word by word; a partial word is zero padded, as the
+    /// command's words are, and registers past the file's end are not kept.
+    #[test]
+    fn an_integer_or_boolean_constant_set_copies_only_the_words_that_changed() {
+        use d3d9_stream::Data;
+
+        let words = [1u32, 2, 3, 4, 5, 6, 7, 8];
+        let data = Data::from_words(&words);
+        let mut ints = [[0u32; 4]; 16];
+        assert!(set_int_registers(&mut ints, 0, 2, &data));
+        assert_eq!(ints[0], [1, 2, 3, 4]);
+        assert_eq!(ints[1], [5, 6, 7, 8]);
+        assert!(!set_int_registers(&mut ints, 0, 2, &data));
+        assert!(
+            set_int_registers(&mut ints, 15, 2, &data),
+            "the register in range is copied"
+        );
+        assert_eq!(ints[15], [1, 2, 3, 4]);
+        assert!(!set_int_registers(&mut ints, 16, 2, &data));
+
+        let bools_words = [1u32, 0, 1];
+        let data = Data::from_words(&bools_words);
+        let mut bools = [0u32; 16];
+        assert!(set_bool_registers(&mut bools, 0, 3, &data));
+        assert_eq!(bools[..3], [1, 0, 1]);
+        assert!(!set_bool_registers(&mut bools, 0, 3, &data));
+        assert!(set_bool_registers(
+            &mut bools,
+            2,
+            1,
+            &Data::Bytes(&[0, 0, 0, 2])
+        ));
+        assert_eq!(bools[2], 0x0200_0000, "a partial word is padded with zeros");
+    }
 
     /// Depth stand-ins idle for more than [`DEPTH_PART_IDLE`] presents go, those used within it
     /// stay (a stand-in used at the present before is kept, one used exactly the limit ago too).

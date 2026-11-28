@@ -255,6 +255,35 @@ pub fn find_word(e: &mut Engine, this: Ptr<LockFreeMap>, key: u32, value_out: Pt
     found
 }
 
+// Typed from 00528b60
+/// The map's virtual add (slot +0x10 of the counted maps; `thiscall(key, value holder, replace)`,
+/// the added byte): under the map's lock, the current thread's interface inserts the key
+/// (`0044c000`). The exe keeps only `AL` of the insert's answer.
+pub fn add(e: &mut Engine, this: Ptr<LockFreeMap>, key: u32, value: u32, replace: u8) -> u8 {
+    e.call(LOCK_ENTER, &args![lock(this), 0u32]);
+    let face = interface(e, this);
+    let added = typed_call!(
+        FAMILY,
+        0x0044_c000,
+        iface::insert(e, face, key, value, replace)
+    );
+    e.call(LOCK_LEAVE, &args![lock(this)]);
+    added.to_le_bytes()[0]
+}
+
+// Typed from 009062e0
+/// The map's virtual removal (slot +0x14 of the counted maps; `thiscall(key)`, the removed byte):
+/// under the map's lock, the current thread's interface removes the key (`00528bb0`). The model
+/// loader's word that a reference's task is over (`004409e0`) is this on its map of queued
+/// references.
+pub fn remove(e: &mut Engine, this: Ptr<LockFreeMap>, key: u32) -> u8 {
+    e.call(LOCK_ENTER, &args![lock(this), 0u32]);
+    let face = interface(e, this);
+    let removed = typed_call!(FAMILY, 0x0052_8bb0, iface::remove(e, face, key));
+    e.call(LOCK_LEAVE, &args![lock(this)]);
+    u8::from(removed)
+}
+
 /// The line `0044c480` names in its scope.
 const CLEAR_LINE: u32 = 0x42c;
 

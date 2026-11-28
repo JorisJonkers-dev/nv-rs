@@ -16,7 +16,7 @@
 use super::FAMILY;
 use engine_core::ptr::Ptr;
 use engine_core::typed::leaf;
-use engine_core::x87::x87_quiet;
+use engine_core::x87::{x87_load32, x87_quiet};
 use engine_core::{args, typed_call, Engine};
 
 /// `Script`'s quest delay, the get-seconds buffer and the owner quest.
@@ -43,8 +43,6 @@ const FREE: u32 = 0x0040_1030;
 const INTERLOCKED_INCREMENT: u32 = 0x0040_b460;
 const INTERLOCKED_DECREMENT: u32 = 0x0040_19a0;
 const FILL: u32 = 0x0040_3d30;
-const SCRIPT_HEADER_OF: u32 = 0x0050_0940;
-const ELAPSED_TIME: u32 = 0x0084_d030;
 const ELAPSED_TIME_OBJECT: u32 = 0x011f_6394;
 const QUEST_DELAY_ACCESSOR: u32 = 0x0040_3e20;
 const QUEST_DELAY_SETTING: u32 = 0x011c_ac68;
@@ -87,7 +85,20 @@ fn list_is_empty(e: &mut Engine, node: u32) -> bool {
 
 #[inline]
 fn header_of(e: &mut Engine, script: Ptr) -> u32 {
-    e.call(SCRIPT_HEADER_OF, &args![script]).u32()
+    typed_call!(FAMILY, 0x0050_0940, plus_18(e, script))
+}
+
+// Typed from 00500940
+/// `this` plus 0x18 (`thiscall`; one body for many classes: a script's header, among others).
+pub fn plus_18(_e: &mut Engine, this: Ptr) -> u32 {
+    this.addr().wrapping_add(0x18)
+}
+
+// Typed from 0084d030
+/// The float at +0xc of `this` as `FLD dword` puts it on the x87 stack, a signalling NaN quieted
+/// (`thiscall`; one body for many classes: the frame timer's elapsed seconds, among others).
+pub fn float_at_c(e: &mut Engine, this: Ptr) -> f64 {
+    x87_load32(e.mem.u32(this.addr().wrapping_add(0xc)))
 }
 
 /// The FLD/FSTP double store of `SetVariable`: quiets a signalling NaN, keeping its sign and
@@ -148,10 +159,18 @@ pub fn script_run(
     }
     let header = header_of(e, this);
     if e.mem.u8(header + 0x10) != 0 && e.mem.f32(me + QUEST_DELAY) > 0.0 {
-        let elapsed = e.call(ELAPSED_TIME, &args![ELAPSED_TIME_OBJECT]).f64();
+        let elapsed: f64 = typed_call!(
+            FAMILY,
+            0x0084_d030,
+            float_at_c(e, Ptr::new(ELAPSED_TIME_OBJECT))
+        );
         let delay = f64::from(e.mem.f32(me + QUEST_DELAY));
         e.mem.set_f32(me + QUEST_DELAY, to_float(delay - elapsed));
-        let elapsed = e.call(ELAPSED_TIME, &args![ELAPSED_TIME_OBJECT]).f64();
+        let elapsed: f64 = typed_call!(
+            FAMILY,
+            0x0084_d030,
+            float_at_c(e, Ptr::new(ELAPSED_TIME_OBJECT))
+        );
         let buffer = f64::from(e.mem.f32(me + GET_SECONDS_BUFFER));
         e.mem
             .set_f32(me + GET_SECONDS_BUFFER, to_float(elapsed + buffer));
@@ -344,6 +363,15 @@ pub fn runner_is_busy(e: &mut Engine, this: Ptr) -> bool {
 /// `ScriptRunManager::InitActionList`: builds the action list (by address: xNVSE wraps it) in the
 /// cached runner (made on first use), or in a temporary one while the cached one is busy.
 ///
+/// **Not 1:1 off the main thread**: there the action list is always built in a temporary runner
+/// and the cached one is not touched. The cached runner is the one main runs its scripts in, and
+/// the exe's test that it is free is no claim: a loading thread loading a changed reference's
+/// saved script variables (`ScriptLocals::LoadGame`, `005a9f20`) found it free, then busy in the
+/// build's own test (`005e1160`), then read the running script's word again for the "nested call"
+/// log line after main had finished that script, and read through 0 (the speed-20000 trip,
+/// 2026-11-26). Main keeps the exe's path; a temporary runner is the exe's own path when the
+/// cached one is busy, so the action list is the same.
+///
 /// lStewieAl's Tweaks patches the two calls of the action list's run here (`005e280a` and
 /// `005e2834`); that tweak is not built in, so no seam stands there yet: when it is, both calls go
 /// through one.
@@ -354,6 +382,15 @@ pub fn manager_init_action_list(
     reference: Ptr,
     locals: Ptr,
 ) -> bool {
+    if !engine_core::thread_host::on_main(e) {
+        let temporary = new_runner(e);
+        e.call(
+            BUILD_ACTION_LIST,
+            &args![temporary, script, reference, locals],
+        );
+        e.call(FREE, &args![temporary]);
+        return true;
+    }
     let me = this.addr();
     if e.mem.u32(me) == 0 {
         let runner = new_runner(e);

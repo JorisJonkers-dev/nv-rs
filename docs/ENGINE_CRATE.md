@@ -455,7 +455,7 @@ too; the float check `0040eb10`; the priority `00526ae0`; `TESTopic`'s editor id
 `NV_TYPED=topic_order:off` changes more than the topic order, and a trace loses the two CRT calls under each
 `00404dc0` while it is on.
 Then `lockfree` (`crates/engine-typed`, a crate above the core that provides its family): the
-lock-free maps, their interfaces, iterators and holder, stage 1 (objects stay in guest memory); its
+lock-free maps, their interfaces, iterators and holder, stage 1 unless moved by default (K1 since nv-rs#946, "Moved families"; `NV_TYPED=lockfree` is stage 1, objects in guest memory); its
 differential tests are `crates/engine/tests/typed_lockfree.rs`. And `culling` (same crate): the culling
 walk, stage 1, its float maths native since 2026-11-11 (the bounds' and planes' sums of products and the merge in
 `f64` rounded at the stores, a single operation on two floats in plain `f32`, the main-thread-only fade-node culler in
@@ -759,10 +759,10 @@ is a comma-separated list, read left to right:
 
 | Item | Means |
 | --- | --- |
-| (unset or empty) | The default: a family is on when it is past its gate |
+| (unset or empty) | The default: a family is on when it is past its gate, in its stage-2 form (K1) when it moves by default (`typed::MOVED_BY_DEFAULT`: `lockfree`) |
 | `off` | Every family off: the game runs the translations |
-| `all` | Back to the default |
-| `<family>` | That family on, past its gate or not |
+| `all` | Back to the default (the stage-2 form for a family that moves by default) |
+| `<family>` | That family on in stage 1 (objects in the game's heap), past its gate or not; the rollback of a family that moves by default |
 | `<family>:dual` | On, with both forms live, for families that keep them (`Engine::typed_dual`): stage 2's dual run, below |
 | `<family>:moved` | On, its objects moved out of the game's heap, the heap kept as stage 1 leaves it (K1, below) |
 | `<family>:freed` | On, moved, the guest bytes freed (K2, below) |
@@ -1096,7 +1096,13 @@ uses is `engine_core::typed::moved`, tested with a made-up family, so a family r
   address after it (the Direct3D model's objects, which the recorded stream names by address) stay as they
   were, and two repeatable runs compare with `cmp`; without (K2, `<family>:freed`) the guest bytes are freed,
   and the recorded streams compare with handles renamed (`d3d9-stream`'s `wire::compare_renamed`; the
-  `record_compare` example). `Dual` (`<family>:dual`) keeps the guest objects the truth and mirrors each one in
+  `record_compare` example). Where a moved form does in place what stage 1 calls by address (the link's
+  compare-and-swap, the vector constructor and its elements' constructors, the interlocked increment, `memcpy`,
+  the holders' set and release, and in K2 `operator new` and `operator delete`), it takes the same steps of the
+  thread host's time slice (`Engine::typed_charge`, the lists in `lockfree/store.rs`), so the stepped threads
+  hand over at stage 1's points: a test (`forms` in `typed_lockfree.rs`) compares the address of every step of a
+  map's life in stage 1, K1 and K2. K2 cannot be exact in the game: the allocator's own calls under
+  `operator new` depend on the heap's contents (K2's heap holds fewer blocks), so its steps differ now and then. `Dual` (`<family>:dual`) keeps the guest objects the truth and mirrors each one in
   the slab: every access is made on both and compared (a word inside a mirrored block compares as the same
   place in its mirror, so pointer fields need no types), the first 20 differences are printed with the place
   and the function running, and the status line counts comparisons and differences (`Dual run: ..`). A dual run
@@ -1138,6 +1144,26 @@ objects), its record holding the node slots (+4), the buckets (+0xc), the delete
 interface manager (+0x14), its spare word +0x1c; the vtable, the bucket count, the count and the lock stay
 for the untyped wrappers. The queues share the interface manager's functions and keep theirs in the game's
 memory: an object is made in the store of its root, so a queue's manager stays guest.
+
+The lock-free maps move by default (nv-rs#946): with no `NV_TYPED` (or `all`) the family is in K1, its
+objects in host memory and the guest heap as stage 1 leaves it (so the stepped threads' time slice and every guest
+address are stage 1's, and the Direct3D 9 stream is); `typed::MOVED_BY_DEFAULT` lists such families and
+`typed::default_mode` gives each its form. The rollbacks are `NV_TYPED=lockfree` (stage 1, the heap as the game
+leaves it), `lockfree:freed` (K2, the guest bytes freed: the allocator's own calls differ, so the stream may), `lockfree:dual` (both forms live, every access compared) and
+`lockfree:off` (the translation). A recorded run (`NV_TRACE_OUT`, `NV_TRACE_LIST`) keeps every family off.
+Untyped code that reads a moved map's bytes sees what stage 1 leaves there (the save check in
+`typed_lockfree.rs`); what it cannot read is listed in ADR-0014. The race campaign for the family's real
+threads is in [`docs/fork/LOCKFREE-MOVED.md`](fork/LOCKFREE-MOVED.md); stepped mode stays the reference.
+
+The `formarray` family (beside `forms`) has a stage-2 form for one object so far (nv-rs#951, parent #916): the form registry array
+(`011c54c4`, `NiTLargeArray<TESForm *>`). Its element block lives in the slab; the array object stays a K1 stub
+(`engine_core::typed::form_array`: vtable, capacity, used size and count stay, +4 holds poison, the grow-by +0x14 is the
+spare word holding the record's handle). The large-array bodies it shares with other arrays (`004705e0`,
+`004701d0`, `00470110`, `00470140`, `00486b80`, `0061bd20`, `00863db0`, `00864240`, `00864280`) are typed in
+`engine-typed`'s `forms/array.rs`; an array with no record is the guest array they have always worked on. The
+nav mesh info map's count reads a slot through `form_array::slot`. `NV_TYPED=formarray:dual`, `formarray:moved` (K1) and
+`formarray:freed` (K2) choose the form; the family is not moved by default yet (`crates/engine/tests/typed_form_array.rs`:
+the life of the array is alike in every form, K1 with the guest heap and time-slice steps of stage 1).
 
 ## Checking against the real exe
 

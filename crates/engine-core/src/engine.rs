@@ -225,6 +225,9 @@ const DIAG_CALL_COUNT: u8 = 64;
 /// The game's memory plus every translated function, by exe address.
 pub struct Engine {
     pub mem: Mem,
+    /// This engine's number, assigned as it is made. A cache that outlives one engine (a thread-local
+    /// one, for instance) uses it to keep an answer from another engine's run out of its own.
+    pub engine_id: u64,
     funcs: AddrMap<u32, Callable>,
     /// A two-way set-associative cache in front of `funcs` for plain functions (doubles never
     /// enter it): (address, function) in the [`cache_set`] of the address, [`Cached::empty`]
@@ -336,12 +339,6 @@ pub struct Engine {
     /// [`GUEST_STACK_SIZE`]: the region's lowest address and its size. A render helper's
     /// ([`Engine::place_thread_memory`]); `None` on every game thread's engine.
     placed_stack: Option<(u32, u32)>,
-    /// The game thread index whose stack for locals is the placed one (the first that took a
-    /// local on this engine): with stepped threads a helper's `thread_index` is the shared
-    /// kernel's current thread, so a local taken while another thread is current would build a
-    /// second stack on the same region. It cannot today (a helper runs only inside main's fork);
-    /// [`Engine::push_frame`] stops the run if it ever did.
-    placed_owner: Option<usize>,
     /// The typed migration's seam on this engine: which families are on and may go direct
     /// ([`crate::typed`]).
     pub(crate) typed: crate::typed::State,
@@ -493,8 +490,10 @@ impl Engine {
         // keeps that value for the whole run (nonzero: no report).
         mem.map(CRT_MATHERR_SKIP, 4);
         mem.write(CRT_MATHERR_SKIP, &CRT_MATHERR_SKIP_IMAGE.to_le_bytes());
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let mut engine = Engine {
             mem,
+            engine_id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             funcs,
             call_cache: empty_call_cache(),
             diag: 0,
@@ -526,7 +525,6 @@ impl Engine {
             stack_frames: Vec::new(),
             guest_stacks: Vec::new(),
             placed_stack: None,
-            placed_owner: None,
             typed: Default::default(),
             real: None,
             extend: Default::default(),
@@ -649,6 +647,26 @@ impl Engine {
         self.fill_tls_block(at);
         self.tls = at;
         self.placed_stack = Some((at + TLS_BLOCK_SIZE, size - TLS_BLOCK_SIZE));
+    }
+
+    /// Which of `guest_stacks` the running code's locals go on: the game thread's index, except on
+    /// a render helper's engine, which has one placed stack of its own whichever game thread is
+    /// current (its `thread_index` is the shared kernel's current thread, so the Havok helper,
+    /// posted from any game thread, would otherwise build a second stack on the same region).
+    ///
+    /// One stack is right because a helper engine with a placed stack runs one job at a time (a
+    /// helper takes the next job only after the poster joined the last), so no two jobs have
+    /// locals on it together; it never holds a stack under another key.
+    fn stack_key(&self) -> usize {
+        if self.placed_stack.is_some() {
+            debug_assert!(
+                self.guest_stacks.iter().skip(1).all(Option::is_none),
+                "a helper engine with a placed stack runs one job at a time, on the one stack"
+            );
+            0
+        } else {
+            self.thread_index()
+        }
     }
 
     /// The bytes of this engine's own thread's stack for locals.
@@ -920,6 +938,7 @@ impl Engine {
     fn context_for(&self, real: Option<Box<crate::real_threads::Ctx>>) -> Engine {
         let mut e = Engine {
             mem: self.mem.view(),
+            engine_id: self.engine_id,
             funcs: self
                 .funcs
                 .iter()
@@ -956,7 +975,6 @@ impl Engine {
             stack_frames: Vec::new(),
             guest_stacks: Vec::new(),
             placed_stack: None,
-            placed_owner: None,
             typed: self.typed.for_thread(),
             extend: self.extend.for_thread(),
             own_view: None,
@@ -1545,7 +1563,7 @@ impl Engine {
     pub fn with_stack<R>(&mut self, size: u32, f: impl FnOnce(&mut Engine, Ptr) -> R) -> R {
         // It goes back the way it came, even if the check is switched on meanwhile.
         let checked = self.mem.block_check_on();
-        let thread = self.thread_index();
+        let thread = self.stack_key();
         let (block, top) = if checked {
             (self.mem.alloc(size), 0)
         } else {
@@ -1567,10 +1585,35 @@ impl Engine {
         r
     }
 
+    /// The running thread's stack for locals below its current top, `[lowest, top)`: where every
+    /// [`Engine::with_stack`] local made from now until the current one ends lies (block check
+    /// off). `(0, 0)` while the thread has no such stack yet or the block check is on (locals are
+    /// heap blocks then).
+    pub fn locals_below(&self) -> (u32, u32) {
+        if self.mem.block_check_on() {
+            return (0, 0);
+        }
+        match self.guest_stacks.get(self.thread_index()) {
+            Some(Some((base, top))) => (*base, *top),
+            _ => (0, 0),
+        }
+    }
+
+    /// Whether `addr` lies in the running thread's stack for locals (a [`Engine::with_stack`] local's
+    /// place, live or gone; block check off).
+    pub fn in_locals(&self, addr: u32) -> bool {
+        let (base, _) = self.locals_below();
+        let size = match self.placed_stack {
+            Some((placed, size)) if placed == base => size,
+            _ => GUEST_STACK_SIZE,
+        };
+        base != 0 && addr >= base && u64::from(addr) < u64::from(base) + u64::from(size)
+    }
+
     /// The address the next [`Engine::with_stack`] of `size` bytes on the running thread takes
     /// (block check off), for tests that need to know a local's address beforehand.
     pub fn next_stack_local(&mut self, size: u32) -> u32 {
-        let thread = self.thread_index();
+        let thread = self.stack_key();
         let (block, top) = self.push_frame(thread, size);
         if let Some(Some(stack)) = self.guest_stacks.get_mut(thread) {
             stack.1 = top;
@@ -1582,7 +1625,7 @@ impl Engine {
     /// through `with_stack` frames, [`Engine::guest_stack_restore`] with this mark gives them
     /// back (the exe's frames go with ESP however a frame ends).
     pub fn guest_stack_mark(&self) -> (usize, Option<u32>) {
-        let thread = self.thread_index();
+        let thread = self.stack_key();
         let top = self
             .guest_stacks
             .get(thread)
@@ -1628,11 +1671,7 @@ impl Engine {
 
     /// The running thread's stack for `with_stack` locals as (lowest address, end), once made.
     pub fn guest_stack_region(&self) -> Option<(u32, u32)> {
-        let (base, _) = self
-            .guest_stacks
-            .get(self.thread_index())
-            .copied()
-            .flatten()?;
+        let (base, _) = self.guest_stacks.get(self.stack_key()).copied().flatten()?;
         Some((base, base + self.stack_size()))
     }
 
@@ -1647,15 +1686,7 @@ impl Engine {
             Some(stack) => stack,
             None => {
                 let (base, size) = match self.placed_stack {
-                    Some(placed) => {
-                        assert!(
-                            self.placed_owner.map_or(true, |owner| owner == thread),
-                            "a render helper's stack for locals is game thread {:?}'s, not {thread}'s",
-                            self.placed_owner
-                        );
-                        self.placed_owner = Some(thread);
-                        placed
-                    }
+                    Some(placed) => placed,
                     None => (self.mem.alloc(GUEST_STACK_SIZE), GUEST_STACK_SIZE),
                 };
                 (base, base + size - STACK_TOP_RESERVE)
@@ -2018,6 +2049,69 @@ mod tests {
             local.addr()
         });
         assert_eq!(again, outer);
+    }
+
+    /// A helper engine's thread index is the shared kernel's current game thread, so the Havok
+    /// helper (posted from whichever game thread steps the world) takes locals while thread 0 is
+    /// current and later while thread 16 is: both go on its one placed stack, one frame stack.
+    #[test]
+    fn a_helpers_locals_stay_on_its_placed_stack_whichever_game_thread_is_current() {
+        let mut e = Engine::new();
+        e.kernel.leak();
+        e.device.leak();
+        e.mem.start_sharing();
+        let mut helper = e.helper_context();
+        let at = crate::mem::HELPER_AREA.start;
+        helper.place_thread_memory(at, crate::mem::HELPER_SLOT);
+        helper.kernel.threads.current = 0;
+        let first = helper.next_stack_local(0x10);
+        assert!(first >= at && first < at + crate::mem::HELPER_SLOT);
+        helper.kernel.threads.current = 16;
+        let second = helper.next_stack_local(0x10);
+        assert_eq!(second, first, "the same placed stack, not a second one");
+        let nested = helper.with_stack(0x10, |h, outer| {
+            h.kernel.threads.current = 3;
+            let inner = h.with_stack(8, |_, inner| inner.addr());
+            (outer.addr(), inner)
+        });
+        assert_eq!(nested.0, first);
+        assert_eq!(nested.1, first - 8 - FRAME_GAP);
+        assert_eq!(
+            helper.guest_stack_region().map(|r| r.0),
+            Some(at + TLS_BLOCK_SIZE)
+        );
+    }
+
+    /// `guest_stacks` is a field of each engine (not of the shared kernel or memory), so two
+    /// helpers with placed stacks, both keyed 0, never share locals: interleaved, each stays in
+    /// its own slot and the other's bytes are not touched.
+    #[test]
+    fn two_helpers_with_placed_stacks_do_not_overlap() {
+        let mut e = Engine::new();
+        e.kernel.leak();
+        e.device.leak();
+        e.mem.start_sharing();
+        let slot = crate::mem::HELPER_SLOT;
+        let at_a = crate::mem::HELPER_AREA.start;
+        let at_b = at_a + slot;
+        let mut a = e.helper_context();
+        a.place_thread_memory(at_a, slot);
+        let mut b = e.helper_context();
+        b.place_thread_memory(at_b, slot);
+        a.kernel.threads.current = 0;
+        let la = a.with_stack(0x20, |a, pa| {
+            a.mem.write(pa.addr(), &[0xaa; 0x20]);
+            b.kernel.threads.current = 16;
+            let lb = b.with_stack(0x20, |b, pb| {
+                b.mem.write(pb.addr(), &[0xbb; 0x20]);
+                pb.addr()
+            });
+            assert!(lb >= at_b && lb < at_b + slot, "b's local is in b's slot");
+            assert_eq!(a.mem.bytes(pa.addr(), 0x20), vec![0xaa; 0x20]);
+            pa.addr()
+        });
+        assert!(la >= at_a && la < at_a + slot, "a's local is in a's slot");
+        assert_eq!(a.mem.bytes(la, 0x20), vec![0xaa; 0x20]);
     }
 
     /// A stop unwinding through locals leaves the stack's top lowered; the catcher's mark puts

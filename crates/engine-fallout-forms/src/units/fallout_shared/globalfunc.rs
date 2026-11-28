@@ -52,6 +52,7 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::types::{NiAVObject, NiPoint3, NiTMap};
+use engine_core::bhk;
 
 // ---------------------------------------------------------------------
 // Constants of the exe's data read by the code (value in the exe).
@@ -1251,21 +1252,24 @@ pub fn make_triangle(
 
 // Translated from 004b3800 (decompiled, FalloutNV.exe 1.4.0.525)
 /// The cross product `this x other` of two `NiPoint3`s, built into `out`
-/// (`NiPoint3::operator%`); returns `out`.
+/// (`NiPoint3::operator%`); returns `out`. Each component is `FLD` of an
+/// axis of `this`, `FMUL` by one of `other`, the same the other way round,
+/// `FSUBP`, `FSTP dword`, `z` first: at the running thread's precision, so
+/// on main each product rounds to a float before the difference.
 pub fn fn_004b3800(e: &mut Engine, this: Ptr<NiPoint3>, out: Ptr, other: Ptr<NiPoint3>) -> Ptr {
-    let (ax, ay, az) = (
-        e.get(this, NiPoint3::x) as f64,
-        e.get(this, NiPoint3::y) as f64,
-        e.get(this, NiPoint3::z) as f64,
-    );
-    let (bx, by, bz) = (
-        e.get(other, NiPoint3::x) as f64,
-        e.get(other, NiPoint3::y) as f64,
-        e.get(other, NiPoint3::z) as f64,
-    );
-    let z = (ax * by - ay * bx) as f32;
-    let y = (az * bx - ax * bz) as f32;
-    let x = (ay * bz - az * by) as f32;
+    let points: &Engine = e;
+    // `this`'s axis `i` times `other`'s axis `j`.
+    let product = |i: u32, j: u32| {
+        x87_mul(
+            x87_load32(points.mem.u32(this.addr().wrapping_add(4 * i))),
+            x87_m32(points.mem.u32(other.addr().wrapping_add(4 * j))),
+        )
+    };
+    let component =
+        |i: u32, j: u32| f32::from_bits(x87_store32(x87_sub(product(i, j), product(j, i))));
+    let z = component(0, 1);
+    let y = component(2, 0);
+    let x = component(1, 2);
     typed_call!(leaf::FAMILY, 0x0041_6870, leaf::point3_new(e, out, x, y, z));
     out
 }
@@ -1765,7 +1769,7 @@ pub fn fn_004b50f0(e: &mut Engine, this: Ptr<BhkSerializable>) -> Ptr<BhkSeriali
 pub fn fn_004b5120(e: &mut Engine, this: Ptr<BhkSerializable>) -> Ptr<BhkSerializable> {
     e.call(BHK_REF_OBJECT_CONSTRUCT, &args![this]);
     e.mem.set_u32(this.addr(), BHK_SERIALIZABLE_VTABLE);
-    e.set(this, BhkSerializable::pInfo, 0);
+    bhk::set(e, this, BhkSerializable::pInfo, 0);
     this
 }
 
@@ -4928,6 +4932,41 @@ mod tests {
     }
 
     #[test]
+    fn the_cross_product_rounds_each_product_at_the_threads_precision() {
+        // In each component in turn, one product is (1 + 2^-12)^2 = 1 + 2^-11 + 2^-24 and the
+        // other 1 (z = a.x b.y - a.y b.x, x = a.y b.z - a.z b.y, y = a.z b.x - a.x b.z). The
+        // product is a tie at 24 bits (main) and rounds to 1 + 2^-11, so the component is 2^-11
+        // there; at 53 bits (the other threads) it is kept, and the component is 2^-11 + 2^-24.
+        let n = 1.0 + 2f32.powi(-12);
+        let points: [([f32; 3], [f32; 3], usize); 3] = [
+            ([n, 1.0, 0.0], [1.0, n, 0.0], 2),
+            ([0.0, n, 1.0], [0.0, 1.0, n], 0),
+            ([1.0, 0.0, n], [n, 0.0, 1.0], 1),
+        ];
+        for (word, value) in [
+            (0x007f, 2f32.powi(-11)),
+            (
+                engine_core::x87::DEFAULT_CONTROL_WORD,
+                2f32.powi(-11) + 2f32.powi(-24),
+            ),
+        ] {
+            for (first, second, axis) in points {
+                let mut e = engine();
+                point_doubles(&mut e);
+                let a = floats(&mut e, &first);
+                let b = floats(&mut e, &second);
+                let out = e.mem.alloc(12);
+                engine_core::x87::set_control_word(word);
+                e.call(0x004b_3800, &args![p(a), p(out), p(b)]);
+                engine_core::x87::set_control_word(engine_core::x87::DEFAULT_CONTROL_WORD);
+                let mut expected = vec![0.0; 3];
+                expected[axis] = value;
+                assert_eq!(read_floats(&e, out, 3), expected, "axis {axis}, {word:04x}");
+            }
+        }
+    }
+
+    #[test]
     fn interpolation_runs_a_to_b_over_t0_to_t1() {
         let mut e = engine();
         let r = |e: &mut Engine, t: f32| {
@@ -5395,12 +5434,12 @@ mod tests {
     fn the_serializable_constructor_installs_its_vtable_and_clears_pinfo() {
         let mut e = bhk_engine();
         let this: Ptr<BhkSerializable> = e.new_object();
-        e.set(this, BhkSerializable::pInfo, 0x1234);
+        bhk::set(&mut e, this, BhkSerializable::pInfo, 0x1234);
         e.call_log = Some(vec![]);
         let r = e.call(0x004b_5120, &args![this]);
         assert_eq!(r.u32(), this.addr());
         assert_eq!(e.mem.u32(this.addr()), BHK_SERIALIZABLE_VTABLE);
-        assert_eq!(e.get(this, BhkSerializable::pInfo), 0);
+        assert_eq!(bhk::get(&e, this, BhkSerializable::pInfo), 0);
         assert_eq!(
             calls_to(&take_log(&mut e), BHK_REF_OBJECT_CONSTRUCT),
             vec![args![this]]

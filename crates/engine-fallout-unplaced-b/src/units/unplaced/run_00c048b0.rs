@@ -999,12 +999,12 @@ pub fn fn_00c0bb20(e: &mut Engine, _unused_this: Ptr, shader: Ptr, geometry: Ptr
     let stages = e.mem.u32(shader.addr() + 0x24);
     let stage = e.mem.u32(stages + 0x10);
     let value = e.mem.u32(0x011f_9530);
-    e.mem.set_u32(stage + 8, value);
+    engine_core::own_view::own_write(e, stage + 8, 4, value);
     let source = e.mem.u32(geometry.addr() + 0xb4);
     let stages = e.mem.u32(shader.addr() + 0x24);
     let stage = e.mem.u32(stages + 0x14);
     let value = e.mem.u32(source);
-    e.mem.set_u32(stage + 8, value);
+    engine_core::own_view::own_write(e, stage + 8, 4, value);
 }
 
 // Translated from 00c1a3a0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -1101,7 +1101,7 @@ fn first_stage_texture(e: &mut Engine, this: u32, owner: u32, geometry: u32) {
     let source = e.mem.u32(geometry + 0xac);
     let stage = e.mem.u32(stages);
     let texture = e.mem.u32(source);
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     e.call(STAGE_SETUP_00BB9640, &args![this, stage, geometry]);
 }
 
@@ -5855,7 +5855,7 @@ fn owner_stage(e: &Engine, owner: u32, index: u32) -> u32 {
 pub fn fn_00c0bae0(e: &mut Engine, this: Ptr, owner: u32, geometry: u32, index: u32) -> u32 {
     let stage = owner_stage(e, owner, index);
     let texture = e.vcall(geometry, 0xf4, &args![3u32, 0u32]).u32();
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     e.call(STAGE_SETUP_00BB9640, &args![this, stage, geometry])
         .u32()
 }
@@ -5868,15 +5868,15 @@ pub fn fn_00c0bae0(e: &mut Engine, this: Ptr, owner: u32, geometry: u32, index: 
 pub fn fn_00c0bb50(e: &mut Engine, _this: Ptr, owner: u32, geometry: u32, flag: u8) {
     let texture = e.mem.u32(e.mem.u32(geometry + 0xac).wrapping_add(4));
     let stage = owner_stage(e, owner, 4);
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     let source = e.mem.u32(geometry + 0xb0);
     let stage = owner_stage(e, owner, 5);
     let texture = e.mem.u32(source.wrapping_add(4));
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     if flag != 0 {
         let stage = owner_stage(e, owner, 6);
         let texture = e.vcall(geometry, 0xf4, &args![2u32, 0u32]).u32();
-        e.mem.set_u32(stage + 8, texture);
+        engine_core::own_view::own_write(e, stage + 8, 4, texture);
     }
 }
 
@@ -5890,7 +5890,7 @@ pub fn fn_00c0bba0(e: &mut Engine, _this: Ptr, owner: u32, geometry: u32) {
     if texture == 0 {
         texture = e.mem.u32(0x011f_9510);
     }
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
 }
 
 // Translated from 00c0bbd0 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5898,9 +5898,11 @@ pub fn fn_00c0bba0(e: &mut Engine, _this: Ptr, owner: u32, geometry: u32) {
 /// stages 2 and 3 get the words at `011f95e4` and `011f95e8` at +8.
 pub fn fn_00c0bbd0(e: &mut Engine, _this: Ptr, owner: u32) {
     let stage = owner_stage(e, owner, 2);
-    e.mem.set_u32(stage + 8, e.mem.u32(0x011f_95e4));
+    let word = e.mem.u32(0x011f_95e4);
+    engine_core::own_view::own_write(e, stage + 8, 4, word);
     let stage = owner_stage(e, owner, 3);
-    e.mem.set_u32(stage + 8, e.mem.u32(0x011f_95e8));
+    let word = e.mem.u32(0x011f_95e8);
+    engine_core::own_view::own_write(e, stage + 8, 4, word);
 }
 
 // Translated from 00c0bc00 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -5936,7 +5938,7 @@ pub fn fn_00c0bc00(e: &mut Engine, _this: Ptr, owner: u32, geometry: u32, pass: 
         };
     }
     let stage = owner_stage(e, owner, 1);
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     texture
 }
 
@@ -5954,7 +5956,7 @@ pub fn fn_00c0bc90(e: &mut Engine, this: Ptr, owner: u32, geometry: u32) -> u32 
         texture = e.mem.u32(0x011f_9514);
         e.mem.set_u32(0x0120_1bac, 0.0f32.to_bits());
     }
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     let answer = e
         .call(STAGE_SETUP_00BB9640, &args![this, stage, geometry])
         .u32();
@@ -5978,7 +5980,7 @@ pub fn fn_00c0bcf0(e: &mut Engine, this: Ptr, owner: u32, geometry: u32, index: 
             e.mem.u32(0x011f_9510)
         };
     }
-    e.mem.set_u32(stage + 8, texture);
+    engine_core::own_view::own_write(e, stage + 8, 4, texture);
     e.call(STAGE_SETUP_00BB9640, &args![this, stage, geometry])
         .u32()
 }
@@ -6175,7 +6177,7 @@ fn geometry_second(e: &Engine, geometry: u32, offset: u32) -> u32 {
 /// Sets +8 of the stage at `index` of `owner`'s stage array.
 fn set_owner_stage(e: &mut Engine, owner: u32, index: u32, value: u32) {
     let stage = owner_stage(e, owner, index);
-    e.mem.set_u32(stage.wrapping_add(8), value);
+    engine_core::own_view::own_write(e, stage.wrapping_add(8), 4, value);
 }
 
 // Translated from 00c0bd40 (decompiled, FalloutNV.exe 1.4.0.525)
@@ -6243,7 +6245,7 @@ pub fn fn_00c0bd40(e: &mut Engine, this: Ptr, pass: u32, geometry: u32) -> u32 {
         pair(e);
         let stage = owner_stage(e, owner, 6);
         let value = e.vcall(geometry, 0xf4, &args![2u32, 0u32]).u32();
-        e.mem.set_u32(stage.wrapping_add(8), value);
+        engine_core::own_view::own_write(e, stage.wrapping_add(8), 4, value);
     };
     let stage6 = |e: &mut Engine| {
         let value = geometry_first(e, geometry, 0xb4);

@@ -1,2 +1,2 @@
-crates/engine-core/src/editor_ids.rs  # a name conflict reads a form's source files at +0x10 (PC), not +0x18 where a list form keeps its own list (nv-rs#494)
-crates/engine-core/src/editor_ids_tests.rs  # the test for it
+crates/engine-core/src/editor_ids.rs  # the walk of a form's source files stops at a node or file record that is not mapped, instead of reading through it (nv-rs#494); the +0x10 position itself is upstream's since slaterain/nv-rs#1120
+crates/engine-core/src/editor_ids_tests.rs  # the tests for it

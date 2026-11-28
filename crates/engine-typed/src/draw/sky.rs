@@ -200,7 +200,7 @@ fn constants_with(e: &mut Engine, this: Ptr, state: Ptr, geometry: u32, world: u
 
 /// Where the sky shader's pass choice finds a pass type's pass in the shader: type 9 its +0x6c, 0x239 its +0x88,
 /// and the types 0x23a to 0x2d5 with a case in the exe's jump table (`00b885a8` with the bytes `00b885d0`).
-fn sky_pass_offset(pass_type: u32) -> Option<u32> {
+pub(crate) fn sky_pass_offset(pass_type: u32) -> Option<u32> {
     Some(match pass_type {
         9 => 0x6c,
         0x239 => 0x88,

@@ -232,7 +232,7 @@ fn coordinates(e: &mut Engine, counts: [u32; 4], pattern: u32) -> u32 {
 // ------------------------------------------------------------------------------------------------
 
 /// The shapes: (vertices, morphs in each set, the offsets of the last morph of set 0 short by).
-const MESH_SHAPES: [(u32, [u32; 2], u32); 6] = [
+const MESH_SHAPES: [(u32, [u32; 2], u32); 7] = [
     (0, [1, 1], 0),
     (3, [2, 1], 0),
     (9, [3, 2], 0),
@@ -240,6 +240,9 @@ const MESH_SHAPES: [(u32, [u32; 2], u32); 6] = [
     (22, [4, 1], 0),
     // A multiple of four: the points block's last group of four, with no single point after it.
     (12, [3, 2], 0),
+    // Past the plain steps' block of 64 coordinates: three whole blocks and a part one (219 words
+    // with the additional vertices).
+    (70, [2, 1], 0),
 ];
 
 /// The EGM data: two sets of morphs (0x1c bytes: the scale, then the offsets vector at +4) with
@@ -324,7 +327,7 @@ fn facegen_head_apply_coordinates() {
     .family(&leaf::LEAVES)
     .ignore_calls(&MESH_IGNORED)
     .inputs(&[
-        Input::Of(&[0, 1, 2, 3, 4, 5]),
+        Input::Of(&[0, 1, 2, 3, 4, 5, 6]),
         // Strides: 12, 16 and 32 hold a point (12 first: the plain case and its variations take the
         // one pass); 8 is below a point (the points overlap: the element loops).
         Input::Of(&[12, 16, 32, 8]),
@@ -417,13 +420,15 @@ fn facegen_head_apply_coordinates() {
 
 /// The shapes: (width, height, morphs, the row padding, a morph of another size at this index or
 /// none).
-const TINT_SHAPES: [(u32, u32, u32, u32, Option<u32>); 6] = [
+const TINT_SHAPES: [(u32, u32, u32, u32, Option<u32>); 7] = [
     (1, 1, 1, 0, None),
     (4, 3, 3, 0, None),
     (5, 2, 4, 3, None),
     (8, 8, 2, 1, None),
     (4, 3, 3, 0, Some(1)),
     (0, 3, 2, 0, None),
+    // A larger face of rows with no padding: each channel's bytes read at once.
+    (16, 9, 3, 0, None),
 ];
 
 /// The EGT data: set 0 with `morphs` morphs (0x58 bytes: the scale, width, height, padding, then
@@ -523,7 +528,7 @@ fn facegen_head_apply_coordinate_texturing() {
     .family(&leaf::LEAVES)
     .ignore_calls(&TINT_IGNORED)
     .inputs(&[
-        Input::Of(&[0, 1, 2, 3, 4, 5]),
+        Input::Of(&[0, 1, 2, 3, 4, 5, 6]),
         Input::Of(&[0, 1, 2]),
         // The morph limit: all, one, more than there are.
         Input::Of(&[0, 1, 9]),
@@ -533,9 +538,16 @@ fn facegen_head_apply_coordinate_texturing() {
         Input::Of(&[0, 1, 2, 3, 4, 5, 6, 7]),
         // `_ftol2`'s body: SSE2, the x87 one.
         Input::Of(&[1, 0]),
-        // The coefficient scale (a double) and the colour scale (a float's bits).
+        // The coefficient scale (a double) and the colour scale (a float's bits; one third, whose
+        // products with large sums need rounding, past the powers of two).
         Input::Of(&[0, 1, 2]),
-        Input::Of(&[0x3780_0000, 0x3f80_0000, 0x7fc0_0000, 0x0000_0001]),
+        Input::Of(&[
+            0x3780_0000,
+            0x3f80_0000,
+            0x7fc0_0000,
+            0x0000_0001,
+            0x3eaa_aaab,
+        ]),
     ])
     .setup(|e, case: &Case| {
         let coefficient_scale = match case.word(5) {

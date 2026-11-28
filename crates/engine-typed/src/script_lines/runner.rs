@@ -19,10 +19,9 @@ const QUERY_PERFORMANCE_FREQUENCY: u32 = 0x00fd_f0a4;
 const QUERY_PERFORMANCE_COUNTER: u32 = 0x00fd_f0a0;
 /// Whether the interface's debug text is shown (the profiler runs then).
 const DEBUG_TEXT_SHOWN: u32 = 0x0070_2fc0;
-/// The script's compiled-data flag test, its header, the locals made for a run, the locals'
-/// delete, the profiler timer's add.
+/// The script's compiled-data flag test, the locals made for a run, the locals' delete, the
+/// profiler timer's add.
 const FORM_FLAG_BIT_3: u32 = 0x0040_13e0;
-const SCRIPT_HEADER_OF: u32 = 0x0050_0940;
 const NEW_LOCALS: u32 = 0x005a_bf60;
 const DELETE_LOCALS: u32 = 0x0041_af70;
 const ADD_PROFILER_TIME: u32 = 0x005e_1140;
@@ -112,7 +111,11 @@ fn name_of(e: &mut Engine, form: u32) -> u32 {
 
 #[inline]
 fn header_of(e: &mut Engine, script: Ptr) -> u32 {
-    e.call(SCRIPT_HEADER_OF, &args![script]).u32()
+    typed_call!(
+        scripts::FAMILY,
+        0x0050_0940,
+        scripts::run::plus_18(e, script)
+    )
 }
 
 /// JIP LN NVSE's `bNoFailedScriptLocks` (O7): its three jumps skip the clear of a failed script's
@@ -186,10 +189,10 @@ pub fn run_lines(
         }
         let running = e.mem.u32(me + RUNNING);
         if running != 0 {
-            // 005e0dd1: JIP LN NVSE's G24 jumps over the two names and the log.
+            // 005e0dd1: JIP LN NVSE's G24 jumps over the two names and the log. The running
+            // script's word is read once, as in `build_action_list`.
             if !jip_skips_nested_log(e) {
                 let requested_name = name_of(e, script.addr());
-                let running = e.mem.u32(me + RUNNING);
                 let running_name = name_of(e, running);
                 e.call(
                     SCRIPT_LOG,
@@ -354,9 +357,12 @@ pub fn build_action_list(
     if script.is_null() || !e.call(FORM_FLAG_BIT_3, &args![script]).bool() {
         return false;
     }
-    if e.mem.u32(me + RUNNING) != 0 {
+    // The running script's word is read once: the exe reads it again for the log line's name, and
+    // a script another thread finished meanwhile left 0 there to read through (see
+    // `scripts::run::manager_init_action_list`).
+    let running = e.mem.u32(me + RUNNING);
+    if running != 0 {
         let requested_name = name_of(e, script.addr());
-        let running = e.mem.u32(me + RUNNING);
         let running_name = name_of(e, running);
         e.call(
             SCRIPT_LOG,

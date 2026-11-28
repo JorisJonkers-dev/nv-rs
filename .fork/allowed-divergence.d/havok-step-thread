@@ -1,0 +1,11 @@
+crates/engine-core/src/lib.rs  # `pub mod bhk;` exposes the Havok handle seam to the translated units (nv-rs#944); drop when upstream provides the seam
+crates/engine-core/src/real_threads.rs  # a second helper slot for Havok beside the drawing helper's, and the Havok post/join re-exports (nv-rs#944); drop when upstream provides its own component-thread step
+crates/engine-fallout-ai/src/units/fallout_ai/run_009ba550.rs  # Havok field reads and writes go through `bhk::*` (nv-rs#944); drop when upstream provides the seam
+crates/engine-fallout-cell/src/units/fallout_shared/run_004a3c20.rs  # Havok field reads and writes go through `bhk::*` (nv-rs#944); drop when upstream provides the seam
+crates/engine-fallout-cell/src/units/fallout_shared/tesobjectrefr_p3.rs  # Havok field reads and writes go through `bhk::*` (nv-rs#944); drop when upstream provides the seam
+crates/engine-fallout-env/src/units/fallout_shared_havok/havokstream.rs  # Havok field reads and writes go through `bhk::*` (nv-rs#944); drop when upstream provides the seam
+crates/engine-fallout-forms/src/units/fallout_shared/globalfunc.rs  # Havok field reads and writes go through `bhk::*` (nv-rs#944); drop when upstream provides the seam
+crates/engine-fallout-magic/src/units/fallout_magic/bhktelekinesislistener.rs  # Havok field reads and writes go through `bhk::*` (nv-rs#944); drop when upstream provides the seam
+crates/engine-fallout-unplaced-b/src/units/unplaced/run_00cb75d0.rs  # Havok field reads and writes go through `bhk::*` (nv-rs#944); drop when upstream provides the seam
+crates/engine-havok/src/units/bshavok/bhkworld.rs  # the Havok step goes through the bhk seam and, in stepped runs, the nv-havok helper; the poster joins at once so recordings keep their byte order and a stop unwinds at the join with the same call stack (nv-rs#944); drop when upstream provides the seam or its own component-thread step
+crates/jip/src/actor_hooks.rs  # Havok field reads and writes go through `bhk::*` (nv-rs#944); drop when upstream provides the seam

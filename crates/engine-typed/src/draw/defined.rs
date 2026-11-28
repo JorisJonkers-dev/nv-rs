@@ -3,20 +3,18 @@
 //! ([`super::statics::RENDERER_BLOCKS`]): on the drawing thread the renderer's words are the drawing side's copy,
 //! while main draws its own scenes with its own. The rest is the translation's behaviour unchanged.
 
-use super::capture;
+use super::{capture, FAMILY};
 use engine_core::ptr::Ptr;
 use engine_core::x87::{x87_add, x87_load32, x87_m32, x87_quiet_bits, x87_store32};
-use engine_core::{args, Engine};
+use engine_core::{args, typed_call, Engine};
 
 /// The D3DX thunks (the draw family's): `D3DXMatrixInverse`, `D3DXMatrixTranspose`, `D3DXMatrixMultiply` and the
 /// multiply-and-transpose `00ee6dfe`.
 const MATRIX_INVERSE: u32 = 0x00ee_6dda;
 const MATRIX_TRANSPOSE: u32 = 0x00ee_6dd4;
-const MATRIX_MULTIPLY: u32 = 0x00ee_6de0;
 const MATRIX_PRODUCT: u32 = 0x00ee_6dfe;
 /// `SetupTextureTransformMatrix` (`00e83550`), a texture transform's `UpdateMatrix` (`00bc5c20`), the texturing
 /// property's map for an index (`00a463e0`).
-const SETUP_TEXTURE_TRANSFORM: u32 = 0x00e8_3550;
 const UPDATE_MATRIX: u32 = 0x00bc_5c20;
 const MAP_AT: u32 = 0x00a4_63e0;
 /// The extra data's name handle (`011bf65c`), `NiFixedString`'s constructor and destructor, `GetExtraData`.
@@ -57,7 +55,8 @@ fn copy_float(e: &Engine, at: u32) -> u32 {
 fn copy_renderer_matrix(e: &mut Engine, renderer: u32, offset: u32, to: u32) {
     let from = renderer.wrapping_add(offset);
     if capture::active() {
-        let bytes = capture::own_bytes(e, from, MATRIX_BYTES);
+        let mut bytes = [0u8; MATRIX_BYTES as usize];
+        capture::own_bytes_into(e, from, &mut bytes);
         e.mem.write(to, &bytes);
     } else {
         let mut bytes = [0u8; 0x40];
@@ -128,12 +127,53 @@ pub fn set_defined_constant(
     object: u32,
     fourth: u32,
     fifth: u32,
-    _sixth: u32,
+    sixth: u32,
     properties: u32,
     effects: u32,
-    _ninth: u32,
-    _tenth: u32,
-    _eleventh: u32,
+    ninth: u32,
+    tenth: u32,
+    eleventh: u32,
+) -> u32 {
+    if super::keep::building() {
+        let words = [
+            this.addr(),
+            program,
+            entry,
+            object,
+            fourth,
+            fifth,
+            sixth,
+            properties,
+            effects,
+            ninth,
+            tenth,
+            eleventh,
+        ];
+        let mut answer = 0;
+        super::keep::leaf(e, super::keep::Leaf::Defined(words), |e| {
+            answer = defined_constant_now(
+                e, this, program, entry, object, fourth, fifth, properties, effects,
+            );
+        });
+        return answer;
+    }
+    defined_constant_now(
+        e, this, program, entry, object, fourth, fifth, properties, effects,
+    )
+}
+
+/// [`set_defined_constant`]'s work (a kept draw record makes the call again with the frame's matrices).
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn defined_constant_now(
+    e: &mut Engine,
+    this: Ptr,
+    program: u32,
+    entry: u32,
+    object: u32,
+    fourth: u32,
+    fifth: u32,
+    properties: u32,
+    effects: u32,
 ) -> u32 {
     let base = this.addr();
     let id = e.global::<u32>(entry.wrapping_add(0x10));
@@ -175,7 +215,16 @@ pub fn set_defined_constant(
             let r = renderer(e);
             copy_renderer_matrix(e, r, left.0, left.1);
             copy_renderer_matrix(e, r, right.0, right.1);
-            e.call(MATRIX_MULTIPLY, &args![first_matrix, left.1, right.1]);
+            let _: Ptr = typed_call!(
+                FAMILY,
+                0x00ee_6de0,
+                super::thunks::matrix_multiply(
+                    e,
+                    Ptr::new(first_matrix),
+                    Ptr::new(left.1),
+                    Ptr::new(right.1)
+                )
+            );
             invert_transpose(e, first_matrix, inverse, transpose);
             first_matrix
         };
@@ -189,15 +238,17 @@ pub fn set_defined_constant(
                     (inverse, transpose) = flags(first);
                 }
             }
-            e.call(
-                SETUP_TEXTURE_TRANSFORM,
-                &args![
-                    second_matrix,
-                    matrix,
-                    u32::from(inverse),
-                    u32::from(transpose),
+            typed_call!(
+                FAMILY,
+                0x00e8_3550,
+                setup_texture_transform_matrix(
+                    e,
+                    Ptr::new(second_matrix),
+                    Ptr::new(matrix),
+                    u8::from(inverse),
+                    u8::from(transpose),
                     4u32
-                ],
+                )
             );
             second_matrix
         };
@@ -487,6 +538,61 @@ pub fn set_defined_constant(
         }
         result
     })
+}
+
+// Typed from 00e83550
+/// `NiD3DShaderConstantMap::SetupTextureTransformMatrix` (`cdecl`: out, a 3x3 texture transform or
+/// null, the inverse and transpose flags, the dimension). Without a transform the output is the
+/// identity. Otherwise the first two rows' first two entries go to the output's first two columns
+/// transposed; a dimension of 3 or 4 puts the third column's two entries at +0x30/+0x34, a dimension
+/// of 2 at +0x20/+0x24; every other word, the diagonal's last two included, becomes zero. The
+/// output is then inverted and transposed in place as asked, through the same two thunks as the
+/// translation. This is the setter the defined constants' texture transforms reach by address.
+pub fn setup_texture_transform_matrix(
+    e: &mut Engine,
+    out: Ptr,
+    matrix: Ptr,
+    inverse: u8,
+    transpose: u8,
+    dimension: u32,
+) {
+    const ZERO: u32 = 0;
+    let o = out.addr();
+    let m = matrix.addr();
+    if m == 0 {
+        for offset in [
+            0x38u32, 0x34, 0x30, 0x2c, 0x24, 0x20, 0x1c, 0x18, 0x10, 0xc, 0x8, 0x4,
+        ] {
+            e.mem.set_u32(o.wrapping_add(offset), ZERO);
+        }
+        for offset in [0x3cu32, 0x28, 0x14, 0] {
+            e.mem.set_u32(o.wrapping_add(offset), ONE);
+        }
+        return;
+    }
+    for (to, from) in [(0u32, 0u32), (0x10, 4), (4, 0xc), (0x14, 0x10)] {
+        let value = copy_float(e, m.wrapping_add(from));
+        e.mem.set_u32(o.wrapping_add(to), value);
+    }
+    if dimension == 4 || dimension == 3 {
+        e.mem.set_u32(o.wrapping_add(0x20), ZERO);
+        let value = copy_float(e, m.wrapping_add(8));
+        e.mem.set_u32(o.wrapping_add(0x30), value);
+        e.mem.set_u32(o.wrapping_add(0x24), ZERO);
+        let value = copy_float(e, m.wrapping_add(0x14));
+        e.mem.set_u32(o.wrapping_add(0x34), value);
+    } else if dimension == 2 {
+        let value = copy_float(e, m.wrapping_add(8));
+        e.mem.set_u32(o.wrapping_add(0x20), value);
+        e.mem.set_u32(o.wrapping_add(0x30), ZERO);
+        let value = copy_float(e, m.wrapping_add(0x14));
+        e.mem.set_u32(o.wrapping_add(0x24), value);
+        e.mem.set_u32(o.wrapping_add(0x34), ZERO);
+    }
+    for offset in [0x38u32, 0x28, 0x18, 0x8, 0x3c, 0x2c, 0x1c, 0xc] {
+        e.mem.set_u32(o.wrapping_add(offset), ZERO);
+    }
+    invert_transpose(e, o, inverse != 0, transpose != 0);
 }
 
 #[cfg(test)]
