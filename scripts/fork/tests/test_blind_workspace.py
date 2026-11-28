@@ -147,6 +147,7 @@ fn by_name() {{
 fn unrelated_{function}x() {{ helper(e); }}
 
 const AFTER: u32 = {literal}; // a table row naming the address
+const NAMED: &str = "{function}"; // a use of the name that is no test
 """
 
 
@@ -155,7 +156,7 @@ class Items(unittest.TestCase):
         text = suite_text("00400000", "f0")
         chunks = bw.items(text)
         self.assertEqual("".join(chunks), text)
-        self.assertEqual(len(chunks), 9)
+        self.assertEqual(len(chunks), 10)
         self.assertTrue(chunks[5].startswith("\n/// By literal.\n#[test]\nfn by_literal"))
         self.assertTrue(chunks[0].endswith("use engine_core::Engine;\n"))
 
@@ -228,6 +229,7 @@ class Building(unittest.TestCase):
         self.assertEqual(manifest["hidden"], [self.suite.name])
         self.assertEqual(manifest["suite"], self.entry["suites"][0])
         self.assertEqual(manifest["mentions_left"], 1)  # the table row
+        self.assertEqual(manifest["calls_left"], 1)  # the name in a constant: a nested test or helper would show here
         self.assertEqual(manifest["family"], self.suite.stem.removeprefix("typed_"))
         saved = json.loads((self.hidden / self.address / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(saved, manifest)

@@ -186,9 +186,10 @@ def build(frozen: dict[str, Any], address: str, workspace: Path, hidden: Path) -
     reason = f"# benchmark re-port of {wanted}: its text is not upstream's"
     (workspace / allowed).write_text("".join(f"{path}  {reason}\n" for path in (entry["source"], suite)), encoding="utf-8")
     left = sum(wanted in {pb.normal(x) for x in pb.LITERAL.findall(line)} for line in kept.splitlines())
+    calls = len(re.findall(rf"\b{re.escape(function.group(1))}\b", kept))
     manifest: Manifest = {"address": wanted, "source": entry["source"], "signature": signature,
                           "function": function.group(1), "suite": suite, "hidden": [Path(suite).name],
-                          "tests": tests, "mentions_left": left, "allowed_divergence": allowed.as_posix(),
+                          "tests": tests, "mentions_left": left, "calls_left": calls, "allowed_divergence": allowed.as_posix(),
                           "family": Path(suite).stem.removeprefix("typed_")}
     (destination / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return manifest
