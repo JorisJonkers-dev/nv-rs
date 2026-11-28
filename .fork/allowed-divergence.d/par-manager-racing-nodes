@@ -1,0 +1,1 @@
+crates/engine/tests/par_manager.rs  # the scene merge check names the three nodes whose bounds race between worker threads (nv-rs#1022)

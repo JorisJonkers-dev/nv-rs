@@ -938,6 +938,92 @@ class GapUnitTests(unittest.TestCase):
             self.assertEqual(lines[3:6], ["", "", ""])
             self.assertEqual(len(lines), 9)  # line numbers stay
 
+    def test_a_local_m128_that_collides_with_the_stand_in_becomes_its_alias(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = Path(temp) / "copy"
+            copy.mkdir()
+            standin = Path(temp) / "xmmintrin.h"
+            standin.write_text("")
+            source = copy / "x.cpp"
+            source.write_text(
+                "namespace n {\n"
+                "typedef union {\n"
+                "    float a[4];\n"
+                "} __m128, LocalM128;\n"
+                "extern \"C\" LocalM128 _mm_min_ps(LocalM128, LocalM128);\n"
+                "}\n")
+            stderr = ("%s:5:22: error: functions that differ only in their return type cannot be "
+                      "overloaded\n%s:14:8: note: previous declaration is here\n" % (source, standin))
+            self.assertEqual(backend.alias_local_m128_to_global(stderr, copy), 1)
+            lines = source.read_text().split("\n")
+            self.assertEqual(lines[1], "typedef ::__m128 __m128, LocalM128;")
+            self.assertEqual(lines[2:4], ["", ""])
+            self.assertEqual(len(lines), 7)  # line numbers stay
+            # A previous declaration inside the copy is the duplicate-definition case: left alone.
+            stderr = ("%s:5:22: error: functions that differ only in their return type cannot be "
+                      "overloaded\n%s:1:8: note: previous declaration is here\n" % (source, source))
+            self.assertEqual(backend.alias_local_m128_to_global(stderr, copy), 0)
+
+    def test_a_namespaced_c_declaration_keeps_its_symbol_as_a_cxx_function(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = Path(temp)
+            source = copy / "x.cpp"
+            source.write_text(
+                'extern "C" int keep(int);\n'
+                "namespace n {\n"
+                'extern "C" float keep(float);\n'
+                "}\n"
+                'extern "C" {\n'
+                "int block(int);\n"
+                "}\n")
+            stderr = "%s:3:20: error: conflicting types for 'keep'\n" % source
+            self.assertEqual(backend.detach_namespaced_c_declaration(stderr, copy), 1)
+            lines = source.read_text().split("\n")
+            self.assertEqual(lines[0], 'extern "C" int keep(int);')  # the global one stays
+            self.assertEqual(lines[2], 'float keep(float) __asm__("keep");')
+            # A declaration at file scope is not detached.
+            stderr = "%s:1:20: error: conflicting types for 'keep'\n" % source
+            self.assertEqual(backend.detach_namespaced_c_declaration(stderr, copy), 0)
+            self.assertEqual(lines[0], source.read_text().split("\n")[0])
+
+    def test_a_global_return_type_redeclaration_is_renamed_to_the_same_symbol(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = Path(temp)
+            source = copy / "x.cpp"
+            source.write_text(
+                'extern "C" A* __cdecl getInstance();\n'
+                "void a() { getInstance(); }\n"
+                'extern "C" B& __cdecl getInstance();\n'
+                "void b() { getInstance().f(); }\n"
+                "namespace n {\n"
+                "void c() { getInstance().g(); }\n"
+                "}\n"
+                'extern "C" A* __cdecl getInstance();\n'
+                "void d() { getInstance(); }\n")
+            stderr = ("%s:3:25: error: functions that differ only in their return type cannot be "
+                      "overloaded\n%s:1:25: note: previous declaration is here\n" % (source, source))
+            self.assertEqual(backend.rename_return_overloads(stderr, copy), 1)
+            lines = source.read_text().split("\n")
+            self.assertEqual(lines[0], 'extern "C" A* __cdecl getInstance();')
+            self.assertEqual(lines[1], "void a() { getInstance(); }")
+            self.assertEqual(lines[2], 'extern "C" B& __cdecl getInstance_nv3() __asm__("getInstance");')
+            self.assertEqual(lines[3], "void b() { getInstance_nv3().f(); }")
+            self.assertIn("getInstance_nv3().g()", lines[5])
+            self.assertEqual(lines[8], "void d() { getInstance(); }")  # the next declaration ends it
+
+    def test_a_member_test_on_an_incomplete_class_is_rewritten_in_the_copy(self):
+        for name, member in (("TESDataHandlerArrayType", "m_pBase"), ("hkQuaternion", "getImag")):
+            text = "__if_not_exists(%s::%s)\n{\n#include \"x.h\"\n}\n" % (name, member)
+            self.assertIn("__if_not_exists(%s_never_defined)" % name, backend.rewrite_source(text))
+        other = "__if_not_exists(hkVector4::m_vComponents)\n"
+        self.assertEqual(backend.rewrite_source(other), other)
+
+    def test_a_pointer_sized_unsigned_typedef_is_the_size_type_in_the_copy(self):
+        text = "typedef unsigned __w64 TS4;\ntypedef unsigned long __w64 hkUlong_S;\n"
+        rewritten = backend.rewrite_source(text)
+        self.assertIn("typedef __SIZE_TYPE__ TS4;", rewritten)
+        self.assertIn("typedef unsigned long __w64 hkUlong_S;", rewritten)
+
     def test_a_definition_is_never_dropped_as_a_declaration(self):
         with tempfile.TemporaryDirectory() as temp:
             copy = Path(temp)

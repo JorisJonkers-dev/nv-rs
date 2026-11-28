@@ -153,6 +153,35 @@ The jobs of a component with `archive = true` that run `-p <one crate> --test ..
 `Clippy (whole workspace)` runs on Linux (docs/fork/LINUX.md: green). `Clippy (Windows crates)` lints only the crates of the
 components that stay `windows = "required"` (`components.py windows-crates`), and runs when the run has Windows jobs.
 
+## Test impact
+
+"If a file did not change, skip its tests." A nightly map says which source files each job's tests execute; a pull request
+runs a job only when a changed file is one of them.
+
+- **The map** (`.github/workflows/fork-test-impact.yml`, 04:37 UTC, also a manual run and a pull request that changes the
+  collector): `components.py impact-plan` lists one job per component job (shards are one job, the aggregator and the jobs
+  that need the Nix shell, a display or a sound server are not measured). Each runs on Linux under `cargo llvm-cov`, one test
+  binary at a time (`scripts/fork/test_impact.py collect`, with the Linux skips of `.fork/linux-skip.txt`), and keeps the
+  repository files with a line hit. `merge` writes `test-impact.json` (the artifact `test-impact`): the files each job and
+  binary execute, every tracked `.rs` file (`known`), the hashes of `Cargo.lock` and `components.toml`, and the jobs it left out
+  (a binary failed or gave no coverage): those are selected by crate, as before.
+- **Using it:** the `Plan components` step downloads the map of the last successful run on `fork`
+  (`actions: read`; `gh run download`) and passes `--impact` to `components.py matrix`. A changed `.rs` file the map knows
+  selects the jobs whose set holds it; the rest of the changed files select by crate as before.
+- **Fallbacks, all of which run by crate or everything:** no map or an unreadable one, a map of another format version, a map
+  older than 3 days, a map whose commit this commit does not descend from; a new file (not in `known`), a deleted or renamed
+  one, a file no job executed (types and constants only, a `cfg` the Linux build leaves out), a build script, a file with a
+  macro or a `cfg` on `windows`, `unix`, `macos` or `target_os`; a Cargo or toolchain change (everything); the label
+  `ci:all-tests` (everything). The plan summary says whether the map was used and why not.
+- **Test files** keep selecting their own job by name; a changed non-Rust file selects by crate.
+- **Replay:** `python3 scripts/fork/test_impact.py replay --map test-impact.json --prs 25` runs the last merged pull
+  requests through both selections and prints jobs, peak concurrency and modelled wall time and runner minutes of each.
+
+Engine-typed modules with no unit tests in the module itself (their tests are the `engine` crate's Diff tests), by size and
+git churn (`git log --format= --name-only -- crates/engine-typed/src/<module>`, counting file changes): `extra_data`
+(10,551 lines, 32), `geometry` (4,231, 23), `process` (3,624, 16), `lockfree` (3,551, 34), `pathing` (3,359, 19).
+They are where a unit test would let the map skip a Diff job.
+
 ## Generated reports
 
 The coverage catalogue reports under `docs/fork/coverage/` and the component census
