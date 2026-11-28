@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=Porting factory: look for a stall (waiting attempts and no change for an hour)
+
+[Service]
+Type=oneshot
+Slice=nv-factory.slice
+EnvironmentFile=-%E/nv-factory/env
+ExecStart=/usr/bin/env python3 -I ${NV_FACTORY_REPO}/scripts/fork/factory_service.py watchdog
