@@ -222,3 +222,21 @@ missing (`tool-missing`) or that cannot compare against `--base` (`git`) fails i
 cargo-free approximation of `repo_hygiene`, which still runs in CI; a bare call of a registered function
 without a module path is left to it.
 
+## The full gate
+
+`port_check.py <family> --full --review FILE` runs once per candidate, before it joins a batch, not on every
+retry. It is the fast path plus three checks:
+
+| Check | What runs | Rule ids |
+| --- | --- | --- |
+| coverage | `cargo llvm-cov` through the build daemon: the family's lab crate (`family_lab.py generate`, then `llvm-cov test --no-report --test typed_<family> --dep-coverage <each touched crate>` and `llvm-cov report` with an ignore pattern for the toolchain, the registry and test files) and, for every other touched crate, `llvm-cov -p <crate>`; the lcov files are merged. Every changed executable line of a crate source (`crates/*/src`) must have been run. | `coverage`, `coverage-missing`, `coverage-missing-baseline` |
+| quality | on the changed lines of crate sources outside test modules: `unsafe` without a `SAFETY:` comment on or in the three lines above, `.unwrap()` and `.expect(` unless the line says `// port-check: allow unwrap (reason)`, a function longer than 150 lines; `ruff check` on the changed files of `scripts/fork` | `quality-unsafe`, `quality-unwrap`, `quality-size`, `ruff` |
+| review | the JSON verdict of the two reviews: `{"verdict": "pass" or "fail", "findings": [{"file", "line", "issue", "fix"}]}` | `review` (fail), `review-absent` |
+
+A run with no coverage data is a failure (`coverage-missing-baseline`), as is changed code in a file the run did
+not measure (`coverage-missing`): the gate never reads "nothing measured" as covered. The factory's gate is stricter
+than the CI gate in `.fork/coverage-gate.toml` (70%, fork-owned crates), which is unchanged. `review-absent` (the
+verdict is missing or unreadable, for example after a rate limit) means requeue with a backoff; `review` means send
+the findings back to the implementer. `cargo-llvm-cov` must be on `PATH`, and the `cargo` found first must be the
+toolchain's own when `PATH` has a version-manager shim of `cargo` before it.
+
