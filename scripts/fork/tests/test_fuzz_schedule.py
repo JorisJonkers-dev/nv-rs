@@ -121,6 +121,7 @@ class Pieces(unittest.TestCase):
             crate = Path(tmp) / "crate"
             (crate / "artifacts" / "fx").mkdir(parents=True)
             (crate / "artifacts" / "fx" / "crash-1").write_bytes(b"1")
+            (crate / "artifacts" / "fx" / "crash-2").write_bytes(b"2")
             bin_ = Path(tmp) / "bin"
             bin_.mkdir()
             fake = bin_ / "cargo"
@@ -131,7 +132,7 @@ class Pieces(unittest.TestCase):
             done = subprocess.run(fs.container_command("fx", 5, crate), env=env, capture_output=True, text=True, check=False)
             self.assertEqual(done.returncode, 77)
             lines = log.read_text(encoding="utf-8").splitlines()
-            self.assertEqual([line.split()[2] for line in lines], ["run", "tmin"])
+            self.assertEqual([line.split()[2] for line in lines], ["run", "tmin"])  # one crash is minimised, not each
             self.assertTrue(lines[1].endswith("artifacts/fx/crash-1"))
 
     def test_a_finding_is_a_byte_literal_test_named_after_the_input(self) -> None:
@@ -188,6 +189,15 @@ class Fuzzing(Repo):
         self.assertEqual(len(report["findings"]), 1)
         self.assertEqual(report["findings"][0]["hex"], PLANTED[:9].hex())  # the minimised bytes, not the first ones
         self.assertEqual(len(container.calls), 1)  # one container: the build is not made twice
+
+    def test_the_minimised_input_is_the_one_of_this_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "crash-a").write_bytes(b"first")
+            (folder / "crash-b").write_bytes(b"second")
+            (folder / "minimized-from-b").write_bytes(b"s")
+            self.assertEqual(fs.minimised(folder / "crash-a"), b"first")  # b's minimised file is not a's
+            self.assertEqual(fs.minimised(folder / "crash-b"), b"s")
 
     def test_a_crash_the_minimiser_cannot_shrink_is_kept_as_found(self) -> None:
         report = self.fuzz(Container(crash=PLANTED))

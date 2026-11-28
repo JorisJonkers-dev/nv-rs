@@ -106,7 +106,7 @@ def crash_files(crate: Path, family: str) -> list[Path]:
 
 
 def container_command(family: str, seconds: int, crate: Path) -> list[str]:
-    """The command run in the container: the fuzz run, then the minimisation of every crash input it left.
+    """The command run in the container: the fuzz run, then the minimisation of the first crash input it left.
 
     One container does both, because its build directory is thrown away with it and a second container would build
     everything again. The run's own exit status is the command's.
@@ -114,7 +114,8 @@ def container_command(family: str, seconds: int, crate: Path) -> list[str]:
     nightly = f"+{fuzz_gate.FUZZ_NIGHTLY}"
     script = (f"cd {crate} && timeout {seconds + BUILD_ALLOWANCE} cargo {nightly} fuzz run {BUILD_FLAGS} --fuzz-dir {crate} {family} -- "
               f"-max_total_time={seconds} -rss_limit_mb=4096; status=$?; "
-              f"for f in artifacts/{family}/crash-*; do [ -f \"$f\" ] && timeout 900 cargo {nightly} fuzz tmin {BUILD_FLAGS} --fuzz-dir {crate} {family} \"$f\"; done; "
+              f"f=$(ls artifacts/{family}/crash-* 2>/dev/null | head -n 1); "
+              f"[ -n \"$f\" ] && timeout 900 cargo {nightly} fuzz tmin {BUILD_FLAGS} --fuzz-dir {crate} {family} \"$f\"; "
               "exit $status")
     return ["bash", "-c", script]
 
@@ -156,9 +157,9 @@ def fuzz(root: Path, family: str, seconds: int, workdir: Path, container: Contai
 
 
 def minimised(crash: Path) -> bytes:
-    """The crash input after `cargo fuzz tmin`; the input itself when the minimiser wrote nothing."""
-    smaller = sorted(crash.parent.glob("minimized-from-*"))
-    return smaller[-1].read_bytes() if smaller else crash.read_bytes()
+    """The crash input after `cargo fuzz tmin` (`minimized-from-X` for `crash-X`); the input itself when it wrote nothing."""
+    smaller = crash.parent / f"minimized-from-{crash.name.removeprefix('crash-')}"
+    return (smaller if smaller.is_file() else crash).read_bytes()
 
 
 def finish(report: Report, now: Callable[[], float], crate: Path) -> Report:

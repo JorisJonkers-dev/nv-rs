@@ -248,7 +248,7 @@ memory, no network, the image's pinned nightly and cargo-fuzz.
 
 - `list` names the families with a `replay_bytes`; `next` the one whose last run is the oldest (a family never run comes
   first); `run [FAMILY]` writes the fuzz crate under `target/fuzz-families/FAMILY`, runs `cargo +nightly fuzz run` in the
-  container, minimises each crash input in the same container (`cargo fuzz tmin`; the build directory goes with the
+  container, minimises the first crash input in the same container (`cargo fuzz tmin`; the build directory goes with the
   container, so a second container would build again) and removes the crate. The state file (default
   `~/.cache/nv-workers/fuzz/state.json`) keeps each family's last run.
 - The build is `--dev --sanitizer none`: the release build with AddressSanitizer of the first family (`004a4020`, one
