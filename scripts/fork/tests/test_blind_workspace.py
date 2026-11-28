@@ -232,6 +232,14 @@ class Building(unittest.TestCase):
         saved = json.loads((self.hidden / self.address / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(saved, manifest)
 
+    def test_the_workspace_allows_the_divergence_a_re_port_makes_from_upstream(self) -> None:
+        manifest = bw.build(self.frozen, self.address, self.root, self.hidden)
+        entry = self.root / ".fork" / "allowed-divergence.d" / f"bench-{self.address}"
+        lines = entry.read_text(encoding="utf-8").splitlines()
+        self.assertEqual([line.split("#")[0].strip() for line in lines], [self.entry["source"], manifest["suite"]])
+        self.assertTrue(all(f"re-port of {self.address}" in line for line in lines))
+        self.assertEqual(manifest["allowed_divergence"], f".fork/allowed-divergence.d/bench-{self.address}")
+
     def test_a_suite_listed_twice_is_cut_once(self) -> None:
         entry = dict(self.entry, suites=[self.entry["suites"][0]] * 2)
         frozen = dict(self.frozen, entries=[entry])

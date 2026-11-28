@@ -17,7 +17,9 @@ WORKSPACE is a checkout (a git worktree) of the commit the set was frozen on. `b
   name without `typed_`), holds the suite's other items (its imports, constants and helpers) and the cut-out tests, and
   stands alone: DIR comes from NV_BENCH_HIDDEN and must be outside the workspace, so the hidden cases are never in a
   repository an attempt can read. `factory_queue.py verify --hidden DIR/ADDRESS` scores the attempt on them. Tests in
-  more than one suite are refused: the queue scores one hidden suite per family.
+  more than one suite are refused: the queue scores one hidden suite per family;
+- `.fork/allowed-divergence.d/bench-ADDRESS` names the source and the suite: a re-port is never byte-equal to upstream's
+  text, and without the entry verify-sync would fail every attempt on that rule alone.
 
 `build` prints the manifest (address, source, family, signature, hidden files) as JSON and writes it to
 DIR/ADDRESS/manifest.json. The attempt gets only the address, the signature and the rules.
@@ -179,10 +181,14 @@ def build(frozen: dict[str, Any], address: str, workspace: Path, hidden: Path) -
     (destination / Path(suite).name).write_text(hidden_text, encoding="utf-8")
     (workspace / suite).write_text(kept, encoding="utf-8")
     source.write_text(new, encoding="utf-8")
+    allowed = Path(".fork") / "allowed-divergence.d" / f"bench-{wanted}"
+    (workspace / allowed).parent.mkdir(parents=True, exist_ok=True)
+    reason = f"# benchmark re-port of {wanted}: its text is not upstream's"
+    (workspace / allowed).write_text("".join(f"{path}  {reason}\n" for path in (entry["source"], suite)), encoding="utf-8")
     left = sum(wanted in {pb.normal(x) for x in pb.LITERAL.findall(line)} for line in kept.splitlines())
     manifest: Manifest = {"address": wanted, "source": entry["source"], "signature": signature,
                           "function": function.group(1), "suite": suite, "hidden": [Path(suite).name],
-                          "tests": tests, "mentions_left": left,
+                          "tests": tests, "mentions_left": left, "allowed_divergence": allowed.as_posix(),
                           "family": Path(suite).stem.removeprefix("typed_")}
     (destination / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return manifest

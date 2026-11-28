@@ -352,7 +352,9 @@ over the entries. `check` fails when the set no longer matches its hash: that is
   helpers with the cut-out tests, and is outside any repository the attempt can read.
   `factory_queue.py verify --hidden $NV_BENCH_HIDDEN/ADDRESS` scores the attempt on it. The manifest (printed, and kept
   beside the hidden file) lists the tests cut out and how many lines of the suite still name the address (a table row,
-  say). Tests in more than one suite are refused: the queue scores one hidden suite per family.
+  say). Tests in more than one suite are refused: the queue scores one hidden suite per family. The workspace also gets
+  `.fork/allowed-divergence.d/bench-ADDRESS` for the source and the suite: a re-port is never byte-equal to upstream's text,
+  and verify-sync would otherwise fail every attempt on that rule alone.
 - `record` appends one line to a versioned, append-only log: correct rate with a 95% Wilson interval, functions per hour,
   dollars per accepted function and retries per success, with the label of the run (model and route as the operator names
   them), the hash of the prompt, the number of implementers and the hash of the set. A function with no result counts as
