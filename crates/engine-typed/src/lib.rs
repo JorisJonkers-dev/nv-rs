@@ -45,6 +45,7 @@ pub mod pathing;
 pub mod process;
 pub mod render;
 pub mod s36e3734a7b8ae1e9;
+pub mod s680707dea67c970e;
 pub mod save;
 pub mod scene;
 pub mod scene_node;
@@ -112,7 +113,7 @@ macro_rules! image {
 /// its tests read (a family left out here is never registered; the repository hygiene test
 /// `every_declared_family_is_provided` finds a `pub static .. : Family` of any crate that no list
 /// or `provide` call names).
-pub static FAMILIES: [&engine_core::typed::Family; 38] = [
+pub static FAMILIES: [&engine_core::typed::Family; 39] = [
     &crate::lockfree::LOCKFREE,
     &crate::culling::CULLING,
     &crate::pathing::PATHING,
@@ -151,6 +152,7 @@ pub static FAMILIES: [&engine_core::typed::Family; 38] = [
     &crate::s36e3734a7b8ae1e9::S36E3734A7B8AE1E9,
     &crate::f0086a830::F0086A830,
     &crate::f004a4020::F004A4020,
+    &crate::s680707dea67c970e::S680707DEA67C970E,
 ];
 
 /// This crate's part in `Engine::new`, as the `engine` facade takes each engine crate's: it
@@ -174,7 +176,7 @@ mod tests {
     use engine_core::typed::{parse_switch, Family, Mode};
 
     /// This crate's families, in the order `units::funcs` provides them.
-    fn families() -> [&'static Family; 38] {
+    fn families() -> [&'static Family; 39] {
         crate::FAMILIES
     }
 
@@ -252,11 +254,11 @@ mod tests {
         assert!(off.iter().all(|m| *m == Mode::Off));
         let one_off = parse_switch(Some("shader:off"), &families).unwrap();
         assert_eq!(one_off[3], Mode::Off);
-        assert!(one_off.iter().filter(|m| **m != Mode::Off).count() == 34);
+        assert!(one_off.iter().filter(|m| **m != Mode::Off).count() == 35);
         // `NV_TYPED=geometry:off` still turns the geometry family (index 12) off, and only it.
         let geometry_off = parse_switch(Some("geometry:off"), &families).unwrap();
         assert_eq!(geometry_off[12], Mode::Off);
-        assert!(geometry_off.iter().filter(|m| **m != Mode::Off).count() == 34);
+        assert!(geometry_off.iter().filter(|m| **m != Mode::Off).count() == 35);
     }
 
     /// No two of this crate's families (with the core's) hold the same address, past their gate or not:
