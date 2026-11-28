@@ -7,6 +7,7 @@ No cargo and no network: the external tools are stand-ins, git runs on a tempora
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -223,7 +224,7 @@ class Repo(GitRepoCase):
         self.assertEqual(port_check.changed_files(self.root, "base", port_check.run),
                          ["crates/engine-typed/src/new.rs"])
         self.commit("docs/a name with spaces.md", "x\n")
-        self.assertIn("docs/a name with spaces.md", port_check.changed_files(self.root, "base", port_check.run))
+        self.assertIn("docs/a name with spaces.md", port_check.changed_files(self.root, "base", port_check.run) or [])
         self.assertIsNone(port_check.changed_files(self.root, "no-such-ref", port_check.run))
 
     def test_touched_packages_come_from_the_manifests_of_changed_crates(self):
@@ -612,14 +613,29 @@ class Full(GitRepoCase):
         self.commit("scripts/fork/x.py", "x = 1\n")
         runner = Runner(real_git=True)
         self.assertEqual(port_check.check_quality(self.root, "base", runner), [])
-        self.assertEqual(runner.calls[-1], ["ruff", "check", "--output-format", "concise", "scripts/fork/x.py"])
+        self.assertEqual(runner.calls[-2], ["ruff", "check", "--output-format", "concise", "scripts/fork/x.py"])
+        self.assertEqual(runner.calls[-1], ["pyright", "scripts/fork/x.py"])
         failing = Runner({"ruff": (1, "scripts/fork/x.py:1:1: F401 unused\n")}, real_git=True)
         found = port_check.check_quality(self.root, "base", failing)
         self.assertEqual((found[0]["rule"], found[0]["file"], found[0]["line"]), ("ruff", "scripts/fork/x.py", 1))
+        typed = Runner({"pyright": (1, 'scripts/fork/x.py:3:5 - error: "split" is not a known attribute of "None"\n')},
+                       real_git=True)
+        found = port_check.check_quality(self.root, "base", typed)
+        self.assertEqual((found[0]["rule"], found[0]["file"], found[0]["line"]), ("pyright", "scripts/fork/x.py", 3))
         self.commit("other/y.py", "x = 1\n")
         quiet = Runner(real_git=True)
         self.assertEqual(port_check.check_quality(self.root, "base", quiet), [])
         self.assertEqual(sum(1 for c in quiet.calls if c[0] == "ruff"), 1)
+
+    @unittest.skipUnless(shutil.which("pyright"), "pyright is not installed")
+    def test_the_real_pyright_fails_on_a_member_access_of_an_optional(self):
+        bad = "def f(text: str | None):\n    return text.split()\n"
+        self.commit("scripts/fork/opt.py", bad)
+        found = port_check.check_quality(self.root, "base", port_check.run)
+        self.assertEqual([(f["rule"], f["line"]) for f in found if f["rule"] == "pyright"], [("pyright", 2)])
+        self.commit("scripts/fork/opt.py", bad.replace("text.split()", "(text or '').split()"))
+        self.assertEqual([f for f in port_check.check_quality(self.root, "base", port_check.run)
+                          if f["rule"] == "pyright"], [])
 
     def test_a_pass_verdict_passes_and_a_fail_verdict_lists_its_findings(self):
         path = write(self.root, "v.json", json.dumps({"verdict": "pass", "findings": []}))

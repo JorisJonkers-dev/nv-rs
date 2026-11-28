@@ -166,6 +166,12 @@ def from_tool(rule, code, output, fix, default_file):
     return [finding(rule, file, line, (lines[-1] if lines else f"exit status {code}")[:300], fix)]
 
 
+def from_result(rule, result, fix, default_file):
+    """`from_tool` for a runner's (status, output) pair."""
+    code, output = result
+    return from_tool(rule, code, output, fix, default_file)
+
+
 def changed_files(root, base, runner):
     """Paths changed against `base` (the tip of the branch is HEAD), or None when git cannot say."""
     code, output = runner(["git", "diff", "--name-only", f"{base}...HEAD"], root)
@@ -399,8 +405,10 @@ def check_quality(root, base, runner):
         return [finding("git", ".", 1, f"cannot diff against {base}", "pass --base with a ref that exists")]
     files = sorted(f for f in python if f.startswith("scripts/fork/") and (root / f).is_file())
     if files:
-        out += from_tool("ruff", *runner(["ruff", "check", "--output-format", "concise", *files], root),
+        out += from_result("ruff", runner(["ruff", "check", "--output-format", "concise", *files], root),
                          "fix what ruff names; do not silence it", files[0])
+        out += from_result("pyright", runner(["pyright", *files], root),
+                           "fix the type error (for example guard a value that may be None); do not silence it", files[0])
     return out
 
 
@@ -428,14 +436,14 @@ def run_checks(root, family, base, mode, runner, review=None, metadata=None):
         ("family", lambda: [] if FAMILY_NAME.match(family) and suite.is_file() else [finding(
             "family-suite", suite.relative_to(root).as_posix() if FAMILY_NAME.match(family) else ".", 1,
             f"no differential suite for family `{family}`", "name an existing family (family_lab.py families)")]),
-        ("components", lambda: from_tool("components", *runner(
+        ("components", lambda: from_result("components", runner(
             [sys.executable, FORK / "components.py", "check", *(["--metadata", metadata] if metadata else [])], root),
                                          "assign the crate or test file to a component in .fork/components.toml",
                                          ".fork/components.toml")),
-        ("private-integrity", lambda: from_tool(
-            "private-integrity", *runner([sys.executable, FORK / "private_integrity.py", "--check"], root),
+        ("private-integrity", lambda: from_result(
+            "private-integrity", runner([sys.executable, FORK / "private_integrity.py", "--check"], root),
             "restore the checker files; workers may not change them", "scripts/fork/private_integrity.py")),
-        ("public-text", lambda: from_tool("public-text", *runner([sys.executable, FORK / "public_text.py"], root),
+        ("public-text", lambda: from_result("public-text", runner([sys.executable, FORK / "public_text.py"], root),
                                           "remove the machine detail from the text", "docs/fork")),
         ("typed-calls", lambda: scan_typed_calls(root)),
         ("family-ids", lambda: scan_family_ids(root)),
@@ -443,7 +451,7 @@ def run_checks(root, family, base, mode, runner, review=None, metadata=None):
     ]
     if mode != "static":
         plan += [
-            ("verify-sync", lambda: from_tool("verify-sync", *runner(["bash", FORK / "verify-sync.sh"], root),
+            ("verify-sync", lambda: from_result("verify-sync", runner(["bash", FORK / "verify-sync.sh"], root),
                                               "list a new fork-only file in .fork/overlay-paths; for an edit to a file upstream has too, "
                                               "add a file under .fork/allowed-divergence.d/ (`path  # reason`)",
                                               ".fork/overlay-paths")),
@@ -476,7 +484,7 @@ def verdict(family, mode, results):
 
 
 def main(argv=None, root=REPO, runner=run, out=sys.stdout):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("family")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--static", action="store_true", help="skip every check that needs cargo or the network")
