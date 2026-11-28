@@ -306,6 +306,63 @@ class AgentTest(unittest.TestCase):
         self.assertIn("fade::bad_case", seen["prompt"])
         self.assertIn("error[E0308]", seen["prompt"])
 
+    def test_a_worker_records_how_long_it_waited_for_its_slots(self):
+        gw = Path(self.tmp.name) / "gw"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.wt), str(gw)], check=True,
+                       env={"PATH": "/usr/bin:/bin:/run/current-system/sw/bin"})
+        (gw / "crates/engine-typed/src").mkdir(parents=True, exist_ok=True)
+        (gw / "crates/engine-typed/src/new.rs").write_text("x\n")
+        git(gw, "add", "-A")
+        clock = iter([100.0, 100.0, 107.5, 107.5, 110.0, 110.0, 110.0, 110.0, 110.0])
+        with mock.patch.object(porting_agent, "gateway",
+                               lambda *a, **k: {"status": "ok", "worktree": str(gw)}), \
+                mock.patch.object(porting_agent.time, "time", lambda: next(clock, 110.0)):
+            self.assertEqual(porting_agent.work(self.env), 0)
+        rows = [json.loads(x) for x in Path(self.env["NV_PORT_METRICS"]).read_text().splitlines()]
+        self.assertTrue(all("wait_seconds" in r for r in rows))
+        self.assertEqual(rows[-1]["wait_seconds"], 7.5)
+
+    def test_each_row_records_its_own_wait_so_the_rows_sum_to_the_total(self):
+        env = dict(self.env, NV_PORT_REVIEW_MODELS="free/a-1,free/b-1")
+        Path(self.env["NV_PORT_QUEUE_FILE"] + ".worker").write_text("free/zzz-1\n")
+        answers = iter([{"status": "failed", "summary": "429 limited; back in 5s"},
+                        {"status": "ok", "output": "VERDICT: ACCEPT"}])
+        clock, waits = [100.0], iter([3.0, 4.0])
+
+        class Waiting:
+            """Entering the slot takes as long as the next wait: a stand-in for a busy provider."""
+
+            def __enter__(self):
+                clock[0] += next(waits)
+
+            def __exit__(self, *_):
+                return False
+
+        with mock.patch.object(porting_agent, "gateway", lambda *a, **k: next(answers)), \
+                mock.patch.object(porting_agent, "provider_slot", lambda *a: Waiting()), \
+                mock.patch.object(porting_agent.time, "time", lambda: clock[0]):
+            self.assertEqual(porting_agent.review(env), 0)
+        rows = [json.loads(x) for x in Path(self.env["NV_PORT_METRICS"]).read_text().splitlines()]
+        self.assertEqual([r["wait_seconds"] for r in rows], [3.0, 4.0])
+
+    def test_a_limited_reviewer_is_recorded_with_its_wait(self):
+        env = dict(self.env, NV_PORT_REVIEW_MODELS="free/a-1,free/b-1")
+        Path(self.env["NV_PORT_QUEUE_FILE"] + ".worker").write_text("free/zzz-1\n")
+        answers = iter([{"status": "failed", "summary": "429 limited; back in 5s"},
+                        {"status": "ok", "output": "VERDICT: ACCEPT"}])
+        with mock.patch.object(porting_agent, "gateway", lambda *a, **k: next(answers)):
+            self.assertEqual(porting_agent.review(env), 0)
+        rows = [json.loads(x) for x in Path(self.env["NV_PORT_METRICS"]).read_text().splitlines()]
+        self.assertEqual([r.get("outcome") for r in rows], ["limited", None])
+        self.assertEqual(rows[1]["verdict"], "ACCEPT")
+        self.assertIn("wait_seconds", rows[0])
+
+    def test_rates_count_a_limited_reviewer_as_limited_not_as_a_review(self):
+        path = Path(self.tmp.name) / "rl.jsonl"
+        path.write_text(json.dumps({"role": "reviewer", "model": "r", "outcome": "limited"}) + "\n")
+        row = porting_agent.rates(path)["r"]
+        self.assertEqual((row["limited"], row["reviews"]), (1, 0))
+
     def test_rates_count_outcomes_per_model(self):
         path = Path(self.tmp.name) / "r.jsonl"
         path.write_text("\n".join(json.dumps(r) for r in [

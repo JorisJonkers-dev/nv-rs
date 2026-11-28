@@ -513,11 +513,53 @@ def model_slots(env):
         return 20
 
 
+WAITED = re.compile(r"^build daemon: waited (\d+(?:\.\d+)?)s in the queue$", re.MULTILINE)
+
+
+def build_wait(output):
+    """Seconds the build daemon's queue held the cargo jobs behind `output` (a lab run's text).
+
+    The daemon prints one `build daemon: waited Ns in the queue` line per job it starts. Output
+    without such a line (an older daemon, or no cargo job) counts as no wait.
+    """
+    return sum(float(seconds) for seconds in WAITED.findall(output or ""))
+
+
+def metrics_summary(path, batch):
+    """Model-side counters of one batch from the worker metrics file (NV_PORT_METRICS).
+
+    Returns seconds spent waiting for a model slot, rate-limit hits per provider (the part of the
+    model name before `/`) and the cost in dollars of the batch's runs. Rows of other batches and
+    unreadable lines are ignored.
+    """
+    summary = {"model_wait_seconds": 0.0, "rate_limit_hits": {}, "cost_usd": 0.0}
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return summary
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("batch") != batch:
+            continue
+        for key, field in (("model_wait_seconds", "wait_seconds"), ("cost_usd", "cost")):
+            value = row.get(field)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                summary[key] += value
+        if row.get("outcome") == "limited":
+            provider = str(row.get("model") or "unknown").split("/", 1)[0] or "unknown"
+            hits = summary["rate_limit_hits"]
+            hits[provider] = hits.get(provider, 0) + 1
+    return summary
+
+
 def rate_lines(rate):
     """Markdown section summarising the measured rate of one batch."""
     wall = rate["wall_seconds"]
     per_hour = rate["delivered"] / (wall / 3600) if wall > 0 else 0.0
-    return [
+    lines = [
         "",
         "## Rate",
         "",
@@ -526,6 +568,19 @@ def rate_lines(rate):
         f"- Wall seconds: {wall:.1f}",
         f"- Verified functions per hour: {per_hour:.2f}",
     ]
+    if "attempted" in rate:
+        hits = rate.get("rate_limit_hits") or {}
+        cost = rate.get("cost_per_accepted")
+        lines += [
+            f"- Families attempted, accepted: {rate['attempted']}, {rate['accepted']}",
+            f"- Retries: {rate['retries']}",
+            f"- Waiting for the build daemon (seconds): {rate['build_wait_seconds']:.1f}",
+            f"- Waiting for a model (seconds): {rate['model_wait_seconds']:.1f}",
+            "- Rate-limit hits: " + (", ".join(f"{k} {v}" for k, v in sorted(hits.items())) or "none"),
+            "- Cost per accepted family (USD): "
+            + ("n/a" if cost is None else f"{cost:.4f}"),
+        ]
+    return lines
 
 
 def pr_body(name, report):
@@ -742,6 +797,12 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
         offered += len(family_rows)
     rows = [row for family_rows in selected.values() for row in family_rows]
 
+    if not env.get("NV_PORT_METRICS", "").strip():
+        # Without a shared file the workers write one per worktree and the counters see nothing.
+        own_metrics = paths(root, name) / "metrics.jsonl"
+        own_metrics.unlink(missing_ok=True)
+        env["NV_PORT_METRICS"] = str(own_metrics)
+
     token = uuid.uuid4().hex[:8]
     batch_branch = f"porting/{slug(name)}-{token}"
     claim_dir = env.get("NV_PORT_CLAIM_DIR", "").strip() or None
@@ -751,7 +812,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
     success = False
     report_lock = threading.Lock()
     abort = threading.Event()  # a failure that ends the batch stops the families not yet started
-    tally = {"runs": 0, "lab": 0.0}
+    tally = {"runs": 0, "lab": 0.0, "attempted": 0, "retries": 0, "build_wait": 0.0}
     started_at = time.time()
 
     def count_run():
@@ -761,6 +822,26 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
     def count_lab(seconds):
         with report_lock:
             tally["lab"] += seconds
+
+    def count(key, amount=1):
+        with report_lock:
+            tally[key] += amount
+
+    def rate_report():
+        model_side = metrics_summary(env["NV_PORT_METRICS"], name)
+        accepted_count = len(accepted)
+        return {
+            "model_runs": tally["runs"], "lab_seconds": tally["lab"],
+            "wall_seconds": time.time() - started_at,
+            "delivered": sum(len(f["delivered"]) for f in accepted),
+            "attempted": tally["attempted"], "accepted": accepted_count,
+            "retries": tally["retries"], "build_wait_seconds": tally["build_wait"],
+            "model_wait_seconds": model_side["model_wait_seconds"],
+            "rate_limit_hits": model_side["rate_limit_hits"],
+            "cost_usd": model_side["cost_usd"],
+            "cost_per_accepted": (model_side["cost_usd"] / accepted_count
+                                  if accepted_count else None),
+        }
 
     def make_report(status):
         families = []
@@ -783,11 +864,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             "checker": checker_hash(root),
             "skipped": list(skipped), "stale": list(stale),
             "rejected": list(rejected), "branch": batch_branch,
-            "rate": {
-                "model_runs": tally["runs"], "lab_seconds": tally["lab"],
-                "wall_seconds": time.time() - started_at,
-                "delivered": sum(len(f["delivered"]) for f in accepted),
-            },
+            "rate": rate_report(),
         }
 
     def fail(message):
@@ -802,6 +879,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
             if abort.is_set():
                 return None
             attempt_counts.setdefault(family, 0)
+            count("attempted")
             previous = claim_time(root, family, claim_dir)
             held = claim(root, family, name, max_age=age, directory=claim_dir, env=env)
             if held is None:
@@ -860,6 +938,7 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                 finished = None
                 for attempt in range(1, attempts + 1):
                     if attempt > 1:
+                        count("retries")
                         # A retry starts from the base ref: a failed worker's edits
                         # and partially typed files must not leak into its successor.
                         code, output = call(["git", "reset", "--hard", chunk_base],
@@ -900,12 +979,14 @@ def batch(root=REPO, count=20, name=None, shakedown=False, env=None,
                         return fail(f"{family}: {why}")
                     # family_lab.py sends its cargo arguments to the build daemon itself.
                     lab_started = time.time()
+                    attempt_env["NV_BUILD_LABEL"] = f"porting-{slug(name)}-{slug(family)}"
                     lab_code, output = call(
                         [sys.executable, str(worktree / "scripts" / "fork" / "family_lab.py"),
                          "run", family],
                         cwd=worktree, env=attempt_env, log=logdir / (slug(family) + ".diff.log"),
                     )
                     count_lab(time.time() - lab_started)
+                    count("build_wait", build_wait(output))
                     counts = diff_counts(output, family)
                     if lab_code or counts["failed"]:
                         kind = "lab" if lab_code else "diff"
