@@ -349,3 +349,35 @@ over the entries. `check` fails when the set no longer matches its hash: that is
   not correct.
 - `compare` judges each run against the previous one with the same label and set: better or worse only when the intervals
   do not overlap; a difference of one function is noise. A prompt or parallelism change must not lower the benchmark.
+
+## The two reviews
+
+`scripts/fork/review_gate.py` runs the two reviews of a candidate: an ordinary one, then an adversarial one (evidence for
+every finding), each a read-only `model-gateway run` capped at 3G with escalation off and a short answer that ends in the
+JSON verdict.
+
+```sh
+python3 -I scripts/fork/review_gate.py --pool POOL.json --writer-family FAMILY --diff DIFF \
+    --context TEXT --state STATE.json --out VERDICT.json
+```
+
+- The two reviewers are of two different families, neither the family that wrote the change, and the adversarial
+  reviewer is never the one of the previous adversarial review (the state file keeps it across candidates).
+- A reviewer that is rate limited, or answers without a readable verdict, goes on a 15-minute cooldown and is replaced by
+  another allowed one. With none left the verdict is `absent` (exit status 3): requeue the candidate with a backoff.
+  `fail` (exit status 1) goes back to the implementer, with the findings.
+- The verdict file is what `port_check.py --full --review` reads, plus the families used. The pool, a JSON list of
+  `{client, model, family}` entries of the free cost class, belongs to the machine and is not in the repository.
+
+
+## Claims across machines
+
+`scripts/fork/factory_claims.py` is a `NV_PORT_CLAIM_CMD` command (`acquire`, `renew`, `release`, `list`, with the
+issue from `--issue` or `NV_PORT_CLAIM_ISSUE`). A claimed issue carries the label `factory:claimed` and is assigned to
+the account `gh` is signed in as. Every machine uses that account, so the lock itself is the lease comment: a comment
+with a hidden JSON marker (key, machine id, expiry). The earliest unexpired lease comment of a key wins; a machine that
+posts later reads the comments again, deletes its own and backs off (exit 1). A lease past its expiry is stale: the next
+`acquire` deletes it and claims. `renew` moves the expiry and reports a lost claim (exit 1); `release` deletes the
+machine's lease and frees the label and the assignee when no unexpired lease is left on the issue. An API failure exits 2.
+The two-machine race is tested against a fake of the GitHub API behind `gh api`, with threads and with forced
+interleavings.
