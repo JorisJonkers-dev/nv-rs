@@ -378,3 +378,38 @@ python3 -I scripts/fork/review_gate.py --pool POOL.json --writer-family FAMILY -
   `fail` (exit status 1) goes back to the implementer, with the findings.
 - The verdict file is what `port_check.py --full --review` reads, plus the families used. The pool, a JSON list of
   `{client, model, family}` entries of the free cost class, belongs to the machine and is not in the repository.
+
+
+## Running it as a service
+
+`scripts/fork/systemd/` holds user units and `scripts/fork/install-factory-service.sh` installs them from a clone. The
+script copies the units, writes `~/.config/nv-factory/env` (`NV_FACTORY_REPO`, the clone whose scripts run; an existing
+file is kept) and reloads the user manager; it enables nothing unless given `--enable`. `--dry-run` prints the steps and
+`--uninstall` removes everything it installed.
+
+- `nv-factory.slice` caps everything in it at `MemoryMax=40G` (`MemoryHigh=36G`, no swap). The service, the watchdog and
+  the summary run in it. A docker container is a child of the docker daemon, not of the unit, so the verifier's own
+  `--memory` cap is what bounds it; size the caps so that the verifier's and the implementers' together stay under 40 GB.
+- `nv-factory.service` runs `factory_service.py run`: the loop over the durable queue. After a reboot or a crash it puts
+  attempts left `verifying` back in the queue and goes on. The tick is `factory_queue.py verify` (override with
+  `NV_FACTORY_TICK`). An empty queue sleeps a minute; a tick that exits 3 (a review with no readable answer, the rate
+  limited case) or fails backs off 1, 2, 4, ... minutes up to an hour, so the loop never spins. A crashed service waits a
+  minute and stops restarting after five starts in an hour.
+- `nv-factory-watchdog.timer` (every 10 minutes) runs `factory_service.py watchdog`: attempts waiting and no change to any
+  attempt for an hour is a stall. It writes a diagnosis (queue counts, the service's last tick, the disk) under
+  `~/.local/state/nv-factory/diagnosis/`, runs `NV_FACTORY_NOTIFY` with the message once per six hours and exits 1. It does
+  not restart the service.
+- `nv-factory-summary.timer` (08:00) runs `factory_service.py summary`: accepted, rejected, retries, blocked attempts with
+  their first feedback line, the queue and the disk, written to `~/.local/state/nv-factory/summary/DATE.txt`.
+
+## Claims across machines
+
+`scripts/fork/factory_claims.py` is a `NV_PORT_CLAIM_CMD` command (`acquire`, `renew`, `release`, `list`, with the
+issue from `--issue` or `NV_PORT_CLAIM_ISSUE`). A claimed issue carries the label `factory:claimed` and is assigned to
+the account `gh` is signed in as. Every machine uses that account, so the lock itself is the lease comment: a comment
+with a hidden JSON marker (key, machine id, expiry). The earliest unexpired lease comment of a key wins; a machine that
+posts later reads the comments again, deletes its own and backs off (exit 1). A lease past its expiry is stale: the next
+`acquire` deletes it and claims. `renew` moves the expiry and reports a lost claim (exit 1); `release` deletes the
+machine's lease and frees the label and the assignee when no unexpired lease is left on the issue. An API failure exits 2.
+The two-machine race is tested against a fake of the GitHub API behind `gh api`, with threads and with forced
+interleavings.
