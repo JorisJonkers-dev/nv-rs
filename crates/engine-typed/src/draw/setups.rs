@@ -396,6 +396,7 @@ pub fn setup_pass_constants(e: &mut Engine, this: Ptr, pass_type: u32) {
     if entry_enabled(e, VERTEX_ENTRIES + 4 * 8) {
         fog_constants(e);
     }
+    crate::draw::land_extra::pass_begun();
     let geometry = packet::rendering_geometry(e);
     if packet::skin_instance(e, geometry) != 0 {
         let renderer = e.global::<u32>(base.wrapping_add(0x18));

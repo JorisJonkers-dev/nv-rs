@@ -1,0 +1,6 @@
+crates/engine-bs/src/units/bsshader/bsshaderpplightingproperty_passes_2x.rs  # AddLandscapePasses_2x adds extra land passes for the lights past the third while light.land_lights is on (nv-rs#912)
+crates/engine-core/src/lib.rs  # the land lights switch module (nv-rs#912)
+crates/engine/src/lib.rs  # re-exports the land lights switch for the host's graphics settings (nv-rs#912)
+crates/engine-typed/src/draw/mod.rs  # the land_extra module (nv-rs#912)
+crates/engine-typed/src/draw/setups.rs  # the pass constants' set-up notes that the extra land pass's terms are gone (nv-rs#912)
+crates/engine-typed/src/shader/batch.rs  # a plain geometry of an extra land pass is drawn added, without the ambient, sun and fog terms (nv-rs#912)

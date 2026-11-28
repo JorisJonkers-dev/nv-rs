@@ -3,6 +3,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+use engine_core::land_lights;
 
 /// `BSShaderProperty::RenderPassArray::Add` (`00ba9ee0`, `thiscall` on a
 /// pass list, eight words: geometry, pass enum, first-pass flag, light
@@ -1337,12 +1338,15 @@ pub fn bs_shader_pp_lighting_property_add_landscape_passes_2x(
     f7: u32,
 ) {
     let base = this.addr();
-    let [first, second, third] = e.with_stack(4, |e, iterator| {
-        let mut found = [0u32; 3];
+    // Fork (nv-rs#912, `light.land_lights`): with the setting on the walk goes on past the third lit light, for
+    // the extra passes below; off it stops at three as the exe's does.
+    let wanted = land_lights::looked_at();
+    let mut lights = e.with_stack(4, |e, iterator| {
+        let mut found = Vec::with_capacity(wanted);
         let mut next = e
             .call(FIRST_ACTIVE_NON_SHADOW_LIGHT, &args![this, iterator])
             .u32();
-        for (index, slot) in found.iter_mut().enumerate() {
+        for index in 0..wanted {
             if index > 0 {
                 next = e
                     .call(NEXT_ACTIVE_NON_SHADOW_LIGHT, &args![this, iterator])
@@ -1353,10 +1357,15 @@ pub fn bs_shader_pp_lighting_property_add_landscape_passes_2x(
                     .call(NEXT_ACTIVE_NON_SHADOW_LIGHT, &args![this, iterator])
                     .u32();
             }
-            *slot = next;
+            if next == 0 && index >= 3 {
+                break;
+            }
+            found.push(next);
         }
         found
     });
+    lights.resize(lights.len().max(3), 0);
+    let (first, second, third) = (lights[0], lights[1], lights[2]);
     let textures = e.vcall(base, 0xec, &[]).u16();
     let textures = u32::from(if textures >= 7 { 7 } else { textures });
     let wide = e.mem.u32(base + 0x24) & 0x0010_0000 != 0;
@@ -1383,6 +1392,14 @@ pub fn bs_shader_pp_lighting_property_add_landscape_passes_2x(
         }
     } else {
         raise(e);
+    }
+    // Fork (nv-rs#912): the lights past the third, three to a pass of the same land type, not first (drawn
+    // added; the batch renderer sets their blend and takes the terms the first pass has already given out).
+    if one as u8 == 1 && first != 0 {
+        for group in lights[3..].chunks(3) {
+            let at = |i: usize| group.get(i).copied().unwrap_or(0);
+            add_pass(e, this, [geometry, pass, 0, 4, light, at(0), at(1), at(2)]);
+        }
     }
     e.mem.set_u8(flag, 0);
     if one as u8 != 1
@@ -2971,6 +2988,69 @@ mod tests {
             &args![this, 0x60u32, 0x77u32, count, 0u32, flag, 0u32, 0u32],
         );
         assert_eq!(count_of(&e, count), 2);
+    }
+
+    #[test]
+    fn land_lights_extra_passes_take_the_lights_past_the_third_three_to_a_pass() {
+        let run = |on: bool, lit: usize| {
+            let (mut e, this, count, flag) = rig();
+            e.map(0x011f_4000, 0x1000);
+            e.map(0x011f_9000, 0x1000);
+            e.set_global(LANDSCAPE_EXTRA_011F94AB, 0u8);
+            let lights: Vec<u32> = (0..lit)
+                .map(|_| {
+                    let light = e.mem.alloc(0x100);
+                    let colour = e.mem.alloc(0x100);
+                    e.mem.set_u32(light + 0xf8, colour);
+                    e.mem.set_f32(colour + 0xd4, 1.0);
+                    light
+                })
+                .collect();
+            let first = lights.clone();
+            e.register_double(FIRST_ACTIVE_NON_SHADOW_LIGHT, move |_, _| {
+                first.first().copied().unwrap_or(0).into_ret()
+            });
+            let next = lights.clone();
+            e.register_double(NEXT_ACTIVE_NON_SHADOW_LIGHT, {
+                let mut index = 0usize;
+                move |_, _| {
+                    index += 1;
+                    next.get(index).copied().unwrap_or(0).into_ret()
+                }
+            });
+            e.put_vtable(0x0090_0000, &[0; 0xf0 / 4]);
+            e.mem.set_u32(0x0090_0000 + 0xec, 0x0040_00ec);
+            e.register(0x0040_00ec, |_, _| 2u32.into_ret());
+            e.mem.set_u32(this.addr(), 0x0090_0000);
+            land_lights::set(on);
+            e.call(
+                0x00bd_f3e0,
+                &args![this, 0x60u32, 0x77u32, count, 1u32, flag, 0u32, 0u32],
+            );
+            land_lights::set(false);
+            (adds(&e), lights)
+        };
+        let pass = 0x1fb + 16;
+        // Off: the exe's one pass with the first three, however many lights there are.
+        let (off, l) = run(false, 8);
+        assert_eq!(off, vec![vec![0x60, pass, 1, 4, 0x77, l[0], l[1], l[2]]]);
+        // On, eight lights: the first pass, then two extra passes that are not first.
+        let (on, l) = run(true, 8);
+        assert_eq!(
+            on,
+            vec![
+                vec![0x60, pass, 1, 4, 0x77, l[0], l[1], l[2]],
+                vec![0x60, pass, 0, 4, 0x77, l[3], l[4], l[5]],
+                vec![0x60, pass, 0, 4, 0x77, l[6], l[7], 0],
+            ]
+        );
+        // On, three lights or fewer: the exe's pass alone.
+        let (three, l) = run(true, 3);
+        assert_eq!(three, vec![vec![0x60, pass, 1, 4, 0x77, l[0], l[1], l[2]]]);
+        // On, more lights than the passes hold: the first twelve.
+        let (many, l) = run(true, 20);
+        assert_eq!(many.len(), 1 + land_lights::EXTRA_PASSES);
+        assert_eq!(many[3], vec![0x60, pass, 0, 4, 0x77, l[9], l[10], l[11]]);
     }
 
     #[test]

@@ -195,6 +195,13 @@ pub static LIGHT: ModuleSpec = ModuleSpec {
             kind: Kind::Slider { min: 1.0, max: 16.0, step: 0.5, default: 1.0 },
         },
         Setting {
+            key: "land_lights",
+            label: "More lights on the ground",
+            help: "The game lights each 2048-unit square of land with the sun and three point lights, the first three of its list, so a lamp or fire past the third leaves the ground it stands on dark. On, the lights past the third (up to nine more) are drawn in extra passes added to the picture. Off is the game's three.",
+            applies: Applies::Live,
+            kind: Kind::Toggle { default: false },
+        },
+        Setting {
             key: "far_lights",
             label: "Far lights at night",
             help: "Shows the small light points a far-view tool may put into the far view where the lamps of the world stand: only at night, fading in over the sunset and out over the sunrise. Off, such points are never drawn (the game's far view). Needs a far view made with light points.",

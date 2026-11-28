@@ -119,6 +119,8 @@ pub struct Levels {
     pub anisotropy: u32,
     /// `light.lamp_distance` (set while the game runs too): the scale of the lamps' fade distances.
     pub lamp_distance: f32,
+    /// `light.land_lights` (set while the game runs too): extra passes for the lights past a land quad's first three.
+    pub land_lights: bool,
     /// `light.far_lights` (set while the game runs too).
     pub far_lights: bool,
     /// `water.placed_reflections` (set while the game runs too).
@@ -255,6 +257,7 @@ pub fn apply(mut choice: Choice, r: &Resolved) -> (Choice, Levels) {
             ambient,
             anisotropy,
             lamp_distance: light.slider("lamp_distance") as f32,
+            land_lights: light.toggle("land_lights"),
             far_lights: light.toggle("far_lights"),
             placed_reflections: placed_reflections(
                 r.module("water")
@@ -332,6 +335,7 @@ pub fn start(
     set_ambient_shares(levels.ambient);
     d3d9_wgpu::state::forced_anisotropy::set(levels.anisotropy);
     engine::lamp_distance::set(levels.lamp_distance);
+    engine::land_lights::set(levels.land_lights);
     engine::far_lights::set(levels.far_lights);
     engine::placed_reflections::set(levels.placed_reflections);
     d3d9_wgpu::format::precise_targets::set(levels.precise_targets);
@@ -394,6 +398,7 @@ pub fn session(
             set_ambient_shares(l.ambient);
             d3d9_wgpu::state::forced_anisotropy::set(l.anisotropy);
             engine::lamp_distance::set(l.lamp_distance);
+            engine::land_lights::set(l.land_lights);
             engine::far_lights::set(l.far_lights);
             engine::placed_reflections::set(l.placed_reflections);
         }),
@@ -421,6 +426,7 @@ mod tests {
             ambient: AmbientShares::ORIGINAL,
             anisotropy: 0,
             lamp_distance: 1.0,
+            land_lights: false,
             far_lights: false,
             placed_reflections: engine::placed_reflections::Level::Game,
             precise_targets: false,
@@ -594,6 +600,23 @@ mod tests {
         assert_eq!(distance(&[("NV_GFX_PRESET", "original")]), 1.0);
         assert_eq!(distance(&[("NV_GFX_PRESET", "modern")]), 16.0);
         assert_eq!(distance(&[("NV_GFX", "light.lamp_distance=8")]), 8.0);
+    }
+
+    #[test]
+    fn land_lights_are_on_in_modern_and_off_otherwise_unless_chosen() {
+        let on = |pairs: &[(&str, &str)]| {
+            let r = resolve_at(&read(env(pairs), None).unwrap(), &Place::default());
+            apply(Choice::vanilla(), &r).1.land_lights
+        };
+        assert!(!on(&[]), "the game's three lights by default");
+        assert!(!on(&[("NV_GFX_PRESET", "original")]));
+        assert!(!on(&[("NV_GFX_PRESET", "performance")]));
+        assert!(on(&[("NV_GFX_PRESET", "modern")]));
+        assert!(!on(&[
+            ("NV_GFX_PRESET", "modern"),
+            ("NV_GFX", "light.land_lights=false")
+        ]));
+        assert!(on(&[("NV_GFX", "light.land_lights=true")]));
     }
 
     #[test]
