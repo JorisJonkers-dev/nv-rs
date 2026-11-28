@@ -375,3 +375,15 @@ file is kept) and reloads the user manager; it enables nothing unless given `--e
   not restart the service.
 - `nv-factory-summary.timer` (08:00) runs `factory_service.py summary`: accepted, rejected, retries, blocked attempts with
   their first feedback line, the queue and the disk, written to `~/.local/state/nv-factory/summary/DATE.txt`.
+
+## Claims across machines
+
+`scripts/fork/factory_claims.py` is a `NV_PORT_CLAIM_CMD` command (`acquire`, `renew`, `release`, `list`, with the
+issue from `--issue` or `NV_PORT_CLAIM_ISSUE`). A claimed issue carries the label `factory:claimed` and is assigned to
+the account `gh` is signed in as. Every machine uses that account, so the lock itself is the lease comment: a comment
+with a hidden JSON marker (key, machine id, expiry). The earliest unexpired lease comment of a key wins; a machine that
+posts later reads the comments again, deletes its own and backs off (exit 1). A lease past its expiry is stale: the next
+`acquire` deletes it and claims. `renew` moves the expiry and reports a lost claim (exit 1); `release` deletes the
+machine's lease and frees the label and the assignee when no unexpired lease is left on the issue. An API failure exits 2.
+The two-machine race is tested against a fake of the GitHub API behind `gh api`, with threads and with forced
+interleavings.
