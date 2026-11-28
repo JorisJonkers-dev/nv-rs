@@ -343,6 +343,12 @@ over the entries. `check` fails when the set no longer matches its hash: that is
 - A blind attempt sees only the address, the original-side harness and the rules. `hide SET ADDRESS` lists the files a blind
   workspace must not contain: the typed source with the function's `// Typed from` marker and every suite that names it.
   Scoring uses hidden differential cases that are kept outside the repository.
+- `scripts/fork/blind_workspace.py build SET ADDRESS WORKSPACE` makes a checkout blind for one function: the function's
+  accepted code becomes a stub (its `// Typed from` marker, its signature and `todo!()`; the documentation above it is
+  removed), and every suite that names the address is moved out of the checkout into `$NV_BENCH_HIDDEN/ADDRESS/` under its
+  own file name, outside any repository the attempt can read. `factory_queue.py verify --hidden $NV_BENCH_HIDDEN/ADDRESS`
+  scores the attempt on those cases (the family is the first suite's name without `typed_`). It prints the manifest and
+  keeps it beside the hidden files. The attempt writes its own suite, as a real port does.
 - `record` appends one line to a versioned, append-only log: correct rate with a 95% Wilson interval, functions per hour,
   dollars per accepted function and retries per success, with the label of the run (model and route as the operator names
   them), the hash of the prompt, the number of implementers and the hash of the set. A function with no result counts as
