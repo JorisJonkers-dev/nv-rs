@@ -637,6 +637,17 @@ class Full(GitRepoCase):
         self.assertEqual([f for f in port_check.check_quality(self.root, "base", port_check.run)
                           if f["rule"] == "pyright"], [])
 
+    @unittest.skipUnless(shutil.which("pyright"), "pyright is not installed")
+    def test_the_real_pyright_fails_on_a_dict_inferred_from_none_values(self):
+        bad = "def f():\n    stats = {'a': None}\n    stats['a'] = 1\n    return stats\n"
+        self.commit("scripts/fork/inferred.py", bad)
+        found = [f for f in port_check.check_quality(self.root, "base", port_check.run) if f["rule"] == "pyright"]
+        self.assertEqual([f["line"] for f in found], [3])
+        good = bad.replace("stats = {", "stats: dict[str, int | None] = {")
+        self.commit("scripts/fork/inferred.py", good)
+        self.assertEqual([f for f in port_check.check_quality(self.root, "base", port_check.run)
+                          if f["rule"] == "pyright"], [])
+
     def test_a_pass_verdict_passes_and_a_fail_verdict_lists_its_findings(self):
         path = write(self.root, "v.json", json.dumps({"verdict": "pass", "findings": []}))
         self.assertEqual(port_check.check_review(path), [])
