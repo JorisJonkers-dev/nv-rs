@@ -2329,6 +2329,23 @@ or 1, like every row): the thread with the value packet's POISON check, for test
   bench's timeout); the suite's real run is below. These are limits of the draw thread's second half in scenes with water,
   not of the two joins.
 
+  Water frames draw on main (nv-rs#1002). What stopped the stepped draw thread at the water scene's first post (frame 121)
+  was found by reading the image space shader's constant maps (`00c043f0`, in the second half's reflection copy `00b97550`):
+  it takes the rendering pass from `011f91e0` in guest memory, where the packet owns that word (the draw's own copy is the
+  packet's), so it read the pass record main had left, a geometry pointer (`314e66e8`) already freed (`read of unmapped
+  memory at 314e6708`, the geometry's +0x20; POISON: the scribble `bad959d8`). Typing that one slot through
+  `packet::rendering_geometry` and `packet::current_pass` lets the unpoisoned stepped run through; but POISON then stops in
+  the held targets (`00b6b6c0`, `011fa020`), and under real threads main's own target set-up (`00874b50`, before the join at
+  `00875110`) writes the renderer's mode and group words (+0x200, +0x208) the reflection copy's image space effect uses.
+  So a frame whose second half copies the reflection (`+0x38` set, a pass of the types 0x288..0x2ce listed) is not handed
+  to the drawing thread: `cut::cut_for_thread` answers `None` and it draws on main (counted in `serial`), and POISON's
+  serial cut of it opens no packet. Typing the image space chain and giving each side its own target state is the later
+  work (a frame with water in view draws serially until then; the draw thread's overlap is lost there). Boulder Beach's
+  600 frames: serial and `NV_DRAW_DETACH=1` byte-identical (589 970 826 bytes, the fork's), the stepped draw thread
+  (590 143 941 bytes) and POISON (the same bytes) run to the end, `record_compare --digests` against serial: the same
+  device state at each of 579 248 draws; real threads (`NV_RENDER_THREAD=1`) run to the end, `posted 601, joined 600`,
+  `serial 680`, `misses 0`. Test: `a_reflection_copy_frame_is_not_handed_to_the_drawing_thread`.
+
   Real threads (`NV_THREADS=real NV_RENDER_THREAD=1 NV_DRAW_THREAD=1`, not repeatable: two runs of 600 posts each, 200 frames a place): no stop, `misses 0`, `written 0`; the baseline's runs have `misses 0` too.
 
   Tests: `the_cut_takes_the_pass_objects_and_group_c_entries`, `the_last_camera_is_the_draws_own_while_the_extra_passes_start`, `the_draw_reads_the_pass_objects_as_cut_while_main_begins_the_same_pass`

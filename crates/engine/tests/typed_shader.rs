@@ -11288,6 +11288,61 @@ fn the_hand_off_draws_as_the_cut_on_one_thread() {
     }
 }
 
+/// A frame whose second half copies the water reflection (+0x38 set, a pass of the types 0x288..0x2ce listed) is not
+/// handed to the drawing thread, and POISON's serial cut after the refusal opens no packet (nv-rs#1002): the image-space effect
+/// the copy runs reads the rendering pass, the current pass and the held targets from guest memory, where the packet
+/// owns them. The same frame without the copy is handed off.
+#[test]
+fn a_reflection_copy_frame_is_not_handed_to_the_drawing_thread() {
+    let setup = |e: &mut Engine, copies: bool| {
+        let d = draw_world(e);
+        acc_slots(e, d.w.acc, true);
+        set(e, d.w.acc + 0x19c, 0);
+        held(e, d.w.acc, 1);
+        for g in [d.w.geometry, d.w.skinned] {
+            set(e, g + 4, 1);
+        }
+        set(e, d.w.acc + 0x18c, 2);
+        e.mem.set_u8(d.w.acc + 0x38, u8::from(copies));
+        active_lists(e, &d, 2);
+        let camera = full_camera(e, &d.w);
+        vec![camera, d.w.acc, 1]
+    };
+    for mode in [capture::Mode::On, capture::Mode::Poison] {
+        statics::set_forced(true);
+        capture::set_thread_mode(Some(mode));
+        let mut e = Engine::new();
+        let w = setup(&mut e, true);
+        assert!(
+            cut::cut_for_thread(&mut e, w[0], Ptr::new(w[1]), true).is_none(),
+            "{mode:?}: a frame that copies the reflection was handed off"
+        );
+        assert!(
+            !capture::is_open(&e),
+            "{mode:?}: the refused cut left a packet open"
+        );
+        let mut e = Engine::new();
+        let w = setup(&mut e, false);
+        assert!(
+            cut::cut_for_thread(&mut e, w[0], Ptr::new(w[1]), true).is_some(),
+            "{mode:?}: a frame without the copy was not handed off"
+        );
+        // The serial cut after the refusal: POISON opens none for the copy's frame, the packet check does.
+        let mut e = Engine::new();
+        let w = setup(&mut e, true);
+        assert!(cut::cut_for_thread(&mut e, w[0], Ptr::new(w[1]), true).is_none());
+        cut::cut(&mut e, w[0], Ptr::new(w[1]));
+        assert_eq!(
+            capture::is_open(&e),
+            mode == capture::Mode::On,
+            "{mode:?}: the serial cut of a copy frame"
+        );
+        let _ = capture::end(&mut e);
+        statics::set_forced(false);
+        capture::set_thread_mode(None);
+    }
+}
+
 /// The alpha draw's next pass (`00b9af60`) reads the camera's direction and the passes' bounds through the packet:
 /// scribbled, either would change the order of the sorted groups or which are within the limit.
 #[test]
