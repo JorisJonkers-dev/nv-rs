@@ -333,3 +333,19 @@ Measured on one workstation, family `facegen_sizes`, a 71 GB seed of about 34,00
 
 No container and no copy of the seed remained after either run. The seed was not rebuilt between the runs: the second
 run is faster only because sccache held the compiles of the first.
+
+## The porting benchmark
+
+`scripts/fork/port_benchmark.py` measures the loop on a frozen set: 25 already-typed functions (`docs/fork/port-benchmark/set.json`),
+chosen by a fixed rule (the lowest hashes of their addresses among the functions a suite names) and frozen with a hash
+over the entries. `check` fails when the set no longer matches its hash: that is another benchmark.
+
+- A blind attempt sees only the address, the original-side harness and the rules. `hide SET ADDRESS` lists the files a blind
+  workspace must not contain: the typed source with the function's `// Typed from` marker and every suite that names it.
+  Scoring uses hidden differential cases that are kept outside the repository.
+- `record` appends one line to a versioned, append-only log: correct rate with a 95% Wilson interval, functions per hour,
+  dollars per accepted function and retries per success, with the label of the run (model and route as the operator names
+  them), the hash of the prompt, the number of implementers and the hash of the set. A function with no result counts as
+  not correct.
+- `compare` judges each run against the previous one with the same label and set: better or worse only when the intervals
+  do not overlap; a difference of one function is noise. A prompt or parallelism change must not lower the benchmark.

@@ -1,0 +1,185 @@
+{
+ "entries": [
+  {
+   "address": "00401280",
+   "source": "crates/engine-typed/src/ai/base_process.rs",
+   "suites": [
+    "crates/engine/tests/typed_ai_middle_low_process.rs",
+    "crates/engine/tests/typed_ai_process.rs",
+    "crates/engine/tests/typed_forms.rs"
+   ]
+  },
+  {
+   "address": "00419380",
+   "source": "crates/engine-typed/src/extra_data/access.rs",
+   "suites": [
+    "crates/engine/tests/typed_cell_refs.rs"
+   ]
+  },
+  {
+   "address": "0041fcd0",
+   "source": "crates/engine-typed/src/extra_data/rooms.rs",
+   "suites": [
+    "crates/engine/tests/typed_cell_refs.rs"
+   ]
+  },
+  {
+   "address": "00421940",
+   "source": "crates/engine-typed/src/extra_data/followers.rs",
+   "suites": [
+    "crates/engine/tests/typed_cell_refs.rs"
+   ]
+  },
+  {
+   "address": "00422350",
+   "source": "crates/engine-typed/src/extra_data/followers.rs",
+   "suites": [
+    "crates/engine/tests/typed_cell_refs.rs"
+   ]
+  },
+  {
+   "address": "0042ce50",
+   "source": "crates/engine-typed/src/extra_data/classes.rs",
+   "suites": [
+    "crates/engine/tests/typed_cell_refs.rs"
+   ]
+  },
+  {
+   "address": "004317c0",
+   "source": "crates/engine-typed/src/extra_data/nodes/objects.rs",
+   "suites": [
+    "crates/engine/tests/typed_extra_nodes.rs"
+   ]
+  },
+  {
+   "address": "004330e0",
+   "source": "crates/engine-typed/src/extra_data/nodes/objects.rs",
+   "suites": [
+    "crates/engine/tests/typed_extra_nodes.rs",
+    "crates/engine/tests/typed_extra_nodes.rs"
+   ]
+  },
+  {
+   "address": "00436bd0",
+   "source": "crates/engine-typed/src/extra_data/nodes/objects_p2.rs",
+   "suites": [
+    "crates/engine/tests/typed_extra_nodes.rs"
+   ]
+  },
+  {
+   "address": "004377c0",
+   "source": "crates/engine-typed/src/extra_data/nodes/objects_p2.rs",
+   "suites": [
+    "crates/engine/tests/typed_extra_nodes.rs"
+   ]
+  },
+  {
+   "address": "004385a0",
+   "source": "crates/engine-typed/src/extra_data/nodes/objects_p3.rs",
+   "suites": [
+    "crates/engine/tests/typed_extra_nodes.rs",
+    "crates/engine/tests/typed_extra_nodes.rs"
+   ]
+  },
+  {
+   "address": "0047ef80",
+   "source": "crates/engine-typed/src/forms/ai_form.rs",
+   "suites": [
+    "crates/engine/tests/typed_forms.rs"
+   ]
+  },
+  {
+   "address": "0050ebf0",
+   "source": "crates/engine-typed/src/forms/object.rs",
+   "suites": [
+    "crates/engine/tests/typed_forms.rs"
+   ]
+  },
+  {
+   "address": "00662030",
+   "source": "crates/engine-typed/src/facegen/apply.rs",
+   "suites": [
+    "crates/engine/tests/typed_facegen_pass.rs"
+   ]
+  },
+  {
+   "address": "0067c3f0",
+   "source": "crates/engine-typed/src/forms/package_data.rs",
+   "suites": [
+    "crates/engine/tests/typed_forms.rs"
+   ]
+  },
+  {
+   "address": "006a0660",
+   "source": "crates/engine-typed/src/pathing/pov.rs",
+   "suites": [
+    "crates/engine/tests/typed_pathing.rs"
+   ]
+  },
+  {
+   "address": "006a79c0",
+   "source": "crates/engine-typed/src/pathing/search.rs",
+   "suites": [
+    "crates/engine/tests/typed_pathing.rs"
+   ]
+  },
+  {
+   "address": "00705070",
+   "source": "crates/engine-typed/src/interface/interface_cpp.rs",
+   "suites": [
+    "crates/engine/tests/typed_interface.rs"
+   ]
+  },
+  {
+   "address": "00706f90",
+   "source": "crates/engine-typed/src/interface/interface_cpp_p2.rs",
+   "suites": [
+    "crates/engine/tests/typed_interface.rs"
+   ]
+  },
+  {
+   "address": "0071e400",
+   "source": "crates/engine-typed/src/interface/menu_manager.rs",
+   "suites": [
+    "crates/engine/tests/typed_interface.rs"
+   ]
+  },
+  {
+   "address": "0071f700",
+   "source": "crates/engine-typed/src/interface/menu_manager.rs",
+   "suites": [
+    "crates/engine/tests/typed_interface.rs"
+   ]
+  },
+  {
+   "address": "00721990",
+   "source": "crates/engine-typed/src/interface/menu_manager_p2.rs",
+   "suites": [
+    "crates/engine/tests/typed_interface.rs"
+   ]
+  },
+  {
+   "address": "0092cd90",
+   "source": "crates/engine-typed/src/ai/middle_low_process.rs",
+   "suites": [
+    "crates/engine/tests/typed_ai_middle_low_process.rs"
+   ]
+  },
+  {
+   "address": "00a92470",
+   "source": "crates/engine-typed/src/draw/shapes.rs",
+   "suites": [
+    "crates/engine/tests/typed_draw.rs"
+   ]
+  },
+  {
+   "address": "00ba01a0",
+   "source": "crates/engine-typed/src/lights/scene_light.rs",
+   "suites": [
+    "crates/engine/tests/typed_lights.rs"
+   ]
+  }
+ ],
+ "hash": "404d0c70f9a5c2f5fa69548987c3e88ea7fdfd4f5ebe97c516a9cc46c39b87de",
+ "version": 1
+}
