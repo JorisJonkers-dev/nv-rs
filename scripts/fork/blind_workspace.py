@@ -185,7 +185,7 @@ def build(frozen: dict[str, Any], address: str, workspace: Path, hidden: Path) -
     (workspace / allowed).parent.mkdir(parents=True, exist_ok=True)
     reason = f"# benchmark re-port of {wanted}: its text is not upstream's"
     (workspace / allowed).write_text("".join(f"{path}  {reason}\n" for path in (entry["source"], suite)), encoding="utf-8")
-    left = sum(wanted in {pb.normal(x) for x in pb.LITERAL.findall(line)} for line in kept.splitlines())
+    left = sum(pb.normal(x) == wanted for x in pb.LITERAL.findall(kept))
     calls = len(re.findall(rf"\b{re.escape(function.group(1))}\b", kept))
     manifest: Manifest = {"address": wanted, "source": entry["source"], "signature": signature,
                           "function": function.group(1), "suite": suite, "hidden": [Path(suite).name],
