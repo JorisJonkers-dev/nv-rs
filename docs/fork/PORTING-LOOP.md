@@ -223,6 +223,22 @@ cargo-free approximation of `repo_hygiene`, which still runs in CI; a bare call 
 without a module path is left to it.
 
 
+## The fuzz gate
+
+`scripts/fork/fuzz_gate.py` has three commands.
+
+- `check <family>` is the per-attempt part. It runs the family's saved regression cases (the tests named
+  `regression_*` in `crates/engine/tests/typed_<family>.rs`) through the family lab, and fails on a failing case
+  (`fuzz-regression`) or on a corpus or crash artifact tracked in git (`fuzz-corpus`). The deterministic comparison
+  sweep is the suite's own `Diff` cases and float sweep, which `port_check.py` already runs.
+- `to-test <family> <input>` turns one minimised crash input (at most 512 bytes; `cargo fuzz tmin` first) into a
+  byte-literal test named after the input's hash and appends it to the suite; the same input is added once. The suite
+  defines `pub fn replay_bytes(&[u8])`, which decodes the bytes as the fuzz target does and runs the comparison.
+- `scaffold <family> <dir>` writes the family's fuzz crate: its own workspace (like `fuzz/`), a path dependency on
+  engine-core with `test-support`, and a target that includes the suite and calls `replay_bytes`. It is built with
+  the pinned nightly (`FUZZ_NIGHTLY` in the script, passed as `cargo +<nightly> fuzz run`); the repository's pin is
+  left alone. The generated crate has not been compiled yet: the scheduled family runs (#1094) are its first build.
+
 ## The integrator
 
 `scripts/fork/integrate.py` is the queue until the repository has a merge queue, and it is a script, not a model:
