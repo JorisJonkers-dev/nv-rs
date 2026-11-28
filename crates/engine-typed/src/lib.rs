@@ -30,6 +30,7 @@ pub mod draw_f;
 pub mod extra_data;
 pub mod f004a4020;
 pub mod f0086a830;
+pub mod f009373f0;
 pub mod facegen;
 pub mod forms;
 pub mod geometry;
@@ -113,7 +114,7 @@ macro_rules! image {
 /// its tests read (a family left out here is never registered; the repository hygiene test
 /// `every_declared_family_is_provided` finds a `pub static .. : Family` of any crate that no list
 /// or `provide` call names).
-pub static FAMILIES: [&engine_core::typed::Family; 39] = [
+pub static FAMILIES: [&engine_core::typed::Family; 40] = [
     &crate::lockfree::LOCKFREE,
     &crate::culling::CULLING,
     &crate::pathing::PATHING,
@@ -153,6 +154,7 @@ pub static FAMILIES: [&engine_core::typed::Family; 39] = [
     &crate::f0086a830::F0086A830,
     &crate::f004a4020::F004A4020,
     &crate::s680707dea67c970e::S680707DEA67C970E,
+    &crate::f009373f0::F009373F0,
 ];
 
 /// This crate's part in `Engine::new`, as the `engine` facade takes each engine crate's: it
@@ -176,7 +178,7 @@ mod tests {
     use engine_core::typed::{parse_switch, Family, Mode};
 
     /// This crate's families, in the order `units::funcs` provides them.
-    fn families() -> [&'static Family; 39] {
+    fn families() -> [&'static Family; 40] {
         crate::FAMILIES
     }
 

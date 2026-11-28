@@ -188,3 +188,9 @@ crates/engine/tests/typed_0086a830.rs
 crates/engine-typed/src/f004a4020/mod.rs
 crates/engine-typed/src/f004a4020/flag.rs
 crates/engine/tests/typed_004a4020.rs
+crates/engine-typed/src/s680707dea67c970e/globals.rs
+crates/engine-typed/src/s680707dea67c970e/mod.rs
+crates/engine/tests/typed_s680707dea67c970e.rs
+crates/engine-typed/src/f009373f0/byte.rs
+crates/engine-typed/src/f009373f0/mod.rs
+crates/engine/tests/typed_009373f0.rs
