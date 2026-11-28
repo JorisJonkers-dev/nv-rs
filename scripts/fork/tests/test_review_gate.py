@@ -63,6 +63,12 @@ class Choosing(unittest.TestCase):
         self.assertEqual([r["model"] for r in rg.candidates(POOL, "red", "wfam", ["afam"], state, 0.0)], ["d1"])
         self.assertIn("b1", [r["model"] for r in rg.candidates(POOL, "ordinary", "wfam", [], state, 0.0)])
 
+    def test_a_state_without_its_keys_still_works(self) -> None:
+        self.assertEqual(len(rg.candidates(POOL, "ordinary", "wfam", [], {}, 0.0)), 4)
+        state: dict[str, Any] = {}
+        self.assertEqual(rg.review_candidate(POOL, "wfam", "d", "c", state, Gateway(), 0.0)["verdict"], "pass")
+        self.assertEqual(state["last_red"], "c/b1")
+
     def test_a_reviewer_on_a_cooldown_is_skipped_until_it_ends(self) -> None:
         state: dict[str, Any] = {"last_red": None, "cooldown": {"c/a1": 100.0}}
         self.assertNotIn("a1", [r["model"] for r in rg.candidates(POOL, "ordinary", "wfam", [], state, 50.0)])
@@ -150,6 +156,8 @@ class State(unittest.TestCase):
             path = Path(tmp) / "state.json"
             rg.save_state(path, {"last_red": "c/b1", "cooldown": {"c/a1": 5.0}})
             self.assertEqual(rg.load_state(path), {"last_red": "c/b1", "cooldown": {"c/a1": 5.0}})
+            path.write_text('{"cooldown": {"c/a": "soon", "c/b": 7, "c/c": true}}', encoding="utf-8")
+            self.assertEqual(rg.load_state(path)["cooldown"], {"c/b": 7.0})
             for text in ("{not json", "[]", '{"cooldown": 3}'):
                 path.write_text(text, encoding="utf-8")
                 self.assertEqual(rg.load_state(path)["cooldown"], {})
@@ -184,6 +192,10 @@ class Command(unittest.TestCase):
         out = io.StringIO()
         self.assertEqual(rg.main(self.args[:-2], Gateway(), out), 0)
         self.assertEqual(json.loads(out.getvalue())["verdict"], "pass")
+
+    def test_an_output_path_that_cannot_be_written_exits_with_two(self) -> None:
+        self.assertEqual(rg.main([*self.args[:-2], "--out", str(self.root / "no" / "dir" / "v.json")], Gateway(),
+                                 io.StringIO()), 2)
 
     def test_a_bad_pool_or_a_missing_file_exits_with_two(self) -> None:
         (self.root / "pool.json").write_text('[{"client": "c"}]', encoding="utf-8")

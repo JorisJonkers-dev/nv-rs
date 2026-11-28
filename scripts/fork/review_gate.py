@@ -64,7 +64,9 @@ def load_state(path: Path | None) -> dict[str, Any]:
         return {"last_red": None, "cooldown": {}}
     state = cast(dict[str, Any], data)
     cooldown = state.get("cooldown")
-    return {"last_red": state.get("last_red"), "cooldown": cast(dict[str, float], cooldown) if isinstance(cooldown, dict) else {}}
+    numbers = {str(k): float(v) for k, v in cast(dict[Any, Any], cooldown).items()
+               if isinstance(v, (int, float)) and not isinstance(v, bool)} if isinstance(cooldown, dict) else {}
+    return {"last_red": state.get("last_red"), "cooldown": numbers}
 
 
 def save_state(path: Path | None, state: dict[str, Any]) -> None:
@@ -82,7 +84,7 @@ def candidates(pool: list[Reviewer], kind: str, writer_family: str, used_familie
                now: float) -> list[Reviewer]:
     """The reviewers that may take this review, in pool order: another family than the writer's and than the review
     before; not on a cooldown; for the adversarial review, not the one that did the last adversarial review."""
-    cooldown = cast(dict[str, float], state["cooldown"])
+    cooldown = cast(dict[str, float], state.get("cooldown", {}))
     allowed: list[Reviewer] = []
     for reviewer in pool:
         if reviewer["family"] == writer_family or reviewer["family"] in used_families:
@@ -142,7 +144,8 @@ def review_candidate(pool: list[Reviewer], writer_family: str, diff: str, contex
                      runner: Runner = run, now: float | None = None, workflow: str = "review") -> dict[str, Any]:
     """Both reviews, one after the other; the combined verdict (absent when a review could not be had)."""
     stamp = time.time() if now is None else now
-    cooldown = cast(dict[str, float], state["cooldown"])
+    state.setdefault("last_red", None)
+    cooldown = cast(dict[str, float], state.setdefault("cooldown", {}))
     findings: list[dict[str, Any]] = []
     reviewers: list[dict[str, str]] = []
     verdicts: list[str] = []
@@ -191,12 +194,12 @@ def main(argv: list[str] | None = None, runner: Runner = run, out: Any = sys.std
         state = load_state(state_path)
         result = review_candidate(pool, args.writer_family, diff, context, state, runner)
         save_state(state_path, state)
+        text = json.dumps(result, indent=2, sort_keys=True)
+        if args.out:
+            Path(args.out).write_text(text + "\n", encoding="utf-8")
     except (OSError, ValueError) as exc:
         print(f"review_gate: {exc}", file=sys.stderr)
         return 2
-    text = json.dumps(result, indent=2, sort_keys=True)
-    if args.out:
-        Path(args.out).write_text(text + "\n", encoding="utf-8")
     print(text, file=out)
     return {"pass": 0, "fail": 1, "absent": 3}[result["verdict"]]
 
