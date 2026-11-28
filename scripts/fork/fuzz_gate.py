@@ -142,7 +142,7 @@ def scaffold(root, family, out):
 
 
 def main(argv=None, root=REPO, runner=run, out=sys.stdout):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check").add_argument("family")
     one = sub.add_parser("to-test")

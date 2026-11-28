@@ -266,7 +266,7 @@ def verdict(family, static, results):
 
 
 def main(argv=None, root=REPO, runner=run, out=sys.stdout):
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("family")
     parser.add_argument("--static", action="store_true", help="skip every check that needs cargo or the network")
     parser.add_argument("--base", default="origin/fork", help="the ref the attempt is measured against")

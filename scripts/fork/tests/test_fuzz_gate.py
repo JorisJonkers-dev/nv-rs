@@ -167,10 +167,10 @@ class Scaffold(Repo):
         self.assertIn('#[path = "../../../../crates/engine/tests/typed_fx.rs"]', target)
         self.assertIn("suite::replay_bytes(data)", target)
         # The paths must lead back to the real files: a #[path] is read from the folder of the file that holds it.
-        include = re.search(r'#\[path = "([^"]+)"\]', target).group(1)
+        include = (re.search(r'#\[path = "([^"]+)"\]', target) or self.fail("no #[path]")).group(1)
         self.assertEqual((out / "fuzz_targets" / include).resolve(), self.suite.resolve())
         (self.root / "crates" / "engine-core").mkdir(parents=True)
-        dep = re.search(r'\[dependencies.engine-core\]\npath = "([^"]+)"', manifest).group(1)
+        dep = (re.search(r'\[dependencies.engine-core\]\npath = "([^"]+)"', manifest) or self.fail("no dep")).group(1)
         self.assertEqual((out / dep).resolve(), (self.root / "crates" / "engine-core").resolve())
         self.assertIn(f"cargo +{fuzz_gate.FUZZ_NIGHTLY} fuzz run fx", (out / "README.md").read_text(encoding="utf-8"))
 
