@@ -182,3 +182,9 @@ crates/engine/tests/typed_extra_nodes.rs
 crates/engine-typed/src/s36e3734a7b8ae1e9/globals.rs
 crates/engine-typed/src/s36e3734a7b8ae1e9/mod.rs
 crates/engine/tests/typed_s36e3734a7b8ae1e9.rs
+crates/engine-typed/src/f0086a830/mod.rs
+crates/engine-typed/src/f0086a830/stub.rs
+crates/engine/tests/typed_0086a830.rs
+crates/engine-typed/src/f004a4020/mod.rs
+crates/engine-typed/src/f004a4020/flag.rs
+crates/engine/tests/typed_004a4020.rs

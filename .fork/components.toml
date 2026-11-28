@@ -354,7 +354,7 @@ shards = 3
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "typed forms"
-args = ["-p engine --test typed_forms --test typed_form_array --test typed_form_map --test typed_extra_nodes --test typed_s36e3734a7b8ae1e9"]
+args = ["-p engine --test typed_forms --test typed_form_array --test typed_form_map --test typed_extra_nodes --test typed_s36e3734a7b8ae1e9 --test typed_0086a830 --test typed_004a4020"]
 config = ["profile.dev.package.engine-core.opt-level=1", "profile.dev.package.engine-typed.opt-level=1", "profile.dev.package.engine.opt-level=1"]
 [[component.job]]
 name = "aggregator: engine lib, doctests and par_render, host, play-patch, viewer"
