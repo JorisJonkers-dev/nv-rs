@@ -172,38 +172,80 @@ class ToTest(Repo):
         self.assertNotIn("#[test]", self.suite.read_text(encoding="utf-8"))
 
 
+class LabParts:
+    """A stand-in for family_lab: the parts a suite reaches, and the suite with its facade line assembled."""
+
+    INCLUDE = re.compile(r'include!\(\s*"([^"]+)"')
+
+    def __init__(self, parts=("engine-fallout-cell",)):
+        self.parts, self.seen = list(parts), []
+
+    def assembly_for(self, path):
+        self.seen.append(Path(path))
+        return self.parts
+
+    def rewrite_source(self, text, parts):
+        self.seen.append(parts)
+        return text.replace("use engine as _;", "engine_core::assemble!(engine_typed::units::funcs);")
+
+
 class Scaffold(Repo):
-    def test_the_family_gets_its_own_workspace_with_paths_back_to_the_crates(self):
+    def setUp(self):
+        super().setUp()
+        self.suite.write_text("use engine as _;\npub fn replay_bytes(_b: &[u8]) {}\n", encoding="utf-8")
+
+    def test_the_family_gets_its_own_workspace_with_the_parts_its_cases_reach(self):
         out = self.root / "fuzz" / "families" / "fx"
-        written = fuzz_gate.scaffold(self.root, "fx", out)
-        self.assertEqual(written, ["Cargo.toml", "README.md", "fuzz_targets/fx.rs"])
+        lab = LabParts(("engine-fallout-cell", "engine-bs"))
+        written = fuzz_gate.scaffold(self.root, "fx", out, lab)
+        self.assertEqual(written, ["Cargo.toml", "README.md", "fuzz_targets/fx.rs", "fuzz_targets/suite.rs"])
         manifest = (out / "Cargo.toml").read_text(encoding="utf-8")
         self.assertIn("[workspace]", manifest)
         self.assertIn('path = "../../../crates/engine-core"\nfeatures = ["test-support"]', manifest)
-        self.assertIn('path = "../../../crates/engine-typed"', manifest)
-        target = (out / "fuzz_targets" / "fx.rs").read_text(encoding="utf-8")
-        self.assertIn('#[path = "../../../../crates/engine/tests/typed_fx.rs"]', target)
-        self.assertIn("suite::replay_bytes(data)", target)
-        # The paths must lead back to the real files: a #[path] is read from the folder of the file that holds it.
-        include = (re.search(r'#\[path = "([^"]+)"\]', target) or self.fail("no #[path]")).group(1)
-        self.assertEqual((out / "fuzz_targets" / include).resolve(), self.suite.resolve())
+        self.assertIn('[dependencies.engine-typed]\npath = "../../../crates/engine-typed"', manifest)
+        self.assertIn('[dependencies.engine-fallout-cell]\npath = "../../../crates/engine-fallout-cell"', manifest)
+        self.assertIn('[dependencies.engine-bs]\npath = "../../../crates/engine-bs"', manifest)
+        self.assertNotIn("[dependencies.engine]\n", manifest)  # the facade assembles every part: the lab's rule is its own
         (self.root / "crates" / "engine-core").mkdir(parents=True)
         dep = (re.search(r'\[dependencies.engine-core\]\npath = "([^"]+)"', manifest) or self.fail("no dep")).group(1)
         self.assertEqual((out / dep).resolve(), (self.root / "crates" / "engine-core").resolve())
+        target = (out / "fuzz_targets" / "fx.rs").read_text(encoding="utf-8")
+        self.assertIn("mod suite;", target)
+        self.assertIn("suite::replay_bytes(data)", target)
+        self.assertNotIn("#[path", target)
+        copy = (out / "fuzz_targets" / "suite.rs").read_text(encoding="utf-8")
+        self.assertIn("engine_core::assemble!(engine_typed::units::funcs);", copy)
+        self.assertNotIn("use engine as _;", copy)
+        self.assertEqual(lab.seen, [self.suite, ["engine-fallout-cell", "engine-bs"]])
         self.assertIn(f"cargo +{fuzz_gate.FUZZ_NIGHTLY} fuzz run fx", (out / "README.md").read_text(encoding="utf-8"))
+
+    def test_a_table_the_suite_includes_is_copied_beside_it(self):
+        self.suite.write_text('use engine as _;\nconst T: &[u32] = include!("fx_table.in");\npub fn replay_bytes(_b: &[u8]) {}\n',
+                              encoding="utf-8")
+        (self.suite.parent / "fx_table.in").write_text("&[1, 2]", encoding="utf-8")
+        out = self.root / "o"
+        written = fuzz_gate.scaffold(self.root, "fx", out, LabParts())
+        self.assertIn("fuzz_targets/fx_table.in", written)
+        self.assertEqual((out / "fuzz_targets" / "fx_table.in").read_text(encoding="utf-8"), "&[1, 2]")
+        (self.suite.parent / "fx_table.in").unlink()
+        with self.assertRaisesRegex(ValueError, "fx_table.in"):
+            fuzz_gate.scaffold(self.root, "fx", out, LabParts())
 
     def test_a_directory_outside_the_repository_still_reaches_the_crates(self):
         (self.root / "crates" / "engine-core").mkdir(parents=True)
         with tempfile.TemporaryDirectory() as elsewhere:
             out = Path(elsewhere) / "x"
-            fuzz_gate.scaffold(self.root, "fx", out)
+            fuzz_gate.scaffold(self.root, "fx", out, LabParts())
             manifest = (out / "Cargo.toml").read_text(encoding="utf-8")
             dep = (re.search(r'\[dependencies.engine-core\]\npath = "([^"]+)"', manifest) or self.fail("no dep")).group(1)
             self.assertEqual((out / dep).resolve(), (self.root / "crates" / "engine-core").resolve())
 
     def test_a_bad_family_name_is_refused(self):
         with self.assertRaises(ValueError):
-            fuzz_gate.scaffold(self.root, "../x", self.root / "o")
+            fuzz_gate.scaffold(self.root, "../x", self.root / "o", LabParts())
+
+    def test_the_real_family_lab_is_the_default(self):
+        self.assertIs((fuzz_gate.scaffold.__defaults__ or (None,))[0], fuzz_gate.family_lab)
 
 
 class Main(Repo):
@@ -222,7 +264,7 @@ class Main(Repo):
 
     def test_scaffold_lists_the_files(self):
         out = io.StringIO()
-        self.assertEqual(fuzz_gate.main(["scaffold", "fx", str(self.root / "fz")], self.root, Lab(), out), 0)
+        self.assertEqual(fuzz_gate.main(["scaffold", "fx", str(self.root / "fz")], self.root, Lab(), out, LabParts()), 0)
         self.assertIn("Cargo.toml", json.loads(out.getvalue())["written"])
 
     def test_errors_exit_with_two(self):

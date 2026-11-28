@@ -83,6 +83,14 @@ class Image(Repo):
         self.assertIn("sha256sum -c", text)
         self.assertIn("SCCACHE_DIR=/sccache", text)
 
+    def test_the_image_carries_the_pinned_nightly_and_cargo_fuzz(self):
+        text = verifier.dockerfile("1.100.0")
+        self.assertIn(f"rustup toolchain install {verifier.FUZZ_NIGHTLY} --profile minimal", text)
+        self.assertIn(f"cargo install --locked --root /usr/local cargo-fuzz@{verifier.CARGO_FUZZ}", text)
+        self.assertRegex(verifier.CARGO_FUZZ, r"^\d+\.\d+\.\d+$")
+        self.assertRegex(verifier.FUZZ_NIGHTLY, r"^nightly-\d{4}-\d{2}-\d{2}$")
+        self.assertIn(" g++ ", text)  # libFuzzer's C++
+
     def test_the_tag_changes_with_the_lock_file_and_the_toolchain(self):
         first = verifier.image_tag(self.root)
         self.assertRegex(first, r"^nv-rs-verifier:[0-9a-f]{12}$")

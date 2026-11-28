@@ -234,10 +234,33 @@ without a module path is left to it.
 - `to-test <family> <input>` turns one minimised crash input (at most 512 bytes; `cargo fuzz tmin` first) into a
   byte-literal test named after the input's hash and appends it to the suite; the same input is added once. The suite
   defines `pub fn replay_bytes(&[u8])`, which decodes the bytes as the fuzz target does and runs the comparison.
-- `scaffold <family> <dir>` writes the family's fuzz crate: its own workspace (like `fuzz/`), a path dependency on
-  engine-core with `test-support`, and a target that includes the suite and calls `replay_bytes`. It is built with
-  the pinned nightly (`FUZZ_NIGHTLY` in the script, passed as `cargo +<nightly> fuzz run`); the repository's pin is
-  left alone. The generated crate has not been compiled yet: the scheduled family runs (#1094) are its first build.
+- `scaffold <family> <dir>` writes the family's fuzz crate: its own workspace (like `fuzz/`), path dependencies on
+  engine-core with `test-support`, engine-typed and only the part crates the family's cases reach (the family lab's
+  assembly: the suite's `use engine as _;`, which links every part, is replaced as the lab does), and a target that
+  includes the rewritten copy of the suite and calls `replay_bytes`. It is built with the pinned nightly (`FUZZ_NIGHTLY`
+  in the script, passed as `cargo +<nightly> fuzz run`); the repository's pin is left alone. A family can be fuzzed
+  once its suite defines `replay_bytes` (`typed_004a4020.rs` does).
+
+## The scheduled fuzz runs
+
+`scripts/fork/fuzz_schedule.py` runs one family a night for a fixed length (600 s) in the verifier's container: capped
+memory, no network, the image's pinned nightly and cargo-fuzz.
+
+- `list` names the families with a `replay_bytes`; `next` the one whose last run is the oldest (a family never run comes
+  first); `run [FAMILY]` writes the fuzz crate under `target/fuzz-families/FAMILY`, runs `cargo +nightly fuzz run` in the
+  container, minimises each crash input in the same container (`cargo fuzz tmin`; the build directory goes with the
+  container, so a second container would build again) and removes the crate. The state file (default
+  `~/.cache/nv-workers/fuzz/state.json`) keeps each family's last run.
+- The report (JSON on stdout) says `clean`, `finding` or `failed`, and the exit status says it: 0, 1, 3. A finding holds
+  the minimised input as the byte-literal test `fuzz_gate.py to-test` would append, so the case becomes a permanent
+  regression test and no corpus is committed. With `--repo OWNER/NAME` a finding opens an issue with the test in its
+  body and a run that could not run opens an issue of its own (the same title is not opened twice): a scheduled run
+  that fails is reported, not silent.
+- `systemd/nv-factory-fuzz.timer` starts `nv-factory-fuzz.service` at 02:30 every night (`Persistent=true`), inside
+  the 40 GB slice; a finding exits 1, which the unit accepts, and a failed run exits 3, which marks the unit failed.
+  `install-factory-service.sh` installs and enables it with the other timers.
+- The image `nv-rs-verifier:<hash>` carries the pinned nightly and `cargo-fuzz` (built with `--locked` at a pinned
+  version); `libfuzzer-sys` comes from the host's cargo registry, which the container mounts read-only.
 
 ## The integrator
 
@@ -314,8 +337,8 @@ python3 -I scripts/fork/verifier.py run --seed ~/.cache/cargo-targets/nv-rs-shar
 
 - The image `nv-rs-verifier:<hash>` is the Rust image of the pinned channel plus cargo-nextest, cargo-llvm-cov and
   sccache from pinned release archives (SHA-256 checked). The hash covers the Dockerfile text, `Cargo.lock` and
-  `rust-toolchain.toml`, so a change to any of them gives a new tag and a rebuild. cargo-fuzz needs the pinned nightly
-  and belongs to the scheduled fuzz runs.
+  `rust-toolchain.toml`, so a change to any of them gives a new tag and a rebuild. The pinned nightly and cargo-fuzz are in the image too, for
+  the scheduled fuzz runs.
 - The seed target is copied with `cp --reflink=always`: on btrfs that is copy-on-write and costs no disk until a file
   is written. The seed is only read; the copy is removed after the run, also when the run fails.
 - The container has `--rm`, `--memory` and `--memory-swap` equal (12g by default), no network, the repository at its

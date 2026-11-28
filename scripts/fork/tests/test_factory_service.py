@@ -265,7 +265,8 @@ class Units(unittest.TestCase):
         for name, unit in units().items():
             if name.endswith(".service"):
                 self.assertEqual(unit["Service"]["Slice"], "nv-factory.slice", name)
-                self.assertIn("${NV_FACTORY_REPO}/scripts/fork/factory_service.py", unit["Service"]["ExecStart"], name)
+                script = "fuzz_schedule.py" if name == "nv-factory-fuzz.service" else "factory_service.py"
+                self.assertIn("${NV_FACTORY_REPO}/scripts/fork/" + script, unit["Service"]["ExecStart"], name)
                 self.assertEqual(unit["Service"]["EnvironmentFile"], "-%E/nv-factory/env", name)
 
     def test_the_service_resumes_and_does_not_restart_in_a_loop(self) -> None:
@@ -282,6 +283,16 @@ class Units(unittest.TestCase):
             self.assertEqual(names[f"{name}.service"]["Service"]["Type"], "oneshot")
         self.assertEqual(names["nv-factory-watchdog.timer"]["Timer"]["OnUnitActiveSec"], "10min")
         self.assertEqual(names["nv-factory-summary.timer"]["Timer"]["OnCalendar"], "*-*-* 08:00:00")
+
+    def test_the_fuzz_timer_runs_nightly_and_a_finding_is_not_a_failed_unit(self) -> None:
+        names = units()
+        self.assertEqual(names["nv-factory-fuzz.timer"]["Timer"]["OnCalendar"], "*-*-* 02:30:00")
+        self.assertEqual(names["nv-factory-fuzz.timer"]["Timer"]["Persistent"], "true")
+        service = names["nv-factory-fuzz.service"]["Service"]
+        self.assertEqual((service["Type"], service["SuccessExitStatus"]), ("oneshot", "1"))
+        self.assertIn("--seconds 600", service["ExecStart"])
+        self.assertIn("--repo JorisJonkers-dev/nv-rs", service["ExecStart"])
+        self.assertEqual(service["TimeoutStartSec"], "3h")
 
     def test_every_unit_names_its_licence(self) -> None:
         for path in (FORK / "systemd").iterdir():
@@ -328,10 +339,11 @@ class Install(unittest.TestCase):
         self.assertEqual(self.install().returncode, 0)
         self.assertEqual(envfile.read_text(encoding="utf-8"), "NV_FACTORY_REPO=/mine\n")
 
-    def test_enable_starts_the_service_and_both_timers(self) -> None:
+    def test_enable_starts_the_service_and_the_timers(self) -> None:
         self.assertEqual(self.install("--enable").returncode, 0)
         log = self.log()
-        for unit in ("nv-factory.service", "nv-factory-watchdog.timer", "nv-factory-summary.timer"):
+        for unit in ("nv-factory.service", "nv-factory-watchdog.timer", "nv-factory-summary.timer",
+                     "nv-factory-fuzz.timer"):
             self.assertIn(f"--user enable --now {unit}", log)
 
     def test_dry_run_changes_nothing(self) -> None:

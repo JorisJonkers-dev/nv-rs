@@ -6,9 +6,10 @@
     python3 -I scripts/fork/verifier.py run --seed DIR [--memory 12g] [--cache DIR] [--out FILE] -- COMMAND...
 
 `image` builds (when missing) the pinned image `nv-rs-verifier:<hash>`: the Rust image of the repository's toolchain
-channel plus cargo-nextest, cargo-llvm-cov and sccache from pinned release archives with their SHA-256. The hash covers
-the Dockerfile text, Cargo.lock and rust-toolchain.toml, so the image is rebuilt when any of them changes. (cargo-fuzz
-needs the pinned nightly and belongs to the scheduled fuzz runs.)
+channel plus cargo-nextest, cargo-llvm-cov and sccache from pinned release archives with their SHA-256, the nightly
+toolchain `fuzz_gate.FUZZ_NIGHTLY` and cargo-fuzz (built from source at a pinned version with its lock file), which the
+scheduled fuzz runs need. The hash covers the Dockerfile text, Cargo.lock and rust-toolchain.toml, so the image is rebuilt when any of them changes. (cargo-fuzz
+is installed with the pinned nightly toolchain, for the scheduled fuzz runs.)
 
 `run` copies the seed target with `cp --reflink=always` (copy-on-write on btrfs: it costs no disk until a file is
 written), starts one container with `--rm`, `--memory` and `--memory-swap` equal, no network, the repository mounted
@@ -31,7 +32,13 @@ import time
 import uuid
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent.parent
+FORK = Path(__file__).resolve().parent
+REPO = FORK.parent.parent
+sys.path.insert(0, str(FORK))
+import fuzz_gate
+
+FUZZ_NIGHTLY = fuzz_gate.FUZZ_NIGHTLY  # the pinned nightly of the fuzz runs: one place names it
+CARGO_FUZZ = "0.13.2"
 TOOLS = (  # name, archive URL, SHA-256, member path inside the archive
     ("cargo-nextest", ("https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.152/"
                        "cargo-nextest-0.9.152-x86_64-unknown-linux-musl.tar.gz"),
@@ -81,9 +88,12 @@ def channel(root):
 
 def dockerfile(chan):
     """The image's Dockerfile text: the toolchain's own Rust image and the pinned tools."""
-    lines = [f"FROM rust:{chan}-slim", ("RUN apt-get update && apt-get install -y --no-install-recommends curl "
+    lines = [f"FROM rust:{chan}-slim", ("RUN apt-get update && apt-get install -y --no-install-recommends curl g++ "
               "&& rm -rf /var/lib/apt/lists/*"),
-             "RUN rustup component add rustfmt clippy llvm-tools-preview"]
+             "RUN rustup component add rustfmt clippy llvm-tools-preview",
+             f"RUN rustup toolchain install {FUZZ_NIGHTLY} --profile minimal",
+             # libfuzzer-sys builds libFuzzer's C++ (hence g++); cargo-fuzz itself is built by the pinned channel
+             f"RUN cargo install --locked --root /usr/local cargo-fuzz@{CARGO_FUZZ} && rm -rf /usr/local/cargo/registry"]
     for name, url, digest, member in TOOLS:
         lines.append(f"RUN curl -fsSL -o /tmp/{name}.tgz {url} && echo '{digest}  /tmp/{name}.tgz' | sha256sum -c - "
                      f"&& tar -xzf /tmp/{name}.tgz -C /tmp && install -m 0755 /tmp/{member} /usr/local/bin/{name} "
